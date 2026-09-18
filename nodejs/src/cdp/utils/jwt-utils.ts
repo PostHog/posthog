@@ -4,6 +4,16 @@ export enum PosthogJwtAudience {
     RECORDING_API = 'posthog:recording_api',
     SUBSCRIPTION_PREFERENCES = 'posthog:messaging:subscription_preferences',
     WORKFLOWS_RESCHEDULE_PARKED = 'posthog:workflows:reschedule_parked',
+    WORKFLOWS_CANCEL_INVOCATIONS = 'posthog:workflows:cancel_invocations',
+    WORKFLOWS_CANCEL_BATCH = 'posthog:workflows:cancel_batch',
+    WORKFLOWS_STEP_RESUME = 'posthog:workflows:step_resume',
+    CUSTOMER_TASKS_CREATE = 'posthog:customer-tasks:create',
+    TASKS_CREATE = 'posthog:tasks:create',
+    WORKFLOW_SCOUT_RUN = 'posthog:workflows:scout_run',
+    // Must match PosthogJwtAudience.CONVERSATIONS_TICKETS in posthog/jwt.py exactly.
+    CONVERSATIONS_TICKETS = 'posthog:conversations:tickets',
+    // Must match PosthogJwtAudience.CUSTOMER_ANALYTICS_ACCOUNTS in posthog/jwt.py exactly.
+    CUSTOMER_ANALYTICS_ACCOUNTS = 'posthog:customer_analytics:accounts',
 }
 
 export class JWT {

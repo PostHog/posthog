@@ -104,7 +104,7 @@ class _SpanAggregationMixin:
                     self.span_attribute_filters.append(cast(SpanPropertyFilter, prop))
 
     def validate_query_runner_access(self, user: "User") -> bool:
-        from posthog.rbac.user_access_control import UserAccessControlError
+        from products.access_control.backend.facade.user_access_control import UserAccessControlError
 
         raise UserAccessControlError("tracing", "viewer")
 
@@ -249,6 +249,10 @@ class TraceSpansAggregationQueryRunner(_SpanAggregationMixin, AnalyticsQueryRunn
         self._extract_filters()
         self._limit = _ROW_LIMIT if limit is None else max(1, min(limit, _ROW_LIMIT))
         self._offset = max(0, offset)
+
+    def get_cache_payload(self) -> dict:
+        # Runner arguments, not query fields, so the base payload cannot see them.
+        return {**super().get_cache_payload(), "limit": self._limit, "offset": self._offset}
 
     def _calculate(self) -> TraceSpansAggregationQueryResponse:
         current_rows, previous_rows = self._run_with_compare()

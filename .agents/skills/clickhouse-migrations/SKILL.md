@@ -22,11 +22,24 @@ operations = [
 ]
 ```
 
-### Node roles (choose based on table type)
+### Node roles (choose by the cluster that owns the object)
 
-- `[NodeRole.DATA]`: Sharded tables (data nodes only)
-- `[NodeRole.DATA, NodeRole.COORDINATOR]`: Non-sharded data tables, distributed read tables, replicated tables, views, dictionaries
-- `[NodeRole.INGESTION_SMALL]`: Writable tables, Kafka tables, materialized views on ingestion layer
+Only the members of `NodeRole` in `posthog/clickhouse/client/connection.py` are valid: `ALL`, `DATA`,
+`INGESTION_EVENTS`, `INGESTION_SMALL`, `INGESTION_MEDIUM`, `ENDPOINTS`, `LOGS`, `AI_EVENTS`, `AUX`,
+`BATCH_EXPORTS`, `OPS`, `SESSIONS`. A name that is not in that enum fails at import, which aborts
+migration discovery and takes every job that runs migrations down with it.
+
+Pick the role by **which cluster owns the object**, not by its type alone:
+
+- `[NodeRole.DATA]`: anything on the main cluster — sharded tables, non-sharded replicated tables,
+  distributed read tables, views, dictionaries. The default, and right for most migrations.
+- `[NodeRole.INGESTION_SMALL]`: writable tables, Kafka tables, materialized views on the ingestion layer
+- `[NodeRole.OPS]`, `[NodeRole.LOGS]`, `[NodeRole.AUX]`, `[NodeRole.AI_EVENTS]`, `[NodeRole.SESSIONS]`,
+  `[NodeRole.BATCH_EXPORTS]`: objects that live on a satellite cluster. A table for one of those on
+  `DATA` lands on the wrong nodes and leaves the intended cluster without it, so check where the
+  object is read and written before defaulting to `DATA`. Dev runs the same satellite clusters as
+  US/EU prod — never branch on `CLOUD_DEPLOYMENT` to give dev a different layout.
+- `[NodeRole.ALL]`: rarely used
 
 ### Table engines quick reference
 
@@ -67,15 +80,27 @@ If you need both a schema change and application code that uses the new schema, 
 
 **No table should exist only in the cloud.** Every table created via migration must also exist in a local dev environment.
 
-Some migrations are cloud-guarded and skipped in local/hobby dev:
+Some migrations are cloud-guarded and skipped in local/hobby dev. Gate on `posthog.run_mode`, never on `settings.CLOUD_DEPLOYMENT` directly, because the `clickhouse-migrations-use-run-mode` semgrep rule blocks raw comparisons:
 
 ```python
+from posthog.run_mode import RunMode, run_mode
+
 operations = (
     []
-    if settings.CLOUD_DEPLOYMENT not in ("US", "EU", "DEV")
+    if not run_mode().is_deployed_cloud  # US/EU/DEV
     else [...]
 )
 ```
+
+| Predicate                        | True for                                      |
+| -------------------------------- | --------------------------------------------- |
+| `run_mode().is_deployed_cloud`   | US, EU, DEV (the usual migration gate)        |
+| `run_mode().is_prod_cloud`       | US, EU (excludes staging)                     |
+| `run_mode() is RunMode.CLOUD_US` | one region (`CLOUD_EU`, `CLOUD_DEV` likewise) |
+
+`run_mode().is_cloud` also counts E2E, so it is wrong for a migration. That one matches `posthog.cloud_utils.is_cloud`.
+
+Call `run_mode()` where you need it rather than assigning a module-level constant. `posthog/clickhouse/test/test_migrations.py` re-imports every migration under a patched `posthog.settings.CLOUD_DEPLOYMENT` to check each deployment's branch for stray `ON CLUSTER`, and a cached value would silently skip that coverage.
 
 If you create a new table inside such a guard, you must also add its SQL function to `posthog/clickhouse/schema.py` in the appropriate tuple so the table gets created locally:
 
@@ -91,6 +116,26 @@ If you create a new table inside such a guard, you must also add its SQL functio
 The only exception is tables whose definition intentionally differs per environment and is not tracked in the repo (e.g. the no-go zone `events_json_ws_mv` table).
 
 **Dictionary credentials:** when a dictionary uses a `SOURCE(CLICKHOUSE(...))`, resolve the source user/password via `get_clickhouse_creds(ClickHouseUser.DICT_READER)` and interpolate them into the `USER`/`PASSWORD` clause — do not hardcode `default`/`CLICKHOUSE_USER` or omit credentials. This keeps dictionary auth on the dedicated low-privilege `dict_reader` user, decoupled from `default`; it falls back to `default` creds when the env vars are unset. See `posthog/models/exchange_rate/sql.py` for the pattern.
+
+### Declarative schema (HCL) must agree
+
+Some roles are also declared in `posthog/clickhouse/hcl/`, and the multinode migration smoke re-introspects
+the migrated cluster and fails on any drift between the live schema and the committed golden. A table added
+by a migration on a managed role therefore needs the HCL updated in the same PR, or CI fails at
+`check_live_hcl` with a `DRIFT:` block naming your new objects.
+
+The `data` role is managed for the `local-multi` composition, so a new table on `NodeRole.DATA` counts.
+After writing the migration:
+
+```sh
+HCL=posthog/clickhouse/hcl
+# add the table to the layer that composes it, e.g. $HCL/roles/data/local/tables.hcl
+bash $HCL/gen-golden.sh && bash $HCL/gen-sql.sh   # refresh generated artifacts
+bash $HCL/check.sh                                # must exit 0
+```
+
+Read `posthog/clickhouse/hcl/README.md` before editing a layer — it covers which layer to pick, abstract
+column lists, and the codegen path that writes the migration for you.
 
 ### Testing
 

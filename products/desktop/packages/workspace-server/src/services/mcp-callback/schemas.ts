@@ -15,8 +15,6 @@ export type GetCallbackUrlOutput = z.infer<typeof getCallbackUrlOutput>;
 export const openAndWaitInput = z.object({
   redirectUrl: z.string(),
 });
-export type OpenAndWaitInput = z.infer<typeof openAndWaitInput>;
-
 export const openAndWaitOutput = z.object({
   success: z.boolean(),
   installationId: z.string().optional(),

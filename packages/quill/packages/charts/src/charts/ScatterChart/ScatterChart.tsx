@@ -89,10 +89,10 @@ function ScatterChartInner<Meta = unknown>({
         yAxis = EMPTY_AXIS_CONFIG,
         pointRadius: defaultPointRadius = DEFAULT_POINT_RADIUS,
         fillOpacity = DEFAULT_FILL_OPACITY,
-        showGrid = false,
-        showAxisLines = false,
-        showTickMarks = false,
-        showCrosshair = false,
+        showGrid = true,
+        showAxisLines = true,
+        showTickMarks = true,
+        showCrosshair = true,
         showBestFit = false,
         margins,
     } = config ?? {}
@@ -306,7 +306,7 @@ function ScatterChartInner<Meta = unknown>({
             margins: resolvedMargins,
             showTickMarks,
             showCrosshair,
-            tooltip: { enabled: tooltipConfig?.enabled, placement: tooltipConfig?.placement },
+            tooltip: { enabled: tooltipConfig?.enabled, placement: tooltipConfig?.placement ?? 'cursor' },
         }),
         [
             yTickFormatter,

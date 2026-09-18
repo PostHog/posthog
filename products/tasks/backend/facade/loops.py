@@ -38,8 +38,8 @@ from posthog.models.integration import Integration
 from posthog.models.organization import OrganizationMembership
 from posthog.models.scoping import team_scope
 from posthog.models.team.team import Team
-from posthog.rbac.user_access_control import AccessControlLevel, UserAccessControl
 
+from products.access_control.backend.facade.user_access_control import AccessControlLevel, UserAccessControl
 from products.mcp_store.backend.facade.api import get_active_installations
 from products.tasks.backend import loop_service
 from products.tasks.backend.github_repository_access import inaccessible_repositories_via_integration
@@ -1472,6 +1472,7 @@ def list_loop_runs(
     *,
     cursor: str | None = None,
     limit: int = DEFAULT_LOOP_RUN_PAGE_SIZE,
+    status: str | None = None,
 ) -> LoopRunPageDTO | None:
     """TaskRun rows spawned by this loop's firings, newest first, cursor-paginated.
 
@@ -1484,7 +1485,7 @@ def list_loop_runs(
     loop = _visible_loop_queryset(team_id, user_id).select_related("team").filter(pk=loop_id).first()
     if loop is None or _rbac_denied(loop, user, "viewer"):
         return None
-    return _loop_runs_page(loop, team_id, cursor=cursor, limit=limit)
+    return _loop_runs_page(loop, team_id, cursor=cursor, limit=limit, status=status)
 
 
 def list_loop_runs_for_service(
@@ -1493,22 +1494,28 @@ def list_loop_runs_for_service(
     *,
     cursor: str | None = None,
     limit: int = DEFAULT_LOOP_RUN_PAGE_SIZE,
+    status: str | None = None,
 ) -> LoopRunPageDTO | None:
     """Run history for a PSAK-authenticated service caller: project-wide, no personal/team
     visibility filter (a PSAK can already trigger any loop in the project — see `fire_loop_api`)."""
     loop = Loop.objects.filter(team_id=team_id, deleted=False, internal=False, pk=loop_id).first()
     if loop is None:
         return None
-    return _loop_runs_page(loop, team_id, cursor=cursor, limit=limit)
+    return _loop_runs_page(loop, team_id, cursor=cursor, limit=limit, status=status)
 
 
-def _loop_runs_page(loop: Loop, team_id: int, *, cursor: str | None, limit: int) -> LoopRunPageDTO:
+def _loop_runs_page(
+    loop: Loop, team_id: int, *, cursor: str | None, limit: int, status: str | None = None
+) -> LoopRunPageDTO:
     page_size = max(1, min(limit, MAX_LOOP_RUN_PAGE_SIZE))
     queryset = (
         TaskRun.objects.filter(team_id=team_id)
         .filter(Q(task__loop_id=loop.id) | Q(state__loop_id=str(loop.id)))
         .order_by("-created_at", "-id")
     )
+
+    if status is not None:
+        queryset = queryset.filter(status=status)
 
     if cursor:
         decoded = _decode_run_cursor(cursor)

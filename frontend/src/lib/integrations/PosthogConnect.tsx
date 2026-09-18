@@ -8,7 +8,7 @@ import api from 'lib/api'
 import { ScopeAccessRow } from 'lib/components/ScopeAccessRow/ScopeAccessRow'
 import { TZLabel } from 'lib/components/TZLabel'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
-import { API_SCOPES, scopesArrayToObject, scopesObjectToArray } from 'lib/scopes'
+import { API_SCOPES, scopeMatchesSearch, scopesArrayToObject, scopesObjectToArray } from 'lib/scopes'
 import { userLogic } from 'scenes/userLogic'
 
 import { IntegrationType } from '~/types'
@@ -113,10 +113,10 @@ function ConnectModal({ isOpen, onClose }: { isOpen: boolean; onClose: () => voi
         setScopes(scopesObjectToArray(next))
     }
 
-    const filteredScopes = useMemo(() => {
-        const term = searchTerm.trim().toLowerCase()
-        return term ? GRANTABLE_SCOPES.filter((s) => s.objectName.toLowerCase().includes(term)) : GRANTABLE_SCOPES
-    }, [searchTerm])
+    const filteredScopes = useMemo(
+        () => GRANTABLE_SCOPES.filter((s) => scopeMatchesSearch(s, searchTerm)),
+        [searchTerm]
+    )
 
     return (
         <LemonModal

@@ -1,4 +1,3 @@
-from posthog import settings
 from posthog.clickhouse.client.connection import NodeRole
 from posthog.clickhouse.client.migration_tools import run_sql_with_exceptions
 from posthog.heatmaps.sql import HEATMAPS_WS_TABLE_MV_SQL, KAFKA_HEATMAPS_WS_TABLE_SQL
@@ -20,6 +19,7 @@ from posthog.models.person.sql import (
     PERSON_DISTINCT_ID2_WS_MV_SQL,
     PERSONS_WS_TABLE_MV_SQL,
 )
+from posthog.run_mode import run_mode
 
 # Migration to create WarpStream Kafka engine tables for core ingestion topics.
 #
@@ -56,7 +56,7 @@ ALTER TABLE writable_events
 
 operations = (
     []
-    if settings.CLOUD_DEPLOYMENT not in ("US", "EU", "DEV")
+    if not run_mode().is_deployed_cloud
     else [
         # events_json (INGESTION_EVENTS — WS tables go to events ingestion nodes)
         #

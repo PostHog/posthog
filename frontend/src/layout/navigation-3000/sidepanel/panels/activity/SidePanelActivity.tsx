@@ -100,6 +100,7 @@ export const SidePanelActivity = (): JSX.Element => {
             <SidePanelPaneHeader title="Team activity" />
             <PayGateMini
                 feature={AvailableFeature.AUDIT_LOGS}
+                featureDetail="activity-log-side-panel"
                 className="flex flex-col flex-1 overflow-hidden"
                 overrideShouldShowGate={user?.is_impersonated || !!featureFlags[FEATURE_FLAGS.AUDIT_LOGS_ACCESS]}
             >
@@ -137,30 +138,28 @@ export const SidePanelActivity = (): JSX.Element => {
                                             : `all ${humanizeScope(contextFromPage!.scope!).toLowerCase()}`}
                                     </strong>
                                 </span>
-                                {featureFlags[FEATURE_FLAGS.CDP_ACTIVITY_LOG_NOTIFICATIONS] && (
-                                    <ActivityLogSubscribeMenu
-                                        properties={[
-                                            {
-                                                key: 'scope',
-                                                type: PropertyFilterType.Event,
-                                                value: contextFromPage!.scope!,
-                                                operator: PropertyOperator.Exact,
-                                            },
-                                            ...(hasItemContext
-                                                ? [
-                                                      {
-                                                          key: 'item_id',
-                                                          type: PropertyFilterType.Event as const,
-                                                          value: contextFromPage!.item_id,
-                                                          operator: PropertyOperator.Exact,
-                                                      },
-                                                  ]
-                                                : []),
-                                        ]}
-                                        onNavigate={closeSidePanel}
-                                        iconOnly
-                                    />
-                                )}
+                                <ActivityLogSubscribeMenu
+                                    properties={[
+                                        {
+                                            key: 'scope',
+                                            type: PropertyFilterType.Event,
+                                            value: contextFromPage!.scope!,
+                                            operator: PropertyOperator.Exact,
+                                        },
+                                        ...(hasItemContext
+                                            ? [
+                                                  {
+                                                      key: 'item_id',
+                                                      type: PropertyFilterType.Event as const,
+                                                      value: contextFromPage!.item_id,
+                                                      operator: PropertyOperator.Exact,
+                                                  },
+                                              ]
+                                            : []),
+                                    ]}
+                                    onNavigate={closeSidePanel}
+                                    iconOnly
+                                />
                             </div>
                             <MemberSelect
                                 value={activeFilters?.user ?? null}

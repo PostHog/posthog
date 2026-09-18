@@ -4,6 +4,7 @@ import { router, urlToAction } from 'kea-router'
 
 import { objectsEqual } from 'lib/utils/objects'
 
+import { usersGithubLoginRetrieve } from '~/generated/core/api'
 import api, { ApiConfig } from '~/lib/api'
 import { downloadBlob } from '~/lib/components/ExportButton/exporter'
 import { Sorting } from '~/lib/lemon-ui/LemonTable'
@@ -21,6 +22,7 @@ import {
     llmSkillsMarketplaceInstallCommandRetrieve,
     llmSkillsNameArchiveCreate,
     llmSkillsNameDuplicateCreate,
+    llmSkillsNamePublishCommunityCreate,
 } from 'products/skills/frontend/generated/api'
 import type {
     LLMSkillListApi,
@@ -86,6 +88,7 @@ export interface SkillFilters {
     order_by: string
     group_by_prefix: boolean
     created_by_id?: number
+    owner_id?: number
 }
 
 function parseBoolean(value: unknown): boolean {
@@ -105,6 +108,7 @@ function cleanFilters(values: Partial<SkillFilters>): SkillFilters {
         order_by: values.order_by || '-created_at',
         group_by_prefix: parseBoolean(values.group_by_prefix),
         created_by_id: values.created_by_id ? Number(values.created_by_id) : undefined,
+        owner_id: values.owner_id ? Number(values.owner_id) : undefined,
     }
 }
 
@@ -115,6 +119,7 @@ function cleanFilterUrlParams(filters: SkillFilters): Record<string, unknown> {
         order_by: filters.order_by === '-created_at' ? undefined : filters.order_by,
         group_by_prefix: filters.group_by_prefix ? 'true' : undefined,
         created_by_id: filters.created_by_id,
+        owner_id: filters.owner_id,
     }
 }
 
@@ -198,6 +203,8 @@ export interface llmSkillsLogicValues {
     connectModalOpen: boolean
     count: number
     filters: SkillFilters
+    githubLogin: string | null
+    githubLoginLoading: boolean
     groupedSkills: SkillGroupTree | null
     importing: boolean
     issuingCredential: boolean
@@ -205,6 +212,7 @@ export interface llmSkillsLogicValues {
     marketplaceLoading: boolean
     marketplaceState: LLMSkillMarketplaceCommandApi | null
     pagination: PaginationManual | undefined
+    publishingSkills: Record<string, boolean>
     rawFilters: Partial<SkillFilters> | null
     skillCountLabel: string
     skills: PaginatedLLMSkillListListApi
@@ -233,6 +241,21 @@ export interface llmSkillsLogicActions {
     issueMarketplaceCommand: (rotate?: boolean) => {
         rotate: boolean
     }
+    loadGithubLogin: () => any
+    loadGithubLoginFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadGithubLoginSuccess: (
+        githubLogin: string | null,
+        payload?: any
+    ) => {
+        githubLogin: string | null
+        payload?: any
+    }
     loadMarketplaceState: () => {
         value: true
     }
@@ -256,6 +279,31 @@ export interface llmSkillsLogicActions {
         payload?: {
             debounce: boolean
         }
+    }
+    publishToCommunity: (
+        skillName: string,
+        options: {
+            author_handle?: string
+            display_name?: string
+            expected_skill_id: string
+            expected_version: number
+            tags?: string[]
+        }
+    ) => {
+        options: {
+            author_handle?: string | undefined
+            display_name?: string | undefined
+            expected_skill_id: string
+            expected_version: number
+            tags?: string[] | undefined
+        }
+        skillName: string
+    }
+    publishToCommunityFailure: (skillName: string) => {
+        skillName: string
+    }
+    publishToCommunitySuccess: (skillName: string) => {
+        skillName: string
     }
     setActiveTab: (tabKey: string) => {
         tabKey: string
@@ -323,6 +371,18 @@ export const llmSkillsLogic = kea<llmSkillsLogicType>([
         setActiveTab: (tabKey: string) => ({ tabKey }),
         deleteSkill: (skillName: string) => ({ skillName }),
         duplicateSkill: (skillName: string, newName: string) => ({ skillName, newName }),
+        publishToCommunity: (
+            skillName: string,
+            options: {
+                expected_skill_id: string
+                expected_version: number
+                display_name?: string
+                tags?: string[]
+                author_handle?: string
+            }
+        ) => ({ skillName, options }),
+        publishToCommunitySuccess: (skillName: string) => ({ skillName }),
+        publishToCommunityFailure: (skillName: string) => ({ skillName }),
         importSkill: (file: File) => ({ file }),
         setImporting: (importing: boolean) => ({ importing }),
         downloadSkillZip: (skillName: string) => ({ skillName }),
@@ -351,6 +411,15 @@ export const llmSkillsLogic = kea<llmSkillsLogicType>([
                         ...filters,
                         ...('page' in filters ? {} : { page: 1 }),
                     }),
+            },
+        ],
+        // Per-skill publish-in-flight state so the trigger can guard against double-submission.
+        publishingSkills: [
+            {} as Record<string, boolean>,
+            {
+                publishToCommunity: (state, { skillName }) => ({ ...state, [skillName]: true }),
+                publishToCommunitySuccess: (state, { skillName }) => ({ ...state, [skillName]: false }),
+                publishToCommunityFailure: (state, { skillName }) => ({ ...state, [skillName]: false }),
             },
         ],
         importing: [
@@ -408,6 +477,7 @@ export const llmSkillsLogic = kea<llmSkillsLogicType>([
                               offset: 0,
                               limit: SKILLS_GROUP_LIMIT,
                               created_by_id: filters.created_by_id,
+                              owner_id: filters.owner_id,
                               category,
                           }
                         : {
@@ -416,6 +486,7 @@ export const llmSkillsLogic = kea<llmSkillsLogicType>([
                               offset: Math.max(0, (filters.page - 1) * SKILLS_PER_PAGE),
                               limit: SKILLS_PER_PAGE,
                               created_by_id: filters.created_by_id,
+                              owner_id: filters.owner_id,
                               category,
                           }
 
@@ -430,6 +501,20 @@ export const llmSkillsLogic = kea<llmSkillsLogicType>([
                     }
 
                     return await llmSkillsList(String(ApiConfig.getCurrentTeamId()), params)
+                },
+            },
+        ],
+        // Resolved GitHub handle for the current user — used to prefill the share dialog's
+        // author_handle so the common case (GitHub-SSO'd users) is correct by default. Null when
+        // no GitHub identity is linked; the dialog field then falls back to free text.
+        githubLogin: [
+            null as string | null,
+            {
+                loadGithubLogin: async () => {
+                    // `@me` resolves to the current user server-side, so this doesn't race userLogic
+                    // loading the user object first.
+                    const response = await usersGithubLoginRetrieve('@me')
+                    return response.github_login ?? null
                 },
             },
         ],
@@ -563,6 +648,38 @@ export const llmSkillsLogic = kea<llmSkillsLogicType>([
             }
         },
 
+        publishToCommunity: async ({ skillName, options }) => {
+            try {
+                const result = await llmSkillsNamePublishCommunityCreate(
+                    String(ApiConfig.getCurrentTeamId()),
+                    skillName,
+                    {
+                        expected_skill_id: options.expected_skill_id,
+                        expected_version: options.expected_version,
+                        display_name: options.display_name,
+                        tags: options.tags,
+                        author_handle: options.author_handle,
+                    }
+                )
+                lemonToast.success(
+                    `Opened a community pull request for "${skillName}" — a maintainer will review it.`,
+                    {
+                        button: { label: 'View PR', action: () => window.open(result.pr_url, '_blank', 'noopener') },
+                    }
+                )
+                actions.publishToCommunitySuccess(skillName)
+            } catch (e: any) {
+                console.error('Failed to publish skill to community', e)
+                const detail = e?.data?.detail || e?.detail
+                lemonToast.error(
+                    e?.status === 503
+                        ? 'Publishing to the community is not available on this instance yet.'
+                        : detail || 'Failed to publish skill to the community'
+                )
+                actions.publishToCommunityFailure(skillName)
+            }
+        },
+
         importSkill: async ({ file }) => {
             actions.setImporting(true)
             try {
@@ -679,5 +796,6 @@ export const llmSkillsLogic = kea<llmSkillsLogicType>([
 
     afterMount(({ actions }) => {
         actions.loadSkills()
+        actions.loadGithubLogin()
     }),
 ])

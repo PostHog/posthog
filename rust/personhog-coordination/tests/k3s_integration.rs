@@ -489,7 +489,10 @@ fn start_coordinator_k8s(
         k8s_awareness,
     );
     let token = cancel.child_token();
-    tokio::spawn(async move { coordinator.run(token).await })
+    tokio::spawn(async move {
+        coordinator.run(token).await;
+        Ok(())
+    })
 }
 
 // ── Tests ────────────────────────────────────────────────

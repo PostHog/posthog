@@ -8,13 +8,13 @@ from posthog.schema import RecordingOrder, RecordingOrderDirection, RecordingsQu
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.models.team import Team
 from posthog.models.user import User
-from posthog.rbac.user_access_control import UserAccessControl
 from posthog.session_recordings.models.session_recording_playlist import SessionRecordingPlaylist
 from posthog.session_recordings.models.session_recording_playlist_item import SessionRecordingPlaylistItem
 from posthog.session_recordings.playlist_filters import convert_playlist_to_recordings_query
 from posthog.session_recordings.session_recording_api import run_recordings_list_query
 from posthog.session_recordings.utils import filter_from_params_to_query, recordings_query_has_event_filters
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.dashboards.backend.constants import MAX_COLLECTION_SESSION_IDS, MAX_WIDGET_RESULT_LIMIT
 from products.dashboards.backend.widget_specs.configs import SESSION_REPLAY_LIST_WIDGET_TYPE
 from products.dashboards.backend.widget_specs.registry import validate_widget_config

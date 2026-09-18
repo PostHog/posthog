@@ -19,7 +19,7 @@ import { urls } from 'scenes/urls'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { Conversation, ConversationDetail, SidePanelTab } from '~/types'
 
-import { conversationsDestroy } from 'products/conversations/frontend/generated/api'
+import { conversationsDestroy } from 'products/posthog_ai/frontend/generated/api'
 
 import type { FeatureFlagsSet } from '../../lib/logic/featureFlagLogic'
 import type { OrganizationType, PreflightStatus } from '../../types'

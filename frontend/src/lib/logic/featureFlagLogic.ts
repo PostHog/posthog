@@ -4,11 +4,24 @@ import posthog from 'posthog-js'
 import { FeatureFlagKey } from 'lib/constants'
 import { getAppContext } from 'lib/utils/getAppContext'
 
-import { AppContext } from '~/types'
+import { AppContext, PreflightStatus } from '~/types'
 
 export type FeatureFlagsSet = {
     [flag in FeatureFlagKey]?: boolean | string
 }
+
+/**
+ * Whether `posthog-js`-resolved flag values actually reach `featureFlagLogic.featureFlags` (see
+ * `spyOnFeatureFlags` below). On self-hosted, non-debug instances they're discarded in favor of
+ * the server-configured `PERSISTED_FEATURE_FLAGS` baseline, so anything that enrolls a user into
+ * a flag client-side (e.g. early access feature enrollment) has no visible effect there.
+ */
+export function areClientFeatureFlagsHonored(preflight: Pick<PreflightStatus, 'cloud' | 'is_debug'> | null): boolean {
+    return !!preflight?.cloud || !!preflight?.is_debug
+}
+
+export const FEATURE_PREVIEW_SELF_HOSTED_DISABLED_REASON =
+    'This toggle has no effect on self-hosted instances. Feature previews here are controlled by the PERSISTED_FEATURE_FLAGS environment variable.'
 
 const eventsNotified: Record<string, boolean> = {}
 function notifyFlagIfNeeded(flag: string, flagState: string | boolean | undefined): void {
@@ -40,7 +53,7 @@ function spyOnFeatureFlags(featureFlags: FeatureFlagsSet): FeatureFlagsSet {
     const appContext = getAppContext()
     const persistedFlags = getPersistedFeatureFlags(appContext)
     const availableFlags =
-        appContext?.preflight?.cloud || appContext?.preflight?.is_debug || process.env.NODE_ENV === 'test'
+        areClientFeatureFlagsHonored(appContext?.preflight ?? null) || process.env.NODE_ENV === 'test'
             ? { ...persistedFlags, ...featureFlags }
             : persistedFlags
 

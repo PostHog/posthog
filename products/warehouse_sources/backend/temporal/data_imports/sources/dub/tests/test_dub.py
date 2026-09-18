@@ -12,6 +12,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.dub.dub import (
     DubCursorPaginator,
+    DubLinksScopePaginator,
     DubResumeConfig,
     _make_session,
     _scrub_link_password,
@@ -97,6 +98,77 @@ class TestDubCursorPaginator:
         paginator.update_state(MagicMock(), data=_rows(1))
 
         assert paginator.get_resume_state() is None
+
+
+class TestDubLinksScopePaginator:
+    def test_first_scope_sends_no_folder_id(self) -> None:
+        paginator = DubLinksScopePaginator(page_size=3, folder_ids=["fold_a"])
+        request = Request(method="GET", url="https://api.dub.co/links", params={})
+        paginator.init_request(request)
+
+        assert "folderId" not in request.params
+        assert "startingAfter" not in request.params
+
+    def test_full_page_advances_cursor_inside_the_scope(self) -> None:
+        paginator = DubLinksScopePaginator(page_size=3, folder_ids=["fold_a"])
+        paginator.update_state(MagicMock(), data=_rows(3))
+
+        assert paginator.has_next_page is True
+
+        request = Request(method="GET", url="https://api.dub.co/links", params={})
+        paginator.update_request(request)
+        assert request.params["startingAfter"] == "row-2"
+        assert "folderId" not in request.params
+
+    def test_exhausted_scope_moves_to_the_next_folder(self) -> None:
+        # /links hides folder contents unless folderId is sent, so a walk that stops after the
+        # unfiled scope imports none of a workspace's filed links.
+        paginator = DubLinksScopePaginator(page_size=3, folder_ids=["fold_a"])
+        paginator.update_state(MagicMock(), data=_rows(1))
+
+        assert paginator.has_next_page is True
+
+        request = Request(method="GET", url="https://api.dub.co/links", params={"startingAfter": "row-0"})
+        paginator.update_request(request)
+        assert request.params["folderId"] == "fold_a"
+        # The previous scope's cursor must not leak into the new one.
+        assert "startingAfter" not in request.params
+
+    def test_walk_ends_once_the_last_folder_is_exhausted(self) -> None:
+        paginator = DubLinksScopePaginator(page_size=3, folder_ids=["fold_a"])
+        paginator.update_state(MagicMock(), data=_rows(1))
+        paginator.update_state(MagicMock(), data=_rows(1))
+
+        assert paginator.has_next_page is False
+        assert paginator.get_resume_state() is None
+
+    def test_resume_state_round_trip_keeps_the_scope(self) -> None:
+        paginator = DubLinksScopePaginator(page_size=3, folder_ids=["fold_a", "fold_b"])
+        paginator.update_state(MagicMock(), data=_rows(1))
+        paginator.update_state(MagicMock(), data=_rows(3))
+
+        state = paginator.get_resume_state()
+        assert state == {"scope_index": 1, "starting_after": "row-2"}
+
+        resumed = DubLinksScopePaginator(page_size=3, folder_ids=["fold_a", "fold_b"])
+        resumed.set_resume_state(state or {})
+        request = Request(method="GET", url="https://api.dub.co/links", params={})
+        resumed.init_request(request)
+
+        assert request.params["folderId"] == "fold_a"
+        assert request.params["startingAfter"] == "row-2"
+
+    def test_resume_state_saved_before_folder_scoping_still_seeds_the_cursor(self) -> None:
+        # A sync interrupted across the deploy that added folder scoping resumes from a state
+        # with no scope_index; dropping it would silently restart the walk from the first page.
+        paginator = DubLinksScopePaginator(page_size=3, folder_ids=["fold_a"])
+        paginator.set_resume_state({"starting_after": "row-7"})
+
+        request = Request(method="GET", url="https://api.dub.co/links", params={})
+        paginator.init_request(request)
+
+        assert request.params["startingAfter"] == "row-7"
+        assert "folderId" not in request.params
 
 
 class TestGetResource:
@@ -209,7 +281,7 @@ class TestDubSourceResumeBehavior:
             _make_http_response(_rows(100, "b")),
             _make_http_response(_rows(1, "c")),
         ]
-        sent_params = self._drive("links", manager, responses)
+        sent_params = self._drive("customers", manager, responses)
 
         assert [p.get("startingAfter") for p in sent_params] == [None, "a-99", "b-99"]
         saved = [call.args[0] for call in manager.save_state.call_args_list]
@@ -218,12 +290,30 @@ class TestDubSourceResumeBehavior:
             DubResumeConfig(starting_after="b-99"),
         ]
 
+    def test_links_walk_covers_unfiled_links_then_every_folder(self) -> None:
+        # Without the per-folder passes only the first request is made, and every link filed
+        # into a folder is missing from the table while the sync still reports success.
+        manager = MagicMock(spec=ResumableSourceManager)
+        manager.can_resume.return_value = False
+
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.dub.dub._fetch_folder_ids",
+            return_value=["fold_a", "fold_b"],
+        ):
+            sent_params = self._drive(
+                "links",
+                manager,
+                [_make_http_response(_rows(1, p)) for p in ("unfiled", "a", "b")],
+            )
+
+        assert [p.get("folderId") for p in sent_params] == [None, "fold_a", "fold_b"]
+
     def test_cursor_endpoint_resumes_from_saved_cursor(self) -> None:
         manager = MagicMock(spec=ResumableSourceManager)
         manager.can_resume.return_value = True
         manager.load_state.return_value = DubResumeConfig(starting_after="a-42")
 
-        sent_params = self._drive("links", manager, [_make_http_response(_rows(1))])
+        sent_params = self._drive("customers", manager, [_make_http_response(_rows(1))])
 
         assert [p.get("startingAfter") for p in sent_params] == ["a-42"]
 

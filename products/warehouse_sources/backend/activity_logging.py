@@ -1,12 +1,12 @@
 import dataclasses
 
 from posthog.models.activity_logging.activity_log import ActivityContextBase, Detail, changes_between, log_activity
-from posthog.models.activity_logging.external_data_utils import (
+from posthog.models.signals import model_activity_signal, mutable_receiver
+
+from products.warehouse_sources.backend.activity_logging_utils import (
     get_external_data_source_created_by_info,
     get_external_data_source_detail_name,
 )
-from posthog.models.signals import model_activity_signal, mutable_receiver
-
 from products.warehouse_sources.backend.facade.models import (
     ExternalDataSchema,
     ExternalDataSource,

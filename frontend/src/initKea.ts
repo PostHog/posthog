@@ -1,4 +1,5 @@
 import { KeaPlugin, resetContext } from 'kea'
+import { disposablesPlugin } from 'kea-disposables'
 import { formsPlugin } from 'kea-forms'
 import { loadersPlugin } from 'kea-loaders'
 import { localStoragePlugin } from 'kea-localstorage'
@@ -8,7 +9,7 @@ import { waitForPlugin } from 'kea-waitfor'
 import { windowValuesPlugin } from 'kea-window-values'
 import posthog from 'posthog-js'
 
-import { isAccessDeniedError, isApprovalRequiredError } from 'lib/api-error'
+import { isAccessDeniedError, isUnavailableEndpointError, shouldReportApiFailure } from 'lib/api-error'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import {
     addProjectIdIfMissing,
@@ -17,8 +18,6 @@ import {
     stripTrailingSlash,
 } from 'lib/utils/kea-router'
 import { identifierToHuman } from 'lib/utils/strings'
-
-import { disposablesPlugin } from '~/kea-disposables'
 
 /*
 Actions for which we don't want to show error alerts,
@@ -38,6 +37,7 @@ const ERROR_FILTER_ALLOW_LIST = [
     'resolveFingerprint', // Retried while the error finishes ingesting; the fingerprint scene surfaces its own state
     'saveEarlyAccessFeature', // Field-level errors handled in earlyAccessFeatureLogic
     'loadWaitlistResponsesCount', // Soft-fails to a dash on the features list when survey access is missing
+    'loadFeatureFlagStatus', // The flag page just hides its stale banner when the verdict can't be loaded
     'loadExistingSubscription', // Background eligibility check for the dashboard subscribe nudge
     'loadFreeTierSubscriptionCount', // Background free-tier limit check for the dashboard subscribe nudge
     'sendNudgeNotification', // Background delivery request for the dashboard subscribe nudge
@@ -50,8 +50,24 @@ const ERROR_FILTER_ALLOW_LIST = [
     'generateSummary', // Summary view renders its own retry state
     'loadSelfDrivingEvaluationReports', // The self-driving eval table renders its own retry state
     'loadToolDataEvents',
+    'loadInstallRequests', // Polled in the background on Settings → Integrations; the banner just stays hidden
     'loadPrChecks', // Polled in the Inbox report detail; the CI checks section renders its own error state
     'loadPrComments', // The Inbox report detail's PR comments section renders its own error state
+    'loadCiStatuses', // Decorative CI glyphs polled by the Inbox list; a failure just leaves the pill without one
+    'loadMonitoringSnapshot', // The managed warehouse Monitoring tab renders its own retry state
+    'loadMonitoringSeries', // The managed warehouse Monitoring tab renders its own partial/error state
+    'loadInstrumentationChecklist', // AI observability hides its checklist entirely rather than accusing a project on data it could not read
+    'loadFullEmail', // Its failure listener shows a retry toast and closes the modal
+    'draftScannerFromGoal', // replayScannerLogic's failure listener toasts and routes back to the goal questions
+    'loadRunDiff', // The Wizard run drawer renders its own diff error banner with a retry
+    'loadRunArtifacts', // The Wizard run drawer renders its own artifact error banner with a retry
+    'loadRuns', // The Wizard runs table shows a persistent stale-data banner; a poll failure must not toast every 10s
+    'loadRunDetails', // The Wizard run drawer shows a stale-state banner with a retry
+    'cancelRunRequest', // wizardRunDetailsLogic shows its own cancel-failure toast
+    'loadReplayComments', // The replay Comments tab renders its own retry state
+    'loadCoreMemory', // The PostHog AI memory setting renders its own load error banner with a retry
+    'updateCoreMemory', // maxSettingsLogic's updateCoreMemoryFailure listener shows its own save-failure toast
+    'loadSessionEventDeltas', // The experiment watch shelf renders the refusal, or the failure with a retry
 ]
 
 /*
@@ -63,18 +79,19 @@ other failures on these actions still toast.
 const ACCESS_DENIED_SELF_HANDLED = new Set(['saveFeatureFlag'])
 
 /*
+Load actions whose own UI renders the missing resource, so a 404 from them is a state the app
+expects rather than a defect worth filing. `shouldReportApiFailure` keeps a plain 404 reportable on
+purpose, so each caller that degrades has to name itself here, next to the toast allow list above.
+*/
+const NOT_FOUND_SELF_HANDLED = new Set([
+    'loadRecordingMeta', // The player renders RecordingNotFound off sessionRecordingMetaLogic's isNotFound
+])
+
+/*
 Write actions whose own logic toasts the duplicate-key 400 (code `unique` on attr `key`), so the
 generic toast would be a second one. Owned by featureFlagLogic's saveFeatureFlagFailure listener.
 */
 const DUPLICATE_KEY_SELF_HANDLED = new Set(['saveFeatureFlag'])
-
-/*
-Transient gateway/proxy errors. These are infrastructure-level failures (the gateway can't
-reach the backend), not application bugs, so we still toast the user a retryable failure but
-don't report them to error tracking — otherwise sporadic 5xxs surface as noisy code-regression
-issues. 500 is intentionally excluded: those are genuine backend exceptions worth capturing.
-*/
-const TRANSIENT_GATEWAY_STATUSES = [502, 503, 504]
 
 interface InitKeaProps {
     state?: Record<string, any>
@@ -137,19 +154,13 @@ export function initKea({
                 if (error?.name === 'AbortError') {
                     return
                 }
-                // Read-only mode (`ReadOnlyModeError`) flows through this path unchanged:
-                // it extends `ApiError` with `status=403`, so the `!(isLoadAction && error.status === 403)`
-                // condition already suppresses the toast for load actions, and write actions
-                // get a toast with the read-only `detail` as the message. The
-                // `posthog.captureException` event is dropped by the central
-                // `before_send` filter in `selfReadOnlyModeLogic`.
                 // Toast if it's a fetch error or a specific API update error
                 const isLoadAction = typeof actionKey === 'string' && /^(load|get|fetch)[A-Z]/.test(actionKey)
                 // Access-denied 403s (code `permission_denied`) are suppressed only where the
                 // owning UI surfaces them itself: load actions (AccessDenied scene gates) and the
                 // self-handled write actions above. Other writes keep the generic toast, since
-                // most write flows have no failure handling of their own. Read-only mode uses
-                // distinct codes (`read_only_blocked`, `impersonation_read_only`) and still toasts.
+                // most write flows have no failure handling of their own. Read-only impersonation
+                // uses the distinct `impersonation_read_only` code and still toasts.
                 const isAccessDenied =
                     isAccessDeniedError(error) && (isLoadAction || ACCESS_DENIED_SELF_HANDLED.has(String(actionKey)))
                 if (
@@ -209,9 +220,9 @@ export function initKea({
                 if (!errorsSilenced) {
                     console.error({ error, reducerKey, actionKey })
                 }
-                // An approvals 409 is expected control flow (a change request was created, or one
-                // is already pending) surfaced to the user by the approvals UI, not a failure.
-                if (!TRANSIENT_GATEWAY_STATUSES.includes(error?.status) && !isApprovalRequiredError(error)) {
+                const isSelfHandledNotFound =
+                    NOT_FOUND_SELF_HANDLED.has(String(actionKey)) && isUnavailableEndpointError(error)
+                if (shouldReportApiFailure(error) && !isSelfHandledNotFound) {
                     posthog.captureException(error)
                 }
             },

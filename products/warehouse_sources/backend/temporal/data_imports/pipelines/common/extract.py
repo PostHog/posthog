@@ -5,6 +5,7 @@ from django.conf import settings
 
 import pyarrow as pa
 import posthoganalytics
+from redis import exceptions as redis_exceptions
 from structlog.typing import FilteringBoundLogger
 from temporalio import activity
 
@@ -17,6 +18,7 @@ from posthog.utils import get_machine_id
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.load import get_incremental_field_value
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
+    DUPLICATE_PRIMARY_KEYS_ERROR,
     BillingLimitsWillBeReachedException,
     DuplicatePrimaryKeysException,
     MissingPrimaryKeysException,
@@ -30,6 +32,7 @@ from products.warehouse_sources.backend.temporal.data_imports.row_tracking impor
     increment_rows,
     will_hit_billing_limit,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.primary_keys import resolve_merge_keys
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.metadata import (
     extract_available_column_names,
 )
@@ -60,6 +63,10 @@ async def _get_redis():
         await redis.ping()
     except Exception as e:
         capture_exception(e)
+        # get_async_client only builds a lazy client, so a failed ping means redis is
+        # still unreachable - reset it to None so callers' `if redis_client is None` guard
+        # actually skips the real command instead of raising the same error uncaught.
+        redis = None
 
     yield redis
 
@@ -72,7 +79,9 @@ NON_RETRYABLE_ERROR_RETRY_LIMIT = 3
 
 
 async def trim_source_job_inputs(source: "ExternalDataSource") -> None:
-    if not source.job_inputs:
+    # job_inputs is an EncryptedJSONField, so it can decode to a non-dict (e.g. a bare string)
+    # for a malformed source config — nothing to trim key-by-key in that case.
+    if not isinstance(source.job_inputs, dict):
         return
 
     did_update_inputs = False
@@ -231,10 +240,19 @@ async def handle_non_retryable_error(
             raise NonRetryableException() from error
 
         retry_key = build_non_retryable_errors_redis_key(team_id, source_id, run_id)
-        attempts = await redis_client.incr(retry_key)
+        try:
+            attempts = await redis_client.incr(retry_key)
+            if attempts <= NON_RETRYABLE_ERROR_RETRY_LIMIT:
+                await redis_client.expire(retry_key, 86400)  # Expire after 24 hours
+        except redis_exceptions.RedisError as e:
+            # A successful ping doesn't guarantee later commands still have a Redis to talk to -
+            # treat that the same as a `None` client instead of letting it surface unwrapped and
+            # mask the already-classified `error` behind an ordinary retryable activity failure.
+            capture_exception(e)
+            await logger.adebug(f"Redis became unreachable tracking a non-retryable error. error={error_msg}")
+            raise NonRetryableException() from error
 
         if attempts <= NON_RETRYABLE_ERROR_RETRY_LIMIT:
-            await redis_client.expire(retry_key, 86400)  # Expire after 24 hours
             await logger.adebug(
                 f"Non-retryable error attempt {attempts}/{NON_RETRYABLE_ERROR_RETRY_LIMIT}, retrying. error={error_msg}"
             )
@@ -253,12 +271,20 @@ async def reset_rows_synced_if_needed(
     is_incremental: bool,
     reset_pipeline: bool,
     should_resume: bool,
+    *,
+    incremental_cursor_staged: bool = False,
 ) -> None:
-    # Reset the rows_synced count - this may not be 0 if the job restarted due to a heartbeat timeout
+    # Reset the rows_synced count - this may not be 0 if the job restarted due to a heartbeat timeout.
+    #
+    # Incremental syncs are exempt only when the durable cursor advances per batch (pipeline v2), so
+    # a retried attempt resumes past the rows already counted. When the cursor is staged and only
+    # promoted on completion (pipeline v3), a retried attempt re-extracts the whole window from
+    # batch 0, so keeping the previous attempt's count double-counts every re-read row —
+    # `rows_synced` feeds billed usage via `Sum("rows_synced")` in usage reports.
     if (
         job.rows_synced is not None
         and job.rows_synced != 0
-        and (not is_incremental or reset_pipeline is True)
+        and (not is_incremental or reset_pipeline is True or incremental_cursor_staged)
         and not should_resume
     ):
         job.rows_synced = 0
@@ -279,21 +305,24 @@ def resolve_primary_keys(
 
     Returns None when no key can be resolved, so the keyless-table guardrail still fires.
     """
-    if schema.primary_key_columns:
-        return schema.primary_key_columns
-    if resource.primary_keys:
-        return list(resource.primary_keys)
-    # Case-insensitive: engines like Snowflake uppercase unquoted identifiers, so the column
-    # arrives as `ID`. Return the actual stored casing — the merge indexes batches by real name.
-    id_column = next(
-        (name for name in extract_available_column_names(schema.schema_metadata) if name.lower() == "id"), None
+    return resolve_merge_keys(
+        schema.primary_key_columns,
+        resource.primary_keys,
+        extract_available_column_names(schema.schema_metadata),
     )
-    if id_column is not None:
-        return [id_column]
-    return None
 
 
 async def persist_primary_keys(
+    schema: "ExternalDataSchema",
+    resource: SourceResponse,
+    is_incremental: bool,
+    logger: FilteringBoundLogger,
+) -> None:
+    await _persist_detected_primary_keys(schema, resource, is_incremental, logger)
+    await persist_verified_primary_keys(schema, resource, logger)
+
+
+async def _persist_detected_primary_keys(
     schema: "ExternalDataSchema",
     resource: SourceResponse,
     is_incremental: bool,
@@ -306,7 +335,11 @@ async def persist_primary_keys(
     inside the row lock so a concurrent API edit isn't clobbered. Best-effort: a failure here
     must not fail an otherwise successful sync.
     """
-    if not is_incremental or schema.primary_key_columns:
+    # A CDC schema snapshots as full_refresh but streams incrementally, so its key has to be
+    # persisted during that first non-incremental run or the streaming phase has none.
+    if schema.primary_key_columns:
+        return
+    if not is_incremental and not schema.is_cdc:
         return
     primary_keys = resource.primary_keys
     if not primary_keys:
@@ -333,16 +366,43 @@ async def persist_primary_keys(
         await logger.aexception("Failed to persist detected primary keys into sync_type_config")
 
 
+async def persist_verified_primary_keys(
+    schema: "ExternalDataSchema",
+    resource: SourceResponse,
+    logger: FilteringBoundLogger,
+) -> None:
+    """Record the key a full-table probe proved unique, so later runs only probe what they read.
+
+    Best-effort: losing this costs another full probe next run, not correctness.
+    """
+    verified = resource.verified_primary_keys
+    if not verified or list(verified) == list(schema.verified_primary_keys or []):
+        return
+
+    from products.warehouse_sources.backend.models.external_data_schema import (  # noqa: PLC0415 — Django model import kept off this activity module's load path
+        update_sync_type_config_keys,
+    )
+
+    try:
+        config = await database_sync_to_async_pool(update_sync_type_config_keys)(
+            schema.id,
+            schema.team_id,
+            updates={"verified_primary_keys": list(verified)},
+        )
+        schema.sync_type_config = config
+    except Exception:
+        await logger.aexception("Failed to persist verified primary keys into sync_type_config")
+
+
 def validate_incremental_sync(
     is_incremental: bool,
     resource: SourceResponse,
     *,
     is_first_sync: bool = True,
 ) -> None:
-    # Check for duplicate primary keys
     if is_incremental and resource.has_duplicate_primary_keys:
         raise DuplicatePrimaryKeysException(
-            f"The primary keys for this table are not unique. We can't sync incrementally until the table "
+            f"{DUPLICATE_PRIMARY_KEYS_ERROR}. We can't sync incrementally until the table "
             f"has a unique primary key. Primary keys being used are: {resource.primary_keys}"
         )
 

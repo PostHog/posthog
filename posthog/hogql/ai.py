@@ -181,13 +181,13 @@ def write_sql_from_prompt(
     prompt_tokens_total, completion_tokens_total = 0, 0
     for _ in range(3):  # Try up to 3 times in case the generated SQL is not valid HogQL
         attempt_count += 1
-        content, prompt_tokens_last, completion_tokens_last = hit_openai(messages, f"{instance_region}/{user.pk}")
-        prompt_tokens_total += prompt_tokens_last
-        completion_tokens_total += completion_tokens_last
-        if content.startswith(UNCLEAR_PREFIX):
-            error = content.removeprefix(UNCLEAR_PREFIX).strip()
+        completion = hit_openai(messages, f"{instance_region}/{user.pk}")
+        prompt_tokens_total += completion.prompt_tokens
+        completion_tokens_total += completion.completion_tokens
+        if completion.content.startswith(UNCLEAR_PREFIX):
+            error = completion.content.removeprefix(UNCLEAR_PREFIX).strip()
             break
-        candidate_sql = content
+        candidate_sql = completion.content
         try:
             prepare_and_print_ast(parse_select(candidate_sql), context=context, dialect="clickhouse")
         except ExposedHogQLError as e:
@@ -212,8 +212,8 @@ def write_sql_from_prompt(
                 ("valid_hogql" if generated_valid_hogql else "invalid_hogql") if candidate_sql else "prompt_unclear"
             ),
             "attempt_count": attempt_count,
-            "prompt_tokens_last": prompt_tokens_last,
-            "completion_tokens_last": completion_tokens_last,
+            "prompt_tokens_last": completion.prompt_tokens,
+            "completion_tokens_last": completion.completion_tokens,
             "prompt_tokens_total": prompt_tokens_total,
             "completion_tokens_total": completion_tokens_total,
         },

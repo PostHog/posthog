@@ -11,7 +11,13 @@ from asgiref.sync import sync_to_async
 from posthog.kafka_client.topics import KAFKA_APP_METRICS2, KAFKA_CDP_INTERNAL_EVENTS
 from posthog.models import Organization, Team
 
-from products.batch_exports.backend.models.batch_export import BatchExport, BatchExportDestination, BatchExportRun
+from products.batch_exports.backend.billing import is_billable_run
+from products.batch_exports.backend.models.batch_export import (
+    BatchExport,
+    BatchExportDestination,
+    BatchExportOnDemand,
+    BatchExportRun,
+)
 from products.batch_exports.backend.service import delete_batch_export, sync_batch_export
 from products.batch_exports.backend.temporal.batch_exports import (
     FinishBatchExportRunInputs,
@@ -194,7 +200,8 @@ async def test_start_batch_export_run_does_not_check_billing_limit(activity_envi
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_finish_batch_export_run(activity_environment, team, batch_export):
+@pytest.mark.parametrize("usage_collection_raises", [False, True])
+async def test_finish_batch_export_run(activity_environment, team, batch_export, usage_collection_raises):
     """Test the export_run_status activity."""
     start = dt.datetime(2023, 4, 24, tzinfo=dt.UTC)
     end = dt.datetime(2023, 4, 25, tzinfo=dt.UTC)
@@ -219,7 +226,13 @@ async def test_finish_batch_export_run(activity_environment, team, batch_export)
         status="Completed",
         team_id=inputs.team_id,
     )
-    await activity_environment.run(finish_batch_export_run, finish_inputs)
+    # Usage is collected after the run is written, so a collector that raises must not cost the
+    # run its Completed status and send the whole export round again.
+    with unittest.mock.patch(
+        "products.batch_exports.backend.temporal.batch_exports.is_billable_run",
+        side_effect=RuntimeError("boom") if usage_collection_raises else is_billable_run,
+    ):
+        await activity_environment.run(finish_batch_export_run, finish_inputs)
 
     runs = BatchExportRun.objects.filter(id=run_id)
     run = await sync_to_async(runs.first)()
@@ -588,3 +601,27 @@ async def test_start_batch_export_run_produces_failed_billing_internal_event(act
     }
 
     assert len(get_produced_app_metrics_payloads(mocked_try_produce)) == 1
+
+
+@pytest.mark.parametrize("on_demand", [False, True])
+@pytest.mark.parametrize(
+    "destination_type,model,deleted,billable",
+    [
+        (BatchExportDestination.Destination.S3, BatchExport.Model.EVENTS, False, True),
+        (BatchExportDestination.Destination.HTTP, BatchExport.Model.EVENTS, False, False),
+        (BatchExportDestination.Destination.WORKFLOWS, BatchExport.Model.EVENTS, False, False),
+        (BatchExportDestination.Destination.S3, BatchExport.Model.EVENTS, True, False),
+        (BatchExportDestination.Destination.S3, BatchExport.Model.HOGQL, False, False),
+    ],
+)
+def test_usage_is_reported_only_for_what_the_nightly_report_bills(
+    destination_type, model, deleted, billable, on_demand
+):
+    destination = BatchExportDestination(type=destination_type)
+    run = BatchExportRun()
+    if on_demand:
+        run.batch_export_on_demand = BatchExportOnDemand(destination=destination, model=model, deleted=deleted)
+    else:
+        run.batch_export = BatchExport(destination=destination, model=model, deleted=deleted)
+
+    assert is_billable_run(run) is billable

@@ -19,26 +19,32 @@ import threading
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Iterable
 from contextlib import AbstractContextManager, nullcontext
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 from types import TracebackType
-from typing import TYPE_CHECKING, Protocol, Self
+from typing import TYPE_CHECKING, Any, Protocol, Self
 
 from django.conf import settings
 
 import structlog
 from pydantic import BaseModel, model_validator
 
+from posthog.dataclasses import frozen
+
 from products.tasks.backend.constants import (
     DEFAULT_SANDBOX_WORKING_DIR,
     DEV_STACK_IMAGE_NAME,
+    SANDBOX_REPOSITORIES_ROOT,
     SNAPSHOT_KIND_DIRECTORY,
     SNAPSHOT_KIND_FILESYSTEM,
     SnapshotKind,
 )
+from products.tasks.backend.logic.services.local_skills import BUNDLED_SKILLS_PATHS, ENV_DISABLE_BUNDLED_SKILLS
 from products.tasks.backend.logic.services.sandbox_config import (
     BURSTABLE_REQUEST_CPU_CORES,
     BURSTABLE_REQUEST_MEMORY_MB,
+    DEV_STACK_CPU_REQUEST_CORES,
+    DEV_STACK_MEMORY_GB,
     SANDBOX_TTL_SECONDS,
     VM_SANDBOX_CPU_CORES,
 )
@@ -47,12 +53,12 @@ if TYPE_CHECKING:
     from products.tasks.backend.temporal.process_task.utils import McpServerConfig
 
 
-@dataclass
+@frozen
 class AgentServerResult:
     """Result from starting an agent server in a sandbox."""
 
     url: str
-    token: str | None = None
+    token: str | None = field(default=None, repr=False)
 
 
 class SandboxStatus(str, Enum):
@@ -90,8 +96,9 @@ SELF_DRIVING_ORIGIN_PRODUCTS: frozenset[str] = frozenset(
     {
         # Signals report research + repo selection
         "signal_report",
-        # Headless Signals scouts
+        # Headless Signals scouts, and the headless scan that pre-computes scout suggestions
         "signals_scout",
+        "scout_suggestions",
         # ReviewHog's per-chunk review, blind-spot, and validation sandboxes
         "review_hog",
     }
@@ -105,10 +112,30 @@ import path; a test pins them to the enum so a rename can't drop a product off t
 """
 
 
+FULL_HISTORY_ORIGIN_PRODUCTS: frozenset[str] = frozenset(
+    {
+        # Signals report research reads history for `git blame`
+        "signal_report",
+        # A pinned scout asks the same questions of the tree: `git log`, `git blame`, `--since`
+        "signals_scout",
+    }
+)
+"""Origin products whose sandboxes clone the full commit history instead of `--depth 1`.
+
+Every other origin keeps the fast-boot shallow clone. Nobody watches a fleet run, so a slower
+boot costs less than the unshallow fetch a skill body pays mid-run to get history back. Held as
+strings for the same reason as ``SELF_DRIVING_ORIGIN_PRODUCTS``; a test pins them to the enum.
+"""
+
+
 def workload_for_origin_product(origin_product: str | None) -> SandboxWorkload:
     if origin_product in SELF_DRIVING_ORIGIN_PRODUCTS:
         return SandboxWorkload.SELF_DRIVING
     return SandboxWorkload.DEFAULT
+
+
+def needs_full_history(origin_product: str | None) -> bool:
+    return origin_product in FULL_HISTORY_ORIGIN_PRODUCTS
 
 
 class ExecutionResult(BaseModel):
@@ -172,6 +199,7 @@ class SandboxConfig(BaseModel):
     # downgraded one was used instead (e.g. published custom image -> plain base). Human-readable,
     # surfaced in the run log so image downgrades are never silent.
     image_fallback: str | None = None
+    dev_stack_present: bool | None = None
 
     @model_validator(mode="before")
     @classmethod
@@ -192,10 +220,27 @@ class SandboxConfig(BaseModel):
         return self.vm_runtime or self.template == SandboxTemplate.VM_BASE
 
     @property
+    def is_dev_stack_image(self) -> bool:
+        if not self.is_vm:
+            return False
+        if self.dev_stack_present is not None:
+            return self.dev_stack_present
+        return self.custom_image_name == DEV_STACK_IMAGE_NAME
+
+    @model_validator(mode="after")
+    def _enforce_dev_stack_memory_floor(self) -> Self:
+        if self.is_dev_stack_image:
+            self.memory_gb = max(self.memory_gb, DEV_STACK_MEMORY_GB)
+        return self
+
+    @property
     def effective_cpu_request_cores(self) -> float:
         """CPU floor the provider actually reserves when burstable: the configured request,
-        clamped to the limit."""
-        return min(float(self.cpu_request_cores), float(self.cpu_cores))
+        raised to the dev-stack image floor, clamped to the limit."""
+        floor = float(self.cpu_request_cores)
+        if self.is_dev_stack_image:
+            floor = max(floor, DEV_STACK_CPU_REQUEST_CORES)
+        return min(floor, float(self.cpu_cores))
 
     @property
     def effective_memory_request_mb(self) -> int:
@@ -215,13 +260,27 @@ PUBLIC_SANDBOX_REPOS: frozenset[str] = frozenset({"posthog/hedgebox", "posthog/.
 """Repos the sandbox is allowed to clone unauthenticated, even when the team has no GitHub integration"""
 # TODO: Remove `posthog/.github` when we switch repo discovery to repo-less agent (now it works as a lightweight dummy)
 
-SENSITIVE_AGENT_RUNTIME_ENV_NAMES: frozenset[str] = frozenset(
-    {"POSTHOG_TASK_RUN_EVENT_INGEST_TOKEN", "POSTHOG_TASK_RUN_SESSION_TOKEN"}
+# this helps redact sensitive environment variables for logging
+SENSITIVE_SANDBOX_ENV_NAMES: frozenset[str] = frozenset(
+    {
+        "GITHUB_TOKEN",
+        "POSTHOG_TASK_RUN_EVENT_INGEST_TOKEN",
+        "POSTHOG_TASK_RUN_SESSION_TOKEN",
+        "POSTHOG_WIZARD_API_KEY",
+    }
 )
-SENSITIVE_AGENT_RUNTIME_ENV_PATTERN = re.compile(
-    r"(?P<name>" + "|".join(re.escape(name) for name in SENSITIVE_AGENT_RUNTIME_ENV_NAMES) + r")="
-    r"(?P<value>'(?:[^']|'\"'\"')*'|\"(?:\\.|[^\"])*\"|\S+)"
+SHELL_ARGUMENT_VALUE_PATTERN = r"'(?:[^']|'\"'\"')*'|\"(?:\\.|[^\"])*\"|\S+"
+SENSITIVE_SANDBOX_ENV_PATTERN = re.compile(
+    r"(?P<name>" + "|".join(re.escape(name) for name in SENSITIVE_SANDBOX_ENV_NAMES) + r")="
+    rf"(?P<value>{SHELL_ARGUMENT_VALUE_PATTERN})"
 )
+SENSITIVE_AGENT_RUNTIME_ARGUMENT_PATTERN = re.compile(
+    rf"(?P<name>--mcpServers)\s+(?P<value>{SHELL_ARGUMENT_VALUE_PATTERN})"
+)
+SENSITIVE_FILE_HEREDOC_PATTERN = re.compile(
+    r"(?P<prefix><<'POSTHOG_FILE_EOF'\n).*?(?P<suffix>\nPOSTHOG_FILE_EOF)", re.DOTALL
+)
+GITHUB_CLONE_TOKEN_PATTERN = re.compile(r"(?P<prefix>https://x-access-token:)[^@\s]+(?P<suffix>@github\.com/)")
 
 
 def is_public_sandbox_repo(repository: str | None) -> bool:
@@ -231,11 +290,19 @@ def is_public_sandbox_repo(repository: str | None) -> bool:
 def sandbox_repo_path(repository: str) -> str:
     """Absolute path an ``org/repo`` is cloned to inside the sandbox (the agent-server's cwd)."""
     org, repo = repository.lower().split("/")
-    return f"{WORKING_DIR}/repos/{org}/{repo}"
+    return f"{SANDBOX_REPOSITORIES_ROOT}/{org}/{repo}"
 
 
 def redact_sandbox_command(command: str) -> str:
-    return SENSITIVE_AGENT_RUNTIME_ENV_PATTERN.sub(r"\g<name>=<redacted>", command)
+    redacted = command
+    for pattern, substitution in (
+        (SENSITIVE_SANDBOX_ENV_PATTERN, r"\g<name>=<redacted>"),
+        (SENSITIVE_AGENT_RUNTIME_ARGUMENT_PATTERN, r"\g<name> <redacted>"),
+        (SENSITIVE_FILE_HEREDOC_PATTERN, r"\g<prefix><redacted>\g<suffix>"),
+        (GITHUB_CLONE_TOKEN_PATTERN, r"\g<prefix><redacted>\g<suffix>"),
+    ):
+        redacted = pattern.sub(substitution, redacted)
+    return redacted
 
 
 def build_agent_runtime_env_prefix(
@@ -247,6 +314,7 @@ def build_agent_runtime_env_prefix(
     provider: str | None = None,
     model: str | None = None,
     reasoning_effort: str | None = None,
+    service_tier: str | None = None,
     context_window: str | None = None,
     fast_mode: bool | None = None,
     initial_permission_mode: str | None = None,
@@ -255,6 +323,9 @@ def build_agent_runtime_env_prefix(
     event_ingest_url: str | None = None,
     event_ingest_keep_stream_open: bool = False,
     rtk_enabled: bool = True,
+    benjamin_enabled: bool = False,
+    peer_messaging: bool = False,
+    unset_bedrock: bool = False,
 ) -> str:
     env_vars = {
         "POSTHOG_CODE_INTERACTION_ORIGIN": interaction_origin,
@@ -264,6 +335,9 @@ def build_agent_runtime_env_prefix(
         "POSTHOG_CODE_PROVIDER": provider,
         "POSTHOG_CODE_MODEL": model,
         "POSTHOG_CODE_REASONING_EFFORT": reasoning_effort,
+        # OpenAI service tier for codex runs ("default" | "priority" | "flex"); ignored by the
+        # claude adapter. Codex itself drops a tier the model catalogue doesn't advertise.
+        "POSTHOG_CODE_SERVICE_TIER": service_tier,
         "POSTHOG_CODE_CONTEXT_WINDOW": context_window,
         # Explicit false pins fast mode off even if a stale env value survives in a resumed sandbox.
         "POSTHOG_CODE_FAST_MODE": None if fast_mode is None else ("true" if fast_mode else "false"),
@@ -271,15 +345,30 @@ def build_agent_runtime_env_prefix(
         "POSTHOG_TASK_RUN_EVENT_INGEST_TOKEN": event_ingest_token,
         "POSTHOG_TASK_RUN_SESSION_TOKEN": task_run_session_token,
         "POSTHOG_TASK_RUN_EVENT_INGEST_URL": event_ingest_url,
-        "POSTHOG_TASK_RUN_EVENT_INGEST_KEEP_STREAM_OPEN": "true" if event_ingest_keep_stream_open else None,
+        "POSTHOG_TASK_RUN_EVENT_INGEST_KEEP_STREAM_OPEN": (
+            "true" if event_ingest_keep_stream_open else "false" if settings.DEBUG and not event_ingest_url else None
+        ),
         # Set explicitly in both states: "0" opts the run out, "1" pins auto-detection on
         # even if a stale env value survives in a resumed sandbox.
         "POSTHOG_RTK": "1" if rtk_enabled else "0",
+        "POSTHOG_BENJAMIN": "1" if benjamin_enabled else "0",
+        # Exposure gate for the peer-messaging tools (PR: agent peer messaging). Set in
+        # both states so a stale "1" in a resumed sandbox can't outlive a flag rollback;
+        # the peers endpoints re-check authorization server-side regardless.
+        "POSTHOG_AGENT_PEER_MESSAGING": "1" if peer_messaging else "0",
     }
     assignments = " ".join(
         f"{name}={shlex.quote(value)}" for name, value in env_vars.items() if value is not None and value != ""
     )
-    return f"env {assignments} " if assignments else ""
+    # Route the agent through the PostHog LLM gateway instead of direct Bedrock:
+    # unset the box profile's Bedrock vars so the Claude CLI falls back to the
+    # gateway (ANTHROPIC_BASE_URL/ANTHROPIC_AUTH_TOKEN). Direct Bedrock from the
+    # box needs AWS Marketplace model access plus SigV4-signing the
+    # x-posthog-property-* headers (which AWS strips), so the gateway path avoids
+    # both and matches the Modal backend.
+    unset_flags = "-u CLAUDE_CODE_USE_BEDROCK -u AWS_CONTAINER_CREDENTIALS_FULL_URI" if unset_bedrock else ""
+    body = f"{unset_flags} {assignments}".strip()
+    return f"env {body} " if body else ""
 
 
 class SandboxBase(ABC):
@@ -287,6 +376,11 @@ class SandboxBase(ABC):
     config: SandboxConfig
     supports_creation_cancellation = False
     creation_timeout_seconds = 300
+    # When True, the agent runtime is launched with the box's Bedrock env unset,
+    # so the Claude CLI routes through the PostHog LLM gateway instead of direct
+    # Bedrock. hogland opts in (see HoglandSandbox); Modal/Docker already use the
+    # gateway.
+    disable_direct_bedrock = False
 
     @staticmethod
     def creation_cancellation_scope(cancel_event: threading.Event) -> AbstractContextManager[None]:
@@ -320,7 +414,7 @@ class SandboxBase(ABC):
     def execute_stream(self, command: str, timeout_seconds: int | None = None) -> ExecutionStream: ...
 
     @abstractmethod
-    def write_file(self, path: str, payload: bytes) -> ExecutionResult: ...
+    def write_file(self, path: str, payload: bytes, timeout_seconds: int | None = None) -> ExecutionResult: ...
 
     def stop_agent_server(self) -> ExecutionResult:
         """Stop the agent server gracefully so it can flush terminal events."""
@@ -404,6 +498,18 @@ class SandboxBase(ABC):
             )
         return False
 
+    def clear_bundled_skills_if_disabled(self) -> None:
+        """Delete the bundled skill folders when the sandbox environment asks for it.
+
+        The check runs inside the sandbox: a sandbox rehydrated by id carries no config env
+        vars, but the container environment still holds the value the launcher set.
+        """
+        paths = " ".join(shlex.quote(path) for path in BUNDLED_SKILLS_PATHS)
+        command = f'if [ "${ENV_DISABLE_BUNDLED_SKILLS}" = "1" ]; then rm -rf {paths} && mkdir -p {paths}; fi'
+        result = self.execute(command, timeout_seconds=30)
+        if result.exit_code != 0:
+            raise RuntimeError(f"Failed to clear bundled skills in sandbox {self.id}: {result.stderr}")
+
     def agent_server_supports_auto_publish(self) -> bool:
         """Sandboxes restored from old snapshots can carry an agent-server that rejects unknown
         CLI options, so probe the installed binary before passing --autoPublish; unsupported
@@ -412,9 +518,6 @@ class SandboxBase(ABC):
         return result.exit_code == 0
 
     def agent_server_supports_exec_permission_regex(self) -> bool:
-        """Same probe as --autoPublish: check the installed binary before passing
-        --posthogExecPermissionRegex; unsupported binaries degrade to server-side auto-approval of
-        exec sub-tools instead of crashing at launch."""
         result = self.execute(
             "grep -q posthogExecPermissionRegex /scripts/node_modules/.bin/agent-server", timeout_seconds=10
         )
@@ -427,12 +530,20 @@ class SandboxBase(ABC):
         )
         return result.exit_code == 0
 
+    def agent_server_supports_prewarmed_resume_message_driven(self) -> bool:
+        result = self.execute(
+            "grep -q prewarmedResumeMessageDriven /scripts/node_modules/.bin/agent-server",
+            timeout_seconds=10,
+        )
+        return result.exit_code == 0
+
     def clone_repository(
         self,
         repository: str,
         github_token: str | None = "",
         shallow: bool = True,
         branch: str | None = None,
+        blobless: bool = False,
     ) -> ExecutionResult:
         if not self.is_running():
             raise RuntimeError("Sandbox not in running state.")
@@ -445,13 +556,13 @@ class SandboxBase(ABC):
         )
 
         target_path = sandbox_repo_path(repository)
-        org_path = f"{WORKING_DIR}/repos/{org}"
+        org_path = f"{SANDBOX_REPOSITORIES_ROOT}/{org}"
 
         depth_flag = f" --depth {shlex.quote('1')}" if shallow else ""
         branch_flag = f" --branch {shlex.quote(branch)}" if branch else ""
-        # Skip blobs over 128kB during full clones — large test snapshots and auto-generated
-        # files get fetched on demand. Shallow clones are already small enough.
-        blob_filter = "" if shallow else " --filter=blob:limit=128k"
+        blob_filter = ""
+        if not shallow:
+            blob_filter = " --filter=blob:none" if blobless else " --filter=blob:limit=128k"
         clone_command = (
             f"rm -rf {shlex.quote(target_path)} && "
             f"mkdir -p {shlex.quote(org_path)} && "
@@ -487,6 +598,9 @@ class SandboxBase(ABC):
         ...
 
     @abstractmethod
+    def create_preview_connect_credentials(self, port: int, user_metadata: dict[str, Any]) -> AgentServerResult: ...
+
+    @abstractmethod
     def start_agent_server(
         self,
         repository: str | None,
@@ -502,6 +616,7 @@ class SandboxBase(ABC):
         provider: str | None = None,
         model: str | None = None,
         reasoning_effort: str | None = None,
+        service_tier: str | None = None,
         context_window: str | None = None,
         fast_mode: bool | None = None,
         initial_permission_mode: str | None = None,
@@ -515,7 +630,10 @@ class SandboxBase(ABC):
         repo_ready_file: str | None = None,
         wait_for_health: bool = True,
         rtk_enabled: bool = True,
-    ) -> None:
+        benjamin_enabled: bool = False,
+        peer_messaging: bool = False,
+        claude_model_access: str | None = None,
+    ) -> int | None:
         """Start the agent-server HTTP server in the sandbox.
 
         The sandbox URL and token should be obtained via get_connect_credentials()
@@ -523,8 +641,13 @@ class SandboxBase(ABC):
         """
         ...
 
+    def supports_combined_agent_server_start_and_health(self) -> bool:
+        return False
+
     @abstractmethod
-    def wait_for_agent_server_ready(self, allowed_domains: list[str] | None = None) -> None: ...
+    def wait_for_agent_server_ready(
+        self, allowed_domains: list[str] | None = None, *, claude_model_access: str | None = None
+    ) -> None: ...
 
     @abstractmethod
     def mark_repo_ready(self, repo_ready_file: str) -> None: ...
@@ -547,7 +670,22 @@ class SandboxBase(ABC):
     def read_agent_server_session_init_ms(self) -> int | None:
         return None
 
+    def read_agent_server_boot_phases_ms(self) -> dict[str, int]:
+        return {}
+
+    def read_agent_server_boot_metrics(self) -> tuple[int | None, dict[str, int]]:
+        return None, {}
+
+    def agent_server_health_url(self) -> str:
+        return "http://127.0.0.1:8080/health"
+
     def read_cpu_usage_usec(self) -> int | None:
+        return None
+
+    def start_cpu_billing_sampler(self) -> bool:
+        return False
+
+    def read_billed_cpu_usage_usec(self) -> int | None:
         return None
 
     def _read_health_session_init_ms(self, port: int) -> int | None:
@@ -558,6 +696,66 @@ class SandboxBase(ABC):
             return int(session_init_ms) if isinstance(session_init_ms, int | float) else None
         except Exception:
             return None
+
+    def _read_health_boot_metrics(self, port: int) -> tuple[int | None, dict[str, int]]:
+        try:
+            result = self.execute(f"curl -s --max-time 5 http://localhost:{port}/health", timeout_seconds=10)
+            payload = json.loads(result.stdout or "{}")
+            session_init_ms = payload.get("sessionInitMs")
+            boot = payload.get("boot", {})
+            raw_phases = boot.get("phasesMs", {}) if isinstance(boot, dict) else {}
+            allowed_phases = {
+                "context_fetch",
+                "acp_initialize",
+                "repository_ready",
+                "session_dependencies",
+                "session_create",
+            }
+            phases = (
+                {
+                    phase: max(0, int(duration))
+                    for phase, duration in raw_phases.items()
+                    if phase in allowed_phases and isinstance(duration, int | float)
+                }
+                if isinstance(raw_phases, dict)
+                else {}
+            )
+            for source, target in (
+                ("totalMs", "server_total"),
+                ("httpReadyMs", "http_ready"),
+                ("launcherToProcessMs", "launcher_to_process"),
+            ):
+                duration = boot.get(source) if isinstance(boot, dict) else None
+                if isinstance(duration, int | float) and not isinstance(duration, bool):
+                    phases[target] = max(0, int(duration))
+            boot_ms = payload.get("bootMs")
+            if "server_total" not in phases and isinstance(boot_ms, int | float) and not isinstance(boot_ms, bool):
+                phases["server_total"] = max(0, int(boot_ms))
+            return int(session_init_ms) if isinstance(session_init_ms, int | float) else None, phases
+        except Exception:
+            return None, {}
+
+    def _read_health_boot_phases_ms(self, port: int) -> dict[str, int]:
+        try:
+            result = self.execute(f"curl -s --max-time 5 http://localhost:{port}/health", timeout_seconds=10)
+            payload = json.loads(result.stdout or "{}")
+            raw_phases = payload.get("boot", {}).get("phasesMs", {})
+            allowed_phases = {
+                "context_fetch",
+                "acp_initialize",
+                "repository_ready",
+                "session_dependencies",
+                "session_create",
+            }
+            if not isinstance(raw_phases, dict):
+                return {}
+            return {
+                phase: max(0, int(duration))
+                for phase, duration in raw_phases.items()
+                if phase in allowed_phases and isinstance(duration, int | float)
+            }
+        except Exception:
+            return {}
 
     def __enter__(self) -> Self:
         return self
@@ -610,32 +808,70 @@ def wait_for_health_check(
     port: int,
     max_attempts: int = 60,
     poll_interval: float = 0.5,
+    pid_file: str | None = None,
 ) -> bool:
     """Poll health endpoint until server is ready (single remote call).
 
     Runs a bash polling loop inside the sandbox so only one round-trip is
     needed regardless of how many attempts are required.
     """
-    health_script = (
-        f"for i in $(seq 1 {max_attempts}); do "
-        f"  body=$(curl -s http://localhost:{port}/health); "
+    health_script = build_health_check_command(port, max_attempts, poll_interval, pid_file)
+    result = execute(health_script, timeout_seconds=health_check_timeout_seconds(max_attempts, poll_interval))
+    if "claude_credential_unavailable" in result.stdout:
+        from products.tasks.backend.exceptions import ProcessTaskFatalError
+
+        raise ProcessTaskFatalError(
+            "The Claude token did not arrive. Open Desktop and check your token in Settings > Harness. Then start the task again.",
+            {"sandbox_id": sandbox_id},
+            RuntimeError("Claude token unavailable"),
+            capture=False,
+        )
+    if result.exit_code == 0:
+        _logger.info(f"Agent-server health check passed in sandbox {sandbox_id} ({result.stdout.strip()})")
+        return True
+    return False
+
+
+HEALTH_CURL_MAX_TIME_SECONDS = 2
+
+
+def build_health_check_command(
+    port: int, max_attempts: int = 60, poll_interval: float = 0.5, pid_file: str | None = None
+) -> str:
+    process_check = (
+        f'if [ -f {shlex.quote(pid_file)} ]; then kill -0 "$(cat {shlex.quote(pid_file)})" 2>/dev/null || exit 1; fi; '
+        if pid_file is not None
+        else ""
+    )
+    # The attempt count assumes an instant poll. A poll that waits on curl or python startup
+    # would otherwise outrun the exec timeout, and the caller never sees the loop's result.
+    budget_seconds = health_check_budget_seconds(max_attempts, poll_interval)
+    return (
+        "SECONDS=0; i=0; while :; do "
+        "  i=$((i + 1)); "
+        f"{process_check}"
+        f"  body=$(curl -s --max-time {HEALTH_CURL_MAX_TIME_SECONDS} http://localhost:{port}/health); "
         "  status=$?; "
         '  if [ "$status" = "0" ]; then '
+        '    case "$body" in *claude_credential_unavailable*) echo "claude_credential_unavailable"; exit 1;; esac; '
         "    python3 -c '"
         "import json, sys; "
         "payload = json.loads(sys.argv[1]); "
         'sys.exit(0 if payload.get("status") == "ok" and payload.get("hasSession") is True else 1)'
         f'\' "$body" && echo "ok:$i" && exit 0; '
         "  fi; "
+        f'  if [ "$i" -ge {max_attempts} ] || [ "$SECONDS" -ge {budget_seconds} ]; then exit 1; fi; '
         f"  sleep {poll_interval}; "
-        f"done; "
-        f"exit 1"
+        "done"
     )
-    result = execute(health_script, timeout_seconds=max(30, int(max_attempts * poll_interval) + 5))
-    if result.exit_code == 0:
-        _logger.info(f"Agent-server health check passed in sandbox {sandbox_id} ({result.stdout.strip()})")
-        return True
-    return False
+
+
+def health_check_budget_seconds(max_attempts: int = 60, poll_interval: float = 0.5) -> int:
+    return int(max_attempts * poll_interval)
+
+
+def health_check_timeout_seconds(max_attempts: int = 60, poll_interval: float = 0.5) -> int:
+    return max(30, health_check_budget_seconds(max_attempts, poll_interval) + HEALTH_CURL_MAX_TIME_SECONDS + 5)
 
 
 SandboxClass = type[SandboxBase]
@@ -697,6 +933,12 @@ def _get_modal_evals_sandbox_class() -> SandboxClass:
     return ModalEvalsSandbox
 
 
+def _get_hogland_sandbox_class() -> SandboxClass:
+    from .hogland_sandbox import HoglandSandbox
+
+    return HoglandSandbox
+
+
 def get_sandbox_class() -> SandboxClass:
     provider = getattr(settings, "SANDBOX_PROVIDER", None)
 
@@ -708,6 +950,16 @@ def get_sandbox_class() -> SandboxClass:
 
     if provider and provider.upper() == "MODAL_EVALS":
         return _get_modal_evals_sandbox_class()
+
+    if provider and provider.lower() == "hogland":
+        # Global default only for local development — production routes per run via
+        # get_sandbox_class_for_backend, driven by the tasks-hogland-sandbox flag.
+        if not (settings.DEBUG or settings.TEST):
+            raise RuntimeError(
+                "SANDBOX_PROVIDER=hogland is for local development only. In production the "
+                "hogland backend is selected per run by the tasks-hogland-sandbox feature flag."
+            )
+        return _get_hogland_sandbox_class()
 
     # Default to Modal everywhere
     from .modal_sandbox import ModalSandbox
@@ -726,7 +978,48 @@ def get_sandbox_class_for_backend(backend: str) -> SandboxClass:
         return _get_modal_evals_sandbox_class()
     if backend == "docker":
         return _get_docker_sandbox_class()
+    if backend == "hogland":
+        return _get_hogland_sandbox_class()
     raise RuntimeError(f"Unsupported sandbox backend: {backend}")
+
+
+def get_sandbox_class_for_run_backend(backend: str) -> SandboxClass:
+    """Resolve the provider class for a run whose backend was chosen at context time.
+
+    Only ``"hogland"`` diverts from the process default. Every other value — including
+    the ``"modal"`` default — falls through to ``get_sandbox_class()`` so
+    ``SANDBOX_PROVIDER`` still selects docker / modal-docker / modal-evals in dev, test,
+    and evals. Routing straight to ``get_sandbox_class_for_backend("modal")`` here would
+    force ModalSandbox even under ``SANDBOX_PROVIDER=docker``, breaking local runs.
+    """
+    if backend == "hogland":
+        return _get_hogland_sandbox_class()
+    return get_sandbox_class()
+
+
+# hogland mints `box-<12 hex>` (hogd enforces `^box-[0-9a-f]{12}$`); Modal object ids
+# are `sb-...`. A box restored from a pen keeps a `box-` id, so this covers pens too.
+HOGLAND_SANDBOX_ID_PREFIX = "box-"
+
+
+def get_sandbox_class_for_sandbox_id(sandbox_id: str) -> SandboxClass:
+    """Resolve the provider class for an existing sandbox from its id alone.
+
+    Hogland box ids are `box-...` and Modal object ids `sb-...`, so the prefix is enough
+    to route the ~20 `get_by_id` call sites that hold only a persisted sandbox id (the
+    reaper, cleanup, and snapshot activities have no other backend context). Anything
+    that is not a hogland id falls through to the process-wide provider, preserving the
+    docker/local-dev behavior.
+
+    Getting this prefix wrong fails closed to the wrong provider: a hogland id would
+    resolve to Modal, whose `get_by_id` raises `SandboxNotFoundError`, so cleanup and the
+    reaper would silently skip a real hogbox and leak it. The persisted `sandbox_backend`
+    (see get_task_processing_context) is the authoritative signal for behavioral branches;
+    this prefix is a routing convenience checked against hogland's enforced id shape.
+    """
+    if sandbox_id.startswith(HOGLAND_SANDBOX_ID_PREFIX):
+        return _get_hogland_sandbox_class()
+    return get_sandbox_class()
 
 
 if TYPE_CHECKING:

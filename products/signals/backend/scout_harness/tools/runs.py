@@ -19,6 +19,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any
+from uuid import UUID
 
 from django.db import connection
 from django.db.models import Q
@@ -353,6 +354,7 @@ class FleetFindingsSummary:
     scout_count: int
     authored_report_count: int
     edited_report_count: int
+    run_count: int
     latest_at: str | None
 
     def as_dict(self) -> dict[str, Any]:
@@ -379,6 +381,9 @@ def fleet_findings_summary(*, team_id: int, window_hours: int = DEFAULT_FINDINGS
     """
     window_hours = max(1, min(window_hours, MAX_FINDINGS_WINDOW_HOURS))
     window_start = timezone.now() - timedelta(hours=window_hours)
+    # Every run in the window, quiet ones included, so the roster's runs headline sits on the same
+    # span as its report tallies instead of a per-scout depth that doesn't sum across a fleet.
+    run_count = SignalScoutRun.objects.filter(team_id=team_id, created_at__gte=window_start).count()
     touched_a_report = (~Q(emitted_report_ids=[]) & ~Q(emitted_report_ids__isnull=True)) | (
         ~Q(edited_report_ids=[]) & ~Q(edited_report_ids__isnull=True)
     )
@@ -428,6 +433,7 @@ def fleet_findings_summary(*, team_id: int, window_hours: int = DEFAULT_FINDINGS
         scout_count=len(scouts),
         authored_report_count=len(authored_reports),
         edited_report_count=len(edited_reports),
+        run_count=run_count,
         latest_at=latest_at.isoformat() if latest_at is not None else None,
     )
 
@@ -442,6 +448,29 @@ def get_run(*, team_id: int, run_id: str) -> RunDetail | None:
     if row is None:
         return None
     return _to_detail(row, team_id=team_id)
+
+
+def run_id_for_sandbox_task(*, task_id: UUID | None, team_id: int) -> str | None:
+    """The run a scout sandbox is executing, resolved from the task its token is bound to.
+
+    Provenance, not a claim: the sandbox cannot choose which task its OAuth token carries, so this
+    names the authoring run even when the agent never supplies a `run_id` or supplies one it
+    mistyped out of its prompt. Mirrors `pipeline_writer_identity`, which resolves the report
+    pipeline's stages off the same binding.
+
+    None is the answer for every non-scout caller — a human, a personal API key, and the report
+    pipeline's own stages, whose tasks have no `SignalScoutRun` row. A task can hold several runs
+    (a retried dispatch), so the newest wins.
+    """
+    if task_id is None:
+        return None
+    row_id = (
+        SignalScoutRun.objects.filter(team_id=team_id, task_run__task_id=task_id)
+        .order_by("-created_at", "-id")
+        .values_list("id", flat=True)
+        .first()
+    )
+    return str(row_id) if row_id is not None else None
 
 
 def _to_summary(row: SignalScoutRun, *, team_id: int) -> RunSummary:

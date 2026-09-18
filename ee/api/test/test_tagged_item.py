@@ -11,7 +11,7 @@ from posthog.models.tagged_item import TaggedItem
 
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 
 # This serializer only tests the business logic of getting and setting of ee descriptions. It uses the dashboard model
 # as an example, since model specific functionality is already tested in their models' respective serializer tests.

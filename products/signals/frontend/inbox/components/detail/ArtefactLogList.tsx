@@ -1,22 +1,25 @@
-import { type ComponentType, useState } from 'react'
+import { type ComponentType, Fragment, useState } from 'react'
 
 import {
     IconActivity,
-    IconArchive,
+    IconHide,
     IconCode,
     IconComment,
     IconCommit,
     IconFlag,
     IconGitRepository,
+    IconCalendar,
     IconListCheck,
     IconListTreeConnected,
     IconPeople,
     IconPencil,
+    IconRefresh,
     IconSearch,
     IconShield,
     IconTerminal,
     IconVideoCamera,
     IconExternal,
+    IconPullRequest,
 } from '@posthog/icons'
 import { LemonCard, LemonTag, type LemonTagType, Link, ProfilePicture } from '@posthog/lemon-ui'
 
@@ -28,6 +31,7 @@ import type { SignalNode } from 'scenes/debug/signals/types'
 import { urls } from 'scenes/urls'
 
 import { Task } from 'products/posthog_ai/frontend/types/taskTypes'
+import type { SignalReportPullRequestApi } from 'products/signals/frontend/generated/api.schemas'
 
 import { PRIORITY_TAG_TYPE } from '../../filterOptions'
 import { SignalCard } from '../../SignalCard'
@@ -35,24 +39,30 @@ import { EnrichedReviewer, SignalReportActionability, SignalReportPriority, Sign
 import { SignalReportActionabilityBadge } from '../badges/SignalReportActionabilityBadge'
 import { SignalCardDisclosureProvider } from '../signalCards/SignalCardShell'
 import { ArtefactCommit } from './ArtefactCommit'
+import { ArtefactPullRequest } from './ArtefactPullRequest'
 import { ArtefactTaskRun } from './ArtefactTaskRun'
 import {
     artefactAttributionLabel,
     artefactLocationLabel,
-    artefactTypeLabel,
+    CheckResultContent,
     CodeReviewContent,
     CodeReferenceContent,
     CommitContent,
     DismissalContent,
+    ImplementationDecisionContent,
+    ImplementationReplacementContent,
+    ImplementationHandoverContent,
     LineReferenceContent,
     NoteContent,
     RelatedToContent,
     RepoSelectionContent,
+    selectVisibleReportActivity,
     SignalFindingContent,
     SummaryChangeContent,
     TaskRunArtefactContent,
     TitleChangeContent,
 } from './artefactTypes'
+import { prActivityTitle } from './prActivityPresentation'
 
 /** Map a file extension to a CodeSnippet language for syntax highlighting; falls back to plain text. */
 function languageFromPath(path: string | undefined): Language {
@@ -111,6 +121,7 @@ const DISMISS_REASON_LABELS: Record<string, string> = {
 }
 
 const ARTEFACT_MARKER: Record<string, ComponentType<{ className?: string }>> = {
+    pull_request: IconPullRequest,
     code_reference: IconCode,
     line_reference: IconCode,
     commit: IconCommit,
@@ -122,12 +133,16 @@ const ARTEFACT_MARKER: Record<string, ComponentType<{ className?: string }>> = {
     signal_finding: IconSearch,
     suggested_reviewers: IconPeople,
     repo_selection: IconGitRepository,
-    dismissal: IconArchive,
+    dismissal: IconHide,
     video_segment: IconVideoCamera,
     title_change: IconPencil,
     summary_change: IconPencil,
     related_to: IconListTreeConnected,
     code_review: IconListCheck,
+    check_result: IconCalendar,
+    implementation_decision: IconRefresh,
+    implementation_replacement: IconRefresh,
+    implementation_handover: IconRefresh,
 }
 
 function dismissReasonLabel(reason: string): string {
@@ -216,20 +231,39 @@ function ReviewersBody({ reviewers }: { reviewers: EnrichedReviewer[] }): JSX.El
     return (
         <div className="flex flex-wrap gap-1.5">
             {reviewers.map((reviewer) => {
-                const name = reviewer.user?.first_name || reviewer.github_name || reviewer.github_login
-                return (
+                const name =
+                    reviewer.user?.first_name ||
+                    reviewer.github_name ||
+                    reviewer.github_login ||
+                    reviewer.user?.email ||
+                    'Reviewer'
+                const body = (
+                    <>
+                        <ProfilePicture user={reviewer.user} name={name} size="xs" />
+                        <span className="text-default">{name}</span>
+                        {reviewer.github_login ? (
+                            <span className="font-mono text-tertiary">@{reviewer.github_login}</span>
+                        ) : null}
+                    </>
+                )
+                return reviewer.github_login ? (
                     <Link
-                        key={reviewer.github_login}
+                        key={reviewer.user?.uuid ?? reviewer.user_uuid ?? reviewer.github_login}
                         to={`https://github.com/${reviewer.github_login}`}
                         target="_blank"
                         disableClientSideRouting
                         className="inline-flex items-center gap-1.5 rounded px-1.5 py-1 text-xs no-underline hover:bg-fill-highlight-50"
                     >
-                        <ProfilePicture user={reviewer.user} name={name} size="xs" />
-                        <span className="text-default">{name}</span>
-                        <span className="font-mono text-tertiary">@{reviewer.github_login}</span>
+                        {body}
                         <IconExternal className="size-3 text-tertiary" />
                     </Link>
+                ) : (
+                    <div
+                        key={reviewer.user?.uuid ?? reviewer.user_uuid ?? name}
+                        className="inline-flex items-center gap-1.5 rounded px-1.5 py-1 text-xs"
+                    >
+                        {body}
+                    </div>
                 )
             })}
         </div>
@@ -270,6 +304,29 @@ const CODE_REVIEW_OUTCOME: Record<NonNullable<CodeReviewContent['outcome']>, { l
     published: { label: 'Published on GitHub', type: 'success' },
     stored: { label: 'Review saved', type: 'muted' },
     failed: { label: 'Review failed', type: 'danger' },
+}
+
+const CHECK_OUTCOME: Record<NonNullable<CheckResultContent['outcome']>, { label: string; type: LemonTagType }> = {
+    passed: { label: 'Still holds', type: 'success' },
+    failed: { label: 'No longer holds', type: 'danger' },
+    errored: { label: "Couldn't measure", type: 'warning' },
+}
+
+function CheckResultBody({ content }: { content: CheckResultContent }): JSX.Element | null {
+    if (!content.explanation?.trim()) {
+        return null
+    }
+    return (
+        <div className="flex w-full flex-col items-start gap-1">
+            <span className="text-xs text-default">{content.explanation}</span>
+            {content.threshold ? (
+                <span className="text-xs text-tertiary">
+                    Expected {content.threshold}
+                    {typeof content.baseline_value === 'number' ? `, was ${content.baseline_value} when set` : ''}
+                </span>
+            ) : null}
+        </div>
+    )
 }
 
 function CodeReviewBody({ content }: { content: CodeReviewContent }): JSX.Element | null {
@@ -384,6 +441,30 @@ function renderArtefactSummary(artefact: SignalReportArtefact): JSX.Element | nu
                 </LemonTag>
             ) : null
         }
+        case 'check_result': {
+            const outcome = (content as CheckResultContent).outcome
+            const meta = outcome ? CHECK_OUTCOME[outcome] : null
+            return meta ? (
+                <LemonTag size="small" type={meta.type}>
+                    {meta.label}
+                </LemonTag>
+            ) : null
+        }
+        case 'implementation_decision': {
+            const { supersede, blocked_reason } = content as ImplementationDecisionContent
+            if (typeof supersede !== 'boolean') {
+                return null
+            }
+            return (
+                <LemonTag size="small" type={supersede ? 'warning' : 'muted'}>
+                    {blocked_reason === 'revision_limit'
+                        ? 'Replacement limit reached'
+                        : supersede
+                          ? 'Replacement recommended'
+                          : 'Still the right fix'}
+                </LemonTag>
+            )
+        }
         default:
             return null
     }
@@ -393,14 +474,31 @@ function renderArtefactBody({
     reportId,
     artefact,
     knownTasks,
+    knownPullRequests,
 }: {
     reportId: string
     artefact: SignalReportArtefact
     knownTasks?: Map<string, Task>
+    knownPullRequests: Map<string, SignalReportPullRequestApi>
 }): JSX.Element | null {
     const content = artefact.content
+    const renderPullRequest = (url: string, outcome?: 'closed' | 'already_closed' | 'skipped'): JSX.Element => {
+        const pr = knownPullRequests.get(url)
+        const taskId = pr?.attached_by?.task_id
+        return (
+            <ArtefactPullRequest
+                key={url}
+                url={url}
+                implementationTitle={taskId ? knownTasks?.get(taskId)?.title : undefined}
+                state={pr?.merged ? 'merged' : pr?.state}
+                outcome={outcome}
+            />
+        )
+    }
 
     switch (artefact.type) {
+        case 'pull_request':
+            return typeof content.url === 'string' && content.url ? renderPullRequest(content.url) : null
         case 'code_reference': {
             const c = content as CodeReferenceContent
             return (
@@ -451,6 +549,8 @@ function renderArtefactBody({
             return <RelatedReportBody content={content as RelatedToContent} />
         case 'code_review':
             return <CodeReviewBody content={content as CodeReviewContent} />
+        case 'check_result':
+            return <CheckResultBody content={content as CheckResultContent} />
         case 'title_change': {
             const c = content as TitleChangeContent
             return <ContentChangeBody previous={c.old_title} current={c.new_title ?? ''} />
@@ -462,6 +562,55 @@ function renderArtefactBody({
         case 'dismissal': {
             const c = content as DismissalContent
             return c.note ? <RelevanceNote note={c.note} /> : null
+        }
+        case 'implementation_decision': {
+            const c = content as ImplementationDecisionContent
+            return (
+                <div className="space-y-3 text-xs">
+                    <ReasoningBody text={c.reason ?? ''} />
+                    {(c.targets ?? []).map(({ pr_url }) => renderPullRequest(pr_url))}
+                </div>
+            )
+        }
+        case 'implementation_replacement': {
+            const c = content as ImplementationReplacementContent
+            return (
+                <div className="space-y-3 text-xs">
+                    <ReasoningBody text="These PRs stay open while the replacement runs." />
+                    {(c.decision?.targets ?? []).map(({ pr_url }) => renderPullRequest(pr_url))}
+                </div>
+            )
+        }
+        case 'implementation_handover': {
+            const c = content as ImplementationHandoverContent
+            return (
+                <div className="space-y-3 text-xs">
+                    {!!c.replacement_pr_urls?.length && (
+                        <div className="space-y-3">
+                            <span className="block text-secondary">
+                                {c.replacement_pr_urls.length === 1 ? 'Replacement PR' : 'Replacement PRs'}
+                            </span>
+                            {c.replacement_pr_urls.map((url) => renderPullRequest(url))}
+                        </div>
+                    )}
+                    {!!Object.keys(c.results ?? {}).length && (
+                        <div className="space-y-3 border-t pt-3">
+                            <span className="block text-secondary">
+                                {Object.keys(c.results ?? {}).length === 1 ? 'Previous PR' : 'Previous PRs'}
+                            </span>
+                            {Object.entries(c.results ?? {}).map(([url, result]) => renderPullRequest(url, result))}
+                        </div>
+                    )}
+                    {c.explanation ? (
+                        <details open={c.status !== 'completed'}>
+                            <summary className="cursor-pointer text-secondary">Replacement details</summary>
+                            <div className="mt-2">
+                                <ReasoningBody text={c.explanation} />
+                            </div>
+                        </details>
+                    ) : null}
+                </div>
+            )
         }
         default: {
             const value = (content as { content?: unknown })?.content
@@ -477,18 +626,24 @@ function ArtefactRow({
     artefact,
     knownTasks,
     knownSignals,
+    knownPullRequests,
 }: {
     reportId: string
     artefact: SignalReportArtefact
     knownTasks?: Map<string, Task>
     knownSignals?: Map<string, SignalNode>
+    knownPullRequests: Map<string, SignalReportPullRequestApi>
 }): JSX.Element {
     const signalId = artefact.type === 'signal_finding' ? (artefact.content as SignalFindingContent).signal_id : null
     const signal = signalId ? knownSignals?.get(signalId) : undefined
     const location = artefactLocationLabel(artefact)
     const attribution = artefactAttributionLabel(artefact)
     const summary = renderArtefactSummary(artefact)
-    const body = signal ? <SignalFindingBody signal={signal} /> : renderArtefactBody({ reportId, artefact, knownTasks })
+    const body = signal ? (
+        <SignalFindingBody signal={signal} />
+    ) : (
+        renderArtefactBody({ reportId, artefact, knownTasks, knownPullRequests })
+    )
     const bodyHasOwnCard = artefact.type === 'signal_finding' || artefact.type === 'commit'
     const MarkerIcon = ARTEFACT_MARKER[artefact.type] ?? IconActivity
 
@@ -505,7 +660,7 @@ function ArtefactRow({
                             : 'flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5'
                     }
                 >
-                    <span className="font-medium text-sm text-default">{artefactTypeLabel(artefact.type)}</span>
+                    <span className="font-medium text-sm text-default">{prActivityTitle(artefact)}</span>
                     {summary}
                     {location ? <span className="truncate font-mono text-xs text-tertiary">{location}</span> : null}
                     <span className="inline-flex items-center gap-1.5 text-xs text-tertiary">
@@ -529,33 +684,74 @@ function ArtefactRow({
  * findings, code references, diffs, commits, task runs, notes, and reviewers. Mirrors desktop
  * `ArtefactLogList`. Returns null when there are no artefacts.
  */
+/**
+ * Stands in for the scout notes the work log stopped keeping. Past the first few, a scout's notes
+ * restate that the finding is still there, so the count carries what the entries would have.
+ * Rendered above the newest note, where those entries would otherwise sit.
+ */
+function CollapsedNotesRow({ count }: { count: number }): JSX.Element {
+    return (
+        <div className="relative flex gap-3 pb-4 last:pb-0">
+            <span className="z-10 flex size-5 shrink-0 items-center justify-center rounded-full border bg-surface-primary text-secondary">
+                <IconComment className="size-3" />
+            </span>
+            <div className="min-w-0 flex-1 text-xs text-tertiary">
+                Corroborated {count} more {count === 1 ? 'time' : 'times'} by a scout, with nothing new to add.
+            </div>
+        </div>
+    )
+}
+
 export function ArtefactLogList({
     reportId,
     artefacts,
     knownTasks,
     knownSignals,
+    pullRequests,
+    collapsedNoteCount = 0,
 }: {
     reportId: string
     artefacts: SignalReportArtefact[]
     /** Tasks the detail logic already resolved, keyed by id — `task_run` rows reuse these instead of refetching. */
     knownTasks?: Map<string, Task>
     knownSignals?: Map<string, SignalNode>
+    pullRequests?: readonly SignalReportPullRequestApi[]
+    /** Scout notes the report received beyond the entries kept below, shown as one line instead. */
+    collapsedNoteCount?: number
 }): JSX.Element | null {
     if (artefacts.length === 0) {
         return null
     }
-    const ordered = [...artefacts].sort((a, b) => b.created_at.localeCompare(a.created_at))
+    const ordered = selectVisibleReportActivity(artefacts).sort((a, b) => b.created_at.localeCompare(a.created_at))
+    const knownPullRequests = new Map(pullRequests?.map((pr) => [pr.url, pr]))
+    if (ordered.length === 0) {
+        return null
+    }
+    // The dropped notes came after every note still in the log, and the list runs newest-first, so
+    // they sit above the newest surviving note. With no note left to anchor to they lead the log.
+    const anchorIndex =
+        collapsedNoteCount > 0
+            ? Math.max(
+                  0,
+                  ordered.findIndex((a) => a.type === 'note')
+              )
+            : -1
     return (
         <div className="relative">
             <span className="absolute bottom-2.5 left-2.5 top-2.5 w-px bg-border" aria-hidden />
-            {ordered.map((artefact) => (
-                <ArtefactRow
-                    key={artefact.id}
-                    reportId={reportId}
-                    artefact={artefact}
-                    knownTasks={knownTasks}
-                    knownSignals={knownSignals}
-                />
+            {ordered.map((artefact, index) => (
+                // Fragment rather than a wrapper element: `ArtefactRow`'s `last:pb-0` resolves
+                // against this container's children, and a wrapper would make every row the last.
+                <Fragment key={artefact.id}>
+                    {index === anchorIndex ? <CollapsedNotesRow count={collapsedNoteCount} /> : null}
+                    <ArtefactRow
+                        reportId={reportId}
+                        artefact={artefact}
+                        knownTasks={knownTasks}
+                        knownSignals={knownSignals}
+                        knownPullRequests={knownPullRequests}
+                    />
+                </Fragment>
             ))}
         </div>
     )

@@ -1,0 +1,12 @@
+{
+    "id": "MB4",
+    "file": "products/review_hog/backend/receivers.py",
+    "lines": "126-138",
+    "priority": "should_fix",
+    "title": "Concurrent output saves can start duplicate reviews",
+    "problem": "Every matching output save queues a job. The agent server and webhook backstop can save the same PR at the same time. The consumer locks matching ReviewRun rows, but an empty result locks nothing. ReviewRun has no unique key for the pull request and head SHA. Two tasks can therefore create costly reviews and post duplicate GitHub results.",
+    "suggestion": "Serialize the consumer on the PullRequest row before it checks and creates ReviewRun. Alternatively, enforce a database idempotency key that still permits explicit retries after failures. Add a concurrent dispatch test for this race.",
+    "cluster": 42,
+    "cluster_issue": "Alleged check-then-act race in process_inbox_pr_review's dedupe allowing duplicate runs under concurrent refires (serialized by PR row lock)",
+    "cluster_verified": "1/6"
+}

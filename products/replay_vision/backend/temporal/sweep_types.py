@@ -44,8 +44,13 @@ class FindScannerCandidatesOutput(BaseModel, frozen=True):
     # Stragglers from the periodic full-events-lookback catch-up pass; dispatch-only, never drive
     # the fast watermark. Defaults keep pre-deploy histories replaying deterministically.
     deep_candidates: list[CandidateSessionPayload] = Field(default_factory=list)
-    # Horizon the deep pass covered; None when it didn't run or its batch saturated.
+    # Keyset tiebreaker the deep pass stopped on; empty when it finished its window.
+    deep_keyset_session_id: str = ""
+    # Horizon the deep pass covered; None when it didn't run.
     deep_swept_through: dt.datetime | None = None
+    # One-off priming pass for a never-swept scanner; dispatch-only, never drives any watermark.
+    # The default keeps pre-deploy histories replaying deterministically.
+    priming_candidates: list[CandidateSessionPayload] = Field(default_factory=list)
     # Last row of the fetched batch, before negative-filter exclusion dropped any of it. Dropping rows
     # must not regress or stall the keyset. None on pre-deploy histories and on empty batches, where
     # the workflow falls back to deriving the position from `candidates`/`swept_through`.
@@ -75,3 +80,5 @@ class AdvanceScannerWatermarkInputs(BaseModel, frozen=True):
     new_last_seen_session_id: str = Field(max_length=MAX_SESSION_ID_LENGTH)
     # None leaves the deep-sweep watermark untouched.
     new_last_deep_swept_at: dt.datetime | None = None
+    # Only read when the deep watermark moves; empty clears the deep keyset tiebreaker.
+    new_last_deep_seen_session_id: str = ""

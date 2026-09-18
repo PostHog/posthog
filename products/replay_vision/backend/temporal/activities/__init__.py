@@ -28,6 +28,7 @@ from products.replay_vision.backend.temporal.activities.evaluate_prompt_suggesti
     select_evaluation_sessions_activity,
 )
 from products.replay_vision.backend.temporal.activities.fetch_session_events import fetch_session_events_activity
+from products.replay_vision.backend.temporal.activities.fetch_session_network import fetch_session_network_activity
 from products.replay_vision.backend.temporal.activities.find_scanner_candidates import find_scanner_candidates_activity
 from products.replay_vision.backend.temporal.activities.list_stale_scanner_estimates import (
     list_stale_scanner_estimates_activity,
@@ -44,9 +45,6 @@ from products.replay_vision.backend.temporal.activities.reap_childless_inline_sc
 )
 from products.replay_vision.backend.temporal.activities.reap_orphaned_observations import (
     reap_orphaned_observations_activity,
-)
-from products.replay_vision.backend.temporal.activities.reap_stuck_vision_action_runs import (
-    reap_stuck_vision_action_runs_activity,
 )
 from products.replay_vision.backend.temporal.activities.reconciler_activities import (
     delete_scanner_schedule_activity,
@@ -84,6 +82,7 @@ __all__ = [
     "emit_observation_signal_activity",
     "ensure_session_asset_activity",
     "fetch_session_events_activity",
+    "fetch_session_network_activity",
     "finalize_evaluation_activity",
     "find_scanner_candidates_activity",
     "list_enabled_scanners_activity",
@@ -96,7 +95,6 @@ __all__ = [
     "mark_observation_succeeded_activity",
     "reap_childless_inline_scanners_activity",
     "reap_orphaned_observations_activity",
-    "reap_stuck_vision_action_runs_activity",
     "record_evaluation_result_activity",
     "refresh_scanner_estimate_activity",
     "select_evaluation_sessions_activity",

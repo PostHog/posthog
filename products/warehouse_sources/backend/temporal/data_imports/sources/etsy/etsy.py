@@ -67,19 +67,20 @@ class EtsyResumeConfig:
 class EtsyClient:
     """Etsy Open API v3 transport: x-api-key on every call plus a bearer minted from a refresh token.
 
-    Etsy's OAuth2 uses PKCE, so the refresh exchange takes the app's keystring as ``client_id`` and
-    carries no client secret. Access tokens last an hour, which a backfill routinely outlives, so a
-    401 re-mints once and replays the request.
+    Since 9 February 2026 Etsy rejects any v3 request whose ``x-api-key`` is the keystring alone, so
+    the header pairs it with the app's shared secret as ``keystring:secret``. The OAuth2 refresh
+    exchange still uses PKCE and takes the keystring on its own as ``client_id``. Access tokens last
+    an hour, which a backfill routinely outlives, so a 401 re-mints once and replays the request.
     """
 
-    def __init__(self, api_key: str, refresh_token: str, logger: FilteringBoundLogger) -> None:
+    def __init__(self, api_key: str, shared_secret: str, refresh_token: str, logger: FilteringBoundLogger) -> None:
         self._api_key = api_key
         self._refresh_token = refresh_token
         self._logger = logger
         self._access_token: Optional[str] = None
         self._session = make_tracked_session(
-            headers={"x-api-key": api_key, "Accept": "application/json"},
-            redact_values=(api_key, refresh_token),
+            headers={"x-api-key": f"{api_key}:{shared_secret}", "Accept": "application/json"},
+            redact_values=(api_key, shared_secret, refresh_token),
             # The keystring rides a custom header, which requests does not strip across a redirect.
             allow_redirects=False,
         )
@@ -87,7 +88,8 @@ class EtsyClient:
     def _mint_token(self) -> str:
         response = self._session.post(
             ETSY_TOKEN_URL,
-            json={
+            # An OAuth2 token endpoint takes form encoding; Etsy rejects a JSON body outright.
+            data={
                 "grant_type": "refresh_token",
                 "client_id": self._api_key,
                 "refresh_token": self._refresh_token,
@@ -118,7 +120,9 @@ class EtsyClient:
             response = self._send(path, params)
 
         if response.status_code >= 300:
-            self._logger.error(f"Etsy API error: status={response.status_code}, path={path}")
+            self._logger.error(
+                f"Etsy API error: status={response.status_code}, path={path}, body={response.text[:500]}"
+            )
             response.raise_for_status()
             raise EtsyAPIError(f"Unexpected Etsy redirect response: status={response.status_code}, path={path}")
 
@@ -139,7 +143,9 @@ class EtsyClient:
         return str(shop_id)
 
 
-def validate_credentials(api_key: str, refresh_token: str, shop_id: Optional[str]) -> tuple[bool, Optional[str]]:
+def validate_credentials(
+    api_key: str, shared_secret: str, refresh_token: str, shop_id: Optional[str]
+) -> tuple[bool, Optional[str]]:
     """Cheap probe: mint a token and read the token's own identity.
 
     Always hits `/users/me`, even with a shop ID configured — otherwise a bogus keystring or refresh
@@ -153,10 +159,10 @@ def validate_credentials(api_key: str, refresh_token: str, shop_id: Optional[str
 
     try:
         # No job logger exists on the create-time probe path, so use the module logger.
-        client = EtsyClient(api_key, refresh_token, structlog.get_logger(__name__))
+        client = EtsyClient(api_key, shared_secret, refresh_token, structlog.get_logger(__name__))
         identity = client.request("/users/me")
     except Exception:
-        return False, "Could not authenticate with Etsy. Check your API keystring and refresh token."
+        return False, "Could not authenticate with Etsy. Check your API keystring, shared secret and refresh token."
 
     if not (shop_id and shop_id.strip()) and identity.get("shop_id") is None:
         return False, NO_SHOP_ERROR
@@ -174,6 +180,10 @@ def _rows_from_results(results: list[Any], config: EtsyEndpointConfig) -> list[d
             continue
         rows.extend(child for child in (row.get(config.expand_key) or []) if isinstance(child, dict))
     return rows
+
+
+def _max_offset(config: EtsyEndpointConfig) -> int:
+    return MAX_OFFSET if config.max_offset is None else config.max_offset
 
 
 def _fetch_page(
@@ -199,9 +209,16 @@ def _windowed_pages(
 ) -> Iterator[list[dict[str, Any]]]:
     """Walk `start`..`end` in time slices, offset-paging each one.
 
-    Etsy's 12,000 offset ceiling means a slice holding more rows than that can never be read to the
-    end, so an oversized slice is halved (down to `MIN_WINDOW_SECONDS`) and retried instead.
+    A slice holding more rows than its offset ceiling can reach can never be read to the end, so an
+    oversized slice is halved (down to `MIN_WINDOW_SECONDS`) and retried instead. Both the slice
+    width and the ceiling vary by endpoint: Etsy rejects a window wider than `max_window_seconds`,
+    and serves no offset above `max_offset`.
     """
+    window_seconds = config.max_window_seconds or DEFAULT_WINDOW_SECONDS
+    max_offset = _max_offset(config)
+    # Offsets step by PAGE_SIZE from zero, so the ceiling itself is still a readable page.
+    readable_rows = max_offset + PAGE_SIZE
+
     pending: deque[tuple[int, int]] = deque()
     cursor = start
     offset = 0
@@ -216,7 +233,7 @@ def _windowed_pages(
             window_start, window_end = pending.popleft()
         else:
             window_start = cursor
-            window_end = min(cursor + DEFAULT_WINDOW_SECONDS - 1, end)
+            window_end = min(cursor + window_seconds - 1, end)
             cursor = window_end + 1
 
         params = {
@@ -228,7 +245,7 @@ def _windowed_pages(
         while True:
             rows, page_size, total = _fetch_page(client, path, params, offset, config)
 
-            if offset == 0 and total > MAX_OFFSET and (window_end - window_start) >= MIN_WINDOW_SECONDS:
+            if offset == 0 and total > readable_rows and (window_end - window_start) >= MIN_WINDOW_SECONDS:
                 midpoint = window_start + (window_end - window_start) // 2
                 pending.appendleft((midpoint + 1, window_end))
                 pending.appendleft((window_start, midpoint))
@@ -244,7 +261,7 @@ def _windowed_pages(
             if page_size == 0 or page_size < PAGE_SIZE or offset >= total:
                 offset = 0
                 break
-            if offset > MAX_OFFSET:
+            if offset > max_offset:
                 logger.warning(
                     f"Etsy offset ceiling reached for {config.name} between {window_start} and {window_end}; "
                     f"{total - offset} rows in this window were not read"
@@ -266,6 +283,7 @@ def _offset_pages(
     # State written by the windowed walk is meaningless here, so only a windowless checkpoint resumes.
     resumable = resume if resume is not None and resume.window_start is None else None
     offset = resumable.offset if resumable is not None else 0
+    max_offset = _max_offset(config)
 
     if resumable is not None and resumable.listing_state is not None and resumable.listing_state in states:
         states = states[states.index(resumable.listing_state) :]
@@ -286,7 +304,7 @@ def _offset_pages(
 
             if page_size == 0 or page_size < PAGE_SIZE or offset >= total:
                 break
-            if offset > MAX_OFFSET:
+            if offset > max_offset:
                 logger.warning(
                     f"Etsy offset ceiling reached for {config.name} (state={state}); "
                     f"{total - offset} rows were not read"
@@ -296,6 +314,7 @@ def _offset_pages(
 
 def get_rows(
     api_key: str,
+    shared_secret: str,
     refresh_token: str,
     shop_id: Optional[str],
     endpoint: str,
@@ -306,7 +325,7 @@ def get_rows(
     incremental_field: Optional[str] = None,
 ) -> Iterator[list[dict[str, Any]]]:
     config = ETSY_ENDPOINTS[endpoint]
-    client = EtsyClient(api_key, refresh_token, logger)
+    client = EtsyClient(api_key, shared_secret, refresh_token, logger)
     path = f"/shops/{client.resolve_shop_id(shop_id)}{config.path}"
 
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
@@ -360,6 +379,7 @@ def _window_start(should_use_incremental_field: bool, db_incremental_field_last_
 
 def etsy_source(
     api_key: str,
+    shared_secret: str,
     refresh_token: str,
     shop_id: Optional[str],
     endpoint: str,
@@ -375,6 +395,7 @@ def etsy_source(
         name=endpoint,
         items=lambda: get_rows(
             api_key=api_key,
+            shared_secret=shared_secret,
             refresh_token=refresh_token,
             shop_id=shop_id,
             endpoint=endpoint,

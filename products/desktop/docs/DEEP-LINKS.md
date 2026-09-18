@@ -16,6 +16,16 @@ If the app is not running, the OS launches it and the link is queued until the r
 
 Links can also be dispatched from inside the app: the `deepLink.open` tRPC route forwards a URL through the same handlers, with no OS hop. Remote announcement CTAs use this — author payloads with the production scheme; dev builds swap in their scheme automatically.
 
+## Report references in the app
+
+Report references in agent messages open the full report page in the current app, including inside task chats. They do not open a general object preview or an external browser. The hover card's explicit **Open in PostHog** action still opens the web page.
+
+Quick Ask sends report navigation to the main Desktop window through `deepLink.openInboxReport`.
+This route accepts only a non-empty report ID and is included in the Quick Ask IPC allowlist.
+The broader `deepLink.openAgentAction` route remains blocked for Quick Ask.
+Report references bypass the panel's click suppression; other reference kinds keep their preview-only behavior.
+Its separate window does not use the main window's router or tab services.
+
 ## User-facing links
 
 These are the deep links you would share with someone or wire up from another tool.
@@ -96,19 +106,24 @@ posthog-code://task/abc123?comment=thread-1&scope=desktop_canvas&item=canvas-9
 
 An **https** bridge also exists for links sent outside the app (e.g. comment Slack DMs): `<instance>/code/task/<taskId>` resolves to a web interstitial in PostHog Cloud, which fires this scheme — forwarding the `comment`, `scope`, and `item` params — or offers the desktop-app download.
 
-### `posthog-code://inbox/<reportId>`
+### `posthog-code://inbox[/<reportId>]`
 
-Open a specific inbox report.
+Open Self-driving, or a specific report inside it.
+
+The report "Copy link" action lets users copy this app-only scheme or the
+browser-accessible web URL (`<instance>/project/<projectId>/inbox/<reportId>`).
+The web report can still hand off to Desktop where appropriate.
 
 | Segment | Required | Description |
 |---|---|---|
-| `<reportId>` | Yes | Inbox report ID |
+| `<reportId>` | No | Inbox report ID. Omit to open the inbox itself. |
 
 ```
+posthog-code://inbox
 posthog-code://inbox/report_abc123
 ```
 
-### `posthog-code://scout/<skillSlug>`
+### `posthog-code://scout/<skillName>`
 
 Open a scout's detail page, optionally focused on a specific finding (expanded
 and scrolled into view). This is the link copied by the "Share" CTA on a scout
@@ -116,12 +131,12 @@ emission card.
 
 | Segment / Parameter | Required | Description |
 |---|---|---|
-| `<skillSlug>` | Yes | Scout route slug, i.e. the skill name with the `signals-scout-` prefix stripped (e.g. `error-tracking`) |
+| `<skillName>` | Yes | Full scout skill name (e.g. `signals-scout-error-tracking`, or a bare name such as `my-churn-watch`). Older links carrying the name with the `signals-scout-` prefix stripped still resolve. |
 | `finding` | No | Emission id to expand and scroll to. Best effort – only resolves while the finding is still inside the scout's runs window. |
 
 ```
-posthog-code://scout/error-tracking
-posthog-code://scout/error-tracking?finding=abc123
+posthog-code://scout/signals-scout-error-tracking
+posthog-code://scout/my-churn-watch?finding=abc123
 ```
 
 ### `posthog-code://loop/<loopId>`
@@ -137,20 +152,6 @@ a loop's detail page.
 posthog-code://loop/abc123
 ```
 
-### `posthog-code://approval/<requestId>`
-
-Open the agent fleet approvals inbox focused on a specific tool-approval request.
-Emitted by the agent-runner on a gated tool call so non-PostHog-Code clients
-(Slack, MCP) can land on the approval; the request id alone resolves it.
-
-| Segment / Parameter | Required | Description |
-|---|---|---|
-| `<requestId>` | Yes | Agent tool-approval request id (e.g. `ar_...`). |
-
-```
-posthog-code://approval/ar_abc123
-```
-
 ### `posthog-code://canvas/<channelId>/<dashboardId>`
 
 Open a canvas (a dashboard inside a Channels-space channel) straight in the
@@ -160,6 +161,10 @@ canvas copies an **https** link (`<instance>/code/canvas/<channelId>/<dashboardI
 that resolves to a web interstitial in PostHog Cloud, which fires this scheme
 (or offers the desktop-app download). That way the link works for anyone,
 whether or not they have the app.
+
+Use the link button in the canvas toolbar to copy this link without opening a
+menu. The button has a "Copy link to canvas" tooltip, like the session link
+button. "Copy link" also remains in the canvas options menu.
 
 | Segment | Required | Description |
 |---|---|---|
@@ -255,7 +260,6 @@ In development the same payload is delivered to `http://localhost:8238/mcp-oauth
 | `inbox` | [packages/core/src/links/inbox-link.ts](../packages/core/src/links/inbox-link.ts) |
 | `scout` | [packages/core/src/links/scout-link.ts](../packages/core/src/links/scout-link.ts) |
 | `loop` | [packages/core/src/links/loop-link.ts](../packages/core/src/links/loop-link.ts) |
-| `approval` | [packages/core/src/links/approval-link.ts](../packages/core/src/links/approval-link.ts) |
 | `canvas` | [packages/core/src/links/canvas-link.ts](../packages/core/src/links/canvas-link.ts) |
 | `channel` | [packages/core/src/links/channel-link.ts](../packages/core/src/links/channel-link.ts) |
 | `new`, `plan`, `issue` | [packages/core/src/links/new-task-link.ts](../packages/core/src/links/new-task-link.ts) |

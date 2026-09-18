@@ -3,7 +3,8 @@ import type { ReactNode } from "react";
 
 export interface ReviewHost {
   diffWorkerFactory(): Worker;
-  renderExpandedSidebar(task: Task): ReactNode;
+  /** The list of a review's files, shown beside the diff when there is room. */
+  renderFileBrowser(task: Task): ReactNode;
 }
 
 export const REVIEW_HOST = Symbol.for("posthog.ui.ReviewHost");

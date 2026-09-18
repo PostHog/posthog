@@ -7,11 +7,11 @@ import { IconGear } from '@posthog/icons'
 import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
+import { PIE_DISPLAY_TYPES } from 'lib/constants'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { InsightErrorState, StatelessInsightLoadingState } from 'scenes/insights/EmptyStates'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { HogQLBoldNumber } from 'scenes/insights/views/BoldNumber/BoldNumber'
 import { urls } from 'scenes/urls'
 
 import { insightVizDataCollectionId, insightVizDataNodeKey } from '~/queries/nodes/InsightViz/insightVizKeys'
@@ -28,6 +28,7 @@ import { shouldQueryBeAsync } from '~/queries/utils'
 import { ChartDisplayType, ExportContext, ExporterFormat, InsightLogicProps } from '~/types'
 
 import { alertsToThresholdGoalLines, insightAlertsLogic } from 'products/alerts/frontend/logic/insightAlertsLogic'
+import { HogQLBoldNumber } from 'products/product_analytics/frontend/insights/shared/BoldNumber/BoldNumber'
 
 import { DataNodeLogicProps, dataNodeLogic } from '../DataNode/dataNodeLogic'
 import { DateRange } from '../DataNode/DateRange'
@@ -35,12 +36,13 @@ import { ElapsedTime } from '../DataNode/ElapsedTime'
 import { Reload } from '../DataNode/Reload'
 import { QueryFeature } from '../DataTable/queryFeatures'
 import { PieChart } from './Components/Charts/PieChart'
-import { SqlChart } from './Components/Charts/SqlChart'
+import { SqlBoxPlot } from './Components/Charts/SqlBoxPlot'
+import { isSqlChartVisualizationType, SqlChart } from './Components/Charts/SqlChart'
+import { SqlMetricCard } from './Components/Charts/SqlMetricCard'
 import { SqlScatterGraph } from './Components/Charts/SqlScatterGraph'
 import { TwoDimensionalHeatmap } from './Components/Heatmap/TwoDimensionalHeatmap'
 import { seriesBreakdownLogic } from './Components/seriesBreakdownLogic'
 import { SideBar } from './Components/SideBar'
-import { SqlInsightDateFilterNotice } from './Components/SqlInsightDateFilterNotice'
 import { Table } from './Components/Table'
 import { TableDisplay } from './Components/TableDisplay'
 import { AddVariableButton } from './Components/Variables/AddVariableButton'
@@ -62,6 +64,7 @@ export interface DataTableVisualizationProps {
     editMode?: boolean
     readOnly?: boolean
     embedded?: boolean
+    inSharedMode?: boolean
     exportContext?: ExportContext
     /** Dashboard variables to override the ones in the query */
     variablesOverride?: Record<string, HogQLVariable> | null
@@ -82,6 +85,7 @@ export function DataTableVisualization({
     attachTo,
     editMode,
     embedded,
+    inSharedMode,
 }: DataTableVisualizationProps): JSX.Element {
     const [key] = useState(`DataVisualizationNode.${uniqueKey ?? uniqueNode++}`)
     const queryRef = useRef(query)
@@ -158,6 +162,7 @@ export function DataTableVisualization({
                                 exportContext={exportContext}
                                 editMode={editMode}
                                 embedded={embedded}
+                                inSharedMode={inSharedMode}
                             />
                         </BindLogic>
                     </BindLogic>
@@ -182,11 +187,14 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
         isChartSettingsPanelOpen,
         xData,
         yData,
+        columns,
         chartSettings,
         dashboardId,
         dataVisualizationProps,
-        presetChartHeight,
+        presetChartHeight: scenePresetChartHeight,
     } = useValues(dataVisualizationLogic)
+
+    const presetChartHeight = !props.embedded && scenePresetChartHeight
 
     const { seriesBreakdownData } = useValues(seriesBreakdownLogic({ key: dataVisualizationProps.key }))
     const { goalLines } = useValues(displayLogic)
@@ -217,6 +225,8 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
         (source: HogQLQuery) => props.setQuery?.({ ...props.query, source }),
         [props.setQuery, props.query] // oxlint-disable-line react-hooks/exhaustive-deps
     )
+
+    const isDateXAxis = xData?.column.type.name === 'DATE' || xData?.column.type.name === 'DATETIME'
 
     let component: JSX.Element | null = null
 
@@ -253,27 +263,27 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
                 embedded={props.embedded}
             />
         )
-    } else if (
-        effectiveVisualizationType === ChartDisplayType.ActionsLineGraph ||
-        effectiveVisualizationType === ChartDisplayType.ActionsBar ||
-        effectiveVisualizationType === ChartDisplayType.ActionsAreaGraph ||
-        effectiveVisualizationType === ChartDisplayType.ActionsStackedBar
-    ) {
+    } else if (isSqlChartVisualizationType(effectiveVisualizationType)) {
         const _xData = seriesBreakdownData.xData.data.length ? seriesBreakdownData.xData : xData
         const _yData = seriesBreakdownData.xData.data.length ? seriesBreakdownData.seriesData : yData
         component = (
-            <SqlChart
-                className="p-3"
-                xData={_xData}
-                yData={_yData}
-                visualizationType={effectiveVisualizationType}
-                chartSettings={chartSettings}
-                dashboardId={dashboardId}
-                goalLines={[...alertThresholdLines, ...goalLines]}
-                presetChartHeight={presetChartHeight}
-            />
+            <BindLogic logic={insightLogic} props={alertsInsightProps}>
+                <SqlChart
+                    className="p-3"
+                    xData={_xData}
+                    yData={_yData}
+                    visualizationType={effectiveVisualizationType}
+                    chartSettings={chartSettings}
+                    dashboardId={dashboardId}
+                    goalLines={[...alertThresholdLines, ...goalLines]}
+                    insightNumericId={insight?.id || 'new'}
+                    showAnnotations={!props.inSharedMode && isDateXAxis && chartSettings.showAnnotations === true}
+                    presetChartHeight={presetChartHeight}
+                    embedded={props.embedded}
+                />
+            </BindLogic>
         )
-    } else if (effectiveVisualizationType === ChartDisplayType.ActionsPie) {
+    } else if (PIE_DISPLAY_TYPES.includes(effectiveVisualizationType)) {
         const _xData = seriesBreakdownData.xData.data.length ? seriesBreakdownData.xData : xData
         // Pie charts can consume breakdown series totals directly, even when there isn't
         // a matching breakdown x-axis to swap in like the line/bar path expects.
@@ -284,6 +294,7 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
                 className="p-3"
                 xData={_xData}
                 yData={_yData}
+                visualizationType={effectiveVisualizationType}
                 chartSettings={chartSettings}
                 presetChartHeight={presetChartHeight}
             />
@@ -300,14 +311,43 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
                 presetChartHeight={presetChartHeight}
             />
         )
+    } else if (effectiveVisualizationType === ChartDisplayType.BoxPlot) {
+        const rows = ('results' in response ? response.results : 'result' in response ? response.result : []) ?? []
+        component = (
+            <SqlBoxPlot
+                rows={Array.isArray(rows) ? rows : []}
+                columns={columns}
+                chartSettings={chartSettings}
+                analyticsKey={dataVisualizationProps.key}
+                presetChartHeight={presetChartHeight}
+            />
+        )
     } else if (effectiveVisualizationType === ChartDisplayType.TwoDimensionalHeatmap) {
         component = <TwoDimensionalHeatmap allowSorting={!(props.embedded && readOnly)} />
     } else if (effectiveVisualizationType === ChartDisplayType.BoldNumber) {
         component = <HogQLBoldNumber />
+    } else if (effectiveVisualizationType === ChartDisplayType.Metric) {
+        component = (
+            <SqlMetricCard
+                xData={xData}
+                yData={yData}
+                metricSettings={chartSettings.metric}
+                presetChartHeight={presetChartHeight}
+            />
+        )
     }
 
     if (props.embedded) {
-        return <div className="DataVisualization InsightCard__viz">{component}</div>
+        return (
+            <div
+                className={clsx(
+                    'DataVisualization InsightCard__viz',
+                    effectiveVisualizationType === ChartDisplayType.Metric && 'InsightCard__viz--Metric'
+                )}
+            >
+                {component}
+            </div>
+        )
     }
 
     return (
@@ -375,8 +415,6 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
                         </div>
                     </>
                 )}
-
-                <SqlInsightDateFilterNotice source={query.source} />
 
                 {!props.embedded && <VariablesForInsight />}
 

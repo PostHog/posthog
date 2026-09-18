@@ -8,6 +8,7 @@ import {
     FramerInstallation,
     GoogleTagManagerInstallation,
     IOSInstallation,
+    KMPInstallation,
     MobileFinalSteps,
     NextJSInstallation,
     NuxtInstallation,
@@ -144,6 +145,10 @@ const WebAnalyticsFlutterInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: FlutterInstallation,
     snippets: MOBILE_SNIPPETS,
 })
+const WebAnalyticsKMPInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: KMPInstallation,
+    snippets: MOBILE_SNIPPETS,
+})
 const WebAnalyticsRNInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: ReactNativeInstallation,
     snippets: MOBILE_SNIPPETS,
@@ -173,5 +178,6 @@ export const WebAnalyticsSDKInstructions: SDKInstructionsMap = {
     [SDKKey.ANDROID]: WebAnalyticsAndroidInstructionsWrapper,
     [SDKKey.FLUTTER]: WebAnalyticsFlutterInstructionsWrapper,
     [SDKKey.IOS]: WebAnalyticsIOSInstructionsWrapper,
+    [SDKKey.KMP]: WebAnalyticsKMPInstructionsWrapper,
     [SDKKey.REACT_NATIVE]: WebAnalyticsRNInstructionsWrapper,
 }

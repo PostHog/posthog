@@ -64,8 +64,14 @@
                                             },
                                             "source": {
                                                 "default": "events",
-                                                "description": "* `events` - events\n* `person-updates` - person-updates\n* `data-warehouse-table` - data-warehouse-table",
-                                                "enum": ["events", "person-updates", "data-warehouse-table"],
+                                                "description": "* `events` - events\n* `internal-events` - internal-events\n* `person-updates` - person-updates\n* `data-warehouse-table` - data-warehouse-table\n* `data-warehouse-view` - data-warehouse-view",
+                                                "enum": [
+                                                    "events",
+                                                    "internal-events",
+                                                    "person-updates",
+                                                    "data-warehouse-table",
+                                                    "data-warehouse-view"
+                                                ],
                                                 "type": "string"
                                             },
                                             "transpiled": {}
@@ -89,6 +95,19 @@
                             },
                             "type": "array"
                         },
+                        "window": {
+                            "anyOf": [
+                                {
+                                    "maxLength": 32,
+                                    "pattern": "^(?:[0-9]+(?:\\.[0-9]+)?|\\.[0-9]+)[dhms]$",
+                                    "type": "string"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "How long after entering the workflow a conversion still counts, as a duration string: '7d', '12h', '30m', '45s'. Same form the delay steps use. Maximum '365d'. Omit it to use the default window. Set this or 'window_minutes', not both."
+                        },
                         "window_minutes": {
                             "anyOf": [
                                 {
@@ -98,7 +117,7 @@
                                     "type": "null"
                                 }
                             ],
-                            "description": "Conversion window in minutes after a person enters the workflow. null = no explicit window."
+                            "description": "DEPRECATED, use 'window' instead. Conversion window in MINUTES (not seconds) after a person enters the workflow. Maximum 129600 (90 days). null = use the default window. Set this or 'window', not both."
                         }
                     },
                     "type": "object"
@@ -107,11 +126,36 @@
                     "type": "null"
                 }
             ],
-            "description": "Conversion goal. filters: ARRAY of property conditions [{key, value, operator, type: event|person|group}]; events: event-based goals [{filters: {events: [...]}}]; window_minutes: minutes after entry. Required for exit_on_conversion / exit_on_trigger_not_matched_or_conversion. bytecode compiled server-side."
+            "description": "Conversion goal. filters: ARRAY of property conditions [{key, value, operator, type: event|person|group}]; events: event-based goals [{filters: {events: [...]}}]; window: how long after entry a conversion counts, as a duration string such as '7d' or '12h', maximum '365d' (window_minutes is the deprecated integer form, in MINUTES not seconds); set one, not both. Required for exit_on_conversion / exit_on_trigger_not_matched_or_conversion. bytecode compiled server-side."
         },
         "description": {
             "description": "Optional description.",
             "type": "string"
+        },
+        "email_sending_rate_limit": {
+            "anyOf": [
+                {
+                    "properties": {
+                        "count": {
+                            "description": "Maximum number of emails this workflow sends per period.",
+                            "maximum": 1000000,
+                            "minimum": 1,
+                            "type": "number"
+                        },
+                        "period": {
+                            "description": "Window the count applies to. Sends over the limit are delayed until capacity frees up, not dropped.\n\n* `minute` - minute\n* `hour` - hour",
+                            "enum": ["minute", "hour"],
+                            "type": "string"
+                        }
+                    },
+                    "required": ["count", "period"],
+                    "type": "object"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Optional email pacing for deliverability: {count, period: 'minute' | 'hour'}. The email worker spreads this workflow's sends to stay under the limit; over-limit sends wait for capacity instead of failing. Null disables pacing."
         },
         "exit_condition": {
             "description": "exit_only_at_end: only at exit node (default). exit_on_conversion: also on conversion (needs 'conversion'; silent no-op otherwise). exit_on_trigger_not_matched: also when trigger filter stops matching. exit_on_trigger_not_matched_or_conversion: both (needs 'conversion').\n\n* `exit_on_conversion` - Conversion\n* `exit_on_trigger_not_matched` - Trigger Not Matched\n* `exit_on_trigger_not_matched_or_conversion` - Trigger Not Matched Or Conversion\n* `exit_only_at_end` - Only At End",

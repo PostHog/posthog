@@ -10,6 +10,7 @@ from requests import Response
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import APIKeyAuth
 from products.warehouse_sources.backend.temporal.data_imports.sources.pandadoc.pandadoc import (
     PAGE_SIZE,
+    PANDADOC_BASE_URL,
     PandaDocResumeConfig,
     _build_query_params,
     _format_date_filter,
@@ -218,6 +219,27 @@ class TestPagination:
         assert isinstance(auth[0], APIKeyAuth)
         assert auth[0].api_key == "API-Key secret-key"
         assert auth[0].name == "Authorization"
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_requests_target_public_v1(self, MockSession):
+        # PandaDoc serves this source's endpoints only under /public/v1; v2 has no route for them,
+        # so the wire must stay on v1 even though v2 is the source's default pin. Guards against a
+        # future edit repointing the base URL to /public/v2, which would 404 every sync.
+        session = MockSession.return_value
+        session.headers = {}
+        urls: list[str] = []
+
+        def _prepare(request):
+            urls.append(request.url)
+            return mock.MagicMock()
+
+        session.prepare_request.side_effect = _prepare
+        session.send.side_effect = [_response([{"id": "a"}])]
+
+        _rows(pandadoc_source("key", "documents", team_id=1, job_id="j", resumable_source_manager=_make_manager()))
+
+        assert PANDADOC_BASE_URL == "https://api.pandadoc.com/public/v1"
+        assert urls[0].startswith("https://api.pandadoc.com/public/v1/documents")
 
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_resumes_from_saved_page(self, MockSession):

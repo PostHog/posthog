@@ -1,19 +1,20 @@
 from django.db.models import QuerySet
 from django.db.models.functions import Lower
 
-from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_view
+from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_field, extend_schema_view
 from rest_framework import filters, serializers, viewsets
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin
-from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 
+from products.access_control.backend.presentation.access_control import (
+    AccessControlViewSetMixin,
+    UserAccessControlSerializerMixin,
+)
 from products.experiments.backend.experiment_saved_metric_service import ExperimentSavedMetricService
 from products.experiments.backend.metric_utils import filter_metric_group_ids_by_event, refresh_action_names_in_metric
-from products.experiments.backend.models.experiment import ExperimentSavedMetric, ExperimentToSavedMetric
-
-from ee.api.rbac.access_control import AccessControlViewSetMixin
+from products.experiments.backend.models.experiment import Experiment, ExperimentSavedMetric, ExperimentToSavedMetric
 
 
 class ExperimentToSavedMetricSerializer(serializers.ModelSerializer):
@@ -47,6 +48,12 @@ class ExperimentToSavedMetricSerializer(serializers.ModelSerializer):
         return data
 
 
+class ExperimentSavedMetricLinkedExperimentSerializer(serializers.Serializer):
+    id = serializers.IntegerField(help_text="Experiment ID.")
+    name = serializers.CharField(help_text="Experiment name.")
+    is_running = serializers.BooleanField(help_text="True when the experiment is launched and not yet stopped.")
+
+
 class ExperimentSavedMetricSerializer(
     UserAccessControlSerializerMixin, TaggedItemSerializerMixin, serializers.ModelSerializer
 ):
@@ -72,6 +79,10 @@ class ExperimentSavedMetricSerializer(
             "Legacy kinds (ExperimentTrendsQuery, ExperimentFunnelsQuery) are rejected for new shared metrics."
         ),
     )
+    linked_experiments = serializers.SerializerMethodField(
+        help_text="Experiments using this shared metric (soft-deleted experiments excluded). "
+        "Populated only on single-metric retrieve; always an empty list in list responses."
+    )
 
     class Meta:
         model = ExperimentSavedMetric
@@ -85,6 +96,7 @@ class ExperimentSavedMetricSerializer(
             "updated_at",
             "tags",
             "user_access_level",
+            "linked_experiments",
         ]
         read_only_fields = [
             "id",
@@ -92,6 +104,27 @@ class ExperimentSavedMetricSerializer(
             "created_at",
             "updated_at",
             "user_access_level",
+            "linked_experiments",
+        ]
+
+    @extend_schema_field(ExperimentSavedMetricLinkedExperimentSerializer(many=True))
+    def get_linked_experiments(self, instance: ExperimentSavedMetric) -> list[dict]:
+        # Retrieve-only: the list endpoint serves paginated pages (and the metric modal eagerly
+        # loads all of them), so resolving links there would add a query per metric.
+        view = self.context.get("view")
+        if view is None or getattr(view, "action", None) != "retrieve":
+            return []
+        experiments = (
+            Experiment.objects.filter(experimenttosavedmetric__saved_metric=instance, deleted=False)
+            .distinct()
+            .order_by("-created_at")
+        )
+        # Experiments carry object-level access controls; drop the ones this user cannot view
+        if self.user_access_control:
+            experiments = self.user_access_control.filter_queryset_by_access_level(experiments, resource="experiment")
+        return [
+            {"id": experiment.id, "name": experiment.name, "is_running": experiment.is_running}
+            for experiment in experiments
         ]
 
     def validate_name(self, value: str) -> str:

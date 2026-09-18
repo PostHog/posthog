@@ -29,10 +29,16 @@ from posthog.models.proxy_record import is_valid_proxy_domain
 from posthog.security.pinned_requests import SSRFBlockedError, pinned_request, select_pinned_ip
 from posthog.security.url_validation import validate_url_and_pin_ips
 from posthog.temporal.proxy_service.cloudflare import (
+    BLOCKED_HOSTNAME_STATUSES,
+    CLOUDFLARE_ERROR_CROSS_USER_BANNED,
     CloudflareAPIError,
     CustomHostname,
     CustomHostnameSSLStatus,
+    CustomHostnameStatus,
+    describe_blocked_hostname_status,
+    describe_cross_user_banned,
     get_custom_hostname_by_domain,
+    parse_cloudflare_error_code,
 )
 from posthog.temporal.proxy_service.common import is_cloudflare_proxy_by_cname
 
@@ -410,6 +416,27 @@ def _check_cloudflare(record: ProxyRecord) -> tuple[CheckResult, Optional[Custom
             None,
         )
 
+    # A blocked or moved hostname rejects traffic at the edge even when the certificate is
+    # active. Check the hostname status before the SSL status, or an active certificate masks
+    # the block.
+    if info.status in BLOCKED_HOSTNAME_STATUSES:
+        moved = info.status in (CustomHostnameStatus.MOVED, CustomHostnameStatus.PENDING_MIGRATION)
+        return (
+            CheckResult(
+                id="cloudflare",
+                name="Cloudflare custom hostname",
+                status="failed",
+                detail=describe_blocked_hostname_status(info.status, record.domain),
+                remediation=Remediation(
+                    type="config",
+                    summary="Contact support to restore this domain."
+                    if moved
+                    else "Check for a Cloudflare zone hold on this domain, or contact support.",
+                ),
+            ),
+            info,
+        )
+
     ssl_status = info.ssl.status
     if ssl_status == CustomHostnameSSLStatus.ACTIVE:
         return (
@@ -666,6 +693,19 @@ def _check_live_event(record: ProxyRecord) -> CheckResult:
             detail=f"Live probe got HTTP {response.status_code} — proxy is up but failing.",
         )
     if response.status_code >= 400:
+        # A 403 that carries Cloudflare error 1014 is a hostname authorization problem, not a
+        # transient failure. Report it as failed with the remediation message.
+        if parse_cloudflare_error_code(response.text) == CLOUDFLARE_ERROR_CROSS_USER_BANNED:
+            return CheckResult(
+                id="live_event",
+                name="Live event probe",
+                status="failed",
+                detail=describe_cross_user_banned(record.domain),
+                remediation=Remediation(
+                    type="config",
+                    summary="Check the domain's Cloudflare zone for a hold, or contact support.",
+                ),
+            )
         return CheckResult(
             id="live_event",
             name="Live event probe",

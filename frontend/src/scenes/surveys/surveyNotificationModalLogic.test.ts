@@ -10,6 +10,7 @@ import {
     SurveyEventName,
     SurveyEventProperties,
     SurveyQuestionType,
+    SurveyType,
 } from '~/types'
 
 import {
@@ -56,6 +57,7 @@ describe('surveyNotificationModalLogic', () => {
             remapSurveyResponseProperties(copiedInputs, {
                 id: 'target-survey',
                 name: 'Target survey',
+                type: SurveyType.Popover,
                 enable_partial_responses: true,
                 questions: [
                     { id: 'target-a', question: 'First?', type: SurveyQuestionType.Open },
@@ -223,6 +225,7 @@ describe('surveyNotificationModalLogic', () => {
             remapSurveyResponseProperties(copiedInputs, {
                 id: 'target-survey',
                 name: 'Target survey',
+                type: SurveyType.Popover,
                 enable_partial_responses: true,
                 questions: [{ id: 'target-a', question: 'First?', type: SurveyQuestionType.Open }],
             })

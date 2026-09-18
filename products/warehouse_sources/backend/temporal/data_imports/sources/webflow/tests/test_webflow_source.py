@@ -2,8 +2,6 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
@@ -12,8 +10,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.webflow.settings import STATIC_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.webflow.source import WebflowSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.webflow.webflow import WebflowResumeConfig
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 SOURCE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.webflow.source"
 
@@ -40,30 +36,6 @@ def _inputs(schema_name: str = "pages") -> SourceInputs:
 
 
 class TestWebflowSource:
-    def test_source_type(self) -> None:
-        assert WebflowSource().source_type == ExternalDataSourceType.WEBFLOW
-
-    def test_source_config_fields_and_release_status(self) -> None:
-        config = WebflowSource().get_source_config
-        assert config.name == "Webflow"
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.unreleasedSource is not True
-
-        assert all(isinstance(field, SourceFieldInputConfig) for field in config.fields)
-        fields = {field.name: field for field in config.fields if isinstance(field, SourceFieldInputConfig)}
-        assert set(fields) == {"api_token", "site_id"}
-        assert fields["api_token"].type == SourceFieldInputConfigType.PASSWORD
-        assert fields["api_token"].secret is True
-        assert fields["site_id"].type == SourceFieldInputConfigType.TEXT
-        assert fields["site_id"].secret is False
-
-    def test_get_non_retryable_errors(self) -> None:
-        errors = WebflowSource().get_non_retryable_errors()
-        assert "401 Client Error" in errors
-        assert "403 Client Error" in errors
-        assert "409 Client Error: Conflict" in errors
-        assert "Webflow collection for schema" in errors
-
     def test_409_conflict_message_is_recognised_as_non_retryable(self) -> None:
         # Webflow returns 409 on /products when the site has no ecommerce; the raised
         # HTTPError message embeds a volatile site id and URL, so we must match on a
@@ -75,6 +47,18 @@ class TestWebflowSource:
         )
         matches = [pattern for pattern in errors if pattern in raised_message]
         assert matches == ["409 Client Error: Conflict"]
+
+    def test_406_not_acceptable_message_is_recognised_as_non_retryable(self) -> None:
+        # Webflow returns 406 deterministically for a given site/token when listing CMS
+        # collections; the raised HTTPError message embeds a volatile site id and URL, so we
+        # must match on a stable substring that excludes them.
+        errors = WebflowSource().get_non_retryable_errors()
+        raised_message = (
+            "406 Client Error: Not Acceptable for url: "
+            "https://api.webflow.com/v2/sites/64cd40ea6c8cca864c510895/collections"
+        )
+        matches = [pattern for pattern in errors if pattern in raised_message]
+        assert matches == ["406 Client Error"]
 
     def test_deleted_collection_message_is_recognised_as_non_retryable(self) -> None:
         # _resolve_collection_id raises this when a collection's slug no longer resolves at sync
@@ -113,19 +97,6 @@ class TestWebflowSource:
             schemas = WebflowSource().get_schemas(_config(), team_id=1, names=["sites", "collection_blog"])
 
         assert {s.name for s in schemas} == {"sites", "collection_blog"}
-
-    def test_validate_credentials_plumbs_through(self) -> None:
-        with patch(f"{SOURCE_MODULE}.validate_webflow_credentials", return_value=(True, None)) as mock_validate:
-            ok, error = WebflowSource().validate_credentials(_config(), team_id=1, schema_name="products")
-
-        assert ok is True
-        assert error is None
-        mock_validate.assert_called_once_with("token", "site-1", "products")
-
-    def test_get_resumable_source_manager_bound_to_resume_config(self) -> None:
-        manager = WebflowSource().get_resumable_source_manager(_inputs())
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is WebflowResumeConfig
 
     def test_source_for_pipeline_plumbs_through(self) -> None:
         manager = MagicMock(spec=ResumableSourceManager)

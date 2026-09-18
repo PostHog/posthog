@@ -5,6 +5,7 @@ from parameterized import parameterized
 from sshtunnel import BaseSSHTunnelForwarderError
 
 from products.warehouse_sources.backend.temporal.data_imports.cdc.errors import CDCErrorCategory
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import HostNotAllowedError
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.errors import (
     classify_postgres_cdc_error,
 )
@@ -44,6 +45,19 @@ class TestClassifyPostgresCDCError:
                 CDCErrorCategory.CONNECTION_FAILED,
             ),
             (
+                # Observed on a managed provider (Neon-style): the account or project exceeded a
+                # usage quota, so the connection is blocked until the customer upgrades or the
+                # quota resets. Must classify as QUOTA_EXCEEDED, not the generic CONNECTION_FAILED,
+                # so it stops retrying instead of looping into the same wall.
+                "account_quota_exceeded_is_non_retryable",
+                psycopg.OperationalError(
+                    'connection failed: connection to server at "203.0.113.1", port 5432 failed: '
+                    "ERROR:  Your account or project has exceeded the quota. Upgrade your plan to "
+                    "increase limits."
+                ),
+                CDCErrorCategory.QUOTA_EXCEEDED,
+            ),
+            (
                 "network_unreachable_is_non_retryable_host",
                 psycopg.OperationalError(
                     'connection to server at "2001:db8::1", port 5432 failed: Network is unreachable'
@@ -54,6 +68,26 @@ class TestClassifyPostgresCDCError:
                 "no_route_to_host_is_non_retryable_host",
                 psycopg.OperationalError("connection to server at example.invalid, port 5432 failed: No route to host"),
                 CDCErrorCategory.HOST_UNREACHABLE,
+            ),
+            (
+                # Supavisor reports the same routing failure with its erlang-tuple wording, which
+                # never contains the libpq phrases above.
+                "supavisor_enetunreach_is_non_retryable_host",
+                psycopg.OperationalError(
+                    "connection to server at example.invalid, port 5432 failed: FATAL:  "
+                    "Failed to connect to database: {:error, :enetunreach}"
+                ),
+                CDCErrorCategory.HOST_UNREACHABLE,
+            ),
+            (
+                "database_host_not_allowed_is_non_retryable_host",
+                HostNotAllowedError("Database host not allowed: resolves to a private address"),
+                CDCErrorCategory.HOST_UNREACHABLE,
+            ),
+            (
+                "ssh_tunnel_host_not_allowed_is_a_tunnel_failure",
+                HostNotAllowedError("SSH tunnel host not allowed: resolves to a private address"),
+                CDCErrorCategory.SSH_TUNNEL_FAILED,
             ),
             (
                 "slot_missing",

@@ -4,8 +4,7 @@ import { IconChevronLeft, IconChevronRight } from '@posthog/icons'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-
-import { findQueryAtCursor, splitQueries } from './multiQueryUtils'
+import { findQueryAtCursor, splitQueries } from 'lib/monaco/multiQueryUtils'
 
 export interface SaveCandidates {
     queries: string[]

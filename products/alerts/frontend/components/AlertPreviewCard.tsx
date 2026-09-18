@@ -1,8 +1,7 @@
 import { IconInfo } from '@posthog/icons'
 import { LemonSkeleton, LemonTag, Tooltip } from '@posthog/lemon-ui'
+import { LineChart, ReferenceLines, useChartTheme } from '@posthog/quill-charts'
 
-import { Sparkline, SparklineReferenceLine } from 'lib/components/Sparkline'
-import type { AnyScaleOptions } from 'lib/components/Sparkline'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 
 import { AlertConditionType, InsightThresholdType } from '~/queries/schema/schema-general'
@@ -12,42 +11,58 @@ import { FunnelAlertPreview } from 'products/alerts/frontend/logic/funnelAlertPr
 import { HogQLAlertPreview } from 'products/alerts/frontend/logic/hogqlAlertPreview'
 import {
     deriveTrendsAlertPreviewSeries,
+    deriveTrendsBreakdownAlertPreview,
     TrendsAlertPreviewSeries,
 } from 'products/alerts/frontend/logic/trendsAlertPreview'
 import { isFunnelsAlertConfig, isHogQLAlertConfig, isTrendsAlertConfig } from 'products/alerts/frontend/types'
+import { makeChartErrorHandler } from 'products/product_analytics/frontend/insights/trends/shared/chartErrorHandler'
 
 import { FunnelAlertPreviewBanner } from './AlertDefinitionFields'
-import { fromLogScale, shouldUseLogScale, thresholdReferenceLines, toLogScale } from './AlertPreviewCard.utils'
+import { AlertThresholdLine, shouldUseLogScale, thresholdReferenceLines } from './AlertPreviewCard.utils'
 import { HogQLAlertPreviewBanner } from './HogQLAlertPreview'
 
-function allowNegativeYScale(scale: AnyScaleOptions): AnyScaleOptions {
-    return { ...scale, min: undefined }
+const handleChartError = makeChartErrorHandler('alerts-preview-chart')
+
+interface AlertPreviewChartSeries {
+    key: string
+    label: string
+    data: number[]
 }
 
-function AlertPreviewSparkline({
-    values,
+function AlertPreviewChart({
+    series,
     labels,
     referenceLines,
     relative,
-    renderTooltipValue,
+    useLogScale,
 }: {
-    values: number[]
+    series: AlertPreviewChartSeries[]
     labels?: string[]
-    referenceLines: SparklineReferenceLine[]
+    referenceLines: AlertThresholdLine[]
     relative: boolean
-    renderTooltipValue?: (value: number) => string
+    useLogScale: boolean
 }): JSX.Element {
+    const theme = useChartTheme()
     return (
-        <Sparkline
-            type="line"
-            data={values}
-            labels={labels}
-            maximumIndicator={false}
-            referenceLines={referenceLines}
-            renderTooltipValue={renderTooltipValue}
-            withYScale={relative ? allowNegativeYScale : undefined}
-            className="w-full h-24 flex flex-col"
-        />
+        <div className="w-full h-24 flex flex-col">
+            <LineChart
+                series={series}
+                labels={labels ?? series[0]?.data?.map((_, index) => String(index)) ?? []}
+                theme={theme}
+                config={{
+                    hideXAxis: true,
+                    // The value axis only appears in relative mode, where it can dip below zero;
+                    // absolute previews stay axis-less and compact like the old sparkline.
+                    hideYAxis: !relative,
+                    floatBaseline: relative,
+                    yScaleType: useLogScale ? 'log' : 'linear',
+                    tooltip: { valueFormatter: (value) => humanFriendlyNumber(value) },
+                }}
+                onError={handleChartError}
+            >
+                <ReferenceLines lines={referenceLines.map((line) => ({ ...line, variant: 'alert' as const }))} />
+            </LineChart>
+        </div>
     )
 }
 
@@ -55,6 +70,8 @@ export interface AlertPreviewCardProps {
     alertForm: AlertFormType
     trendsValues: number[] | null
     trendsLabels?: string[] | null
+    isBreakdown?: boolean
+    trendsBreakdownSeries?: AlertPreviewChartSeries[] | null
     funnelPreview: FunnelAlertPreview | null
     hogqlPreview: HogQLAlertPreview | null
     checkPreview?: TrendsAlertPreviewSeries
@@ -66,27 +83,35 @@ export function AlertPreviewCard({
     alertForm,
     trendsValues,
     trendsLabels,
+    isBreakdown,
+    trendsBreakdownSeries,
     funnelPreview,
     hogqlPreview,
     checkPreview,
     loading,
 }: AlertPreviewCardProps): JSX.Element {
     const config = alertForm.config
+    const conditionType = alertForm.condition?.type ?? AlertConditionType.ABSOLUTE_VALUE
+    const thresholdType = alertForm.threshold?.configuration?.type ?? InsightThresholdType.ABSOLUTE
     const trendsPreview = trendsValues
-        ? deriveTrendsAlertPreviewSeries(
-              trendsValues,
-              trendsLabels ?? undefined,
-              alertForm.condition?.type ?? AlertConditionType.ABSOLUTE_VALUE,
-              alertForm.threshold?.configuration?.type ?? InsightThresholdType.ABSOLUTE
-          )
+        ? deriveTrendsAlertPreviewSeries(trendsValues, trendsLabels ?? undefined, conditionType, thresholdType)
         : null
+    const isBreakdownPreview = isTrendsAlertConfig(config) && isBreakdown
     const referenceLines = thresholdReferenceLines(alertForm)
-    const useLogScale = Boolean(trendsPreview && shouldUseLogScale(trendsPreview.values, referenceLines))
-    const previewValues = useLogScale ? trendsPreview?.values.map(toLogScale) : trendsPreview?.values
-    const previewReferenceLines = useLogScale
-        ? referenceLines.map((line) => ({ ...line, value: toLogScale(line.value) }))
-        : referenceLines
+    const useLogScale = Boolean(
+        !isBreakdownPreview && trendsPreview && shouldUseLogScale(trendsPreview.values, referenceLines)
+    )
     const checkPreviewValues = checkPreview?.values
+    const breakdownPreview = deriveTrendsBreakdownAlertPreview(
+        trendsBreakdownSeries ?? undefined,
+        trendsLabels ?? undefined,
+        conditionType,
+        thresholdType
+    )
+    // A row carries `NaN` on the intervals it has no comparison for, so count only drawable points.
+    const breakdownPreviewValues =
+        breakdownPreview?.rows.flatMap((row) => row.data).filter((value) => Number.isFinite(value)) ?? []
+    const breakdownUseLogScale = shouldUseLogScale(breakdownPreviewValues, referenceLines)
     const isUnconfiguredAbsoluteThreshold =
         !alertForm.detector_config &&
         alertForm.condition?.type === AlertConditionType.ABSOLUTE_VALUE &&
@@ -105,13 +130,30 @@ export function AlertPreviewCard({
                 Set less than or more than to preview this alert.
             </div>
         )
+    } else if (isBreakdownPreview && breakdownPreview && breakdownPreviewValues.length > 0) {
+        body = (
+            <AlertPreviewChart
+                series={breakdownPreview.rows}
+                labels={breakdownPreview.labels}
+                referenceLines={referenceLines}
+                relative={trendsPreview?.relative ?? false}
+                useLogScale={breakdownUseLogScale}
+            />
+        )
+    } else if (isBreakdownPreview && !loading) {
+        body = (
+            <div className="flex h-24 items-center justify-center rounded border border-dashed border-border text-sm text-muted">
+                No activity to preview across breakdown values.
+            </div>
+        )
     } else if (checkPreviewValues && checkPreviewValues.length > 0) {
         body = (
-            <AlertPreviewSparkline
-                values={checkPreviewValues}
+            <AlertPreviewChart
+                series={[{ key: 'preview', label: 'Value', data: checkPreviewValues }]}
                 labels={checkPreview.labels}
                 referenceLines={referenceLines}
                 relative={checkPreview.relative}
+                useLogScale={false}
             />
         )
     } else if (checkPreview !== undefined) {
@@ -126,14 +168,14 @@ export function AlertPreviewCard({
                 No activity to preview for this series.
             </div>
         )
-    } else if (isTrendsAlertConfig(config) && previewValues && previewValues.length > 0) {
+    } else if (isTrendsAlertConfig(config) && trendsPreview && trendsPreview.values.length > 0) {
         body = (
-            <AlertPreviewSparkline
-                values={previewValues}
-                labels={trendsPreview?.labels}
-                referenceLines={previewReferenceLines}
-                renderTooltipValue={useLogScale ? fromLogScale : undefined}
-                relative={!!trendsPreview?.relative}
+            <AlertPreviewChart
+                series={[{ key: 'preview', label: 'Value', data: trendsPreview.values }]}
+                labels={trendsPreview.labels}
+                referenceLines={referenceLines}
+                relative={trendsPreview.relative}
+                useLogScale={useLogScale}
             />
         )
     } else if (isFunnelsAlertConfig(config) && funnelPreview) {
@@ -161,25 +203,32 @@ export function AlertPreviewCard({
     }
 
     let lastValue: number | null = null
-    if (checkPreviewValues?.length) {
+    if (!isBreakdownPreview && checkPreviewValues?.length) {
         lastValue = checkPreviewValues[checkPreviewValues.length - 1]
-    } else if (isTrendsAlertConfig(config) && trendsPreview?.values.length) {
+    } else if (isTrendsAlertConfig(config) && trendsPreview?.values.length && !isBreakdownPreview) {
         lastValue = trendsPreview.values[trendsPreview.values.length - 1]
+    }
+
+    let previewTooltip =
+        'What this alert is watching right now. The dashed lines are your thresholds; points crossing them would fire.'
+    if (isBreakdownPreview) {
+        previewTooltip = 'Every breakdown value is shown. The dashed lines are your thresholds.'
+    } else if (checkPreview !== undefined) {
+        previewTooltip = 'Values recorded by recent alert evaluations.'
+    }
+    let previewTitle = 'Preview'
+    if (isBreakdownPreview) {
+        previewTitle = 'All breakdown values'
+    } else if (checkPreview !== undefined) {
+        previewTitle = 'Recent evaluations'
     }
 
     return (
         <div className="space-y-2">
             <div className="flex items-center justify-between gap-2">
                 <div className="flex items-center gap-1.5 text-sm font-medium">
-                    <span>{checkPreview !== undefined ? 'Recent evaluations' : 'Preview'}</span>
-                    <Tooltip
-                        title={
-                            checkPreview !== undefined
-                                ? 'Values recorded by recent alert evaluations.'
-                                : 'What this alert is watching right now. The dashed lines are your thresholds; points crossing them would fire.'
-                        }
-                        delayMs={0}
-                    >
+                    <span>{previewTitle}</span>
+                    <Tooltip title={previewTooltip} delayMs={0}>
                         <IconInfo className="text-muted size-3.5" />
                     </Tooltip>
                 </div>

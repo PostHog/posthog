@@ -12,14 +12,18 @@ import datetime as dt
 import dataclasses
 
 from temporalio import activity, workflow
-from temporalio.common import RetryPolicy
+from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
+from temporalio.exceptions import WorkflowAlreadyStartedError
 
+from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.ph_client import get_regional_ph_client
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.logger import get_logger
 from posthog.temporal.common.utils import close_db_connections
 
+from products.growth.backend.enrichment import gates
+from products.growth.backend.enrichment.context import EnrichmentContext, EnrichmentPhase
 from products.growth.backend.enrichment.core import enrich_organization
 from products.growth.backend.enrichment.providers import HarmonicEnrichmentProvider
 from products.growth.backend.enrichment.snapshot import SignupEnrichmentSnapshot, capture_signup_enrichment_snapshot
@@ -93,9 +97,7 @@ async def enrich_signup_organization_activity(
         # The org owner can delete the org during the recheck delay; without this guard the
         # recheck would enrich a deleted org (db_constraint=False means orphan rows, and the
         # group projection would write properties for a dead org).
-        from posthog.models import Organization  # noqa: PLC0415 — heavy import kept off the workflow module path
-
-        org_exists = await sync_to_async(Organization.objects.filter(id=inputs.organization_id).exists)()
+        org_exists = await sync_to_async(gates.organization_exists)(inputs.organization_id)
         if not org_exists:
             logger.info("signup_enrichment_recheck_skipped_org_deleted")
             return {"matched": False, "fields_filled": 0, "org_deleted": True}
@@ -108,20 +110,24 @@ async def enrich_signup_organization_activity(
         return {"matched": False, "fields_filled": 0}
 
     try:
-        fields = await enrich_organization(
+        ctx = EnrichmentContext(
             organization_id=inputs.organization_id,
             domain=inputs.domain,
-            provider=HarmonicEnrichmentProvider(),
-            pha_client=pha_client,
-            is_recheck=is_recheck,
+            phase=EnrichmentPhase.RECHECK if is_recheck else EnrichmentPhase.AT_SIGNUP,
+            distinct_id=inputs.distinct_id,
             role_at_organization=inputs.role_at_organization,
             geoip_country_code=inputs.geoip_country_code,
-            distinct_id=inputs.distinct_id,
         )
+        outcome = await enrich_organization(ctx=ctx, provider=HarmonicEnrichmentProvider(), pha_client=pha_client)
+        fields, fit = outcome.provider_fields, outcome.fit
         filled = fields.to_dict() if fields else {}
         matched = fields is not None
 
-        if not is_recheck:
+        # No later backfill re-attempts this snapshot, so claiming it while fit scoring was
+        # skipped (fit is None — no active IcpScoringConfig row, or an unexpected scoring
+        # error; see EnrichmentOutcome) would permanently strand the org without an
+        # at-signup fit score.
+        if not is_recheck and fit is not None:
             deterministic = await sync_to_async(_deterministic_company_type)(inputs.organization_id)
             snapshot = SignupEnrichmentSnapshot(
                 company_type=(fields.company_type if fields else None) or deterministic,
@@ -132,6 +138,11 @@ async def enrich_signup_organization_activity(
                 founded_year=fields.founded_year if fields else None,
                 funding_stage=fields.funding_stage if fields else None,
                 is_yc_company=fields.is_yc_company if fields else None,
+                # A numeric fit score snapshots with its version; a score-less evaluation
+                # snapshots the status alone (see SignupEnrichmentSnapshot).
+                icp_fit_score=fit.score,
+                icp_fit_version=fit.version if fit.score is not None else None,
+                icp_fit_status=fit.status,
             )
             await sync_to_async(capture_signup_enrichment_snapshot)(
                 pha_client,
@@ -149,6 +160,10 @@ async def enrich_signup_organization_activity(
                         "upgraded": matched and not first_attempt_matched,
                         "fields_filled": len(filled),
                         "organization_id": inputs.organization_id,
+                        "icp_fit_status": fit.status if fit else None,
+                        "icp_fit_evaluated_at": outcome.fit_evaluated_at and outcome.fit_evaluated_at.isoformat(),
+                        "icp_fit_evaluation_kind": ctx.phase.fit_evaluation_kind if fit else None,
+                        "harmonic_enrichment_status": outcome.enrichment_status,
                     },
                     groups={"organization": inputs.organization_id},
                 )
@@ -156,7 +171,12 @@ async def enrich_signup_organization_activity(
                 pha_client.capture(
                     distinct_id=inputs.distinct_id,
                     event=ENRICHMENT_SIGNAL_EVENT,
-                    properties={"success": True, "matched": matched, "fields_filled": sorted(filled.keys())},
+                    properties={
+                        "success": True,
+                        "matched": matched,
+                        "fields_filled": sorted(filled.keys()),
+                        "icp_fit_status": fit.status if fit else None,
+                    },
                     groups={"organization": inputs.organization_id},
                 )
         logger.info("signup_enrichment_completed", matched=matched, fields_filled=len(filled))
@@ -180,6 +200,45 @@ async def enrich_signup_organization_activity(
             pha_client.shutdown()
 
 
+async def _execute_enrich_activity(
+    inputs: SignupEnrichmentInputs, *, is_recheck: bool, first_attempt_matched: bool = False
+) -> dict[str, typing.Any]:
+    return await workflow.execute_activity(
+        enrich_signup_organization_activity,
+        args=[inputs, is_recheck, first_attempt_matched],
+        start_to_close_timeout=ENRICH_ACTIVITY_TIMEOUT,
+        # Onboarding routing already degrades to a safe default when enrichment is absent.
+        retry_policy=RetryPolicy(maximum_attempts=MAX_ENRICH_ATTEMPTS, initial_interval=dt.timedelta(seconds=5)),
+    )
+
+
+@frozen
+class SignupEnrichmentRecheckInputs:
+    signup: SignupEnrichmentInputs
+    first_attempt_matched: bool = False
+
+
+@workflow.defn(name="signup-enrichment-recheck")
+class SignupEnrichmentRecheckWorkflow(PostHogWorkflow):
+    @staticmethod
+    def parse_inputs(inputs: list[str]) -> SignupEnrichmentRecheckInputs:
+        loaded = json.loads(inputs[0])
+        return SignupEnrichmentRecheckInputs(
+            signup=SignupEnrichmentInputs(**loaded["signup"]),
+            first_attempt_matched=loaded.get("first_attempt_matched", False),
+        )
+
+    @workflow.run
+    async def run(self, inputs: SignupEnrichmentRecheckInputs) -> dict[str, typing.Any]:
+        # Unconditional: give Harmonic's seeded async enrichment time to index the company, and
+        # Clay's bridge columns time to land, then look/score once more for every org, matched
+        # or not on the first pass.
+        await workflow.sleep(RECHECK_DELAY)
+        return await _execute_enrich_activity(
+            inputs.signup, is_recheck=True, first_attempt_matched=inputs.first_attempt_matched
+        )
+
+
 @workflow.defn(name="signup-enrichment")
 class SignupEnrichmentWorkflow(PostHogWorkflow):
     """Fire-and-forget enrichment for one organization, started right after signup."""
@@ -190,21 +249,22 @@ class SignupEnrichmentWorkflow(PostHogWorkflow):
 
     @workflow.run
     async def run(self, inputs: SignupEnrichmentInputs) -> dict[str, typing.Any]:
-        first_result = await self._enrich(inputs, is_recheck=False)
+        first_result = await _execute_enrich_activity(inputs, is_recheck=False)
+        first_attempt_matched = bool(first_result.get("matched"))
 
-        # Unconditional: give Harmonic's seeded async enrichment time to index the company, and
-        # Clay's bridge columns time to land, then look/score once more — for every org, matched
-        # or not on the first pass.
+        if workflow.patched("signup-enrichment-recheck-child-2026-09"):
+            try:
+                await workflow.start_child_workflow(
+                    SignupEnrichmentRecheckWorkflow.run,
+                    SignupEnrichmentRecheckInputs(signup=inputs, first_attempt_matched=first_attempt_matched),
+                    id=f"signup-enrichment-recheck-{inputs.organization_id}",
+                    parent_close_policy=workflow.ParentClosePolicy.ABANDON,
+                    id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
+                )
+            except WorkflowAlreadyStartedError:
+                LOGGER.bind(organization_id=inputs.organization_id).info("signup_enrichment_recheck_already_pending")
+            return first_result
+
+        # Executions recorded before the recheck child existed replay through this path.
         await workflow.sleep(RECHECK_DELAY)
-        return await self._enrich(inputs, is_recheck=True, first_attempt_matched=bool(first_result.get("matched")))
-
-    async def _enrich(
-        self, inputs: SignupEnrichmentInputs, *, is_recheck: bool, first_attempt_matched: bool = False
-    ) -> dict[str, typing.Any]:
-        return await workflow.execute_activity(
-            enrich_signup_organization_activity,
-            args=[inputs, is_recheck, first_attempt_matched],
-            start_to_close_timeout=ENRICH_ACTIVITY_TIMEOUT,
-            # Onboarding routing already degrades to a safe default when enrichment is absent.
-            retry_policy=RetryPolicy(maximum_attempts=MAX_ENRICH_ATTEMPTS, initial_interval=dt.timedelta(seconds=5)),
-        )
+        return await _execute_enrich_activity(inputs, is_recheck=True, first_attempt_matched=first_attempt_matched)

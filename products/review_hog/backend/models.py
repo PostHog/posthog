@@ -1,4 +1,5 @@
 from django.db import models
+from django.utils.functional import Promise
 
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.utils import UUIDModel
@@ -6,6 +7,7 @@ from posthog.models.utils import UUIDModel
 from products.review_hog.backend.reviewer.artefact_content import (
     ArtefactContentValidationError,
     FindingOutcomeArtefact,
+    ResolutionRunArtefact,
     ReviewArtefactContent,
     ReviewIssueFinding,
     ReviewLogArtefactContent,
@@ -103,14 +105,20 @@ class ReviewReport(UUIDModel, TeamScopedRootMixin):
     signal_report_id = models.UUIDField(null=True, blank=True)
     # Which trigger created this report ("label" / "inbox" / "manual" / "ui"); stamped on create only.
     trigger_source = models.CharField(max_length=20, default="manual")
-    # Reviewer-model experiment assignment, drawn once at creation and sticky for the report's life
-    # (see `REVIEW_EXPERIMENT_ARMS`). Adapter/model/effort/permission-mode persist as one bundle
-    # because a model without its adapter can't be routed. NULL on pre-experiment rows; reads
-    # resolve through `resolve_review_arm`, which falls back to the REVIEW_* pins.
+    # The reviewer arm, chosen once at creation from the report's tier (see `REVIEW_ARMS_BY_TIER`)
+    # and sticky for the report's life. Adapter/model/effort/permission-mode persist as one bundle
+    # because a model without its adapter can't be routed. NULL on rows created before arms were
+    # persisted; reads resolve through `resolve_review_arm`, which falls back to the REVIEW_* pins.
     review_runtime_adapter = models.CharField(max_length=32, null=True, blank=True)
     review_model = models.CharField(max_length=128, null=True, blank=True)
     review_reasoning_effort = models.CharField(max_length=32, null=True, blank=True)
     review_initial_permission_mode = models.CharField(max_length=32, null=True, blank=True)
+    # The routing bucket the arm was chosen from (a `ReviewTier` value) and, for agent PRs, the
+    # Signals priority ("P0".."P4") that placed it there. Stamped with the arm at creation; a
+    # person's trigger can lift the tier later, never lower it. The priority is the value the
+    # decision used, kept because the report's judgment can change afterwards. NULL on pre-tier rows.
+    review_tier = models.CharField(max_length=32, null=True, blank=True)
+    review_signal_priority = models.CharField(max_length=4, null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -150,6 +158,11 @@ class ReviewReport(UUIDModel, TeamScopedRootMixin):
         ]
 
 
+def review_report_artefact_type_choices() -> list[tuple[str, str | Promise]]:
+    # Callable so growing the enum doesn't generate a no-op migration.
+    return list(ReviewReportArtefact.ArtefactType.choices)
+
+
 class ReviewReportArtefact(UUIDModel, TeamScopedRootMixin):
     """Append-only work log for a `ReviewReport`.
 
@@ -166,6 +179,8 @@ class ReviewReportArtefact(UUIDModel, TeamScopedRootMixin):
         FINDING_OUTCOME = "finding_outcome"
         # The resolution stage's per-thread ruling (latest row per thread_id wins).
         THREAD_VERDICT = "thread_verdict"
+        # One resolution run's opening work-list; the newest row is the report's latest run.
+        RESOLUTION_RUN = "resolution_run"
         TASK_RUN = "task_run"
         COMMIT = "commit"
         CODE_REFERENCE = "code_reference"
@@ -197,7 +212,7 @@ class ReviewReportArtefact(UUIDModel, TeamScopedRootMixin):
     # db_constraint=False keeps the migration lock-free on hot posthog_team.
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
     report = models.ForeignKey(ReviewReport, on_delete=models.CASCADE, related_name="artefacts")
-    type = models.CharField(max_length=100, choices=ArtefactType)
+    type = models.CharField(max_length=100, choices=review_report_artefact_type_choices)
     content = models.TextField()
     # Turn scope, denormalized from content.head_sha so resume loaders can filter in SQL instead of
     # parsing every historical row. Null when the content model carries no head_sha.
@@ -280,6 +295,13 @@ class ReviewReportArtefact(UUIDModel, TeamScopedRootMixin):
         cls, *, team_id: int, report_id: str, content: ThreadVerdictArtefact, attribution: ArtefactAttribution
     ) -> "ReviewReportArtefact":
         """Append a `thread_verdict` (latest row per `thread_id` wins at read time)."""
+        return cls._create(team_id=team_id, report_id=report_id, content=content, attribution=attribution)
+
+    @classmethod
+    def append_resolution_run(
+        cls, *, team_id: int, report_id: str, content: ResolutionRunArtefact, attribution: ArtefactAttribution
+    ) -> "ReviewReportArtefact":
+        """Append a `resolution_run` (one per run, at prepare; the newest row is the latest run)."""
         return cls._create(team_id=team_id, report_id=report_id, content=content, attribution=attribution)
 
     @classmethod

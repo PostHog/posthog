@@ -1,0 +1,80 @@
+# Products that are not isolated — the full Django backend suite still runs on
+# every change they make.
+#
+# DO NOT EDIT BY HAND. This file is the mechanical output of
+# `hogli product:lint --regenerate-baseline`. Hand-editing turns a ratchet back
+# into a curated allowlist, which is the thing it exists to prevent.
+#
+# Adding a line needs DevEx review (see .github/CODEOWNERS). New products should
+# not need one: `hogli product:bootstrap <name>` scaffolds a product that is
+# sealed from its first commit.
+#
+# Getting off this list: build the facade (contracts.py + real api.py), add the
+# tach [[interfaces]] block, then wire `backend:contract-check` and narrow
+# turbo.json inputs. `hogli product:maturity <name>` names the remaining blocker
+# at every step, and /isolating-product-facade-contracts walks the migration.
+#
+# Once a product is sealed, regenerate this file and its line drops out.
+
+access_control
+actions
+ai_gateway
+ai_observability
+alerts
+analytics_platform
+annotations
+apm
+approvals
+batch_exports
+billing_alerts
+business_knowledge
+canvas
+cdp
+cohorts
+context_layer
+conversations
+dashboards
+data_catalog
+data_modeling
+data_quality
+data_tools
+data_warehouse
+demo
+early_access_features
+endpoints
+event_definitions
+experiments
+exports
+feature_flags
+field_notes
+growth
+links
+live_debugger
+llm_analytics
+logs
+managed_migrations
+marketing_analytics
+mcp_analytics
+mcp_store
+messaging
+notebooks
+notifications
+platform_features
+posthog_ai
+product_tours
+pulse
+reminders
+replay
+replay_vision
+revenue_analytics
+review_hog
+signals
+skills
+slack_app
+surveys
+tasks
+tracing
+user_interviews
+warehouse_sources_queue
+web_analytics
+workflows

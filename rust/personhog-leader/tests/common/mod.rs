@@ -31,7 +31,7 @@ use personhog_leader::cache::{
 };
 use personhog_leader::coordination::LeaderHandoffHandler;
 use personhog_leader::inflight::InflightTracker;
-use personhog_leader::pg::PgFallback;
+use personhog_leader::pg::{LifecycleTables, PgFallback};
 use personhog_leader::recovery::{ChangelogRecovery, RecoveryConfig};
 use personhog_leader::service::{PersonHogLeaderService, PropertySizeLimits};
 use personhog_leader::warming::WarmClientPools;
@@ -100,7 +100,11 @@ pub fn start_coordinator(
             name: "coordinator-0".to_string(),
             leader_lease_ttl: 10,
             keepalive_interval: Duration::from_secs(3),
-            election_retry_interval: Duration::from_secs(1),
+            // Short enough that a failover never waits on the leader-key
+            // watch alone.
+            standby_poll_interval: Duration::from_millis(500),
+            run_retry_backoff: Duration::from_millis(10),
+            backoff_decay_window: Duration::from_secs(300),
             rebalance_debounce_interval: Duration::from_millis(100),
             reconcile_interval: Duration::from_millis(500),
             // Effectively disabled: these tests park handoffs to assert
@@ -108,12 +112,16 @@ pub fn start_coordinator(
             // state under test.
             handoff_deadline: Duration::from_secs(86_400),
             warming_deadline: Duration::from_secs(86_400),
+            max_txn_ops: 128,
         },
         strategy,
         None,
     );
     let token = cancel.child_token();
-    tokio::spawn(async move { coordinator.run(token).await })
+    tokio::spawn(async move {
+        coordinator.run(token).await;
+        Ok(())
+    })
 }
 
 // ── Router (for ack quorum) ─────────────────────────────────
@@ -601,6 +609,7 @@ pub async fn start_leader_with_pg_fallback(
         Some(PgFallback {
             pool,
             table: "posthog_person".to_string(),
+            lifecycle: LifecycleTables::new("lifecycle_op", "lifecycle_op_person"),
         }),
         Arc::new(DashMap::new()),
         Arc::new(InflightTracker::new()),
@@ -657,6 +666,7 @@ pub fn fenced_producers_for(topic: &str) -> personhog_leader::fencing::FencedCha
             broker_txn_timeout: BROKER_TXN_TIMEOUT,
             window: Duration::from_millis(5),
             window_max_writes: 32,
+            lanes: 1,
             settle_budget: Duration::from_secs(5),
         },
     )

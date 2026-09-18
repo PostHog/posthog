@@ -17,7 +17,7 @@ from products.review_hog.backend.reviewer.tools.publish_review import (
     _review_already_posted,
     _review_marker,
 )
-from products.review_hog.backend.temporal.activities import _publish
+from products.review_hog.backend.temporal.activities import PublishInput, _publish
 
 # `_publish` now delegates to `publish_persisted_review` in the tool, so the GitHub-post seam and the
 # snapshot load are patched there; the installation auth is still resolved in the activity wrapper.
@@ -88,6 +88,19 @@ def test_promo_already_posted_skips_when_readback_fails() -> None:
     assert _promo_posted(_promo_marker("rep-1"), [], boom=True) is True
 
 
+def _publish_input(team_id: int, report_id: str, head_sha: str) -> PublishInput:
+    return PublishInput(
+        team_id=team_id,
+        report_id=report_id,
+        head_sha=head_sha,
+        run_index=1,
+        owner="PostHog",
+        repo="posthog",
+        pr_number=1,
+        urgency_threshold="should_fix",
+    )
+
+
 def _pr_metadata(head_sha: str) -> PRMetadata:
     return PRMetadata(
         number=1,
@@ -127,7 +140,7 @@ class TestPublishIdempotency(BaseTest):
     def test_first_publish_posts_promo_and_records_watermark(self, _auth, _snapshot, mock_publish) -> None:
         mock_publish.return_value = PublishOutcome(posted=True)
         report_id = self._report()
-        _publish(self.team.id, report_id, "sha1", 1, "PostHog", "posthog", 1, "should_fix")
+        _publish(_publish_input(self.team.id, report_id, "sha1"))
         assert mock_publish.call_count == 1
         assert mock_publish.call_args.kwargs["post_promo"] is True
         # The resolved installation id must reach the GitHub calls — dropping it silently turns the
@@ -148,7 +161,7 @@ class TestPublishIdempotency(BaseTest):
     @patch(_AUTH, return_value=("tok", None))
     def test_republish_same_head_is_skipped(self, _auth, _snapshot, mock_publish) -> None:
         report_id = self._report(published_head_sha="sha1")
-        _publish(self.team.id, report_id, "sha1", 1, "PostHog", "posthog", 1, "should_fix")
+        _publish(_publish_input(self.team.id, report_id, "sha1"))
         mock_publish.assert_not_called()
         # The skip exit must also restore rest: an activity retry can land here with the report
         # still deferred-ACTIVE from finalize.
@@ -160,7 +173,7 @@ class TestPublishIdempotency(BaseTest):
     def test_new_head_publishes_without_promo(self, _auth, _snapshot, mock_publish) -> None:
         mock_publish.return_value = PublishOutcome(posted=True)
         report_id = self._report(published_head_sha="oldsha")
-        _publish(self.team.id, report_id, "sha2", 1, "PostHog", "posthog", 1, "should_fix")
+        _publish(_publish_input(self.team.id, report_id, "sha2"))
         assert mock_publish.call_count == 1
         assert mock_publish.call_args.kwargs["post_promo"] is False
         assert ReviewReport.objects.for_team(self.team.id).get(id=report_id).published_head_sha == "sha2"
@@ -173,7 +186,7 @@ class TestPublishIdempotency(BaseTest):
         # later turn with a valid finding can still publish at the same head.
         mock_publish.return_value = PublishOutcome(posted=False)
         report_id = self._report()
-        _publish(self.team.id, report_id, "sha1", 1, "PostHog", "posthog", 1, "should_fix")
+        _publish(_publish_input(self.team.id, report_id, "sha1"))
         assert mock_publish.call_count == 1
         report = ReviewReport.objects.for_team(self.team.id).get(id=report_id)
         assert report.published_head_sha is None

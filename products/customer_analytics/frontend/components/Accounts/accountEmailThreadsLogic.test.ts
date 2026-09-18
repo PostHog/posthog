@@ -28,7 +28,27 @@ const thread = {
     subject: 'Account review',
     preview: 'Latest message',
     first_message_at: '2026-08-01T10:00:00Z',
+    first_message: {
+        sender: {
+            name: 'Example customer',
+            email: 'customer@example.com',
+            person_id: null,
+            distinct_id: null,
+        },
+        sent_at: '2026-08-01T10:00:00Z',
+        direction: 'inbound',
+    },
     last_message_at: '2026-08-01T11:00:00Z',
+    last_message: {
+        sender: {
+            name: 'Account manager',
+            email: 'manager@example.com',
+            person_id: null,
+            distinct_id: null,
+        },
+        sent_at: '2026-08-01T11:00:00Z',
+        direction: 'outbound',
+    },
     message_count: 2,
     participants: [],
 } as AccountEmailThreadApi

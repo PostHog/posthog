@@ -46,10 +46,7 @@ def snowflake_env_vars_are_set():
     return True
 
 
-SKIP_IF_MISSING_REQUIRED_ENV_VARS = pytest.mark.skipif(
-    not snowflake_env_vars_are_set(),
-    reason="Snowflake required env vars are not set",
-)
+SKIP_IF_MISSING_REQUIRED_ENV_VARS = pytest.mark.requires_vendor_credentials(check=snowflake_env_vars_are_set)
 
 EXPECTED_PERSONS_BATCH_EXPORT_FIELDS = [
     "team_id",
@@ -461,7 +458,6 @@ async def assert_clickhouse_records_in_snowflake(
         model_name=model_name,
         team_id=team_id,
         full_range=(data_interval_start, data_interval_end),
-        done_ranges=[],
         fields=fields,
         filters=filters,
         destination_default_fields=snowflake_default_fields(),

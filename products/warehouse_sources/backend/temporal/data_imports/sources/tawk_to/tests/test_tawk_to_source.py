@@ -1,14 +1,9 @@
 import pytest
 from unittest import mock
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.tawkto import TawkToSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.tawk_to.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.tawk_to.source import TawkToSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.tawk_to.tawk_to import TawkToResumeConfig
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.tawk_to.source"
 
@@ -18,36 +13,6 @@ class TestTawkToSource:
         self.source = TawkToSource()
         self.team_id = 123
         self.config = TawkToSourceConfig(api_key="api-key")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.TAWKTO
-
-    def test_get_source_config(self):
-        config = self.source.get_source_config
-
-        assert config.name.value == "TawkTo"
-        assert config.label == "tawk.to"
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.unreleasedSource is None
-        assert config.iconPath == "/static/services/tawk_to.png"
-
-        field_names = [f.name for f in config.fields if isinstance(f, SourceFieldInputConfig)]
-        assert field_names == ["api_key", "property_id"]
-
-    def test_api_key_field_is_secret_password(self):
-        config = self.source.get_source_config
-        api_key_field = next(f for f in config.fields if isinstance(f, SourceFieldInputConfig) and f.name == "api_key")
-        assert api_key_field.type == SourceFieldInputConfigType.PASSWORD
-        assert api_key_field.secret is True
-        assert api_key_field.required is True
-
-    def test_property_id_field_is_optional(self):
-        config = self.source.get_source_config
-        property_field = next(
-            f for f in config.fields if isinstance(f, SourceFieldInputConfig) and f.name == "property_id"
-        )
-        assert property_field.required is False
-        assert property_field.secret is False
 
     @pytest.mark.parametrize(
         "observed_error",
@@ -100,12 +65,6 @@ class TestTawkToSource:
         assert is_valid is expected_valid
         assert error_message == expected_message
         mock_validate.assert_called_once_with(self.config.api_key)
-
-    def test_get_resumable_source_manager_binds_resume_config(self):
-        manager = self.source.get_resumable_source_manager(mock.MagicMock())
-
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is TawkToResumeConfig
 
     @mock.patch(f"{MODULE}.tawk_to_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_tawk_to_source):

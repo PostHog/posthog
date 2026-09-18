@@ -1,0 +1,9 @@
+name: extensions
+description: Installed extensions per database. Snapshot with change events.
+interval: 1h
+scope: database
+kind: snapshot
+key: [extname]
+query: |
+  SELECT e.extname, e.extversion, n.nspname AS schemaname, e.extrelocatable AS relocatable
+  FROM pg_extension e JOIN pg_namespace n ON n.oid = e.extnamespace

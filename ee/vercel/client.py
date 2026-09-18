@@ -1,5 +1,5 @@
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 from urllib.parse import urlencode
 
@@ -8,23 +8,25 @@ import structlog
 from requests import HTTPError, RequestException, Timeout
 from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponential
 
+from posthog.dataclasses import frozen
+
 logger = structlog.get_logger(__name__)
 
 
-@dataclass
+@frozen
 class SSOTokenResponse:
-    access_token: str
+    access_token: str = field(repr=False)
     token_type: str
-    id_token: str | None = None
+    id_token: str | None = field(default=None, repr=False)
     scope: str | None = None
-    refresh_token: str | None = None
+    refresh_token: str | None = field(default=None, repr=False)
     error: str | None = None
     error_description: str | None = None
 
 
-@dataclass
+@frozen
 class OAuthTokenResponse:
-    access_token: str
+    access_token: str = field(repr=False)
     token_type: str
     installation_id: str
     user_id: str

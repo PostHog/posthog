@@ -106,10 +106,6 @@ class WrongBreakdown(LazyPrecomputeIneligible):
     pass
 
 
-class MissingBounceRate(LazyPrecomputeIneligible):
-    pass
-
-
 class AvgTimeOnPageUnsupported(LazyPrecomputeIneligible):
     pass
 
@@ -153,8 +149,10 @@ def _check_eligible(runner: "WebStatsTableQueryRunner") -> None:
     # allows overview/paths to opt in independently per query.
     if query.breakdownBy not in (WebStatsBreakdown.PAGE, WebStatsBreakdown.INITIAL_PAGE):
         raise WrongBreakdown(f"breakdownBy={query.breakdownBy!r}")
-    if not query.includeBounceRate:
-        raise MissingBounceRate()
+    # `includeBounceRate` is deliberately NOT a gate: the precompute stores bounce
+    # state regardless, so a bounce-less read (the weekly digest, API callers)
+    # resolves the same jobs as the dashboard's bounce read and the response
+    # builder simply omits the bounce column.
     if query.includeAvgTimeOnPage:
         raise AvgTimeOnPageUnsupported()
     if query.includeScrollDepth:
@@ -165,6 +163,11 @@ def _check_eligible(runner: "WebStatsTableQueryRunner") -> None:
     if query.orderBy:
         order_field = query.orderBy[0]
         if order_field not in SUPPORTED_ORDER_BY_FIELDS:
+            raise UnsupportedOrderBy(order_field)
+        # A bounce-less read sorted by bounce would order rows by a column the
+        # response (and the live fallback) does not have — refuse so both paths
+        # keep identical ordering semantics.
+        if order_field == WebAnalyticsOrderByFields.BOUNCE_RATE and not query.includeBounceRate:
             raise UnsupportedOrderBy(order_field)
 
     check_common_eligibility(

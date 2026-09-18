@@ -6,7 +6,7 @@ from posthog.schema import ChartDisplayType, DataVisualizationNode, HogQLQuery
 
 from posthog.sync import database_sync_to_async
 
-from products.product_analytics.backend.models.insight_variable import InsightVariable
+from products.product_analytics.backend.facade.models import InsightVariable
 
 from ee.hogai.chat_agent.schema_generator.parsers import PydanticOutputParserException
 from ee.hogai.chat_agent.sql.mixins import HogQLGeneratorMixin, SQLSchemaGeneratorOutput

@@ -1,14 +1,12 @@
 from typing import TYPE_CHECKING, Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
     ExternalWebhookInfo,
     FieldType,
@@ -65,7 +63,7 @@ class WhopSource(
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.WHOP,
+            name=ExternalDataSourceType.WHOP,
             category=DataWarehouseSourceCategory.PAYMENTS___BILLING,
             label="Whop",
             caption=(
@@ -144,6 +142,15 @@ class WhopSource(
             "403 Client Error: Forbidden for url: https://api.whop.com": (
                 "Your Whop API key does not have permission to read this resource. Grant the missing read "
                 "permission in your Whop dashboard and reconnect."
+            ),
+            # Whop answers `code=bad_request` when it refuses the list query this source builds for a
+            # table. The query is derived from the endpoint catalog and the connected company, so every
+            # run reissues the identical request and re-fails. Whop reports a missing permission as 403
+            # and an overload as 429/5xx, so a 400 is never a transient blip. Without this the schema
+            # keeps its schedule and burns a job on every run while showing the raw HTTP error.
+            "400 Client Error: Bad Request for url: https://api.whop.com": (
+                "Whop rejected the request for this table, so it can't sync. Turn off syncing for this "
+                "table, then re-enable the sync."
             ),
         }
 

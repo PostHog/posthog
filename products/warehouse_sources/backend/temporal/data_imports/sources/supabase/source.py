@@ -1,9 +1,8 @@
 import re
 from typing import Optional
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldFileUploadConfig,
@@ -14,8 +13,11 @@ from posthog.schema import (
     SourceFieldSSHTunnelConfig,
     SourceFieldSwitchGroupConfig,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+    SourceSchema,
+    rank_incremental_fields,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.postgres import (
     PostgresSourceConfig,
 )
@@ -44,6 +46,18 @@ _SUPABASE_DIRECT_HOST_RE = re.compile(r"^db\.[a-z0-9]+\.supabase\.co$", re.IGNOR
 # REST/API endpoint, not a Postgres host. Pasting it (often with the scheme) into the host field
 # just yields an opaque DNS failure, so detect it and point users at the actual database host.
 _SUPABASE_PROJECT_HOST_RE = re.compile(r"^(?P<ref>[a-z0-9]+)\.supabase\.co$", re.IGNORECASE)
+
+# The pooler username is `postgres.<project-ref>`, which reads like a host name — our own pooler
+# guidance spells it out, and it lands in the host field often enough to be worth naming. A project
+# ref is 20 characters, and a bare `postgres.<label>` that long is not a resolvable host either
+# way, so matching it can't reject a host that would have worked.
+_SUPABASE_POOLER_USERNAME_HOST_RE = re.compile(r"^postgres\.[a-z0-9]{16,}$", re.IGNORECASE)
+
+_SUPABASE_POOLER_USERNAME_AS_HOST_ERROR = (
+    "The host looks like your Supabase pooler username, not a database host. Enter the Session "
+    "pooler host (aws-0-<region>.pooler.supabase.com) as the host, and postgres.<project-ref> as "
+    "the user."
+)
 
 
 def _strip_host_scheme(host: str) -> str:
@@ -85,6 +99,15 @@ _SUPABASE_REALTIME_PARTITION_MESSAGE = (
     "the sync."
 )
 
+# The same partitions as they arrive from discovery, where the schema and table names come
+# separately and the display name carries the schema only for a multi-schema source.
+_REALTIME_SCHEMA = "realtime"
+_REALTIME_MESSAGES_TABLE_PREFIX = "messages_"
+
+# Supabase Vault's schema: its `decrypted_secrets` view decrypts every stored secret on read,
+# so sync-enabling it by default would copy a secrets vault into the warehouse.
+_VAULT_SCHEMA = "vault"
+
 
 @SourceRegistry.register
 class SupabaseSource(PostgresSource):
@@ -100,6 +123,53 @@ class SupabaseSource(PostgresSource):
             _SUPABASE_REALTIME_PARTITION_ERROR: _SUPABASE_REALTIME_PARTITION_MESSAGE,
             **super().get_non_retryable_errors(),
         }
+
+    def get_schemas(
+        self,
+        config: PostgresSourceConfig,
+        team_id: int,
+        with_counts: bool = False,
+        names: list[str] | None = None,
+        force_refresh: bool = False,
+        api_version: str | None = None,
+        require_ssl: bool = False,
+    ) -> list[SourceSchema]:
+        schemas = super().get_schemas(
+            config,
+            team_id,
+            with_counts=with_counts,
+            names=names,
+            force_refresh=force_refresh,
+            api_version=api_version,
+            require_ssl=require_ssl,
+        )
+
+        # Vault tables must never be sync-enabled by default. They stay listed rather than
+        # filtered because scheduled discovery reconciles stored rows against this listing
+        # and would disable a vault sync a user deliberately opted into; default-off is
+        # honored by the picker, one-shot setup, and auto-sync of newly discovered schemas.
+        # Realtime's dated message partitions default off for the same reason auto-sync
+        # exists: each day brings a new one, and Supabase drops it again days later, so an
+        # automatically enabled partition fails for good (see
+        # `_SUPABASE_REALTIME_PARTITION_MESSAGE`).
+        for schema in schemas:
+            if schema.source_schema == _VAULT_SCHEMA or self._is_realtime_message_partition(schema):
+                schema.should_sync_default = False
+
+        # Supabase tables carry arbitrary user columns, so the first discovered candidate
+        # (column ordinal order) is often a value that never changes on update. Rank
+        # update-tracking columns first so surfaces defaulting to the leading candidate
+        # propose a cursor that actually advances.
+        for schema in schemas:
+            schema.incremental_fields = rank_incremental_fields(schema.incremental_fields)
+
+        return schemas
+
+    @staticmethod
+    def _is_realtime_message_partition(schema: SourceSchema) -> bool:
+        return schema.source_schema == _REALTIME_SCHEMA and (schema.source_table_name or "").startswith(
+            _REALTIME_MESSAGES_TABLE_PREFIX
+        )
 
     @staticmethod
     def _adjust_field(field: _SourceField) -> _SourceField:
@@ -117,7 +187,7 @@ class SupabaseSource(PostgresSource):
         fields = [self._adjust_field(field) for field in super().get_source_config.fields]
 
         return SourceConfig(
-            name=SchemaExternalDataSourceType.SUPABASE,
+            name=ExternalDataSourceType.SUPABASE,
             category=DataWarehouseSourceCategory.DATABASES,
             keywords=["sql", "postgresql", "postgres"],
             featured=True,
@@ -134,8 +204,12 @@ class SupabaseSource(PostgresSource):
         team_id: int,
         schema_name: Optional[str] = None,
         api_version: str | None = None,
+        require_ssl: bool = False,
     ) -> tuple[bool, str | None]:
         bare_host = _strip_host_scheme(config.host or "")
+        if _SUPABASE_POOLER_USERNAME_HOST_RE.match(bare_host):
+            return False, _SUPABASE_POOLER_USERNAME_AS_HOST_ERROR
+
         project_host = _SUPABASE_PROJECT_HOST_RE.match(bare_host)
         if project_host:
             # Project refs are lowercase, and the pooler username (postgres.<ref>) is
@@ -155,7 +229,7 @@ class SupabaseSource(PostgresSource):
         # failures (bad password, missing database, SSL) already have clear messages, and
         # blaming them on IPv4 would misdirect the user.
         is_direct_host = bool(_SUPABASE_DIRECT_HOST_RE.match((config.host or "").strip()))
-        success, error = super().validate_credentials(config, team_id, schema_name=schema_name)
+        success, error = super().validate_credentials(config, team_id, schema_name=schema_name, require_ssl=require_ssl)
         if not success and is_direct_host and error == _HOST_UNREACHABLE_ERROR:
             return False, _SUPABASE_DIRECT_HOST_IPV4_HINT
         return success, error

@@ -246,6 +246,35 @@ export const EditAlert: EditAlertVariant = {
     ],
 }
 
+export const MissingAlert: EditAlertVariant = {
+    args: { insightType: 'trends' },
+    render: ({ insightType }) => {
+        const alert = storyAlerts[insightType]
+        return (
+            <EditAlertModal
+                isOpen
+                alertId="missing-alert"
+                insightId={alert.insight.id}
+                insightShortId={alert.insight.short_id}
+                insightLogicProps={{
+                    dashboardItemId: alert.insight.short_id,
+                    cachedInsight: alert.insight,
+                }}
+                onEditSuccess={() => {}}
+                onClose={() => {}}
+            />
+        )
+    },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/environments/:team_id/alerts/:alert_id/': [404, { detail: 'Not found.' }],
+                '/api/projects/:team_id/hog_functions/': EMPTY_PAGINATED_RESPONSE,
+            },
+        }),
+    ],
+}
+
 interface CreateWizardStoryProps {
     insightType: StoryInsightType
 }

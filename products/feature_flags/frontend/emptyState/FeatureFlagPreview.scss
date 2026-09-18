@@ -1,0 +1,420 @@
+@import '../../../../frontend/src/lib/components/ProductEmptyState/previewMixins';
+
+.FlagPreview {
+    --flag-preview-accent: var(--empty-state-accent, var(--color-primary-500));
+
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+
+    // Hidden flag state. A direct child of .FlagPreview so `:checked ~` reaches all cards.
+    &__checkbox {
+        position: absolute;
+        width: 0;
+        height: 0;
+        pointer-events: none;
+        opacity: 0;
+    }
+
+    &__panel,
+    &__app,
+    &__spark {
+        overflow: hidden;
+        background: var(--color-bg-surface-primary);
+        border: 1px solid var(--color-border-primary);
+        border-radius: var(--radius);
+    }
+
+    // On/off pairs are stacked on one grid cell and crossfaded, so flipping the flag
+    // never changes any element's size (no layout shift).
+    &__swap {
+        display: grid;
+    }
+
+    &__swap > * {
+        grid-area: 1 / 1;
+        min-width: 0;
+    }
+
+    &__when-on {
+        @include preview-swap-hidden;
+    }
+
+    &__when-off {
+        @include preview-swap-visible;
+    }
+
+    &__head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0.5rem 0.75rem;
+        border-bottom: 1px solid var(--color-border-primary);
+    }
+
+    &__title {
+        font-size: 0.75rem;
+        font-weight: 600;
+    }
+
+    &__rows {
+        display: flex;
+        flex-direction: column;
+        padding: 0.25rem 0.5rem;
+    }
+
+    &__row {
+        display: grid;
+        grid-template-columns: 9.5rem 1fr auto auto;
+        gap: 0.625rem;
+        align-items: center;
+        padding: 0.4375rem 0.5rem;
+        border-radius: var(--radius);
+    }
+
+    &__row--hero {
+        cursor: pointer;
+        user-select: none;
+        transition: background-color 150ms ease;
+    }
+
+    &__row--hero:hover {
+        background: var(--color-bg-fill-highlight-50);
+    }
+
+    &__key {
+        overflow: hidden;
+        font-family: var(--font-mono);
+        font-size: 0.75rem;
+        color: var(--color-text-primary);
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    // Per-flag rollout bar, mimicking the release conditions summary.
+    &__bar {
+        height: 4px;
+        overflow: hidden;
+        background: var(--color-fill-secondary);
+        border-radius: 999px;
+    }
+
+    &__bar-fill {
+        display: block;
+        width: var(--w, 0%);
+        height: 100%;
+        background: color-mix(in oklab, var(--flag-preview-accent) 55%, transparent);
+        border-radius: 999px;
+        transition: width 400ms ease;
+    }
+
+    &__bar-fill--hero {
+        width: 0;
+        background: var(--flag-preview-accent);
+    }
+
+    &__rollout {
+        min-width: 2.25rem;
+        font-family: var(--font-mono);
+        font-size: 0.6875rem;
+        color: var(--color-text-secondary);
+        text-align: right;
+    }
+
+    &__rollout--live {
+        @include preview-accent-text(var(--flag-preview-accent));
+    }
+
+    // Mini toggle, mimicking the flag list's enabled switch. The off track gets a
+    // darker fill plus an inset ring so it stays legible on the card surface.
+    &__switch {
+        position: relative;
+        flex-shrink: 0;
+        width: 26px;
+        height: 15px;
+        background: color-mix(in oklab, var(--color-text-secondary) 25%, var(--color-fill-secondary));
+        border-radius: 999px;
+        box-shadow: inset 0 0 0 1px var(--color-border-primary);
+        transition: background-color 200ms ease;
+
+        &::after {
+            position: absolute;
+            top: 2px;
+            left: 2px;
+            width: 11px;
+            height: 11px;
+            content: '';
+            background: var(--color-bg-surface-primary);
+            border-radius: 50%;
+            box-shadow: 0 1px 2px rgb(0 0 0 / 25%);
+            transition: transform 200ms ease;
+        }
+    }
+
+    &__switch--on {
+        background: var(--flag-preview-accent);
+
+        &::after {
+            transform: translateX(11px);
+        }
+    }
+
+    &__hint {
+        padding: 0 0.75rem 0.625rem;
+        font-size: 0.6875rem;
+        color: var(--color-text-secondary);
+    }
+
+    // Browser chrome for the mini app.
+    &__chrome {
+        display: flex;
+        gap: 0.3125rem;
+        align-items: center;
+        padding: 0.4375rem 0.75rem;
+        background: var(--color-bg-surface-secondary);
+        border-bottom: 1px solid var(--color-border-primary);
+    }
+
+    &__url {
+        margin-left: 0.375rem;
+        font-family: var(--font-mono);
+        font-size: 0.625rem;
+        color: var(--color-text-tertiary);
+    }
+
+    &__screen {
+        display: flex;
+        flex-direction: column;
+        gap: 0.625rem;
+        padding: 0.875rem;
+    }
+
+    &__item {
+        display: flex;
+        gap: 0.625rem;
+        align-items: center;
+    }
+
+    &__item-blob {
+        flex-shrink: 0;
+        width: 52px;
+        height: 52px;
+        overflow: hidden;
+        background: color-mix(in oklab, var(--flag-preview-accent) 18%, transparent);
+        border-radius: var(--radius);
+    }
+
+    // Zoom in on the hog's head: cover the box, then scale toward a point on the face.
+    &__item-blob img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        transform: scale(1.9);
+    }
+
+    &__hog--noir {
+        transform-origin: 44% 38%;
+    }
+
+    &__hog--party {
+        transform-origin: 44% 36%;
+    }
+
+    &__item-copy {
+        display: flex;
+        flex-direction: column;
+    }
+
+    &__item-name {
+        font-size: 0.75rem;
+        font-weight: 600;
+    }
+
+    &__item-price {
+        font-size: 0.6875rem;
+        color: var(--color-text-secondary);
+    }
+
+    // The new-experience row the flag releases. Always occupies its space (no layout
+    // shift); only its opacity follows the flag.
+    &__express {
+        padding: 0.375rem 0.625rem;
+        font-size: 0.6875rem;
+        font-weight: 600;
+        background: color-mix(in oklab, var(--flag-preview-accent) 10%, transparent);
+        border: 1px solid color-mix(in oklab, var(--flag-preview-accent) 35%, transparent);
+        border-radius: var(--radius);
+
+        @include preview-accent-text(var(--flag-preview-accent));
+    }
+
+    &__cta {
+        display: grid;
+        padding: 0.5rem 0.75rem;
+        font-size: 0.75rem;
+        font-weight: 600;
+        text-align: center;
+        background: var(--color-fill-secondary);
+        border-radius: var(--radius);
+        transition:
+            background-color 250ms ease,
+            color 250ms ease;
+    }
+
+    &__cta > * {
+        grid-area: 1 / 1;
+    }
+
+    // What the app's code sees when it evaluates the flag.
+    &__console {
+        display: flex;
+        padding: 0.375rem 0.625rem;
+        font-family: var(--font-mono);
+        font-size: 0.625rem;
+        color: var(--color-text-tertiary);
+        background: var(--color-bg-surface-secondary);
+        border-radius: var(--radius);
+    }
+
+    &__console-key {
+        color: var(--color-text-secondary);
+    }
+
+    &__console-val--on {
+        font-weight: 600;
+
+        @include preview-accent-text(var(--flag-preview-accent));
+    }
+
+    // Conversion stat card. The chart crossfades between the flat series and the
+    // stepped-up post-release series when the flag flips.
+    &__spark {
+        padding: 0.75rem 0.875rem 0.875rem;
+    }
+
+    &__spark-delta {
+        font-size: 0.6875rem;
+        font-weight: 600;
+        color: var(--color-green-500);
+    }
+
+    &__spark-chart {
+        position: relative;
+        margin-top: 0.5rem;
+    }
+
+    &__spark-area {
+        fill: color-mix(in oklab, var(--flag-preview-accent) 13%, transparent);
+        stroke: none;
+    }
+
+    &__spark-line {
+        fill: none;
+        stroke: color-mix(in oklab, var(--flag-preview-accent) 32%, transparent);
+        stroke-width: 2;
+    }
+
+    // The moving bit: a short bright segment cycling along the line.
+    &__spark-trace {
+        fill: none;
+        stroke: var(--flag-preview-accent);
+        stroke-dasharray: 16 84;
+        stroke-linecap: round;
+        stroke-width: 2;
+        animation: FlagPreview__trace 3.2s linear infinite;
+    }
+
+    &__spark-marker {
+        stroke: color-mix(in oklab, var(--flag-preview-accent) 55%, transparent);
+        stroke-dasharray: 3 3;
+        stroke-width: 1;
+    }
+
+    // "Released" annotation chip, sitting just left of the marker where the series is flat.
+    &__release {
+        position: absolute;
+        top: 0.125rem;
+        left: 55%;
+        z-index: 1;
+        padding: 0 0.25rem;
+        font-size: 0.5625rem;
+        font-weight: 600;
+        background: color-mix(in oklab, var(--flag-preview-accent) 12%, var(--color-bg-surface-primary));
+        border-radius: 999px;
+        transform: translateX(-104%);
+
+        @include preview-accent-text(var(--flag-preview-accent));
+    }
+
+    @include preview-chrome-dot;
+    @include preview-sparkline;
+}
+
+// Pinned-on state (user clicked the flag row)
+
+.FlagPreview__checkbox:checked ~ * .FlagPreview__when-on {
+    @include preview-swap-visible;
+}
+
+.FlagPreview__checkbox:checked ~ * .FlagPreview__when-off {
+    @include preview-swap-hidden;
+}
+
+.FlagPreview__checkbox:checked ~ .FlagPreview__panel .FlagPreview__row--hero .FlagPreview__switch {
+    background: var(--flag-preview-accent);
+
+    &::after {
+        transform: translateX(11px);
+    }
+}
+
+.FlagPreview__checkbox:checked ~ .FlagPreview__panel .FlagPreview__bar-fill--hero {
+    width: 100%;
+}
+
+.FlagPreview__checkbox:checked ~ .FlagPreview__app .FlagPreview__cta {
+    color: var(--color-bg-surface-primary);
+    background: var(--flag-preview-accent);
+}
+
+// The checkbox stays keyboard-focusable while visually hidden, so the row it labels
+// needs a visible focus indicator (WCAG 2.4.7).
+.FlagPreview__checkbox:focus-visible ~ .FlagPreview__panel .FlagPreview__row--hero {
+    outline: 2px solid var(--flag-preview-accent);
+    outline-offset: 1px;
+}
+
+// Nudge attention at the hero switch until it's flipped.
+.FlagPreview:not(.FlagPreview--static)
+    .FlagPreview__checkbox:not(:checked)
+    ~ .FlagPreview__panel
+    .FlagPreview__row--hero
+    .FlagPreview__switch {
+    animation: FlagPreview__nudge 2.4s ease-in-out infinite;
+}
+
+@keyframes FlagPreview__nudge {
+    0%,
+    100% {
+        box-shadow:
+            inset 0 0 0 1px var(--color-border-primary),
+            0 0 0 0 color-mix(in oklab, var(--flag-preview-accent) 45%, transparent);
+    }
+
+    50% {
+        box-shadow:
+            inset 0 0 0 1px var(--color-border-primary),
+            0 0 0 4px color-mix(in oklab, var(--flag-preview-accent) 20%, transparent);
+    }
+}
+
+// pathLength is normalized to 100, so the dash offset loops cleanly regardless of length.
+@keyframes FlagPreview__trace {
+    to {
+        stroke-dashoffset: -100;
+    }
+}
+
+// Storybook snapshots and reduced motion drop all ambient motion; clicking the
+// flag row still flips the state (transitions only).
+@include preview-motion-guards('FlagPreview');

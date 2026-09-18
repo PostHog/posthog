@@ -1,18 +1,12 @@
 import { cleanup, render, screen, waitFor } from '@testing-library/react'
 
+import { getHogChart, setupJsdom, setupSyncRaf } from '@posthog/quill-charts/testing'
+
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { FilterLogicalOperator, UniversalFiltersGroup } from '~/types'
 
 import { LogsFilterVolumeSparkline } from './LogsFilterVolumeSparkline'
-
-// The chart itself is Chart.js/quill and needs a canvas; we only care about which state the
-// component decides to render and what it hands the chart.
-jest.mock('lib/components/Sparkline', () => ({
-    Sparkline: ({ loading, data }: { loading?: boolean; data: unknown[] }) => (
-        <div data-attr="sparkline" data-loading={loading ? 'true' : 'false'} data-series={data.length} />
-    ),
-}))
 
 const EMPTY_GROUP: UniversalFiltersGroup = { type: FilterLogicalOperator.And, values: [] }
 const NON_EMPTY_GROUP: UniversalFiltersGroup = {
@@ -22,9 +16,13 @@ const NON_EMPTY_GROUP: UniversalFiltersGroup = {
 
 describe('LogsFilterVolumeSparkline', () => {
     let sparklineCalls: number
+    let cleanupJsdom: () => void
+    let cleanupRaf: () => void
 
     beforeEach(() => {
         sparklineCalls = 0
+        cleanupJsdom = setupJsdom()
+        cleanupRaf = setupSyncRaf()
         useMocks({
             post: {
                 '/api/environments/:team_id/logs/sparkline/': () => {
@@ -44,7 +42,11 @@ describe('LogsFilterVolumeSparkline', () => {
 
     // This suite's jest setup doesn't auto-cleanup, so unmount explicitly or `screen` queries
     // match leftover trees from earlier tests.
-    afterEach(cleanup)
+    afterEach(() => {
+        cleanupRaf()
+        cleanupJsdom()
+        cleanup()
+    })
 
     it('prompts for a filter and does not query when the group is empty', async () => {
         render(<LogsFilterVolumeSparkline filterGroup={EMPTY_GROUP} metric="bytes" />)
@@ -54,9 +56,9 @@ describe('LogsFilterVolumeSparkline', () => {
     })
 
     it('loads on mount for a pre-filled group and renders the chart with the total', async () => {
-        render(<LogsFilterVolumeSparkline filterGroup={NON_EMPTY_GROUP} metric="bytes" />)
+        const { container } = render(<LogsFilterVolumeSparkline filterGroup={NON_EMPTY_GROUP} metric="bytes" />)
 
-        await waitFor(() => expect(screen.getByTestId('sparkline').dataset.loading).toEqual('false'))
+        await waitFor(() => expect(getHogChart(container).seriesCount).toEqual(1))
         expect(sparklineCalls).toEqual(1)
         expect(screen.getByText('6.1 KB')).toBeTruthy()
     })
@@ -73,7 +75,7 @@ describe('LogsFilterVolumeSparkline', () => {
 
         rerender(<LogsFilterVolumeSparkline filterGroup={{ ...NON_EMPTY_GROUP }} metric="bytes" />)
 
-        await waitFor(() => expect(screen.getByTestId('sparkline')).toBeTruthy())
+        await waitFor(() => expect(screen.getByText('6.1 KB')).toBeTruthy())
         expect(sparklineCalls).toEqual(1)
     })
 

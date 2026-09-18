@@ -17,7 +17,12 @@ import {
 } from '~/types'
 
 import { resolveAggregationGroupTypeIndex } from './aggregation'
-import { featureFlagReleaseConditionsLogic, withResolvedFlagLabels } from './featureFlagReleaseConditionsLogic'
+import {
+    featureFlagReleaseConditionsLogic,
+    getBlastRadiusErrorMessage,
+    isBlastRadiusErrorRetryable,
+    withResolvedFlagLabels,
+} from './featureFlagReleaseConditionsLogic'
 
 jest.mock('uuid', () => ({
     v4: jest.fn(),
@@ -99,38 +104,50 @@ describe('the feature flag release conditions logic', () => {
                 })
         })
 
-        it('flags a distinct error state when the blast radius call fails', async () => {
-            const createSpy = jest.spyOn(api, 'create').mockRejectedValue(new Error('boom'))
+        it('captures the API error so the UI can explain the failure', async () => {
+            // Routed through a mocked HTTP response, not a hand-built ApiError, to exercise the
+            // real ApiError.fromResponse mapping.
+            useMocks({
+                post: {
+                    '/api/projects/:team/feature_flags/user_blast_radius': () => [
+                        513,
+                        {
+                            code: 'clickhouse_memory_limit_exceeded',
+                            detail: 'This query ran out of memory before it could finish.',
+                        },
+                    ],
+                },
+            })
 
-            try {
-                await expectLogic(logic, () => {
-                    logic.actions.calculateBlastRadiusForCondition(
-                        'X',
-                        [
-                            {
-                                key: 'aloha',
-                                value: 'aloha',
-                                type: PropertyFilterType.Person,
-                                operator: PropertyOperator.Exact,
-                            },
-                        ],
-                        null
-                    )
-                }).toFinishAllListeners()
+            await expectLogic(logic, () => {
+                logic.actions.calculateBlastRadiusForCondition(
+                    'X',
+                    [
+                        {
+                            key: 'aloha',
+                            value: 'aloha',
+                            type: PropertyFilterType.Person,
+                            operator: PropertyOperator.Exact,
+                        },
+                    ],
+                    null
+                )
+            }).toFinishAllListeners()
 
-                // The error is surfaced distinctly rather than masked as -1, which the render
-                // path can't tell apart from the still-loading (undefined) state.
-                expect(logic.values.blastRadiusErrors.X).toBe(true)
-                expect(logic.values.affectedCounts.X).toBeUndefined()
-                expect(logic.values.totalCounts.X).toBeUndefined()
-            } finally {
-                createSpy.mockRestore()
-            }
+            // The caught error is kept (status/code/detail), not masked as -1, which the render
+            // path can't tell apart from the still-loading (undefined) state.
+            expect(logic.values.blastRadiusErrors.X).toEqual({
+                status: 513,
+                code: 'clickhouse_memory_limit_exceeded',
+                detail: 'This query ran out of memory before it could finish.',
+            })
+            expect(logic.values.affectedCounts.X).toBeUndefined()
+            expect(logic.values.totalCounts.X).toBeUndefined()
         })
 
         it('clears the error state once a recalculation succeeds', async () => {
-            logic.actions.setBlastRadiusError('X')
-            expect(logic.values.blastRadiusErrors.X).toBe(true)
+            logic.actions.setBlastRadiusError('X', { status: 500 })
+            expect(logic.values.blastRadiusErrors.X).toEqual({ status: 500 })
 
             const createSpy = jest.spyOn(api, 'create').mockResolvedValue({ affected: 10, total: 100 })
             try {
@@ -155,6 +172,47 @@ describe('the feature flag release conditions logic', () => {
             } finally {
                 createSpy.mockRestore()
             }
+        })
+
+        // These guard the core of the fix: a deterministic failure must not offer a retry that
+        // can't help, and the backend's own copy must be shown when it's actionable.
+        it.each([
+            ['a transient timeout is retryable', { status: 504 }, true],
+            ['a server fault is retryable', { status: 500 }, true],
+            ['a rate-limited request is retryable', { status: 429 }, true],
+            ['a bad request is not retryable', { status: 400 }, false],
+            ['an unauthorized request is not retryable', { status: 401 }, false],
+            ['a too-slow estimate is not retryable', { status: 512 }, false],
+            [
+                'a per-query memory limit is not retryable',
+                { status: 513, code: 'clickhouse_memory_limit_exceeded' },
+                false,
+            ],
+        ])('%s', (_name, error, retryable) => {
+            expect(isBlastRadiusErrorRetryable(error)).toBe(retryable)
+        })
+
+        const generic = "Couldn't estimate how many users match."
+        it.each([
+            [
+                'shows the backend detail for a bad request',
+                { status: 400, detail: 'These filters are invalid.' },
+                'These filters are invalid.',
+            ],
+            [
+                'shows the backend detail for a too-slow estimate',
+                { status: 512, detail: 'Estimated query execution time is too long.' },
+                'Estimated query execution time is too long.',
+            ],
+            [
+                'shows the backend detail for a memory limit',
+                { status: 513, code: 'clickhouse_memory_limit_exceeded', detail: 'Ran out of memory.' },
+                'Ran out of memory.',
+            ],
+            ['falls back to a generic line for a timeout', { status: 504, detail: 'Gateway timeout.' }, generic],
+            ['falls back to a generic line when there is no detail', { status: 500 }, generic],
+        ])('%s', (_name, error, expected) => {
+            expect(getBlastRadiusErrorMessage(error, 'users')).toBe(expected)
         })
 
         it('loads when editing a flag with multiple conditions', async () => {

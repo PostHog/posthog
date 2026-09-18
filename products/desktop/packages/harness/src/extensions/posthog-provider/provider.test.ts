@@ -1,4 +1,5 @@
 import type { Api, Model } from "@earendil-works/pi-ai";
+import type { CloudRegion } from "@posthog/shared";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { getLlmGatewayUrl } from "./gateway";
 import {
@@ -53,6 +54,18 @@ describe("buildPosthogProvider", () => {
   it("accepts a static api key that overrides OAuth for headless use", () => {
     const config = buildPosthogProvider(models, { apiKey: "pha_static" });
     expect(config.apiKey).toBe("pha_static");
+  });
+
+  it("forwards attribution headers to the provider and every routed model", () => {
+    const headers = {
+      "x-posthog-property-task_execution_environment": "local",
+    };
+    const config = buildPosthogProvider(models, { headers });
+
+    expect(config.headers).toEqual(headers);
+    expect(config.models?.every((model) => model.headers === headers)).toBe(
+      true,
+    );
   });
 
   it("routes every provider model through an explicit gateway override", () => {
@@ -243,7 +256,7 @@ describe("resolvePosthogProvider", () => {
 });
 
 describe("model classification", () => {
-  const byId = (region: "us" | "eu" | "dev") =>
+  const byId = (region: CloudRegion) =>
     new Map(fallbackModelConfigs(region).map((model) => [model.id, model]));
 
   it("routes Claude models through anthropic-messages on the product base", () => {

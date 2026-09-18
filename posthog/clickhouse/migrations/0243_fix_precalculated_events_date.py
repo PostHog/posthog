@@ -1,4 +1,3 @@
-from posthog import settings
 from posthog.clickhouse.client.connection import NodeRole
 from posthog.clickhouse.client.migration_tools import run_sql_with_exceptions
 from posthog.models.precalculated_events.sql import (
@@ -11,6 +10,7 @@ from posthog.models.precalculated_events.sql import (
     PRECALCULATED_EVENTS_WS_MV,
     PRECALCULATED_EVENTS_WS_MV_SQL,
 )
+from posthog.run_mode import run_mode
 
 # The precalculated_events materialized view was deriving `date` from `toDate(_timestamp)`,
 # where `_timestamp` is the Kafka ingestion time. That broke backfills: events inserted by the
@@ -27,8 +27,6 @@ from posthog.models.precalculated_events.sql import (
 # both the MSK and WS materialized views consume the same Kafka topic and write to the same
 # target, causing double-ingest. WS objects are only recreated in cloud; in non-cloud they are
 # dropped (if present) and not recreated.
-
-_is_cloud = settings.CLOUD_DEPLOYMENT in ("US", "EU", "DEV")
 
 operations = [
     # Drop MVs first so the Kafka tables can be recreated without a brief double-write window.
@@ -70,6 +68,6 @@ operations = [
             node_roles=[NodeRole.INGESTION_MEDIUM],
         ),
     ]
-    if _is_cloud
+    if run_mode().is_deployed_cloud
     else []
 )

@@ -11,6 +11,8 @@ from django.db.models import F, Q, QuerySet
 from django.utils.timezone import now
 
 from posthog.helpers.dashboard_templates import (
+    FEATURE_FLAG_CALLS_DESCRIPTION_FRAGMENT,
+    FEATURE_FLAG_CALLS_DESCRIPTION_PREFIX,
     FEATURE_FLAG_ENRICHED_INTERACTION_INSIGHT_NAME,
     FEATURE_FLAG_ENRICHED_VIEW_INSIGHT_NAME,
     FEATURE_FLAG_TOTAL_VOLUME_INSIGHT_NAME,
@@ -33,7 +35,7 @@ from products.feature_flags.backend.api.feature_flag import (
     USAGE_DASHBOARD_NAME_PREFIX,
 )
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 
 # Tags each activity-log entry so a sweep's deletions are distinguishable from a user's.
 _JOB_TYPE = "delete_feature_flag_usage_insights"
@@ -56,7 +58,10 @@ def _classifier_q() -> Q:
         )
         | Q(name=FEATURE_FLAG_ENRICHED_VIEW_INSIGHT_NAME)
         | Q(name=FEATURE_FLAG_ENRICHED_INTERACTION_INSIGHT_NAME)
-        | Q(description__startswith="Shows the number of", description__contains="calls made on feature flag")
+        | Q(
+            description__startswith=FEATURE_FLAG_CALLS_DESCRIPTION_PREFIX,
+            description__contains=FEATURE_FLAG_CALLS_DESCRIPTION_FRAGMENT,
+        )
         | Q(description__startswith="Shows the total number of times this feature was viewed")
     )
 
@@ -289,7 +294,7 @@ class Command(BaseCommand):
         return deletable
 
     def _soft_delete(self, insights: list[_Candidate]) -> None:
-        """Mirror InsightViewSet.bulk_delete (products/product_analytics/backend/api/insight.py): soft-delete
+        """Mirror InsightViewSet.bulk_delete (products/product_analytics/backend/presentation/insight.py): soft-delete
         the insights and their tiles, then log each removal as system activity.
 
         Three of bulk_delete's steps are deliberately dropped: its alert teardown, because `_keep_ids`

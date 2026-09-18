@@ -1,6 +1,6 @@
 import json
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -21,32 +21,45 @@ from rest_framework import status
 from posthog.schema import (
     CachedEventsQueryResponse,
     CachedHogQLQueryResponse,
-    CachedRetentionQueryResponse,
     EventPropertyFilter,
     EventsQuery,
     HogLanguage,
     HogQLAutocomplete,
     HogQLPropertyFilter,
     HogQLQuery,
-    MeanRetentionCalculation,
     PersonPropertyFilter,
     PropertyOperator,
-    RetentionQuery,
+    QueryScanAnalysis,
+    QueryScanFindingKind,
+    QueryStatus,
 )
 
 from posthog.hogql.constants import LimitContext
 
-from posthog.api.query import CONCURRENCY_LIMIT_USER_MESSAGE
+from posthog.api.query import (
+    CONCURRENCY_LIMIT_USER_MESSAGE,
+    MANAGED_WAREHOUSE_QUERY_UNAVAILABLE_CODE,
+    MANAGED_WAREHOUSE_QUERY_UNAVAILABLE_MESSAGE,
+)
 from posthog.api.services.query import process_query_dict, process_query_model
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import Product, QueryTags
+from posthog.errors import InternalCHQueryError
 from posthog.event_usage import EventSource
-from posthog.exceptions import ClickHouseQueryTimeOut
-from posthog.models.utils import UUIDT
+from posthog.exceptions import APIQueriesBudgetExceeded, ClickHouseQueryTimeOut
+from posthog.llm.completions import OpenAICompletion
+from posthog.models import PersonalAPIKey
+from posthog.models.utils import UUIDT, generate_random_token_personal, hash_key_value
+from posthog.query_scan.findings import build_warning
+from posthog.query_scan.flag import QueryScanFlag, QueryScanMode
+from posthog.query_scan.test.slots import stored_slot
 
 from products.event_definitions.backend.models.property_definition import PropertyDefinition, PropertyType
-from products.product_analytics.backend.models.insight_variable import InsightVariable
+from products.managed_warehouse.backend.facade.query_labels import MANAGED_WAREHOUSE_QUERY_STATUS_LABEL_PREFIX
+from products.product_analytics.backend.facade.models import InsightVariable
+from products.warehouse_sources.backend.facade.models import MANAGED_WAREHOUSE_SOURCE_PREFIX, ExternalDataSource
+from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 
 
 class TestQuery(ClickhouseTestMixin, APIBaseTest):
@@ -87,9 +100,31 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, ClickHouseQueryTimeOut.status_code)
         self.assertEqual(mock_capture.called, expect_capture)
 
+    @parameterized.expand(
+        [
+            ("timeout", ClickHouseQueryTimeOut("query timed out"), ClickHouseQueryTimeOut.status_code),
+            ("internal clickhouse error", InternalCHQueryError("too many rows", code=158), 500),
+        ]
+    )
+    def test_a_killed_run_puts_its_scan_on_the_error_body(self, _name, error, expected_status):
+        error.cache_key = "cache_key_1"
+        error.query_scan = {"rows_read": 41_200, "duration_ms": 19_000, "killed": True, "analysis_requested": True}
+
+        with patch("posthog.api.query.process_query_model", side_effect=error):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/query/",
+                {"query": HogQLQuery(query="select 1").model_dump()},
+            )
+
+        self.assertEqual(response.status_code, expected_status)
+        # Without the cache key on the failure the caller cannot read the stored analysis.
+        extra = response.json()["extra"]
+        self.assertEqual(extra["cache_key"], "cache_key_1")
+        self.assertEqual(extra["query_scan"]["killed"], True)
+
     @snapshot_clickhouse_queries
     def test_select_hogql_expressions(self):
-        with freeze_time("2020-01-10 12:00:00"):
+        with time_machine.travel("2020-01-10 12:00:00", tick=False):
             _create_person(
                 properties={"email": "tom@posthog.com"},
                 distinct_ids=["2", "some-random-uid"],
@@ -102,21 +137,21 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 distinct_id="2",
                 properties={"key": "test_val1"},
             )
-        with freeze_time("2020-01-10 12:11:00"):
+        with time_machine.travel("2020-01-10 12:11:00", tick=False):
             _create_event(
                 team=self.team,
                 event="sign out",
                 distinct_id="2",
                 properties={"key": "test_val2"},
             )
-        with freeze_time("2020-01-10 12:12:00"):
+        with time_machine.travel("2020-01-10 12:12:00", tick=False):
             _create_event(
                 team=self.team,
                 event="sign out",
                 distinct_id="2",
                 properties={"key": "test_val2"},
             )
-        with freeze_time("2020-01-10 12:13:00"):
+        with time_machine.travel("2020-01-10 12:13:00", tick=False):
             _create_event(
                 team=self.team,
                 event="sign out",
@@ -125,7 +160,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             )
         flush_persons_and_events()
 
-        with freeze_time("2020-01-10 12:14:00"):
+        with time_machine.travel("2020-01-10 12:14:00", tick=False):
             query = EventsQuery(
                 select=[
                     "properties.key",
@@ -211,7 +246,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
     @also_test_with_materialized_columns(["key"])
     @snapshot_clickhouse_queries
     def test_hogql_property_filter(self):
-        with freeze_time("2020-01-10 12:00:00"):
+        with time_machine.travel("2020-01-10 12:00:00", tick=False):
             _create_person(
                 properties={"email": "tom@posthog.com"},
                 distinct_ids=["2", "some-random-uid"],
@@ -224,21 +259,21 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 distinct_id="2",
                 properties={"key": "test_val1"},
             )
-        with freeze_time("2020-01-10 12:11:00"):
+        with time_machine.travel("2020-01-10 12:11:00", tick=False):
             _create_event(
                 team=self.team,
                 event="sign out",
                 distinct_id="2",
                 properties={"key": "test_val2"},
             )
-        with freeze_time("2020-01-10 12:12:00"):
+        with time_machine.travel("2020-01-10 12:12:00", tick=False):
             _create_event(
                 team=self.team,
                 event="sign out",
                 distinct_id="3",
                 properties={"key": "test_val2"},
             )
-        with freeze_time("2020-01-10 12:13:00"):
+        with time_machine.travel("2020-01-10 12:13:00", tick=False):
             _create_event(
                 team=self.team,
                 event="sign out",
@@ -247,7 +282,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             )
         flush_persons_and_events()
 
-        with freeze_time("2020-01-10 12:14:00"):
+        with time_machine.travel("2020-01-10 12:14:00", tick=False):
             query = EventsQuery(
                 select=[
                     "event",
@@ -276,7 +311,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
     @also_test_with_materialized_columns(event_properties=["key", "path"])
     @snapshot_clickhouse_queries
     def test_event_property_filter(self):
-        with freeze_time("2020-01-10 12:00:00"):
+        with time_machine.travel("2020-01-10 12:00:00", tick=False):
             _create_person(
                 properties={"email": "tom@posthog.com"},
                 distinct_ids=["2", "some-random-uid"],
@@ -289,21 +324,21 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 distinct_id="2",
                 properties={"key": "test_val1"},
             )
-        with freeze_time("2020-01-10 12:11:00"):
+        with time_machine.travel("2020-01-10 12:11:00", tick=False):
             _create_event(
                 team=self.team,
                 event="sign out",
                 distinct_id="2",
                 properties={"key": "test_val2"},
             )
-        with freeze_time("2020-01-10 12:12:00"):
+        with time_machine.travel("2020-01-10 12:12:00", tick=False):
             _create_event(
                 team=self.team,
                 event="sign out",
                 distinct_id="3",
                 properties={"key": "test_val2"},
             )
-        with freeze_time("2020-01-10 12:13:00"):
+        with time_machine.travel("2020-01-10 12:13:00", tick=False):
             _create_event(
                 team=self.team,
                 event="sign out",
@@ -312,7 +347,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             )
         flush_persons_and_events()
 
-        with freeze_time("2020-01-10 12:14:00"):
+        with time_machine.travel("2020-01-10 12:14:00", tick=False):
             query = EventsQuery(
                 select=[
                     "event",
@@ -350,7 +385,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
     @also_test_with_materialized_columns(event_properties=["key"], person_properties=["email"])
     @snapshot_clickhouse_queries
     def test_person_property_filter(self):
-        with freeze_time("2020-01-10 12:00:00"):
+        with time_machine.travel("2020-01-10 12:00:00", tick=False):
             _create_person(
                 properties={"email": "tom@posthog.com"},
                 distinct_ids=["2", "some-random-uid"],
@@ -363,21 +398,21 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 distinct_id="2",
                 properties={"key": "test_val1"},
             )
-        with freeze_time("2020-01-10 12:11:00"):
+        with time_machine.travel("2020-01-10 12:11:00", tick=False):
             _create_event(
                 team=self.team,
                 event="sign out",
                 distinct_id="2",
                 properties={"key": "test_val2"},
             )
-        with freeze_time("2020-01-10 12:12:00"):
+        with time_machine.travel("2020-01-10 12:12:00", tick=False):
             _create_event(
                 team=self.team,
                 event="sign out",
                 distinct_id="3",
                 properties={"key": "test_val2"},
             )
-        with freeze_time("2020-01-10 12:13:00"):
+        with time_machine.travel("2020-01-10 12:13:00", tick=False):
             _create_event(
                 team=self.team,
                 event="sign out",
@@ -386,7 +421,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             )
         flush_persons_and_events()
 
-        with freeze_time("2020-01-10 12:14:00"):
+        with time_machine.travel("2020-01-10 12:14:00", tick=False):
             query = EventsQuery(
                 select=[
                     "event",
@@ -410,7 +445,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
     def test_safe_clickhouse_error_passed_through(self):
         query = {"kind": "EventsQuery", "select": ["timestamp + 'string'"]}
 
-        with freeze_time("2024-10-16 22:10:29.691212"):
+        with time_machine.travel("2024-10-16 22:10:29.691212", tick=False):
             response_post = self.client.post(f"/api/environments/{self.team.id}/query/", {"query": query})
             self.assertEqual(response_post.status_code, status.HTTP_400_BAD_REQUEST)
 
@@ -458,7 +493,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
     @also_test_with_materialized_columns(event_properties=["key", "path"])
     @snapshot_clickhouse_queries
     def test_property_filter_aggregations(self):
-        with freeze_time("2020-01-10 12:00:00"):
+        with time_machine.travel("2020-01-10 12:00:00", tick=False):
             _create_person(
                 properties={"email": "tom@posthog.com"},
                 distinct_ids=["2", "some-random-uid"],
@@ -471,21 +506,21 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 distinct_id="2",
                 properties={"key": "test_val1"},
             )
-        with freeze_time("2020-01-10 12:11:00"):
+        with time_machine.travel("2020-01-10 12:11:00", tick=False):
             _create_event(
                 team=self.team,
                 event="sign out",
                 distinct_id="2",
                 properties={"key": "test_val2"},
             )
-        with freeze_time("2020-01-10 12:12:00"):
+        with time_machine.travel("2020-01-10 12:12:00", tick=False):
             _create_event(
                 team=self.team,
                 event="sign out",
                 distinct_id="3",
                 properties={"key": "test_val2"},
             )
-        with freeze_time("2020-01-10 12:13:00"):
+        with time_machine.travel("2020-01-10 12:13:00", tick=False):
             _create_event(
                 team=self.team,
                 event="sign out",
@@ -494,7 +529,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             )
         flush_persons_and_events()
 
-        with freeze_time("2020-01-10 12:14:00"):
+        with time_machine.travel("2020-01-10 12:14:00", tick=False):
             query = EventsQuery(select=["properties.key", "count()"])
             response = self.client.post(f"/api/environments/{self.team.id}/query/", {"query": query.dict()}).json()
             self.assertEqual(len(response["results"]), 3)
@@ -505,7 +540,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
 
     @snapshot_clickhouse_queries
     def test_select_event_person(self):
-        with freeze_time("2020-01-10 12:00:00"):
+        with time_machine.travel("2020-01-10 12:00:00", tick=False):
             person = _create_person(
                 properties={"name": "Tom", "email": "tom@posthog.com"},
                 distinct_ids=["2", "some-random-uid"],
@@ -518,21 +553,21 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 distinct_id="2",
                 properties={"key": "test_val1"},
             )
-        with freeze_time("2020-01-10 12:11:00"):
+        with time_machine.travel("2020-01-10 12:11:00", tick=False):
             _create_event(
                 team=self.team,
                 event="sign out",
                 distinct_id="2",
                 properties={"key": "test_val2"},
             )
-        with freeze_time("2020-01-10 12:12:00"):
+        with time_machine.travel("2020-01-10 12:12:00", tick=False):
             _create_event(
                 team=self.team,
                 event="sign out",
                 distinct_id="3",
                 properties={"key": "test_val2"},
             )
-        with freeze_time("2020-01-10 12:13:00"):
+        with time_machine.travel("2020-01-10 12:13:00", tick=False):
             _create_event(
                 team=self.team,
                 event="sign out",
@@ -541,7 +576,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             )
         flush_persons_and_events()
 
-        with freeze_time("2020-01-10 12:14:00"):
+        with time_machine.travel("2020-01-10 12:14:00", tick=False):
             query = EventsQuery(
                 select=["event", "person", "person -- P"],
                 orderBy=["timestamp DESC"] if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA else None,
@@ -563,7 +598,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
 
     @snapshot_clickhouse_queries
     def test_events_query_all_time_date(self):
-        with freeze_time("2020-01-10 12:00:00"):
+        with time_machine.travel("2020-01-10 12:00:00", tick=False):
             _create_person(
                 properties={"name": "Tom", "email": "tom@posthog.com"},
                 distinct_ids=["2", "some-random-uid"],
@@ -576,21 +611,21 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 distinct_id="2",
                 properties={"key": "test_val1"},
             )
-        with freeze_time("2021-01-10 12:11:00"):
+        with time_machine.travel("2021-01-10 12:11:00", tick=False):
             _create_event(
                 team=self.team,
                 event="sign out",
                 distinct_id="2",
                 properties={"key": "test_val2"},
             )
-        with freeze_time("2022-01-10 12:12:00"):
+        with time_machine.travel("2022-01-10 12:12:00", tick=False):
             _create_event(
                 team=self.team,
                 event="sign out",
                 distinct_id="3",
                 properties={"key": "test_val2"},
             )
-        with freeze_time("2023-01-10 12:13:00"):
+        with time_machine.travel("2023-01-10 12:13:00", tick=False):
             _create_event(
                 team=self.team,
                 event="sign out",
@@ -599,7 +634,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             )
         flush_persons_and_events()
 
-        with freeze_time("2023-01-12 12:14:00"):
+        with time_machine.travel("2023-01-12 12:14:00", tick=False):
             query = EventsQuery(select=["event"], after="all")
             response = self.client.post(f"/api/environments/{self.team.id}/query/", {"query": query.dict()}).json()
             self.assertEqual(len(response["results"]), 4)
@@ -615,7 +650,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
     @also_test_with_materialized_columns(event_properties=["key"])
     @snapshot_clickhouse_queries
     def test_full_hogql_query(self):
-        with freeze_time("2020-01-10 12:00:00"):
+        with time_machine.travel("2020-01-10 12:00:00", tick=False):
             _create_person(
                 properties={"email": "tom@posthog.com"},
                 distinct_ids=["2", "some-random-uid"],
@@ -628,21 +663,21 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 distinct_id="2",
                 properties={"key": "test_val1"},
             )
-        with freeze_time("2020-01-10 12:11:00"):
+        with time_machine.travel("2020-01-10 12:11:00", tick=False):
             _create_event(
                 team=self.team,
                 event="sign out",
                 distinct_id="2",
                 properties={"key": "test_val2"},
             )
-        with freeze_time("2020-01-10 12:12:00"):
+        with time_machine.travel("2020-01-10 12:12:00", tick=False):
             _create_event(
                 team=self.team,
                 event="sign out",
                 distinct_id="3",
                 properties={"key": "test_val2"},
             )
-        with freeze_time("2020-01-10 12:13:00"):
+        with time_machine.travel("2020-01-10 12:13:00", tick=False):
             _create_event(
                 team=self.team,
                 event="sign out",
@@ -651,7 +686,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             )
         flush_persons_and_events()
 
-        with freeze_time("2020-01-10 12:14:00"):
+        with time_machine.travel("2020-01-10 12:14:00", tick=False):
             query = HogQLQuery(query="select event, distinct_id, properties.key from events order by timestamp")
             api_response = self.client.post(f"/api/environments/{self.team.id}/query/", {"query": query.dict()}).json()
             response = CachedHogQLQueryResponse.model_validate(api_response)
@@ -706,7 +741,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
     @patch("posthog.hogql.constants.MAX_SELECT_RETURNED_ROWS", 15)
     def test_full_hogql_query_limit(self, MAX_SELECT_RETURNED_ROWS=15, DEFAULT_RETURNED_ROWS=10):
         random_uuid = f"RANDOM_TEST_ID::{UUIDT()}"
-        with freeze_time("2020-01-10 12:00:00"):
+        with time_machine.travel("2020-01-10 12:00:00", tick=False):
             for _ in range(20):
                 _create_event(
                     team=self.team,
@@ -716,7 +751,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 )
         flush_persons_and_events()
 
-        with freeze_time("2020-01-10 12:14:00"):
+        with time_machine.travel("2020-01-10 12:14:00", tick=False):
             response = process_query_dict(
                 team=self.team,
                 query_json={
@@ -731,7 +766,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
     @patch("posthog.hogql.constants.CSV_EXPORT_LIMIT", 15)
     def test_full_hogql_query_limit_exported(self, CSV_EXPORT_LIMIT=15, DEFAULT_RETURNED_ROWS=10):
         random_uuid = f"RANDOM_TEST_ID::{UUIDT()}"
-        with freeze_time("2020-01-10 12:00:00"):
+        with time_machine.travel("2020-01-10 12:00:00", tick=False):
             for _ in range(20):
                 _create_event(
                     team=self.team,
@@ -741,7 +776,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 )
         flush_persons_and_events()
 
-        with freeze_time("2020-01-10 12:14:00"):
+        with time_machine.travel("2020-01-10 12:14:00", tick=False):
             response = process_query_dict(
                 team=self.team,
                 query_json={
@@ -796,7 +831,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
     @patch("posthog.hogql.constants.MAX_SELECT_RETURNED_ROWS", 15)
     def test_full_events_query_limit(self, MAX_SELECT_RETURNED_ROWS=15, DEFAULT_RETURNED_ROWS=10):
         random_uuid = f"RANDOM_TEST_ID::{UUIDT()}"
-        with freeze_time("2020-01-10 12:00:00"):
+        with time_machine.travel("2020-01-10 12:00:00", tick=False):
             for _ in range(20):
                 _create_event(
                     team=self.team,
@@ -806,7 +841,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 )
         flush_persons_and_events()
 
-        with freeze_time("2020-01-10 12:14:00"):
+        with time_machine.travel("2020-01-10 12:14:00", tick=False):
             response = process_query_dict(
                 team=self.team,
                 query_json={
@@ -823,7 +858,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
     @patch("posthog.hogql.constants.CSV_EXPORT_LIMIT", 15)
     def test_full_events_query_limit_exported(self, CSV_EXPORT_LIMIT=15, DEFAULT_RETURNED_ROWS=10):
         random_uuid = f"RANDOM_TEST_ID::{UUIDT()}"
-        with freeze_time("2020-01-10 12:00:00"):
+        with time_machine.travel("2020-01-10 12:00:00", tick=False):
             for _ in range(20):
                 _create_event(
                     team=self.team,
@@ -833,7 +868,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 )
         flush_persons_and_events()
 
-        with freeze_time("2020-01-10 12:14:00"):
+        with time_machine.travel("2020-01-10 12:14:00", tick=False):
             response = process_query_dict(
                 team=self.team,
                 query_json={
@@ -850,7 +885,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
     def test_property_definition_annotation_does_not_break_things(self):
         PropertyDefinition.objects.create(team=self.team, name="$browser", property_type=PropertyType.String)
 
-        with freeze_time("2020-01-10 12:14:00"):
+        with time_machine.travel("2020-01-10 12:14:00", tick=False):
             response = process_query_dict(
                 team=self.team,
                 query_json={
@@ -892,7 +927,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
 
     @snapshot_clickhouse_queries
     def test_full_hogql_query_view(self):
-        with freeze_time("2020-01-10 12:00:00"):
+        with time_machine.travel("2020-01-10 12:00:00", tick=False):
             _create_person(
                 properties={"email": "tom@posthog.com"},
                 distinct_ids=["2", "some-random-uid"],
@@ -905,21 +940,21 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 distinct_id="2",
                 properties={"key": "test_val1"},
             )
-        with freeze_time("2020-01-10 12:11:00"):
+        with time_machine.travel("2020-01-10 12:11:00", tick=False):
             _create_event(
                 team=self.team,
                 event="sign out",
                 distinct_id="2",
                 properties={"key": "test_val2"},
             )
-        with freeze_time("2020-01-10 12:12:00"):
+        with time_machine.travel("2020-01-10 12:12:00", tick=False):
             _create_event(
                 team=self.team,
                 event="sign out",
                 distinct_id="3",
                 properties={"key": "test_val2"},
             )
-        with freeze_time("2020-01-10 12:13:00"):
+        with time_machine.travel("2020-01-10 12:13:00", tick=False):
             _create_event(
                 team=self.team,
                 event="sign out",
@@ -928,7 +963,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             )
         flush_persons_and_events()
 
-        with freeze_time("2020-01-10 12:14:00"):
+        with time_machine.travel("2020-01-10 12:14:00", tick=False):
             self.client.post(
                 f"/api/environments/{self.team.id}/warehouse_saved_queries/",
                 {
@@ -957,7 +992,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
 
     @snapshot_clickhouse_queries
     def test_full_hogql_query_async(self):
-        with freeze_time("2020-01-10 12:00:00"):
+        with time_machine.travel("2020-01-10 12:00:00", tick=False):
             _create_person(
                 properties={"email": "tom@posthog.com"},
                 distinct_ids=["2", "some-random-uid"],
@@ -970,7 +1005,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 distinct_id="2",
                 properties={"key": "test_val1"},
             )
-        with freeze_time("2020-01-10 12:11:00"):
+        with time_machine.travel("2020-01-10 12:11:00", tick=False):
             _create_event(
                 team=self.team,
                 event="sign out",
@@ -979,7 +1014,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             )
         flush_persons_and_events()
 
-        with freeze_time("2020-01-10 12:14:00"):
+        with time_machine.travel("2020-01-10 12:14:00", tick=False):
             query = HogQLQuery(query="select * from events")
             api_response = self.client.post(
                 f"/api/environments/{self.team.id}/query/", {"query": query.dict(), "refresh": "force_async"}
@@ -996,6 +1031,8 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                         "error": False,
                         "error_message": None,
                         "error_code": None,
+                        "bytes_read": None,
+                        "budget_remaining_bytes": None,
                         "expiration_time": mock.ANY,
                         "id": mock.ANY,
                         "query_async": True,
@@ -1007,13 +1044,15 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                         "dashboard_id": mock.ANY,
                         "query_progress": None,
                         "labels": None,
+                        "cache_key": None,
+                        "query_scan": None,
                     }
                 },
             )
 
     def test_full_hogql_query_values(self):
         random_uuid = f"RANDOM_TEST_ID::{UUIDT()}"
-        with freeze_time("2020-01-10 12:00:00"):
+        with time_machine.travel("2020-01-10 12:00:00", tick=False):
             for _ in range(20):
                 _create_event(
                     team=self.team,
@@ -1023,7 +1062,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 )
         flush_persons_and_events()
 
-        with freeze_time("2020-01-10 12:14:00"):
+        with time_machine.travel("2020-01-10 12:14:00", tick=False):
             response = process_query_dict(
                 team=self.team,
                 query_json={
@@ -1038,14 +1077,14 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
 
     def test_dashboard_filters_applied(self):
         random_uuid = f"RANDOM_TEST_ID::{UUIDT()}"
-        with freeze_time("2020-01-07 12:00:00"):
+        with time_machine.travel("2020-01-07 12:00:00", tick=False):
             _create_event(
                 team=self.team,
                 event="sign up",
                 distinct_id=random_uuid,
                 properties={"key": "test_val1"},
             )
-        with freeze_time("2020-01-10 15:00:00"):
+        with time_machine.travel("2020-01-10 15:00:00", tick=False):
             _create_event(
                 team=self.team,
                 event="$pageview",
@@ -1054,7 +1093,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             )
         flush_persons_and_events()
 
-        with freeze_time("2020-01-10 19:00:00"):
+        with time_machine.travel("2020-01-10 19:00:00", tick=False):
             response_without_dashboard_filters = process_query_dict(
                 team=self.team,
                 query_json={
@@ -1078,14 +1117,14 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
 
     def test_dashboard_filters_applied_with_source(self):
         random_uuid = f"RANDOM_TEST_ID::{UUIDT()}"
-        with freeze_time("2020-01-07 12:00:00"):
+        with time_machine.travel("2020-01-07 12:00:00", tick=False):
             _create_event(
                 team=self.team,
                 event="sign up",
                 distinct_id=random_uuid,
                 properties={"key": "test_val1"},
             )
-        with freeze_time("2020-01-10 15:00:00"):
+        with time_machine.travel("2020-01-10 15:00:00", tick=False):
             _create_event(
                 team=self.team,
                 event="$pageview",
@@ -1094,7 +1133,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             )
         flush_persons_and_events()
 
-        with freeze_time("2020-01-10 19:00:00"):
+        with time_machine.travel("2020-01-10 19:00:00", tick=False):
             response_without_dashboard_filters = process_query_dict(
                 team=self.team,
                 query_json={
@@ -1160,41 +1199,6 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         response = CachedHogQLQueryResponse.model_validate(api_response)
         assert response.results[0][0] == variable_override_value
 
-    @patch("posthog.api.query.process_query_model")
-    def test_upgrades_query(self, mock_process_query):
-        mock_process_query.return_value = CachedRetentionQueryResponse(
-            cache_key="cache_123",
-            is_cached=False,
-            last_refresh="2023-10-16T12:00:00Z",
-            next_allowed_client_refresh="2023-10-16T14:00:00Z",
-            results=[],
-            timezone="UTC",
-        )
-
-        self.client.post(
-            f"/api/environments/{self.team.id}/query/",
-            {
-                "query": {
-                    "kind": "RetentionQuery",
-                    "retentionFilter": {
-                        "period": "Day",
-                        "totalIntervals": 8,
-                        "targetEntity": {"id": "$pageview", "name": "$pageview", "type": "events"},
-                        "returningEntity": {"id": "$pageview", "name": "$pageview", "type": "events"},
-                        "retentionType": "retention_first_time",
-                        "showMean": True,
-                    },
-                },
-                "client_query_id": "5d92fb51-5088-45e8-91b2-843aef3d69bd",
-            },
-        ).json()
-
-        mock_process_query.assert_called_once()
-        updated_query = mock_process_query.call_args.args[1]
-        assert isinstance(updated_query, RetentionQuery)
-        assert updated_query.version == 2
-        assert updated_query.retentionFilter.meanRetentionCalculation == MeanRetentionCalculation.SIMPLE
-
 
 class TestQueryRetrieve(APIBaseTest):
     def setUp(self):
@@ -1253,6 +1257,63 @@ class TestQueryRetrieve(APIBaseTest):
         self.assertEqual(response.status_code, 202)
         self.assertFalse(response.json()["query_status"]["complete"])
 
+    @parameterized.expand(
+        [
+            ("ready", True, 200),
+            ("revoked", False, 404),
+        ]
+    )
+    def test_managed_warehouse_query_status_checks_reader_readiness_without_feature_flag_lookup(
+        self, _name: str, reader_configured: bool, expected_status: int
+    ) -> None:
+        source = ExternalDataSource.objects.create(
+            source_id="managed-source",
+            connection_id="managed-connection",
+            destination_id="managed-destination",
+            team=self.team,
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type=ExternalDataSourceType.POSTGRES,
+            prefix=MANAGED_WAREHOUSE_SOURCE_PREFIX,
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            direct_query_enabled=True,
+            connection_metadata={
+                "engine": "duckdb",
+                "system_managed": True,
+                "credential_kind": "project_reader",
+                "reader_configured": reader_configured,
+            },
+            job_inputs={
+                "host": "managed.example.com",
+                "port": 5432,
+                "database": "ducklake",
+                "user": f"posthog_team_{self.team.id}",
+                "password": "reader-password",
+            },
+        )
+        self.redis_client_mock.get.return_value = json.dumps(
+            {
+                "id": self.valid_query_id,
+                "team_id": self.team_id,
+                "complete": True,
+                "labels": [f"{MANAGED_WAREHOUSE_QUERY_STATUS_LABEL_PREFIX}{source.id}"],
+                "results": ["result1"],
+            }
+        ).encode()
+
+        with patch(
+            "posthog.permissions.posthog_feature_flag_enabled",
+            side_effect=AssertionError("query-status authorization must not evaluate a product feature flag"),
+        ) as feature_flag_lookup:
+            response = self.client.get(f"/api/environments/{self.team.id}/query/{self.valid_query_id}/")
+
+        self.assertEqual(response.status_code, expected_status)
+        feature_flag_lookup.assert_not_called()
+        if not reader_configured:
+            self.assertEqual(response.json()["detail"], MANAGED_WAREHOUSE_QUERY_UNAVAILABLE_MESSAGE)
+            self.assertEqual(response.json()["code"], MANAGED_WAREHOUSE_QUERY_UNAVAILABLE_CODE)
+            self.assertNotIn(self.valid_query_id, response.json()["detail"])
+            self.assertNotIn(str(self.team_id), response.json()["detail"])
+
     def test_failed_query_with_internal_error(self):
         self.redis_client_mock.get.return_value = json.dumps(
             {
@@ -1293,8 +1354,76 @@ class TestQueryRetrieve(APIBaseTest):
         self.assertEqual(self.redis_client_mock.delete.call_count, 2)
 
 
+SHOW_FLAG = QueryScanFlag(mode=QueryScanMode.SHOW, floor_ms=1000, event_ratio=0.1, persons_ratio=0.5)
+LOG_ONLY_FLAG = QueryScanFlag(mode=QueryScanMode.LOG_ONLY, floor_ms=1000, event_ratio=0.1, persons_ratio=0.5)
+
+A_STORED_SCAN = stored_slot(
+    QueryScanAnalysis(
+        range_share=0.8,
+        project_share=0.25,
+        findings=[build_warning(kind=QueryScanFindingKind.NO_EVENT_FILTER, query_kind="HogQLQuery")],
+    )
+)
+A_CLAIMED_SCAN = json.dumps({"pending": True})
+
+
+class TestQueryScan(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.redis_client_mock = mock.Mock()
+        patcher = mock.patch("posthog.query_scan.slot.query_cache_raw_client", return_value=self.redis_client_mock)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        flag_patcher = mock.patch("posthog.api.query.get_query_scan_flag", return_value=SHOW_FLAG)
+        self.flag_mock = flag_patcher.start()
+        self.addCleanup(flag_patcher.stop)
+
+    def test_returns_the_stored_scan(self):
+        self.redis_client_mock.get.return_value = A_STORED_SCAN
+
+        response = self.client.get(f"/api/environments/{self.team.id}/query/scan/cache_key_1/")
+
+        self.assertEqual(response.status_code, 200, response.content)
+        analysis = response.json()["analysis"]
+        self.assertEqual(analysis["range_share"], 0.8)
+        self.assertEqual(analysis["project_share"], 0.25)
+        self.assertEqual([finding["kind"] for finding in analysis["findings"]], ["no_event_filter"])
+        # "Fix with AI" sends this, so the endpoint builds it rather than the client.
+        self.assertIn("- no_event_filter:", analysis["assistant_prompt"])
+
+    def test_answers_with_an_empty_body_while_the_job_runs(self):
+        # A client polls until an analysis arrives, so "not yet" has to differ from the 404 that
+        # ends the poll.
+        self.redis_client_mock.get.return_value = A_CLAIMED_SCAN
+
+        response = self.client.get(f"/api/environments/{self.team.id}/query/scan/cache_key_1/")
+
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(response.json(), {})
+
+    @parameterized.expand(
+        [
+            ("the query was never analyzed", None, SHOW_FLAG),
+            # `log_only` collects the analysis without showing it to anyone, so the endpoint that
+            # serves it to a client has to stay closed on that mode.
+            ("the team is in log-only mode", A_STORED_SCAN, LOG_ONLY_FLAG),
+            ("the flag is off", A_STORED_SCAN, None),
+        ]
+    )
+    def test_returns_404_when(self, _name, stored, flag):
+        self.redis_client_mock.get.return_value = stored
+        self.flag_mock.return_value = flag
+
+        response = self.client.get(f"/api/environments/{self.team.id}/query/scan/cache_key_1/")
+
+        self.assertEqual(response.status_code, 404)
+
+
 class TestQueryDraftSql(APIBaseTest):
-    @patch("posthog.hogql.ai.hit_openai", return_value=("SELECT 1", 21, 37))
+    @patch(
+        "posthog.hogql.ai.hit_openai",
+        return_value=OpenAICompletion(content="SELECT 1", prompt_tokens=21, completion_tokens=37),
+    )
     def test_draft_sql(self, hit_openai_mock):
         response = self.client.get(
             f"/api/environments/{self.team.id}/query/draft_sql/", {"prompt": "I need the number 1"}
@@ -1304,61 +1433,8 @@ class TestQueryDraftSql(APIBaseTest):
         hit_openai_mock.assert_called_once()
 
 
-class TestQueryUpgrade(APIBaseTest):
-    def test_upgrades_valid_query(self):
-        query = {"kind": "RetentionQuery", "retentionFilter": {"period": "Day", "totalIntervals": 7, "showMean": True}}
-
-        response = self.client.post(f"/api/environments/{self.team.id}/query/upgrade/", {"query": query})
-
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(
-            response.json(),
-            {
-                "query": {
-                    "kind": "RetentionQuery",
-                    "retentionFilter": {"meanRetentionCalculation": "simple", "period": "Day", "totalIntervals": 7},
-                    "version": 2,
-                }
-            },
-        )
-
-
 class TestQueryLLMFormatting(ClickhouseTestMixin, APIBaseTest):
     ENDPOINT = "query"
-
-    @patch("posthog.api.query.process_query_model")
-    def test_trends_query_includes_formatted_results(self, mock_process_query_model):
-        mock_process_query_model.return_value = {
-            "results": [
-                {
-                    "data": [100, 200, 150],
-                    "labels": ["2024-01-01", "2024-01-02", "2024-01-03"],
-                    "days": ["2024-01-01", "2024-01-02", "2024-01-03"],
-                    "count": 450,
-                    "label": "$pageview",
-                    "action": {
-                        "days": ["2024-01-01", "2024-01-02", "2024-01-03"],
-                        "id": "$pageview",
-                        "type": "events",
-                    },
-                }
-            ],
-            "is_cached": False,
-        }
-
-        response = self.client.post(
-            f"/api/environments/{self.team.id}/query/",
-            {"query": {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]}},
-            HTTP_X_POSTHOG_CLIENT="mcp",
-        )
-
-        self.assertEqual(response.status_code, 200)
-        data = response.json()
-        self.assertIn("results", data)
-        self.assertIn("formatted_results", data)
-        self.assertIn("$pageview", data["formatted_results"])
-        self.assertIn("100", data["formatted_results"])
-        self.assertIn("|", data["formatted_results"])
 
     @patch("posthog.api.query.process_query_model")
     def test_hogql_query_includes_formatted_results(self, mock_process_query_model):
@@ -1383,22 +1459,14 @@ class TestQueryLLMFormatting(ClickhouseTestMixin, APIBaseTest):
     @patch("posthog.api.query.process_query_model")
     def test_no_formatted_results_without_header(self, mock_process_query_model):
         mock_process_query_model.return_value = {
-            "results": [
-                {
-                    "data": [100],
-                    "labels": ["2024-01-01"],
-                    "days": ["2024-01-01"],
-                    "count": 100,
-                    "label": "$pageview",
-                    "action": {"days": ["2024-01-01"], "id": "$pageview", "type": "events"},
-                }
-            ],
+            "results": [["sign up", 10]],
+            "columns": ["event", "count"],
             "is_cached": False,
         }
 
         response = self.client.post(
             f"/api/environments/{self.team.id}/query/",
-            {"query": {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]}},
+            {"query": {"kind": "HogQLQuery", "query": "select event, count() from events group by event"}},
         )
 
         self.assertEqual(response.status_code, 200)
@@ -1433,22 +1501,14 @@ class TestQueryLLMFormatting(ClickhouseTestMixin, APIBaseTest):
             setattr(mock_settings, attr, getattr(__import__("posthog").settings, attr))
 
         mock_process_query_model.return_value = {
-            "results": [
-                {
-                    "data": [100],
-                    "labels": ["2024-01-01"],
-                    "days": ["2024-01-01"],
-                    "count": 100,
-                    "label": "$pageview",
-                    "action": {"days": ["2024-01-01"], "id": "$pageview", "type": "events"},
-                }
-            ],
+            "results": [["sign up", 10]],
+            "columns": ["event", "count"],
             "is_cached": False,
         }
 
         response = self.client.post(
             f"/api/environments/{self.team.id}/query/",
-            {"query": {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]}},
+            {"query": {"kind": "HogQLQuery", "query": "select event, count() from events group by event"}},
             HTTP_X_POSTHOG_CLIENT="mcp",
         )
 
@@ -1459,59 +1519,40 @@ class TestQueryLLMFormatting(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            # An explicit ISO timestamp (including midnight Z) is an exact boundary, not a calendar day.
-            ("explicit_midnight", "2026-07-09T00:00:00Z", "to 2026-07-09 00:00:00"),
-            ("explicit_time_of_day", "2026-07-09T14:30:00Z", "to 2026-07-09 14:30:00"),
-            # A bare calendar day keeps the default end-of-day rounding so the last day stays included.
-            ("bare_date", "2026-07-09", "to 2026-07-09 23:59:59"),
+            # An MCP caller passing a full timestamp means an exact boundary, so the range is marked
+            # explicit and keeps the time of day instead of snapping to end of day.
+            ("mcp_explicit_midnight", True, "2026-07-09T00:00:00Z", True),
+            ("mcp_explicit_time_of_day", True, "2026-07-09T14:30:00Z", True),
+            # A bare calendar day carries no time of day, so it keeps the default end-of-day rounding
+            # and the last day stays in range.
+            ("mcp_bare_date", True, "2026-07-09", False),
+            # The web UI serialises fixed calendar ranges as naive timestamps and relies on that same
+            # rounding, so a non-MCP request must never have its boundary marked explicit.
+            ("non_mcp_explicit_timestamp", False, "2026-07-09T00:00:00Z", False),
         ]
     )
     @patch("posthog.api.query.process_query_model")
-    def test_mcp_funnel_respects_explicit_timestamp_date_to(
-        self, _name, date_to, expected_range_suffix, mock_process_query_model
+    def test_explicit_date_boundary_marking(
+        self, _name, is_mcp_client, date_to, expected_explicit, mock_process_query_model
     ):
-        mock_process_query_model.return_value = {
-            "results": [
-                {"name": "$pageview", "count": 10, "average_conversion_time": None, "median_conversion_time": None}
-            ],
-            "is_cached": False,
-        }
-
-        response = self.client.post(
-            f"/api/environments/{self.team.id}/query/",
-            {
-                "query": {
-                    "kind": "FunnelsQuery",
-                    "series": [{"kind": "EventsNode", "event": "$pageview"}],
-                    "dateRange": {"date_from": "2026-07-02T00:00:00Z", "date_to": date_to},
-                }
-            },
-            HTTP_X_POSTHOG_CLIENT="mcp",
-        )
-
-        self.assertEqual(response.status_code, 200)
-        formatted = response.json()["formatted_results"]
-        self.assertIn(expected_range_suffix, formatted)
-
-    @patch("posthog.api.query.process_query_model")
-    def test_non_mcp_request_does_not_mark_explicit_date(self, mock_process_query_model):
-        # The web UI serialises fixed calendar ranges as naive timestamps and relies on end-of-day
-        # rounding, so a non-MCP request must never have its date boundary marked explicit.
         mock_process_query_model.return_value = {"results": [], "is_cached": False}
 
-        self.client.post(
-            f"/api/environments/{self.team.id}/query/",
-            {
-                "query": {
-                    "kind": "FunnelsQuery",
-                    "series": [{"kind": "EventsNode", "event": "$pageview"}],
-                    "dateRange": {"date_from": "2026-07-02T00:00:00Z", "date_to": "2026-07-09T00:00:00Z"},
-                }
-            },
-        )
+        url = f"/api/environments/{self.team.id}/query/"
+        # `_mark_explicit_date_boundaries` reads `dateRange` off any query, so the kind is incidental.
+        # It only has to be one core owns, or this test drags a product's runners back into core's inputs.
+        payload = {
+            "query": {
+                "kind": "TracesQuery",
+                "dateRange": {"date_from": "2026-07-02T00:00:00Z", "date_to": date_to},
+            }
+        }
+        if is_mcp_client:
+            self.client.post(url, payload, HTTP_X_POSTHOG_CLIENT="mcp")
+        else:
+            self.client.post(url, payload)
 
         executed_query = mock_process_query_model.call_args.args[1]
-        self.assertFalse(executed_query.dateRange.explicitDate)
+        self.assertEqual(bool(executed_query.dateRange.explicitDate), expected_explicit)
 
 
 class TestMcpProductTaggingEndToEnd(ClickhouseTestMixin, APIBaseTest):
@@ -1591,3 +1632,51 @@ class TestMcpProductTaggingEndToEnd(ClickhouseTestMixin, APIBaseTest):
         comment = self._get_log_comment_for_team()
         self.assertNotEqual(comment.get("source"), "mcp")
         self.assertNotEqual(comment.get("product"), Product.MCP.value)
+
+
+class TestQueryCostHeaders(ClickhouseTestMixin, APIBaseTest):
+    def _personal_key_headers(self) -> dict[str, str]:
+        value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="cost headers", user=self.user, secure_value=hash_key_value(value), scopes=["query:read"]
+        )
+        return {"Authorization": f"Bearer {value}"}
+
+    @parameterized.expand([("api_key", True), ("session", False)])
+    def test_only_api_key_query_responses_carry_cost_headers(self, _name, api_key):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/query/",
+            {"query": {"kind": "HogQLQuery", "query": "SELECT 1"}},
+            format="json",
+            headers=self._personal_key_headers() if api_key else {},
+        )
+        assert response.status_code == 200, response.content
+        assert ("X-PostHog-Query-Bytes-Read" in response) is api_key
+        if api_key:
+            assert int(response["X-PostHog-Query-Bytes-Read"]) >= 0
+            assert int(response["X-PostHog-Query-Budget-Remaining-Bytes"]) > 0
+
+    def test_async_query_status_carries_the_cost_once_complete(self):
+        query_status = QueryStatus(
+            id="q1", team_id=self.team.id, complete=True, bytes_read=1234, budget_remaining_bytes=99
+        )
+        with patch("posthog.api.query.get_query_status", return_value=query_status):
+            response = self.client.get(f"/api/projects/{self.team.id}/query/q1/", headers=self._personal_key_headers())
+        assert response.status_code == 200
+        assert response["X-PostHog-Query-Bytes-Read"] == "1234"
+        assert response["X-PostHog-Query-Budget-Remaining-Bytes"] == "99"
+
+    def test_budget_429_is_not_captured_as_an_error(self):
+        with (
+            patch("posthog.api.query.process_query_model", side_effect=APIQueriesBudgetExceeded(wait=5)),
+            patch("posthog.api.query.capture_exception") as mock_capture,
+        ):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/query/",
+                {"query": {"kind": "HogQLQuery", "query": "SELECT 1"}},
+                format="json",
+                headers=self._personal_key_headers(),
+            )
+        assert response.status_code == 429
+        assert response["Retry-After"] == "5"
+        assert not mock_capture.called

@@ -20,10 +20,12 @@ from products.warehouse_sources.backend.models.external_data_schema import Exter
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.create_job_model import (
+    CreateExternalDataJobModelActivityInputs,
     _create_job,
     _enrichment_pending,
     _statistics_stale,
     _verify_v3_lock_still_held,
+    create_external_data_job_model_activity,
 )
 
 MODULE = "products.warehouse_sources.backend.temporal.data_imports.workflow_activities.create_job_model"
@@ -218,3 +220,31 @@ class TestCreateJob:
         assert ExternalDataJob.objects.filter(schema_id=schema.id).count() == 1
         assert job.id is not None
         mock_sleep.assert_called_once()
+
+
+@pytest.mark.django_db
+class TestCreateJobActivityStatusOrdering:
+    # The Running status must only be persisted once the job row exists: a Running schema with no
+    # job behind it can never be finalized, so it stays stuck on Running forever and blocks cancel.
+    @patch(f"{MODULE}.close_old_connections")
+    @patch(f"{MODULE}._create_job", side_effect=OperationalError("insert failed"))
+    def test_schema_not_left_running_when_job_creation_fails(
+        self, _mock_create: MagicMock, _mock_close_connections: MagicMock
+    ) -> None:
+        team = _team()
+        schema = _schema(team, None)
+        schema.status = ExternalDataSchema.Status.FAILED
+        schema.save()
+
+        inputs = CreateExternalDataJobModelActivityInputs(
+            team_id=team.id,
+            schema_id=schema.id,
+            source_id=schema.source_id,
+            billable=True,
+        )
+
+        with pytest.raises(OperationalError):
+            create_external_data_job_model_activity(inputs)
+
+        schema.refresh_from_db()
+        assert schema.status == ExternalDataSchema.Status.FAILED

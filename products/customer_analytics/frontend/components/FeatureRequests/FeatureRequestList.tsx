@@ -2,10 +2,21 @@ import { useActions, useValues } from 'kea'
 import { combineUrl } from 'kea-router'
 
 import { IconSearch } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonInput, LemonTable, LemonTableColumns, LemonTag, Link } from '@posthog/lemon-ui'
+import {
+    LemonBanner,
+    LemonButton,
+    LemonInput,
+    LemonSkeleton,
+    LemonTable,
+    LemonTableColumns,
+    LemonTag,
+    Link,
+    ProfilePicture,
+} from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
+import { fullName } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
@@ -27,9 +38,18 @@ export function FeatureRequestList(): JSX.Element {
         hasActiveFilters,
         listSearchParams,
         searchQuery,
+        creatorById,
+        members,
+        tableSorting,
     } = useValues(featureRequestsLogic)
-    const { openCreateRequest, openProductAreas, setFeatureRequestsPage, loadFeatureRequests, setSearchQuery } =
-        useActions(featureRequestsLogic)
+    const {
+        openCreateRequest,
+        openProductAreas,
+        setFeatureRequestsPage,
+        loadFeatureRequests,
+        setSearchQuery,
+        setTableSorting,
+    } = useActions(featureRequestsLogic)
 
     const editorDisabledReason = getAccessControlDisabledReason(
         AccessControlResourceType.CustomerAnalytics,
@@ -44,6 +64,7 @@ export function FeatureRequestList(): JSX.Element {
         {
             title: 'Request',
             key: 'title',
+            sorter: true,
             render: (_, request) => (
                 <div className="flex flex-col gap-1 py-1">
                     <Link
@@ -57,13 +78,15 @@ export function FeatureRequestList(): JSX.Element {
             ),
         },
         {
-            title: 'Account',
+            title: 'Accounts',
             key: 'account',
-            render: (_, request) => request.account.name,
+            sorter: true,
+            render: (_, request) => request.account_links.map((link) => link.account.name).join(', '),
         },
         {
             title: 'Product areas',
-            key: 'product_areas',
+            key: 'product_area',
+            sorter: true,
             render: (_, request) => (
                 <div className="flex flex-wrap gap-1">
                     {request.product_areas.map((area) => (
@@ -74,17 +97,52 @@ export function FeatureRequestList(): JSX.Element {
         },
         {
             title: 'Status',
-            key: 'request_status',
+            key: 'status',
+            sorter: true,
             render: (_, request) => <FeatureRequestStatusBadge status={request.request_status} />,
         },
         {
             title: 'Priority',
-            key: 'request_priority',
+            key: 'priority',
+            sorter: true,
+            defaultSortOrder: -1,
             render: (_, request) => <FeatureRequestPriorityBadge priority={request.request_priority} />,
+        },
+        {
+            title: 'Evidence',
+            key: 'evidence_count',
+            sorter: true,
+            align: 'right',
+            defaultSortOrder: -1,
+            render: (_, request) => request.evidence_count,
+        },
+        {
+            title: 'Created by',
+            key: 'created_by',
+            sorter: true,
+            render: (_, request) => {
+                if (request.created_by === null) {
+                    return <span className="text-muted">—</span>
+                }
+                if (members === null) {
+                    return <LemonSkeleton className="w-24 h-4" />
+                }
+                const creator = creatorById[request.created_by]
+                return creator ? (
+                    <div className="flex items-center gap-2">
+                        <ProfilePicture user={creator} size="sm" />
+                        <span className="whitespace-nowrap">{fullName(creator) || creator.email}</span>
+                    </div>
+                ) : (
+                    <span className="text-muted">Unknown user</span>
+                )
+            },
         },
         {
             title: 'Updated',
             key: 'updated_at',
+            sorter: true,
+            defaultSortOrder: -1,
             render: (_, request) => <TZLabel time={request.updated_at} />,
         },
     ]
@@ -132,6 +190,10 @@ export function FeatureRequestList(): JSX.Element {
                 dataSource={featureRequestsResponse.results}
                 columns={columns}
                 rowKey="id"
+                sorting={tableSorting}
+                onSort={setTableSorting}
+                useURLForSorting={false}
+                noSortingCancellation
                 loading={featureRequestsResponseLoading}
                 emptyState={hasActiveFilters ? 'No feature requests match these filters' : 'No feature requests yet'}
                 nouns={['feature request', 'feature requests']}

@@ -530,6 +530,7 @@ export const gitRouter = router({
           draft: false,
           headRefName: null,
           title: null,
+          author: null,
         }
       );
     }),

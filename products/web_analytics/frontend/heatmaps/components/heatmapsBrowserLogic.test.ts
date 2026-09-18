@@ -2,6 +2,7 @@ import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
+import { heatmapDataLogic } from 'lib/components/heatmaps/heatmapDataLogic'
 
 import { initKeaTests } from '~/test/init'
 
@@ -48,7 +49,7 @@ describe('heatmapsBrowserLogic', () => {
             expect(message).toContain(expected)
         })
 
-        it('attributes a non-2xx to the customer host and quotes what it returned', () => {
+        it('reports a non-2xx and names the cookie a bot protection rule can allow', () => {
             const message = preflightBannerMessage({
                 ...base,
                 framing: 'unknown',
@@ -58,7 +59,9 @@ describe('heatmapsBrowserLogic', () => {
 
             expect(message).toContain('429')
             expect(message).toContain('local_rate_limited')
-            expect(message).toContain('host or CDN')
+            expect(message).toContain('__ph_heatmap_render')
+            expect(message).toContain('screenshot background')
+            expect(message).not.toContain('firewall rules')
             expect(message).not.toContain('embedding')
         })
 
@@ -101,6 +104,84 @@ describe('heatmapsBrowserLogic', () => {
         })
     })
 
+    describe('recording background href', () => {
+        beforeEach(() => {
+            initKeaTests()
+            jest.spyOn(api, 'queryHogQL').mockResolvedValue({ results: [] } as any)
+            jest.spyOn(global, 'fetch').mockResolvedValue({
+                status: 200,
+                json: async () => ({ results: [] }),
+            } as any)
+            router.actions.push('/heatmaps/recording')
+        })
+
+        afterEach(() => {
+            jest.restoreAllMocks()
+        })
+
+        // The recording path has no dataUrl; the href comes from the snapshot. onIframeLoad used to
+        // overwrite it with an empty string, so the query never ran and the heatmap loaded forever.
+        it('keeps the snapshot href when the iframe loads without a dataUrl', async () => {
+            const logic = heatmapsBrowserLogic({ iframeRef: { current: null } })
+            logic.mount()
+            const dataLogic = heatmapDataLogic({ context: 'in-app' })
+
+            logic.actions.setReplayIframeData({
+                html: '<html></html>',
+                width: 100,
+                height: 100,
+                startDateTime: undefined,
+                url: 'https://example.com/pricing',
+            })
+            await expectLogic(logic).toFinishAllListeners()
+            expect(dataLogic.values.href).toBe('https://example.com/pricing')
+
+            logic.actions.onIframeLoad()
+            await expectLogic(logic).toFinishAllListeners()
+            expect(dataLogic.values.href).toBe('https://example.com/pricing')
+        })
+    })
+
+    describe('non-recording stale href', () => {
+        beforeEach(() => {
+            initKeaTests()
+            jest.spyOn(api, 'queryHogQL').mockResolvedValue({ results: [] } as any)
+            jest.spyOn(global, 'fetch').mockResolvedValue({
+                status: 200,
+                json: async () => ({ results: [] }),
+            } as any)
+            router.actions.push('/heatmaps/abc123')
+        })
+
+        afterEach(() => {
+            jest.restoreAllMocks()
+        })
+
+        // Open a heatmap with a page URL, then open one without a data URL (e.g. a saved heatmap
+        // with no custom data URL). Without clearing, onIframeLoad would re-query the previous
+        // page's href and repaint its click data over the page now in the frame.
+        it('clears the previous href when the iframe loads without a dataUrl', async () => {
+            const logic = heatmapsBrowserLogic({ iframeRef: { current: null } })
+            logic.mount()
+            const dataLogic = heatmapDataLogic({ context: 'in-app' })
+
+            logic.actions.setDisplayUrl('https://example.com/a')
+            await expectLogic(logic).toFinishAllListeners()
+            expect(dataLogic.values.href).toBe('https://example.com/a')
+
+            logic.actions.setDataUrlUserTouched(true)
+            logic.actions.setDisplayUrl('https://example.com/b')
+            logic.actions.setDataUrl(null)
+            await expectLogic(logic).toFinishAllListeners()
+            // setDataUrl(null) leaves href alone, so it still points at the previous page here.
+            expect(dataLogic.values.href).toBe('https://example.com/a')
+
+            logic.actions.onIframeLoad()
+            await expectLogic(logic).toFinishAllListeners()
+            expect(dataLogic.values.href).toBe('')
+        })
+    })
+
     describe('iframeBanner', () => {
         beforeEach(() => {
             initKeaTests()
@@ -110,6 +191,36 @@ describe('heatmapsBrowserLogic', () => {
 
         afterEach(() => {
             jest.restoreAllMocks()
+        })
+
+        it.each(['navigated', 'loaded'] as const)('ignores a queued timeout after the iframe %s', async (state) => {
+            const timers = jest.spyOn(global, 'setTimeout')
+            const iframe = document.createElement('iframe')
+            iframe.id = 'heatmap-iframe'
+            document.body.appendChild(iframe)
+            const logic = heatmapsBrowserLogic()
+            const unmount = logic.mount()
+            try {
+                await expectLogic(logic).toFinishAllListeners()
+                logic.actions.setDisplayUrl('https://previous.example.com')
+                const timeout = timers.mock.calls.find(([, delay]) => delay === 7500)?.[0]
+                expect(timeout).toEqual(expect.any(Function))
+
+                if (state === 'navigated') {
+                    logic.actions.setDisplayUrl('https://next.example.com')
+                } else {
+                    logic.actions.onIframeLoad()
+                }
+                await expectLogic(logic).toFinishAllListeners()
+                ;(timeout as () => void)()
+
+                expect(logic.values.loadTimeoutBanner).toBeNull()
+                expect(logic.values.loading).toBe(state === 'navigated')
+            } finally {
+                unmount()
+                iframe.remove()
+                timers.mockRestore()
+            }
         })
 
         // A frame blocked by X-Frame-Options still fires onload, and onIframeLoad nulls the load-timeout

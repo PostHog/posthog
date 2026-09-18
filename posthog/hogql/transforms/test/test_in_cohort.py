@@ -1,7 +1,14 @@
 from typing import Any
 
 import pytest
-from posthog.test.base import BaseTest, QueryMatchingTest, _create_event, _create_person, flush_persons_and_events
+from posthog.test.base import (
+    BaseTest,
+    NewEventsSchemaSnapshotExtension,
+    QueryMatchingTest,
+    _create_event,
+    _create_person,
+    flush_persons_and_events,
+)
 
 from django.conf import settings
 from django.test import override_settings
@@ -36,7 +43,7 @@ class EventsSchemaSnapshotMixin:
             snapshot_index = getattr(self, "_new_events_schema_snapshot_index", 0)
             self._new_events_schema_snapshot_index = snapshot_index + 1
             snapshot_name = "new_events_schema" if snapshot_index == 0 else f"new_events_schema.{snapshot_index}"
-            return self.snapshot(name=snapshot_name)
+            return self.snapshot(name=snapshot_name, extension_class=NewEventsSchemaSnapshotExtension)
         return self.snapshot
 
     def _assert_response_matches_snapshot(self, response) -> None:

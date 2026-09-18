@@ -1,11 +1,11 @@
 import {
     ActivityChange,
     ActivityLogItem,
+    ActivityLogUserName,
     ChangeMapping,
     Description,
     HumanizedChange,
     defaultDescriber,
-    userNameForLogItem,
 } from 'lib/components/ActivityLog/humanizeActivity'
 import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
 import { PathCleanFilterItem } from 'lib/components/PathCleanFilters/PathCleanFilterItem'
@@ -156,10 +156,15 @@ function createFixedVerbValueHandler(
     }
 }
 
-const TEAM_PROPERTIES_MAPPING: Record<keyof TeamType, (change: ActivityChange) => ChangeMapping | null> = {
+const TEAM_PROPERTIES_MAPPING: Record<
+    keyof TeamType | 'heatmaps_screenshot_allowed_hostnames',
+    (change: ActivityChange) => ChangeMapping | null
+> = {
     // API-related tokens
     api_token: createApiTokenHandler('project token', 'set', 'reset'),
     secret_api_token: createApiTokenHandler('Feature Flags secure API key', 'generated', 'rotated'),
+    heatmaps_screenshot_secret: createApiTokenHandler('heatmap screenshot value', 'generated', 'rotated'),
+    heatmaps_screenshot_allowed_hostnames: createArrayChangeHandler('approved screenshot hostnames'),
     secret_api_token_backup: (change) => {
         if (change.after === undefined || change.action !== 'deleted') {
             return null
@@ -754,8 +759,7 @@ const TEAM_PROPERTIES_MAPPING: Record<keyof TeamType, (change: ActivityChange) =
     web_analytics_pre_aggregated_tables_version: () => null,
     managed_viewsets: () => null,
     workflows_config: () => null,
-    event_retention_months: () => null,
-    events_retention_enforced: () => null,
+    feature_flag_policy_config: () => null,
 }
 
 function nameAndLink(logItem?: ActivityLogItem): JSX.Element {
@@ -780,8 +784,8 @@ export function teamActivityDescriber(logItem: ActivityLogItem, asNotification?:
         return {
             description: (
                 <>
-                    <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong>{' '}
-                    {wasSuspended ? 'suspended' : 're-enabled'} workflow email sending on {nameAndLink(logItem)}
+                    <ActivityLogUserName logItem={logItem} /> {wasSuspended ? 'suspended' : 're-enabled'} workflow email
+                    sending on {nameAndLink(logItem)}
                     {wasSuspended && reason ? <> (reason: {reason})</> : null}
                 </>
             ),
@@ -818,7 +822,7 @@ export function teamActivityDescriber(logItem: ActivityLogItem, asNotification?:
                 description: (
                     <SentenceList
                         listParts={changes}
-                        prefix={<strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong>}
+                        prefix={<ActivityLogUserName logItem={logItem} />}
                         suffix={changeSuffix}
                     />
                 ),

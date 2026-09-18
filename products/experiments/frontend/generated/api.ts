@@ -11,6 +11,8 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 import type {
     ActivityLogPaginatedResponseApi,
     ArchiveExperimentApi,
+    BulkUpdateTagsRequestApi,
+    BulkUpdateTagsResponseApi,
     CopyExperimentToProjectApi,
     CreateFromPromptInputApi,
     EndExperimentApi,
@@ -19,6 +21,8 @@ import type {
     ExperimentFlagCleanupTaskApi,
     ExperimentHoldoutApi,
     ExperimentHoldoutsListParams,
+    ExperimentInSessionExposureApi,
+    ExperimentMatchingIdsResponseApi,
     ExperimentMetricsRecalculationApi,
     ExperimentSavedMetricApi,
     ExperimentSavedMetricsListParams,
@@ -31,6 +35,7 @@ import type {
     ExperimentWriteApi,
     ExperimentsActivityRetrieveParams,
     ExperimentsListParams,
+    ExperimentsMatchingIdsRetrieveParams,
     ExperimentsPromptTemplatesRetrieve200Item,
     ExperimentsSessionContextRetrieveParams,
     ExperimentsTimeseriesResultsRetrieveParams,
@@ -434,9 +439,9 @@ export const getExperimentsActivityRetrieveUrl = (
 /**
  * Change history for this experiment.
  *
- * Returns a paginated audit trail of changes to the experiment and its holdouts
- * and shared metrics: who made each change, what changed (field-level before/after
- * values), and when. Ordered newest first.
+ * Returns a paginated audit trail of changes to the experiment, its holdouts and
+ * shared metrics, and its linked feature flag: who made each change, what changed
+ * (field-level before/after values), and when. Ordered newest first.
  */
 export const experimentsActivityRetrieve = async (
     projectId: string,
@@ -661,6 +666,29 @@ export const experimentsFreezeExposureCreate = async (
     return apiMutator<ExperimentApi>(getExperimentsFreezeExposureCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
+    })
+}
+
+export const getExperimentsInSessionExposureRetrieveUrl = (projectId: string, id: number) => {
+    return `/api/projects/${projectId}/experiments/${id}/in_session_exposure/`
+}
+
+/**
+ * How the recordings tab's in-session exposure scope reads on this experiment.
+ *
+ * Resolved through the same seam as the recordings query's `in_session` refusal, so the
+ * scope control disables exactly what a query would be refused for, and the copy can say
+ * when sessions are matched on the stamped flag property rather than on the exposure event.
+ * Postgres reads only, so it can serve the tab's mount path.
+ */
+export const experimentsInSessionExposureRetrieve = async (
+    projectId: string,
+    id: number,
+    options?: RequestInit
+): Promise<ExperimentInSessionExposureApi> => {
+    return apiMutator<ExperimentInSessionExposureApi>(getExperimentsInSessionExposureRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
     })
 }
 
@@ -1059,6 +1087,42 @@ export const experimentsUnfreezeExposureCreate = async (
     })
 }
 
+export const getExperimentsBulkUpdateTagsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/experiments/bulk_update_tags/`
+}
+
+/**
+ * Bulk update tags on multiple objects.
+ *
+ * PAT access: this action has no ``required_scopes=`` on the decorator —
+ * inheriting viewsets must add ``"bulk_update_tags"`` to their
+ * ``scope_object_write_actions`` list to accept personal API keys.
+ * Without that opt-in, ``APIScopePermission`` rejects PAT requests with
+ * "This action does not support personal API key access". Done per-viewset
+ * so granting ``<scope>:write`` for one resource doesn't leak access to
+ * sibling resources that share this mixin.
+ *
+ * Accepts:
+ * - {"ids": [...], "action": "add"|"remove"|"set", "tags": ["tag1", "tag2"]}
+ *
+ * Actions:
+ * - "add": Add tags to existing tags on each object
+ * - "remove": Remove specific tags from each object
+ * - "set": Replace all tags on each object with the provided list
+ */
+export const experimentsBulkUpdateTagsCreate = async (
+    projectId: string,
+    bulkUpdateTagsRequestApi: BulkUpdateTagsRequestApi,
+    options?: RequestInit
+): Promise<BulkUpdateTagsResponseApi> => {
+    return apiMutator<BulkUpdateTagsResponseApi>(getExperimentsBulkUpdateTagsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(bulkUpdateTagsRequestApi),
+    })
+}
+
 export const getExperimentsCalculateRunningTimeCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/experiments/calculate_running_time/`
 }
@@ -1106,6 +1170,41 @@ export const experimentsCreateFromPromptCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(createFromPromptInputApi),
+    })
+}
+
+export const getExperimentsMatchingIdsRetrieveUrl = (
+    projectId: string,
+    params?: ExperimentsMatchingIdsRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/experiments/matching_ids/?${stringifiedParams}`
+        : `/api/projects/${projectId}/experiments/matching_ids/`
+}
+
+/**
+ * Get IDs of all experiments matching the current list filters.
+ * Accepts the same query params as the list endpoint and returns only
+ * IDs of experiments the user has permission to edit.
+ */
+export const experimentsMatchingIdsRetrieve = async (
+    projectId: string,
+    params?: ExperimentsMatchingIdsRetrieveParams,
+    options?: RequestInit
+): Promise<ExperimentMatchingIdsResponseApi> => {
+    return apiMutator<ExperimentMatchingIdsResponseApi>(getExperimentsMatchingIdsRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
     })
 }
 

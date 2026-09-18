@@ -29,7 +29,7 @@ describe('batchExportSceneLogic', () => {
                     id: 'test-id',
                     team_id: 997,
                     name: 'Test Export',
-                    destination: { type: 'S3', config: {} },
+                    destination: { type: 'AwsS3', config: {} },
                     interval: 'hour',
                     paused: false,
                     model: 'events',

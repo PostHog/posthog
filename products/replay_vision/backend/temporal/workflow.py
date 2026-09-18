@@ -1,6 +1,6 @@
 import asyncio
 import datetime as dt
-from typing import cast
+from typing import Any, cast
 from uuid import UUID
 
 import temporalio.workflow as wf
@@ -8,13 +8,21 @@ from temporalio import common
 from temporalio.common import SearchAttributePair, TypedSearchAttributes, WorkflowIDReusePolicy
 from temporalio.exceptions import (
     ActivityError,
+    ChildWorkflowError,
     TimeoutError as TemporalTimeoutError,
 )
 
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.errors import MAX_ERROR_MESSAGE_CHARS, truncate_for_temporal_payload, unwrap_temporal_cause
 from posthog.temporal.common.search_attributes import POSTHOG_SESSION_RECORDING_ID_KEY, POSTHOG_TEAM_ID_KEY
-from posthog.temporal.session_replay.rasterize_recording.types import RasterizeRecordingInputs
+from posthog.temporal.session_replay.rasterize_recording.activities.stuck_counter import (
+    BumpStuckCounterInput,
+    bump_stuck_counter_activity,
+)
+from posthog.temporal.session_replay.rasterize_recording.types import (
+    RASTERIZE_WORKFLOW_SINGLE_ATTEMPT_TIMEOUT,
+    RasterizeRecordingInputs,
+)
 
 with wf.unsafe.imports_passed_through():
     from django.conf import settings
@@ -30,6 +38,7 @@ from products.replay_vision.backend.temporal.activities import (
     emit_observation_signal_activity,
     ensure_session_asset_activity,
     fetch_session_events_activity,
+    fetch_session_network_activity,
     mark_observation_failed_activity,
     mark_observation_ineligible_activity,
     mark_observation_running_activity,
@@ -45,8 +54,8 @@ from products.replay_vision.backend.temporal.errors import (
     IneligibleSessionKind,
     ScannerFailureError,
 )
+from products.replay_vision.backend.temporal.scanners.base import BaseScannerOutput
 from products.replay_vision.backend.temporal.scanners.classifier import ClassifierOutput
-from products.replay_vision.backend.temporal.scanners.summarizer import SummarizerOutput
 from products.replay_vision.backend.temporal.types import (
     OBSERVATION_PHASE_INDEX,
     OBSERVATION_PHASE_ORDER,
@@ -62,6 +71,7 @@ from products.replay_vision.backend.temporal.types import (
     EnsureSessionAssetInputs,
     EnsureSessionAssetOutput,
     FetchSessionEventsInputs,
+    FetchSessionNetworkInputs,
     MarkObservationFailedInputs,
     MarkObservationIneligibleInputs,
     MarkObservationRunningInputs,
@@ -83,12 +93,17 @@ _STATE_ACTIVITY_RETRY = common.RetryPolicy(
 # APPLY_SCANNER_EXECUTION_TIMEOUT (see the arithmetic on that constant).
 _STATE_ACTIVITY_SCHEDULE_TO_CLOSE = dt.timedelta(minutes=3)
 
-# Create's `ValueError` paths (scanner missing, user not in org) won't recover on retry.
+# Create's `ValueError` paths (scanner missing, user not in org) won't recover on retry, and the
+# re-raised `IntegrityError`s (FK / CHECK violations; the unique-violation case is handled inside
+# the activity) are deterministic — retrying them for the full window would only amplify load.
+# Unlimited attempts, bounded by schedule_to_close (3m): a ScannerAdmissionBusy rejection must be
+# able to retry across a whole contention wave, or every admission in the wave becomes a dropped
+# scan — the sweep watermark and backfill cursor advance past a session with no observation row.
 _CREATE_OBSERVATION_RETRY = common.RetryPolicy(
     initial_interval=dt.timedelta(seconds=1),
-    maximum_interval=dt.timedelta(seconds=10),
-    maximum_attempts=5,
-    non_retryable_error_types=["ValueError"],
+    maximum_interval=dt.timedelta(seconds=15),
+    maximum_attempts=0,
+    non_retryable_error_types=["ValueError", "IntegrityError"],
 )
 
 # Generous because fetch's deterministic errors are non_retryable; this budget only covers transient infra (e.g. ClickHouse at capacity).
@@ -137,12 +152,21 @@ _SIDE_EFFECT_RETRY = common.RetryPolicy(
 )
 
 
+async def _optional(task: Any) -> None:
+    """Await a side-input activity, absorbing its failure.
+
+    The activity handles its own errors, but a timeout or a spent retry chain is enforced by the server
+    and never reaches that handler. Without this the scan would fail over a side input it can run
+    without. `CancelledError` derives from `BaseException`, so workflow cancellation still propagates.
+    """
+    try:
+        await task
+    except Exception:
+        wf.logger.warning("replay_vision.side_input_failed", exc_info=True)
+
+
 def _has_embeddable_text(model_output: object) -> bool:
-    """Whether an observation carries text worth embedding — summarizer facets, or a `reasoning` paragraph."""
-    if isinstance(model_output, SummarizerOutput):
-        return model_output.has_any_facet()
-    reasoning = getattr(model_output, "reasoning", "")
-    return bool(reasoning and reasoning.strip())
+    return isinstance(model_output, BaseScannerOutput) and model_output.embedding_document() is not None
 
 
 # Provider-facing activities whose Temporal timeout means "provider slow", not a PostHog bug.
@@ -154,6 +178,18 @@ _PROVIDER_TIMEOUT_ACTIVITY_TYPES = frozenset(
 # holds no renderable snapshots. It stays retryable over there (blocks can still be landing), so by the time it
 # surfaces here the render attempts are spent and the emptiness is a property of the recording, not of one attempt.
 _RASTERIZER_NO_SNAPSHOTS_TYPE = "NO_SNAPSHOTS"
+
+# The rasterizer refuses a recording whose snapshot blocks exceed its size cap, to keep an oversized render from
+# walking the pod into its memory limit. That size is a fixed property of the recording, so no retry helps.
+_RASTERIZER_TOO_LARGE_TYPE = "RECORDING_TOO_LARGE"
+
+# Rasterizer codes that mean a PostHog-side dependency the renderer talks to was unreachable or slow — the
+# recording-api it fetches the block listing and data from, or the object storage it uploads the video to — not
+# that the recording itself can't render. They belong in the same transient bucket as an activity timeout against
+# those dependencies (see `_activity_timeout_kind`), so the user gets a retry prompt, not a "known issue" label.
+_RASTERIZER_INFRA_TRANSIENT_TYPES = frozenset(
+    {"BLOCK_LISTING_FAILED", "DATA_LOAD_FAILED", "S3_UPLOAD_FAILED", "S3_UPLOAD_UNDECODABLE_RESPONSE"}
+)
 
 
 def _activity_timeout_kind(e: BaseException) -> str | None:
@@ -173,6 +209,12 @@ def _failure_type(e: BaseException) -> str | None:
     return getattr(cause, "type", None)
 
 
+def _failure_non_retryable(e: BaseException) -> bool:
+    """Whether the leaf ApplicationError was flagged non-retryable, surviving the same wrapping."""
+    cause = unwrap_temporal_cause(e) or e
+    return bool(getattr(cause, "non_retryable", False))
+
+
 def _extract_kind_for_type(e: BaseException, expected_type: str) -> str | None:
     """Pull a kind string off a kinded ApplicationError, surviving Temporal's ActivityError wrap."""
     if _failure_type(e) != expected_type:
@@ -187,6 +229,16 @@ def _root_cause_message(e: BaseException) -> str:
     cause = unwrap_temporal_cause(e) or e
     msg = getattr(cause, "message", None) or str(cause) or type(cause).__name__
     return truncate_for_temporal_payload(msg, MAX_ERROR_MESSAGE_CHARS)
+
+
+def _normalized_rasterizer_infra_message(code: str) -> str:
+    """A stable message for a transient rasterizer dependency failure, keyed on the code alone.
+
+    The raw text carries the errno, the pod address and the pooler wording, all of which vary per
+    occurrence, so copying it verbatim mints a fresh error-tracking issue for one root cause. Keying
+    the message on the code collapses those variants back into a single issue.
+    """
+    return f"rasterizer could not reach a PostHog dependency ({code})"
 
 
 def _encode_reason(kind: str, message: str) -> str:
@@ -279,12 +331,14 @@ class ApplyScannerWorkflow(PostHogWorkflow):
                 CallScannerProviderInputs(
                     team_id=inputs.team_id,
                     observation_id=observation_id,
+                    exported_asset_id=asset_result.asset_id,
                     file_uri=uploaded.file_uri,
                     mime_type=uploaded.mime_type,
                 ),
                 # Multi-turn tool conversation (video + on-demand event lookups) needs more headroom than a single
-                # call, and must cover both mission passes: a second pass that overruns would surface as a Temporal
-                # timeout labeled provider_transient when the real problem is the scanner's prompt.
+                # call, and must cover both mission passes plus the one verify-positives draw: a pass that
+                # overruns would surface as a Temporal timeout labeled provider_transient when the real problem is
+                # the scanner's prompt.
                 start_to_close_timeout=dt.timedelta(minutes=20),
                 # Bounds the whole retry chain, so slow attempts can't overrun the workflow's own timeout.
                 schedule_to_close_timeout=dt.timedelta(minutes=25),
@@ -320,7 +374,11 @@ class ApplyScannerWorkflow(PostHogWorkflow):
                 MarkObservationSucceededInputs(
                     observation_id=observation_id,
                     scanner_type=scanner_type,
-                    scanner_result=ScannerResult(model_output=call_output.model_output, signals_count=signals_count),
+                    scanner_result=ScannerResult(
+                        model_output=call_output.model_output,
+                        signals_count=signals_count,
+                        verification=call_output.verification,
+                    ),
                 ),
                 start_to_close_timeout=dt.timedelta(seconds=30),
                 schedule_to_close_timeout=_STATE_ACTIVITY_SCHEDULE_TO_CLOSE,
@@ -384,7 +442,22 @@ class ApplyScannerWorkflow(PostHogWorkflow):
             schedule_to_close_timeout=_STATE_ACTIVITY_SCHEDULE_TO_CLOSE,
             retry_policy=_ENSURE_ASSET_RETRY,
         )
-        _, asset_result = await asyncio.gather(fetch_task, asset_task)
+        if wf.patched("replay-vision-session-network-2026-09"):
+            # Rides alongside the other two so the extra recording-block read costs no wall-clock.
+            network_task = wf.execute_activity(
+                fetch_session_network_activity,
+                FetchSessionNetworkInputs(
+                    observation_id=observation_id,
+                    team_id=inputs.team_id,
+                    session_id=inputs.session_id,
+                ),
+                start_to_close_timeout=dt.timedelta(minutes=2),
+                schedule_to_close_timeout=dt.timedelta(minutes=5),
+                retry_policy=_FETCH_RETRY,
+            )
+            _, asset_result, _ = await asyncio.gather(fetch_task, asset_task, _optional(network_task))
+        else:
+            _, asset_result = await asyncio.gather(fetch_task, asset_task)
         return asset_result
 
     async def _run_rasterize_child(self, inputs: ApplyScannerInputs, asset_id: int) -> None:
@@ -396,11 +469,9 @@ class ApplyScannerWorkflow(PostHogWorkflow):
                 task_queue=settings.SESSION_REPLAY_TASK_QUEUE,
                 retry_policy=common.RetryPolicy(maximum_attempts=int(settings.TEMPORAL_WORKFLOW_MAX_ATTEMPTS)),
                 id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
-                # Temporal counts the whole retry chain against this, and the child's own render activity is allowed
-                # 30 minutes. Must exceed that 30m start-to-close, or a first render that fails fast leaves no room to
-                # schedule a retry at all. Held below a second full 30m render on purpose, to stay within the parent's
-                # phase budget.
-                execution_timeout=dt.timedelta(minutes=40),
+                # Temporal counts the whole retry chain against this. Held below the full two-attempt
+                # envelope on purpose, to stay within the parent's phase budget.
+                execution_timeout=RASTERIZE_WORKFLOW_SINGLE_ATTEMPT_TIMEOUT,
                 search_attributes=TypedSearchAttributes(
                     search_attributes=[
                         SearchAttributePair(key=POSTHOG_TEAM_ID_KEY, value=inputs.team_id),
@@ -414,6 +485,55 @@ class ApplyScannerWorkflow(PostHogWorkflow):
                 # "nothing to analyze" as a session with no events, which we already gate as ineligible, so calling
                 # it a failure would point the user at support over a recording that can never produce a video.
                 raise IneligibleSessionError(_root_cause_message(e), kind=IneligibleSessionKind.NO_SNAPSHOTS) from e
+            # An in-flight history from before this branch existed already scheduled the failed-mark for an
+            # oversized recording. `patched` makes those histories skip this branch and keep the old path, so
+            # switching them to the ineligible-mark on replay cannot raise a non-determinism error.
+            if _failure_type(e) == _RASTERIZER_TOO_LARGE_TYPE and wf.patched(
+                "replay-vision-too-large-ineligible-2026-08"
+            ):
+                # Gate as ineligible, not failed, so the user reads "too large" instead of a "known issue" retry prompt.
+                raise IneligibleSessionError(_root_cause_message(e), kind=IneligibleSessionKind.TOO_LARGE) from e
+            rasterizer_type = _failure_type(e)
+            # The rasterizer flags a genuine transport blip (5xx, timeout, dropped connection) as retryable
+            # but a permanent 4xx or a malformed listing as non-retryable. Only the retryable ones are the
+            # "dependency was slow" story; a non-retryable leaf keeps the RASTERIZATION_FAILED path below, so
+            # it gets neither a false retry prompt nor a message that merges it into the transient-outage issue.
+            if rasterizer_type in _RASTERIZER_INFRA_TRANSIENT_TYPES and not _failure_non_retryable(e):
+                # A PostHog dependency blip, not a broken recording. Classify transient so the observation
+                # stays retryable, and keep the raw errno and pod address in the worker log only: `from None`
+                # drops the volatile cause so error tracking groups the outage by the stable message alone
+                # instead of minting a fresh issue per errno and pod address.
+                # Interpolate the code and detail into the message text, not `extra={...}`: the worker's
+                # stdlib formatter chain has no `ExtraAdder`, so record attributes never reach the rendered
+                # line, and the promised on-call copy would carry neither field.
+                wf.logger.warning(
+                    "replay_vision.rasterizer_infra_transient code=%s detail=%s",
+                    rasterizer_type,
+                    _root_cause_message(e),
+                )
+                raise ScannerFailureError(
+                    _normalized_rasterizer_infra_message(rasterizer_type), kind=FailureKind.INFRA_TRANSIENT
+                ) from None
+            # Direct cause only: a nested activity timeout inside the child already bumped the
+            # counter there, and matching it here would double-count one run.
+            if (
+                isinstance(e, ChildWorkflowError)
+                and isinstance(e.cause, TemporalTimeoutError)
+                and wf.patched("bump-stuck-on-rasterize-timeout-2026-08")
+            ):
+                # The single-attempt execution_timeout terminates the child before its own final-attempt
+                # bump can run, so a render that rode out the whole budget would never reach the
+                # quarantine threshold. Bump from here instead; the child's own bump covers every
+                # failure that surfaces as an exception.
+                try:
+                    await wf.execute_activity(
+                        bump_stuck_counter_activity,
+                        BumpStuckCounterInput(team_id=inputs.team_id, session_id=inputs.session_id),
+                        start_to_close_timeout=dt.timedelta(seconds=10),
+                        retry_policy=common.RetryPolicy(maximum_attempts=2),
+                    )
+                except Exception as exc:
+                    wf.logger.warning("replay_vision.stuck_counter_bump_failed", extra={"error": str(exc)})
             # Re-classify the rasterizer's failure so the user sees a rasterizer label, not a generic "internal error".
             raise ScannerFailureError(_root_cause_message(e), kind=FailureKind.RASTERIZATION_FAILED) from e
 
@@ -457,7 +577,7 @@ class ApplyScannerWorkflow(PostHogWorkflow):
         timeout), so a deploy strands at most the handful of in-flight runs past this step, which the reaper
         then fails as re-runnable — accepted over carrying permanent patch gates.
         """
-        # Embed the observation's explanation text (reasoning, or summarizer facets) for natural-language search.
+        # Embed the observation's explanation text (reasoning, or the summary) for natural-language search.
         if _has_embeddable_text(model_output):
             try:
                 await wf.execute_activity(

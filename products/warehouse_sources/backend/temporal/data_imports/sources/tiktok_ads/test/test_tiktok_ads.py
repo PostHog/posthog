@@ -61,7 +61,6 @@ class TestTikTokAdsHelpers:
     """Test suite for TikTok Ads helper functions."""
 
     def test_flatten_tiktok_report_record_nested(self):
-        """Test flattening nested TikTok report structure."""
         nested_record = {
             "dimensions": {"campaign_id": "123456", "stat_time_day": "2025-09-27"},
             "metrics": {"clicks": "947", "impressions": "23241", "spend": "125.50"},
@@ -80,7 +79,6 @@ class TestTikTokAdsHelpers:
         assert result == expected
 
     def test_flatten_tiktok_report_record_flat(self):
-        """Test flattening already flat record (entity endpoints)."""
         flat_record = {"campaign_id": "123456", "campaign_name": "Test Campaign", "status": "ENABLE"}
 
         result = TikTokReportResource.transform_entity_reports([flat_record])[0]
@@ -89,7 +87,6 @@ class TestTikTokAdsHelpers:
         assert result == expected
 
     def test_flatten_tiktok_reports(self):
-        """Test batch flattening of TikTok reports."""
         reports = [
             {"dimensions": {"campaign_id": "123"}, "metrics": {"clicks": "100"}},
             {"dimensions": {"campaign_id": "456"}, "metrics": {"clicks": "200"}},
@@ -111,7 +108,6 @@ class TestTikTokAdsHelpers:
         ]
     )
     def test_get_incremental_date_range(self, name, should_use_incremental, last_value, expected_days_back):
-        """Test incremental date range calculation."""
         start_date, end_date = TikTokDateRangeManager.get_incremental_range(should_use_incremental, last_value)
 
         start_dt = datetime.strptime(start_date, "%Y-%m-%d")
@@ -121,7 +117,6 @@ class TestTikTokAdsHelpers:
         assert days_diff <= expected_days_back + 1
 
     def test_get_incremental_date_range_parse_error(self):
-        """Test date range calculation with invalid last value."""
         start_date, end_date = TikTokDateRangeManager.get_incremental_range(True, "invalid_date")
 
         start_dt = datetime.strptime(start_date, "%Y-%m-%d")
@@ -163,7 +158,6 @@ class TestTikTokAdsHelpers:
         ]
     )
     def test_generate_date_chunks(self, name, start_date, end_date, chunk_days, expected_chunks):
-        """Test date chunk generation."""
         chunks = TikTokDateRangeManager.generate_chunks(start_date, end_date, chunk_days)
 
         assert len(chunks) == expected_chunks

@@ -11,18 +11,17 @@ from parameterized import parameterized
 
 from posthog.constants import AvailableFeature
 from posthog.models.team import Team
-from posthog.rbac.user_access_control import UserAccessControl
 from posthog.schema_enums import AlertState
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.access_control.backend.models.access_control import AccessControl
 from products.alerts.backend.models import AlertConfiguration
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.exports.backend.models.subscription import Subscription, SubscriptionDelivery
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 from products.pulse.backend.sources.base import EvidenceRef, EvidenceType, SourceItem
 from products.pulse.backend.sources.resource_health import STUCK_REFRESH_ATTEMPTS, ResourceHealthSource
-
-from ee.models.rbac.access_control import AccessControl
 
 _TRENDS_QUERY = {
     "kind": "InsightVizNode",

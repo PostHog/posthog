@@ -16,11 +16,10 @@ class TestRedisClusterKeySlots(BaseTest):
         ]
     )
     def test_hash_tagged_keys_share_same_slot(self, _name: str, team_id: int):
-        mock_cache = MagicMock()
         mock_redis = MagicMock()
         mock_redis.register_script = MagicMock(return_value=MagicMock())
 
-        tracker = TeamCacheSizeTracker(team_id, cache_backend=mock_cache, redis_client=mock_redis)
+        tracker = TeamCacheSizeTracker(team_id, redis_client=mock_redis)
 
         slots = {
             key_slot(tracker.entries_key.encode()),

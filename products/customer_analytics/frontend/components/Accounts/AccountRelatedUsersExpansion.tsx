@@ -1,18 +1,44 @@
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
+import { useState } from 'react'
 
-import { LemonTable, LemonTableColumns, Link } from '@posthog/lemon-ui'
+import { IconCopy } from '@posthog/icons'
+import { LemonButton, LemonInput, LemonTable, LemonTableColumns, Link } from '@posthog/lemon-ui'
 
-import { fullName } from 'lib/utils/strings'
+import { TZLabel } from 'lib/components/TZLabel'
+import { OrganizationMembershipLevel } from 'lib/constants'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { membershipLevelToName } from 'lib/utils/permissioning'
+import { capitalizeFirstLetter, fullName } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 
+import { columnValueFilter } from '../columnValueFilter'
+import { getAccountRelatedUserAdminUrl } from './accountRelatedUserAdminUrl'
 import { accountRelatedUsersLogic, AccountOrganizationMember, PAGE_SIZE } from './accountRelatedUsersLogic'
 import { AccountsEvents } from './constants'
 
-export function AccountRelatedUsersExpansion({ externalId }: { externalId: string }): JSX.Element {
+const LEVEL_FILTER_OPTIONS = [
+    OrganizationMembershipLevel.Owner,
+    OrganizationMembershipLevel.Admin,
+    OrganizationMembershipLevel.Member,
+].map((level) => ({
+    value: level,
+    label: capitalizeFirstLetter(membershipLevelToName.get(level) ?? 'Unknown'),
+}))
+
+export function AccountRelatedUsersExpansion({
+    externalId,
+    embedded = true,
+}: {
+    externalId: string
+    embedded?: boolean
+}): JSX.Element {
     const logic = accountRelatedUsersLogic({ externalId })
-    const { membersResponse, membersResponseLoading, page } = useValues(logic)
-    const { setPage } = useActions(logic)
+    const { membersResponse, membersResponseLoading, page, searchTerm, levels, sorting } = useValues(logic)
+    const { user } = useValues(userLogic)
+    const { setPage, setSearchTerm, setLevels, setSorting } = useActions(logic)
+    const [bulkBarTarget, setBulkBarTarget] = useState<HTMLDivElement | null>(null)
 
     const columns: LemonTableColumns<AccountOrganizationMember> = [
         {
@@ -38,31 +64,135 @@ export function AccountRelatedUsersExpansion({ externalId }: { externalId: strin
             key: 'email',
             render: (_, member) => <span className="text-sm text-muted">{member.user.email}</span>,
         },
+        {
+            title: 'Access level',
+            key: 'level',
+            sorter: true,
+            defaultSortOrder: -1,
+            ...columnValueFilter<AccountOrganizationMember, OrganizationMembershipLevel>({
+                options: LEVEL_FILTER_OPTIONS,
+                selected: levels,
+                onChange: setLevels,
+                'data-attr': 'customer-analytics-account-users-level-option',
+            }),
+            render: (_, member) => capitalizeFirstLetter(membershipLevelToName.get(member.level) ?? 'Unknown'),
+        },
+        {
+            title: 'Last logged in',
+            key: 'last_login',
+            sorter: true,
+            defaultSortOrder: -1,
+            render: (_, member) => (member.last_login ? <TZLabel time={member.last_login} /> : 'Never'),
+        },
     ]
 
+    if (user?.is_staff) {
+        columns.push({
+            title: 'Actions',
+            key: 'actions',
+            width: 0,
+            render: (_, member) => {
+                const adminUrl = getAccountRelatedUserAdminUrl(member.region, member.user.id)
+
+                return (
+                    <LemonButton
+                        type="secondary"
+                        size="xsmall"
+                        to={adminUrl}
+                        targetBlank
+                        tooltip="Open this user in admin to impersonate them."
+                        data-attr="customer-analytics-account-user-admin-link"
+                        onClick={() =>
+                            posthog.capture(AccountsEvents.RelatedUserAdminOpened, { region: member.region })
+                        }
+                    >
+                        Impersonate
+                    </LemonButton>
+                )
+            },
+        })
+    }
+
     return (
-        <LemonTable<AccountOrganizationMember>
-            size="small"
-            embedded
-            dataSource={membersResponse?.results ?? []}
-            rowKey="id"
-            loading={membersResponseLoading}
-            columns={columns}
-            pagination={{
-                controlled: true,
-                pageSize: PAGE_SIZE,
-                currentPage: page,
-                entryCount: membersResponse?.count ?? 0,
-                onForward: () => setPage(page + 1),
-                onBackward: () => setPage(page - 1),
-            }}
-            emptyState={
-                !externalId
-                    ? 'This account has no linked organization.'
-                    : membersResponse === null
-                      ? 'Failed to load related users.'
-                      : 'No users related to this account yet.'
-            }
-        />
+        <div className="flex flex-col gap-2">
+            <div
+                className="flex flex-wrap items-center justify-between gap-2"
+                data-attr="customer-analytics-account-users-toolbar"
+            >
+                <LemonInput
+                    type="search"
+                    value={searchTerm}
+                    onChange={setSearchTerm}
+                    placeholder="Search users by name or email..."
+                    maxLength={200}
+                    size="small"
+                    className="min-w-64 max-w-80 grow"
+                    data-attr="customer-analytics-account-users-search"
+                />
+                <div ref={setBulkBarTarget} className="flex items-center empty:hidden" />
+            </div>
+            <LemonTable<AccountOrganizationMember>
+                key={externalId}
+                size="small"
+                embedded={embedded}
+                dataSource={membersResponse?.results ?? []}
+                rowKey="id"
+                loading={membersResponseLoading}
+                columns={columns}
+                sorting={sorting}
+                onSort={setSorting}
+                useURLForSorting={false}
+                pagination={{
+                    controlled: true,
+                    pageSize: PAGE_SIZE,
+                    currentPage: page,
+                    useUrl: false,
+                    entryCount: membersResponse?.count ?? 0,
+                    onForward: () => setPage(page + 1),
+                    onBackward: () => setPage(page - 1),
+                }}
+                bulkSelection={{
+                    getKey: (member) => member.user.email,
+                    isRowSelectable: (member) =>
+                        member.user.email ? true : { disabledReason: 'This user has no email address' },
+                    noun: ['user', 'users'],
+                    rowAriaLabel: (member) =>
+                        `Select user ${fullName(member.user) || member.user.email || 'without an email address'}`,
+                    headerAriaLabel: 'Select all users on this page',
+                    barPortalTarget: bulkBarTarget,
+                    renderActions: (context) => (
+                        <LemonButton
+                            type="secondary"
+                            size="small"
+                            icon={<IconCopy />}
+                            data-attr="customer-analytics-account-users-copy-emails"
+                            onClick={() => {
+                                void copyToClipboard(
+                                    context.selectedKeys.join('\n'),
+                                    context.selectedCount === 1 ? 'email address' : 'email addresses'
+                                ).then((copied) => {
+                                    if (copied) {
+                                        posthog.capture(AccountsEvents.RelatedUserEmailsCopied, {
+                                            user_count: context.selectedCount,
+                                        })
+                                    }
+                                })
+                            }}
+                        >
+                            Copy email addresses
+                        </LemonButton>
+                    ),
+                }}
+                emptyState={
+                    !externalId
+                        ? 'This account has no linked organization.'
+                        : membersResponse === null
+                          ? 'Failed to load related users.'
+                          : searchTerm || levels.length
+                            ? 'No users match your filters.'
+                            : 'No users related to this account yet.'
+                }
+            />
+        </div>
     )
 }

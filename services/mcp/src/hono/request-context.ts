@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto'
+
 import { ApiClient } from '@/api/client'
 import { MCP_ANALYTICS_SOURCE, MCP_SERVER_NAME, MCP_SERVER_VERSION } from '@/lib/constants'
 import { wrapError } from '@/lib/errors'
@@ -12,20 +14,27 @@ import type { RequestProperties } from '@/lib/request-properties'
 import { SessionManager } from '@/lib/SessionManager'
 import { StateManager } from '@/lib/StateManager'
 import { hash } from '@/lib/utils'
-import type { Context, Env, State } from '@/tools/types'
+import type { Context, Env, SessionScopedState, State } from '@/tools/types'
 
 import { RedisCache, type RedisLike } from './cache/RedisCache'
 import { getCustomApiBaseUrl, getPublicBaseUrl } from './constants'
 import {
     buildMCPRequestContext,
     buildMCPSessionAnalyticsProperties,
+    getEffectiveMCPClientContext,
+    getEffectiveMCPClientIdentity,
     type MCPRequestContext,
     type MCPSessionContext,
 } from './mcp-context'
 
+// Matches McpSessionRedisStore's idle TTL: every session-scoped store describes
+// the same MCP protocol session, so their lifetimes should agree.
+const SESSION_CACHE_TTL_SECONDS = 24 * 60 * 60
+
 export class RequestContext {
     private tokenCacheInstance: RedisCache<State> | undefined
     private userCacheInstance: RedisCache<State> | undefined
+    private sessionScopedCacheInstance: RedisCache<SessionScopedState> | undefined
     private apiInstance: ApiClient | undefined
     private sessionManagerInstance: SessionManager | undefined
     private distinctIdPromise: Promise<string> | undefined
@@ -64,8 +73,36 @@ export class RequestContext {
         return this.userCacheInstance
     }
 
+    /** State scoped to one MCP session, such as the skills-first gate markers. */
+    getSessionCache(mcpSessionId: string): RedisCache<State> {
+        return new RedisCache<State>(hash(mcpSessionId), this.redis, 'session', SESSION_CACHE_TTL_SECONDS)
+    }
+
     get cache(): RedisCache<State> {
         return this.tokenCache
+    }
+
+    /**
+     * State scoped to the MCP protocol session rather than the token, holding the
+     * session's in-session context switches and last-applied request pin. The
+     * token cache can't hold these: it is shared by every concurrent session on
+     * the same credential. Undefined when the request carries no session id.
+     */
+    get sessionScopedCache(): RedisCache<SessionScopedState> | undefined {
+        const mcpSessionId = this.requestContext.mcpSessionId
+        if (!mcpSessionId) {
+            return undefined
+        }
+        if (!this.sessionScopedCacheInstance) {
+            const digest = createHash('sha256').update(mcpSessionId).digest()
+            this.sessionScopedCacheInstance = new RedisCache<SessionScopedState>(
+                digest.subarray(0, 16).toString('base64url'),
+                this.redis,
+                'session',
+                SESSION_CACHE_TTL_SECONDS
+            )
+        }
+        return this.sessionScopedCacheInstance
     }
 
     private async readCachedOAuthClientName(): Promise<string | undefined> {
@@ -77,6 +114,7 @@ export class RequestContext {
 
     private async api(): Promise<ApiClient> {
         if (!this.apiInstance) {
+            const clientContext = getEffectiveMCPClientContext(this.requestContext, this.sessionContext)
             const customApiBaseUrl = getCustomApiBaseUrl()
             let baseUrl: string
             if (customApiBaseUrl) {
@@ -93,10 +131,10 @@ export class RequestContext {
                 baseUrl,
                 publicBaseUrl: getPublicBaseUrl(),
                 clientUserAgent: this.props.clientUserAgent,
-                mcpClientName: this.props.mcpClientName,
-                mcpClientVersion: this.props.mcpClientVersion,
-                mcpProtocolVersion: this.props.mcpProtocolVersion,
-                mcpConsumer: this.props.mcpConsumer,
+                mcpClientName: clientContext.mcpClientName,
+                mcpClientVersion: clientContext.mcpClientVersion,
+                mcpProtocolVersion: clientContext.mcpProtocolVersion,
+                mcpConsumer: clientContext.mcpConsumer,
                 // Cached from a previous request's token introspection. On a cold cache this is
                 // still unset here, so `StateManager` also stamps it onto the live client's config
                 // the moment introspection resolves it — otherwise a token's first request would
@@ -158,6 +196,7 @@ export class RequestContext {
     async getContext(): Promise<Context> {
         const api = await this.api()
         const stateManager = new StateManager(this.tokenCache, api)
+        const sessionScopedCache = this.sessionScopedCache
         const partialContext: Omit<Context, 'trackEvent'> = {
             api,
             cache: this.tokenCache,
@@ -165,6 +204,16 @@ export class RequestContext {
             stateManager,
             sessionManager: this.sessionManager,
             getDistinctId: () => this.getDistinctId(),
+            ...(sessionScopedCache
+                ? {
+                      setSessionActiveContext: async (updates: { orgId?: string; projectId?: string }) => {
+                          await sessionScopedCache.setMany({
+                              ...(updates.orgId ? { activeOrgId: updates.orgId } : {}),
+                              ...(updates.projectId ? { activeProjectId: updates.projectId } : {}),
+                          })
+                      },
+                  }
+                : {}),
         }
         const trackEvent: Context['trackEvent'] = async (event, properties = {}) => {
             const analyticsContext = await this.safelyGetAnalyticsContext(partialContext)
@@ -177,6 +226,10 @@ export class RequestContext {
     setMcpContexts(requestContext: MCPRequestContext, sessionContext: MCPSessionContext | null): void {
         this.requestContext = requestContext
         this.sessionContext = sessionContext
+        if (this.apiInstance) {
+            const clientContext = getEffectiveMCPClientContext(requestContext, sessionContext)
+            Object.assign(this.apiInstance.config, clientContext)
+        }
     }
 
     async safelyGetAnalyticsContext(context: Pick<Context, 'stateManager'>): Promise<MCPAnalyticsContext | undefined> {
@@ -215,23 +268,27 @@ export class RequestContext {
         requestContext: MCPRequestContext = this.requestContext,
         sessionContext: MCPSessionContext | null = this.sessionContext
     ): Record<string, unknown> {
+        // `clientInfo` arrives on `initialize` only, so a mid-session call carries none of
+        // it. Resolve live-first with the session-pinned value per field, the way
+        // `buildBaseProperties` does for tool calls, or these events record no client.
+        const clientIdentity = getEffectiveMCPClientIdentity(requestContext, sessionContext)
         return {
             $ai_product: 'mcp',
             $mcp_source: MCP_ANALYTICS_SOURCE,
             $mcp_server_name: MCP_SERVER_NAME,
             $mcp_server_version: MCP_SERVER_VERSION,
-            $mcp_client_name: requestContext.mcpClientName,
-            $mcp_client_version: requestContext.mcpClientVersion,
+            $mcp_client_name: clientIdentity.mcpClientName,
+            $mcp_client_version: clientIdentity.mcpClientVersion,
             $mcp_client_user_agent: requestContext.clientUserAgent,
-            $mcp_protocol_version: requestContext.mcpProtocolVersion,
+            $mcp_protocol_version: clientIdentity.mcpProtocolVersion,
             $mcp_transport: requestContext.transport,
             $mcp_session_id: requestContext.mcpSessionId,
             $mcp_conversation_id: requestContext.mcpConversationId,
-            $mcp_consumer: requestContext.mcpConsumer,
+            $mcp_consumer: clientIdentity.mcpConsumer,
             $mcp_mode: requestContext.mode,
             $mcp_region: requestContext.region,
             mcp_runtime: 'hono',
-            mcp_vendor_client: requestContext.mcpVendorClient,
+            $mcp_vendor_client: clientIdentity.mcpVendorClient,
             ...buildMCPSessionAnalyticsProperties(sessionContext),
         }
     }

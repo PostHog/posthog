@@ -16,6 +16,9 @@ TEAM_VISIBLE_ORIGIN_PRODUCTS = [
     Task.OriginProduct.SIGNALS_SCOUT,
     Task.OriginProduct.ONBOARDING,
     Task.OriginProduct.HOGDESK,
+    # A shared workflow's tasks are the team's: anyone can jump in and continue one. The
+    # sandbox still runs under the credentials minted for the workflow's owner.
+    Task.OriginProduct.WORKFLOW,
 ]
 
 TEAM_READABLE_ORIGIN_PRODUCTS = [

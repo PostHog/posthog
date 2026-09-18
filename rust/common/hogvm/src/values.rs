@@ -1,4 +1,7 @@
-use std::{cell::RefCell, cmp::Ordering, collections::HashMap, fmt::Display, rc::Rc, str::FromStr};
+use std::{
+    cell::RefCell, cmp::Ordering, collections::HashMap, fmt::Display, rc::Rc, str::FromStr,
+    sync::Arc,
+};
 
 use chrono::NaiveDate;
 use indexmap::IndexMap;
@@ -26,10 +29,33 @@ pub struct Upvalue {
 
 pub type UpvalueCell = Rc<RefCell<Upvalue>>;
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 pub enum Num {
     Integer(i64),
     Float(f64),
+}
+
+/// The reference VMs treat all numbers as one numeric domain, because JS has only f64 and Python's
+/// `1 == 1.0` is true. Equality must therefore unify the variants. A mixed pair widens to f64 and
+/// compares with IEEE `==`, which is what `Num::binary_op` does for `Lt`/`Gt`, so `a == b` stays
+/// consistent with `!(a < b) && !(a > b)`. Two integers compare as i64, so values beyond 2^53 stay
+/// exact against each other. A mixed pair above 2^53 rounds like the TS reference; Python compares
+/// mixed pairs exactly and can disagree there.
+///
+/// Those two rules together are NOT transitive above 2^53: `Integer(2^53 + 1) == Float(2^53)` and
+/// `Float(2^53) == Integer(2^53)`, yet the two integers stay unequal. Never feed `Num` to `dedup`,
+/// `sort_by`, `binary_search` or a hash set, where that would make the result depend on input order.
+///
+/// Do not assume `Num::compare` agrees. It widens too, but then applies `total_cmp`, a total order
+/// that ranks NaN and separates `-0.0` from `0`. IEEE `==` instead keeps NaN unequal to NaN and
+/// calls `0` and `-0.0` equal, so the two disagree on those two inputs.
+impl PartialEq for Num {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Num::Integer(a), Num::Integer(b)) => a == b,
+            _ => self.to_float() == other.to_float(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -64,11 +90,83 @@ impl From<LocalCallable> for Callable {
 // hog has "primitives", which are copied by e.g, "get_local", and "objects", which are passed around by reference. This is distinct from the
 // "Heap" allocated stuff, which is used for things which must outlive all references to themselves on the stack, e.g. upvalues.
 
+/// The object map used by [`HogLiteral::Object`]. Insertion-ordered like the reference VMs;
+/// hashed with `ahash` instead of the default SipHash — object keys sit under every property
+/// read/write and SipHash was a measured ~5% of interpreter self-time. ahash stays a keyed,
+/// DoS-resistant hash, which matters because keys come from user programs.
+pub type HogMap = IndexMap<String, HogValue, ahash::RandomState>;
+
+/// The payload of [`HogLiteral::String`]. `Owned` is a plain heap string (globals, native-fn
+/// results, computed strings); `Shared` is a refcounted slice of the pre-decoded token stream,
+/// so pushing a string *constant* is a refcount bump instead of a malloc+copy (the ~90-write
+/// geoip loop pushes ~3 constants per write, two of which are popped and dropped within a few
+/// ops). Equality is content-based across the two arms.
+#[derive(Debug, Clone)]
+pub enum HogStr {
+    Owned(String),
+    Shared(Arc<str>),
+}
+
+impl std::ops::Deref for HogStr {
+    type Target = str;
+
+    fn deref(&self) -> &str {
+        match self {
+            HogStr::Owned(s) => s,
+            HogStr::Shared(s) => s,
+        }
+    }
+}
+
+impl PartialEq for HogStr {
+    fn eq(&self, other: &Self) -> bool {
+        **self == **other
+    }
+}
+
+impl HogStr {
+    pub fn as_str(&self) -> &str {
+        self
+    }
+
+    /// Extract an owned `String`, moving without a copy when this is `Owned`.
+    pub fn into_string(self) -> String {
+        match self {
+            HogStr::Owned(s) => s,
+            HogStr::Shared(s) => (*s).to_string(),
+        }
+    }
+}
+
+impl From<String> for HogStr {
+    fn from(value: String) -> Self {
+        HogStr::Owned(value)
+    }
+}
+
+impl From<&str> for HogStr {
+    fn from(value: &str) -> Self {
+        HogStr::Owned(value.to_string())
+    }
+}
+
+impl From<Arc<str>> for HogStr {
+    fn from(value: Arc<str>) -> Self {
+        HogStr::Shared(value)
+    }
+}
+
+impl Display for HogStr {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum HogLiteral {
     Number(Num),
     Boolean(bool),
-    String(String),
+    String(HogStr),
     Array(Vec<HogValue>),
     // A tuple is an array that prints as `(a, b)` and whose `typeof` is "tuple"; for every other
     // operation it behaves exactly like an array (the reference duck-types it as an array with an
@@ -76,9 +174,12 @@ pub enum HogLiteral {
     Tuple(Vec<HogValue>),
     // Insertion-ordered (IndexMap, not HashMap) to match the reference VMs: object literals,
     // `keys()`/`values()`, JSON serialization, and `print` all preserve the order keys were added.
-    Object(IndexMap<String, HogValue>),
-    Callable(Callable),
-    Closure(Closure),
+    // Object/Callable/Closure payloads are boxed so the enum stays small (~32 bytes instead of
+    // 120): every stack push/pop, clone, and heap emplacement moves the enum by value, and the
+    // memmove of the large inline payloads was a measured hot spot.
+    Object(Box<HogMap>),
+    Callable(Box<Callable>),
+    Closure(Box<Closure>),
     Null,
 }
 
@@ -138,7 +239,7 @@ impl HogValue {
                 // plain miss for the reference (Map.get), never an error.
                 let key_lit = chain[0].deref(heap)?;
                 let found = match key_lit {
-                    HogLiteral::String(key) => map.get(key),
+                    HogLiteral::String(key) => map.get(key.as_str()),
                     HogLiteral::Number(n) => map.get(&num_key_string(n)),
                     _ => None,
                 };
@@ -176,9 +277,12 @@ impl HogValue {
     }
 
     pub fn equals(&self, rhs: &HogValue, heap: &VmHeap) -> Result<HogLiteral, VmError> {
-        // Legacy structural equality, shared by every consumer. The cohort evaluator's temporal
-        // epoch-equality lives behind the opt-in flag in `HogVM::eq_op`, not here, so `Eq`/`in`/`has`
-        // stay unchanged for `cymbal` and other shared-crate users.
+        // Top-level structural equality with numeric unification, shared by every consumer:
+        // `1 == 1.0` is true here because both reference VMs treat all numbers as one domain (see
+        // `PartialEq for Num`). Only the two operands are dereferenced, so a nested array or object
+        // compares by heap reference, which matches the TS bytecode VM. The cohort evaluator's
+        // temporal epoch-equality is the only opt-in part, and it lives behind the flag in
+        // `HogVM::eq_op`, not here.
         let (lhs, rhs) = (self.deref(heap)?, rhs.deref(heap)?);
         lhs.equals(rhs)
     }
@@ -346,6 +450,8 @@ impl HogLiteral {
     }
 
     fn equals(&self, rhs: &HogLiteral) -> Result<HogLiteral, VmError> {
+        // Coercion runs first, so a numeric string equals a number. Membership (`in`, `has`,
+        // `indexOf`) compares elements through here and inherits that, unlike the reference VMs.
         let Ok((lhs, rhs)) = self.coerce_types(rhs) else {
             return Ok(false.into()); // If we can't coerce types, they are not equal
         };
@@ -438,11 +544,13 @@ pub(crate) fn temporal_seconds_pair(
 /// Ordering comparison (`Gt`/`Lt`/`GtEq`/`LtEq`) for two literals, two concerns in order:
 ///
 /// OPT-IN ONLY: this is reached exclusively from the coercing `compare_op` path, which the VM takes
-/// only when the context sets [`ExecutionContext::with_coercing_comparisons`](crate::ExecutionContext::with_coercing_comparisons)
-/// — today just the realtime-cohort evaluator. Every other shared-crate consumer (e.g. `cymbal`)
-/// keeps the strict path where operands other than numbers and numeric arrays error, so this coercion
-/// does NOT change their behavior. The semantics here match the Python/TS reference VMs (and
-/// ClickHouse for temporals).
+/// only when the context sets [`ExecutionContext::with_coercing_comparisons`](crate::ExecutionContext::with_coercing_comparisons),
+/// today just the realtime-cohort evaluator. Every other shared-crate consumer (e.g. `cymbal`) keeps
+/// the strict ordering path where operands other than numbers and numeric arrays error, so this
+/// coercion of ORDERING operands does NOT change their behavior. It says nothing about equality:
+/// `Eq`/`NotEq` unify the int and float variants of a number on every path (see
+/// [`PartialEq for Num`](Num)). The semantics here match the Python/TS reference VMs (and ClickHouse
+/// for temporals).
 ///
 /// 1. A temporal comparison ([`temporal_seconds_pair`]) orders by epoch seconds to match ClickHouse
 ///    and the Python/TS reference VMs; see the [`crate::stl`] module note.
@@ -543,7 +651,7 @@ impl FromHogLiteral for String {
                 "String".to_string(),
             ));
         };
-        Ok(s)
+        Ok(s.into_string())
     }
 }
 
@@ -636,6 +744,12 @@ impl From<bool> for HogLiteral {
 
 impl From<String> for HogLiteral {
     fn from(value: String) -> Self {
+        Self::String(HogStr::Owned(value))
+    }
+}
+
+impl From<HogStr> for HogLiteral {
+    fn from(value: HogStr) -> Self {
         Self::String(value)
     }
 }
@@ -662,13 +776,19 @@ impl From<HashMap<String, HogValue>> for HogLiteral {
     fn from(value: HashMap<String, HogValue>) -> Self {
         // External callers handing us an unordered HashMap get arbitrary key order; internal
         // object construction (Dict op, json_to_hog) builds the IndexMap directly, in order.
-        Self::Object(value.into_iter().collect())
+        Self::Object(Box::new(value.into_iter().collect()))
     }
 }
 
 impl From<IndexMap<String, HogValue>> for HogLiteral {
     fn from(value: IndexMap<String, HogValue>) -> Self {
-        Self::Object(value)
+        Self::Object(Box::new(value.into_iter().collect()))
+    }
+}
+
+impl From<HogMap> for HogLiteral {
+    fn from(value: HogMap) -> Self {
+        Self::Object(Box::new(value))
     }
 }
 
@@ -740,7 +860,7 @@ impl TryFrom<Num> for serde_json::Number {
         match value {
             // All my homies hate floating point numbers
             Num::Float(value) => serde_json::Number::from_f64(value)
-                .ok_or(VmError::InvalidNumber(format!("{value:?}"))),
+                .ok_or_else(|| VmError::InvalidNumber(format!("{value:?}"))),
             Num::Integer(value) => Ok(value.into()),
         }
     }
@@ -885,7 +1005,7 @@ pub fn construct_free_standing(current: JsonValue, depth: usize) -> Result<HogVa
         JsonValue::Null => Ok(HogLiteral::Null.into()),
         JsonValue::Bool(b) => Ok(HogLiteral::Boolean(b).into()),
         JsonValue::Number(n) => Ok(HogLiteral::Number(n.into()).into()),
-        JsonValue::String(s) => Ok(HogLiteral::String(s).into()),
+        JsonValue::String(s) => Ok(HogLiteral::from(s).into()),
         JsonValue::Array(arr) => {
             let mut values = Vec::new();
             for value in arr {
@@ -894,11 +1014,11 @@ pub fn construct_free_standing(current: JsonValue, depth: usize) -> Result<HogVa
             Ok(HogLiteral::Array(values).into())
         }
         JsonValue::Object(obj) => {
-            let mut map = IndexMap::new();
+            let mut map = HogMap::default();
             for (key, value) in obj {
                 map.insert(key, construct_free_standing(value, depth + 1)?);
             }
-            Ok(HogLiteral::Object(map).into())
+            Ok(HogLiteral::Object(Box::new(map)).into())
         }
     }
 }
@@ -928,5 +1048,42 @@ mod tests {
                 Ordering::Less | Ordering::Equal | Ordering::Greater
             ));
         }
+    }
+
+    #[test]
+    fn int_float_equality_unifies() {
+        assert_eq!(Num::Integer(1), Num::Float(1.0));
+        assert_eq!(Num::Float(1.0), Num::Integer(1));
+        assert_ne!(Num::Integer(2), Num::Float(1.0));
+        assert_ne!(Num::Float(1.0), Num::Integer(2));
+        // Signed zero is the second input where `Num::compare` disagrees; IEEE `==` unifies it.
+        assert_eq!(Num::Integer(0), Num::Float(-0.0));
+    }
+
+    #[test]
+    fn nan_is_never_equal() {
+        // A NaN literal cannot be written in bytecode JSON, so the NaN contract is pinned here
+        // rather than in a VM-level test. The VM can still produce one, for example `0.0 / 0.0`.
+        assert_ne!(Num::Float(f64::NAN), Num::Float(f64::NAN));
+        assert_ne!(Num::Integer(1), Num::Float(f64::NAN));
+        assert_ne!(Num::Float(f64::NAN), Num::Integer(1));
+    }
+
+    #[test]
+    fn integer_pairs_stay_exact_beyond_f64() {
+        // Both operands are integers, so they must compare as i64. Widening everything to f64 would
+        // round both to the same value and call them equal.
+        assert_ne!(Num::Integer(1 << 53), Num::Integer((1 << 53) + 1));
+    }
+
+    #[test]
+    fn mixed_pairs_beyond_2p53_follow_the_ts_oracle() {
+        // Deliberate, documented divergence from Python: widening an integer past 2^53 rounds it, so
+        // this pair is equal here and in the TS reference (which only has f64), while Python compares
+        // int against float exactly and calls it unequal.
+        assert_eq!(
+            Num::Integer(9_007_199_254_740_993),
+            Num::Float(9_007_199_254_740_992.0)
+        );
     }
 }

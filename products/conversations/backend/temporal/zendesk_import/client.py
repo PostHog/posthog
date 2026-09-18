@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 import time
 import base64
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 from urllib.parse import urlsplit
 
@@ -77,7 +77,7 @@ class ZendeskAttachmentTooLargeError(Exception):
 class ZendeskCredentials:
     subdomain: str
     email_address: str
-    api_token: str
+    api_token: str = field(repr=False)
 
 
 class ZendeskImportClient:

@@ -68,8 +68,17 @@ export function RetentionActorsView({ data }: { data: InsightActorsData }): Reac
         <div className="p-4">
             <div className="flex flex-col gap-2">
                 <span className="text-sm text-muted-foreground">
-                    {rows.length} person{rows.length === 1 ? '' : 's'}
-                    {data.hasMore ? '+' : ''} in this cohort
+                    {data.offset > 0 && rows.length > 0 ? (
+                        <>
+                            Persons {data.offset + 1} to {data.offset + rows.length} in this cohort
+                            {data.hasMore ? ', more available' : ''}
+                        </>
+                    ) : (
+                        <>
+                            {rows.length} person{rows.length === 1 ? '' : 's'}
+                            {data.hasMore ? '+' : ''} in this cohort
+                        </>
+                    )}
                 </span>
                 <DataTable<RetentionActorRow>
                     columns={columns}

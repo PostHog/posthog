@@ -3,6 +3,8 @@ from typing import Literal
 
 from django.conf import settings
 
+from posthog.run_mode import run_mode
+
 # Consumer group names for Kafka tables.
 # US deployment uses named groups after the cluster reshard, other deployments use legacy group names.
 # Once we make all envs match, we can remove the _US check
@@ -27,6 +29,7 @@ CONSUMER_GROUP_PRECALCULATED_PERSON_PROPERTIES = (
 )
 CONSUMER_GROUP_DISTINCT_ID_USAGE = "clickhouse_distinct_id_usage"
 CONSUMER_GROUP_TOPHOG = "clickhouse_tophog"
+CONSUMER_GROUP_BILLING_USAGE_RECORDS = "clickhouse_billing_usage_records"
 CONSUMER_GROUP_AI_EVENTS = "clickhouse_ai_events" if _US else "group1"
 CONSUMER_GROUP_PROPERTY_VALUES = "clickhouse_property_values"
 CONSUMER_GROUP_FLAG_EVALUATIONS = "clickhouse_flag_evaluations"
@@ -95,6 +98,16 @@ KAFKA_COLUMNS_WITH_PARTITION = """
 """
 
 KAFKA_TIMESTAMP_MS_COLUMN = "_timestamp_ms DateTime64"
+
+
+# Every stack outside deployed cloud runs a single-node Kafka whose topics have one partition,
+# so a consumer group can place only one consumer. The other consumers never receive an
+# assignment, and each one holds a thread and repeats the request, which writes a
+# "Can't get assignment" warning every time. Cloud topics have many partitions, so they keep the
+# tuned count. Resolve the mode per call, because a module-level constant would freeze the value
+# at import and defeat a test that patches the mode.
+def kafka_num_consumers(cloud_count: int) -> int:
+    return cloud_count if run_mode().is_deployed_cloud else 1
 
 
 def kafka_engine(

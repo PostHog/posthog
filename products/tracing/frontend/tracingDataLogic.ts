@@ -23,12 +23,19 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic, type FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
+import {
+    NEW_QUERY_STARTED_ERROR_MESSAGE,
+    UNMOUNTING_ERROR_MESSAGE,
+    abortResilientLoading,
+    isUserInitiatedError,
+} from 'lib/utils/kea-logic-builders'
 
 import { AggregatedSpanRow, SpanTreeNode } from '~/queries/schema/schema-general'
 import { PropertyGroupFilter } from '~/types'
 
 import type { DateRange } from '../../../frontend/src/queries/schema/schema-general'
 import type { UniversalFiltersGroup } from '../../../frontend/src/types'
+import { TRACING_DATE_FORMAT } from './dateFormats'
 import {
     type DurationHistogramRow,
     type LatencyHeatmapRow,
@@ -77,12 +84,6 @@ const DEFAULT_PAGE_SIZE = 100
 // the full set for client-side sort/filter, unlike the smaller default the endpoint serves agents.
 const OPERATIONS_AGGREGATION_LIMIT = 5000
 export const PREFETCH_SPANS = 20
-export const NEW_QUERY_STARTED_ERROR_MESSAGE = 'new query started' as const
-
-export function isUserInitiatedError(error: unknown): boolean {
-    const errorStr = String(error).toLowerCase()
-    return error === NEW_QUERY_STARTED_ERROR_MESSAGE || errorStr.includes('abort')
-}
 
 // A ts hint (from a shared/cold link) bounds the lookup tightly around the trace instead of the
 // scene's current date range — the table is time-keyed, so this is what keeps an id lookup from
@@ -206,6 +207,12 @@ export interface tracingDataLogicActions {
         flags: string[]
         variants: Record<string, boolean | string>
     } // featureFlagLogic
+    refreshDeferredFilters: () => {
+        value: true
+    } // tracingFiltersLogic
+    refreshWindowAnchor: () => {
+        value: true
+    } // tracingFiltersLogic
     setChartType: (chartType: import('./tracingFiltersLogic').TracingChartType) => {
         chartType: import('./tracingFiltersLogic').TracingChartType
     } // tracingFiltersLogic
@@ -215,8 +222,12 @@ export interface tracingDataLogicActions {
     setDateRange: (dateRange: DateRange) => {
         dateRange: DateRange
     } // tracingFiltersLogic
-    setFilterGroup: (filterGroup: UniversalFiltersGroup) => {
+    setFilterGroup: (
+        filterGroup: UniversalFiltersGroup,
+        skipQuery?: boolean | undefined
+    ) => {
         filterGroup: UniversalFiltersGroup
+        skipQuery: boolean
     } // tracingFiltersLogic
     setFilters: (filters: Partial<TracingFilters>) => {
         filters: Partial<TracingFilters>
@@ -527,6 +538,9 @@ export interface tracingDataLogicActions {
             ts?: string | null
         }
     }
+    refreshQuery: () => {
+        value: true
+    }
     runQuery: () => {
         value: true
     }
@@ -658,6 +672,8 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
                 'setComparison',
                 'updateComparisonWindows',
                 'setFilters',
+                'refreshDeferredFilters',
+                'refreshWindowAnchor',
             ],
             featureFlagLogic,
             ['setFeatureFlags'],
@@ -672,6 +688,10 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
         // A completed 2D brush on the latency heatmap — maps to a date range + duration chips.
         applyHeatmapBrush: (selection: HeatmapBrushSelection) => ({ selection }),
         runQuery: true,
+        // An explicit user refresh. Same fetches as runQuery, but the window is re-anchored to
+        // the clock and the scope-skip caches below are dropped first, so the charts and the
+        // count re-hit the API even though nothing about the query changed.
+        refreshQuery: true,
         fetchNextPage: true,
         loadMoreTraceSpans: true,
         setTracePagination: (hasMore: boolean, nextOffset: number | null) => ({ hasMore, nextOffset }),
@@ -752,19 +772,9 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
                 fetchSpansFailure: () => true,
             },
         ],
-        spansLoading: [
-            false as boolean,
-            {
-                fetchSpans: () => true,
-                fetchSpansSuccess: () => false,
-                // A superseded query is aborted by the newer one that already re-set loading true;
-                // keep loading so the list holds its spinner instead of flashing "No spans found".
-                fetchSpansFailure: (state, { error }) => (isUserInitiatedError(error) ? state : false),
-                fetchNextPage: () => true,
-                fetchNextPageSuccess: () => false,
-                fetchNextPageFailure: (state, { error }) => (isUserInitiatedError(error) ? state : false),
-            },
-        ],
+        // A superseded query is aborted by the newer one that already re-set loading true;
+        // keep loading so the list holds its spinner instead of flashing "No spans found".
+        spansLoading: [false as boolean, abortResilientLoading('fetchSpans', 'fetchNextPage')],
         sparklineLoading: [
             false as boolean,
             {
@@ -789,14 +799,7 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
                 fetchLatencyHeatmapFailure: () => false,
             },
         ],
-        aggregationLoading: [
-            false as boolean,
-            {
-                fetchAggregation: () => true,
-                fetchAggregationSuccess: () => false,
-                fetchAggregationFailure: (state, { error }) => (isUserInitiatedError(error) ? state : false),
-            },
-        ],
+        aggregationLoading: [false as boolean, abortResilientLoading('fetchAggregation')],
         spanTreeLoading: [
             false as boolean,
             {
@@ -1251,7 +1254,7 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
                     (accumulator, currentItem) => {
                         if (currentItem.time !== lastTime) {
                             labels.push(
-                                humanFriendlyDetailedTime(currentItem.time, 'YYYY-MM-DD', 'HH:mm:ss', {
+                                humanFriendlyDetailedTime(currentItem.time, TRACING_DATE_FORMAT, 'HH:mm:ss', {
                                     timestampStyle: 'absolute',
                                 })
                             )
@@ -1390,14 +1393,21 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
         ],
     }),
 
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, values, cache }) => ({
         handleFilterChange: ({ filterType, extraProps }) => {
             posthog.capture('tracing filter changed', { filter_type: filterType, ...extraProps })
             actions.runQuery()
         },
         setDateRange: () => actions.handleFilterChange('date_range'),
         setServiceNames: () => actions.handleFilterChange('service_names'),
-        setFilterGroup: () => actions.handleFilterChange('filter_group'),
+        // skipQuery: the trace drawer's attribute buttons update the filter chips immediately but
+        // queue the actual re-query for when the drawer closes — see refreshDeferredFilters.
+        setFilterGroup: ({ skipQuery }) => {
+            if (!skipQuery) {
+                actions.handleFilterChange('filter_group')
+            }
+        },
+        refreshDeferredFilters: () => actions.handleFilterChange('filter_group'),
         setSort: ({ orderBy, orderDirection }) =>
             actions.handleFilterChange('sort', { column: orderBy, direction: orderDirection }),
         setViewMode: ({ viewMode }) => actions.handleFilterChange('view_mode', { mode: viewMode }),
@@ -1446,6 +1456,15 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
         // while the user moves windows around within it. The compare-flame refetch (viewer UI
         // state) lives in tracingViewerLogic.
         updateComparisonWindows: () => actions.fetchAggregation(),
+        refreshQuery: () => {
+            // A relative range ('-30M') keeps the scope key identical however far the window has
+            // moved, so the refresh re-anchors the window the chart draws against as well.
+            actions.refreshWindowAnchor()
+            cache.sparklineScope = undefined
+            cache.matchingCountsScope = undefined
+            cache.latencyHeatmapScope = undefined
+            actions.runQuery()
+        },
         runQuery: () => {
             actions.clearSpans()
             // The time sparkline is always fetched — it keeps the chart warm when the user flips back
@@ -1468,43 +1487,49 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
         },
         cancelInProgressSpans: ({ controller }) => {
             if (values.spansAbortController !== null) {
-                values.spansAbortController.abort(NEW_QUERY_STARTED_ERROR_MESSAGE)
+                values.spansAbortController.abort(new DOMException(NEW_QUERY_STARTED_ERROR_MESSAGE, 'AbortError'))
             }
             actions.setSpansAbortController(controller)
         },
         cancelInProgressSparkline: ({ controller }) => {
             if (values.sparklineAbortController !== null) {
-                values.sparklineAbortController.abort(NEW_QUERY_STARTED_ERROR_MESSAGE)
+                values.sparklineAbortController.abort(new DOMException(NEW_QUERY_STARTED_ERROR_MESSAGE, 'AbortError'))
             }
             actions.setSparklineAbortController(controller)
         },
         cancelInProgressMatchingCounts: ({ controller }) => {
             if (values.matchingCountsAbortController !== null) {
-                values.matchingCountsAbortController.abort(NEW_QUERY_STARTED_ERROR_MESSAGE)
+                values.matchingCountsAbortController.abort(
+                    new DOMException(NEW_QUERY_STARTED_ERROR_MESSAGE, 'AbortError')
+                )
             }
             actions.setMatchingCountsAbortController(controller)
         },
         cancelInProgressDurationHistogram: ({ controller }) => {
             if (values.durationHistogramAbortController !== null) {
-                values.durationHistogramAbortController.abort(NEW_QUERY_STARTED_ERROR_MESSAGE)
+                values.durationHistogramAbortController.abort(
+                    new DOMException(NEW_QUERY_STARTED_ERROR_MESSAGE, 'AbortError')
+                )
             }
             actions.setDurationHistogramAbortController(controller)
         },
         cancelInProgressLatencyHeatmap: ({ controller }) => {
             if (values.latencyHeatmapAbortController !== null) {
-                values.latencyHeatmapAbortController.abort(NEW_QUERY_STARTED_ERROR_MESSAGE)
+                values.latencyHeatmapAbortController.abort(
+                    new DOMException(NEW_QUERY_STARTED_ERROR_MESSAGE, 'AbortError')
+                )
             }
             actions.setLatencyHeatmapAbortController(controller)
         },
         cancelInProgressAggregation: ({ controller }) => {
             if (values.aggregationAbortController !== null) {
-                values.aggregationAbortController.abort(NEW_QUERY_STARTED_ERROR_MESSAGE)
+                values.aggregationAbortController.abort(new DOMException(NEW_QUERY_STARTED_ERROR_MESSAGE, 'AbortError'))
             }
             actions.setAggregationAbortController(controller)
         },
         cancelInProgressSpanTree: ({ controller }) => {
             if (values.spanTreeAbortController !== null) {
-                values.spanTreeAbortController.abort(NEW_QUERY_STARTED_ERROR_MESSAGE)
+                values.spanTreeAbortController.abort(new DOMException(NEW_QUERY_STARTED_ERROR_MESSAGE, 'AbortError'))
             }
             actions.setSpanTreeAbortController(controller)
         },
@@ -1551,26 +1576,30 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
 
     events(({ values }) => ({
         beforeUnmount: () => {
+            // Abort with an `AbortError`, never a bare string: `fetch` rejects with the reason
+            // exactly as given, and `handleFetch` only re-throws it untouched when it is a real
+            // `AbortError`. A string reason falls through and gets relabelled as an `ApiError`, so
+            // tearing the scene down looks like a failed request in the console.
             if (values.spansAbortController) {
-                values.spansAbortController.abort('unmounting component')
+                values.spansAbortController.abort(new DOMException(UNMOUNTING_ERROR_MESSAGE, 'AbortError'))
             }
             if (values.sparklineAbortController) {
-                values.sparklineAbortController.abort('unmounting component')
+                values.sparklineAbortController.abort(new DOMException(UNMOUNTING_ERROR_MESSAGE, 'AbortError'))
             }
             if (values.matchingCountsAbortController) {
-                values.matchingCountsAbortController.abort('unmounting component')
+                values.matchingCountsAbortController.abort(new DOMException(UNMOUNTING_ERROR_MESSAGE, 'AbortError'))
             }
             if (values.durationHistogramAbortController) {
-                values.durationHistogramAbortController.abort('unmounting component')
+                values.durationHistogramAbortController.abort(new DOMException(UNMOUNTING_ERROR_MESSAGE, 'AbortError'))
             }
             if (values.latencyHeatmapAbortController) {
-                values.latencyHeatmapAbortController.abort('unmounting component')
+                values.latencyHeatmapAbortController.abort(new DOMException(UNMOUNTING_ERROR_MESSAGE, 'AbortError'))
             }
             if (values.spanTreeAbortController) {
-                values.spanTreeAbortController.abort('unmounting component')
+                values.spanTreeAbortController.abort(new DOMException(UNMOUNTING_ERROR_MESSAGE, 'AbortError'))
             }
             if (values.aggregationAbortController) {
-                values.aggregationAbortController.abort('unmounting component')
+                values.aggregationAbortController.abort(new DOMException(UNMOUNTING_ERROR_MESSAGE, 'AbortError'))
             }
         },
     })),

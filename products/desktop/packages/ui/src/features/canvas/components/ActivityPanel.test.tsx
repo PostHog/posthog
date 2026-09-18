@@ -53,7 +53,7 @@ vi.mock("@posthog/ui/features/canvas/components/TaskCommentsList", () => ({
   TaskCommentsList: () => <div>comments body</div>,
 }));
 vi.mock("@posthog/ui/features/canvas/components/ChannelFeedView", () => ({
-  TaskCard: () => <div>task card</div>,
+  TaskSummaryRow: () => <div>task summary</div>,
 }));
 vi.mock("@posthog/ui/features/canvas/components/ThreadPanel", () => ({
   AgentStatusLine: () => <div>agent status</div>,

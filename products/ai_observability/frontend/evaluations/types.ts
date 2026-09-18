@@ -1,4 +1,4 @@
-import { AnyPropertyFilter, UserBasicType } from '~/types'
+import { AccessControlLevel, AnyPropertyFilter, UserBasicType } from '~/types'
 
 import type {
     EvaluationReportCitationApi,
@@ -34,6 +34,9 @@ export interface ModelConfiguration {
 
 export interface EvaluationOutputConfig {
     allows_na?: boolean
+    /** Whether a true result means the evaluation found a problem. Absent or false means a true
+     * result is a pass, which is what every evaluation stored before this field intends. */
+    true_is_failure?: boolean
 }
 
 /** Settle config for aggregate targets (trace, session). A missing `strategy` resolves per target:
@@ -86,6 +89,7 @@ export interface BaseEvaluationConfig {
     updated_at: string
     created_by?: UserBasicType | null
     deleted?: boolean
+    user_access_level?: AccessControlLevel | null
 }
 
 export interface LLMJudgeEvaluation extends BaseEvaluationConfig {
@@ -187,27 +191,4 @@ export type EvaluationReportRunContent = EvaluationReportRunContentApi
 export type EvaluationReportRun = EvaluationReportRunApi
 
 export type SentimentEvaluationRunsFilter = 'negative' | 'positive' | 'neutral' | 'all'
-export type EvaluationSummaryFilter = 'pass' | 'fail' | 'na' | SentimentEvaluationRunsFilter
-
-export interface EvaluationPattern {
-    title: string
-    description: string
-    frequency: string
-    example_generation_ids: string[]
-}
-
-export interface EvaluationSummaryStatistics {
-    total_analyzed: number
-    pass_count: number
-    fail_count: number
-    na_count: number
-}
-
-export interface EvaluationSummary {
-    overall_assessment: string
-    pass_patterns: EvaluationPattern[]
-    fail_patterns: EvaluationPattern[]
-    na_patterns: EvaluationPattern[]
-    recommendations: string[]
-    statistics: EvaluationSummaryStatistics
-}
+export type EvaluationRunsFilter = 'pass' | 'fail' | 'na' | SentimentEvaluationRunsFilter

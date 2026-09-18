@@ -110,7 +110,9 @@ class TaxonomyAgentNode(
         Generate the output format for events. Can be overridden by subclasses.
         Default implementation uses YAML format but it can be overridden to use XML format.
         """
-        return format_events_yaml(events_in_context, self._team, self._user)
+        return format_events_yaml(
+            events_in_context, self._team, self._user, event_source=self.context_manager.event_source
+        )
 
     def run(self, state: TaxonomyStateType, config: RunnableConfig) -> TaxonomyPartialStateType:
         """Process the state and return filtering options."""

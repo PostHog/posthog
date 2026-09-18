@@ -17,6 +17,8 @@ from products.replay_vision.backend.temporal.constants import (
     MAX_IN_FLIGHT_APPLIES_PER_BACKFILL,
     MAX_IN_FLIGHT_APPLIES_PER_SCANNER,
     MAX_IN_FLIGHT_APPLIES_PER_TEAM,
+    ON_DEMAND_RESERVED_SCANNER_SLOTS,
+    ON_DEMAND_RESERVED_TEAM_SLOTS,
 )
 from products.replay_vision.backend.temporal.metrics import record_enqueue_claim_failure
 
@@ -82,16 +84,20 @@ def try_claim_enqueue_slot(
     scanner_in_flight_rows: int,
     backfill_id: UUID | None = None,
     backfill_in_flight_rows: int = 0,
+    scheduled: bool = False,
 ) -> bool:
     """Atomically claim one enqueue slot against every in-flight cap; True when the scan may start.
 
     Passing `backfill_id` also holds the claim against that backfill's sub-cap, so successive ticks
-    see the slots an earlier tick took before its children persisted their rows.
+    see the slots an earlier tick took before its children persisted their rows. `scheduled` claims
+    stop at the reserved ceilings, so racing scheduled dispatchers cannot eat the on-demand reserve.
     """
+    team_cap = MAX_IN_FLIGHT_APPLIES_PER_TEAM - (ON_DEMAND_RESERVED_TEAM_SLOTS if scheduled else 0)
+    scanner_cap = MAX_IN_FLIGHT_APPLIES_PER_SCANNER - (ON_DEMAND_RESERVED_SCANNER_SLOTS if scheduled else 0)
     keys = [_team_key(team_id), _scanner_key(scanner_id)]
     allowances = [
-        MAX_IN_FLIGHT_APPLIES_PER_TEAM - team_in_flight_rows,
-        MAX_IN_FLIGHT_APPLIES_PER_SCANNER - scanner_in_flight_rows,
+        team_cap - team_in_flight_rows,
+        scanner_cap - scanner_in_flight_rows,
     ]
     if backfill_id is not None:
         keys.append(_backfill_key(backfill_id))
@@ -122,6 +128,7 @@ def claim_enqueue_slot_prefix(
     scanner_in_flight_rows: int,
     backfill_id: UUID | None = None,
     backfill_in_flight_rows: int = 0,
+    scheduled: bool = False,
 ) -> int:
     """Claim slots for an ordered batch, returning how many leading ids were admitted.
 
@@ -142,6 +149,7 @@ def claim_enqueue_slot_prefix(
             scanner_in_flight_rows=scanner_in_flight_rows,
             backfill_id=backfill_id,
             backfill_in_flight_rows=backfill_in_flight_rows,
+            scheduled=scheduled,
         ):
             return admitted
     return len(workflow_ids)

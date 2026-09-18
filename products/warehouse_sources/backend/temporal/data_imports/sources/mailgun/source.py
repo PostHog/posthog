@@ -1,8 +1,7 @@
 from typing import TYPE_CHECKING, Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
@@ -10,7 +9,6 @@ from posthog.schema import (
     SourceFieldSelectConfig,
     SourceFieldSelectConfigOption,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
     ExternalWebhookInfo,
     FieldType,
@@ -62,8 +60,14 @@ class MailgunSource(
 ):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
-    supported_versions = ("v3",)
-    default_version = "v3"
+    # Mailgun versions each resource in its own URL path (no account or header version), so the
+    # per-endpoint paths in settings.py already target the newest route Mailgun serves for each
+    # resource — /v4 for the domains listing, /v3 everywhere v4 doesn't exist. The source-level
+    # label is therefore a pin recorded on the source, not a request-layer branch: every supported
+    # version resolves to the same requests. Defaulting to v4 only stamps new sources; pinned v3
+    # rows are byte-for-byte unaffected.
+    supported_versions = ("v3", "v4")
+    default_version = "v4"
     api_docs_url = "https://documentation.mailgun.com/"
 
     @property
@@ -93,7 +97,7 @@ class MailgunSource(
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.MAILGUN,
+            name=ExternalDataSourceType.MAILGUN,
             category=DataWarehouseSourceCategory.MARKETING___EMAIL,
             label="Mailgun",
             caption=f"""Enter your Mailgun private API key to pull your Mailgun data into the PostHog Data warehouse.
@@ -103,7 +107,7 @@ You can find your private API key in the [Mailgun dashboard]({API_SECURITY_URL})
 Note: Mailgun only retains events for a limited period (1 day on free plans, up to 30 days on paid plans), so the initial events sync is bounded by your plan's retention.""",
             iconPath="/static/services/mailgun.png",
             docsUrl="https://posthog.com/docs/cdp/sources/mailgun",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             fields=cast(
                 list[FieldType],
                 [
@@ -210,10 +214,7 @@ Note: Mailgun only retains events for a limited period (1 day on free plans, up 
         schema_name: Optional[str] = None,
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
-        if validate_mailgun_credentials(config.api_key, config.region):
-            return True, None
-
-        return False, "Invalid Mailgun API key or region"
+        return validate_mailgun_credentials(config.api_key, config.region)
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[MailgunResumeConfig]:
         return ResumableSourceManager[MailgunResumeConfig](inputs, MailgunResumeConfig)

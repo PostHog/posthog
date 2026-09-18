@@ -1,16 +1,17 @@
 import {
     ActivityChange,
     ActivityLogItem,
+    ActivityLogUserName,
     Description,
     HumanizedChange,
     defaultDescriber,
-    userNameForLogItem,
 } from 'lib/components/ActivityLog/humanizeActivity'
 
 interface CanvasPostHogCapabilities {
     insights?: string[]
     captureEvents?: string[]
     inlineQueries?: boolean
+    agentRequests?: boolean
 }
 
 function posthogCapabilities(value: unknown): CanvasPostHogCapabilities {
@@ -53,6 +54,9 @@ export function describeCapabilitiesChange(change: ActivityChange): Description[
 
     if (!!before.inlineQueries !== !!after.inlineQueries) {
         parts.push(after.inlineQueries ? <>enabled inline queries</> : <>disabled inline queries</>)
+    }
+    if (!!before.agentRequests !== !!after.agentRequests) {
+        parts.push(after.agentRequests ? <>enabled agent requests</> : <>disabled agent requests</>)
     }
 
     return parts
@@ -99,7 +103,7 @@ export function canvasActivityDescriber(logItem: ActivityLogItem, asNotification
         return { description: null }
     }
 
-    const actor = <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong>
+    const actor = <ActivityLogUserName logItem={logItem} />
     const canvasName = <strong>{logItem.detail.name || 'Untitled canvas'}</strong>
 
     if (logItem.activity === 'published') {

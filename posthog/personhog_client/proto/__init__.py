@@ -66,12 +66,12 @@ from posthog.personhog_client.proto.generated.personhog.types.v1.group_pb2 impor
     UpdateGroupTypeMappingResponse,
 )
 from posthog.personhog_client.proto.generated.personhog.types.v1.person_pb2 import (
-    DeletePersonlessDistinctIdsBatchForTeamRequest,
-    DeletePersonlessDistinctIdsBatchForTeamResponse,
     DeletePersonsBatchForTeamRequest,
     DeletePersonsBatchForTeamResponse,
     DeletePersonsRequest,
     DeletePersonsResponse,
+    DeleteTombstonedPersonsRequest,
+    DeleteTombstonedPersonsResponse,
     GetDistinctIdsForPersonRequest,
     GetDistinctIdsForPersonResponse,
     GetDistinctIdsForPersonsRequest,

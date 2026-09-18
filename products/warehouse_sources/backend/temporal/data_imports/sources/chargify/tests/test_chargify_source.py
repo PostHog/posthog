@@ -3,14 +3,6 @@ from typing import Any
 import pytest
 from unittest import mock
 
-from posthog.schema import (
-    DataWarehouseSourceCategory,
-    ReleaseStatus,
-    SourceFieldInputConfig,
-    SourceFieldInputConfigType,
-)
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.chargify.chargify import ChargifyResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.chargify.settings import (
     CHARGIFY_ENDPOINTS,
     ENDPOINTS,
@@ -21,7 +13,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.chargify import (
     ChargifySourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _make_inputs(**overrides: Any) -> SourceInputs:
@@ -49,9 +40,6 @@ class TestChargifySource:
         self.team_id = 123
         self.config = ChargifySourceConfig(api_key="test-key", subdomain="acme")
 
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.CHARGIFY
-
     def test_subdomain_is_a_connection_host_field(self) -> None:
         # The stored API key is sent to https://{subdomain}.chargify.com, so changing subdomain
         # must force the key to be re-entered — otherwise it could be exfiltrated to another host.
@@ -60,33 +48,6 @@ class TestChargifySource:
     def test_lists_tables_without_credentials(self) -> None:
         # get_schemas is a static catalog with no I/O, so the public docs table list can render.
         assert self.source.lists_tables_without_credentials is True
-
-    def test_get_source_config(self) -> None:
-        config = self.source.get_source_config
-
-        assert config.name.value == "Chargify"
-        assert config.label == "Chargify"
-        assert config.category == DataWarehouseSourceCategory.PAYMENTS___BILLING
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/chargify"
-        assert config.iconPath == "/static/services/chargify.png"
-
-        api_key_field, subdomain_field = config.fields
-        assert isinstance(api_key_field, SourceFieldInputConfig)
-        assert api_key_field.name == "api_key"
-        assert api_key_field.type == SourceFieldInputConfigType.PASSWORD
-        assert api_key_field.required is True
-        assert api_key_field.secret is True
-
-        assert isinstance(subdomain_field, SourceFieldInputConfig)
-        assert subdomain_field.name == "subdomain"
-        assert subdomain_field.type == SourceFieldInputConfigType.TEXT
-        assert subdomain_field.required is True
-        assert subdomain_field.secret is False
-
-    @pytest.mark.parametrize("expected_key", ["401 Client Error", "403 Client Error"])
-    def test_non_retryable_errors(self, expected_key: str) -> None:
-        assert any(expected_key in key for key in self.source.get_non_retryable_errors())
 
     def test_get_schemas_all_full_refresh(self) -> None:
         schemas = self.source.get_schemas(self.config, self.team_id)
@@ -148,11 +109,6 @@ class TestChargifySource:
         assert is_valid is False
         mock_validate.assert_not_called()
 
-    def test_get_resumable_source_manager_bound_to_resume_config(self) -> None:
-        manager = self.source.get_resumable_source_manager(_make_inputs())
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is ChargifyResumeConfig
-
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.chargify.source.chargify_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_source: mock.MagicMock) -> None:
         inputs = _make_inputs(schema_name="Subscriptions", team_id=99, job_id="job-xyz")
@@ -183,3 +139,18 @@ class TestChargifySource:
         assert response.partition_mode == "datetime"
         assert response.partition_format == "month"
         assert response.partition_keys == ["created_at"]
+
+    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.chargify.source.chargify_source")
+    def test_source_for_pipeline_leaves_an_endpoint_without_a_timestamp_unpartitioned(
+        self, mock_source: mock.MagicMock
+    ) -> None:
+        # Credit notes expose no stable creation timestamp, so partitioning must stay off rather
+        # than point at a column the rows do not carry.
+        response = self.source.source_for_pipeline(
+            self.config, mock.MagicMock(spec=ResumableSourceManager), _make_inputs(schema_name="CreditNotes")
+        )
+
+        assert response.partition_mode is None
+        assert response.partition_format is None
+        assert response.partition_keys is None
+        assert response.primary_keys == ["uid"]

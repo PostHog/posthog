@@ -14,6 +14,7 @@ describe('toolbar urls duplicate', () => {
         experiments: [[]],
         featureFlag: [[123], ['my-flag']],
         featureFlags: [[], ['history']],
+        heatmap: [['hm-abc123'], [123]],
         productTour: [['tour-id'], ['tour-id', 'step=2'], ['tour-id', '?step=2']],
         sessionProfile: [['session-uuid']],
         settings: [[], ['project'], ['environment-customization', 'date-and-time'], ['user']],

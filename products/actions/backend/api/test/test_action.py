@@ -1,6 +1,6 @@
 from datetime import UTC, datetime, timedelta
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -18,7 +18,7 @@ from posthog.models import Tag, User
 from products.actions.backend.models.action import Action
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cohorts.backend.models.cohort import Cohort
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 
 
 class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
@@ -185,7 +185,7 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         )
         self.assertEqual(Action.objects.count(), count)
 
-    @freeze_time("2021-12-12")
+    @time_machine.travel("2021-12-12", tick=False)
     @patch("products.actions.backend.api.action.report_user_action")
     def test_update_action(self, patch_capture, *args):
         user = self._create_user("test_user_update")
@@ -318,7 +318,7 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         action = Action.objects.get(pk=response.json()["id"])
         assert action.steps[0].event == "test_event "
 
-    @freeze_time("2021-12-12")
+    @time_machine.travel("2021-12-12", tick=False)
     def test_listing_actions_is_not_nplus1(self) -> None:
         # Pre-query to cache things like instance settings
         self.client.get(f"/api/projects/{self.team.id}/actions/")

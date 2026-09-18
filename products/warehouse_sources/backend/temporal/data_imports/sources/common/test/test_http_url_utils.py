@@ -77,6 +77,40 @@ def test_scrub_url_returns_input_on_garbage():
 @pytest.mark.parametrize(
     "url,expected",
     [
+        # An API that takes an address as a lookup key: percent-encoded is not redacted.
+        (
+            "https://api.checkout.com/customers/jo%40example.com",
+            "https://api.checkout.com/customers/{email}",
+        ),
+        ("https://x.test/customers/jo@example.com", "https://x.test/customers/{email}"),
+        # Subdomains, plus plus-addressing and dots in the local part.
+        (
+            "https://x.test/c/jo.doe%2Btag%40mail.corp.example.co.uk/detail",
+            "https://x.test/c/{email}/detail",
+        ),
+        # Query scrubbing still applies alongside a masked path.
+        (
+            "https://x.test/customers/jo%40example.com?api_key=secret&page=2",
+            "https://x.test/customers/{email}?api_key=REDACTED&page=2",
+        ),
+        # An `@` without a dot-suffixed domain is not an address — keep it readable.
+        ("https://x.test/images/base@sha256:abc", "https://x.test/images/base@sha256:abc"),
+        # Untouched paths come back byte-for-byte rather than normalized.
+        ("https://api.example.com/v1/users", "https://api.example.com/v1/users"),
+    ],
+)
+def test_scrub_url_masks_email_path_segments(url: str, expected: str) -> None:
+    assert scrub_url(url) == expected
+
+
+def test_url_template_masks_email_path_segments() -> None:
+    # Logged as its own field beside the scrubbed URL, so it leaks independently.
+    assert url_template("https://x.test/customers/jo%40example.com") == "https://x.test/customers/{email}"
+
+
+@pytest.mark.parametrize(
+    "url,expected",
+    [
         ("https://api.example.com/v1/users/12345", "https://api.example.com/v1/users/{id}"),
         (
             "https://api.example.com/v1/users/abcdef0123456789abcdef0123456789",

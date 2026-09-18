@@ -1,15 +1,13 @@
 import { expectLogic } from 'kea-test-utils'
-import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
-import { UserProductListReason } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 
 import { customProductsLogic } from './customProductsLogic'
 import { MovedItem, projectTreeDataLogic } from './projectTreeDataLogic'
+import { projectTreeLogic } from './projectTreeLogic'
 
 // pluralize() joins the count to the unit with a non-breaking space, which no reader can see in an assertion.
 const toastText = (message: unknown): string => String(message).replace(/\u00a0/g, ' ')
@@ -27,7 +25,7 @@ describe('projectTreeDataLogic', () => {
         initKeaTests()
         logic = projectTreeDataLogic()
         unmount = logic.mount()
-        await expectLogic(logic).toDispatchActions(['loadUnfiledItemsSuccess'])
+        await expectLogic(logic).toDispatchActions(['loadFolderSuccess'])
         jest.clearAllMocks()
     })
 
@@ -36,14 +34,12 @@ describe('projectTreeDataLogic', () => {
         jest.restoreAllMocks()
     })
 
-    it('shows Replay vision to anyone who pinned Session replay', () => {
+    it('shows only the products the user added, with nothing injected alongside them', () => {
         customProductsLogic.actions.loadCustomProductsSuccess([
             {
                 id: 'abc',
                 product_path: 'Session replay',
                 enabled: true,
-                reason: UserProductListReason.PRODUCT_INTENT,
-                reason_text: null,
                 created_at: '2026-01-01T00:00:00Z',
                 updated_at: '2026-01-01T00:00:00Z',
             },
@@ -51,13 +47,11 @@ describe('projectTreeDataLogic', () => {
 
         const paths = logic.values.getCustomProductTreeItems('').map((item) => item.record?.path)
 
-        expect(paths).toContain('Session replay')
-        expect(paths).toContain('Replay vision')
+        expect(paths).toEqual(['Session replay'])
     })
 
     it('handles null unfiled item responses', async () => {
         jest.mocked(api.fileSystem.unfiled).mockResolvedValueOnce(null)
-
         await expectLogic(logic, () => {
             logic.actions.loadUnfiledItems()
         })
@@ -65,6 +59,52 @@ describe('projectTreeDataLogic', () => {
             .toMatchValues({ unfiledItems: true })
 
         expect(api.fileSystem.list).not.toHaveBeenCalled()
+    })
+
+    it('reconciles unfiled items when the project tree becomes active', async () => {
+        const rootlessTree = projectTreeLogic({ key: 'project-tree' })
+        rootlessTree.mount()
+
+        const projectTree = projectTreeLogic({ key: 'project-tree', root: 'project://', isActiveInPanel: true })
+
+        await expectLogic(logic, () => {
+            projectTree.mount()
+        }).toDispatchActions(['loadUnfiledItems', 'loadUnfiledItemsSuccess'])
+
+        projectTree.unmount()
+        rootlessTree.unmount()
+    })
+
+    it('does not reconcile unfiled items when the project tree is hidden', () => {
+        const projectTree = projectTreeLogic({ key: 'project-tree', root: 'project://', isActiveInPanel: false })
+
+        projectTree.mount()
+
+        expect(api.fileSystem.unfiled).not.toHaveBeenCalled()
+        projectTree.unmount()
+    })
+
+    it('reconciles unfiled items when a non-panel project tree opens', async () => {
+        const projectTree = projectTreeLogic({ key: 'folder-select', root: 'project://' })
+
+        await expectLogic(logic, () => {
+            projectTree.mount()
+        }).toDispatchActions(['loadUnfiledItems', 'loadUnfiledItemsSuccess'])
+
+        projectTree.unmount()
+    })
+
+    it('does not load Unfiled after the root folder loads in a hidden project tree', async () => {
+        const projectTree = projectTreeLogic({ key: 'project-tree', root: 'project://', isActiveInPanel: false })
+        projectTree.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        jest.clearAllMocks()
+
+        logic.actions.loadFolderSuccess('', [], false, 0)
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(api.fileSystem.list).not.toHaveBeenCalled()
+        projectTree.unmount()
     })
 
     it('loads unfiled folders when the count response reports items', async () => {
@@ -92,49 +132,6 @@ describe('projectTreeDataLogic', () => {
             limit: 101,
             offset: 0,
         })
-    })
-
-    it('emits the dashboard-move primary-metric event for dashboards but not for other item types', async () => {
-        const eventUsage = eventUsageLogic()
-        eventUsage.mount()
-        const capture = jest.spyOn(posthog, 'capture').mockReturnValue(undefined as any)
-        const move = jest.spyOn(api.fileSystem, 'move')
-        move.mockResolvedValueOnce({ id: 'fs-1', type: 'dashboard', path: 'Product/A' } as any)
-        move.mockResolvedValueOnce({ id: 'fs-2', type: 'insight', path: 'Product/B' } as any)
-
-        // A dashboard move fires the experiment's primary-metric event after the API move succeeds.
-        await expectLogic(eventUsage, () => {
-            logic.actions.moveItem(
-                { id: 'fs-1', type: 'dashboard', path: 'Unfiled/Dashboards/A', ref: '1' } as any,
-                'Product/A',
-                true,
-                'test'
-            )
-        }).toDispatchActions(['reportDashboardMovedToFolder'])
-        // Coarse fields only — never the folder/dashboard names (Unfiled/Dashboards/A -> Product/A).
-        expect(capture).toHaveBeenCalledWith(
-            'dashboard moved to folder',
-            expect.objectContaining({
-                from_depth: 3,
-                to_depth: 2,
-                moved_from_unfiled: true,
-                moved_to_unfiled: false,
-            })
-        )
-
-        // A non-dashboard move still processes (movedItem) but must NOT fire the dashboard event.
-        capture.mockClear()
-        await expectLogic(logic, () => {
-            logic.actions.moveItem(
-                { id: 'fs-2', type: 'insight', path: 'Unfiled/Insights/B', ref: '2' } as any,
-                'Product/B',
-                true,
-                'test'
-            )
-        }).toDispatchActions(['movedItem'])
-        expect(capture.mock.calls.find((call) => call[0] === 'dashboard moved to folder')).toBeUndefined()
-
-        eventUsage.unmount()
     })
 
     it('reports a bulk move once, with an undo that reverts every item', async () => {

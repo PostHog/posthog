@@ -1,6 +1,6 @@
 """Persists person-property sync/backfill run outcomes.
 
-Registered as the data-import pipeline's run recorder (see apps.ready). Called from the warehouse
+Registered as the warehouse pipeline's run recorder (see apps.ready). Called from the warehouse
 sync/backfill activities, outside request context, so it scopes explicitly with ``for_team``. Writes
 a ``CustomPropertySyncRun`` row and folds the outcome back onto the source's status fields so the
 account-path ``sourceSyncStatus`` UI helper works for person sources too.
@@ -18,7 +18,7 @@ from products.customer_analytics.backend.models import (
     SyncStatus,
     SyncTrigger,
 )
-from products.warehouse_sources.backend.facade.hooks import PersonPropertySyncRunRecord
+from products.warehouse_sources.backend.facade.hooks import BINDING_KIND_SAVED_QUERY, PersonPropertySyncRunRecord
 
 logger = structlog.get_logger(__name__)
 
@@ -34,6 +34,14 @@ _SYNC_TRIGGERS = frozenset({SyncTrigger.SCHEDULED.value, SyncTrigger.SYNC.value}
 # Triggers set by a user action. The pipeline reports every import-driven run as "scheduled", so a
 # row created by "Sync now" keeps its own trigger when the terminal record lands on it.
 _USER_TRIGGERS = frozenset({SyncTrigger.SYNC.value, SyncTrigger.MANUAL.value})
+
+
+def _binding_fields(record: PersonPropertySyncRunRecord) -> dict[str, str | None]:
+    """The run row's binding columns. Both are kept nullable and only one is ever set, so a run stays
+    readable after the schema or view it read is deleted."""
+    if record.binding_kind == BINDING_KIND_SAVED_QUERY:
+        return {"schema_id": None, "saved_query_id": record.binding_id or None}
+    return {"schema_id": record.binding_id or None, "saved_query_id": None}
 
 
 def _parse_iso(value: str | None) -> datetime | None:
@@ -69,7 +77,8 @@ def record_sync_run(record: PersonPropertySyncRunRecord) -> None:
     log = logger.bind(
         team_id=record.team_id,
         source_id=record.source_id,
-        schema_id=record.schema_id,
+        binding_kind=record.binding_kind,
+        binding_id=record.binding_id,
         trigger=record.trigger,
         status=record.status,
     )
@@ -89,8 +98,8 @@ def record_sync_run(record: PersonPropertySyncRunRecord) -> None:
         # the source from retry noise rather than distinct failed syncs).
         already_failed = run is not None and run.status == SyncStatus.FAILED.value
 
-        fields = {
-            "schema_id": record.schema_id or None,
+        fields: dict = {
+            **_binding_fields(record),
             "job_id": record.job_id,
             "trigger": record.trigger,
             "status": record.status,

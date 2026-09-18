@@ -77,6 +77,7 @@ function RolesFilter(props: {
         <LemonDropdown
             closeOnClickInside={false}
             placement="bottom-start"
+            overflowHidden
             overlay={
                 <MultiSelectFilterDropdown
                     title="Role"
@@ -111,6 +112,7 @@ function MembersFilter(props: {
         <LemonDropdown
             closeOnClickInside={false}
             placement="bottom-start"
+            overflowHidden
             overlay={
                 <MultiSelectFilterDropdown
                     title="Member"
@@ -140,6 +142,7 @@ function ToolsFilter(props: {
         <LemonDropdown
             closeOnClickInside={false}
             placement="bottom-start"
+            overflowHidden
             overlay={
                 <MultiSelectFilterDropdown
                     title="Tool"
@@ -166,6 +169,7 @@ function AccessLevelFilter(props: {
         <LemonDropdown
             closeOnClickInside={false}
             placement="bottom-start"
+            overflowHidden
             overlay={
                 <MultiSelectFilterDropdown
                     title="Access"

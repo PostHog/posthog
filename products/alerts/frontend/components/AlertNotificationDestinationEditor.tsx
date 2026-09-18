@@ -10,6 +10,7 @@ import {
     LemonSkeleton,
     LemonTag,
     LemonTagType,
+    Tooltip,
 } from '@posthog/lemon-ui'
 
 import { IntegrationChoice } from 'lib/components/CyclotronJob/integrations/IntegrationChoice'
@@ -39,6 +40,7 @@ export interface AlertNotificationDestinationView {
     tags?: { label: string; type?: LemonTagType }[]
     viewAction?: AlertNotificationDestinationIconAction | AlertNotificationDestinationButtonAction
     onDelete: () => void
+    deleting?: boolean
 }
 
 export interface PendingAlertNotificationDestinationView {
@@ -65,6 +67,8 @@ interface AlertNotificationDestinationEditorProps<NotificationType extends strin
         options: LemonSelectOptions<NotificationType>
         value: NotificationType
         onChange: (type: NotificationType) => void
+        /** Where the type dropdown opens. Set 'top-start' when the editor sits near the bottom of the page. */
+        dropdownPlacement?: 'top-start' | 'bottom-start'
     }
     slack: {
         notificationType: NotificationType
@@ -167,6 +171,8 @@ function ExistingDestinations({
                             size="xsmall"
                             status="danger"
                             onClick={destination.onDelete}
+                            loading={destination.deleting}
+                            disabledReason={destination.deleting ? 'Deleting notification.' : undefined}
                             tooltip="Delete notification"
                         />
                     </div>
@@ -192,9 +198,11 @@ function PendingDestinations({
                     <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 flex-wrap">
                             <span className="text-sm font-medium truncate">{destination.title}</span>
-                            <LemonTag type="warning" size="small">
-                                Pending
-                            </LemonTag>
+                            <Tooltip title="Save this alert to add this destination.">
+                                <LemonTag type="warning" size="small">
+                                    Pending
+                                </LemonTag>
+                            </Tooltip>
                         </div>
                         {destination.detail ? (
                             <span className="text-xs text-muted-alt truncate block">{destination.detail}</span>
@@ -307,6 +315,7 @@ export function AlertNotificationDestinationEditor<NotificationType extends stri
             <div className="space-y-3 max-w-xl">
                 <LemonSelect
                     fullWidth
+                    dropdownPlacement={notificationType.dropdownPlacement}
                     options={notificationType.options}
                     value={notificationType.value}
                     onChange={notificationType.onChange}

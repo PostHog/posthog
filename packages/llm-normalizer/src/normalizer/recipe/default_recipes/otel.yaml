@@ -1,11 +1,17 @@
 # OTel parts format: `{role, parts: [...]}`. text parts become content,
-# tool_call parts become tool_calls, and each tool_call_response part spawns its
-# own follow-up tool message. The GenAI semconv schema requires `response` for the
+# tool_call parts become tool_calls, and each remaining part type spawns its
+# own follow-up message. The GenAI semconv schema requires `response` for the
 # tool result, but its example showed `result` for ten months, so producers followed
 # both. Both keys are read, with `response` winning.
 #
 # `if_empty: ~` drops the primary only when followups exist, so a message whose
 # parts produce nothing at all still emits one empty-content message (legacy parity).
+#
+# server_tool_call(_response) parts are provider-executed tools (web_search,
+# code_interpreter); they render exactly like client tool calls so the call/result
+# correlation by id still applies. blob/uri parts with image modality become
+# renderable image items; other modalities and file references (no data to render)
+# become bracketed text markers so the turn doesn't read as empty.
 
 id: otel
 
@@ -28,16 +34,19 @@ rules:
           toolCalls:
               select:
                   from: $.parts
-                  where: { type: tool_call }
+                  where: { type: { in: [tool_call, server_tool_call] } }
                   pluck:
                       id: $.id
                       name: $.name
-                      args: $.arguments
+                      args:
+                          coalesce:
+                              - $.arguments
+                              - $.server_tool_call
       followups:
           - from:
                 select:
                     from: $.parts
-                    where: { type: tool_call_response }
+                    where: { type: { in: [tool_call_response, server_tool_call_response] } }
             each:
                 role: tool
                 toolCallId: $.id
@@ -46,3 +55,54 @@ rules:
                         coalesce:
                             - $.response
                             - $.result
+                            - $.server_tool_call_response
+          - from:
+                select:
+                    from: $.parts
+                    where: { type: reasoning, content: { is: string } }
+            each:
+                role: thinking
+                content: $.content
+          - from:
+                select:
+                    from: $.parts
+                    where: { type: blob, modality: image }
+            each:
+                content:
+                    - type: image
+                      image: 'data:$.mime_type;base64,$.content'
+          - from:
+                select:
+                    from: $.parts
+                    where: { type: blob, modality: { in: [video, audio, document] } }
+            each:
+                content: '[$.modality]'
+          - from:
+                select:
+                    from: $.parts
+                    where: { type: uri, modality: image }
+            each:
+                content:
+                    - type: image
+                      image: $.uri
+          - from:
+                select:
+                    from: $.parts
+                    where: { type: uri, modality: { in: [video, audio, document] } }
+            each:
+                content: '[$.modality: $.uri]'
+          - from:
+                select:
+                    from: $.parts
+                    where: { type: file }
+            each:
+                content: '[file: $.file_id]'
+          - from:
+                select:
+                    from: $.parts
+                    where: { type: compaction }
+            each:
+                content:
+                    coalesce:
+                        - $.content
+                        - '[conversation compacted]'

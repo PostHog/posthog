@@ -18,7 +18,7 @@ from posthog.schema import (
 from posthog.api.services.query import ExecutionMode, RawCachedQueryResponse
 from posthog.caching.calculate_results import calculate_for_query_based_insight
 
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 
 
 class TestCalculateForQueryBasedInsight(BaseTest):

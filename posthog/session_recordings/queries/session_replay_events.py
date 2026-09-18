@@ -444,7 +444,9 @@ class SessionReplayEvents:
                 max(retention_period_days) as retention_period_days,
                 dateTrunc('DAY', start_time) + toIntervalDay(coalesce(retention_period_days, 30)) as expiry_time,
                 dateDiff('DAY', toDateTime(%(python_now)s), expiry_time) as recording_ttl,
-                max(_timestamp) >= toDateTime(%(python_now)s) - INTERVAL {ongoing_window_minutes} MINUTE as ongoing
+                max(_timestamp) >= toDateTime(%(python_now)s) - INTERVAL {ongoing_window_minutes} MINUTE as ongoing,
+                sum(size) as total_size,
+                sum(event_count) as event_count
             FROM
                 session_replay_events
             PREWHERE
@@ -497,6 +499,8 @@ class SessionReplayEvents:
             expiry_time=replay[19],
             recording_ttl=replay[20],
             ongoing=bool(replay[21]),
+            total_size=replay[22],
+            event_count=replay[23],
         )
 
     def get_metadata(
@@ -586,7 +590,9 @@ class SessionReplayEvents:
                 max(retention_period_days) as retention_period_days,
                 dateTrunc('DAY', start_time) + toIntervalDay(coalesce(retention_period_days, 30)) as expiry_time,
                 dateDiff('DAY', toDateTime(%(python_now)s), expiry_time) as recording_ttl,
-                max(_timestamp) >= toDateTime(%(python_now)s) - INTERVAL {ONGOING_SESSION_WINDOW_MINUTES} MINUTE as ongoing
+                max(_timestamp) >= toDateTime(%(python_now)s) - INTERVAL {ONGOING_SESSION_WINDOW_MINUTES} MINUTE as ongoing,
+                sum(size) as total_size,
+                sum(event_count) as event_count
             FROM
                 session_replay_events
             PREWHERE

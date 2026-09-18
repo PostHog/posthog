@@ -51,7 +51,7 @@ def _make_fake_sandbox_cls(exit_code: int, publish_failures: int = 0):
         def create(cls, config):
             return cls()
 
-        def write_file(self, path: str, payload: bytes) -> ExecutionResult:
+        def write_file(self, path: str, payload: bytes, timeout_seconds: int | None = None) -> ExecutionResult:
             self.written_files[path] = payload
             return ExecutionResult(stdout="", stderr="", exit_code=0, error=None)
 

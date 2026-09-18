@@ -1,16 +1,71 @@
-import { AccountsTableCustomPropertyOperator } from '~/queries/schema/schema-general'
+import { AccountsTableAccountField, AccountsTableCustomPropertyOperator } from '~/queries/schema/schema-general'
 import { PropertyFilterType, PropertyOperator } from '~/types'
 
 import { ACCOUNTS_DEFAULT_COLUMNS } from './accountsColumnConfigLogic'
 import {
     AccountsViewState,
+    accountsViewDraftStorageKey,
     deserializeAccountsView,
     normalizeRoleFilter,
     orderByToSortOrder,
+    readAccountsViewDraft,
     serializeAccountsView,
     sortOrderToOrderBy,
+    writeAccountsViewDraft,
 } from './accountsViewState'
 import { DEFAULT_TILES } from './constants'
+
+const draft: AccountsViewState = {
+    columns: ['name'],
+    sortOrder: null,
+    filters: {
+        search: 'acme',
+        assignmentStatus: 'all',
+        assignedTo: [],
+        tags: [],
+        tileFilter: null,
+        customProperties: [],
+    },
+    tiles: [...DEFAULT_TILES],
+    columnDisplay: {},
+}
+
+describe('accounts view drafts', () => {
+    beforeEach(() => {
+        sessionStorage.clear()
+    })
+
+    afterEach(() => {
+        sessionStorage.clear()
+        jest.restoreAllMocks()
+    })
+
+    it('scopes drafts to the current project and user', () => {
+        writeAccountsViewDraft(1, 'user-a', draft)
+        writeAccountsViewDraft(1, 'user-b', { ...draft, filters: { ...draft.filters, search: 'other user' } })
+        writeAccountsViewDraft(2, 'user-a', { ...draft, filters: { ...draft.filters, search: 'other project' } })
+
+        expect(readAccountsViewDraft(1, 'user-a')).toEqual(draft)
+        expect(readAccountsViewDraft(1, 'user-b')?.filters.search).toBe('other user')
+        expect(readAccountsViewDraft(2, 'user-a')?.filters.search).toBe('other project')
+    })
+
+    it('fails closed for malformed or unavailable session storage', () => {
+        sessionStorage.setItem(accountsViewDraftStorageKey(1, 'user-a'), '{invalid')
+        expect(readAccountsViewDraft(1, 'user-a')).toBeNull()
+
+        jest.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
+            throw new Error('storage denied')
+        })
+        expect(readAccountsViewDraft(1, 'user-a')).toBeNull()
+        jest.restoreAllMocks()
+
+        jest.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+            throw new Error('storage denied')
+        })
+        expect(() => writeAccountsViewDraft(1, 'user-a', draft)).not.toThrow()
+    })
+})
 
 describe('sortOrderToOrderBy / orderByToSortOrder', () => {
     it('round-trips a plain ascending column', () => {
@@ -56,9 +111,9 @@ describe('serializeAccountsView / deserializeAccountsView', () => {
             sortOrder: { column: 'csm' as const, direction: 'desc' as const },
             filters: {
                 search: 'acme',
-                tags: ['enterprise'],
-                unassigned: false,
+                assignmentStatus: 'assigned',
                 assignedTo: [1, 2, 3],
+                tags: ['enterprise'],
                 tileFilter: {
                     tileId: 't1',
                     filter: {
@@ -69,6 +124,13 @@ describe('serializeAccountsView / deserializeAccountsView', () => {
                     },
                 },
                 customProperties: [
+                    {
+                        type: PropertyFilterType.Account as const,
+                        key: AccountsTableAccountField.IgnoredAt,
+                        operator: PropertyOperator.IsSet,
+                        value: null,
+                        label: 'Ignored at',
+                    },
                     {
                         type: PropertyFilterType.AccountCustomProperty as const,
                         key: '11111111-2222-3333-4444-555555555555',
@@ -90,39 +152,53 @@ describe('serializeAccountsView / deserializeAccountsView', () => {
         expect(deserializeAccountsView(payload)).toEqual(state)
     })
 
-    it('omits empty filters and serializes no sort', () => {
+    it('omits empty filters but always stores the assignment status', () => {
         const payload = serializeAccountsView({
             columns: [...ACCOUNTS_DEFAULT_COLUMNS],
             sortOrder: null,
             filters: {
                 search: '',
-                tags: [],
-                unassigned: false,
+                assignmentStatus: 'all',
                 assignedTo: [],
+                tags: [],
                 tileFilter: null,
                 customProperties: [],
             },
             tiles: [...DEFAULT_TILES],
             columnDisplay: {},
         })
-        expect(payload.filters).toEqual({})
+        // The status is stored even for the `all` default so reopening the view can't be
+        // mistaken for a legacy view (no field), which restores as assigned-only.
+        expect(payload.filters).toEqual({ assignmentStatus: 'all' })
         expect(payload.order_by).toEqual([])
         expect(payload.properties).toEqual({ tiles: DEFAULT_TILES })
     })
 
-    it('treats a legacy columns-only row (filters [], no properties) as defaults', () => {
+    it('reads a legacy row with no assignment field as assigned-only', () => {
         const state = deserializeAccountsView({ columns: ['name'], order_by: null, filters: [], properties: {} })
         expect(state.filters).toEqual({
             search: '',
-            tags: [],
-            unassigned: false,
+            assignmentStatus: 'assigned',
             assignedTo: [],
+            tags: [],
             tileFilter: null,
             customProperties: [],
         })
         expect(state.tiles).toEqual(DEFAULT_TILES)
         expect(state.sortOrder).toBeNull()
         expect(state.columnDisplay).toEqual({})
+    })
+
+    it('reads a legacy unassigned-only row as the unassigned status', () => {
+        const state = deserializeAccountsView({ columns: ['name'], order_by: null, filters: { unassigned: true } })
+        expect(state.filters.assignmentStatus).toEqual('unassigned')
+    })
+
+    it('keeps an explicit stored status distinct from a legacy default', () => {
+        expect(deserializeAccountsView({ filters: { assignmentStatus: 'all' } }).filters.assignmentStatus).toEqual(
+            'all'
+        )
+        expect(deserializeAccountsView({ filters: {} }).filters.assignmentStatus).toEqual('assigned')
     })
 
     it('falls back to default columns when a row has none', () => {

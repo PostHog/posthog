@@ -36,7 +36,7 @@ from posthog.models import Team
 from posthog.models.user import User
 from posthog.sync import database_sync_to_async
 
-from products.product_analytics.backend.models.insight_variable import InsightVariable
+from products.product_analytics.backend.facade.api import insight_variables_by_code_names
 
 from ee.hogai.chat_agent.schema_generator.utils import SchemaGeneratorOutput
 from ee.hogai.core.mixins import AssistantContextMixin
@@ -142,7 +142,7 @@ class HogQLOutputParserMixin(HogQLDatabaseMixin):
         code_names = {str(chain[1]) for chain in placeholder_fields if len(chain) >= 2 and chain[0] == "variables"}
         if not code_names:
             return []
-        insight_variables = InsightVariable.objects.filter(team_id=self._team.pk, code_name__in=code_names)
+        insight_variables = insight_variables_by_code_names(self._team.pk, code_names)
         return [
             HogQLVariable(variableId=str(variable.id), code_name=variable.code_name)
             for variable in insight_variables

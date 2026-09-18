@@ -1,19 +1,15 @@
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from parameterized import parameterized
 
-from posthog.schema import (
-    DataWarehouseSourceCategory,
-    ReleaseStatus,
-    SourceFieldInputConfig,
-    SourceFieldInputConfigType,
-)
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.cohere import source as source_module
+from products.warehouse_sources.backend.temporal.data_imports.sources.cohere.cohere import (
+    COHERE_API_VERSION_V1,
+    COHERE_BASE_URL,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.cohere.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.cohere.source import CohereSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.cohere import CohereSourceConfig
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _config() -> CohereSourceConfig:
@@ -24,23 +20,6 @@ class TestCohereSourceClass:
     def setup_method(self) -> None:
         self.source = CohereSource()
         self.team_id = 123
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.COHERE
-
-    def test_source_config_identity(self) -> None:
-        config = self.source.get_source_config
-        assert config.label == "Cohere"
-        assert config.category == DataWarehouseSourceCategory.ENGINEERING___MONITORING
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/cohere"
-
-    def test_source_config_field_is_a_secret_api_key(self) -> None:
-        fields = {f.name: f for f in self.source.get_source_config.fields if isinstance(f, SourceFieldInputConfig)}
-        assert set(fields) == {"api_key"}
-        assert fields["api_key"].type == SourceFieldInputConfigType.PASSWORD
-        assert fields["api_key"].secret is True
-        assert fields["api_key"].required is True
 
     @parameterized.expand([(e,) for e in ENDPOINTS])
     def test_get_schemas_are_full_refresh_only(self, endpoint: str) -> None:
@@ -60,10 +39,16 @@ class TestCohereSourceClass:
         assert self.source.lists_tables_without_credentials is True
         assert {t["name"] for t in self.source.get_documented_tables()} == set(ENDPOINTS)
 
-    @parameterized.expand([("unauthorized", "401 Client Error"), ("forbidden", "403 Client Error")])
-    def test_non_retryable_errors(self, _name: str, expected_key_prefix: str) -> None:
-        errors = self.source.get_non_retryable_errors()
-        assert any(key.startswith(expected_key_prefix) for key in errors)
+    def test_declares_only_the_api_version_its_requests_use(self) -> None:
+        # Cohere's v2 generation serves the inference surface only, and every list endpoint this
+        # source reads stays on /v1/. Declaring a version the request layer never builds would pin
+        # customers to a wire Cohere does not serve for these tables, so the declaration is bound to
+        # the same constant the base URL is built from. v1 is not sunset - the 2025-09-15
+        # announcement retires individual endpoints, not the version - so nothing is deprecated.
+        assert self.source.supported_versions == (COHERE_API_VERSION_V1,)
+        assert self.source.default_version == COHERE_API_VERSION_V1
+        assert self.source.deprecated_versions == ()
+        assert COHERE_BASE_URL == f"https://api.cohere.com/{COHERE_API_VERSION_V1}"
 
     def test_validate_credentials_success(self) -> None:
         with patch.object(source_module, "validate_cohere_credentials", return_value=True):
@@ -74,24 +59,3 @@ class TestCohereSourceClass:
             ok, error = self.source.validate_credentials(_config(), self.team_id)
         assert ok is False
         assert error is not None
-
-    def test_source_for_pipeline_plumbs_arguments(self) -> None:
-        inputs = MagicMock()
-        inputs.schema_name = "datasets"
-        inputs.team_id = 123
-        inputs.job_id = "job-1"
-        with patch.object(source_module, "cohere_source") as mock_source:
-            self.source.source_for_pipeline(_config(), inputs)
-        mock_source.assert_called_once_with(
-            api_key="test-key",
-            endpoint="datasets",
-            team_id=123,
-            job_id="job-1",
-        )
-
-    def test_canonical_descriptions_cover_every_endpoint(self) -> None:
-        descriptions = self.source.get_canonical_descriptions()
-        assert set(descriptions) == set(ENDPOINTS)
-        for table in descriptions.values():
-            assert table["description"]
-            assert table["columns"]

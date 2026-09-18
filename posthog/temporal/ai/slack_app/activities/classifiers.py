@@ -1,17 +1,22 @@
 import re
+from pathlib import Path
 
 import structlog
 from openai.types.shared_params import ResponseFormatJSONSchema
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
 from temporalio import activity
 
-from posthog.llm.gateway_client import get_llm_client
+from posthog.llm.gateway_client import build_anthropic_client, build_openai_client
 from posthog.llm.semantic_enrichment import extract_json_object
 from posthog.models.integration import Integration, SlackIntegration
+from posthog.models.repo_routing_rule import RepoRoutingRule
+from posthog.models.user import User
 from posthog.temporal.ai.slack_app.types import (
     PostHogCodeSlackMentionWorkflowInputs,
     SlackAppModelOverride,
     SlackAppModelOverrideInput,
+    SlackAppProjectRoute,
+    SlackAppProjectRouteInput,
 )
 from posthog.temporal.common.utils import close_db_connections
 
@@ -20,11 +25,17 @@ from products.slack_app.backend.facade.run_preferences import (
     available_model_choices,
     find_model_choice,
     group_by_runtime,
-    is_slack_app_model_classifier_enabled,
 )
+from products.slack_app.backend.feature_flags import is_slack_app_project_routing_enabled
 from products.slack_app.backend.models import SlackThreadTaskMapping
+from products.slack_app.backend.prompt_templates import PromptTemplates
+from products.slack_app.backend.services.integration_resolver import format_project_candidate_list, routable_projects
+from products.slack_app.backend.services.slack_messages import SlackThreadMessage
+from products.slack_app.backend.services.slack_user_info import find_addressed_bot_user_id
 
 logger = structlog.get_logger(__name__)
+
+prompts = PromptTemplates(Path(__file__).parent / "prompts")
 
 CLASSIFIER_THREAD_HISTORY_MESSAGES = 10
 CLASSIFIER_MODEL = "claude-haiku-4-5-20251001"
@@ -33,7 +44,8 @@ CLASSIFIER_MODEL = "claude-haiku-4-5-20251001"
 # The model-override and agent-directed classifiers both run on a reasoning model, which
 # draws its reasoning from the same token budget as the reply. The reply is one short JSON
 # object; the headroom is for the thinking in front of it, and a truncated turn falls back
-# to the safe answer.
+# to the safe answer. Reasoning-class is also why the cap rides on `max_completion_tokens`:
+# the chat-completions route rejects `max_tokens` outright.
 #
 # The gateway client defaults to a 600s read and two retries, which is the right shape for
 # a generation call and the wrong one here. Left unbounded these never get to fall back,
@@ -41,13 +53,21 @@ CLASSIFIER_MODEL = "claude-haiku-4-5-20251001"
 # as the timeout: the activity is sync, so a thread Temporal has stopped waiting on keeps
 # blocking until the client itself returns.
 MODEL_OVERRIDE_CLASSIFIER_MODEL = "gpt-5.6-luna"
-MODEL_OVERRIDE_MAX_TOKENS = 2048
+MODEL_OVERRIDE_MAX_COMPLETION_TOKENS = 2048
 # One call per `@PostHog`, on the mention text alone. Measured mean is ~1.7s per call.
 MODEL_OVERRIDE_TIMEOUT_SECONDS = 10.0
 MODEL_OVERRIDE_MAX_RETRIES = 1
 
+# Same shape of call as the model override, so it takes the same bounds — including the
+# cap riding on `max_completion_tokens`. The reasoning-class chat-completions route
+# rejects `max_tokens` outright, and the classifier would swallow that into its fallback.
+PROJECT_ROUTE_CLASSIFIER_MODEL = "gpt-5.6-luna"
+PROJECT_ROUTE_MAX_COMPLETION_TOKENS = 2048
+PROJECT_ROUTE_TIMEOUT_SECONDS = 10.0
+PROJECT_ROUTE_MAX_RETRIES = 1
+
 AGENT_DIRECTED_CLASSIFIER_MODEL = "gpt-5.6-luna"
-AGENT_DIRECTED_MAX_TOKENS = 2048
+AGENT_DIRECTED_MAX_COMPLETION_TOKENS = 2048
 # One call per reply in every thread the agent is working in, and its prompt carries the
 # thread the override classifier's does not. The eval suite sees 3-9s on that shape, close
 # enough to a 10s ceiling that the tail would drop instructions rather than misread them.
@@ -55,9 +75,25 @@ AGENT_DIRECTED_TIMEOUT_SECONDS = 20.0
 AGENT_DIRECTED_MAX_RETRIES = 1
 
 
+def team_routing_rule_lines(team_id: int, candidate_repos: set[str] | None = None) -> list[str]:
+    """The team's routing rules rendered one per line for the needs-repo classifier prompt.
+
+    ``candidate_repos`` is the lowercased set of repositories selection can still pick.
+    When given, rules pointing outside it are dropped: a stale rule (repo disconnected or
+    archived) would disable the product-term short-circuit and spend an agent run on a
+    pick that selection later rejects anyway.
+    """
+    rules = RepoRoutingRule.objects.filter(team_id=team_id).order_by("priority", "id")
+    matched = [rule for rule in rules if candidate_repos is None or rule.repository.lower() in candidate_repos]
+    return [
+        f"- {rule.prompt_text} → {rule.repository.lower()}" for rule in matched[: RepoRoutingRule.MAX_RULES_PER_TEAM]
+    ]
+
+
 def classify_task_needs_repo(
     event_text: str,
-    thread_messages: list[dict[str, str]],
+    thread_messages: list[SlackThreadMessage],
+    routing_rules: list[str] | None = None,
 ) -> bool:
     """Classify whether a Slack conversation requires code repository access.
 
@@ -68,8 +104,16 @@ def classify_task_needs_repo(
     (recoverable — the user re-asks with code intent), while a false positive
     spends a discovery-agent sandbox run on "what's my DAU". Defaults to False
     on error for the same reason.
+
+    ``routing_rules`` is the team's configured repo routing rules (see
+    ``team_routing_rule_lines``). A rule claims a kind of request for a repository the
+    team owns, and only the LLM can tell whether this request matches one, so any
+    configured rule disables the product-term short-circuit below and rides along in
+    the prompt. Without this, a rule mentioning a product term ("our dashboards live
+    in org/dashboards") could never fire: the heuristic answered no-repo before the
+    rules were ever read.
     """
-    conversation = "\n".join(f"{msg['user']}: {msg['text']}" for msg in thread_messages)
+    conversation = "\n".join(f"{msg.user}: {msg.text}" for msg in thread_messages)
     normalized = f"{conversation}\nLatest message: {event_text}".lower()
 
     # Substring match: keep the shortest form that uniquely identifies the
@@ -125,48 +169,38 @@ def classify_task_needs_repo(
         r"\bserializer\b",
         r"\bviewset\b",
         r"\bmigration\b",
+        # A failing test is code work, but it is named after the feature it covers, so the
+        # product terms above would answer no-repo first. Keep these narrow: they match the
+        # whole thread, and a bare "ci" would also catch confidence intervals.
+        r"\bflak(?:y|e|es|iness)\b",
+        r"\bmerge queue\b",
     )
 
-    if any(term in normalized for term in product_debug_terms) and not any(
-        re.search(pattern, normalized) for pattern in explicit_code_patterns
+    if (
+        not routing_rules
+        and any(term in normalized for term in product_debug_terms)
+        and not any(re.search(pattern, normalized) for pattern in explicit_code_patterns)
     ):
         logger.info("slack_app_classify_task_needs_repo_heuristic_non_repo", event_text=event_text)
         return False
 
-    prompt = (
-        "You are a task classifier. Given a Slack conversation, determine whether the task "
-        "requires access to a code repository (e.g. writing code, fixing bugs, creating PRs, "
-        "reviewing code, modifying files) or NOT (e.g. answering questions about analytics, "
-        "querying data, PostHog configuration, general knowledge questions, planning, or "
-        "investigating product behavior in a PostHog workspace using MCP/tools).\n\n"
-        "Return needs_repo=false for tasks that are primarily about debugging or investigating "
-        "automations, destinations, feature flags, experiments, surveys, dashboards, insights, "
-        "recordings, traces, or Slack integrations inside PostHog, unless the user explicitly "
-        "asks to change code, open a PR, edit files, or work in a specific repository.\n\n"
-        "A complaint about something the team's own app, site, or SDK does (crashes, broken pages, "
-        "wrong rendering, slow loads of a site they ship) is a code change in a repo they own → "
-        "needs_repo. But complaints about PostHog itself as a product (its dashboards hanging, "
-        "product pages loading slowly, UI bugs in PostHog screens) are SaaS product issues, not "
-        "the team's code → no_repo. Important exception: 'wrong data', 'missing events', or "
-        "'numbers look off' in PostHog usually means the team's tracking code is broken (wrong "
-        "event names, identification logic, SDK setup) — that's a code fix in their repo → "
-        "needs_repo. When in doubt, lean needs_repo=false — code-focused tasks usually carry "
-        "explicit signals (file extensions, 'PR', 'commit', framework names, function or class "
-        "names). Analytics, data, and configuration asks are the common case and should not send "
-        "us hunting for a repository on a guess.\n\n"
-        f"Conversation:\n{conversation}\n\n"
-        f"Latest message: {event_text}\n\n"
-        'Respond with ONLY a JSON object: {{"needs_repo": true}} or {{"needs_repo": false}}'
+    prompt = prompts.render(
+        "task_needs_repo",
+        routing_rules=routing_rules,
+        conversation=conversation,
+        event_text=event_text,
     )
     try:
-        client = get_llm_client("slack_app_routing")
-        response = client.chat.completions.create(
+        # The Go gateway refuses a Claude model on chat completions.
+        client = build_anthropic_client(product="slack_app_routing", ai_product="slack_app_routing")
+        response = client.messages.create(
             model=CLASSIFIER_MODEL,
             messages=[{"role": "user", "content": prompt}],
             max_tokens=64,
             temperature=0,
         )
-        parsed = extract_json_object(response.choices[0].message.content or "") or {}
+        reply = "".join(block.text for block in response.content if block.type == "text")
+        parsed = extract_json_object(reply) or {}
         # Haiku occasionally stringifies the bool ({"needs_repo": "false"}).
         # bool("false") is True, which would flip the defensive bias — handle
         # strings explicitly and treat any other unexpected shape as False.
@@ -180,11 +214,37 @@ def classify_task_needs_repo(
 
 
 @activity.defn
+@close_db_connections
 def classify_posthog_code_task_needs_repo_activity(
     event_text: str,
-    thread_messages: list[dict[str, str]],
+    thread_messages: list[SlackThreadMessage],
+    inputs: PostHogCodeSlackMentionWorkflowInputs | None = None,
 ) -> bool:
-    return classify_task_needs_repo(event_text, thread_messages)
+    """Classify with the team's routing rules loaded from ``inputs``.
+
+    ``inputs`` sits last and optional for payload compatibility: activity tasks queued
+    by pre-deploy workflow code carry only the first two payloads, and a required
+    leading parameter would make them unbindable on a new worker. Such tasks classify
+    without routing rules, which is the pre-deploy behavior.
+    """
+    # Circular import: products.slack_app.backend.api imports this package at module scope.
+    from products.slack_app.backend.api import _get_full_repo_names  # noqa: PLC0415
+
+    if inputs is None:
+        return classify_task_needs_repo(event_text, thread_messages)
+
+    integration = Integration.objects.get(
+        id=inputs.integration_id,
+        kind="slack",
+        integration_id=inputs.slack_team_id,
+    )
+    # Filter rules to repos the mentioner can reach, matching what selection accepts for
+    # this mention. An empty list means the lookup resolved nothing (the cascade would
+    # have stopped such a mention already), so treat it as unknown rather than dropping
+    # every rule.
+    connected = {repo.lower() for repo in _get_full_repo_names(integration, user_id=inputs.user_id)}
+    routing_rules = team_routing_rule_lines(integration.team_id, candidate_repos=connected or None)
+    return classify_task_needs_repo(event_text, thread_messages, routing_rules=routing_rules)
 
 
 def _agent_directed_response_format() -> ResponseFormatJSONSchema:
@@ -211,7 +271,7 @@ def _agent_directed_response_format() -> ResponseFormatJSONSchema:
 def classify_message_is_agent_directed(
     event_text: str,
     task_title: str,
-    thread_history: list[dict[str, str]],
+    thread_history: list[SlackThreadMessage],
 ) -> bool:
     """Classify whether an untagged Slack thread reply is an instruction to the running
     PostHog Slack App, or people talking to each other.
@@ -224,7 +284,7 @@ def classify_message_is_agent_directed(
     ``False`` for the same reason.
 
     ``thread_history`` is the conversation so far (oldest first), as returned
-    by ``collect_thread_messages`` — each entry is ``{"user", "text", "ts"}``.
+    by ``collect_thread_messages``.
 
     Whether the prompt holds that line is measured by
     ``products/slack_app/evals/eval_followup_classifier.py``.
@@ -236,51 +296,22 @@ def classify_message_is_agent_directed(
 
     # Bound the number of lines and the per-line length to keep the prompt predictable.
     recent = thread_history[-CLASSIFIER_THREAD_HISTORY_MESSAGES:]
-    history_block = "\n".join(f"{m.get('user', 'Unknown')}: {m.get('text', '')[:500]}" for m in recent) or "(empty)"
+    history_block = "\n".join(f"{m.user or 'Unknown'}: {m.text[:500]}" for m in recent) or "(empty)"
 
-    prompt = (
-        "The PostHog agent is working on a task in this Slack thread. People in the thread "
-        "have stopped tagging it. Decide whether the latest message is an instruction to "
-        "the agent that happens to omit the @mention.\n\n"
-        "Answer true only when the message is addressed to the agent:\n"
-        "  - An order or request to do something ('also handle the empty case', 'skip the "
-        "migration', 'open a PR for that too', 'try again with the other helper').\n"
-        "  - A question put to the agent about its own work ('why did you skip the "
-        "redesign commit?', 'does your PR cover the mobile breakpoint?').\n"
-        "  - An answer to something the agent just asked in this thread.\n"
-        "  - A correction of what the agent said or did ('no, the bug is in the handler, "
-        "not the wrapper').\n\n"
-        "Answer false for everything else. This is the common case, and the mistake to "
-        "avoid — people talk about the work far more often than they talk to the agent:\n"
-        "  - Opinions and discussion about the task or the product, addressed to the room "
-        "('this needs a stronger label', 'it should probably live under settings', 'I've "
-        "seen this set back and forth so much'). Relevant to the task is not the same as "
-        "addressed to the agent.\n"
-        "  - Talk about the agent in the third person ('why is the bot reacting to me?', "
-        "'it keeps replying', 'is it supposed to do that?'). Being the topic is not being "
-        "the audience.\n"
-        "  - Conversation between humans — answering each other, tagging each other, "
-        "deciding something among themselves.\n"
-        "  - Acknowledgements, praise, and reactions ('thanks', 'lgtm', 'nice', '+1').\n"
-        "  - Context dropped into the thread with no instruction attached — a link, a "
-        "stack trace, a screenshot — unless the message asks the agent to act on it.\n"
-        "  - Anything off-topic.\n\n"
-        "When you are unsure, answer false. A missed instruction costs the author one "
-        "@PostHog; a wrong wake-up makes the agent interrupt a conversation it was not "
-        "part of, in public, where everyone sees it.\n\n"
-        f"Task the agent is working on: {task_title or '(unknown)'}\n\n"
-        f"Thread so far (oldest first):\n{history_block}\n\n"
-        f"Latest message (from a human in this thread): {event_text}\n\n"
-        'Answer with the one field, e.g. {"agent_directed": false}'
+    prompt = prompts.render(
+        "message_is_agent_directed",
+        task_title=task_title or "(unknown)",
+        thread_history=history_block,
+        event_text=event_text,
     )
     try:
-        client = get_llm_client("slack_app_routing").with_options(
+        client = build_openai_client(product="slack_app_routing", ai_product="slack_app_routing").with_options(
             timeout=AGENT_DIRECTED_TIMEOUT_SECONDS, max_retries=AGENT_DIRECTED_MAX_RETRIES
         )
         response = client.chat.completions.create(
             model=AGENT_DIRECTED_CLASSIFIER_MODEL,
             messages=[{"role": "user", "content": prompt}],
-            max_tokens=AGENT_DIRECTED_MAX_TOKENS,
+            max_completion_tokens=AGENT_DIRECTED_MAX_COMPLETION_TOKENS,
             response_format=_agent_directed_response_format(),
         )
         # Tolerant parse on top of the schema on purpose: the gateway fronts several
@@ -308,8 +339,9 @@ def classify_untagged_followup_activity(
     Runs the LLM + Slack thread-history fetch inside the workflow rather than
     the webhook handler so they're retriable under Temporal and don't block
     the Slack webhook's 3-second ack budget. Returns ``True`` to forward,
-    ``False`` to drop. Conservative defaults: missing mapping → drop, history
-    fetch failure → classify on text alone, classifier failure → drop.
+    ``False`` to drop. Conservative defaults: missing mapping → drop, a reply
+    that tags another app → drop, history fetch failure → classify on text
+    alone, classifier failure → drop.
     """
     from products.slack_app.backend.services.slack_messages import cached_collect_thread_messages
 
@@ -330,6 +362,19 @@ def classify_untagged_followup_activity(
 
     integration = mapping.integration
     slack = SlackIntegration(integration)
+
+    # Asked before the history fetch and the model call, because reading the reply cannot
+    # answer it.
+    addressed_bot_user_id = find_addressed_bot_user_id(slack, integration, event_text)
+    if addressed_bot_user_id:
+        logger.info(
+            "posthog_code_thread_message_addressed_to_another_app",
+            channel=channel,
+            thread_ts=thread_ts,
+            slack_user_id=slack_user_id,
+            addressed_bot_user_id=addressed_bot_user_id,
+        )
+        return False
 
     try:
         # Cached: the next activity in this workflow run (the forwarder) re-fetches the
@@ -421,59 +466,20 @@ def classify_slack_app_model_override(
     ``products/slack_app/evals/eval_model_classifier.py`` — the unit tests around this
     function cover parsing and validation, not whether the prompt reads a sentence right.
     """
-    prompt = (
-        "You are routing a Slack message addressed to the PostHog agent. Decide whether "
-        "the author asked for THIS task to run on a particular model or reasoning "
-        "effort.\n\n"
-        "Only these models can be selected — copy the id exactly as written:\n"
-        f"{_render_model_catalogue(choices)}\n\n"
-        "Name a model or effort only when the message instructs how to run this task:\n"
-        '  - "use fable for this one", "run this on opus 5", "do this with max effort", '
-        '"investigate this on high".\n'
-        "  - The instruction can sit alongside the actual request: 'use sonnet and fix "
-        "the flaky checkout test'.\n\n"
-        "Once — and only once — you have decided the message is such an instruction, "
-        "resolve its shorthand to an id from the list. Nobody types a model id:\n"
-        '  - A bare nickname is the model: "sol", "luna", "fable".\n'
-        "  - A runtime or vendor in front of it is only a qualifier, and the name beside "
-        'it is the answer: "codex sol" and "openai sol" are both the Sol id; "claude '
-        'opus" and "anthropic opus" are both an Opus id.\n'
-        '  - A family with no version means its newest listed member: "opus" is the '
-        "highest-numbered Opus in the list, not the first one you see. Read the versions "
-        "as decimals — 5 is newer than 4.8, not older.\n"
-        '  - A runtime or vendor standing alone names no model: "run this on codex", '
-        '"use anthropic" → null. A model id that happens to end in "codex" is a '
-        "different thing, and needs its version said out loud to be chosen.\n\n"
-        "Answer with nulls when a model or effort is merely part of the subject "
-        "matter — this is the common mistake, so check for it:\n"
-        '  - "add claude-fable-5 to our model picker" (a code change that names a model).\n'
-        '  - "why is gpt-5 slower than opus in our evals?" (a question about models).\n'
-        '  - "the opus rollout broke the dashboard" (a topic).\n'
-        '  - "reasoning about this is hard" (the word, not a setting).\n'
-        '  - "we tried sonnet on this last week and it kept timing out" (an account of a '
-        "run that already happened, not an instruction for this one — past tense is the "
-        "tell).\n\n"
-        "Rules for the fields:\n"
-        "  - model: an id from the list above, or null if the author named no model (or "
-        "named one that isn't listed).\n"
-        "  - reasoning_effort: only when the author explicitly asks for an effort level, "
-        "and only a value listed for that model. Otherwise null.\n"
-        "  - An effort can be requested without a model, and a model without an effort.\n\n"
-        "When you are unsure, answer with nulls — the author's saved default is the "
-        "right thing to run.\n\n"
-        f"Message: {event_text}\n\n"
-        'Answer with the two fields, e.g. {"model": "claude-fable-5", "reasoning_effort": '
-        '"high"} or {"model": null, "reasoning_effort": null}'
+    prompt = prompts.render(
+        "model_override",
+        model_catalogue=_render_model_catalogue(choices),
+        event_text=event_text,
     )
 
     try:
-        client = get_llm_client("slack_app_routing").with_options(
+        client = build_openai_client(product="slack_app_routing", ai_product="slack_app_routing").with_options(
             timeout=MODEL_OVERRIDE_TIMEOUT_SECONDS, max_retries=MODEL_OVERRIDE_MAX_RETRIES
         )
         response = client.chat.completions.create(
             model=MODEL_OVERRIDE_CLASSIFIER_MODEL,
             messages=[{"role": "user", "content": prompt}],
-            max_tokens=MODEL_OVERRIDE_MAX_TOKENS,
+            max_completion_tokens=MODEL_OVERRIDE_MAX_COMPLETION_TOKENS,
             response_format=_model_override_response_format(choices),
         )
         # Tolerant parse on top of the schema on purpose: the gateway fronts several
@@ -508,30 +514,33 @@ def classify_slack_app_model_override(
 @activity.defn
 @close_db_connections
 def classify_slack_app_model_override_activity(input: SlackAppModelOverrideInput) -> SlackAppModelOverride | None:
-    """Resolve the model the mention asked for, or ``None`` to use saved preferences.
+    """Resolve the model a message asked for, or ``None`` to use saved preferences.
 
-    Runs as its own activity rather than inside task creation so the choice is
-    recorded in workflow history once: task creation retries, and re-running a
-    classifier there could hand the second attempt a different model.
+    Runs as its own activity rather than inside the activity that consumes it so the
+    choice is recorded in workflow history once: both task creation and follow-up
+    forwarding retry, and re-running a classifier there could hand the second attempt a
+    different model than the first one announced. The workflow calls it once, above the
+    point where the mention and follow-up paths diverge.
 
-    Every mention behind the flag reaches the classifier. A keyword pre-filter would
+    Every message reaches the classifier. A keyword pre-filter would
     save the Haiku call on the majority that name no model, but it also decides — on
     a substring match — which phrasings can ever steer a run, and that judgement
-    belongs to the model reading the sentence, not to a word list.
+    belongs to the model reading the sentence, not to a word list. Blank text is not
+    that judgement: there is no sentence to read.
     """
+    if not input.event_text.strip():
+        return None
+
     integration = Integration.objects.select_related("team").get(
         id=input.integration_id,
         kind="slack",
         integration_id=input.slack_team_id,
     )
-    if not is_slack_app_model_classifier_enabled(integration):
-        return None
-
     choices = available_model_choices()
     if not choices:
         # The gateway is the source of truth for what can run; with no catalogue we
         # cannot validate a request, and guessing is worse than doing nothing.
-        logger.info("slack_app_model_override_empty_catalogue", integration_id=input.integration_id)
+        logger.info("slack_app_model_override_empty_catalogue", integration_id=integration.id)
         return None
 
     override = classify_slack_app_model_override(input.event_text, choices)
@@ -540,8 +549,141 @@ def classify_slack_app_model_override_activity(input: SlackAppModelOverrideInput
 
     logger.info(
         "slack_app_model_override_classified",
-        integration_id=input.integration_id,
+        integration_id=integration.id,
         model=override.model,
         reasoning_effort=override.reasoning_effort,
     )
     return override
+
+
+def _project_route_response_format(projects: list[Integration]) -> ResponseFormatJSONSchema:
+    """A strict JSON schema pinning the reply to one id from ``projects``.
+
+    The enum is what stops the classifier naming a project this mentioner cannot reach.
+    `routable_projects` bounds the list by access, and that bound only reaches the model
+    through this field.
+    """
+    return {
+        "type": "json_schema",
+        "json_schema": {
+            "name": "slack_app_project_route",
+            "strict": True,
+            "schema": {
+                "type": "object",
+                "properties": {
+                    "project_id": {"type": ["integer", "null"], "enum": [*(p.team_id for p in projects), None]},
+                },
+                "required": ["project_id"],
+                "additionalProperties": False,
+            },
+        },
+    }
+
+
+class _ProjectRouteReply(BaseModel):
+    project_id: int | None = None
+
+
+def classify_slack_app_project_route(event_text: str, projects: list[Integration]) -> Integration | None:
+    """Read the project a mention asked to be answered from, out of its text.
+
+    Returns ``None`` when the author named none, which is the overwhelming majority of
+    mentions, and on a reply this cannot parse.
+
+    A gateway failure raises instead of returning ``None``. The activity turns that into
+    the same fallback, so production behaviour is unchanged; the eval suite calls this
+    function directly, and a swallowed failure there is indistinguishable from a clean
+    "no project" — it would score a dead gateway as a pass on every negative case.
+
+    It takes the opposite rule to the model classifier: a model named as the subject of a
+    question is never an instruction, while a project named as the subject usually is
+    where the answer has to come from, because that is where the data lives. Quality on
+    that is measured by ``products/slack_app/evals/eval_project_classifier.py``.
+    """
+    prompt = prompts.render(
+        "project_route",
+        projects=format_project_candidate_list(projects),
+        event_text=event_text,
+    )
+
+    try:
+        client = build_openai_client(product="slack_app_routing", ai_product="slack_app_routing").with_options(
+            timeout=PROJECT_ROUTE_TIMEOUT_SECONDS, max_retries=PROJECT_ROUTE_MAX_RETRIES
+        )
+        response = client.chat.completions.create(
+            model=PROJECT_ROUTE_CLASSIFIER_MODEL,
+            messages=[{"role": "user", "content": prompt}],
+            max_completion_tokens=PROJECT_ROUTE_MAX_COMPLETION_TOKENS,
+            response_format=_project_route_response_format(projects),
+        )
+        # Tolerant parse on top of the schema, matching the model-override classifier:
+        # the gateway does not honour a response format identically on every route.
+        parsed = extract_json_object(response.choices[0].message.content or "")
+        reply = _ProjectRouteReply.model_validate(parsed)
+    except (ValidationError, ValueError):
+        logger.info("slack_app_project_route_unusable_reply")
+        return None
+
+    if reply.project_id is None:
+        return None
+    chosen = next((p for p in projects if p.team_id == reply.project_id), None)
+    if chosen is None:
+        # The classifier was told to copy an id from the list; anything else is a
+        # hallucination or a project this mentioner cannot open.
+        logger.info("slack_app_project_route_unknown_project", requested_team_id=reply.project_id)
+    return chosen
+
+
+@activity.defn
+@close_db_connections
+def classify_slack_app_project_route_activity(input: SlackAppProjectRouteInput) -> SlackAppProjectRoute | None:
+    """Resolve the project a mention asked for, or ``None`` to stay on the resolved one.
+
+    The workflow calls this only for a message that opens a thread. A task, its thread
+    mapping and its run all belong to one project, so a reply cannot move the thread.
+    """
+    if not input.event_text.strip():
+        return None
+    # Cheapest gate first, and the one that answers most workspaces. Everything below is
+    # two queries and a blocking flag call, and a workspace connected to one project has
+    # nothing to route between however they come out.
+    if Integration.objects.filter(kind="slack", integration_id=input.slack_team_id).count() < 2:
+        return None
+
+    integration = Integration.objects.select_related("team", "team__organization").get(
+        id=input.integration_id,
+        kind="slack",
+        integration_id=input.slack_team_id,
+    )
+    user = User.objects.filter(id=input.user_id).first()
+    if user is None:
+        return None
+    if not is_slack_app_project_routing_enabled(integration, distinct_id=user.distinct_id):
+        return None
+
+    projects = routable_projects(
+        slack_team_id=input.slack_team_id,
+        slack_user_id=input.slack_user_id,
+        user=user,
+    )
+    if not projects:
+        return None
+
+    try:
+        chosen = classify_slack_app_project_route(input.event_text, projects)
+    except Exception:
+        # The fallback boundary: a mention we cannot classify stays on the project
+        # routing already resolved, which is what it would have done anyway.
+        logger.exception("slack_app_project_route_classify_failed")
+        return None
+    # A message naming the project the run was already going to use asked for nothing.
+    if chosen is None or chosen.id == integration.id:
+        return None
+
+    logger.info(
+        "slack_app_project_route_classified",
+        integration_id=integration.id,
+        routed_integration_id=chosen.id,
+        project_candidate_count=len(projects),
+    )
+    return SlackAppProjectRoute(integration_id=chosen.id)

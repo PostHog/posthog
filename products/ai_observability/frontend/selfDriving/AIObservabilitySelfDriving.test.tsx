@@ -3,17 +3,15 @@ import '@testing-library/jest-dom'
 import { cleanup, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { Provider } from 'kea'
-import type { ReactNode } from 'react'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { newInternalTab } from 'lib/utils/newInternalTab'
 
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
+import { AccessControlLevel, AccessControlResourceType, type AppContext } from '~/types'
 
 import * as alertsApi from 'products/alerts/frontend/generated/api'
 
@@ -35,10 +33,6 @@ jest.mock('lib/utils/newInternalTab')
 jest.mock('products/signals/frontend/generated/api', () => ({
     signalsScoutConfigList: jest.fn(() => new Promise(() => {})),
     signalsScoutMetadataGet: jest.fn(() => new Promise(() => {})),
-}))
-
-jest.mock('products/signals/frontend/inbox/components/config/scouts/ScoutCreateButton', () => ({
-    ScoutCreateButton: ({ children }: { children: ReactNode }) => <button>{children}</button>,
 }))
 
 const EVAL_REPORTS_SOURCE_CONFIG = {
@@ -93,11 +87,14 @@ describe('AIObservabilitySelfDriving', () => {
                 },
             },
         })
+        window.POSTHOG_APP_CONTEXT = {
+            ...window.POSTHOG_APP_CONTEXT,
+            resource_access_control: {
+                ...window.POSTHOG_APP_CONTEXT?.resource_access_control,
+                [AccessControlResourceType.LlmSkill]: AccessControlLevel.Editor,
+            },
+        } as AppContext
         initKeaTests()
-        featureFlagLogic.mount()
-        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.LLM_ANALYTICS_EVALUATIONS_START_WITH_AI], {
-            [FEATURE_FLAGS.LLM_ANALYTICS_EVALUATIONS_START_WITH_AI]: true,
-        })
         jest.mocked(newInternalTab).mockReset()
         jest.mocked(aiObservabilityApi.evaluationDirectoriesList).mockResolvedValue([])
         jest.mocked(aiObservabilityApi.evaluationsList).mockResolvedValue({
@@ -124,6 +121,7 @@ describe('AIObservabilitySelfDriving', () => {
                     updated_at: '2024-01-01T00:00:00Z',
                     created_by: null,
                     deleted: false,
+                    user_access_level: 'editor',
                 },
                 {
                     id: 'evaluation-disabled',
@@ -144,6 +142,7 @@ describe('AIObservabilitySelfDriving', () => {
                     updated_at: '2024-01-02T00:00:00Z',
                     created_by: null,
                     deleted: false,
+                    user_access_level: 'editor',
                 },
             ],
         })
@@ -257,7 +256,12 @@ describe('AIObservabilitySelfDriving', () => {
             </Provider>
         )
 
-        expect(screen.getAllByText('Use template')).toHaveLength(3)
+        expect(screen.getAllByText('Use template')).toHaveLength(4)
+
+        // Counting the labels alone passes even when every button is disabled, which is what
+        // happens if the scene stops granting scout-creation access. Prove one actually opens.
+        await userEvent.click(screen.getByTestId('create-costly-users-scout'))
+        expect(await screen.findByText('Create a scout')).toBeInTheDocument()
 
         const tooltipTrigger = screen.getByText('What is this?')
         await userEvent.hover(tooltipTrigger)

@@ -11,6 +11,7 @@ from typing import Any, Optional, cast
 import pytest
 
 from parameterized import parameterized
+from websockets.exceptions import InvalidMessage
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.framer import devalue
 from products.warehouse_sources.backend.temporal.data_imports.sources.framer.framer import (
@@ -278,6 +279,16 @@ class TestFramer:
             client.connect()
         assert exc_info.value.retryable
 
+    def test_client_wraps_handshake_eof_as_retryable(self) -> None:
+        def connect_fn(*args: Any, **kwargs: Any) -> Any:
+            raise InvalidMessage("did not receive a valid HTTP response")
+
+        client = FramerClient(PROJECT_ID, "test-key", protocol_version="0.1.29", connect_fn=connect_fn)
+        with pytest.raises(FramerAPIError) as exc_info:
+            client.connect()
+        assert exc_info.value.code == "CONNECTION_CLOSED"
+        assert exc_info.value.retryable
+
     def test_client_raises_on_method_error(self) -> None:
         server = FakeFramerServer()
         client = make_client(server)
@@ -369,6 +380,21 @@ class TestFramer:
         valid, error = validate_credentials("not a project", "key", "0.1.29")
         assert valid is False
         assert error is not None and "project URL or ID" in error
+
+    def test_validate_credentials_transient_error_is_clean(self) -> None:
+        # A transient channel condition must surface a clean retry message, not Framer's raw
+        # "Framer API error <CODE>" text.
+        server = FakeFramerServer(ready_message={"type": "error", "code": "POOL_EXHAUSTED", "message": "busy"})
+        with pytest.MonkeyPatch.context() as patcher:
+            patcher.setattr(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.framer.framer.websocket_connect",
+                server,
+            )
+            valid, error = validate_credentials(PROJECT_ID, "key", "0.1.29")
+        assert valid is False
+        assert error is not None
+        assert "Framer API error" not in error
+        assert "try again" in error
 
     def _run_endpoint(self, endpoint: str, methods: dict[str, Any]) -> list[dict[str, Any]]:
         server = FakeFramerServer(methods=methods)

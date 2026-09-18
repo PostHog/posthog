@@ -4,8 +4,8 @@ from typing import Any
 
 from posthog.models.team import Team
 from posthog.models.user import User
-from posthog.rbac.user_access_control import UserAccessControl
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.dashboards.backend.constants import MAX_WIDGET_RESULT_LIMIT
 from products.dashboards.backend.widget_specs.configs import EXPERIMENTS_LIST_WIDGET_TYPE
 from products.dashboards.backend.widget_specs.registry import validate_widget_config

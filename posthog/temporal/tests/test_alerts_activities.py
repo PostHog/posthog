@@ -3,11 +3,12 @@ import contextlib
 from datetime import UTC, datetime
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from unittest.mock import patch
 
 import pytest_asyncio
 from asgiref.sync import sync_to_async
+from clickhouse_driver.errors import NetworkError, SocketTimeoutError
 from temporalio.exceptions import ApplicationError
 from temporalio.testing import ActivityEnvironment
 
@@ -27,7 +28,7 @@ from posthog.exceptions import (
     ClickHouseClusterMemoryLimitExceeded,
     ClickHouseQueryMemoryLimitExceeded,
 )
-from posthog.models import User
+from posthog.models import Team, User
 from posthog.slo.types import SloOperation, SloOutcome
 from posthog.tasks.alerts.utils import (
     AlertEvaluationResult,
@@ -40,6 +41,7 @@ from posthog.temporal.alerts.activities import (
     notify_alert,
     prepare_alert,
     record_failed_evaluation,
+    retrieve_due_alerts,
 )
 from posthog.temporal.alerts.retry_policy import alert_timeouts
 from posthog.temporal.alerts.types import (
@@ -51,11 +53,11 @@ from posthog.temporal.alerts.types import (
     SkipReason,
 )
 
-from products.alerts.backend.destinations import AlertDelivery
 from products.alerts.backend.evaluation.contract import AlertExtractionError
 from products.alerts.backend.evaluation.validation import THRESHOLD_BOUNDS_REQUIRED_MESSAGE
+from products.alerts.backend.facade.contracts import AlertDelivery
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, Threshold
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 
 
 def _email_delivery(target: str, at: str = "2026-08-11T00:00:00+00:00") -> AlertDelivery:
@@ -81,7 +83,7 @@ def _memory_limit_error() -> ClickHouseQueryMemoryLimitExceeded:
 
 
 async def _create_alert(
-    ateam,
+    ateam: Team,
     *,
     query: dict | None = None,
     enabled: bool = True,
@@ -93,6 +95,7 @@ async def _create_alert(
     snoozed_until: datetime | None = None,
     skip_weekend: bool = False,
     schedule_restriction: dict | None = None,
+    schedule_start_time: str | None = None,
     insight_deleted: bool = False,
     state: str = AlertState.NOT_FIRING,
 ) -> AlertConfiguration:
@@ -122,6 +125,7 @@ async def _create_alert(
             snoozed_until=snoozed_until,
             skip_weekend=skip_weekend,
             schedule_restriction=schedule_restriction,
+            schedule_start_time=schedule_start_time,
             state=state,
         )
         return alert
@@ -191,6 +195,25 @@ async def _create_alert_check(
 
 
 @pytest.mark.asyncio
+@pytest.mark.django_db(transaction=True)
+class TestRetrieveDueAlerts:
+    @time_machine.travel("2026-09-09T12:00:00Z", tick=False)
+    async def test_records_metrics_for_due_alerts(self, ateam) -> None:
+        due_alert = await _create_alert(ateam, next_check_at=datetime(2026, 9, 9, 11, 0, tzinfo=UTC))
+        await _create_alert(ateam, next_check_at=datetime(2026, 9, 9, 13, 0, tzinfo=UTC))
+
+        with patch("posthog.temporal.alerts.activities.record_due_insight_alert_metrics") as record_metrics:
+            result = await ActivityEnvironment().run(retrieve_due_alerts)
+
+        assert [item.alert_id for item in result] == [str(due_alert.id)]
+        record_metrics.assert_called_once()
+        due_count, oldest_due_at, polled_at = record_metrics.call_args.args
+        assert due_count == 1
+        assert oldest_due_at == datetime(2026, 9, 9, 11, 0, tzinfo=UTC)
+        assert polled_at == datetime(2026, 9, 9, 12, 0, tzinfo=UTC)
+
+
+@pytest.mark.asyncio
 @pytest.mark.django_db
 class TestPrepareAlert:
     async def test_skip_when_alert_not_found(self) -> None:
@@ -216,7 +239,7 @@ class TestPrepareAlert:
             ),
             pytest.param(
                 "2024-12-21T08:00:00Z",  # Saturday
-                {"skip_weekend": True},
+                {"skip_weekend": True, "schedule_start_time": "08:30"},
                 SkipReason.WEEKEND,
                 True,
                 id="weekend",
@@ -248,7 +271,7 @@ class TestPrepareAlert:
         expected_reason: SkipReason,
         advances_next_check_at: bool,
     ) -> None:
-        ctx = freeze_time(frozen_time) if frozen_time else contextlib.nullcontext()
+        ctx = time_machine.travel(frozen_time, tick=False) if frozen_time else contextlib.nullcontext()
         with ctx:
             a = await _create_alert(ateam, **setup_kwargs)
             env = ActivityEnvironment()
@@ -267,7 +290,7 @@ class TestPrepareAlert:
             # Non-advancing skip branches must leave next_check_at untouched.
             assert refreshed.next_check_at == setup_kwargs.get("next_check_at")
 
-    @freeze_time("2024-06-03T10:00:00Z")
+    @time_machine.travel("2024-06-03T10:00:00Z", tick=False)
     async def test_snoozed_future_preserves_snoozed_until(self, ateam) -> None:
         # Separate from the parameterized set because it asserts a DB field is UNCHANGED,
         # which doesn't fit the generic "next_check_at advanced" pattern.
@@ -280,7 +303,7 @@ class TestPrepareAlert:
         refreshed = await sync_to_async(AlertConfiguration.objects.get)(pk=a.pk)
         assert refreshed.snoozed_until == snoozed
 
-    @freeze_time("2024-06-03T10:00:00Z")
+    @time_machine.travel("2024-06-03T10:00:00Z", tick=False)
     async def test_snoozed_until_in_past_is_cleared_and_evaluation_proceeds(self, ateam) -> None:
         past = datetime(2024, 6, 3, 9, 0, tzinfo=UTC)
         a = await _create_alert(ateam, snoozed_until=past, state=AlertState.SNOOZED)
@@ -326,6 +349,24 @@ class TestPrepareAlert:
         assert check.calculated_value is None
         assert check.error is not None
         assert result.reason in check.error["message"]
+
+    async def test_auto_disable_email_alert_when_email_is_unavailable(self, alert_with_user) -> None:
+        with patch("posthog.temporal.alerts.activities.is_email_available", return_value=False):
+            env = ActivityEnvironment()
+            result = await env.run(prepare_alert, PrepareAlertActivityInputs(alert_id=str(alert_with_user.id)))
+
+        assert result.action == PrepareAction.AUTO_DISABLE
+        assert (
+            result.reason
+            == "Email delivery is unavailable on this instance. Configure email before re-enabling this alert."
+        )
+
+        refreshed = await sync_to_async(AlertConfiguration.objects.get)(pk=alert_with_user.pk)
+        assert refreshed.enabled is False
+        assert refreshed.state == AlertState.ERRORED
+
+        check = await sync_to_async(AlertCheck.objects.get)(alert_configuration=refreshed)
+        assert check.error == {"message": result.reason, "code": "email_unavailable"}
 
     async def test_evaluate_for_valid_alert(self, alert) -> None:
         env = ActivityEnvironment()
@@ -473,7 +514,7 @@ class TestEvaluateAlert:
     # an error instead sends the alert silent until its next cadence slot, an hour for hourly ones.
     @pytest.mark.parametrize(
         "error_class",
-        [ClickHouseAtCapacity, ClickHouseClusterMemoryLimitExceeded],
+        [ClickHouseAtCapacity, ClickHouseClusterMemoryLimitExceeded, SocketTimeoutError, NetworkError],
     )
     async def test_evaluate_reraises_ch_transient_error(self, alert, error_class) -> None:
         with patch(
@@ -567,7 +608,7 @@ class TestNotifyAlert:
 
         with (
             patch("posthog.slo.events.posthoganalytics"),
-            patch("products.alerts.backend.delivery_slo.get_instance_region", return_value="US"),
+            patch("products.alerts.backend.facade.delivery_slo.get_instance_region", return_value="US"),
             patch("posthog.tasks.alerts.utils.send_notifications_for_breaches", return_value=[]),
             patch("posthog.tasks.alerts.utils.send_notifications_for_errors") as mock_errors,
         ):
@@ -591,7 +632,7 @@ class TestNotifyAlert:
 
         with (
             patch("posthog.slo.events.posthoganalytics") as mock_slo_analytics,
-            patch("products.alerts.backend.delivery_slo.get_instance_region", return_value="US"),
+            patch("products.alerts.backend.facade.delivery_slo.get_instance_region", return_value="US"),
             patch(
                 "posthog.tasks.alerts.utils.send_notifications_for_breaches",
                 return_value=[_email_delivery("alice@posthog.com")],
@@ -822,7 +863,7 @@ class TestNotifyAlert:
 
         with (
             patch("posthog.slo.events.posthoganalytics") as mock_slo_analytics,
-            patch("products.alerts.backend.delivery_slo.get_instance_region", return_value="US"),
+            patch("products.alerts.backend.facade.delivery_slo.get_instance_region", return_value="US"),
             patch(
                 "posthog.tasks.alerts.utils.send_notifications_for_breaches",
                 side_effect=RuntimeError("SMTP unavailable"),

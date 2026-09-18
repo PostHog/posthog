@@ -7,11 +7,14 @@ from rest_framework import serializers
 from rest_framework.exceptions import ErrorDetail
 
 from products.feature_flags.backend.api.feature_flag import _reject_serde_unsafe_filters
+from products.feature_flags.backend.api.filters_schema import FEATURE_FLAG_PROPERTY_TYPES, FeatureFlagFiltersSerializer
 from products.feature_flags.backend.encrypted_flag_payloads import REDACTED_PAYLOAD_VALUE
 from products.feature_flags.backend.filters_validation import (
     CROSS_FIELD_CHECKS,
+    PERSON_AGGREGATED_PROPERTY_TYPES,
     Violation,
     check_groups_non_empty_for_create,
+    check_variant_rollout_sum,
     collect_cross_field_violations,
     collect_filters_violations,
     flatten_structural_errors,
@@ -35,6 +38,18 @@ class TestFiltersValidation(SimpleTestCase):
                 ["cross_field.variant_rollout_sum_not_100"],
             ),
             ("variant_sum_exactly_100", {"multivariate": _multivariate(("a", 50), ("b", 50))}, []),
+            # Sums to 100.00000000000001; the flag UI accepts the same split.
+            (
+                "variant_sum_100_with_float_drift",
+                {"multivariate": _multivariate(("a", 0.01), ("b", 64.04), ("c", 35.95))},
+                [],
+            ),
+            # The smallest miss the flag UI can express, so the tolerance cannot swallow it.
+            (
+                "variant_sum_short_by_smallest_step",
+                {"multivariate": _multivariate(("a", 50), ("b", 49.99))},
+                ["cross_field.variant_rollout_sum_not_100"],
+            ),
             (
                 "variant_keys_duplicated",
                 {"multivariate": _multivariate(("a", 50), ("a", 50))},
@@ -148,6 +163,36 @@ class TestFiltersValidation(SimpleTestCase):
             (
                 "gt_operator_numeric_value",
                 {"groups": [{"properties": [_person_prop(operator="gt", value=5)]}]},
+                [],
+            ),
+            (
+                "gte_operator_float_value",
+                {"groups": [{"properties": [_person_prop(operator="gte", value=1.5)]}]},
+                [],
+            ),
+            (
+                "lt_operator_string_value",
+                {"groups": [{"properties": [_person_prop(operator="lt", value="5")]}]},
+                [],
+            ),
+            (
+                "lte_operator_boolean_value",
+                {"groups": [{"properties": [_person_prop(operator="lte", value=True)]}]},
+                ["cross_field.operator_requires_string_value"],
+            ),
+            (
+                "gte_operator_value_over_f64_range",
+                {"groups": [{"properties": [_person_prop(operator="gte", value=10**400)]}]},
+                ["cross_field.operator_requires_string_value"],
+            ),
+            (
+                "gt_operator_list_value",
+                {"groups": [{"properties": [_person_prop(operator="gt", value=[5])]}]},
+                ["cross_field.operator_requires_string_value"],
+            ),
+            (
+                "icontains_operator_numeric_value",
+                {"groups": [{"properties": [_person_prop(operator="icontains", value=5)]}]},
                 ["cross_field.operator_requires_string_value"],
             ),
             (
@@ -221,6 +266,34 @@ class TestFiltersValidation(SimpleTestCase):
         violations = collect_cross_field_violations(filters)
         assert [violation.path for violation in violations] == ["groups[1].properties[1].value"]
 
+    # Validated filters are stored and then served verbatim to SDKs, and the .NET and Java
+    # clients type rollout percentages as int, so 100 must not come back as 100.0.
+    @parameterized.expand(
+        [
+            ("int_stays_int", 100, 100, int),
+            ("whole_float_narrows_to_int", 100.0, 100, int),
+            ("fraction_stays_float", 33.33, 33.33, float),
+            ("zero_stays_int", 0, 0, int),
+        ]
+    )
+    def test_rollout_percentage_keeps_whole_numbers_as_ints(
+        self, _name: str, stored: float, expected: float, expected_type: type
+    ) -> None:
+        serializer = FeatureFlagFiltersSerializer(
+            data={
+                "groups": [{"properties": [], "rollout_percentage": stored, "variant": None}],
+                "multivariate": _multivariate(("a", stored)),
+            },
+            context={},
+        )
+
+        assert serializer.is_valid(), serializer.errors
+        group_rollout = serializer.validated_data["groups"][0]["rollout_percentage"]
+        variant_rollout = serializer.validated_data["multivariate"]["variants"][0]["rollout_percentage"]
+        assert group_rollout == expected
+        assert type(group_rollout) is expected_type
+        assert type(variant_rollout) is expected_type
+
     def test_flatten_structural_errors_strips_indices_in_rule_id(self) -> None:
         errors = {
             "groups": [
@@ -260,6 +333,11 @@ class TestFiltersValidation(SimpleTestCase):
         rule_ids = [violation.rule_id for violation in collect_filters_violations(filters)]
         assert rule_ids == ["structural.payloads.invalid_payload_json"]
 
+    def test_variant_rollout_sum_violation_message_hides_float_artifacts(self) -> None:
+        violations = check_variant_rollout_sum({"multivariate": _multivariate(("a", 0.01), ("b", 64.04), ("c", 35))})
+
+        assert violations[0].message == "Variant rollout percentages must sum to 100, got 99.05."
+
     def test_collect_filters_violations_end_to_end(self) -> None:
         structural = collect_filters_violations({"groups": [{"properties": [{"type": "person"}]}]})
         assert [violation.rule_id for violation in structural] == ["structural.groups[].properties[].key.required"]
@@ -276,6 +354,20 @@ class TestFiltersValidation(SimpleTestCase):
             "contextual.groups_empty_on_create"
         ]
         assert check_groups_non_empty_for_create({"groups": [{"properties": []}]}) == []
+
+    def test_group_is_the_only_property_type_outside_person_aggregation(self) -> None:
+        assert set(FEATURE_FLAG_PROPERTY_TYPES) - set(PERSON_AGGREGATED_PROPERTY_TYPES) == {"group"}, (
+            "services/mcp/src/tools/featureFlags/preserveGroupTargeting.ts encodes the person-aggregation rule as "
+            "`type !== 'group'` (in mergeConditionGroup and mergeProperty). That is the complement of "
+            "PERSON_AGGREGATED_PROPERTY_TYPES only while 'group' is the sole type outside it. A group-side type "
+            "that slips through as person-aggregated lets that merge helper silently clear a flag's group "
+            "targeting. If the new type belongs under person aggregation, add it to "
+            "PERSON_AGGREGATED_PROPERTY_TYPES and the TypeScript needs no change. If the difference came out "
+            "empty instead, 'group' was added to PERSON_AGGREGATED_PROPERTY_TYPES, and the merge helper's "
+            "`!== 'group'` check no longer separates the two aggregations at all; that change needs its own "
+            "review, not a wider tuple here. Otherwise update the merge helper and "
+            "services/mcp/tests/unit/preserve-group-targeting.test.ts, then this assertion."
+        )
 
 
 class TestRejectSerdeUnsafeFilters(SimpleTestCase):
@@ -315,6 +407,9 @@ class TestRejectSerdeUnsafeFilters(SimpleTestCase):
             ("property_type_not_string", {"groups": [{"properties": [{"key": "k", "type": 1}]}]}),
             # Rust has no `event` variant, so one of these fails the team's whole cached set.
             ("property_type_event", {"groups": [{"properties": [{"key": "k", "type": "event"}]}]}),
+            # `behavioral` is a real insight filter type, but Rust flag matching has no variant
+            # for it (it can't evaluate events history) — it must stay rejected here.
+            ("property_type_behavioral", {"groups": [{"properties": [{"key": "$pageview", "type": "behavioral"}]}]}),
             ("property_type_missing", {"groups": [{"properties": [{"key": "k"}]}]}),
             ("property_empty", {"groups": [{"properties": [{}]}]}),
             ("property_key_missing", {"groups": [{"properties": [{"type": "person"}]}]}),

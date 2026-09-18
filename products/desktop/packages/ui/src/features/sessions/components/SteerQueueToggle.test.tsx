@@ -63,8 +63,9 @@ describe("steer tooltip copy follows the session's native-steer capability", () 
       const tooltip = steerQueueTooltip(true, result.current, "Cmd+S");
       if (expectNative) {
         expect(tooltip).toContain(
-          "injects your message mid-turn at the next tool boundary",
+          "applies your message at the next safe boundary",
         );
+        expect(tooltip).toContain("current command may keep running");
       } else {
         expect(tooltip).toContain(
           "interrupts the current turn and resends with your message",

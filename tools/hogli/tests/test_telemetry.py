@@ -8,9 +8,10 @@ from pathlib import Path
 import pytest
 from unittest.mock import patch
 
+import click
 from click.testing import CliRunner
 from hogli import telemetry
-from hogli.cli import _outcome, _should_track, cli
+from hogli.cli import _fire_telemetry, _outcome, _should_track, cli
 
 _TELEMETRY_ENV_VARS = (
     # Every CI marker the gate checks must be cleared, otherwise the suite
@@ -262,6 +263,23 @@ class TestInvokeTelemetry:
             result = CliRunner().invoke(cli, [command])
             assert result.exit_code == 0
             mock_send.assert_not_called()
+
+
+class TestCommandProperties:
+    def test_stashed_properties_reach_command_completed(self, monkeypatch: pytest.MonkeyPatch):
+        # Category lookup reads the consumer's manifest, which core tests stay off.
+        monkeypatch.setattr("hogli.cli.get_category_for_command", lambda command: "core")
+        ctx = click.Context(cli)
+        ctx.invoked_subcommand = "quickstart"
+        ctx.meta["hogli.telemetry_active"] = True
+        with ctx:
+            telemetry.add_command_properties(failure_cause="unreachable")
+
+        with patch.object(telemetry._client, "track") as mock_track:
+            _fire_telemetry(ctx, 1)
+
+        props = mock_track.call_args.args[1]
+        assert props["failure_cause"] == "unreachable"
 
 
 def _patch_cli_manifest(monkeypatch: pytest.MonkeyPatch, command_config: dict | None) -> None:

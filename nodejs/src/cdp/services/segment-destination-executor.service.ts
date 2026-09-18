@@ -13,6 +13,7 @@ import {
     createAddLogFunction,
     getSensitiveValues,
     isSegmentPluginHogFunction,
+    redactError,
     redactSensitiveValues,
 } from '../utils'
 import { CdpFetchConfig, cdpTrackedFetch, getNextRetryTime, isFetchResponseRetriable } from '../utils/cdp-fetch'
@@ -44,6 +45,44 @@ export interface ModifiedResponse<T = unknown> extends Omit<Response, 'headers'>
     headers: Headers & {
         toJSON: () => Record<string, string>
     }
+}
+
+// Guards against recursing into a cyclic or pathologically deep payload
+const MAX_OMIT_EMPTY_VALUES_DEPTH = 10
+
+const isPlainObject = (value: unknown): value is Record<string, unknown> => {
+    if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+        return false
+    }
+    const prototype = Object.getPrototypeOf(value)
+    return prototype === Object.prototype || prototype === null
+}
+
+/**
+ * Recursively drops keys whose value is null, undefined or an empty string.
+ * Only plain objects are traversed so things like Date instances survive intact.
+ */
+const omitEmptyValues = (value: unknown, depth = 0): unknown => {
+    if (depth >= MAX_OMIT_EMPTY_VALUES_DEPTH) {
+        return value
+    }
+
+    if (Array.isArray(value)) {
+        return value.map((item) => omitEmptyValues(item, depth + 1))
+    }
+
+    if (!isPlainObject(value)) {
+        return value
+    }
+
+    const result: Record<string, unknown> = {}
+    for (const [key, item] of Object.entries(value)) {
+        if (item === null || item === undefined || item === '') {
+            continue
+        }
+        result[key] = omitEmptyValues(item, depth + 1)
+    }
+    return result
 }
 
 const convertFetchResponse = <Data = unknown>(response: FetchResponse, text: string): ModifiedResponse<Data> => {
@@ -87,6 +126,9 @@ const convertFetchResponse = <Data = unknown>(response: FetchResponse, text: str
         bytes: () => {
             throw new Error('Not implemented')
         },
+        textStream: () => {
+            throw new Error('Not implemented')
+        },
         blob: () => {
             throw new Error('Not implemented')
         },
@@ -110,7 +152,10 @@ export class SegmentDestinationExecutorService {
         invocation: CyclotronJobInvocationHogFunction
     ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>> {
         const result = createInvocationResult<CyclotronJobInvocationHogFunction>(invocation)
-        const addLog = createAddLogFunction(result.logs)
+        // Debug logs dump the resolved inputs and request options, which carry integration secrets and
+        // credential headers. The logs reach the test API response and stored function logs.
+        const sensitiveValues = getSensitiveValues(invocation.hogFunction, invocation.state.globals.inputs ?? {})
+        const addLog = createAddLogFunction(result.logs, sensitiveValues)
 
         // Upsert the tries count on the metadata
         const metadata = (invocation.queueMetadata as { tries: number }) || { tries: 0 }
@@ -136,7 +181,6 @@ export class SegmentDestinationExecutorService {
 
             // All segment options are done as inputs
             const config = invocation.state.globals.inputs
-            const sensitiveValues = getSensitiveValues(invocation.hogFunction, config)
 
             if (config.debug_mode) {
                 addLog('debug', 'config', config)
@@ -189,6 +233,10 @@ export class SegmentDestinationExecutorService {
                             if (id === null || id === '') {
                                 jsonData = rest
                             }
+                        }
+
+                        if (config.internal_omit_empty_values) {
+                            jsonData = omitEmptyValues(jsonData) as typeof jsonData
                         }
 
                         body = JSON.stringify(jsonData)
@@ -338,6 +386,9 @@ export class SegmentDestinationExecutorService {
                 }
             }
         } catch (e) {
+            // A destination's own error can quote a credential. The error reaches the test API response
+            // and the stored invocation result.
+            e = redactError(e, sensitiveValues)
             if (e instanceof SegmentFetchError) {
                 if (retriesPossible) {
                     // We have retries left so we can trigger a retry

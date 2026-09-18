@@ -6,7 +6,11 @@ import pyarrow as pa
 import pyarrow.compute as pc
 from structlog.types import FilteringBoundLogger
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import table_from_py_list
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
+    BinaryColumnReporter,
+    hex_encode_id_binary_columns,
+    table_from_py_list,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.table_stats import (
     record_table_stats,
     table_payload_bytes,
@@ -79,6 +83,8 @@ class Batcher:
     _source_type: Optional[str]
     _team_id: Optional[int]
     _schema_name: Optional[str]
+    _primary_keys: Optional[list[str]]
+    _binary_reporter: BinaryColumnReporter
 
     def __init__(
         self,
@@ -91,8 +97,11 @@ class Batcher:
         team_id: Optional[int] = None,
         schema_name: Optional[str] = None,
         coalesce_tables: bool = False,
+        primary_keys: Optional[list[str]] = None,
     ) -> None:
         self._logger = logger
+        self._primary_keys = primary_keys
+        self._binary_reporter = BinaryColumnReporter(logger)
 
         self._chunk_size = chunk_size or DEFAULT_CHUNK_SIZE
         self._chunk_size_bytes = chunk_size_bytes or DEFAULT_CHUNK_SIZE_BYTES
@@ -119,6 +128,9 @@ class Batcher:
         self._table_buffer_schema = None
         self._ready = deque()
         self._ready_bytes = 0
+
+    def _rows_to_table(self, rows: list[Any]) -> pa.Table:
+        return table_from_py_list(rows, primary_keys=self._primary_keys, binary_reporter=self._binary_reporter)
 
     def _set_ready(self, table: pa.Table) -> None:
         """Split `table` so no yielded chunk overflows a 32-bit offset column or exceeds
@@ -276,14 +288,14 @@ class Batcher:
                 if self._buffer_size_bytes >= self._chunk_size_bytes or len(self._buffer) >= self._chunk_size:
                     self._logger.debug(f"Processing buffer (list). Length of buffer = {len(self._buffer)}")
 
-                    self._set_ready(table_from_py_list(self._buffer))
+                    self._set_ready(self._rows_to_table(self._buffer))
                 else:
                     return
             else:
                 self._buffer_size_bytes += self._estimate_size(item)
                 if self._buffer_size_bytes >= self._chunk_size_bytes or len(item) >= self._chunk_size:
                     self._logger.debug(f"Processing item (list). Length of item = {len(item)}")
-                    self._set_ready(table_from_py_list(item))
+                    self._set_ready(self._rows_to_table(item))
                 else:
                     self._buffer.extend(item)
                     return
@@ -294,7 +306,7 @@ class Batcher:
                 return
 
             self._logger.debug(f"Processing buffer (dict). Length of buffer = {len(self._buffer)}")
-            self._set_ready(table_from_py_list(self._buffer))
+            self._set_ready(self._rows_to_table(self._buffer))
         elif isinstance(item, pa.Table):
             # A pa.Table never joins the list/dict buffer. Clearing the buffer
             # below would silently drop any rows accumulated from earlier list/dict
@@ -302,6 +314,9 @@ class Batcher:
             # losing data. (In practice sources emit only one item type, never a mix.)
             if self._buffer:
                 raise Exception("Cannot batch a pa.Table while list/dict rows are buffered; call get_table() first")
+            # Arrow-native sources skip `_rows_to_table`, so their binary keys are converted here
+            # instead.
+            item = hex_encode_id_binary_columns(item, self._primary_keys, self._binary_reporter)
             if self._coalesce_tables:
                 self._batch_table(item)
                 return
@@ -324,7 +339,7 @@ class Batcher:
     def get_table(self) -> pa.Table:
         if not self._ready and len(self._buffer) > 0:
             self._logger.debug(f"Processing leftover buffer. Length of buffer = {len(self._buffer)}")
-            self._set_ready(table_from_py_list(self._buffer))
+            self._set_ready(self._rows_to_table(self._buffer))
             self._buffer = []
             self._buffer_size_bytes = 0
 

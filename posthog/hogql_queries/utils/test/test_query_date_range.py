@@ -305,6 +305,13 @@ class TestQueryDateRange(APIBaseTest):
         self.assertEqual(query_date_range.date_from(), parser.isoparse("2021-02-25T12:25:23.000Z"))
         self.assertEqual(query_date_range.date_to(), parser.isoparse("2021-04-25T10:59:23.000Z"))
 
+    def test_bare_calendar_date_to_is_inclusive(self):
+        now = parser.isoparse("2021-08-25T00:00:00.000Z")
+        date_range = DateRange(date_from="2021-04-01", date_to="2021-04-25")
+        query_date_range = QueryDateRange(team=self.team, date_range=date_range, interval=IntervalType.DAY, now=now)
+
+        self.assertEqual(query_date_range.date_to(), parser.isoparse("2021-04-25T23:59:59.999999Z"))
+
     def test_yesterday(self):
         now = parser.isoparse("2021-08-25T00:00:00.000Z")
         date_range = DateRange(date_from="-1dStart", date_to="-1dEnd", explicitDate=False)

@@ -154,7 +154,7 @@ capabilities:
     nodejs_session_replay:
         description: 'Node.js Session Replay - recording ingestion'
         requires: [event_ingestion]
-        docker_profiles: [replay]
+        docker_profiles: [replay, dynamodb]
 
     nodejs_logs:
         description: 'Node.js Logs - log ingestion'
@@ -172,7 +172,12 @@ capabilities:
         docker_profiles: [observability]
 
     logs_ingestion:
-        description: 'OTEL logs, traces, and metrics capture service'
+        description: 'OTEL logs and traces capture service'
+        requires: [event_ingestion]
+        docker_profiles: [observability]
+
+    metrics_ingestion:
+        description: 'OTEL and Prometheus remote-write metrics capture service'
         requires: [event_ingestion]
         docker_profiles: [observability]
 
@@ -210,6 +215,11 @@ capabilities:
         description: 'Development debugging tools (Kafka UI, Flower, etc.)'
         requires: [core_infra]
         docker_profiles: [dev_tools]
+
+    webhook_tester:
+        description: 'Local HTTP sink for webhook steps and destinations (localhost:2080)'
+        requires: [core_infra]
+        docker_profiles: [webhook_tester]
 
     mcp_server:
         description: 'MCP server for AI assistant integration'
@@ -380,7 +390,7 @@ intents:
 
     metrics:
         description: 'Metric ingestion and viewing'
-        capabilities: [event_ingestion, property_definitions, property_values, logs_ingestion, nodejs_metrics]
+        capabilities: [event_ingestion, property_definitions, property_values, metrics_ingestion, nodejs_metrics]
 
     workflows:
         description: 'Workflow automation and orchestration'
@@ -392,6 +402,7 @@ intents:
                 temporal_workflows,
                 nodejs_cdp_workflows,
                 cyclotron,
+                webhook_tester,
             ]
 
     tracing:
@@ -437,6 +448,7 @@ intents:
 always_required:
     - backend
     - frontend
+    - ngrok
     - typegen
     - docker-compose
     # Migrations (DBs created by postgres init scripts, run for everyone)

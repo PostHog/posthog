@@ -100,7 +100,7 @@ export function StartupProgram(): JSX.Element {
                     {currentStartupProgramLabel === StartupProgramLabel.YC && (
                         <p>
                             Your credits will renew automatically{' '}
-                            <span className="font-semibold">every year, forever.</span>
+                            <span className="font-semibold">every year, forever</span>, until you hit $25M in funding.
                         </p>
                     )}
                     <p>If you have any questions, please contact our support team.</p>
@@ -183,7 +183,8 @@ export function StartupProgram(): JSX.Element {
                             </h1>
                             <p className="text-sm sm:text-base text-muted">
                                 Get $50,000 in credits <span className="font-semibold">every. year. forever.</span>{' '}
-                                (plus extras you'll actually use) to help you get to product-market fit.
+                                (plus extras you'll actually use) to help you get to product-market fit. You'll keep
+                                getting them until you hit $25M in funding.
                             </p>
                         </div>
                     </div>
@@ -309,8 +310,9 @@ export function StartupProgram(): JSX.Element {
                             <div className="text-xs text-muted space-y-1">
                                 <div className="flex gap-1">
                                     <span className="text-xxs align-super">1</span>
-                                    Credits renew automatically each year. If you've previously been in the program and
-                                    your credits expired, you can reapply and continue getting $50,000 annually.
+                                    Credits renew automatically each year until you hit $25M in funding. If you've
+                                    previously been in the program and your credits expired, you can reapply and
+                                    continue getting $50,000 annually.
                                 </div>
                                 <div className="flex gap-1">
                                     <span className="text-xxs align-super">2</span>
@@ -333,7 +335,8 @@ export function StartupProgram(): JSX.Element {
                             {currentStartupProgramLabel === StartupProgramLabel.YC ? (
                                 <p>
                                     Your credits will renew automatically{' '}
-                                    <span className="font-semibold">every year, forever.</span>
+                                    <span className="font-semibold">every year, forever</span>, until you hit $25M in
+                                    funding.
                                 </p>
                             ) : (
                                 <p>
@@ -494,6 +497,43 @@ export function StartupProgram(): JSX.Element {
 
                                         {isYC && (
                                             <>
+                                                <LemonField
+                                                    name="yc_verification_url"
+                                                    label="Your YC verification link"
+                                                    info={
+                                                        <span>
+                                                            See{' '}
+                                                            <Link
+                                                                target="_blank"
+                                                                to="https://www.ycombinator.com/verify"
+                                                            >
+                                                                YC's verification docs
+                                                            </Link>{' '}
+                                                            for how verification links work. We check your link when you
+                                                            submit the application.
+                                                        </span>
+                                                    }
+                                                    help={
+                                                        <span>
+                                                            Create a verification link at{' '}
+                                                            <Link
+                                                                target="_blank"
+                                                                to="https://www.ycombinator.com/verify/manage"
+                                                            >
+                                                                ycombinator.com/verify/manage
+                                                            </Link>{' '}
+                                                            with your company details and batch visible, so we can
+                                                            verify you automatically. Phone number, personal email, and
+                                                            social profiles can be left off.
+                                                        </span>
+                                                    }
+                                                >
+                                                    <LemonInput
+                                                        placeholder="https://www.ycombinator.com/verify/your-unique-code"
+                                                        className="bg-bg-light"
+                                                    />
+                                                </LemonField>
+
                                                 <LemonField name="yc_batch" label="Which YC batch are you?">
                                                     <LemonSelect options={ycBatchOptions} className="bg-bg-light" />
                                                 </LemonField>

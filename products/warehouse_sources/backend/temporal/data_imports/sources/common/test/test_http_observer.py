@@ -149,6 +149,21 @@ def test_log_redacts_credential_in_non_denylisted_query_param(captured_logs):
     assert "page=2" in entry["url"]
 
 
+def test_log_redacts_credential_embedded_in_path_from_url_template(captured_logs):
+    # A path-based credential (e.g. Workiz's token-in-URL auth) isn't numeric,
+    # UUID, or hex, so `url_template`'s own ID-shaped heuristics won't mask it --
+    # it must be caught by value-based redaction like the full `url` field is.
+    request = _make_request(url="https://api.workiz.com/api/v1/not-hex-token-value/team/all/")
+    response = _make_response(status_code=200)
+
+    record_request(request, response, started_at_monotonic=time.monotonic(), redact_values=("not-hex-token-value",))
+
+    entry = _entries(captured_logs)[-1]
+    assert "not-hex-token-value" not in entry["url"]
+    assert "not-hex-token-value" not in entry["url_template"]
+    assert "REDACTED" in entry["url_template"]
+
+
 def test_log_includes_job_context_fields(captured_logs, job_ctx):
     request = _make_request()
     response = _make_response(status_code=200)

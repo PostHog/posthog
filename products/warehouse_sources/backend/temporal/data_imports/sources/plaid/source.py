@@ -1,8 +1,7 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
@@ -10,7 +9,6 @@ from posthog.schema import (
     SourceFieldSelectConfig,
     SourceFieldSelectConfigOption,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -56,9 +54,10 @@ class PlaidSource(ResumableSource[PlaidSourceConfig, PlaidResumeConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.PLAID,
+            name=ExternalDataSourceType.PLAID,
             category=DataWarehouseSourceCategory.PAYMENTS___BILLING,
             label="Plaid",
+            keywords=["bank", "banking", "open banking", "financial", "fintech", "transactions"],
             caption="""Connect a Plaid Item to pull its accounts and transactions into the PostHog Data warehouse.
 
 You can find your client ID and secret in the [Plaid dashboard](https://dashboard.plaid.com/developers/keys). The access token identifies one linked Item (institution connection), obtained when a user completes Plaid Link — add one source per Item.""",

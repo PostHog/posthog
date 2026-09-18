@@ -19,12 +19,18 @@ interface SessionFooterProps {
   hasPendingPermission?: boolean;
   pausedDurationMs?: number;
   isCompacting?: boolean;
-  /** A /clear is in flight; its dedicated "Clearing…" row replaces the
-   *  generic generating indicator, same as compaction. */
+  /** A /clear is in flight. */
   isClearing?: boolean;
+  /** A turn the agent started on its own, with no prompt RPC behind it, so
+   *  `isPromptPending` stays false while it generates. */
+  isBackgroundTurnActive?: boolean;
   /** Number of tool calls finished so far; the generating indicator advances
    *  its status word each time this changes. */
   completedToolCallCount?: number;
+  /** Timestamp (ms) of the newest event in the thread; the generating indicator
+   *  says how long it has been since one arrived. */
+  lastActivityAt?: number | null;
+  currentWork?: string;
 }
 
 export function SessionFooter({
@@ -38,7 +44,10 @@ export function SessionFooter({
   pausedDurationMs,
   isCompacting = false,
   isClearing = false,
+  isBackgroundTurnActive = false,
   completedToolCallCount,
+  lastActivityAt,
+  currentWork,
 }: SessionFooterProps) {
   const rightSide = (
     <Flex align="center" gap="3" className="ml-auto shrink-0">
@@ -48,7 +57,11 @@ export function SessionFooter({
       {task && <DiffStatsChip task={task} />}
     </Flex>
   );
-  if (isPromptPending && !isCompacting && !isClearing) {
+  if (
+    (isPromptPending || isBackgroundTurnActive) &&
+    !isCompacting &&
+    !isClearing
+  ) {
     if (hasPendingPermission) {
       return (
         <Box className="pt-3 pb-1 opacity-50 transition-opacity group-hover/thread:opacity-100">
@@ -78,13 +91,17 @@ export function SessionFooter({
               startedAt={promptStartedAt}
               pausedDurationMs={pausedDurationMs}
               activityKey={completedToolCallCount}
+              lastActivityAt={lastActivityAt}
+              currentWork={currentWork}
             />
             {queuedCount > 0 && (
               <Text className="truncate text-[13px] text-muted-foreground">
                 ({queuedCount} queued)
               </Text>
             )}
-            <SlotMachineLever spinning={Boolean(isPromptPending)} />
+            <SlotMachineLever
+              spinning={Boolean(isPromptPending || isBackgroundTurnActive)}
+            />
           </Flex>
           {rightSide}
         </Flex>

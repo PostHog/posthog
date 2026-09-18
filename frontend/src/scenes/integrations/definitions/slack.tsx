@@ -44,7 +44,7 @@ export const Slack = defineIntegration(
             'Receive alerts and error-tracking notifications in your channels',
             'Manage feature flags, experiments, and surveys from Slack',
         ],
-        docsUrl: 'https://posthog.com/docs/webhooks/slack',
+        docsUrl: 'https://posthog.com/docs/libraries/slack',
         PostConnect: SlackPostConnect,
         useStatus: useSlackStatus,
     },

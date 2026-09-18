@@ -17,6 +17,7 @@ from posthog.api.github_callback import (
     redirects,
     state as github_callback_state,
 )
+from posthog.api.github_callback.install_requests import record_install_request
 from posthog.api.github_callback.personal_state import (
     list_user_github_app_installations,
     personal_github_login,
@@ -269,9 +270,9 @@ def finish_team_github_setup_update(
     next_url = fallback_next_url or ""
 
     if cache.get(github_callback_state.unified_authorize_pending_cache_key(user.id)) is not None:
-        _, next_url, _ = github_callback_state.consume_github_authorize_state(
+        next_url = github_callback_state.consume_github_authorize_state(
             request, state_raw, setup_action="update", code=None, installation_id=installation_id_str
-        )
+        ).next_url
 
     refreshed = refresh_team_github_integration(user, team_id, installation_id_str, existing=existing)
     return TeamGitHubFinishSetupResult(
@@ -296,9 +297,9 @@ def execute_team_github_finish_setup(
 
     installation_id_str = str(installation_id)
 
-    _state_token, next_url, _team_id = github_callback_state.consume_github_authorize_state(
+    next_url = github_callback_state.consume_github_authorize_state(
         request, state_raw, setup_action=setup_action, code=code, installation_id=installation_id_str
-    )
+    ).next_url
 
     is_already_installed = setup_action == "update" or not code
     connect_from = _connect_from_for_next(next_url)
@@ -709,6 +710,7 @@ def finish_team_setup(http_request) -> FinishResult:
     user = cast(User, http_request.user)
     installation_id = http_request.GET.get("installation_id")
     setup_action = http_request.GET.get("setup_action") or ""
+    code = http_request.GET.get("code")
     team_id, next_url = github_callback_state.resolve_github_setup_callback_context(user, state_raw)
 
     if github_error := http_request.GET.get("error"):
@@ -728,6 +730,12 @@ def finish_team_setup(http_request) -> FinishResult:
 
     if not installation_id:
         _report_install_pending(user, team_id, setup_action)
+        # An abandoned install lands here too, as does a bare cross-site `?setup_action=request`
+        # link, since this is also where callbacks with no valid state fall through. No webhook can
+        # ever resolve either, so a durable row needs both a real request and this user's own state.
+        authorize_state = github_callback_state.callback_authorize_state(user.id, state_raw)
+        if setup_action == "request" and authorize_state is not None:
+            record_install_request(user, code)
         return FinishResult(
             redirect_kind="team_setup",
             next_url=next_url,

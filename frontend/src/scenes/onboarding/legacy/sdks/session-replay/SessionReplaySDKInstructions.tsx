@@ -6,6 +6,7 @@ import {
     FlutterInstallation,
     FramerInstallation,
     IOSInstallation,
+    KMPInstallation,
     NextJSInstallation,
     NuxtInstallation,
     ReactInstallation,
@@ -14,6 +15,7 @@ import {
     RemixInstallation,
     SessionReplayFinalSteps,
     SvelteInstallation,
+    UnityInstallation,
     VueInstallation,
     WebflowInstallation,
     WebInstallation,
@@ -21,7 +23,7 @@ import {
 
 import { JS_WEB_SNIPPETS } from 'scenes/onboarding/shared/jsWebSnippets'
 
-import { SDKInstructionsMap, SDKKey } from '~/types'
+import { SDKDocsLinkOverrides, SDKInstructionsMap, SDKKey } from '~/types'
 
 import { withOnboardingDocsWrapper } from '../shared/onboardingWrappers'
 
@@ -31,6 +33,10 @@ export { AdvertiseMobileReplay, type AdvertiseMobileReplayContext } from './Adve
 const SNIPPETS = {
     ...JS_WEB_SNIPPETS,
     SessionReplayFinalSteps,
+}
+
+export const SessionReplaySDKDocsLinkOverrides: SDKDocsLinkOverrides = {
+    [SDKKey.UNITY]: 'https://posthog.com/docs/session-replay/installation/unity',
 }
 
 // JS Web SDKs
@@ -115,10 +121,18 @@ const SessionReplayFlutterInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: FlutterInstallation,
     snippets: SNIPPETS,
 })
+const SessionReplayKMPInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: KMPInstallation,
+    snippets: SNIPPETS,
+})
 const SessionReplayRNInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: ReactNativeInstallation,
     snippets: SNIPPETS,
     wizardIntegrationName: 'React Native',
+})
+const SessionReplayUnityInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: UnityInstallation,
+    snippets: SNIPPETS,
 })
 
 export const SessionReplaySDKInstructions: SDKInstructionsMap = {
@@ -141,4 +155,6 @@ export const SessionReplaySDKInstructions: SDKInstructionsMap = {
     [SDKKey.ANDROID]: SessionReplayAndroidInstructionsWrapper,
     [SDKKey.REACT_NATIVE]: SessionReplayRNInstructionsWrapper,
     [SDKKey.FLUTTER]: SessionReplayFlutterInstructionsWrapper,
+    [SDKKey.KMP]: SessionReplayKMPInstructionsWrapper,
+    [SDKKey.UNITY]: SessionReplayUnityInstructionsWrapper,
 }

@@ -134,6 +134,7 @@ def _run_single_test(
         }
 
     running_tests.remove(test_case.full_name)
+    captured_events = list(ctx.client.take_captured_events())
     duration = time.time() - start_time
     logger.info(
         "Test finished",
@@ -142,6 +143,7 @@ def _run_single_test(
         duration_seconds=round(duration, 1),
         error_message=error_message,
         error_details=error_details,
+        captured_events=captured_events,
     )
 
     return TestResult(
@@ -151,6 +153,7 @@ def _run_single_test(
         duration_seconds=duration,
         error_message=error_message,
         error_details=error_details,
+        captured_events=captured_events,
     )
 
 

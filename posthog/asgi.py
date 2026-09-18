@@ -24,12 +24,10 @@ logger = structlog.get_logger(__name__)
 # NOTE: OTel, continuous profiling, and the web-memory sampler init are deferred to first
 # request via _ensure_post_fork_init() below. They start background threads (OTel's
 # BatchSpanProcessor, Pyroscope's native profiler, the sampler's loop) that cannot survive
-# fork(). Nginx Unit loads this module in a "prototype" process and then
-# forks workers from it — the forked children inherit dead thread state and
-# corrupted mutexes, causing SIGSEGV / SIGABRT on the worker. Deferring to
-# first request ensures threads start in the actual worker process.
-# This is safe across all server types: Granian uses spawn (not fork),
-# runserver is single-process, and Celery doesn't import this file.
+# fork(): a child inherits dead thread state and corrupted mutexes, causing SIGSEGV /
+# SIGABRT on the worker. Deferring to first request ensures threads start in the actual
+# worker process. This is safe across all server types: runserver is single-process,
+# and Celery doesn't import this file.
 _post_fork_initialized = False
 
 _LOOP_LAG_HEARTBEAT_SECONDS = 1.0
@@ -115,6 +113,12 @@ def lifetime_wrapper(func):
                 message_type = message.get("type")
 
                 if message_type == "lifespan.startup":
+                    if settings.WEB_BOT_AUTH_PRIVATE_KEYS_ENV_VAR_PRESENT:
+                        from posthog.web_bot_auth_keys import (  # noqa: PLC0415
+                            validate_configured_web_bot_auth_private_keys_in_background,
+                        )
+
+                        validate_configured_web_bot_auth_private_keys_in_background()
                     # No-op unless PREWARM_WAREHOUSE_SOURCE_REGISTRY is set; never raises,
                     # so a broken catalog can't fail startup and trigger a respawn loop.
                     prewarm_warehouse_source_registry()
@@ -163,8 +167,7 @@ def task_run_event_ingest_wrapper(func):
 
 # Boot allocations are almost all permanent, so cyclic GC during django.setup() only adds
 # pauses (~300ms). Disable it for the boot, then freeze the survivors so later full
-# collections skip them — which also maximizes copy-on-write sharing when a prototype
-# process forks workers. See docs/internal/django-startup-time.md.
+# collections skip them. See docs/internal/django-startup-time.md.
 gc.disable()
 try:
     application = lifetime_wrapper(self_capture_wrapper(task_run_event_ingest_wrapper(get_asgi_application())))

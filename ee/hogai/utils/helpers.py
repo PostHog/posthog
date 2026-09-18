@@ -42,7 +42,7 @@ from posthog.hogql_queries.ai.team_taxonomy_query_runner import TeamTaxonomyQuer
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import Team, User
 from posthog.settings import EE_AVAILABLE
-from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP
+from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP, is_hidden_from_assistant
 
 from ee.hogai.utils.anthropic import SUPPORTED_ANTHROPIC_BLOCKS
 from ee.hogai.utils.types.base import (
@@ -204,12 +204,14 @@ def _process_events_data(
     user: User,
     limit: int | None = None,
     offset: int | None = None,
+    event_source: EventSource = EventSource.POSTHOG_AI,
 ) -> tuple[list[dict], dict[str, str], bool]:
     """Common logic for processing events and building event data."""
     query = TeamTaxonomyQuery(limit=limit, offset=offset)
     response = TeamTaxonomyQueryRunner(query, team, user=user).run(
         ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS,
-        analytics_props={"source": EventSource.POSTHOG_AI},
+        user=user,
+        analytics_props={"source": event_source},
     )
 
     if not isinstance(response, CachedTeamTaxonomyQueryResponse):
@@ -227,7 +229,7 @@ def _process_events_data(
     ]
     for item in response.results:
         event_def = CORE_FILTER_DEFINITIONS_BY_GROUP.get("events", {}).get(item.event)
-        if event_def and (event_def.get("system") or event_def.get("ignored_in_assistant")):
+        if event_def and is_hidden_from_assistant(event_def):
             continue  # Skip system or ignored events (safety net, already filtered in SQL)
         events.append(item.event)
 
@@ -253,9 +255,7 @@ def _process_events_data(
 
         if event_core_definition := CORE_FILTER_DEFINITIONS_BY_GROUP["events"].get(event_name):
             # Only skip if it's not in context (context events should always be included)
-            if event_name not in context_event_names and (
-                event_core_definition.get("system") or event_core_definition.get("ignored_in_assistant")
-            ):
+            if event_name not in context_event_names and is_hidden_from_assistant(event_core_definition):
                 continue  # Skip irrelevant events but keep events the user has added to the context
             if core_description := _format_core_event_description(event_core_definition):
                 event_data["description"] = core_description
@@ -352,8 +352,11 @@ def format_events_yaml(
     user: User,
     limit: int | None = None,
     offset: int | None = None,
+    event_source: EventSource = EventSource.POSTHOG_AI,
 ) -> str:
-    processed_events, _, has_more = _process_events_data(events_in_context, team, user, limit=limit, offset=offset)
+    processed_events, _, has_more = _process_events_data(
+        events_in_context, team, user, limit=limit, offset=offset, event_source=event_source
+    )
 
     formatted_events = ["events:"]
     any_not_seen_recently = False
@@ -504,14 +507,18 @@ def cast_assistant_query(
         raise ValueError(f"Unsupported query type: {query.kind}")
 
 
-def build_insight_url(team: Team, id: str) -> str:
-    """Build the URL for an insight."""
-    return f"/project/{team.id}/insights/{id}"
+def build_insight_url(id: str) -> str:
+    """Build the URL for an insight.
+
+    Unprefixed by `/project/<id>`: these URLs are handed to the model, which is instructed to omit
+    that prefix, and the app resolves them against the project the user is already in.
+    """
+    return f"/insights/{id}"
 
 
-def build_dashboard_url(team: Team, id: int) -> str:
-    """Build the URL for a dashboard."""
-    return f"/project/{team.id}/dashboard/{id}"
+def build_dashboard_url(id: int) -> str:
+    """Build the URL for a dashboard. Unprefixed, for the same reason as `build_insight_url`."""
+    return f"/dashboard/{id}"
 
 
 def extract_stream_update(update: Any) -> Any:

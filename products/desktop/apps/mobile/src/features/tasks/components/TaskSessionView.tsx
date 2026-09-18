@@ -30,7 +30,12 @@ import type {
   SessionNotificationAttachment,
   TerminalStatus,
 } from "../types";
+import { detectInlineArtifact } from "../utils/inlineArtifacts";
 import { CloudMessageAttachment } from "./CloudMessageAttachment";
+import {
+  InlineCreatedPrCard,
+  InlineUploadedArtifactCard,
+} from "./InlineArtifactCard";
 import { PlanApprovalCard } from "./PlanApprovalCard";
 import { PlanStatusBar } from "./PlanStatusBar";
 import { QuestionCard } from "./QuestionCard";
@@ -56,6 +61,7 @@ interface OptimisticUserMessage {
 interface TaskSessionViewProps {
   events: SessionEvent[];
   taskId?: string;
+  runId?: string;
   pendingPermissions?: Record<string, CloudPendingPermissionRequest>;
   isConnecting?: boolean;
   isThinking?: boolean;
@@ -81,6 +87,7 @@ interface ToolData {
   result?: unknown;
   isAgent?: boolean;
   parentToolCallId?: string;
+  meta?: unknown;
 }
 
 interface ParsedMessage {
@@ -184,6 +191,7 @@ function parseSessionNotification(
           args: update.rawInput,
           isAgent,
           parentToolCallId: meta?.parentToolCallId,
+          meta: update._meta,
         },
       };
     }
@@ -199,6 +207,7 @@ function parseSessionNotification(
           args: update.rawInput,
           result: update.rawOutput,
           parentToolCallId: meta?.parentToolCallId,
+          meta: update._meta,
         },
       };
     }
@@ -804,6 +813,7 @@ function ConnectingIndicator() {
 export function TaskSessionView({
   events,
   taskId,
+  runId,
   pendingPermissions,
   isConnecting,
   isThinking,
@@ -994,19 +1004,37 @@ export function TaskSessionView({
           if (item.toolData.isAgent) {
             return <AgentToolCard item={item} onOpenTask={onOpenTask} />;
           }
-          return (
-            <ToolMessage
-              toolName={item.toolData.toolName}
-              rawToolName={item.toolData.rawToolName}
-              kind={deriveToolKind(
-                item.toolData.rawToolName ?? item.toolData.toolName,
-              )}
-              status={item.toolData.status}
-              args={item.toolData.args}
-              result={item.toolData.result}
-              onOpenTask={onOpenTask}
-            />
-          );
+          {
+            const inline = detectInlineArtifact(item.toolData);
+            if (inline?.kind === "upload") {
+              return (
+                <InlineUploadedArtifactCard
+                  toolData={item.toolData}
+                  taskId={taskId}
+                  runId={runId}
+                  enabled={!!terminalStatus}
+                />
+              );
+            }
+            return (
+              <>
+                <ToolMessage
+                  toolName={item.toolData.toolName}
+                  rawToolName={item.toolData.rawToolName}
+                  kind={deriveToolKind(
+                    item.toolData.rawToolName ?? item.toolData.toolName,
+                  )}
+                  status={item.toolData.status}
+                  args={item.toolData.args}
+                  result={item.toolData.result}
+                  onOpenTask={onOpenTask}
+                />
+                {inline?.kind === "pr" && (
+                  <InlineCreatedPrCard url={inline.url} />
+                )}
+              </>
+            );
+          }
         default:
           return null;
       }
@@ -1017,6 +1045,8 @@ export function TaskSessionView({
       pendingPermissions,
       renderAttachment,
       taskId,
+      runId,
+      terminalStatus,
     ],
   );
 

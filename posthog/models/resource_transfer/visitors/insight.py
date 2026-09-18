@@ -21,6 +21,7 @@ class InsightVisitor(
         "dive_dashboard",
         "dashboard",
         "dashboards",
+        "subscriptions_dashboard_export",
         "short_id",
         "filters_hash",
         "refreshing",
@@ -31,7 +32,7 @@ class InsightVisitor(
 ):
     @classmethod
     def get_model(cls) -> type[models.Model]:
-        from products.product_analytics.backend.models.insight import Insight
+        from products.product_analytics.backend.facade.models import Insight
 
         return Insight
 

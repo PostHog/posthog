@@ -4,7 +4,7 @@ import os
 
 import pytest
 
-from posthog.temporal.ingestion_acceptance_test.config import DEFAULT_LANE, configured_lanes, load_config
+from posthog.temporal.ingestion_acceptance_test.config import DEFAULT_LANE, Config, configured_lanes, load_config
 
 FLAT_ENV = {
     "INGESTION_ACCEPTANCE_TEST_API_HOST": "https://flat.example.com",
@@ -93,3 +93,24 @@ class TestConfiguredLanes:
     def test_parses_lanes(self, clean_env: pytest.MonkeyPatch, raw: str, expected: list[str]) -> None:
         clean_env.setenv("INGESTION_ACCEPTANCE_TEST_LANES", raw)
         assert configured_lanes() == expected
+
+
+class TestEnvironmentName:
+    @pytest.mark.parametrize(
+        "api_host, environment, expected_name, expected_grafana",
+        [
+            ("https://us.posthog.com", None, "prod-us", "https://grafana.prod-us.posthog.dev"),
+            ("https://eu.posthog.com/", None, "prod-eu", "https://grafana.prod-eu.posthog.dev"),
+            ("https://app.dev.posthog.dev", None, "dev", "https://grafana.dev.posthog.dev"),
+            ("https://us.posthog.com", "staging", "staging", None),
+        ],
+        ids=["us", "eu", "dev", "explicit_override"],
+    )
+    def test_derives_environment_and_grafana_url(
+        self, api_host: str, environment: str | None, expected_name: str, expected_grafana: str | None
+    ) -> None:
+        config = Config(api_host=api_host, project_api_key="phc_x", team_id=1, environment=environment)
+
+        assert config.environment_name == expected_name
+        assert config.grafana_base_url == expected_grafana
+        assert config.to_safe_dict()["environment"] == expected_name

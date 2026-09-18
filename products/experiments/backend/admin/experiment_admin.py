@@ -1,21 +1,31 @@
 import copy
+from uuid import UUID
 
 from django.contrib import admin, messages
+from django.core.exceptions import PermissionDenied
 from django.db import transaction
 from django.forms import ModelForm
+from django.http import HttpRequest, HttpResponseRedirect
 from django.shortcuts import redirect
 from django.urls import path, reverse
 from django.utils.html import format_html
 
+from posthog.models.organization import Organization
 from posthog.models.utils import convert_legacy_metrics
 
 from products.cohorts.backend.models.cohort import Cohort
+from products.experiments.backend.admin.recalculation_panel import (
+    build_recalculation_panel,
+    start_recalculation_for_experiment,
+)
 from products.experiments.backend.models.experiment import (
     Experiment,
     ExperimentHoldout,
+    ExperimentMetricsRecalculation,
     ExperimentSavedMetric,
     ExperimentToSavedMetric,
 )
+from products.experiments.backend.recalculation import get_latest_recalculation
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 
@@ -120,6 +130,51 @@ def fix_metric_properties(metric):
     return metric
 
 
+class ExperimentStatusFilter(admin.SimpleListFilter):
+    title = "status"
+    parameter_name = "status"
+
+    def lookups(self, request, model_admin):
+        return [(status.value, status.label) for status in Experiment.Status]
+
+    def queryset(self, request, queryset):
+        # Mirrors Experiment.computed_status, so rows whose stored status is still null match too.
+        match self.value():
+            case Experiment.Status.DRAFT:
+                return queryset.filter(start_date__isnull=True)
+            case Experiment.Status.RUNNING:
+                return queryset.filter(start_date__isnull=False, end_date__isnull=True)
+            case Experiment.Status.STOPPED:
+                return queryset.filter(start_date__isnull=False, end_date__isnull=False)
+        return queryset
+
+
+class OrganizationFilter(admin.SimpleListFilter):
+    # Only the organization named in the URL is offered, because a sidebar that lists every
+    # organization loads them all on each changelist render. The organization column sets the URL.
+    title = "organization"
+    parameter_name = "organization"
+
+    def _organization_id(self) -> UUID | None:
+        try:
+            return UUID(self.value() or "")
+        except ValueError:
+            return None
+
+    def lookups(self, request, model_admin):
+        organization_id = self._organization_id()
+        if organization_id is None:
+            return []
+        organization = Organization.objects.filter(pk=organization_id).only("name").first()
+        return [(str(organization_id), organization.name if organization else str(organization_id))]
+
+    def queryset(self, request, queryset):
+        organization_id = self._organization_id()
+        if organization_id is None:
+            return queryset
+        return queryset.filter(team__organization_id=organization_id)
+
+
 @admin.register(Experiment)
 class ExperimentAdmin(admin.ModelAdmin):
     form = ExperimentAdminForm
@@ -130,11 +185,13 @@ class ExperimentAdmin(admin.ModelAdmin):
         "engine",
         "migrated_links",
         "team_link",
+        "organization_link",
         "created_at",
         "created_by",
     )
     list_display_links = ("id", "name")
     list_select_related = ("team", "team__organization")
+    list_filter = (ExperimentStatusFilter, "archived", OrganizationFilter)
     search_fields = ("id", "name", "team__name", "team__organization__name")
     autocomplete_fields = ("team", "created_by")
     ordering = ("-created_at",)
@@ -146,6 +203,16 @@ class ExperimentAdmin(admin.ModelAdmin):
             '<a href="{}">{}</a>',
             reverse("admin:posthog_team_change", args=[experiment.team.pk]),
             experiment.team.name,
+        )
+
+    @admin.display(description="Organization")
+    def organization_link(self, experiment: Experiment):
+        organization = experiment.team.organization
+        return format_html(
+            '<a href="{}?organization={}" title="Show only this organization\'s experiments">{}</a>',
+            reverse("admin:experiments_experiment_changelist"),
+            organization.pk,
+            organization.name,
         )
 
     @admin.display(description="Status")
@@ -229,6 +296,14 @@ class ExperimentAdmin(admin.ModelAdmin):
         extra_context["show_migration"] = has_legacy_metric(all_metrics) or has_legacy_shared_metric
         extra_context["can_migrate"] = not has_unmigrated_legacy_shared_metric
 
+        latest_recalculation = get_latest_recalculation(obj)
+        extra_context["recalculation_panel"] = (
+            build_recalculation_panel(latest_recalculation) if latest_recalculation is not None else None
+        )
+        # request_recalculation rejects an experiment with no start_date, so a draft gets no button.
+        extra_context["can_start_recalculation"] = obj.is_launched and self.has_change_permission(request, obj)
+        extra_context["start_recalculation_url"] = reverse("admin:experiment_start_recalculation", args=[obj.pk])
+
         return super().change_view(request, object_id, form_url, extra_context=extra_context)
 
     def get_urls(self):
@@ -244,8 +319,31 @@ class ExperimentAdmin(admin.ModelAdmin):
                 self.admin_site.admin_view(self.fix_malformed_properties),
                 name="experiment_fix_properties",
             ),
+            path(
+                "<path:object_id>/start-recalculation/",
+                self.admin_site.admin_view(self.start_recalculation_view),
+                name="experiment_start_recalculation",
+            ),
         ]
         return custom_urls + urls
+
+    def start_recalculation_view(self, request: HttpRequest, object_id: str) -> HttpResponseRedirect:
+        experiment = self.get_object(request, object_id)
+        if experiment is None:
+            messages.error(request, "Experiment not found")
+            return HttpResponseRedirect(reverse("admin:experiments_experiment_changelist"))
+
+        # admin_view only enforces is_staff; a view-only staff user must not be able to start a run.
+        if not self.has_change_permission(request, experiment):
+            raise PermissionDenied
+
+        change_url = reverse("admin:experiments_experiment_change", args=[experiment.pk])
+        if request.method != "POST":
+            return HttpResponseRedirect(change_url)
+
+        return start_recalculation_for_experiment(
+            request, experiment, trigger=ExperimentMetricsRecalculation.Trigger.MANUAL, fallback_url=change_url
+        )
 
     def migrate_experiment(self, request, object_id):
         try:

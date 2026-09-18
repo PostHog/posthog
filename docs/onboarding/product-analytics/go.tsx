@@ -2,7 +2,7 @@ import { OnboardingComponentsContext, createInstallation } from 'scenes/onboardi
 
 import { StepDefinition } from '../steps'
 
-export const getGoSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
+export const getGoInstallSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
     const { CodeBlock, Markdown, dedent } = ctx
 
     return [
@@ -55,18 +55,24 @@ export const getGoSteps = (ctx: OnboardingComponentsContext): StepDefinition[] =
                 </>
             ),
         },
-        {
-            title: 'Send events',
-            badge: 'recommended',
-            content: (
-                <>
-                    <Markdown>Once installed, you can manually send events to test your integration:</Markdown>
-                    <CodeBlock
-                        blocks={[
-                            {
-                                language: 'go',
-                                file: 'Go',
-                                code: dedent`
+    ]
+}
+
+export const getGoEventStep = (ctx: OnboardingComponentsContext): StepDefinition => {
+    const { CodeBlock, Markdown, dedent } = ctx
+
+    return {
+        title: 'Send events',
+        badge: 'recommended',
+        content: (
+            <>
+                <Markdown>Once installed, you can manually send events to test your integration:</Markdown>
+                <CodeBlock
+                    blocks={[
+                        {
+                            language: 'go',
+                            file: 'Go',
+                            code: dedent`
                                 client.Enqueue(posthog.Capture{
                                     DistinctId: "user_123",
                                     Event: "button_clicked",
@@ -74,13 +80,17 @@ export const getGoSteps = (ctx: OnboardingComponentsContext): StepDefinition[] =
                                         Set("button_name", "signup"),
                                 })
                             `,
-                            },
-                        ]}
-                    />
-                </>
-            ),
-        },
-    ]
+                        },
+                    ]}
+                />
+            </>
+        ),
+    }
 }
+
+export const getGoSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => [
+    ...getGoInstallSteps(ctx),
+    getGoEventStep(ctx),
+]
 
 export const GoInstallation = createInstallation(getGoSteps)

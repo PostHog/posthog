@@ -1,9 +1,9 @@
 import json
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from unittest import mock
 
 from parameterized import parameterized
@@ -14,6 +14,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.clockodo.c
     ClockodoResumeConfig,
     _endpoint_params,
     _format_z,
+    _work_time_windows,
     clockodo_source,
     validate_credentials,
 )
@@ -23,6 +24,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.clockodo.s
     CLOCKODO_ENDPOINTS_V2,
     CLOCKODO_SUPPORTED_VERSIONS,
     ENDPOINTS,
+    USER_REPORTS_FIRST_YEAR,
+    WORK_TIMES_FIRST_DATE,
+    WORK_TIMES_WINDOW_DAYS,
     endpoints_for_version,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import APIKeyAuth
@@ -110,7 +114,7 @@ class TestFormatZ:
 
 
 class TestEndpointParams:
-    @freeze_time("2026-06-29T12:00:00Z")
+    @time_machine.travel("2026-06-29T12:00:00Z", tick=False)
     def test_entries_requires_time_window(self) -> None:
         params = _endpoint_params("entries", CLOCKODO_ENDPOINTS_V2["entries"])
         # Listing entries without a time range is rejected by the API.
@@ -223,7 +227,7 @@ class TestPagination:
         manager.save_state.assert_not_called()
 
     @mock.patch(CLIENT_SESSION_PATCH)
-    @freeze_time("2026-06-29T12:00:00Z")
+    @time_machine.travel("2026-06-29T12:00:00Z", tick=False)
     def test_entries_sends_time_window(self, MockSession) -> None:
         session = MockSession.return_value
         params, _auths, _urls = _wire(session, [_response([{"id": 1}], data_key="entries", count_pages=1)])
@@ -315,6 +319,129 @@ class TestVersionDispatch:
         assert [r["id"] for r in rows] == [1, 2]
         assert params[0]["page"] == 1
         assert params[1]["page"] == 2
+
+
+class TestWorkTimeWindows:
+    @time_machine.travel("2026-06-29T12:00:00Z", tick=False)
+    def test_windows_tile_the_reported_period_without_gaps(self) -> None:
+        windows = list(_work_time_windows(date(2026, 6, 29)))
+
+        # A gap between windows silently drops the attendance days inside it, an overlap
+        # re-fetches them, and a window longer than the API's page would truncate one.
+        assert windows[0].date_since == WORK_TIMES_FIRST_DATE
+        assert windows[-1].date_until == date(2026, 6, 29)
+        for window, next_window in zip(windows, windows[1:]):
+            assert next_window.date_since == window.date_until + timedelta(days=1)
+        for window in windows:
+            assert window.date_since <= window.date_until
+            assert (window.date_until - window.date_since).days < WORK_TIMES_WINDOW_DAYS
+
+
+class TestWorkTimesSweep:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    @time_machine.travel("2024-06-29T12:00:00Z", tick=False)
+    def test_fans_out_over_co_workers_and_windows(self, MockSession) -> None:
+        session = MockSession.return_value
+        params, _auths, urls = _wire(
+            session,
+            [
+                _response([{"id": 7}, {"id": 9}], data_key="users"),
+                _response([{"users_id": 7, "date": "2024-06-03"}], data_key="work_time_days"),
+                _response([{"users_id": 9, "date": "2024-06-04"}], data_key="work_time_days"),
+            ],
+        )
+
+        rows = _rows(_source("work_times", _make_manager()))
+
+        # The endpoint reaches one co-worker at a time, so the co-worker list is the only way
+        # to cover the account.
+        assert "/api/v2/users" in urls[0]
+        assert [p.get("users_id") for p in params[1:]] == [7, 9]
+        assert all(p["date_since"] == WORK_TIMES_FIRST_DATE.isoformat() for p in params[1:])
+        assert all(p["date_until"] == "2024-06-29" for p in params[1:])
+        assert [(r["users_id"], r["date"]) for r in rows] == [(7, "2024-06-03"), (9, "2024-06-04")]
+
+    @parameterized.expand(
+        [
+            (CLOCKODO_API_VERSION_V2, "users", "/api/v2/users"),
+            (CLOCKODO_API_VERSION_V3, "data", "/api/v3/users"),
+        ]
+    )
+    @mock.patch(CLIENT_SESSION_PATCH)
+    @time_machine.travel("2024-06-29T12:00:00Z", tick=False)
+    def test_co_worker_list_follows_the_pinned_version(
+        self, api_version: str, users_data_key: str, expected_users_path: str, MockSession
+    ) -> None:
+        session = MockSession.return_value
+        _params, _auths, urls = _wire(
+            session,
+            [
+                _response([{"id": 7}], data_key=users_data_key, count_pages=1),
+                _response([{"users_id": 7, "date": "2024-06-03"}], data_key="work_time_days"),
+            ],
+        )
+
+        rows = _rows(_source("work_times", _make_manager(), api_version=api_version))
+
+        # A v2 path or envelope under a v3 pin reaches a decommissioned endpoint or yields no
+        # co-workers, which would sweep no work times at all.
+        assert expected_users_path in urls[0]
+        assert "/api/v2/workTimes" in urls[1]
+        assert [r["users_id"] for r in rows] == [7]
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    @time_machine.travel("2024-06-29T12:00:00Z", tick=False)
+    def test_no_co_workers_sweeps_nothing(self, MockSession) -> None:
+        session = MockSession.return_value
+        _wire(session, [_response([], data_key="users")])
+
+        assert _rows(_source("work_times", _make_manager())) == []
+        assert session.send.call_count == 1
+
+
+class TestUserReportsSweep:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    @time_machine.travel("2026-06-29T12:00:00Z", tick=False)
+    def test_walks_every_year_and_stamps_it_on_each_row(self, MockSession) -> None:
+        session = MockSession.return_value
+        years = list(range(USER_REPORTS_FIRST_YEAR, 2027))
+        params, _auths, _urls = _wire(
+            session,
+            [_response([{"users_id": 3}], data_key="userreports") for _ in years],
+        )
+
+        rows = _rows(_source("user_reports", _make_manager()))
+
+        # The API requires an explicit year and returns it on no row, so without the stamp
+        # every year would merge onto the same primary key.
+        assert [p["year"] for p in params] == years
+        assert [r["year"] for r in rows] == years
+        assert {r["users_id"] for r in rows} == {3}
+        # Year level only — the deeper report types nest month, week and day arrays per row.
+        assert {p["type"] for p in params} == {0}
+
+
+class TestSinglePageEndpoints:
+    @parameterized.expand(
+        [
+            ("absences", "data", "/api/v4/absences"),
+            ("target_hours", "targethours", "/api/targethours"),
+        ]
+    )
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_reads_the_whole_collection_in_one_request(
+        self, endpoint: str, data_key: str, expected_path: str, MockSession
+    ) -> None:
+        session = MockSession.return_value
+        params, _auths, urls = _wire(session, [_response([{"id": 1}, {"id": 2}], data_key=data_key)])
+
+        rows = _rows(_source(endpoint, _make_manager()))
+
+        assert expected_path in urls[0]
+        assert session.send.call_count == 1
+        # Neither endpoint documents a page param, and neither returns a paging block.
+        assert "page" not in params[0]
+        assert [r["id"] for r in rows] == [1, 2]
 
 
 class TestValidateCredentials:

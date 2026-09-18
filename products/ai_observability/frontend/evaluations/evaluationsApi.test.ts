@@ -38,6 +38,7 @@ const evaluationApi = (id: string): EvaluationApi => ({
         hedgehog_config: null,
     },
     deleted: false,
+    user_access_level: 'editor',
 })
 
 const evaluationReportApi = (id: string, evaluation: string): EvaluationReportApi => ({

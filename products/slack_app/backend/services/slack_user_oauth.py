@@ -30,9 +30,9 @@ from django.core import signing
 
 import structlog
 from pydantic import BaseModel, ValidationError
-from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError, SlackClientError
 
+from posthog.egress.slack.client import SlackWebClient as WebClient
 from posthog.models.instance_setting import get_instance_settings
 from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
@@ -307,7 +307,7 @@ def exchange_code(*, code: str, redirect_uri: str) -> SlackIdentity:
     """
     client_id, client_secret = _credentials()
     try:
-        token_response = WebClient().openid_connect_token(
+        token_response = WebClient(source="slack_user_oauth", app_id="posthog").openid_connect_token(
             client_id=client_id,
             client_secret=client_secret,
             code=code,
@@ -325,7 +325,7 @@ def exchange_code(*, code: str, redirect_uri: str) -> SlackIdentity:
         raise SlackUserOAuthError("Slack OIDC token response missing access_token")
 
     try:
-        userinfo = WebClient(token=user_token).openid_connect_userInfo()
+        userinfo = WebClient(token=user_token, source="slack_user_oauth", app_id="posthog").openid_connect_userInfo()
     except SlackApiError as exc:
         error = exc.response.get("error") if exc.response else None
         logger.warning("slack_app_user_link_oidc_userinfo_failed", error=error)

@@ -1,5 +1,71 @@
 # Troubleshooting
 
+## Conversation is too large to continue
+
+A request can exceed the size limit when a conversation contains large images or tool output.
+The app keeps the session connected and reports the size error instead of restarting the agent and sending the same request again.
+Restarting the session does not reduce the request size.
+
+Start a new task with a short text summary of the work.
+Do not copy the old images or full tool output into the new task.
+
+## Completion sounds when resuming a task
+
+Resuming an idle sandbox does not trigger a completion sound or notification.
+For Pi sessions, completion notifications require an active turn and stay silent during restart setup.
+After a cloud restart, the server must confirm the resent message before a completion can notify.
+Returning to the task while the message is pending does not trigger a completion notification.
+Delayed completion events from restart setup stay silent while the message is pending.
+If you stop a pending message, a successful cancellation clears the running state even if the message never appears in the conversation.
+A completed reply or a request for input still follows your notification settings.
+
+## Codex asks for the same permissions again
+
+Codex Auto keeps approvals for actions outside its allowed scope.
+On macOS, it allows workspace writes but restricts network access.
+Auto is not Full access.
+These settings apply to all GPT models in the Codex adapter.
+
+Choose **Allow these permissions for this session** to reuse a permission grant across turns.
+**Allow for this turn** does not grant access for later turns.
+Both choices grant only the permissions shown in the request.
+
+For network approvals, Codex can offer an option to allow or block a host for future requests.
+The desktop app shows these options only when Codex supplies them and returns the selected decision unchanged.
+Codex owns rule storage and enforcement; the desktop app does not create a separate allowlist.
+
+These choices follow the native Codex 0.144.0 approval dialog.
+They preserve the current session permission mode and do not enable automatic approval review or remove sandbox limits.
+Compare clients with the same workspace, permission settings, saved rules, and approval reviewer.
+
+## The app made a sound and nothing was waiting
+
+Every notification writes one line before anything rings, at info level, so it is in packaged builds too. The log file is `~/.posthog-code/logs/main.log` (`logs-dev` for a dev build, `logs-test` for a test build).
+
+```bash
+grep -E "Notification|Playing completion sound|Speech notification" ~/.posthog-code/logs/main.log | tail -20
+```
+
+Read the fields in this order:
+
+- `reason` — what raised it: `task_completed`, `task_needs_input`, `canvas_generation`, `image_build`, `error`, `settings_test`.
+- `context.trigger` — for task notifications, the exact code path: a local prompt response, a cloud turn complete, or a local, cloud or pi permission request.
+- `channel` — `native` (app unfocused), `toast` (focused, looking elsewhere) or `suppress` (looking at the target, so nothing rings).
+- `soundPlayed` — whether the app played its own completion sound. A following `Completion sound failed to play` warning means it did not reach the speakers after all.
+- `osChimePlayed` — whether the operating system rang its own notification chime instead. This is what happens when the chosen sound is `none` or no longer resolves, so a `soundPlayed: false` line can still be the source of a noise.
+- `resolvedSound` on the `Playing completion sound` line — the concrete sound, which is the only way to identify one of the `random-*` modes. A `reason: settings_preview` on that line is the user pressing preview in settings, not a notification.
+- `target` and `viewingTarget` — the task or canvas the notification is about, and the one on screen. Equal targets are what makes `channel` suppress.
+
+The line carries no titles or message text on purpose, so identify the notification from `reason` and `target` rather than from what it said.
+
+A sound with no notification the user was waiting on shows up as a `reason`/`trigger` pair that does not match what they were doing. Take the task id from `target` and the `context.taskRunId` from the line and follow that run.
+
+## A cloud task asks for GitHub access
+
+Cloud tasks and investigations use GitHub to read the selected repository and keep later background runs current. Connect GitHub from the prompt in the task.
+
+If your organization needs an owner to approve the PostHog app, copy the access request from the prompt and send it to the owner. When the same repository is registered as a local folder, you can run the investigation against that local checkout. The result is a point-in-time view and can become stale after the run.
+
 ## Black screen during development
 
 If the app launches but renders a blank/black screen, it's almost always a stale Vite cache.

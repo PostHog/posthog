@@ -16,10 +16,8 @@ The grain is the CI run, not the span and not the run attempt:
 - Every attempt of a run tests the same commit, so attempts are repeated trials: a run that both
   failed and passed a test has proven it nondeterministic, whichever attempt failed first. That is
   what ``recovered_in_run`` means. Recovery must happen in the same stable matrix job as the failure;
-  a pass under a different configuration proves nothing. Backend CI runs pytest without ``--reruns``
-  deliberately (failures stay visible instead of being retried away), so a "re-run failed jobs"
-  recovery is where that proof comes from; ``rerun_passed`` is the same proof from the handful of
-  tests hand-marked ``@pytest.mark.flaky(reruns=N)``.
+  a pass under a different configuration proves nothing. ``rerun_passed`` is the same proof from
+  pytest's in-process retry, whose count survives in JUnit even when the final outcome is a pass.
 
 Failures with no recovery prove nothing about determinism. This surface answers how much a failing
 test costs us, so unproven failures are ranked by blast radius and never called flaky.
@@ -29,6 +27,7 @@ from datetime import datetime
 
 from posthog.hogql import ast
 
+from products.engineering_analytics.backend.facade.contracts import UNOWNED_TEAM
 from products.engineering_analytics.backend.logic.merge_queue import source_pr_string_expr
 
 # On a merge-queue gate run the emitter stamps ``ci.pr_number`` from the webhook payload, which names
@@ -50,9 +49,6 @@ SIGNAL_OUTCOMES = ["failed", "error", "rerun_passed", "xfailed"]
 PYTEST_CI_SERVICE_NAME = "ci-backend"
 JEST_CI_SERVICE_NAME = "ci-frontend"
 CI_SERVICE_NAMES = [PYTEST_CI_SERVICE_NAME, JEST_CI_SERVICE_NAME]
-
-# Spans emitted before the owner stamp existed (or from paths with no owner) group here.
-UNOWNED_TEAM = "unowned"
 
 
 _RUN_EVIDENCE = """
@@ -152,7 +148,13 @@ _SCAN_TEMPLATE = """
         name AS nodeid,
         attributes['test.selector'] AS selector,
         attributes['test.outcome'] AS outcome,
-        coalesce(nullIf(attributes['test.owner_team'], ''), {unowned_team}) AS owner_team,
+        -- An '@handle' stamp is a person from an owners.yaml first slot, not a team; older
+        -- spans carry them, so fold them into the unowned bucket instead of minting a row.
+        if(
+            startsWith(coalesce(attributes['test.owner_team'], ''), '@'),
+            {unowned_team},
+            coalesce(nullIf(attributes['test.owner_team'], ''), {unowned_team})
+        ) AS owner_team,
         if(__QUEUE_PR__ != '', __QUEUE_PR__, resource_attributes['ci.pr_number']) AS pr_number,
         resource_attributes['ci.branch'] AS branch,
         -- The emitter always stamps ci.run_id; the trace_id fallback (one trace per job) keeps an

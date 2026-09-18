@@ -1,6 +1,6 @@
-import type { AssistantMessage, Message } from "@earendil-works/pi-ai";
+import type { AssistantMessage, Message, Usage } from "@earendil-works/pi-ai";
 import type { JsonAgentSessionEvent } from "@earendil-works/pi-coding-agent";
-import type { AgentConversationEvent } from "@posthog/shared";
+import type { AgentConversationEvent, AgentTurnUsage } from "@posthog/shared";
 import { createPiMessageTranslator } from "./translatePiMessage";
 
 type AgentMessage = Extract<
@@ -9,6 +9,65 @@ type AgentMessage = Extract<
 >["message"];
 
 const utf8Encoder = new TextEncoder();
+
+interface TurnUsage {
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
+  reasoningTokens: number | undefined;
+  totalTokens: number;
+}
+
+function emptyTurnUsage(): TurnUsage {
+  return {
+    inputTokens: 0,
+    outputTokens: 0,
+    cacheReadTokens: 0,
+    cacheWriteTokens: 0,
+    reasoningTokens: undefined,
+    totalTokens: 0,
+  };
+}
+
+function addBilledUsage(totals: TurnUsage, usage: Usage): void {
+  totals.inputTokens += usage.input;
+  totals.outputTokens += usage.output;
+  totals.cacheReadTokens += usage.cacheRead;
+  totals.cacheWriteTokens += usage.cacheWrite;
+  totals.totalTokens += usage.totalTokens;
+  if (usage.reasoning !== undefined) {
+    totals.reasoningTokens = (totals.reasoningTokens ?? 0) + usage.reasoning;
+  }
+}
+
+function contextTokensOf(message: AssistantMessage): number | null {
+  if (message.stopReason === "error" || message.stopReason === "aborted") {
+    return null;
+  }
+  const { usage } = message;
+  const tokens =
+    usage.totalTokens ||
+    usage.input + usage.output + usage.cacheRead + usage.cacheWrite;
+  return tokens > 0 ? tokens : null;
+}
+
+function toAgentTurnUsage(
+  totals: TurnUsage,
+  contextTokens: number | null,
+  contextWindow: number | undefined,
+): AgentTurnUsage {
+  return {
+    inputTokens: totals.inputTokens,
+    outputTokens: totals.outputTokens,
+    cachedReadTokens: totals.cacheReadTokens,
+    cachedWriteTokens: totals.cacheWriteTokens,
+    thoughtTokens: totals.reasoningTokens,
+    totalTokens: totals.totalTokens,
+    contextTokens,
+    contextWindow,
+  };
+}
 
 function isMessage(message: AgentMessage): message is Message {
   return (
@@ -94,6 +153,12 @@ function isAssistantMessage(
   return message.role === "assistant";
 }
 
+function normalizeStopReason(
+  stopReason: string | undefined,
+): string | undefined {
+  return stopReason === "aborted" ? "cancelled" : stopReason;
+}
+
 export interface PiDirectBashResult {
   cancelled: boolean;
   exitCode: number | null;
@@ -107,6 +172,8 @@ interface ActiveAssistantStream {
 }
 
 export interface PiConversationTranslator {
+  markTurnInterrupted(): void;
+  clearTurnInterrupted(): void;
   beginDirectBash(command: string): AgentConversationEvent[];
   completeDirectBash(result: PiDirectBashResult): AgentConversationEvent[];
   failDirectBash(message: string): AgentConversationEvent[];
@@ -114,14 +181,19 @@ export interface PiConversationTranslator {
   translateEvent(event: JsonAgentSessionEvent): AgentConversationEvent[];
 }
 
-export function createPiConversationTranslator(): PiConversationTranslator {
+export function createPiConversationTranslator(
+  getContextWindow?: () => number | undefined,
+): PiConversationTranslator {
   const messageTranslator = createPiMessageTranslator();
   let historyTurnActive = false;
   let activeAssistantStream: ActiveAssistantStream | undefined;
   let latestRuntimeTimestamp = 0;
   let latestConversationTimestamp = 0;
+  let turnUsage = emptyTurnUsage();
+  let contextTokens: number | null = null;
   let pendingRuntimeError: AgentConversationEvent | undefined;
   let settledStopReason: string | undefined;
+  let turnInterrupted = false;
   let retrying = false;
   let directBashSequence = 0;
 
@@ -259,7 +331,7 @@ export function createPiConversationTranslator(): PiConversationTranslator {
       events.push({
         type: "turn_completed",
         timestamp: message.timestamp,
-        stopReason: message.stopReason,
+        stopReason: normalizeStopReason(message.stopReason),
       });
       historyTurnActive = false;
     }
@@ -408,11 +480,15 @@ export function createPiConversationTranslator(): PiConversationTranslator {
     }
 
     if (event.type === "tool_execution_end") {
+      const interruptedToolFailure = turnInterrupted && event.isError;
       return messageTranslator.translateToolExecutionEnd(
         event.toolCallId,
         event.toolName,
-        event.result,
+        interruptedToolFailure
+          ? { content: [], details: undefined }
+          : event.result,
         event.isError,
+        interruptedToolFailure,
         latestRuntimeTimestamp,
       );
     }
@@ -487,10 +563,15 @@ export function createPiConversationTranslator(): PiConversationTranslator {
       }
 
       if (isAssistantMessage(event.message)) {
-        settledStopReason = event.message.stopReason;
+        settledStopReason = normalizeStopReason(event.message.stopReason);
       }
 
-      const events = messageTranslator.translate(event.message);
+      const events = messageTranslator.translate(
+        event.message,
+        turnInterrupted &&
+          event.message.role === "toolResult" &&
+          event.message.isError,
+      );
       const runtimeError = events.find(
         (translated) => translated.type === "runtime_error",
       );
@@ -498,18 +579,28 @@ export function createPiConversationTranslator(): PiConversationTranslator {
         pendingRuntimeError = runtimeError;
       }
 
-      const visibleEvents = events.filter(
+      let visibleEvents: AgentConversationEvent[] = events.filter(
         (translated) => translated.type !== "runtime_error",
       );
-      if (event.message.role !== "assistant" || !assistantStream) {
+      if (event.message.role !== "assistant") {
         return visibleEvents;
       }
 
-      return reconcileAssistantContent(
-        event.message,
-        visibleEvents,
-        assistantStream,
-      );
+      if (assistantStream) {
+        visibleEvents = reconcileAssistantContent(
+          event.message,
+          visibleEvents,
+          assistantStream,
+        );
+      }
+
+      addBilledUsage(turnUsage, event.message.usage);
+      const messageContextTokens = contextTokensOf(event.message);
+      if (messageContextTokens !== null) {
+        contextTokens = messageContextTokens;
+      }
+
+      return visibleEvents;
     }
 
     if (event.type === "agent_end") {
@@ -583,6 +674,11 @@ export function createPiConversationTranslator(): PiConversationTranslator {
         ];
       }
 
+      if (event.result?.usage) {
+        addBilledUsage(turnUsage, event.result.usage);
+      }
+      contextTokens = null;
+
       const timestamp = event.result?.summary
         ? Math.max(Date.now(), latestConversationTimestamp + 1)
         : latestConversationTimestamp;
@@ -617,9 +713,25 @@ export function createPiConversationTranslator(): PiConversationTranslator {
       const stopReason = settledStopReason;
       latestRuntimeTimestamp = 0;
       settledStopReason = undefined;
+      turnInterrupted = false;
+      const billed = turnUsage;
+      turnUsage = emptyTurnUsage();
+      const totalTokens = billed.totalTokens;
+      const usage =
+        billed.totalTokens > 0
+          ? toAgentTurnUsage(billed, contextTokens, getContextWindow?.())
+          : undefined;
 
       return hadRuntimeActivity
-        ? [{ type: "turn_completed", timestamp, stopReason }]
+        ? [
+            {
+              type: "turn_completed",
+              timestamp,
+              stopReason,
+              ...(totalTokens > 0 ? { totalTokens } : {}),
+              ...(usage ? { usage } : {}),
+            },
+          ]
         : [];
     }
 
@@ -627,6 +739,12 @@ export function createPiConversationTranslator(): PiConversationTranslator {
   }
 
   return {
+    markTurnInterrupted(): void {
+      turnInterrupted = true;
+    },
+    clearTurnInterrupted(): void {
+      turnInterrupted = false;
+    },
     beginDirectBash,
     completeDirectBash,
     failDirectBash,

@@ -625,6 +625,29 @@ class TestConversation(APIBaseTest):
             self.assertEqual(results[1]["id"], str(conversation1.id))
             self.assertEqual(results[1]["title"], "Older conversation")
 
+    def test_list_pagination_is_stable_when_updated_at_ties(self):
+        conversations = [
+            Conversation.objects.create(
+                user=self.user, team=self.team, title=f"Conversation {i}", type=Conversation.Type.ASSISTANT
+            )
+            for i in range(4)
+        ]
+        Conversation.objects.filter(id__in=[conversation.id for conversation in conversations]).update(
+            updated_at=timezone.now()
+        )
+
+        with patch("langgraph.graph.state.CompiledStateGraph.aget_state", new_callable=AsyncMock):
+            first_page = self.client.get(f"/api/environments/{self.team.id}/conversations/?limit=2")
+            second_page = self.client.get(f"/api/environments/{self.team.id}/conversations/?limit=2&offset=2")
+
+        self.assertEqual(first_page.status_code, status.HTTP_200_OK)
+        self.assertEqual(second_page.status_code, status.HTTP_200_OK)
+
+        paginated_ids = [result["id"] for result in first_page.json()["results"]] + [
+            result["id"] for result in second_page.json()["results"]
+        ]
+        self.assertEqual(paginated_ids, sorted((str(conversation.id) for conversation in conversations), reverse=True))
+
     @override_settings(DEBUG=False)
     def test_get_throttles_returns_empty_for_create_action(self):
         """Test that get_throttles returns empty list for create action (throttling is handled in check_throttles)."""

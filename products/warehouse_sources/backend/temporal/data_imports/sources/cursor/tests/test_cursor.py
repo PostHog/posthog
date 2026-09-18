@@ -116,20 +116,28 @@ class TestCursorTransport:
     def test_has_next_page_across_response_shapes(self, data, page, items_count, expected):
         assert _has_next_page(data, page, items_count, 100) is expected
 
-    @parameterized.expand([(200, True), (401, False), (403, False)])
+    @parameterized.expand(
+        [
+            (200, (True, None)),
+            (401, (False, cursor.KEY_REJECTED_MESSAGE)),
+            (403, (False, cursor.KEY_FORBIDDEN_MESSAGE)),
+            # A Cursor-side failure leaves the key unjudged, so it must not be blamed on the key.
+            (500, (False, cursor.PROBE_FAILED_MESSAGE)),
+        ]
+    )
     def test_validate_credentials_maps_status(self, status_code, expected):
         session = mock.Mock()
         session.get.return_value = _response(status_code)
 
         with mock.patch.object(cursor, "make_tracked_session", return_value=session):
-            assert validate_credentials("key_test") is expected
+            assert validate_credentials("key_test") == expected
 
-    def test_validate_credentials_false_on_connection_error(self):
+    def test_validate_credentials_does_not_blame_the_key_when_cursor_is_unreachable(self):
         session = mock.Mock()
         session.get.side_effect = requests.ConnectionError("boom")
 
         with mock.patch.object(cursor, "make_tracked_session", return_value=session):
-            assert validate_credentials("key_test") is False
+            assert validate_credentials("key_test") == (False, cursor.PROBE_FAILED_MESSAGE)
 
     def test_session_masks_credentials_and_sends_basic_auth(self):
         # The tracked transport logs and samples requests; without redaction the raw key and the

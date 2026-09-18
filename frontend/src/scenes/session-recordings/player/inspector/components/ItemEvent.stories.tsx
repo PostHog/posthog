@@ -226,6 +226,35 @@ export const WebVitalsEvent: Story = {
     },
 }
 
+// captured web vitals properties reach us with a missing or non-numeric `value`, so the
+// metric name and rating have to render on their own
+export const WebVitalsEventWithUnusableValues: Story = {
+    render: renderBasic as any,
+    args: {
+        item: makeItem(
+            {},
+            { event: '$web_vitals' },
+            {
+                $lib: 'web',
+                $current_url: 'http://localhost:8000/project/1/activity/explore',
+                $web_vitals_INP_event: {
+                    name: 'INP',
+                    rating: 'good',
+                    id: 'v4-1719484470693-6845621238957',
+                    timestamp: 1719484490693,
+                },
+                $web_vitals_CLS_event: {
+                    name: 'CLS',
+                    value: '0.106',
+                    rating: 'needs-improvement',
+                    id: 'v4-1719484470710-6118725051157',
+                    timestamp: 1719484490693,
+                },
+            }
+        ),
+    },
+}
+
 export const GroupIdentifyEvent: Story = {
     render: renderBasic as any,
     args: {

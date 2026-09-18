@@ -5,6 +5,9 @@ use std::time::Duration;
 use common_kafka::config::KafkaConfig;
 use envconfig::Envconfig;
 use personhog_coordination::authority::AuthorityClock;
+use personhog_coordination::pod::{
+    PodConfig, DRAIN_SETUP_BOUND, REVOKE_TIMEOUT, SHUTDOWN_FENCE_BOUND,
+};
 
 #[derive(Envconfig, Clone)]
 pub struct Config {
@@ -44,6 +47,13 @@ pub struct Config {
     /// propagates still ride the window.
     #[envconfig(default = "32")]
     pub fencing_window_max_writes: usize,
+
+    /// Transactional producers per partition; writes rotate across them.
+    /// A takeover fences one id per lane, so the count binds fleet-wide:
+    /// a successor on a smaller count leaves a predecessor's extra lanes
+    /// unfenced.
+    #[envconfig(default = "4")]
+    pub fencing_lanes: usize,
 
     /// Timeout for transactional init (fencing acquisition) and
     /// commit/abort operations.
@@ -264,7 +274,8 @@ pub struct Config {
     /// the dirty index prunes a mark as soon as the writer's committed
     /// offset shows the primary has the row, so reading an async replica
     /// here would serve stale rows for unmarked persons and silently
-    /// break read-your-write. Leader reads are strong reads.
+    /// break read-your-write. Lifecycle mark verifications read this pool
+    /// too and fail closed on replica lag.
     #[envconfig(default = "")]
     pub fallback_database_url: String,
 
@@ -275,6 +286,15 @@ pub struct Config {
     /// pairs personhog_person_tmp on both — flip them together at cutover.
     #[envconfig(default = "posthog_person")]
     pub fallback_table: String,
+
+    /// Saga state tables the fence checks read (the takeover scan, the mark
+    /// verifications, the ghost-fence healer). Must be the pair identity
+    /// writes: its LIFECYCLE_OP_TABLE and LIFECYCLE_OP_PERSON_TABLE.
+    #[envconfig(default = "lifecycle_op")]
+    pub lifecycle_op_table: String,
+
+    #[envconfig(default = "lifecycle_op_person")]
+    pub lifecycle_op_person_table: String,
 
     #[envconfig(default = "5")]
     pub fallback_pg_max_connections: u32,
@@ -327,31 +347,31 @@ pub struct Config {
 
     #[envconfig(default = "10")]
     pub heartbeat_interval_secs: u64,
-}
 
-/// A fenced write must resolve inside the runway the lease keepalive
-/// reserves for self-fencing (a third of the TTL). The bound is on the
-/// *queued* write, not the lucky one: an arrival can park behind a
-/// window that is already committing, so it pays that window's send and
-/// commit before its own — hence the factor of two below.
-///
-/// A commit may also be re-attempted, and the shares are sized so that
-/// every attempt the code will make still fits. The alternative was a
-/// bound that quietly assumed a single attempt while the retry loop
-/// spent three times it: an assertion the runway could not honour is
-/// worse than a tighter timeout, because the whole point of deriving
-/// these from the lease is that a write cannot outlive the fence that
-/// ends its session.
-///
-/// librdkafka additionally requires `message.timeout.ms <= transaction
-/// .timeout.ms`, and rejects a `transaction.timeout.ms` under a second.
-/// Deriving both from the runway satisfies every relation by
-/// construction wherever the lease TTL leaves room, and
-/// [`Config::validate_fencing_timescales`] refuses the configurations
-/// where it does not.
-const FENCING_MESSAGE_SHARE: u32 = 1;
-const FENCING_TXN_SHARE: u32 = 3;
-const FENCING_SHARE_BASE: u32 = 10;
+    // ── Shutdown budgets ─────────────────────────────────────────
+    // The lifecycle manager's per-phase windows. Configurable because
+    // the terms validated against them — the drain timeout, the
+    // heartbeat interval — are, and a fixed ceiling under adjustable
+    // terms is a configuration an operator cannot resolve. Their
+    // relations are checked by `validate_shutdown_budgets` at startup.
+    /// How long the lifecycle manager lets the coordination component
+    /// exit gracefully. The pod's whole teardown — drain setup, drain,
+    /// fence, keepalive join, revoke — must fit inside it, which
+    /// `validate_lease_timescales` enforces.
+    #[envconfig(default = "55")]
+    pub coordination_graceful_shutdown_secs: u64,
+
+    /// The phase-1 components' shared budget: the gRPC server and the
+    /// producer stop in parallel after coordination finishes.
+    #[envconfig(default = "15")]
+    pub phase1_graceful_shutdown_secs: u64,
+
+    /// Phase 0 (coordination) plus phase 1, with slack. Must stay under
+    /// the chart's termination grace period so shutdown concludes
+    /// process-side.
+    #[envconfig(default = "75")]
+    pub global_shutdown_timeout_secs: u64,
+}
 
 /// How many times a window's commit is attempted in total, counting the
 /// first.
@@ -373,6 +393,10 @@ pub const FENCING_ABORT_ATTEMPTS: u32 = 1;
 /// make. Both the runway bound and the broker's own patience are sized
 /// from this, so the two cannot drift apart.
 pub const FENCING_TXN_CALLS: u32 = FENCING_COMMIT_ATTEMPTS + FENCING_ABORT_ATTEMPTS;
+
+/// Sanity ceiling on lanes: each is a producer, a connection and a thread
+/// per acquisition.
+pub const MAX_FENCING_LANES: usize = 64;
 
 /// librdkafka's documented minimum for `transaction.timeout.ms`.
 const MIN_TXN_TIMEOUT: Duration = Duration::from_millis(1000);
@@ -404,9 +428,10 @@ impl Config {
         self.fencing_settle_budget() + Duration::from_millis(50)
     }
 
-    /// The budget one write may spend, derived so that a write queued
-    /// behind another — and the settle that follows the queue draining —
-    /// still finishes inside the runway.
+    /// What one fenced write may spend and still resolve inside the runway
+    /// the lease reserves for self-fencing: net of the settle that follows
+    /// a drain, and halved, because a write can park behind a committing
+    /// window and pay that window's send and commit before its own.
     fn fencing_budget(&self) -> Duration {
         self.lease_fence_runway()
             .saturating_sub(Duration::from_millis(self.fencing_window_ms))
@@ -414,21 +439,23 @@ impl Config {
             / 2
     }
 
-    /// How long a fenced send may take.
+    /// How long a fenced send may take: what the transaction calls leave.
     pub fn fencing_message_timeout(&self) -> Duration {
         if self.fencing_message_timeout_ms > 0 {
             return Duration::from_millis(u64::from(self.fencing_message_timeout_ms));
         }
-        (self.fencing_budget() * FENCING_MESSAGE_SHARE / FENCING_SHARE_BASE)
+        self.fencing_budget()
+            .saturating_sub(self.fencing_txn_timeout() * FENCING_TXN_CALLS)
             .max(MIN_MESSAGE_TIMEOUT)
     }
 
-    /// How long a transaction init, commit, or abort may take.
+    /// How long a transaction init, commit, or abort may take: an even
+    /// share of the budget with the send, never under librdkafka's floor.
     pub fn fencing_txn_timeout(&self) -> Duration {
         if self.fencing_txn_timeout_ms > 0 {
             return Duration::from_millis(self.fencing_txn_timeout_ms);
         }
-        (self.fencing_budget() * FENCING_TXN_SHARE / FENCING_SHARE_BASE).max(MIN_TXN_TIMEOUT)
+        (self.fencing_budget() / (FENCING_TXN_CALLS + 1)).max(MIN_TXN_TIMEOUT)
     }
 
     /// The producer queue each fenced producer gets, in MiB.
@@ -445,7 +472,8 @@ impl Config {
     /// So the budget is the aggregate, divided. The floor keeps a
     /// high-partition-count deployment from starving any single producer
     /// below a workable depth; it trades the guarantee for a bound that
-    /// is still far under the un-divided figure.
+    /// is still far under the un-divided figure. Each share must still
+    /// hold one window of records; raise the aggregate if it cannot.
     pub fn fencing_queue_mib(&self, partitions: u32) -> u32 {
         // The floor cannot be unconditional: above roughly fifty
         // partitions it would start multiplying again, and the aggregate
@@ -462,13 +490,20 @@ impl Config {
         // multiplies back up, which is the defect this division exists to
         // remove. The honest bound is the aggregate, and one MiB is the
         // smallest queue librdkafka will take.
-        (self.kafka.kafka_producer_queue_mib / partitions.max(1)).max(1)
+        (self.kafka.kafka_producer_queue_mib / self.fenced_producers(partitions)).max(1)
     }
 
     /// The same division for the message-count limit, which bounds the
     /// queue independently of record size.
     pub fn fencing_queue_messages(&self, partitions: u32) -> u32 {
-        (self.kafka.kafka_producer_queue_messages / partitions.max(1)).max(1)
+        (self.kafka.kafka_producer_queue_messages / self.fenced_producers(partitions)).max(1)
+    }
+
+    /// Producers the aggregate queue budget is divided among: one per
+    /// lane per partition.
+    fn fenced_producers(&self, partitions: u32) -> u32 {
+        let lanes = u32::try_from(self.fencing_lanes.max(1)).unwrap_or(u32::MAX);
+        partitions.max(1).saturating_mul(lanes)
     }
 
     /// How long fence acquisition may take.
@@ -580,7 +615,76 @@ impl Config {
                 self.lease_ttl,
             ));
         }
+        // The pod's graceful exit — drain setup, drain, shutdown-path
+        // fence, one keepalive round's join, bounded revoke — has to
+        // fit the coordination budget, or the lifecycle manager
+        // abandons it mid-teardown while this pod is still the
+        // registered owner. The drain term reads the same
+        // `base_pod_config` the running pod is built from, so a future
+        // knob cannot decouple the validated sum from the deployed one.
+        let drain = self.base_pod_config().drain_timeout;
+        let teardown =
+            DRAIN_SETUP_BOUND + drain + SHUTDOWN_FENCE_BOUND + heartbeat + REVOKE_TIMEOUT;
+        let budget = self.coordination_graceful_shutdown();
+        if teardown >= budget {
+            return Err(format!(
+                "the pod's teardown ({teardown:?} = setup {DRAIN_SETUP_BOUND:?} + drain \
+                 {drain:?} + fence {SHUTDOWN_FENCE_BOUND:?} + a {heartbeat:?} keepalive join \
+                 + revoke {REVOKE_TIMEOUT:?}) must finish inside the coordination \
+                 component's {budget:?} graceful shutdown budget; lower \
+                 HEARTBEAT_INTERVAL_SECS or raise COORDINATION_GRACEFUL_SHUTDOWN_SECS"
+            ));
+        }
         Ok(())
+    }
+
+    /// The lifecycle manager's phases must fit the window that
+    /// supervises them, or its own deadline fires before theirs.
+    ///
+    /// Checked at startup rather than compile time because the budgets
+    /// are configuration: a fixed ceiling under adjustable phase
+    /// timings is a configuration an operator cannot resolve.
+    pub fn validate_shutdown_budgets(&self) -> Result<(), String> {
+        let phases = self.coordination_graceful_shutdown() + self.phase1_graceful_shutdown();
+        let global = self.global_shutdown_timeout();
+        if phases >= global {
+            return Err(format!(
+                "the shutdown phases ({phases:?} = a {:?} coordination drain plus a {:?} \
+                 server and producer stop) must finish inside the {global:?} global window \
+                 with room to spare; raise GLOBAL_SHUTDOWN_TIMEOUT_SECS or lower the phases",
+                self.coordination_graceful_shutdown(),
+                self.phase1_graceful_shutdown(),
+            ));
+        }
+        Ok(())
+    }
+
+    pub fn coordination_graceful_shutdown(&self) -> Duration {
+        Duration::from_secs(self.coordination_graceful_shutdown_secs)
+    }
+
+    pub fn phase1_graceful_shutdown(&self) -> Duration {
+        Duration::from_secs(self.phase1_graceful_shutdown_secs)
+    }
+
+    pub fn global_shutdown_timeout(&self) -> Duration {
+        Duration::from_secs(self.global_shutdown_timeout_secs)
+    }
+
+    /// The coordination-relevant half of the pod's configuration, shared
+    /// by `main`'s construction and the teardown validation above so the
+    /// two cannot drift: a drain or heartbeat knob added here is summed
+    /// by the validation automatically, where one added at the
+    /// construction site would be invisible to it.
+    pub fn base_pod_config(&self) -> PodConfig {
+        PodConfig {
+            lease_ttl: self.lease_ttl,
+            heartbeat_interval: self.heartbeat_interval(),
+            // Zero would park every warm on an unobtainable permit and
+            // wedge handoffs; treat it as fully sequential instead.
+            warm_concurrency: self.warm_concurrency.max(1),
+            ..Default::default()
+        }
     }
 
     /// Every relation the fenced produce path depends on, checked at
@@ -589,6 +693,15 @@ impl Config {
     pub fn validate_fencing_timescales(&self) -> Result<(), String> {
         if !self.kafka_transactional_fencing {
             return Ok(());
+        }
+        if self.fencing_lanes < 1 {
+            return Err("FENCING_LANES must be at least 1".to_string());
+        }
+        if self.fencing_lanes > MAX_FENCING_LANES {
+            return Err(format!(
+                "FENCING_LANES ({}) must be at most {MAX_FENCING_LANES}",
+                self.fencing_lanes
+            ));
         }
         // Fencing without the lease gate is the combination the e2e
         // zombie scenario breaks: acquisition takes the partition's epoch
@@ -779,11 +892,68 @@ mod tests {
 }
 
 #[cfg(test)]
+mod lease_timescale_tests {
+    use super::*;
+
+    /// The phase budgets have to fit the window supervising them. This
+    /// held at compile time while they were constants; as configuration
+    /// it is a startup refusal, and the defaults must still satisfy it.
+    #[test]
+    fn shutdown_phases_that_overrun_the_global_window_are_refused() {
+        let config =
+            Config::init_from_hashmap(&std::collections::HashMap::new()).expect("defaults");
+        assert!(
+            config.validate_shutdown_budgets().is_ok(),
+            "the defaults must satisfy their own relations"
+        );
+
+        let mut overrun =
+            Config::init_from_hashmap(&std::collections::HashMap::new()).expect("defaults");
+        overrun.global_shutdown_timeout_secs =
+            overrun.coordination_graceful_shutdown_secs + overrun.phase1_graceful_shutdown_secs;
+        assert!(
+            overrun.validate_shutdown_budgets().is_err(),
+            "phases summing to the whole global window leave the manager no slack"
+        );
+    }
+
+    /// The pod's teardown must fit the coordination component's budget,
+    /// and the keepalive join is the one term an operator can move. A
+    /// heartbeat the renewal margin accepts can still blow the budget —
+    /// that band is exactly what a check on the margin alone missed.
+    #[test]
+    fn a_teardown_the_shutdown_budget_cannot_fit_is_refused() {
+        let mut config =
+            Config::init_from_hashmap(&std::collections::HashMap::new()).expect("defaults");
+        config.lease_ttl = 30;
+        // Inside the 20s renewal margin, so the pair check passes — but
+        // setup (5s) + drain (30s) + fence (3s) + a 16s join + revoke
+        // (5s) = 59s overruns the 55s budget. Sixteen, not a rounder
+        // number, because it discriminates on every term: without the
+        // setup bound the sum is 54s, which a broken validation would
+        // accept — a 17s join sums to exactly 55s either way and pins
+        // nothing about the setup term.
+        config.heartbeat_interval_secs = 16;
+        assert!(config.validate_lease_timescales().is_err());
+
+        config.heartbeat_interval_secs = 10;
+        assert!(
+            config.validate_lease_timescales().is_ok(),
+            "the default heartbeat must fit the budget"
+        );
+    }
+}
+
+#[cfg(test)]
 mod fencing_timescale_tests {
     use super::*;
 
+    /// The envconfig defaults with no environment behind them, so an
+    /// ambient variable in a developer's shell cannot change what these
+    /// tests assert.
     fn fenced(lease_ttl: i64) -> Config {
-        let mut config = Config::init_from_env().expect("defaults");
+        let mut config =
+            Config::init_from_hashmap(&std::collections::HashMap::new()).expect("defaults");
         config.kafka_transactional_fencing = true;
         config.lease_gated_authority = true;
         config.lease_ttl = lease_ttl;
@@ -823,10 +993,8 @@ mod fencing_timescale_tests {
         }
     }
 
-    /// The retry budget and the timeout shares are one decision split
-    /// across two constants. Raising the attempt count without shrinking
-    /// the shares puts the code back outside the runway it validates
-    /// against — silently, because every existing test would still pass.
+    /// The attempt count decides the split, so budget the calls do not
+    /// spend is a derivation bug, not slack.
     #[test]
     fn the_production_ttl_affords_every_transaction_call() {
         let config = fenced(30);
@@ -840,16 +1008,22 @@ mod fencing_timescale_tests {
         assert!(
             queued <= runway,
             "{FENCING_TXN_CALLS} transaction calls need {queued:?}, runway is {runway:?}: \
-             lower FENCING_TXN_SHARE / FENCING_MESSAGE_SHARE, or lower the attempt counts"
+             lower the attempt counts"
         );
-        // And it must be the attempts that are tight, not the shares
-        // being trivially small: a budget that fits ten attempts would
-        // mean the timeouts had collapsed toward their floors.
-        let one_more = window + (message + txn * (FENCING_TXN_CALLS + 1)) * 2;
+        assert_eq!(
+            message + txn * FENCING_TXN_CALLS,
+            config.fencing_budget(),
+            "the derivation leaves budget unspent"
+        );
+    }
+
+    /// The transaction calls take only their floor; the send gets the rest.
+    #[test]
+    fn the_send_gets_what_the_transaction_calls_leave() {
+        let txn = fenced(30).fencing_txn_timeout();
         assert!(
-            one_more > runway,
-            "the shares leave room for more attempts than are configured; raise \
-             the attempt counts or the shares rather than leaving runway unused"
+            txn <= MIN_TXN_TIMEOUT + MIN_TXN_TIMEOUT / 10,
+            "transaction timeout {txn:?} sits well above the floor; that runway belongs to the send"
         );
     }
 
@@ -1065,16 +1239,31 @@ mod fencing_timescale_tests {
     #[test]
     fn a_high_partition_count_still_leaves_a_workable_queue() {
         let config = fenced(30);
-        // The division alone leaves a workable depth at the deployed
-        // shape, and never rounds to a value librdkafka would reject.
-        assert_eq!(config.fencing_queue_mib(16), 25);
-        assert_eq!(config.fencing_queue_messages(16), 625_000);
+        // The budget is divided among every fenced producer, four lanes
+        // per partition at the default, and never rounds to a value
+        // librdkafka would reject.
+        assert_eq!(config.fencing_queue_mib(16), 6);
+        assert_eq!(config.fencing_queue_messages(16), 156_250);
         assert!(config.fencing_queue_mib(1024) >= 1);
         assert!(config.fencing_queue_messages(1024) >= 1);
         assert!(
             config.fencing_queue_mib(0) >= 1,
             "partitions=0 must not divide by zero"
         );
+    }
+
+    /// Zero lanes would leave a partition with nothing to produce on, and
+    /// an absurd count would open that many connections per acquisition.
+    #[test]
+    fn a_lane_count_outside_its_bounds_is_refused() {
+        for lanes in [0, MAX_FENCING_LANES + 1] {
+            let mut config = fenced(30);
+            config.fencing_lanes = lanes;
+            let err = config
+                .validate_fencing_timescales()
+                .expect_err("a lane count outside its bounds must be refused");
+            assert!(err.contains("FENCING_LANES"), "{err}");
+        }
     }
 
     /// A lease TTL long enough to derive past the broker's own ceiling
@@ -1095,11 +1284,11 @@ mod fencing_timescale_tests {
         fenced(3606)
             .validate_fencing_timescales()
             .expect("LEASE_TTL=3606 sits just inside the broker ceiling");
-        fenced(27)
+        fenced(26)
             .validate_fencing_timescales()
-            .expect("LEASE_TTL=27 is the acceptance floor");
+            .expect("LEASE_TTL=26 is the acceptance floor");
         assert!(
-            fenced(26).validate_fencing_timescales().is_err(),
+            fenced(25).validate_fencing_timescales().is_err(),
             "below the floor, the librdkafka minimums cannot fit the drain room"
         );
         // And the production value must stay comfortably inside it.

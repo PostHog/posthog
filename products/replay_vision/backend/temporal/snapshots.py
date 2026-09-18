@@ -32,8 +32,13 @@ class ScannerSnapshot(BaseModel, frozen=True):
     # rebuilt from these snapshots, so without them a version bumped by a sampling or filter change reads
     # as "nothing changed". Optional so older rows decode as not recorded rather than as unchanged.
     query: dict[str, Any] | None = None
+    experiment_targeting: dict[str, Any] | None = None
     sampling_rate: float | None = None
     sampling_mode: str | None = None
+    # How a monitor `yes` verdict is re-checked: `off` (one pass), `shadow` (draw again, record the result, serve the
+    # first pass), or `enforce` (serve the `yes` only when the second draw agrees, else the dissent). A plain string
+    # so a retired mode never breaks old-row loads.
+    verify_positives: str = "off"
 
     @classmethod
     def from_scanner(cls, scanner: "ReplayScanner") -> "ScannerSnapshot":
@@ -47,6 +52,7 @@ class ScannerSnapshot(BaseModel, frozen=True):
             emits_signals=scanner.emits_signals,
             scanner_config=scanner.scanner_config,
             query=scanner.query,
+            experiment_targeting=scanner.experiment_targeting,
             sampling_rate=scanner.sampling_rate,
             sampling_mode=scanner.sampling_mode,
         )

@@ -3,7 +3,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 from typing import Optional
 
-from clickhouse_driver.errors import ServerException
+from clickhouse_driver.errors import NetworkError, ServerException, SocketTimeoutError
 
 from posthog.hogql.errors import ExposedHogQLError
 
@@ -39,6 +39,8 @@ class InternalCHQueryError(ServerException):
 class ExposedCHQueryError(InternalCHQueryError):
     """User-safe ClickHouse query error. Subclasses have user_safe=True in ErrorCodeMeta,
     which classify_query_error() uses to categorize them as USER_ERROR."""
+
+    user_safe = True
 
     def __str__(self) -> str:
         message: str = str(self.message)
@@ -161,6 +163,11 @@ def wrap_clickhouse_query_error(err: Exception) -> Exception:
     elif name == "TABLE_IS_READ_ONLY":
         # Transient: a replica dropped its ZooKeeper/Keeper session and went read-only; it self-heals.
         return CHQueryErrorTableIsReadOnly(err.message, code=err.code, code_name="table_is_read_only")
+    elif name == "QUERY_WAS_CANCELLED":
+        # Not retryable by default: a deploy cancelling in-flight queries and a deliberate
+        # KILL QUERY are indistinguishable here, so this stays out of CH_TRANSIENT_ERRORS and
+        # callers that want the deploy case retried opt in themselves.
+        return CHQueryErrorQueryWasCancelled(err.message, code=err.code, code_name="query_was_cancelled")
 
     # user query errors - pass through original message with proper code_name
     elif name == "ILLEGAL_TYPE_OF_ARGUMENT":
@@ -249,6 +256,10 @@ class CHQueryErrorS3FileChangedDuringRead(ExposedCHQueryError):
 
 
 class CHQueryErrorTableIsReadOnly(InternalCHQueryError):
+    pass
+
+
+class CHQueryErrorQueryWasCancelled(InternalCHQueryError):
     pass
 
 
@@ -416,9 +427,14 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
     68: ErrorCodeMeta("CANNOT_GET_SIZE_OF_FIELD"),
     # Fixed message: the raw CH text formats a per-row value (e.g. geoToH3 resolution) into the error.
     69: ErrorCodeMeta("ARGUMENT_OUT_OF_BOUND", user_safe="An argument is out of bounds."),
-    # 70/72 stay internal: their CH messages embed the failing data value (see code 6 note).
-    70: ErrorCodeMeta("CANNOT_CONVERT_TYPE", category=QueryErrorCategory.USER_ERROR),
+    # Fixed message: the raw CH text embeds the failing data value (see code 6 note), so a fixed
+    # string keeps that value out of the response while still returning a 400 for the bad query.
+    70: ErrorCodeMeta(
+        "CANNOT_CONVERT_TYPE",
+        user_safe="Cannot convert one type to another in the query. Check the types in your comparisons and IN clauses.",
+    ),
     71: ErrorCodeMeta("CANNOT_WRITE_AFTER_END_OF_BUFFER"),
+    # 72 stays internal: the CH message embeds the failing data value (see code 6 note).
     72: ErrorCodeMeta("CANNOT_PARSE_NUMBER", category=QueryErrorCategory.USER_ERROR),
     73: ErrorCodeMeta("UNKNOWN_FORMAT"),
     74: ErrorCodeMeta("CANNOT_READ_FROM_FILE_DESCRIPTOR"),
@@ -1028,10 +1044,20 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
 # Transient ClickHouse infrastructure errors that are safe to retry.
 # This can be used in things like celery `autoretry_for` to increase resiliency.
 # Capacity errors (codes 202/439) are wrapped as ClickHouseAtCapacity by wrap_clickhouse_query_error.
+# CHQueryErrorQueryWasCancelled (394) is deliberately absent: a deploy cancelling in-flight queries
+# and an operator or user deliberately killing one are indistinguishable at this layer, so callers
+# that want the deploy case retried opt in themselves (see COHORT_RECALCULATION_TRANSIENT_ERRORS).
+# The two clickhouse_driver classes are raised only while a connection is being opened (connect, or
+# the ping-then-reconnect on a stale pooled socket), before any query is sent, so nothing has run and
+# a retry is safe. They are not ServerExceptions, so wrap_clickhouse_query_error passes them through
+# untouched: a bare "Code: 209. (host:9440)" is the driver's 10s connect_timeout firing, typically
+# because a node dropped out of the cluster's load balancer for a few seconds.
 CH_TRANSIENT_ERRORS = (
     CHQueryErrorS3Error,
     CHQueryErrorS3FileChangedDuringRead,
     CHQueryErrorTableIsReadOnly,
     ClickHouseAtCapacity,
     ClickHouseClusterMemoryLimitExceeded,
+    NetworkError,
+    SocketTimeoutError,
 )

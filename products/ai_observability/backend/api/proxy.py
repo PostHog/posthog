@@ -35,10 +35,10 @@ from posthog.rate_limit import (
     LLMProxyDailyRateThrottle,
     LLMProxySustainedRateThrottle,
 )
-from posthog.rbac.user_access_control import AccessControlLevel, UserAccessControl
 from posthog.renderers import SafeJSONRenderer, ServerSentEventRenderer
 from posthog.settings import SERVER_GATEWAY_INTERFACE
 
+from products.access_control.backend.facade.user_access_control import AccessControlLevel, UserAccessControl
 from products.ai_observability.backend.api.metrics import LLMA_PROXY_BYOK_REQUESTS, llma_track_latency
 from products.ai_observability.backend.llm import (
     PLAYGROUND_MODEL_IDS,

@@ -1,17 +1,14 @@
 import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
-import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { humanizeHogFunctionType } from 'scenes/hog-functions/hog-function-utils'
 import { HogFunctionList } from 'scenes/hog-functions/list/HogFunctionsList'
-import { hogFunctionsListLogic } from 'scenes/hog-functions/list/hogFunctionsListLogic'
 import { HogFunctionTemplateList } from 'scenes/hog-functions/list/HogFunctionTemplateList'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
-import { ProductKey } from '~/queries/schema/schema-general'
-import { HogFunctionTypeType } from '~/types'
+import { HogFunctionType, HogFunctionTypeType } from '~/types'
 
 import { nonHogFunctionsLogic } from './utils/nonHogFunctionsLogic'
 import { nonHogFunctionTemplatesLogic } from './utils/nonHogFunctionTemplatesLogic'
@@ -19,36 +16,11 @@ import { nonHogFunctionTemplatesLogic } from './utils/nonHogFunctionTemplatesLog
 export type DataPipelinesHogFunctionsProps = {
     kind: HogFunctionTypeType
     additionalKinds?: HogFunctionTypeType[]
-    action?: JSX.Element
 }
 
-export const MAPPING: Partial<Record<HogFunctionTypeType, { key: ProductKey; description: string }>> = {
-    destination: {
-        key: ProductKey.PIPELINE_DESTINATIONS,
-        description: 'Destinations allow you to send your data to external systems.',
-    },
-    transformation: {
-        key: ProductKey.PIPELINE_TRANSFORMATIONS,
-        description:
-            'Transformations let you modify, filter, and enrich event data to improve data quality, privacy, and consistency.',
-    },
-    site_app: {
-        key: ProductKey.SITE_APPS,
-        description: 'Web scripts allow you to add custom tags and functionality to your website using PostHog.',
-    },
-}
-
-export function DataPipelinesHogFunctions({
-    kind,
-    additionalKinds,
-    action,
-}: DataPipelinesHogFunctionsProps): JSX.Element {
+export function DataPipelinesHogFunctions({ kind, additionalKinds }: DataPipelinesHogFunctionsProps): JSX.Element {
     const humanizedKind = humanizeHogFunctionType(kind)
     const logicKey = `data-pipelines-hog-functions-${kind}`
-
-    const { hogFunctions, loading } = useValues(
-        hogFunctionsListLogic({ logicKey, type: kind, additionalTypes: additionalKinds })
-    )
 
     const { hogFunctionPluginsDestinations, hogFunctionBatchExports, hogFunctionPluginsSiteApps } =
         useValues(nonHogFunctionsLogic)
@@ -68,33 +40,25 @@ export function DataPipelinesHogFunctions({
         }
     }, [kind]) // oxlint-disable-line react-hooks/exhaustive-deps
 
-    const productInfoMapping = MAPPING[kind]
+    // Each source is null until it loads; the list just needs everything in one array.
+    const manualSources: (HogFunctionType[] | null)[] =
+        kind === 'destination'
+            ? [hogFunctionPluginsDestinations, hogFunctionBatchExports]
+            : kind === 'site_app'
+              ? [hogFunctionPluginsSiteApps]
+              : []
+
+    const manualFunctions = manualSources.length > 0 ? manualSources.flatMap((source) => source ?? []) : undefined
 
     return (
         <SceneContent>
-            {productInfoMapping ? (
-                <ProductIntroduction
-                    productName={`Pipeline ${humanizedKind}s`}
-                    thingName={humanizedKind}
-                    productKey={productInfoMapping.key}
-                    description={productInfoMapping.description}
-                    docsURL="https://posthog.com/docs/cdp"
-                    actionElementOverride={action}
-                    isEmpty={hogFunctions.length === 0 && !loading}
-                />
-            ) : null}
             <SceneSection>
                 <HogFunctionList
                     logicKey={logicKey}
                     type={kind}
                     additionalTypes={additionalKinds}
-                    manualFunctions={
-                        kind === 'destination'
-                            ? [...(hogFunctionPluginsDestinations ?? []), ...(hogFunctionBatchExports ?? [])]
-                            : kind === 'site_app'
-                              ? [...(hogFunctionPluginsSiteApps ?? [])]
-                              : undefined
-                    }
+                    manualFunctions={manualFunctions}
+                    truncateDescriptions
                 />
             </SceneSection>
             <SceneDivider />

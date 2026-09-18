@@ -21,7 +21,7 @@ export type SignalRecordKind =
  * backend emitter and, if it uses OAuth, a bespoke setup form). `setup: "dynamic"` renders
  * the generic credential form; the three legacy special-cased flows keep their own key.
  */
-export interface ExternalInboxSource {
+interface ExternalInboxSource {
   /**
    * Backend `source_product` (lowercase). Declared as `string` here so the registry can
    * define the universe: `ExternalInboxSourceProduct` is derived from the literal values
@@ -419,15 +419,23 @@ export type SourceProduct =
   | "error_tracking"
   | "health_checks"
   | "llm_analytics"
+  | "replay_vision"
   | "session_replay"
   | "signals_scout"
   | ExternalInboxSourceProduct;
 
 /**
- * Products that render as a toggle in the Self-driving sources modal. Excludes `signals_scout`,
- * which appears only as a signal origin and is always on rather than user-toggled.
+ * Products that render as a toggle in the Self-driving sources modal.
+ *
+ * `signals_scout` appears only as a signal origin and is always on. `replay_vision` authorizes
+ * itself through each scanner's own `emits_signals` flag, so there is no config row to toggle.
+ * `session_replay` is retired: the session summarization behind it is gone, and it survives here
+ * only so reports emitted before that still render their source.
  */
-export type ToggleableSourceProduct = Exclude<SourceProduct, "signals_scout">;
+export type ToggleableSourceProduct = Exclude<
+  SourceProduct,
+  "signals_scout" | "replay_vision" | "session_replay"
+>;
 
 /**
  * Every backend signal `source_type`: the PostHog-native types (alphabetical) plus the
@@ -456,3 +464,30 @@ export function sourceNeedsFullRefresh(recordKind: SignalRecordKind): boolean {
 export const EXTERNAL_INBOX_SOURCE_BY_PRODUCT: Partial<
   Record<SourceProduct, ExternalInboxSource>
 > = Object.fromEntries(EXTERNAL_INBOX_SOURCES.map((s) => [s.product, s]));
+
+const WAREHOUSE_SOURCE_PRODUCTS = new Set<string>(
+  EXTERNAL_INBOX_SOURCES.map((source) => source.product),
+);
+
+/**
+ * Narrow a list of inbox source-filter options to what a project actually uses.
+ *
+ * The registry carries every warehouse-backed integration (~40) while a project
+ * runs a handful, so a warehouse source is kept only when it is switched on, plus
+ * anything currently selected so an active filter is never invisible. PostHog's
+ * own products stay listed unconditionally. Pass `undefined` when the enabled set
+ * is unknown (still loading, or the request failed) to hide nothing.
+ */
+export function filterInboxSourceOptions<T extends { value: SourceProduct }>(
+  options: readonly T[],
+  enabledSourceProducts: ReadonlySet<string> | undefined,
+  selected: readonly SourceProduct[],
+): T[] {
+  if (!enabledSourceProducts) return [...options];
+  return options.filter(
+    (option) =>
+      !WAREHOUSE_SOURCE_PRODUCTS.has(option.value) ||
+      enabledSourceProducts.has(option.value) ||
+      selected.includes(option.value),
+  );
+}

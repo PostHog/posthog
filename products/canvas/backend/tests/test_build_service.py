@@ -1,5 +1,7 @@
 import hashlib
+from contextlib import nullcontext
 from datetime import timedelta
+from uuid import uuid4
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
@@ -10,8 +12,9 @@ from django.utils import timezone
 from parameterized import parameterized
 
 from posthog.models.scoping import team_scope
+from posthog.storage.object_storage import ObjectStorageError
 
-from products.canvas.backend import build_service
+from products.canvas.backend import build_service, notebook_integration
 from products.canvas.backend.models import Canvas, CanvasBuild, CanvasSourceVersion
 from products.canvas.backend.source import synthetic_source_project
 from products.canvas.backend.tests.test_canvas_api import InMemoryStorage
@@ -111,6 +114,52 @@ class TestRunCanvasBuild(BuildServiceBaseTest):
         self.canvas.refresh_from_db()
         assert draft_build.status == CanvasBuild.STATUS_READY
         assert draft_build.artifact_object_prefix
+        assert self.canvas.published_build_id == published.id
+
+    def test_prepared_draft_keeps_the_published_source_head(self):
+        published = self._publish()
+        published_version_id = self.canvas.current_source_version_id
+        project = synthetic_source_project("export default function C() { return 2 }")
+        prepared = build_service.prepare_source_project_publish(
+            self.canvas,
+            project=project,
+            has_expected_version=True,
+            expected_version_id=str(published_version_id),
+            source_upload_id=uuid4(),
+        )
+        concurrent = build_service.prepare_source_project_publish(
+            self.canvas,
+            project=project,
+            has_expected_version=True,
+            expected_version_id=str(published_version_id),
+            source_upload_id=uuid4(),
+        )
+        assert prepared.source_upload.key != concurrent.source_upload.key
+        assert prepared.source_upload.digest == concurrent.source_upload.digest
+        self.storage.delete_objects([concurrent.source_upload.key])
+
+        draft, _build = build_service.commit_source_project_draft(
+            self.canvas,
+            prepared=prepared,
+            prompt="Show the new design",
+            has_expected_version=True,
+            expected_version_id=str(published_version_id),
+            task_id=None,
+            created_by=self.user,
+        )
+
+        self.canvas.refresh_from_db()
+        assert draft.draft is True
+        assert draft.parent_version_id == published_version_id
+        assert self.canvas.current_source_version_id == published_version_id
+        assert build_service.read_source_project(draft) == project
+        published.refresh_from_db()
+        assert published.status == CanvasBuild.STATUS_QUEUED
+        with patch.object(
+            build_service, "run_cloud_builder", return_value=_builder_result({"index.html": "<html></html>"})
+        ):
+            build_service.run_canvas_build(self.team.id, str(published.id))
+        self.canvas.refresh_from_db()
         assert self.canvas.published_build_id == published.id
 
     def test_stale_head_does_not_advance_pointer(self):
@@ -225,7 +274,8 @@ class TestRunCanvasBuild(BuildServiceBaseTest):
         build.refresh_from_db()
         assert build.status == CanvasBuild.STATUS_READY
 
-    def test_finalize_does_not_clobber_a_concurrent_cancel(self):
+    @parameterized.expand([("finalize", False), ("storage_retry", True)])
+    def test_finalize_does_not_clobber_a_concurrent_cancel(self, _name: str, storage_failure: bool):
         # The finalize transaction must re-claim the build row before marking it
         # READY: a cancel that lands during the long build/upload phase (after the
         # claim lock was released) turns the build FAILED/terminal, and the stale
@@ -243,20 +293,53 @@ class TestRunCanvasBuild(BuildServiceBaseTest):
                 finished_at=timezone.now(),
                 lease_expires_at=None,
             )
+            if storage_failure:
+                raise ObjectStorageError("Storage unavailable")
             return original_finalize(*args, **kwargs)
 
         with (
             patch.object(
                 build_service, "run_cloud_builder", return_value=_builder_result({"index.html": "<html></html>"})
             ),
-            patch.object(build_service, "_finalize_ready", side_effect=cancel_mid_finalize),
+            patch.object(
+                build_service.object_storage if storage_failure else build_service,
+                "write" if storage_failure else "_finalize_ready",
+                side_effect=cancel_mid_finalize,
+            ),
         ):
-            build_service.run_canvas_build(self.team.id, str(build.id))
+            if storage_failure:
+                with self.assertRaises(ObjectStorageError):
+                    build_service.run_canvas_build(self.team.id, str(build.id))
+            else:
+                build_service.run_canvas_build(self.team.id, str(build.id))
 
         build.refresh_from_db()
         self.canvas.refresh_from_db()
         assert build.status == CanvasBuild.STATUS_FAILED
         assert self.canvas.published_build_id is None
+
+    def test_losing_finalize_race_to_ready_winner_keeps_shared_artifacts(self) -> None:
+        # Two attempts of the SAME build share the deterministic artifact prefix. When a
+        # redelivered attempt finalizes READY while a stalled attempt is still uploading,
+        # the loser must not delete the keys — the winner's manifest references them.
+        build = self._publish()
+        prefix = build_service.artifact_object_prefix(self.team.id, build.canvas_id, build.id)
+
+        def winner_finalizes_mid_build(project: dict) -> dict:
+            CanvasBuild.objects.unscoped().filter(id=build.id).update(
+                status=CanvasBuild.STATUS_READY,
+                artifact_object_prefix=prefix,
+                finished_at=timezone.now(),
+                lease_expires_at=None,
+            )
+            return _builder_result({"index.html": "<html></html>"})
+
+        with patch.object(build_service, "run_cloud_builder", side_effect=winner_finalizes_mid_build):
+            build_service.run_canvas_build(self.team.id, str(build.id))
+
+        assert self.storage.objects[f"{prefix}/index.html"] == b"<html></html>"
+        build.refresh_from_db()
+        assert build.status == CanvasBuild.STATUS_READY
 
     @parameterized.expand(
         [
@@ -286,6 +369,38 @@ class TestRunCanvasBuild(BuildServiceBaseTest):
         assert properties["outcome"] == outcome
         assert properties["error_codes"] == error_codes
         assert properties["build_id"] == str(build.id)
+
+
+class TestBuildDispatch(BuildServiceBaseTest):
+    def test_flagged_in_team_dispatches_to_temporal_instead_of_celery(self) -> None:
+        with (
+            patch.object(build_service.posthoganalytics, "feature_enabled", return_value=True),
+            patch("products.canvas.backend.temporal.client.execute_canvas_build_workflow") as start_workflow,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            build = self._publish()
+        start_workflow.assert_called_once_with(self.team.id, str(build.id))
+        self.enqueue.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("flag_check_fails", RuntimeError("flag service down"), None),
+            ("workflow_start_fails", True, RuntimeError("temporal down")),
+        ]
+    )
+    def test_temporal_failure_falls_back_to_celery(
+        self, _name: str, flag_result: bool | Exception, workflow_error: Exception | None
+    ) -> None:
+        with (
+            patch.object(build_service.posthoganalytics, "feature_enabled", side_effect=[flag_result]),
+            patch(
+                "products.canvas.backend.temporal.client.execute_canvas_build_workflow",
+                side_effect=workflow_error,
+            ),
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            build = self._publish()
+        self.enqueue.assert_called_once_with(self.team.id, str(build.id))
 
 
 class TestSweeper(BuildServiceBaseTest):
@@ -402,30 +517,124 @@ class TestCleanup(BuildServiceBaseTest):
         assert pruned == 1
 
 
+class TestPreparedNotebookCanvasSource(BuildServiceBaseTest):
+    @parameterized.expand(
+        [
+            ("abandoned", True),
+            ("commit_failed", True),
+            ("rolled_back", False),
+            ("committed", True),
+            ("committed", False),
+        ]
+    )
+    def test_only_committed_versions_keep_their_source_uploads(self, outcome: str, draft: bool) -> None:
+        self.canvas.source_policy = Canvas.SOURCE_POLICY_NOTEBOOK_WIDGET
+        self.canvas.legacy_code = "export default function Legacy() { return null }"
+        self.canvas.save(update_fields=["source_policy", "legacy_code"])
+        prepared = notebook_integration.prepare_notebook_canvas_source(
+            team_id=self.team.id,
+            canvas_id=self.canvas.id,
+            user_id=self.user.id,
+            source="export default function Widget() { return null }",
+            input_names=[],
+            prompt="Make a widget",
+            name="Widget",
+            expected_current_version_id=None,
+        )
+        assert len(self.storage.objects) == 2
+        commit = (
+            notebook_integration.publish_prepared_notebook_canvas_draft
+            if draft
+            else notebook_integration.publish_prepared_notebook_canvas_source
+        )
+        with (
+            self.assertRaises(RuntimeError) if outcome != "committed" else nullcontext(),
+            patch.object(build_service, "_queue_build", side_effect=RuntimeError("Commit failed"))
+            if outcome == "commit_failed"
+            else nullcontext(),
+            notebook_integration.notebook_canvas_source_transaction(team_id=self.team.id, prepared=prepared),
+        ):
+            if outcome == "abandoned":
+                raise RuntimeError("Generation canceled")
+            commit(team_id=self.team.id, user_id=self.user.id, prepared=prepared)
+            if outcome == "rolled_back":
+                raise RuntimeError("Notebook metadata failed")
+
+        versions = CanvasSourceVersion.objects.for_team(self.team.id).filter(canvas=self.canvas)
+        assert set(self.storage.objects) == set(versions.values_list("source_object_key", flat=True))
+        assert versions.count() == (2 if outcome == "committed" else 0)
+
+    def test_failed_legacy_upload_removes_the_staged_source(self) -> None:
+        self.canvas.legacy_code = "export default function Legacy() { return null }"
+        self.canvas.save(update_fields=["legacy_code"])
+        with (
+            patch.object(
+                build_service.object_storage,
+                "write",
+                side_effect=[None, ObjectStorageError("Legacy upload failed")],
+            ) as write,
+            patch.object(build_service.object_storage, "delete_objects") as delete,
+            self.assertRaises(ObjectStorageError),
+        ):
+            build_service.prepare_source_project_publish(
+                self.canvas,
+                project=synthetic_source_project("export default function Widget() { return null }"),
+                has_expected_version=True,
+                expected_version_id=None,
+                source_upload_id=uuid4(),
+            )
+        delete.assert_called_once_with([write.call_args_list[0].args[0]])
+
+
 class TestLegacySourcePreservation(BuildServiceBaseTest):
-    def test_first_publish_materializes_legacy_code_as_parent_version(self):
+    @parameterized.expand([("publish", False), ("draft", True)])
+    def test_first_publish_materializes_legacy_code_as_parent_version(self, _name: str, draft: bool) -> None:
         legacy = "export default function Legacy() { return null }"
         Canvas.objects.unscoped().filter(id=self.canvas.id).update(legacy_code=legacy)
         self.canvas.refresh_from_db()
 
-        canvas, version, _build, first_publish = build_service.publish_source_project(
+        prepared = build_service.prepare_source_project_publish(
             self.canvas,
             project=synthetic_source_project("export default function Rewrite() { return null }"),
-            prompt="rewrite",
-            name=None,
             has_expected_version=True,
             expected_version_id=None,
-            task_id=None,
-            created_by=None,
         )
+        if draft:
+            version, _build = build_service.commit_source_project_draft(
+                self.canvas,
+                prepared=prepared,
+                prompt="rewrite",
+                has_expected_version=True,
+                expected_version_id=None,
+                task_id=None,
+                created_by=None,
+            )
+            self.canvas.refresh_from_db()
+            assert self.canvas.current_source_version_id is None
+            assert self.canvas.legacy_code == legacy
+            canvas, _build = build_service.promote_draft_version(self.canvas, version.id, None)
+        else:
+            result = build_service.commit_source_project_publish(
+                self.canvas,
+                prepared=prepared,
+                prompt="rewrite",
+                name=None,
+                has_expected_version=True,
+                expected_version_id=None,
+                task_id=None,
+                created_by=None,
+            )
+            canvas, version = result.canvas, result.version
+            assert canvas.legacy_code is None
+            assert not result.first_publish
 
         head = CanvasSourceVersion.objects.unscoped().get(pk=version.id)
         assert head.parent_version_id is not None
         legacy_version = CanvasSourceVersion.objects.unscoped().get(pk=head.parent_version_id)
         assert build_service.read_source_project(legacy_version) == synthetic_source_project(legacy)
         assert canvas.current_source_version_id == head.id
-        assert canvas.legacy_code is None
-        assert not first_publish
+        restored, _build = build_service.revert_to_version(canvas, legacy_version.id, head.id)
+        assert restored.current_source_version_id == legacy_version.id
 
     def test_publish_on_fresh_canvas_creates_single_root_version(self):
         self._publish()

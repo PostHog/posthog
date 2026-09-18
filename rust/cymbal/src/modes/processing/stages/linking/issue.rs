@@ -15,6 +15,7 @@ use crate::{
     },
     metric_consts::{ISSUE_CREATED, ISSUE_LINKER_OPERATOR},
     modes::processing::rules::assignment::{try_assignment_rules, Assignment},
+    modes::processing::rules::severity::try_severity_rules,
     stages::linking::LinkingStage,
     teams::TeamManager,
     types::{
@@ -291,17 +292,19 @@ async fn resolve_issue(
         team_id,
         name.to_string(),
         description.to_string(),
-        infer_issue_severity(
-            event_properties.exception_level(),
-            event_properties.exception_handled(),
-        ),
+        event_properties.proposed_issue_severity().or_else(|| {
+            infer_issue_severity(
+                event_properties.exception_level(),
+                event_properties.exception_handled(),
+            )
+        }),
         &mut *txn,
     )
     .await?;
 
     // Insert the fingerprint override
     let issue_override = IssueFingerprintOverride::create_or_load(
-        &mut *txn,
+        &mut txn,
         team_id,
         &fingerprint,
         &issue,
@@ -360,11 +363,23 @@ async fn resolve_issue(
         }
     } else {
         metrics::counter!(ISSUE_CREATED).increment(1);
+        process_event_severity(
+            &mut txn,
+            &context.team_manager,
+            &mut issue,
+            event_properties,
+        )
+        .await?;
         let assignment =
             process_event_assignment(&mut txn, &context.team_manager, &issue, event_properties)
                 .await?;
 
         let processed_properties = event_properties.processed_properties(&issue);
+        // Produce before the commit on purpose. A failure here rolls the transaction back, so the
+        // retry re-runs this whole slow path and produces again. Committing first would leave a
+        // new issue whose fingerprint state never reached ClickHouse: the retry takes the fast
+        // path, finds the issue already active, and `maybe_reopen` returns false, so nothing
+        // re-sends it. Moving this after the commit needs a durable outbox first.
         send_fingerprint_issue_state(
             context,
             &issue,
@@ -389,6 +404,26 @@ async fn resolve_issue(
     };
 
     Ok(issue)
+}
+
+async fn process_event_severity(
+    connection: &mut PgConnection,
+    team_manager: &TeamManager,
+    issue: &mut Issue,
+    exception_properties: &ExceptionEvent<Fingerprinted>,
+) -> Result<(), UnhandledError> {
+    if exception_properties.proposed_issue_severity().is_some() {
+        return Ok(());
+    }
+    let processed_properties = exception_properties.processed_properties(issue);
+    if let Some(severity) =
+        try_severity_rules(connection, team_manager, issue, &processed_properties).await?
+    {
+        issue
+            .apply_initial_severity(severity.to_string(), connection)
+            .await?;
+    }
+    Ok(())
 }
 
 async fn process_event_assignment(

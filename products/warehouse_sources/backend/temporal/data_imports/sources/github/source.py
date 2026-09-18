@@ -1,4 +1,5 @@
 import secrets
+import datetime
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from typing import TYPE_CHECKING, Any, Optional, TypeVar, cast
@@ -6,9 +7,10 @@ from typing import TYPE_CHECKING, Any, Optional, TypeVar, cast
 if TYPE_CHECKING:
     from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC
 
-from posthog.schema import (
+from posthog.models.integration import GitHubIntegration, GitHubIntegrationError
+
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
@@ -18,14 +20,12 @@ from posthog.schema import (
     SourceFieldSelectConfig,
     SourceFieldSelectConfigOption,
 )
-
-from posthog.models.integration import GitHubIntegration, GitHubIntegrationError
-
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
     ExternalWebhookInfo,
     FieldType,
     ResumableSource,
+    VersionDeprecation,
     WebhookCreationResult,
     WebhookDeletionResult,
     WebhookSource,
@@ -48,6 +48,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 from products.warehouse_sources.backend.temporal.data_imports.sources.github.github import (
     _ORG_PERMISSION_REASON,
     ORG_SCOPED_ENDPOINTS,
+    REPOSITORY_NOT_ACCESSIBLE_REASON,
     GithubEgressIdentity,
     GithubResumeConfig,
     check_org_endpoint_permission,
@@ -59,6 +60,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.github.git
     validate_credentials as validate_github_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.github.naming import (
+    normalize_repository,
     qualified_schema_name,
     resolve_schema_repo_endpoint,
     schema_metadata_for,
@@ -89,13 +91,57 @@ GITHUB_WEBHOOK_RESOURCE_MAP: dict[str, str] = {
     # path injects no parent column (check run ids are globally unique), so the webhook row already
     # matches the poll row and needs no reshaping.
     "check_runs": "check_run",
+    # The one mapped event with no nesting key at all: the status fields sit at the top level of
+    # the body, wrapped in commit/repository/sender/branches objects the poll row never carries.
+    # The template rebuilds the row from the top-level fields and injects commit_sha from the
+    # event's `sha`, which is the column the poll fan-out copies off the parent commit.
+    "commit_statuses": "status",
+    # The three comment tables all nest the row under `comment`, and GitHub's comment objects are
+    # the same shape its REST list endpoints return, so the template only unwraps them. Their
+    # initial_lookback_days stays non-zero, which leaves them poll-capable: the poll bootstraps the
+    # table and the webhook takes over once initial_sync_complete is set.
+    "issue_comments": "issue_comment",
+    "pull_request_comments": "pull_request_review_comment",
+    "commit_comments": "commit_comment",
 }
 
+# GitHub's own checkbox label for each mapped event, used to build the manual webhook setup
+# instructions. Deriving that list from the map keeps it from drifting: it already lost `Check
+# runs` once, which silently left manually-created hooks missing a mapped event.
+GITHUB_WEBHOOK_EVENT_LABELS: dict[str, str] = {
+    "workflow_job": "Workflow jobs",
+    "workflow_run": "Workflow runs",
+    "pull_request_review": "Pull request reviews",
+    "deployment": "Deployments",
+    "deployment_status": "Deployment statuses",
+    "check_run": "Check runs",
+    "status": "Statuses",
+    "issue_comment": "Issue comments",
+    "pull_request_review_comment": "Pull request review comments",
+    "commit_comment": "Commit comments",
+}
+
+# Rendered into the manual setup instructions. A mapped event with no label raises on import, so
+# drift fails in CI rather than shipping instructions that miss an event.
+GITHUB_WEBHOOK_EVENT_CHECKLIST: str = "\n".join(
+    f"   - {GITHUB_WEBHOOK_EVENT_LABELS[event]}" for event in dict.fromkeys(GITHUB_WEBHOOK_RESOURCE_MAP.values())
+)
+
 # Everything else stays poll-only. GitHub does emit events for several of the other tables, but the
-# template lands `body[eventType]` as the row and these nest the object under a different key —
-# `alert` for the code-scanning/Dependabot/secret-scanning alerts, `comment` for issue and review
-# comments, `forkee` for forks, `commit` for statuses — so each needs its own reshaping branch
-# before its webhook rows would match what the poll path writes.
+# template lands `body[eventType]` as the row and these nest the object under a different key
+# (`alert` for the code-scanning/Dependabot/secret-scanning alerts, `forkee` for forks), so each
+# needs its own reshaping branch before its webhook rows would match what the poll path writes.
+
+
+_REPOSITORY_ACCESS_GUIDANCE = "Check the spelling and that your token has read access."
+
+
+def _join_validation_failures(failures: list[str]) -> str:
+    """Join the per-repository failures, with one next step for the whole list rather than one each."""
+    joined = "; ".join(failures)
+    if any(REPOSITORY_NOT_ACCESSIBLE_REASON in failure for failure in failures):
+        return f"{joined}. {_REPOSITORY_ACCESS_GUIDANCE}"
+    return joined
 
 
 @SourceRegistry.register
@@ -108,6 +154,10 @@ class GithubSource(
     supported_versions = ("2022-11-28", "2026-03-10")
     default_version = "2026-03-10"
     api_docs_url = "https://docs.github.com/en/rest/about-the-rest-api/api-versions"
+    # GitHub keeps a REST API version answerable for at least 24 months after the next one ships,
+    # then returns 410 Gone. 2022-11-28 is superseded by the 2026-03-10 default, so its earliest
+    # sunset is 2028-03-10 (24 months after that release).
+    deprecated_versions = (VersionDeprecation(version="2022-11-28", sunset_at=datetime.date(2028, 3, 10)),)
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -135,7 +185,7 @@ class GithubSource(
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.GITHUB,
+            name=ExternalDataSourceType.GITHUB,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             featured=True,
             label="GitHub",
@@ -210,14 +260,15 @@ class GithubSource(
                     ),
                 ],
             ),
-            webhookSetupCaption="""To set up the webhook manually, repeat these steps for **each selected repository**, using the **same Secret** every time:
+            webhookSetupCaption=f"""To set up the webhook manually, repeat these steps for **each selected repository**, using the **same Secret** every time:
 
 1. Go to the repository's **Settings > Webhooks** on GitHub
 2. Click **Add webhook**
 3. Paste the webhook URL shown below into the **Payload URL** field
 4. Set **Content type** to **application/json**
 5. Enter a **Secret** and add the same value to the **Signing secret** field below
-6. Under **Which events would you like to trigger this webhook?**, choose **Let me select individual events** and tick **Workflow jobs**, **Workflow runs**, **Pull request reviews**, **Deployments**, and **Deployment statuses**
+6. Under **Which events would you like to trigger this webhook?**, choose **Let me select individual events**, then tick:
+{GITHUB_WEBHOOK_EVENT_CHECKLIST}
 7. Click **Add webhook**
 
 If automatic creation failed with a permissions error, the fix depends on how you connected:
@@ -275,6 +326,11 @@ If automatic creation failed with a permissions error, the fix depends on how yo
             # deleted repository or one the connection can no longer see.
             "GitHub repository is not accessible": "This repository is no longer available on GitHub. It may have been deleted, or your connection may have lost access to it. Update the source with a repository you can still reach, or reconnect your GitHub account.",
             "404 Client Error": "GitHub couldn't find this repository. Check that it still exists and that your connection can access it.",
+            # Every GitHub call carries the source's pinned version in the X-GitHub-Api-Version
+            # header, and GitHub answers 410 Gone once a version is sunset (2022-11-28 reaches this
+            # 24 months after the 2026-03-10 release). 410 is permanent, so retrying loops forever;
+            # disable the schema and point the user at the version repin instead.
+            "410 Client Error": "GitHub no longer serves the API version this source is pinned to. Update the source to a supported version, then sync again.",
             "Bad credentials": "Your GitHub connection is invalid or expired. Please reconnect.",
             # The GitHub App isn't configured on this PostHog instance, so an OAuth source can't mint
             # the App JWT to refresh its installation token. Deterministic — retrying never resolves it.
@@ -294,7 +350,7 @@ If automatic creation failed with a permissions error, the fix depends on how yo
             # Deterministic credential/config errors from _get_access_token and OAuthMixin.
             # These never resolve on retry — the source needs reconfiguring or reconnecting.
             "Missing GitHub integration ID": "No GitHub account is connected. Connect a GitHub account and try again.",
-            "Missing personal access token": "GitHub personal access token is not configured. Please update the source configuration.",
+            "Missing personal access token": "No GitHub personal access token is set. Enter one, or switch the authentication type to OAuth and connect a GitHub account.",
             "No repositories configured": "No repositories are selected for this source. Please update the source configuration.",
             "resolve to the same warehouse table": "Two selected repositories resolve to the same warehouse table. Please remove or rename one.",
             "Too many repositories configured": "Too many repositories are selected for this source. Please reduce the list and try again.",
@@ -311,7 +367,20 @@ If automatic creation failed with a permissions error, the fix depends on how yo
         # A GithubRetryableError (any transient upstream 5xx) that survives the same tenacity retry
         # gets the same treatment — a GitHub-side outage, not something reconnecting or reconfiguring
         # the source can fix.
-        return {"GitHub API rate limit exceeded", "Github API error (retryable)"}
+        #
+        # A TLS session cut at the socket while minting the installation access token
+        # (``GitHubIntegrationBase.client_request``, called from ``_get_access_token``) has no
+        # in-process retry of its own — unlike ``_fetch_page``'s data requests, whose tenacity retry
+        # already covers ``requests.ConnectionError`` (the base class ``SSLError`` subclasses).
+        # Either way it's a dropped connection, not a GitHub or customer problem, so once Temporal
+        # retries the activity the failure is transient and self-recovering. Mirrors ClickHouse's
+        # equivalent classification of the same urllib3/OpenSSL wording.
+        return {
+            "GitHub API rate limit exceeded",
+            "Github API error (retryable)",
+            "UNEXPECTED_EOF_WHILE_READING",
+            "EOF occurred in violation of protocol",
+        }
 
     def get_oauth_accounts(
         self, integration_id: int, team_id: int, search: str | None = None
@@ -371,7 +440,7 @@ If automatic creation failed with a permissions error, the fix depends on how yo
         storage_owners: dict[str, str] = {}
         repositories: list[str] = []
         for repo in raw:
-            normalized = repo.strip().lower()
+            normalized = normalize_repository(repo).lower()
             if not normalized or normalized in seen:
                 continue
             storage_key = NamingConvention.normalize_identifier(normalized)
@@ -396,7 +465,7 @@ If automatic creation failed with a permissions error, the fix depends on how yo
     def is_legacy_bare_repo(config: GithubSourceConfig, repository: str) -> bool:
         """True when `repository` is the pre-multi-repo repo whose schemas keep bare, unqualified
         names (`issues`, not `owner/repo.issues`)."""
-        return bool(config.repository) and repository == (config.repository or "").strip().lower()
+        return bool(config.repository) and repository == normalize_repository(config.repository or "").lower()
 
     def _get_access_token(self, config: GithubSourceConfig, team_id: int) -> str:
         if config.auth_method.selection == "pat":
@@ -542,7 +611,7 @@ If automatic creation failed with a permissions error, the fix depends on how yo
                 continue
             if endpoint not in ORG_SCOPED_ENDPOINTS:
                 continue
-            org_endpoints[name] = (repository or config.repository or "").strip().lower()
+            org_endpoints[name] = normalize_repository(repository or config.repository or "").lower()
         if not org_endpoints:
             return result
         try:
@@ -589,20 +658,24 @@ If automatic creation failed with a permissions error, the fix depends on how yo
     ) -> tuple[bool, str | None]:
         try:
             access_token = self._get_access_token(config, team_id)
+            egress_identity = self._egress_identity(config, team_id)
             repositories = self.effective_repositories(config)
             failures: list[str] = []
             for repository in repositories[: self.MAX_VALIDATED_REPOSITORIES]:
                 is_valid, message = validate_github_credentials(
-                    access_token, repository, api_version=self.resolve_api_version(api_version)
+                    access_token,
+                    repository,
+                    egress_identity=egress_identity,
+                    api_version=self.resolve_api_version(api_version),
                 )
                 if is_valid:
                     continue
                 # A 401 is token-level — probing further repos yields the same answer.
                 if message == "Invalid personal access token":
                     return False, message
-                failures.append(message or f"Repository '{repository}' not found or not accessible")
+                failures.append(message or f"Repository '{repository}' {REPOSITORY_NOT_ACCESSIBLE_REASON}")
             if failures:
-                return False, "; ".join(failures)
+                return False, _join_validation_failures(failures)
             return True, None
         except Exception as e:
             # `_get_access_token` and the OAuth mixin raise deterministic config/credential errors
@@ -635,7 +708,7 @@ If automatic creation failed with a permissions error, the fix depends on how yo
         # Pin the legacy repository (the one whose rows keep bare event keys) so the template's
         # bare-key fallback only fires for its events. Empty when there's no legacy repo (pure
         # multi-repo sources have no bare keys, so nothing to bind).
-        return {"legacy_repository": (config.repository or "").strip().lower()}
+        return {"legacy_repository": normalize_repository(config.repository or "").lower()}
 
     def get_desired_webhook_events(
         self, config: GithubSourceConfig, eligible_schema_names: list[str]
@@ -901,7 +974,6 @@ If automatic creation failed with a permissions error, the fix depends on how yo
             inputs.s3_folder_name if isinstance(inputs.s3_folder_name, str) and inputs.s3_folder_name else None
         )
         response_name = NamingConvention.normalize_identifier(storage_key or inputs.schema_name)
-
         return github_source(
             personal_access_token=access_token,
             repository=repository,
@@ -913,6 +985,7 @@ If automatic creation failed with a permissions error, the fix depends on how yo
             if inputs.should_use_incremental_field
             else None,
             incremental_field=inputs.incremental_field,
+            reconcile_since=inputs.last_synced_at,
             webhook_source_manager=webhook_source_manager,
             egress_identity=egress_identity,
             response_name=response_name,

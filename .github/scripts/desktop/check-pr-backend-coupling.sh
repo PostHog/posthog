@@ -58,11 +58,11 @@ if [ "$touched_desktop" = false ]; then
     exit 0
 fi
 
-# Labels come from the API, not the event payload, so applying the skip label
-# and re-running is enough; label changes do not retrigger pull_request runs.
+# Labels come from the API, not the event payload, so a rerun of this job sees
+# a label change; desktop-backend-coupling-rerun.yml triggers that rerun.
 pr_json=$(fetch_api "repos/$REPOSITORY/pulls/$PR_NUMBER") || exit 1
-if jq -e '[.labels[]?.name] | index("skip-desktop-backend-check") != null' <<<"$pr_json" >/dev/null; then
-    echo "::notice::PR #$PR_NUMBER carries skip-desktop-backend-check; skipping the coupling check."
+if jq -e '[.labels[]?.name] | index("desktop-skip-backend-check") != null' <<<"$pr_json" >/dev/null; then
+    echo "::notice::PR #$PR_NUMBER carries desktop-skip-backend-check; skipping the coupling check."
     exit 0
 fi
 
@@ -78,7 +78,7 @@ if [ "$touched_backend" = true ]; then
     echo "  2. Second PR: desktop changes (merge once the backend is live)."
     echo ""
     echo "If the two halves are independent (safe to ship in either order), apply the"
-    echo "'skip-desktop-backend-check' label and re-run this check."
+    echo "'desktop-skip-backend-check' label. The check reruns automatically."
     exit 1
 fi
 

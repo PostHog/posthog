@@ -1,9 +1,9 @@
 import {
     ActivityChange,
     ActivityLogItem,
+    ActivityLogUserName,
     HumanizedChange,
     defaultDescriber,
-    userNameForLogItem,
 } from 'lib/components/ActivityLog/humanizeActivity'
 import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
 
@@ -31,6 +31,94 @@ function humanizeInterval(raw: string | null | undefined): string {
     return buckets[raw] ?? raw
 }
 
+function humanizeLookback(raw: unknown): string {
+    if (typeof raw !== 'number' || raw <= 0) {
+        return 'none'
+    }
+    if (raw % 86400 === 0) {
+        const days = raw / 86400
+        return `${days} day${days === 1 ? '' : 's'}`
+    }
+    if (raw % 3600 === 0) {
+        const hours = raw / 3600
+        return `${hours} hour${hours === 1 ? '' : 's'}`
+    }
+    if (raw % 60 === 0) {
+        const minutes = raw / 60
+        return `${minutes} minute${minutes === 1 ? '' : 's'}`
+    }
+    return `${raw} seconds`
+}
+
+// `enabled` is what the backend reads in `get_incremental_config`, so a stored config that still
+// carries keys but has `enabled: false` is off.
+function isIncrementalEnabled(config: unknown): boolean {
+    return (
+        typeof config === 'object' &&
+        config !== null &&
+        !Array.isArray(config) &&
+        !!(config as Record<string, unknown>).enabled
+    )
+}
+
+function incrementalSettingLabel(field: string): string {
+    return (
+        {
+            incremental_key: 'incremental key',
+            unique_key: 'unique key',
+            lookback_seconds: 'lookback',
+        }[field] ?? field.replaceAll('_', ' ')
+    )
+}
+
+function formatIncrementalSetting(field: string, value: unknown): string {
+    if (field === 'lookback_seconds') {
+        return humanizeLookback(value)
+    }
+    if (Array.isArray(value)) {
+        return value.length > 0 ? value.join(', ') : 'none'
+    }
+    return value == null || value === '' ? 'none' : String(value)
+}
+
+function describeIncrementalConfig(change: ActivityChange): JSX.Element {
+    const before = change.before
+    const after = change.after
+
+    if (!isIncrementalEnabled(before) && isIncrementalEnabled(after)) {
+        const config = after as Record<string, unknown>
+        const settings = ['incremental_key', 'unique_key', 'lookback_seconds']
+            .filter((field) => config[field] !== undefined)
+            .map((field) => `${incrementalSettingLabel(field)} ${formatIncrementalSetting(field, config[field])}`)
+        return (
+            <>
+                enabled incremental materialization
+                {settings.length > 0 ? <> with {settings.join(', ')}</> : null}
+            </>
+        )
+    }
+
+    if (isIncrementalEnabled(before) && !isIncrementalEnabled(after)) {
+        return <>disabled incremental materialization</>
+    }
+
+    const beforeConfig = (before ?? {}) as Record<string, unknown>
+    const afterConfig = (after ?? {}) as Record<string, unknown>
+    const changedSettings = ['incremental_key', 'unique_key', 'lookback_seconds'].filter(
+        (field) => JSON.stringify(beforeConfig[field]) !== JSON.stringify(afterConfig[field])
+    )
+    const changes = changedSettings.map(
+        (field) =>
+            `${incrementalSettingLabel(field)} from ${formatIncrementalSetting(field, beforeConfig[field])} to ${formatIncrementalSetting(field, afterConfig[field])}`
+    )
+
+    return <>updated incremental materialization settings{changes.length > 0 ? <>: {changes.join(', ')}</> : null}</>
+}
+
+function humanizeField(field: string | undefined): string {
+    return (field ?? 'unknown field').replaceAll('_', ' ')
+}
+
 function describeChange(change: ActivityChange): JSX.Element | null {
     if (change.field === 'sync_frequency_interval') {
         const before = humanizeInterval(change.before as string | null)
@@ -47,7 +135,28 @@ function describeChange(change: ActivityChange): JSX.Element | null {
     if (change.field === 'query') {
         return <>updated the query</>
     }
-    return <>changed {change.field}</>
+    if (change.field === 'column_order') {
+        const count = Array.isArray(change.after) ? change.after.length : undefined
+        return <>{count ? `reordered ${count} columns` : <>reordered columns</>}</>
+    }
+    if (change.field === 'incremental_config') {
+        return describeIncrementalConfig(change)
+    }
+    if (change.field === 'folder') {
+        const folder = change.after == null ? null : String(change.after)
+        if (!folder) {
+            return <>removed the view from its folder</>
+        }
+        return (
+            <>
+                moved the view to the <strong>{folder}</strong> folder
+            </>
+        )
+    }
+    if (change.field === 'is_test') {
+        return change.after ? <>marked the view as a test view</> : <>unmarked the view as a test view</>
+    }
+    return <>changed {humanizeField(change.field)}</>
 }
 
 export function dataWarehouseSavedQueryActivityDescriber(
@@ -59,7 +168,7 @@ export function dataWarehouseSavedQueryActivityDescriber(
         return { description: null }
     }
 
-    const user = <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong>
+    const user = <ActivityLogUserName logItem={logItem} />
     const viewName = logItem.detail?.name ? <strong>{logItem.detail.name}</strong> : <i>a view</i>
 
     if (logItem.activity === 'created') {

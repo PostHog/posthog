@@ -2,7 +2,7 @@ import { MOCK_DATA_COLOR_THEMES } from 'lib/api.mock'
 
 import '@testing-library/jest-dom'
 
-import { cleanup, waitFor } from '@testing-library/react'
+import { cleanup, screen, waitFor } from '@testing-library/react'
 
 import { setupJsdom, setupSyncRaf } from '@posthog/quill-charts/testing'
 
@@ -27,12 +27,13 @@ afterEach(() => {
 })
 
 describe('ExporterQueryScene', () => {
-    function renderAdhoc(fixture: any, legend = false): { container: HTMLElement } {
+    function renderAdhoc(fixture: any, legend = false, title?: string): { container: HTMLElement } {
         return renderWithInsights({
             component: (
                 <ExporterQueryScene
                     query={fixture.query}
                     queryResults={{ results: fixture.result }}
+                    title={title}
                     themes={MOCK_DATA_COLOR_THEMES}
                     exportOptions={{ legend }}
                 />
@@ -51,6 +52,12 @@ describe('ExporterQueryScene', () => {
         await waitFor(() => {
             expect(container.querySelector(`[data-attr="${dataAttr}"]`)).toBeInTheDocument()
         })
+    })
+
+    it('renders the supplied title inside the exported chart card', () => {
+        renderAdhoc(__trendsBarBreakdown, false, 'Weekly signups')
+
+        expect(screen.getByText('Weekly signups')).toHaveClass('ExportedInsight__header__title')
     })
 
     it('lets the chart draw the quill in-chart legend, like a saved-insight export', async () => {

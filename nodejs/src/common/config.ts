@@ -113,6 +113,15 @@ export type CommonConfig = BaseServerConfig & {
 
     // PersonHog gRPC
     PERSONHOG_ENABLED: boolean
+    /**
+     * Which world the ingestion persons store writes: 'pg' (default),
+     * 'personhog', or 'shadow' (pg authoritative, personhog best-effort).
+     * Until the merge saga lands, merge events fail loudly in personhog
+     * mode, so it is only safe for traffic that produces none.
+     */
+    PERSONS_STORE_MODE: string
+    /** Host and port of the personhog identity server. */
+    PERSONHOG_IDENTITY_ADDR: string
     PERSONHOG_ADDR: string
     PERSONHOG_GROUPS_ROLLOUT_PERCENTAGE: number
     PERSONHOG_GROUPS_ROLLOUT_TEAM_IDS: string
@@ -120,6 +129,8 @@ export type CommonConfig = BaseServerConfig & {
     PERSONHOG_PERSONS_ROLLOUT_TEAM_IDS: string
     PERSONHOG_TLS: boolean
     PERSONHOG_TIMEOUT_MS: number
+    /** Deadline for the identity merge saga call; must exceed the engine's lifecycle_execute_timeout_secs. */
+    PERSONHOG_MERGE_TIMEOUT_MS: number
     PERSONHOG_READ_MAX_BYTES: number
     PERSONHOG_WRITE_MAX_BYTES: number
     PERSONHOG_PING_INTERVAL_MS: number
@@ -127,6 +138,15 @@ export type CommonConfig = BaseServerConfig & {
     PERSONHOG_PING_IDLE_CONNECTION: boolean
     PERSONHOG_IDLE_CONNECTION_TIMEOUT_MS: number
     PERSONHOG_STATE_MONITOR_POLL_INTERVAL_MS: number
+
+    // Usage ingestion gRPC. One team list per deployment, because each reporting site is its
+    // own service: '' reports nothing, '*' every team, '1,2' those teams. No percentage: it
+    // would bill a fraction of a team.
+    USAGE_INGESTION_ADDR: string
+    USAGE_INGESTION_TLS: boolean
+    USAGE_INGESTION_TIMEOUT_MS: number
+    USAGE_INGESTION_MAX_BATCH_SIZE: number
+    USAGE_INGESTION_REPORT_TEAMS: string
 
     // Redis
     REDIS_URL: string
@@ -197,6 +217,11 @@ export type CommonConfig = BaseServerConfig & {
     EXTERNAL_REQUEST_CONNECT_TIMEOUT_MS: number
     EXTERNAL_REQUEST_KEEP_ALIVE_TIMEOUT_MS: number
     EXTERNAL_REQUEST_CONNECTIONS: number
+    // The number of connections the HTTP/2 dispatchers open per origin. The request helper holds a burst to a cold
+    // origin behind one probe request, so this cap only bounds an origin that negotiates HTTP/1.1 and the spill past
+    // an HTTP/2 origin's stream limit. Keep it above the largest per-origin concurrency a caller runs. The image fetch
+    // lane allows 6 per registrable domain.
+    EXTERNAL_REQUEST_H2_CONNECTIONS: number
 
     // PostHog analytics
     POSTHOG_API_KEY: string
@@ -209,6 +234,17 @@ export type CommonConfig = BaseServerConfig & {
     // Execute transformations on the Rust HogVM instead of the Node VM. Invocations the Rust VM
     // can't run (unsupported host functions, addon not built) fall back to the Node VM.
     CDP_HOG_RUST_VM_EXECUTION_ENABLED: boolean
+
+    // With the Rust VM enabled, coalesce concurrent same-program invocations into one
+    // executeBatch FFI call per tick, executed off the JS event loop, instead of per-invocation
+    // executeSync on the JS thread.
+    CDP_HOG_RUST_VM_BATCH_EXECUTION_ENABLED: boolean
+
+    // Timeout for the internal audience-resolution calls a batch workflow makes while paging its
+    // target audience. These run ClickHouse queries that routinely take longer than the 3s
+    // EXTERNAL_REQUEST_TIMEOUT_MS inter-service budget, so they get a larger one of their own —
+    // without it, resolving a non-trivial audience always times out and the whole batch run fails.
+    CDP_HOG_FLOW_BATCH_AUDIENCE_FETCH_TIMEOUT_MS: number
 
     /** Per-function wall-clock budget for an event transformation, enforced by the HogVM. */
     TRANSFORMATIONS_HOG_TIMEOUT_MS: number
@@ -224,6 +260,7 @@ export type ExternalRequestConfig = Pick<
     | 'EXTERNAL_REQUEST_CONNECT_TIMEOUT_MS'
     | 'EXTERNAL_REQUEST_KEEP_ALIVE_TIMEOUT_MS'
     | 'EXTERNAL_REQUEST_CONNECTIONS'
+    | 'EXTERNAL_REQUEST_H2_CONNECTIONS'
 >
 
 export function getExternalRequestConfig(): ExternalRequestConfig {
@@ -235,6 +272,7 @@ export function getExternalRequestConfig(): ExternalRequestConfig {
         EXTERNAL_REQUEST_CONNECT_TIMEOUT_MS: Number(process.env.EXTERNAL_REQUEST_CONNECT_TIMEOUT_MS ?? 3000),
         EXTERNAL_REQUEST_KEEP_ALIVE_TIMEOUT_MS: Number(process.env.EXTERNAL_REQUEST_KEEP_ALIVE_TIMEOUT_MS ?? 10000),
         EXTERNAL_REQUEST_CONNECTIONS: Number(process.env.EXTERNAL_REQUEST_CONNECTIONS ?? 500),
+        EXTERNAL_REQUEST_H2_CONNECTIONS: Number(process.env.EXTERNAL_REQUEST_H2_CONNECTIONS ?? 8),
     }
 }
 
@@ -294,12 +332,15 @@ export function getDefaultCommonConfig(): CommonConfig {
         // PersonHog gRPC
         PERSONHOG_ENABLED: false,
         PERSONHOG_ADDR: '',
+        PERSONS_STORE_MODE: 'pg',
+        PERSONHOG_IDENTITY_ADDR: '',
         PERSONHOG_GROUPS_ROLLOUT_PERCENTAGE: 0,
         PERSONHOG_GROUPS_ROLLOUT_TEAM_IDS: '',
         PERSONHOG_PERSONS_ROLLOUT_PERCENTAGE: 0,
         PERSONHOG_PERSONS_ROLLOUT_TEAM_IDS: '',
         PERSONHOG_TLS: false,
         PERSONHOG_TIMEOUT_MS: 3000,
+        PERSONHOG_MERGE_TIMEOUT_MS: 35_000,
         PERSONHOG_READ_MAX_BYTES: 128 * 1024 * 1024,
         PERSONHOG_WRITE_MAX_BYTES: 4 * 1024 * 1024,
         PERSONHOG_PING_INTERVAL_MS: 30_000,
@@ -307,6 +348,13 @@ export function getDefaultCommonConfig(): CommonConfig {
         PERSONHOG_PING_IDLE_CONNECTION: true,
         PERSONHOG_IDLE_CONNECTION_TIMEOUT_MS: 15 * 60 * 1000,
         PERSONHOG_STATE_MONITOR_POLL_INTERVAL_MS: 5_000,
+
+        // Usage ingestion gRPC
+        USAGE_INGESTION_ADDR: isDevEnv() ? 'localhost:7143' : '',
+        USAGE_INGESTION_TLS: false,
+        USAGE_INGESTION_TIMEOUT_MS: 5_000,
+        USAGE_INGESTION_MAX_BATCH_SIZE: 500,
+        USAGE_INGESTION_REPORT_TEAMS: '',
 
         // Redis
         // ok to connect to localhost over plaintext
@@ -379,6 +427,7 @@ export function getDefaultCommonConfig(): CommonConfig {
         EXTERNAL_REQUEST_CONNECT_TIMEOUT_MS: 3000,
         EXTERNAL_REQUEST_KEEP_ALIVE_TIMEOUT_MS: 10000,
         EXTERNAL_REQUEST_CONNECTIONS: 500,
+        EXTERNAL_REQUEST_H2_CONNECTIONS: 8,
 
         // PostHog analytics
         POSTHOG_API_KEY: '',
@@ -388,6 +437,8 @@ export function getDefaultCommonConfig(): CommonConfig {
 
         // Shared between ingestion and CDP
         CDP_HOG_RUST_VM_EXECUTION_ENABLED: false,
+        CDP_HOG_RUST_VM_BATCH_EXECUTION_ENABLED: false,
+        CDP_HOG_FLOW_BATCH_AUDIENCE_FETCH_TIMEOUT_MS: 30_000,
         TRANSFORMATIONS_HOG_TIMEOUT_MS: 300,
 
         // Event loop yield helper

@@ -1,18 +1,28 @@
 """Resolve a check's subject id to something queryable.
 
-The check row carries the subject as a foreign key (``saved_query`` or ``table``); resolution still
+The check row carries the subject as a foreign key (``saved_query``, ``table`` or ``metric``); resolution still
 goes through the owning product's facade rather than traversing the FK, so model instances never
 cross the product boundary. A subject that no longer resolves marks the check orphaned, and the
 denormalized name is refreshed on every run so renames self-heal.
 """
 
+from collections.abc import Collection
 from uuid import UUID
 
+from products.data_catalog.backend.facade import api as data_catalog_facade
+from products.data_catalog.backend.facade.enums import HOGQL_DEFINITION_KIND
 from products.data_modeling.backend.facade import api as data_modeling_facade
 from products.warehouse_sources.backend.facade import api as warehouse_facade
+from products.warehouse_sources.backend.facade.contracts import WAREHOUSE_OBJECT_TABLE, WAREHOUSE_OBJECT_VIEW
 
+from ..facade.contracts import MetricSubject
 from ..facade.enums import SubjectType
 from .contracts import SubjectRef
+
+_WAREHOUSE_OBJECT_SUBJECT_TYPES = {
+    WAREHOUSE_OBJECT_TABLE: SubjectType.TABLE,
+    WAREHOUSE_OBJECT_VIEW: SubjectType.VIEW,
+}
 
 
 def resolve_subject(team_id: int, subject_type: str, subject_uuid: str | UUID) -> SubjectRef:
@@ -20,7 +30,60 @@ def resolve_subject(team_id: int, subject_type: str, subject_uuid: str | UUID) -
     kind = SubjectType(subject_type)
     if kind is SubjectType.TABLE:
         return _resolve_table(team_id, subject_uuid)
+    if kind is SubjectType.METRIC:
+        return _resolve_metric(team_id, subject_uuid)
     return _resolve_view(team_id, subject_uuid)
+
+
+def testable_metric_subjects(team_id: int) -> list[MetricSubject]:
+    return [
+        MetricSubject(id=metric.id, name=metric.name, display_name=metric.display_name)
+        for metric in data_catalog_facade.live_metric_summaries(team_id)
+        if metric.definition_kind == HOGQL_DEFINITION_KIND
+    ]
+
+
+def _resolve_metric(team_id: int, subject_uuid: str | UUID) -> SubjectRef:
+    identifier = UUID(str(subject_uuid))
+    return resolve_metric_subjects(team_id, [identifier])[identifier]
+
+
+def resolve_metric_subjects(team_id: int, metric_ids: Collection[UUID]) -> dict[UUID, SubjectRef]:
+    reads = data_catalog_facade.metric_reads_for_ids(team_id, metric_ids)
+    return {
+        metric_id: SubjectRef(
+            subject_type=SubjectType.METRIC,
+            subject_uuid=str(metric_id),
+            name=reads[metric_id].summary.name,
+            queryable_name="",
+            exists=True,
+            definition_kind=reads[metric_id].summary.definition_kind,
+            metric_definition=reads[metric_id].hogql_definition,
+        )
+        if metric_id in reads
+        else _missing(SubjectType.METRIC, metric_id)
+        for metric_id in metric_ids
+    }
+
+
+def resolve_subject_by_name(team_id: int, name: str) -> SubjectRef | None:
+    """The subject a query reaches under this name, or None when the name is no warehouse object.
+
+    The inverse of :func:`resolve_subject`, for pinning what a run read while it still names the
+    right object. None is not a failure: only warehouse tables and saved queries carry object-level
+    access control, so a name that reaches neither has no identity worth recording.
+    """
+    resolved = warehouse_facade.resolve_object_by_name(team_id, name)
+    if resolved is None:
+        return None
+    kind = _WAREHOUSE_OBJECT_SUBJECT_TYPES[resolved.kind]
+    return SubjectRef(
+        subject_type=kind,
+        subject_uuid=str(resolved.id),
+        name=name,
+        queryable_name=name,
+        exists=True,
+    )
 
 
 def _resolve_table(team_id: int, subject_uuid: str | UUID) -> SubjectRef:
@@ -47,6 +110,31 @@ def _resolve_view(team_id: int, subject_uuid: str | UUID) -> SubjectRef:
         queryable_name=saved_query.name,
         exists=True,
     )
+
+
+def subject_column_type(team_id: int, subject_type: str, subject_uuid: str | UUID, column_name: str) -> str | None:
+    """The column's ClickHouse type, or None when the subject or the column cannot be established.
+
+    None is unknown, not "untyped": a view records its columns only once it has run, so a check
+    authored against a fresh view has nothing to read here.
+    """
+    if not column_name:
+        return None
+    kind = SubjectType(subject_type)
+    if kind is SubjectType.METRIC:
+        return None
+    if kind is SubjectType.TABLE:
+        table = warehouse_facade.get_queryable_table(UUID(str(subject_uuid)), team_id)
+        columns = table.columns if table else {}
+    else:
+        columns = data_modeling_facade.get_saved_query_columns(team_id, subject_uuid)
+    entry = (columns or {}).get(column_name)
+    # A table records either a bare type string (older rows) or a dict keyed "clickhouse", the same
+    # two shapes hogql_fields_and_structure_for_columns handles; the saved-query facade already
+    # unwrapped a view's entry to the string.
+    if isinstance(entry, dict):
+        entry = entry.get("clickhouse")
+    return entry if isinstance(entry, str) else None
 
 
 def _missing(kind: SubjectType, subject_uuid: str | UUID) -> SubjectRef:

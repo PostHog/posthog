@@ -116,9 +116,10 @@ export interface StaffStuckCohortsResponseApi {
     total_count: number
 }
 
-export type PropertyGroupOperatorApi = (typeof PropertyGroupOperatorApi)[keyof typeof PropertyGroupOperatorApi]
+export type PropertyGroupOperatorEnumApi =
+    (typeof PropertyGroupOperatorEnumApi)[keyof typeof PropertyGroupOperatorEnumApi]
 
-export const PropertyGroupOperatorApi = {
+export const PropertyGroupOperatorEnumApi = {
     And: 'AND',
     Or: 'OR',
 } as const
@@ -207,7 +208,7 @@ export interface PersonMetadataFilterApi {
  * AND/OR group containing cohort filters. Named to avoid collision with analytics Group model.
  */
 export interface CohortFilterGroupApi {
-    type: PropertyGroupOperatorApi
+    type: PropertyGroupOperatorEnumApi
     values: (BehavioralFilterApi | CohortFilterApi | PersonFilterApi | PersonMetadataFilterApi | CohortFilterGroupApi)[]
 }
 
@@ -301,6 +302,80 @@ export interface CohortConditionTypeFlagsApi {
     cohorts: boolean
 }
 
+/**
+ * * `static` - Static
+ * * `person_properties` - Person properties
+ * * `daily` - Daily
+ * * `building` - Building
+ * * `rebuilding` - Rebuilding
+ * * `ready` - Ready
+ * * `needs_attention` - Needs attention
+ */
+export type CohortRealtimeStateEnumApi = (typeof CohortRealtimeStateEnumApi)[keyof typeof CohortRealtimeStateEnumApi]
+
+export const CohortRealtimeStateEnumApi = {
+    Static: 'static',
+    PersonProperties: 'person_properties',
+    Daily: 'daily',
+    Building: 'building',
+    Rebuilding: 'rebuilding',
+    Ready: 'ready',
+    NeedsAttention: 'needs_attention',
+} as const
+
+/**
+ * * `waiting` - Waiting
+ * * `scanning` - Scanning
+ * * `checking` - Checking
+ */
+export type CohortHistoryBuildPhaseEnumApi =
+    (typeof CohortHistoryBuildPhaseEnumApi)[keyof typeof CohortHistoryBuildPhaseEnumApi]
+
+export const CohortHistoryBuildPhaseEnumApi = {
+    Waiting: 'waiting',
+    Scanning: 'scanning',
+    Checking: 'checking',
+} as const
+
+export interface CohortHistoryBuildApi {
+    /** What the build is doing now: `waiting` to start, `scanning` past events, or `checking` the membership it produced. A build that is queued but has not started reports `waiting` too.
+     *
+     * * `waiting` - Waiting
+     * * `scanning` - Scanning
+     * * `checking` - Checking */
+    phase: CohortHistoryBuildPhaseEnumApi
+    /**
+     * How much of the event history has been scanned, 0 to 100. Null outside the `scanning` phase, and while the scan is still being planned.
+     * @nullable
+     */
+    percent_complete: number | null
+    /**
+     * When this build last made progress. Null while it is still queued.
+     * @nullable
+     */
+    updated_at: string | null
+}
+
+export interface CohortRealtimeReadinessApi {
+    /** Whether feature flags can target this cohort now. `ready`: they can, and they see membership changes within about a minute. `building` / `rebuilding`: PostHog is preparing the cohort from past events, and flags cannot target it yet. `needs_attention`: the cohort qualifies but nothing is preparing it. `daily`: its criteria are not supported in realtime, so its membership only comes from the once-a-day calculation. `person_properties`: it matches on person properties, which flags read directly, so they can always target it. `static`: it is a fixed list of people.
+     *
+     * * `static` - Static
+     * * `person_properties` - Person properties
+     * * `daily` - Daily
+     * * `building` - Building
+     * * `rebuilding` - Rebuilding
+     * * `ready` - Ready
+     * * `needs_attention` - Needs attention */
+    state: CohortRealtimeStateEnumApi
+    /**
+     * When the cohort became targetable by feature flags. Null unless the state is `ready`.
+     * @nullable
+     */
+    ready_at: string | null
+    /** The build preparing the cohort. Null unless the state is `building` or `rebuilding`. */
+    build: CohortHistoryBuildApi | null
+}
+
 export type SearchMatchTypeEnumApi = (typeof SearchMatchTypeEnumApi)[keyof typeof SearchMatchTypeEnumApi]
 
 export const SearchMatchTypeEnumApi = {
@@ -338,6 +413,16 @@ export interface CohortApi {
     readonly last_error_message: string | null
     /** @nullable */
     readonly count: number | null
+    /**
+     * Number of IDs supplied by the most recent static cohort import. Null if the cohort was never populated from a list of IDs.
+     * @nullable
+     */
+    readonly last_import_total_count: number | null
+    /**
+     * How many of the IDs in the most recent static cohort import matched no person, and so were not added to the cohort.
+     * @nullable
+     */
+    readonly last_import_unmatched_count: number | null
     is_static?: boolean
     /** Type of cohort based on filter complexity
      *
@@ -349,6 +434,8 @@ export interface CohortApi {
     cohort_type?: CohortTypeEnumApi | BlankEnumApi | null
     /** Flags describing which kinds of conditions the cohort's filters contain. Null when the cohort has no filters to classify. */
     readonly condition_type: CohortConditionTypeFlagsApi | null
+    /** Whether feature flags can target this cohort, and the progress of the build that gets it there. Null outside the realtime cohort flag targeting rollout, on projects the realtime pipeline does not cover, and for cohorts that match on neither events nor person properties, which nothing in the flag API decides on. */
+    readonly realtime: CohortRealtimeReadinessApi | null
     readonly experiment_set: readonly number[]
     /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match, returned only when no exact match exists). Null when the list is not filtered by `search`. */
     readonly search_match_type: SearchMatchTypeEnumApi | null
@@ -395,6 +482,16 @@ export interface PatchedCohortApi {
     readonly last_error_message?: string | null
     /** @nullable */
     readonly count?: number | null
+    /**
+     * Number of IDs supplied by the most recent static cohort import. Null if the cohort was never populated from a list of IDs.
+     * @nullable
+     */
+    readonly last_import_total_count?: number | null
+    /**
+     * How many of the IDs in the most recent static cohort import matched no person, and so were not added to the cohort.
+     * @nullable
+     */
+    readonly last_import_unmatched_count?: number | null
     is_static?: boolean
     /** Type of cohort based on filter complexity
      *
@@ -406,6 +503,8 @@ export interface PatchedCohortApi {
     cohort_type?: CohortTypeEnumApi | BlankEnumApi | null
     /** Flags describing which kinds of conditions the cohort's filters contain. Null when the cohort has no filters to classify. */
     readonly condition_type?: CohortConditionTypeFlagsApi | null
+    /** Whether feature flags can target this cohort, and the progress of the build that gets it there. Null outside the realtime cohort flag targeting rollout, on projects the realtime pipeline does not cover, and for cohorts that match on neither events nor person properties, which nothing in the flag API decides on. */
+    readonly realtime?: CohortRealtimeReadinessApi | null
     readonly experiment_set?: readonly number[]
     /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match, returned only when no exact match exists). Null when the list is not filtered by `search`. */
     readonly search_match_type?: SearchMatchTypeEnumApi | null
