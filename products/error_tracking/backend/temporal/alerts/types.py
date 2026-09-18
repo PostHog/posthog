@@ -23,13 +23,24 @@ class AlertDeliveryWorkflowInputs:
     status: str | None = None
     assignee: str | None = None
     actor_email: str | None = None
+    # Issue fields filters can reference; same values the internal event carries.
+    severity: str | None = None
+    fingerprint: str | None = None
+    first_seen: str | None = None
     # Reference to the triggering exception event, when the transition has one
     # (ingestion-driven transitions). Event properties are fetched by reference
     # inside activities; nothing large crosses the Temporal payload boundary.
     event_uuid: str | None = None
     event_timestamp: str | None = None
+    # The `exception_timestamp` the lifecycle event carried. Spiking uses the detection
+    # time there while event_timestamp stays the exception's own time (the fetch anchor);
+    # filters must see the same value on both delivery paths.
+    lifecycle_timestamp: str | None = None
     # Small event-specific extras (e.g. spike baseline values); never exception payloads.
     extra: dict[str, str] | None = None
+    # Bulk mutations set this off: they only reply into threads that already exist,
+    # so one action over many issues cannot open a thread per issue.
+    opener_allowed: bool = True
 
     @classmethod
     def build(
