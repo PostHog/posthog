@@ -1,7 +1,10 @@
 import { urls } from 'scenes/urls'
 
+import { ReplayTabs } from '~/types'
+
 export type DiagnosisVerdict =
     | 'captured'
+    | 'not_stored'
     | 'ad_blocked'
     | 'disabled'
     | 'trigger_pending'
@@ -21,6 +24,12 @@ export interface ReplayCaptureDiagnosis {
     reasons: string[]
     rawSignals: Record<string, unknown>
     suggestedActions: SuggestedAction[]
+}
+
+export interface ReplayCaptureDiagnosisContext {
+    sessionId?: string
+    /** Whether PostHog holds a recording for this session id. Null when the server check did not run. */
+    recordingExists?: boolean | null
 }
 
 const DIAGNOSTIC_KEYS = [
@@ -82,9 +91,13 @@ const toNumber = (value: unknown): number | null => {
     return null
 }
 
-export function diagnoseReplayCapture(eventProperties: Record<string, any> | null | undefined): ReplayCaptureDiagnosis {
+export function diagnoseReplayCapture(
+    eventProperties: Record<string, any> | null | undefined,
+    context: ReplayCaptureDiagnosisContext = {}
+): ReplayCaptureDiagnosis {
     const properties = eventProperties ?? {}
     const rawSignals = pickSignals(properties)
+    const { sessionId, recordingExists } = context
 
     const hasRecording = properties['$has_recording']
     const recordingStatus = properties['$recording_status']
@@ -105,18 +118,52 @@ export function diagnoseReplayCapture(eventProperties: Record<string, any> | nul
         label: 'Read troubleshooting docs',
         to: TROUBLESHOOTING_URL,
     }
+    const recordingActions: SuggestedAction[] = sessionId
+        ? [
+              { label: 'Watch recording', to: urls.replaySingle(sessionId) },
+              {
+                  label: 'Show in recordings list',
+                  to: urls.replay(ReplayTabs.Home, { session_ids: [sessionId] }),
+              },
+          ]
+        : []
+    const notStored = (reasons: string[]): ReplayCaptureDiagnosis => ({
+        verdict: 'not_stored',
+        headline: 'PostHog has no recording for this session',
+        reasons,
+        rawSignals,
+        suggestedActions: [settingsAction, troubleshootingAction],
+    })
 
-    if (hasRecording === true) {
+    if (recordingExists === true) {
         return {
             verdict: 'captured',
-            headline: 'A recording exists for this session',
+            headline: 'PostHog has a recording for this session',
             reasons: [
-                'PostHog has a stored recording linked to this session.',
-                'If the replay still looks missing, refresh the page. It may still be processing.',
+                'We looked this session id up in replay storage and found a recording that is not deleted.',
+                'Open it below. If it does not play, it can still be processing, or your browser can be blocking the request that loads it.',
             ],
             rawSignals,
-            suggestedActions: [troubleshootingAction],
+            suggestedActions: [...recordingActions, troubleshootingAction],
         }
+    }
+
+    if (hasRecording === true) {
+        return recordingExists === false
+            ? notStored([
+                  'The event says a recording was linked to this session, but replay storage has none for this session id now.',
+                  'The recording was deleted, or it passed the retention period for this project.',
+              ])
+            : {
+                  verdict: 'captured',
+                  headline: 'A recording exists for this session',
+                  reasons: [
+                      'PostHog has a stored recording linked to this session.',
+                      'If the replay still looks missing, refresh the page. It may still be processing.',
+                  ],
+                  rawSignals,
+                  suggestedActions: [troubleshootingAction],
+              }
     }
 
     if (scriptNotLoaded) {
@@ -208,22 +255,30 @@ export function diagnoseReplayCapture(eventProperties: Record<string, any> | nul
     }
 
     if (recordingStatus === 'active' && flushedSize !== null && flushedSize > 0) {
-        return {
-            verdict: 'captured',
-            headline: 'A recording should exist for this session',
-            reasons: [
-                'The SDK was recording and sent recording data to PostHog.',
-                'If the replay still looks missing, it may still be processing, or retention may have deleted it.',
-            ],
-            rawSignals,
-            suggestedActions: [troubleshootingAction],
-        }
+        return recordingExists === false
+            ? notStored([
+                  'The SDK was recording and sent recording data to PostHog.',
+                  'We looked this session id up in replay storage and found nothing. The data was dropped before it was stored, or the recording was deleted, or it passed the retention period for this project.',
+              ])
+            : {
+                  verdict: 'captured',
+                  headline: 'A recording should exist for this session',
+                  reasons: [
+                      'The SDK was recording and sent recording data to PostHog.',
+                      'If the replay still looks missing, it may still be processing, or retention may have deleted it.',
+                  ],
+                  rawSignals,
+                  suggestedActions: [troubleshootingAction],
+              }
     }
 
     return {
         verdict: 'unknown',
         headline: 'Unable to determine why this recording is missing',
         reasons: [
+            ...(recordingExists === false
+                ? ['We looked this session id up in replay storage and found no recording.']
+                : []),
             'The diagnostic properties on this event do not match any known capture-failure pattern.',
             'Check the raw signals below and the troubleshooting docs for more guidance.',
         ],

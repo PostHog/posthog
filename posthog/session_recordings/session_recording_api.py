@@ -1014,16 +1014,26 @@ class SessionRecordingViewSet(
     @extend_schema(exclude=True)
     @action(methods=["GET"], detail=True, url_path="capture_diagnostics")
     def capture_diagnostics(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
-        """Latest event properties for the recording's session, for the capture diagnostics panel."""
+        """Diagnostics for the recording's session: the latest event properties, and whether a recording is stored.
+
+        `recording_exists` is the server-side answer, so the panel does not have to guess from SDK
+        properties. It is null when the check could not run.
+        """
         recording = self.get_object()
+        session_id = str(recording.session_id)
         try:
-            properties = get_latest_session_event_properties(str(recording.session_id), self.team)
+            properties = get_latest_session_event_properties(session_id, self.team)
         except Exception as e:
             # This panel is supplementary - a ClickHouse blip shouldn't 500 the whole endpoint,
             # it should just render empty like a session with no matching event would.
             capture_exception(e)
             properties = None
-        return Response({"properties": properties})
+        try:
+            recording_exists: bool | None = SessionReplayEvents().exists(session_id, self.team)
+        except Exception as e:
+            capture_exception(e)
+            recording_exists = None
+        return Response({"properties": properties, "recording_exists": recording_exists})
 
     # Returns metadata about the recording
     def retrieve(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:

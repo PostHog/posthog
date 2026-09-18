@@ -237,6 +237,58 @@ describe('diagnoseReplayCapture', () => {
         expect(result.reasons.length).toBeGreaterThan(0)
     })
 
+    const serverAnswerCases: (Case & { recordingExists: boolean | null })[] = [
+        {
+            name: 'server found a recording, so SDK signals do not decide the verdict',
+            properties: { $recording_status: 'active', $sdk_debug_replay_flushed_size: 300000 },
+            recordingExists: true,
+            expected: 'captured',
+        },
+        {
+            name: 'server found a recording even though the SDK reported it disabled',
+            properties: { $recording_status: 'disabled' },
+            recordingExists: true,
+            expected: 'captured',
+        },
+        {
+            name: 'SDK sent data but the server has no recording',
+            properties: { $recording_status: 'active', $sdk_debug_replay_flushed_size: 300000 },
+            recordingExists: false,
+            expected: 'not_stored',
+        },
+        {
+            name: '$has_recording is stale once the server reports no recording',
+            properties: { $has_recording: true },
+            recordingExists: false,
+            expected: 'not_stored',
+        },
+        {
+            name: 'a capture failure still wins over a negative server answer',
+            properties: { $sdk_debug_recording_script_not_loaded: true },
+            recordingExists: false,
+            expected: 'ad_blocked',
+        },
+        {
+            name: 'no server answer keeps the SDK-only verdict',
+            properties: { $recording_status: 'active', $sdk_debug_replay_flushed_size: 300000 },
+            recordingExists: null,
+            expected: 'captured',
+        },
+    ]
+
+    it.each(serverAnswerCases)('$name → $expected', ({ properties, recordingExists, expected }) => {
+        const result = diagnoseReplayCapture(properties, { sessionId: 'session-1', recordingExists })
+        expect(result.verdict).toBe(expected)
+    })
+
+    it('links to the recording and to the recordings list when the server found one', () => {
+        const result = diagnoseReplayCapture({}, { sessionId: 'session-1', recordingExists: true })
+        const actions = result.suggestedActions
+        expect(actions.map((a) => a.label)).toContain('Watch recording')
+        expect(actions.find((a) => a.label === 'Watch recording')?.to).toBe('/replay/session-1')
+        expect(actions.find((a) => a.label === 'Show in recordings list')?.to).toContain('session_ids')
+    })
+
     it('includes relevant raw signals in the result', () => {
         const result = diagnoseReplayCapture({
             $recording_status: 'active',
