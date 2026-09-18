@@ -9349,11 +9349,13 @@ class TestTaskRunAPI(BaseTaskAPITest):
                 "products.tasks.backend.facade.api.posthoganalytics.feature_enabled",
                 side_effect=flag_enabled,
             ),
+            patch("products.tasks.backend.presentation.views.api.observe_stream_token_routed") as observe_routed,
         ):
             response = self.client.get(f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/stream_token/")
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertIsNone(response.json()["stream_base_url"])
+        observe_routed.assert_called_once_with(task.origin_product, "django", False)
 
     @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
     def test_stream_token_returns_proxy_url_for_pi_when_flag_disabled(self):

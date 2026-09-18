@@ -2990,7 +2990,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         )
         route: StreamTokenRoute = "thin_tail_withheld"
         if not thin_tail_withheld:
-            route = "proxy" if stream_base_url else "unavailable"
+            route = "proxy" if stream_base_url else "django"
         observe_stream_token_routed(stream_info.origin_product, route, client_can_resync)
         return Response(StreamReadTokenResponseSerializer({"token": token, "stream_base_url": stream_base_url}).data)
 

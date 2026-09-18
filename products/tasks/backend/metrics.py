@@ -36,7 +36,7 @@ StreamConnectionOutcome = Literal[
     "backlog_busy",
 ]
 StreamWriteSkippedPath = Literal["ingest", "mirror", "relay"]
-StreamTokenRoute = Literal["proxy", "thin_tail_withheld", "unavailable"]
+StreamTokenRoute = Literal["proxy", "django", "thin_tail_withheld"]
 _ALLOWED_MODES = {"background", "interactive"}
 _ALLOWED_RUN_SOURCES = {"manual", "signal_report", "agent"}
 _ALLOWED_RUNTIME_ADAPTERS = {"claude", "codex"}
