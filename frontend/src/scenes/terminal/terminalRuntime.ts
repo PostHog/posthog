@@ -77,6 +77,7 @@ export class TerminalRuntime {
             boot = (boot + String.fromCharCode(byte)).slice(-4096)
             if (!configured && boot.endsWith('~% ')) {
                 configured = true
+                // Parse setup together so stty cannot flush commands still queued on the serial input.
                 emulator.serial0_send(
                     [
                         'stty -echo',
@@ -86,7 +87,7 @@ export class TerminalRuntime {
                         'umount /mnt',
                         'mount -t 9p -o trans=virtio,version=9p2000.L,cache=none host9p /posthog || exit',
                         'stty -F /dev/ttyS1 raw -echo',
-                        '(while read -r rows cols; do stty -F /dev/ttyS0 rows "$rows" cols "$cols"; done < /dev/ttyS1) &',
+                        '{ while read -r rows cols; do stty -F /dev/ttyS0 rows "$rows" cols "$cols"; done < /dev/ttyS1 & }',
                         "alias ls='ls --color=auto'",
                         "export PS1='\\[\\033[32m\\]posthog\\[\\033[0m\\]:\\[\\033[34m\\]\\w\\[\\033[0m\\] $ '",
                         'cd /posthog/files',
