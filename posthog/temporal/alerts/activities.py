@@ -17,6 +17,7 @@ from posthog.hogql.errors import TableAccessDeniedError
 
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.dataclasses import frozen
+from posthog.db_schema_lag import is_schema_lag_error
 from posthog.email import is_email_available
 from posthog.errors import CH_TRANSIENT_ERRORS
 from posthog.exceptions_capture import capture_exception
@@ -28,12 +29,10 @@ from posthog.tasks.alerts.metrics_investigation import run_metrics_alert_investi
 from posthog.tasks.alerts.schedule_restriction import is_utc_datetime_blocked, next_unblocked_utc
 from posthog.tasks.alerts.utils import (
     CALCULATION_INTERVAL_ORDER,
-    PREPARE_ALERT_FIELDS,
     add_alert_check,
     disable_invalid_alert,
     dispatch_alert_notification,
     get_alert_error_notification_recipients,
-    is_schema_lag_error,
     next_check_time,
     next_scheduled_check_time,
     record_alert_delivery,
@@ -208,10 +207,12 @@ async def prepare_alert(inputs: PrepareAlertActivityInputs) -> PrepareAlertResul
     @database_sync_to_async(thread_sensitive=False)
     def _prepare() -> PrepareAlertResult:
         try:
-            alert = (
-                AlertConfiguration.objects.select_related("insight", "team", "team__organization", "threshold")
-                .only(*PREPARE_ALERT_FIELDS)
-                .get(id=inputs.alert_id)
+            # Unnarrowed on purpose. This load is the first in the chain to touch every column
+            # evaluate_alert and notify_alert go on to read, so a column the database has not
+            # migrated yet surfaces here, where the handler below turns it into a skip, instead
+            # of inside a later activity that has no such handler.
+            alert = AlertConfiguration.objects.select_related("insight", "team", "team__organization", "threshold").get(
+                id=inputs.alert_id
             )
         except AlertConfiguration.DoesNotExist:
             logger.warning("Alert not found", alert_id=inputs.alert_id)

@@ -26,9 +26,9 @@ import structlog
 
 from posthog.schema import AlertState
 
+from posthog.db_schema_lag import is_schema_lag_error
 from posthog.tasks.alerts.utils import (
     dispatch_alert_notification,
-    is_schema_lag_error,
     prepare_alert_insight_chart_url,
     record_alert_delivery,
 )

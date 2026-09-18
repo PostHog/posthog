@@ -441,15 +441,7 @@ class TestPrepareAlert:
         result = await env.run(prepare_alert, PrepareAlertActivityInputs(alert_id=str(entitled.id)))
         assert result.action == PrepareAction.EVALUATE
 
-    async def test_evaluates_when_a_column_it_does_not_read_is_missing(self, alert) -> None:
-        # investigation_inconclusive_action stands in for any column a later migration adds:
-        # the prepare path never reads it, so the narrowed SELECT must not ask for it.
-        async with _alert_column_missing("investigation_inconclusive_action"):
-            result = await ActivityEnvironment().run(prepare_alert, PrepareAlertActivityInputs(alert_id=str(alert.id)))
-
-        assert result.action == PrepareAction.EVALUATE
-
-    async def test_skips_when_a_column_it_reads_is_missing(self, alert) -> None:
+    async def test_skips_when_an_alert_column_is_missing(self, alert) -> None:
         async with _alert_column_missing("schedule_start_time"):
             result = await ActivityEnvironment().run(prepare_alert, PrepareAlertActivityInputs(alert_id=str(alert.id)))
 
