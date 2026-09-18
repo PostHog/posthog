@@ -108,12 +108,12 @@ describe('materializationJobsLogic', () => {
                 unique_key: ['day'],
                 incremental_key: 'day',
             },
+            savedQueryExtras: { has_incremental_history: showsRefreshMode },
         })
         mocks.get!['/api/projects/:team_id/data_modeling_jobs/'] = [
             200,
             {
                 count: 1,
-                has_incremental_history: showsRefreshMode,
                 results: [
                     {
                         id: 'run-1',
@@ -167,7 +167,6 @@ describe('materializationJobsLogic', () => {
                 {
                     count: 21,
                     next: offset < 20 ? '/next' : null,
-                    has_incremental_history: offset === 0,
                     results: [{ id: `run-${offset}`, status: offset === 0 ? 'Running' : 'Failed' }],
                 },
             ]
@@ -178,7 +177,6 @@ describe('materializationJobsLogic', () => {
         await expectLogic(logic).toDispatchActions(['loadDataModelingJobsSuccess'])
         await expectLogic(logic, () => logic.actions.setJobsPage(2)).toDispatchActions(['loadOlderJobsPageSuccess'])
         expect(logic.values.jobsPageResults?.results.map((job) => job.id)).toEqual(['run-10'])
-        expect(logic.values.jobsPageResults?.has_incremental_history).toBe(true)
         expect(logic.values.dataModelingJobs?.results[0].status).toBe('Running')
         await expectLogic(logic, () => logic.actions.loadDataModelingJobs()).toDispatchActions([
             'loadDataModelingJobsSuccess',

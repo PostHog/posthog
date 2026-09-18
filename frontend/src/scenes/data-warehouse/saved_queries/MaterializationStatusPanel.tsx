@@ -463,7 +463,7 @@ export function MaterializationStatusPanel({
                         {
                             title: 'Refresh mode',
                             dataIndex: 'run_mode',
-                            isHidden: !incrementalFlagOn || !jobsPageResults?.has_incremental_history,
+                            isHidden: !incrementalFlagOn || !savedQuery.has_incremental_history,
                             render: (_, { run_mode, full_refresh_reason }: DataModelingJobApi) => {
                                 if (run_mode === 'incremental') {
                                     return 'Incremental'

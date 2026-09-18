@@ -24692,6 +24692,8 @@ export namespace Schemas {
       incremental?: IncrementalConfig | null;
       /** How far incremental materialization has progressed. Null until the first run records any. Written by the materialization run, not by this API. */
       readonly incremental_state: IncrementalState | null;
+      /** Whether incremental settings participated in any materialization run. */
+      readonly has_incremental_history: boolean;
       readonly created_by: UserBasic;
       readonly created_at: string;
       /** @nullable */
@@ -59132,8 +59134,6 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: DataModelingJob[];
-      /** Whether any run for this saved query used incremental settings. */
-      has_incremental_history?: boolean;
     }
 
     export interface PaginatedDataQualityCheckList {
@@ -67187,6 +67187,8 @@ export namespace Schemas {
       incremental?: IncrementalConfig | null;
       /** How far incremental materialization has progressed. Null until the first run records any. Written by the materialization run, not by this API. */
       readonly incremental_state?: IncrementalState | null;
+      /** Whether incremental settings participated in any materialization run. */
+      readonly has_incremental_history?: boolean;
       readonly created_by?: UserBasic;
       readonly created_at?: string;
       /** @nullable */
@@ -101570,10 +101572,6 @@ export namespace Schemas {
     };
 
     export type DataModelingJobsListParams = {
-    /**
-     * Add whether any run for the requested saved query used incremental settings.
-     */
-    include_incremental_history?: boolean;
     /**
      * Number of results to return per page.
      */

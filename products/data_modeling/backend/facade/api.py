@@ -69,6 +69,8 @@ _LAZY = {
     "deserialize_watermark": "logic.incremental",
     "get_incremental_config": "logic.incremental",
     "get_incremental_state": "logic.incremental",
+    "has_incremental_history": "logic.incremental",
+    "record_incremental_history": "logic.incremental",
     "set_incremental_state": "logic.incremental",
     "window_start": "logic.incremental",
     "IncrementalFilterError": "logic.incremental_filter",

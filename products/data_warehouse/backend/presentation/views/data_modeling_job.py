@@ -1,8 +1,6 @@
 from django.db.models import Q
 
 from django_filters.rest_framework import DjangoFilterBackend
-from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import OpenApiParameter, extend_schema
 from rest_framework import pagination, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -59,31 +57,12 @@ class DataModelingJobSerializer(serializers.ModelSerializer):
 class DataModelingJobPagination(pagination.LimitOffsetPagination):
     default_limit = 10
     max_limit = 100
-    has_incremental_history = False
-
-    def get_paginated_response(self, data):
-        response = super().get_paginated_response(data)
-        response.data["has_incremental_history"] = self.has_incremental_history
-        return response
-
-    def get_paginated_response_schema(self, schema):
-        paginated = super().get_paginated_response_schema(schema)
-        paginated["properties"]["has_incremental_history"] = {
-            "type": "boolean",
-            "description": "Whether any run for this saved query used incremental settings.",
-        }
-        return paginated
 
 
 class DataModelingJobViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet):
     """
     List data modeling jobs which are "runs" for our saved queries.
     """
-
-    FULL_REFRESH_WITHOUT_INCREMENTAL_SETTINGS = [
-        "not configured for incremental materialization",
-        "incremental materialization is not enabled",
-    ]
 
     scope_object = "warehouse_view"
     serializer_class = DataModelingJobSerializer
@@ -94,37 +73,6 @@ class DataModelingJobViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewS
     search_fields = ["saved_query_id"]
     ordering_fields = ["created_at"]
     ordering = "-created_at"
-
-    @extend_schema(
-        parameters=[
-            OpenApiParameter(
-                "include_incremental_history",
-                OpenApiTypes.BOOL,
-                description="Add whether any run for the requested saved query used incremental settings.",
-            )
-        ]
-    )
-    def list(self, request, *args, **kwargs):
-        response = super().list(request, *args, **kwargs)
-        saved_query_id = request.query_params.get("saved_query_id")
-        if request.query_params.get("include_incremental_history") == "true" and saved_query_id:
-            response.data["has_incremental_history"] = (
-                DataModelingJob.objects.filter(
-                    team_id=self.team_id,
-                    saved_query_id=saved_query_id,
-                    engine=DataModelingJobEngine.CLICKHOUSE,
-                )
-                .filter(
-                    Q(run_mode=DataModelingJob.RunMode.INCREMENTAL)
-                    | (
-                        Q(run_mode=DataModelingJob.RunMode.FULL_REFRESH)
-                        & Q(full_refresh_reason__isnull=False)
-                        & ~Q(full_refresh_reason__in=self.FULL_REFRESH_WITHOUT_INCREMENTAL_SETTINGS)
-                    )
-                )
-                .exists()
-            )
-        return response
 
     def _is_managed_warehouse_shadow_enabled(self) -> bool:
         try:
