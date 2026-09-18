@@ -848,6 +848,14 @@ class TestSubscriptionTemporal(APILicensedTest):
         assert res.status_code == status.HTTP_400_BAD_REQUEST
         assert res.json()["detail"] == GALLERY_FILES_WRITE_ERROR
 
+    def test_stored_ai_display_option_does_not_block_insight_edits(self):
+        subscription = create_subscription(team=self.team, insight=self.insight, created_by=self.user)
+        Subscription.objects.filter(id=subscription.id).update(delivery_config={"include_images": False})
+
+        res = self.client.patch(f"/api/projects/{self.team.id}/subscriptions/{subscription.id}", {"enabled": False})
+
+        assert res.status_code == status.HTTP_200_OK, res.json()
+
     def test_patch_slack_to_email_rejects_persisted_gallery_flag(self):
         # Effective-config validation across target_type: a Slack sub with the gallery flag PATCHed to
         # email without resubmitting delivery_config must be rejected, not silently saved as email+flag.
@@ -3969,17 +3977,18 @@ class TestAISubscriptionAPI(APILicensedTest):
 
     @parameterized.expand(
         [
-            ("unrelated_field", {"enabled": False}),
-            ("delivery_config_without_the_option", {"delivery_config": {"include_images": False}}),
+            ("unrelated_field", "files:write", {"enabled": False}),
+            ("delivery_config_without_the_option", "files:write", {"delivery_config": {"include_images": False}}),
+            ("slack_without_files_write", "channels:read", {"enabled": False}),
         ]
     )
     def test_stored_gallery_option_does_not_block_other_prompt_edits(
-        self, mock_is_cloud, mock_flag, mock_sync, _name, patch_body
+        self, mock_is_cloud, mock_flag, mock_sync, _name, extra_scope, patch_body
     ):
         self._enable_ai()
         self._mock_temporal(mock_sync)
         integration = Integration.objects.create(
-            team=self.team, kind="slack", config={"scope": "chat:write,files:write"}
+            team=self.team, kind="slack", config={"scope": f"chat:write,{extra_scope}"}
         )
         create_response = self.client.post(
             f"/api/projects/{self.team.id}/subscriptions",

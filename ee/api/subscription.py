@@ -452,8 +452,9 @@ class SubscriptionWriteSerializer(serializers.ModelSerializer):
         required=False,
         help_text=(
             "Per-delivery rendering options. Every option applies to one subscription kind or delivery "
-            "target only, and the request is rejected when an option does not apply. Omit this field "
-            "unless the user asks for one of the options."
+            "target only, and each option's own description says where it applies and whether a "
+            "mismatch is rejected or ignored. Omit this field unless the user asks for one of the "
+            "options."
         ),
     )
     insight_short_id = serializers.SerializerMethodField()
@@ -832,8 +833,16 @@ class SubscriptionWriteSerializer(serializers.ModelSerializer):
             if "delivery_config" in attrs
             else (self.instance.delivery_config if self.instance else None)
         ) or {}
+        # A prompt report never reads the gallery option, so only the value a request sends can be
+        # wrong. An insight or dashboard report does read it, so the stored value still decides: a
+        # target or permission change would break the next delivery.
+        gallery_enabled = (
+            submitted_delivery_config
+            if resource_type == Subscription.ResourceType.AI_PROMPT
+            else effective_delivery_config
+        ).get("post_all_insights_in_main_message")
         if resource_type != Subscription.ResourceType.AI_PROMPT:
-            unsupported = sorted(AI_DELIVERY_DISPLAY_FIELDS & effective_delivery_config.keys())
+            unsupported = sorted(AI_DELIVERY_DISPLAY_FIELDS & submitted_delivery_config.keys())
             if unsupported:
                 verb, pronoun = ("applies", "it") if len(unsupported) == 1 else ("apply", "them")
                 raise ValidationError(
@@ -845,7 +854,7 @@ class SubscriptionWriteSerializer(serializers.ModelSerializer):
                         ]
                     }
                 )
-        elif submitted_delivery_config.get("post_all_insights_in_main_message"):
+        elif gallery_enabled:
             # The prompt Slack renderer already posts every chart in the main message and never reads this option.
             raise ValidationError(
                 {
@@ -920,9 +929,7 @@ class SubscriptionWriteSerializer(serializers.ModelSerializer):
                 )
             if integration.kind != "slack":
                 raise ValidationError({"integration_id": ["Slack subscriptions require a Slack integration."]})
-            if effective_delivery_config.get("post_all_insights_in_main_message") and SlackIntegration(
-                integration
-            ).missing_scopes({"files:write"}):
+            if gallery_enabled and SlackIntegration(integration).missing_scopes({"files:write"}):
                 raise ValidationError(
                     {
                         "delivery_config": [
@@ -934,10 +941,7 @@ class SubscriptionWriteSerializer(serializers.ModelSerializer):
                     }
                 )
 
-        if (
-            effective_delivery_config.get("post_all_insights_in_main_message")
-            and target_type != Subscription.SubscriptionTarget.SLACK
-        ):
+        if gallery_enabled and target_type != Subscription.SubscriptionTarget.SLACK:
             raise ValidationError(
                 {
                     "delivery_config": [

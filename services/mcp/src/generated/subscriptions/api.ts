@@ -255,7 +255,7 @@ export const SubscriptionsCreateBody = () => zod
             .describe('Typed view over the Subscription.delivery_config JSON blob.')
             .optional()
             .describe(
-                'Per-delivery rendering options. Every option applies to one subscription kind or delivery target only, and the request is rejected when an option does not apply. Omit this field unless the user asks for one of the options.'
+                "Per-delivery rendering options. Every option applies to one subscription kind or delivery target only, and each option's own description says where it applies and whether a mismatch is rejected or ignored. Omit this field unless the user asks for one of the options."
             ),
     })
     .describe('Standard Subscription serializer.')
@@ -485,7 +485,7 @@ export const SubscriptionsPartialUpdateBody = () => zod
             .describe('Typed view over the Subscription.delivery_config JSON blob.')
             .optional()
             .describe(
-                'Per-delivery rendering options. Every option applies to one subscription kind or delivery target only, and the request is rejected when an option does not apply. Omit this field unless the user asks for one of the options.'
+                "Per-delivery rendering options. Every option applies to one subscription kind or delivery target only, and each option's own description says where it applies and whether a mismatch is rejected or ignored. Omit this field unless the user asks for one of the options."
             ),
     })
     .describe('Standard Subscription serializer.')
