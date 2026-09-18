@@ -16,7 +16,10 @@ const (
 	completionModeComparison
 	completionModeBetweenSeparator
 	completionModePredicateContinuation
+	completionModeJoinPredicateContinuation
 	completionModePostExpression
+	completionModeJoinPostExpression
+	completionModeCaseExpression
 	completionModeStatementStart
 )
 
@@ -36,6 +39,7 @@ type sqlToken struct {
 	raw   string
 	kind  sqlTokenKind
 	depth int
+	start int
 }
 
 func analyzeCursorContext(input string) completionMode {
@@ -54,8 +58,20 @@ func analyzeCursorContext(input string) completionMode {
 		}
 	case "SELECT", "GROUP BY", "ORDER BY":
 		return completionModeExpression
-	case "WHERE", "PREWHERE", "HAVING", "ON":
+	case "WHERE", "PREWHERE", "HAVING":
 		return predicateMode(tokens[clauseIndex+1:], depth)
+	case "ON":
+		mode := predicateMode(tokens[clauseIndex+1:], depth)
+		if tokens[clauseIndex].depth != depth {
+			return mode
+		}
+		if mode == completionModePredicateContinuation {
+			return completionModeJoinPredicateContinuation
+		}
+		if mode == completionModePostExpression {
+			return completionModeJoinPostExpression
+		}
+		return mode
 	}
 	return completionModeGeneral
 }
@@ -82,7 +98,19 @@ func predicateMode(tokens []sqlToken, depth int) completionMode {
 	start := 0
 	betweenPending := false
 	caseDepth := 0
+	openExpressionCases := 0
+	closedCase := false
 	for index, token := range tokens {
+		if token.kind == sqlTokenWord {
+			switch token.text {
+			case "CASE":
+				openExpressionCases++
+			case "END":
+				if openExpressionCases > 0 {
+					openExpressionCases--
+				}
+			}
+		}
 		if token.kind == sqlTokenLeftParen && token.depth == depth-1 {
 			start = index + 1
 			betweenPending = false
@@ -98,6 +126,7 @@ func predicateMode(tokens []sqlToken, depth int) completionMode {
 		case "END":
 			if caseDepth > 0 {
 				caseDepth--
+				closedCase = true
 			}
 		case "BETWEEN":
 			if caseDepth == 0 {
@@ -121,6 +150,9 @@ func predicateMode(tokens []sqlToken, depth int) completionMode {
 	}
 	segment := tokens[start:]
 	last := lastTokenAtDepth(segment, depth)
+	if openExpressionCases > 0 || caseDepth > 0 {
+		return completionModeCaseExpression
+	}
 	if last.text == "" || last.text == "AND" || last.text == "OR" || last.kind == sqlTokenComma || last.kind == sqlTokenLeftParen {
 		return completionModeExpression
 	}
@@ -148,10 +180,55 @@ func predicateMode(tokens []sqlToken, depth int) completionMode {
 		}
 		return completionModeExpression
 	}
-	if last.kind == sqlTokenRightParen || last.kind == sqlTokenValue {
+	if last.kind == sqlTokenRightParen || last.kind == sqlTokenValue || closedCase && last.text == "END" || isUnqualifiedBooleanToken(segment, depth) {
 		return completionModePostExpression
 	}
 	return completionModeComparison
+}
+
+func isUnqualifiedBooleanToken(tokens []sqlToken, depth int) bool {
+	lastIndex := -1
+	for index := len(tokens) - 1; index >= 0; index-- {
+		if tokens[index].depth <= depth {
+			lastIndex = index
+			break
+		}
+	}
+	if lastIndex < 0 {
+		return false
+	}
+	last := tokens[lastIndex]
+	if last.kind != sqlTokenWord || !strings.EqualFold(last.raw, "TRUE") && !strings.EqualFold(last.raw, "FALSE") {
+		return false
+	}
+	for index := lastIndex - 1; index >= 0; index-- {
+		if tokens[index].depth < depth {
+			break
+		}
+		if tokens[index].depth == depth {
+			return tokens[index].text != "."
+		}
+	}
+	return true
+}
+
+func hasLaterJoinAtDepth(input string, depth int) bool {
+	tokens, _, _ := scanSQLTokensAtDepth(input, depth)
+	for _, token := range tokens {
+		if token.depth < depth || token.depth == depth && token.text == ";" {
+			return false
+		}
+		if token.depth != depth || token.kind != sqlTokenWord {
+			continue
+		}
+		switch token.text {
+		case "JOIN":
+			return true
+		case "WHERE", "PREWHERE", "GROUP", "ORDER", "HAVING", "QUALIFY", "LIMIT", "UNION", "EXCEPT", "INTERSECT":
+			return false
+		}
+	}
+	return false
 }
 
 func betweenLowerBoundComplete(tokens []sqlToken, depth int) bool {
@@ -241,8 +318,12 @@ func isComparisonToken(token sqlToken) bool {
 }
 
 func scanSQLTokens(input string) ([]sqlToken, int, bool) {
+	return scanSQLTokensAtDepth(input, 0)
+}
+
+func scanSQLTokensAtDepth(input string, initialDepth int) ([]sqlToken, int, bool) {
 	var tokens []sqlToken
-	depth := 0
+	depth := initialDepth
 	for index := 0; index < len(input); {
 		character := input[index]
 		r, size := utf8.DecodeRuneInString(input[index:])
@@ -275,7 +356,7 @@ func scanSQLTokens(input string) ([]sqlToken, int, bool) {
 			if character != '\'' {
 				kind = sqlTokenWord
 			}
-			tokens = append(tokens, sqlToken{text: strings.ToUpper(input[index:end]), raw: input[index:end], kind: kind, depth: depth})
+			tokens = append(tokens, sqlToken{text: strings.ToUpper(input[index:end]), raw: input[index:end], kind: kind, depth: depth, start: index})
 			index = end
 			continue
 		}
@@ -288,7 +369,7 @@ func scanSQLTokens(input string) ([]sqlToken, int, bool) {
 				}
 				end += size
 			}
-			tokens = append(tokens, sqlToken{text: strings.ToUpper(input[index:end]), raw: input[index:end], kind: sqlTokenWord, depth: depth})
+			tokens = append(tokens, sqlToken{text: strings.ToUpper(input[index:end]), raw: input[index:end], kind: sqlTokenWord, depth: depth, start: index})
 			index = end
 			continue
 		}
@@ -297,27 +378,27 @@ func scanSQLTokens(input string) ([]sqlToken, int, bool) {
 			for end < len(input) && ((input[end] >= '0' && input[end] <= '9') || input[end] == '.') {
 				end++
 			}
-			tokens = append(tokens, sqlToken{text: input[index:end], raw: input[index:end], kind: sqlTokenValue, depth: depth})
+			tokens = append(tokens, sqlToken{text: input[index:end], raw: input[index:end], kind: sqlTokenValue, depth: depth, start: index})
 			index = end
 			continue
 		}
 		switch character {
 		case '(':
-			tokens = append(tokens, sqlToken{text: "(", raw: "(", kind: sqlTokenLeftParen, depth: depth})
+			tokens = append(tokens, sqlToken{text: "(", raw: "(", kind: sqlTokenLeftParen, depth: depth, start: index})
 			depth++
 			index++
 		case ')':
 			if depth > 0 {
 				depth--
 			}
-			tokens = append(tokens, sqlToken{text: ")", raw: ")", kind: sqlTokenRightParen, depth: depth})
+			tokens = append(tokens, sqlToken{text: ")", raw: ")", kind: sqlTokenRightParen, depth: depth, start: index})
 			index++
 		case ',':
-			tokens = append(tokens, sqlToken{text: ",", raw: ",", kind: sqlTokenComma, depth: depth})
+			tokens = append(tokens, sqlToken{text: ",", raw: ",", kind: sqlTokenComma, depth: depth, start: index})
 			index++
 		default:
 			end := operatorEnd(input, index)
-			tokens = append(tokens, sqlToken{text: strings.ToUpper(input[index:end]), raw: input[index:end], kind: sqlTokenOperator, depth: depth})
+			tokens = append(tokens, sqlToken{text: strings.ToUpper(input[index:end]), raw: input[index:end], kind: sqlTokenOperator, depth: depth, start: index})
 			index = end
 		}
 	}

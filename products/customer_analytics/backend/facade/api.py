@@ -2215,7 +2215,10 @@ def trigger_person_property_backfill(
     _assert_warehouse_editor(team_id, binding, user_access_control)
     # Placeholder rows before starting, so the activity always finds a running row to reconcile.
     created_source_ids = _create_running_runs(team_id, binding, trigger)
-    started_new_run = bool(created_source_ids)
+    # `created_source_ids` covers every enabled source on the binding, not just the one requested —
+    # a sibling source can pick up a fresh placeholder while this source's own run was already in
+    # flight and merely coalesced. Report 'started' only when the requested source is among them.
+    started_new_run = str(source_id) in {str(created_id) for created_id in created_source_ids}
     from products.warehouse_sources.backend.facade.temporal import (  # noqa: PLC0415
         WarehouseBindingMissingError,
         start_person_property_backfill,

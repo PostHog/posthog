@@ -36,9 +36,12 @@ class TestCiscoDuoSource:
             ("activity_logs", True, False),
             ("users", False, False),
             ("groups", False, False),
+            ("group_users", False, False),
             ("phones", False, False),
+            ("endpoints", False, False),
             ("admins", False, False),
             ("integrations", False, False),
+            ("policies", False, False),
         ],
     )
     def test_schema_sync_modes(self, endpoint, incremental, append):

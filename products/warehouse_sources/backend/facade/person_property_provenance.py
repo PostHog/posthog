@@ -71,6 +71,12 @@ def stamp_person_property_provenance(
     else:
         query = query.filter(type=PropertyDefinition.Type.PERSON)
 
+    # A mapping update can rename or drop a column. Without this, the definition it used to feed
+    # keeps claiming this source indefinitely, even though this source no longer produces it.
+    query.filter(warehouse_origin__custom_property_source_id=source_id).exclude(name__in=names).update(
+        warehouse_origin=None
+    )
+
     current_origins = dict(query.filter(name__in=names).values_list("name", "warehouse_origin"))
     missing = [name for name in names if name not in current_origins]
     if missing:

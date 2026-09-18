@@ -618,6 +618,40 @@ class TestPersonCustomPropertySource(TeamScopedTestMixin, APIBaseTest):
         assert run.status == "failed"
 
     @patch("products.customer_analytics.backend.facade.api.person_properties_flag_enabled", return_value=True)
+    def test_backfill_reports_false_when_only_a_sibling_source_starts(self, _flag):
+        # Two enabled sources can bind the same schema. If this source's own run is already in
+        # flight and only a sibling source gets a fresh placeholder, the caller must see the
+        # coalesced result (False) for the source it actually asked about, not the sibling's.
+        source = self._create(user_access_control=self._uac(allowed=True))
+        sibling_def = create_custom_property_definition(
+            team_id=self.team.id, name="Seats", target_type=TargetType.PERSON.value
+        )
+        sibling = self._create(
+            definition_id=sibling_def.id,
+            column_property_map={"seats": "seat_count"},
+            user_access_control=self._uac(allowed=True),
+        )
+        CustomPropertySyncRun.objects.create(
+            team_id=self.team.id,
+            source_id=source.id,
+            schema_id=self.schema.id,
+            trigger="manual",
+            status="running",
+            started_at=timezone.now(),
+        )
+
+        with patch(
+            "products.warehouse_sources.backend.facade.temporal.start_person_property_backfill", return_value=True
+        ):
+            result = api.trigger_person_property_backfill(
+                team_id=self.team.id, source_id=source.id, user_access_control=self._uac(allowed=True)
+            )
+
+        assert result is False
+        sibling_run = CustomPropertySyncRun.objects.unscoped().get(source_id=sibling.id)
+        assert sibling_run.status == "running"
+
+    @patch("products.customer_analytics.backend.facade.api.person_properties_flag_enabled", return_value=True)
     def test_triggers_reject_disabled_source(self, _flag):
         # A disabled source can't be re-triggered: sync returns False (→ 400) and backfill None (→ 400).
         source = self._create(is_enabled=False)

@@ -15,7 +15,7 @@ from rest_framework import status
 
 from posthog.auth import MCP_USER_AGENT_MARKER
 from posthog.constants import AvailableFeature
-from posthog.models import Tag, TaggedItem
+from posthog.models import PropertyDefinition, Tag, TaggedItem
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.comment import Comment
 from posthog.models.integration import Integration
@@ -2568,6 +2568,13 @@ class TestCustomPropertySourceViewSet(APIBaseTest):
         assert created.status_code == status.HTTP_201_CREATED, created.content
         assert created.json()["external_data_schema"] == str(schema.id)
 
+        # Stamping the initial mapping is synchronous (no value backfill needed to attribute it).
+        old_definition = PropertyDefinition.objects.get(
+            team_id=self.team.id, type=PropertyDefinition.Type.GROUP, group_type_index=0, name="plan_tier"
+        )
+        assert old_definition.warehouse_origin is not None
+        assert old_definition.warehouse_origin["custom_property_source_id"] == created.json()["id"]
+
         patched = self.client.patch(
             f"{self.endpoint}{created.json()['id']}/",
             {"column_property_map": {"plan": "group_plan_tier"}},
@@ -2576,6 +2583,16 @@ class TestCustomPropertySourceViewSet(APIBaseTest):
         assert patched.status_code == status.HTTP_200_OK, patched.content
         assert patched.json()["id"] == created.json()["id"]
         assert patched.json()["column_property_map"] == {"plan": "group_plan_tier"}
+
+        # Regression: renaming a mapped column must not leave the old property definition claiming
+        # this source indefinitely once it no longer produces that property.
+        old_definition.refresh_from_db()
+        assert old_definition.warehouse_origin is None
+        new_definition = PropertyDefinition.objects.get(
+            team_id=self.team.id, type=PropertyDefinition.Type.GROUP, group_type_index=0, name="group_plan_tier"
+        )
+        assert new_definition.warehouse_origin is not None
+        assert new_definition.warehouse_origin["custom_property_source_id"] == created.json()["id"]
 
     @parameterized.expand(
         [

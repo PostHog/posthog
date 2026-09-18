@@ -338,6 +338,7 @@ Make those runs pass, and never let untrusted code reach a secret.
 - Comment or label only on same-repo PRs — the fork token can't write.
 - To act on a fork PR with secrets/write (reviewer or label bots), use `pull_request_target`: base-repo permissions, but it must **never check out and run fork code**. That's why those workflows can't fold into a `pull_request` parent.
 - First-time contributors need maintainer approval before workflows run (`action_required`) — expected.
+- Depot CI runs no fork PR at all, so the backend router keeps fork PRs on GitHub Actions and the required check stays on the head. Never re-push a fork's head in-repo to get it a Depot run. See [Pull requests from forks](../../../docs/published/handbook/engineering/fork-pull-requests.md).
 
 ## Timeouts
 

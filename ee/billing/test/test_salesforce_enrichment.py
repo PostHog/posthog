@@ -5,8 +5,9 @@ from pathlib import Path
 
 import pytest
 import time_machine
-from posthog.test.base import BaseTest
 from unittest.mock import AsyncMock, patch
+
+from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
@@ -42,7 +43,7 @@ def load_harmonic_fixture():
     return data["response"]
 
 
-class TestDomainExclusion(BaseTest):
+class TestDomainExclusion(SimpleTestCase):
     @parameterized.expand(
         [
             # None and empty values
@@ -84,7 +85,7 @@ class TestDomainExclusion(BaseTest):
         assert result is expected, f"Failed for: {description}"
 
 
-class TestExtractDomain(BaseTest):
+class TestExtractDomain(SimpleTestCase):
     """Unit tests for _extract_domain helper function."""
 
     @parameterized.expand(
@@ -114,7 +115,7 @@ class TestExtractDomain(BaseTest):
         assert result == expected, f"Failed for: {description}"
 
 
-class TestYCCompanyDetection(BaseTest):
+class TestYCCompanyDetection(SimpleTestCase):
     """Unit tests for Y Combinator company detection."""
 
     @parameterized.expand(
@@ -144,7 +145,7 @@ class TestYCCompanyDetection(BaseTest):
         assert result == expected, f"Failed for: {description}"
 
 
-class TestHarmonicDataTransformation(BaseTest):
+class TestHarmonicDataTransformation(SimpleTestCase):
     @time_machine.travel("2025-07-29T12:00:00Z", tick=False)
     def test_transform_harmonic_data_with_fixture(self):
         """Test transform_harmonic_data output structure and field mapping with real fixture."""
@@ -544,7 +545,7 @@ class TestHarmonicDataTransformation(BaseTest):
         assert salesforce_data["harmonic_is_yc_company__c"] is False
 
 
-class TestSalesforceAccountQuery(BaseTest):
+class TestSalesforceAccountQuery(SimpleTestCase):
     def test_get_salesforce_accounts_by_domain_escapes_quotes(self):
         """Test that single quotes in domain are properly escaped to prevent SOQL injection."""
         malicious_domain = "test'OR'1'='1"
@@ -629,7 +630,7 @@ class TestSalesforceAccountQuery(BaseTest):
             assert "LIKE '%example.com%'" not in actual_query
 
 
-class TestSpecificDomainEnrichment(BaseTest):
+class TestSpecificDomainEnrichment(SimpleTestCase):
     @pytest.mark.asyncio
     @time_machine.travel("2025-07-29T12:00:00Z", tick=False)
     async def test_specific_domain_enrichment_success(self):
@@ -895,7 +896,7 @@ class TestSpecificDomainEnrichment(BaseTest):
                         assert mock_sf.query_all.called
 
 
-class TestValuesMatch(BaseTest):
+class TestValuesMatch(SimpleTestCase):
     @parameterized.expand(
         [
             ("2025-07-29T12:00:00Z", "2025-07-29T12:00:00.000+0000", True, "ISO Z to Salesforce format"),

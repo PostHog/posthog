@@ -2,7 +2,10 @@
 
 Both queries read the dogfood project's client telemetry, the same stream the label assets read,
 and both are bounded by explicit event-time windows so a partition is reproducible for any past
-day. An impression event contains only newly shown rows, not a complete ranked list. The query
+day. The impression query is also bounded to this deployment's app host, because the project holds
+every region's telemetry while only this region's reports can hold a score.
+
+An impression event contains only newly shown rows, not a complete ranked list. The query
 retains session and list size so `deduplicate_lists` can union absolute ranks within each
 (distinct_id, session_id, scope, normalized tab, five-second UTC bucket). State-section tabs
 normalize to `reports`, because the merged Reports view emits a different tab per section.
@@ -20,7 +23,12 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.models import Team
 
-from products.signals.dags.inbox_ranking.dataset.queries import IMPRESSION_RANK_SQL, etl_workload, utc_bound
+from products.signals.dags.inbox_ranking.dataset.queries import (
+    IMPRESSION_RANK_SQL,
+    etl_workload,
+    region_app_host,
+    utc_bound,
+)
 
 # The action types the `action` head counts as a positive (products/signals/dags/inbox_ranking/
 # training/heads.py). Kept identical so both reads count the same event family. The head's seven-day
@@ -28,6 +36,7 @@ from products.signals.dags.inbox_ranking.dataset.queries import IMPRESSION_RANK_
 ACTION_TYPES = ("create_pr", "discuss")
 
 _ACTION_TYPES_SQL = ", ".join(f"'{action_type}'" for action_type in ACTION_TYPES)
+
 
 # One row per (impression event, report), before reconstruction in `deduplicate_lists`.
 #
@@ -72,6 +81,10 @@ FROM (
     ARRAY JOIN JSONExtractArrayRaw(properties, 'impressions') AS imp
     WHERE event = 'Inbox reports impressed'
       AND timestamp >= toDateTime({{window_start}}) AND timestamp < toDateTime({{window_end}})
+      -- Only this region's lists, for the reason `region_app_host` gives. An event without a host
+      -- is dropped rather than assumed local: either way the list cannot be graded, and the
+      -- conservative direction keeps the coverage figure honest.
+      AND toString(properties.$host) = {{app_host}}
 )
 GROUP BY impression_id, report_id
 HAVING report_id != '' AND served_rank IS NOT NULL
@@ -80,6 +93,10 @@ HAVING report_id != '' AND served_rank IS NOT NULL
 # One row per engagement, tagged with the head whose outcome it is. Attribution to a list happens
 # in pandas: an engagement belongs to the impression of the same person and report that it follows
 # inside the attribution window.
+#
+# Deliberately not scoped to the app host the impression query is scoped to. About one engagement
+# in ten carries no host, and attribution already requires the same person and report as a list
+# this read kept, so a host filter here would only drop outcomes of local lists.
 OUTCOME_COLUMNS = ("report_id", "distinct_id", "timestamp", "outcome")
 OUTCOMES_SQL = f"""
 SELECT
@@ -114,6 +131,7 @@ def hogql_rows(
         placeholders={
             "window_start": ast.Constant(value=utc_bound(window_start)),
             "window_end": ast.Constant(value=utc_bound(window_end)),
+            "app_host": ast.Constant(value=region_app_host()),
         },
         limit_context=LimitContext.SAVED_QUERY,
         workload=etl_workload(),

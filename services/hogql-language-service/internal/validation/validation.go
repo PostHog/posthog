@@ -146,7 +146,7 @@ func Validate(schema *catalog.PreparedCatalog, query string) Result {
 					}
 				}
 			case *clickhouse.Ident:
-				if ignoredIdents[typed] || typed.Name == "*" {
+				if ignoredIdents[typed] || typed.Name == "*" || analysis.IsBooleanLiteral(typed) {
 					return true
 				}
 				bindings := statement.BindingsAt(int(node.Pos()), int(node.End()))
