@@ -351,6 +351,10 @@ def find_addressed_bot_user_id(slack: SlackIntegration, integration: Integration
     ``U…``-prefixed, so the ``is_bot`` flag is the only authoritative signal, and it comes
     from ``users.info`` through the same cache every other lookup here uses.
 
+    A message that tags our own bot answers ``None``, whoever else it tags. Somebody typed
+    our name, so the message is ours to answer even when it names another app in the same
+    breath.
+
     Answers ``None`` when a lookup fails as well as when the message tags no bot. An
     unresolved mention is no evidence the message was meant for someone else. That covers
     our own id too: without it our bot's mention is indistinguishable from another app's,
@@ -361,12 +365,10 @@ def find_addressed_bot_user_id(slack: SlackIntegration, integration: Integration
         return None
 
     our_bot_user_id = get_cached_bot_user_id(slack, integration)
-    if not our_bot_user_id:
+    if not our_bot_user_id or our_bot_user_id in mentioned_ids:
         return None
 
     for user_id in mentioned_ids:
-        if user_id == our_bot_user_id:
-            continue
         try:
             user_info = get_slack_user_info(slack, integration, user_id)
         except Exception:

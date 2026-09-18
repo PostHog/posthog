@@ -51,6 +51,7 @@ class TestFindAddressedBotUserId:
             pytest.param("<@U0OTHERAPP|other agent> take another look", "U0OTHERAPP", id="labeled_mention"),
             pytest.param("<@U0ALICE> can you take this one", None, id="a_teammate"),
             pytest.param("<@U0OURBOT> fix the export filter", None, id="our_own_bot"),
+            pytest.param("i like <@U0OTHERAPP> and i like <@U0OURBOT>", None, id="our_own_bot_and_another_app"),
             pytest.param("<@U0ALICE> and <@U0OTHERAPP> already looked", "U0OTHERAPP", id="a_teammate_and_an_app"),
             pytest.param("could you also check the export filter", None, id="no_mention"),
             pytest.param("<@U0OTHERAPP>/checkout-sdk still fails", "U0OTHERAPP", id="package_path"),
