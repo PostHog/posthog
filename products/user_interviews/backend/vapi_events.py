@@ -294,8 +294,8 @@ def handle_vapi_webhook_delivery(
     covers the Celery retry that persistence rides on, and an advisory lock holds it when two of
     those runs overlap.
     """
-    message: dict[str, Any] = payload.get("message", {})
-    call: dict[str, Any] = message.get("call", {}) or {}
+    message: dict[str, Any] = payload.get("message") or {}
+    call: dict[str, Any] = message.get("call") or {}
     # Vapi can surface our `assistant_overrides.metadata` (set in `start_call`) in two
     # places on the Call object: `call.metadata` for some message types, and nested under
     # `call.assistantOverrides.metadata` on others. Empirically end-of-call-report comes

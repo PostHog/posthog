@@ -5,6 +5,8 @@ from posthog.test.base import APIBaseTest
 from django.db import InterfaceError, OperationalError, connection
 from django.test.utils import CaptureQueriesContext
 
+from parameterized import parameterized
+
 from posthog.celery import app as celery_app
 
 from products.user_interviews.backend.models import IntervieweeContext, UserInterview, UserInterviewTopic
@@ -72,6 +74,12 @@ class TestVapiWebhookTask(APIBaseTest):
             for attempt in range(handle_vapi_webhook.max_retries)
         )
         self.assertGreater(window_seconds, 60 * 60)
+
+    @parameterized.expand([("null_message", {"message": None}), ("null_call", {"message": {"call": None}})])
+    def test_task_survives_a_null_message_or_call(self, _name: str, payload: dict[str, Any]) -> None:
+        # A JSON null where the message or call object goes must not raise: an AttributeError is
+        # outside the task's retry list, so the report would be lost without a trace.
+        self._run(payload)
 
     def test_task_stores_the_report(self):
         self._run(self._report())
