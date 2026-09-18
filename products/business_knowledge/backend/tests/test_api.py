@@ -537,8 +537,10 @@ class TestKnowledgeDocumentSearchAPI(APIBaseTest):
             "document_title",
             "heading_path",
             "content",
+            "is_generated",
         }
         assert first["source_name"] == "Docs"
+        assert first["is_generated"] is False
         assert "pricing" in first["content"].lower() or "Pricing" in first["content"]
 
     @patch("posthog.api.embedding_worker.generate_embedding", side_effect=Exception("unavailable"))

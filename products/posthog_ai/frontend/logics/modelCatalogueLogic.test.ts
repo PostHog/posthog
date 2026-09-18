@@ -6,6 +6,37 @@ import { MODELS } from 'products/tasks/frontend/modelCatalog.generated'
 
 import { modelCatalogueLogic } from './modelCatalogueLogic'
 
+const GATED_ONE = { id: 'acme/gated-one', flag: 'acme-gated-one' }
+const GATED_TWO = { id: 'acme/gated-two', flag: 'acme-gated-two' }
+
+// The catalog gates no model at the moment, so the gate needs stand-ins to be exercised at
+// all. Two of them, because one cannot show that a flag reveals its own model and no other.
+// Naming real models here instead is what tied these cases to a rollout that ends: the
+// open-weights models stayed hidden after their flags had reached everyone.
+jest.mock('products/tasks/frontend/modelCatalog.generated', () => {
+    const actual = jest.requireActual('products/tasks/frontend/modelCatalog.generated')
+    return {
+        ...actual,
+        MODELS: [
+            ...actual.MODELS,
+            {
+                id: 'acme/gated-one',
+                runtimeAdapter: 'claude',
+                reasoningEfforts: [],
+                label: 'Gated one',
+                accessFlag: 'acme-gated-one',
+            },
+            {
+                id: 'acme/gated-two',
+                runtimeAdapter: 'claude',
+                reasoningEfforts: [],
+                label: 'Gated two',
+                accessFlag: 'acme-gated-two',
+            },
+        ],
+    }
+})
+
 describe('modelCatalogueLogic', () => {
     let logic: ReturnType<typeof modelCatalogueLogic.build>
 
@@ -46,14 +77,26 @@ describe('modelCatalogueLogic', () => {
     })
 
     it('reveals only the gated model whose flag is on', () => {
-        const [first] = GATED
-        mountWithFlags([first.accessFlag as string])
+        mountWithFlags([GATED_ONE.flag])
 
         const offered = logic.values.catalogue.map((choice) => choice.model)
-        expect(offered).toContain(first.id)
-        for (const model of GATED.filter((candidate) => candidate.id !== first.id)) {
-            expect(offered).not.toContain(model.id)
-        }
+        expect(offered).toContain(GATED_ONE.id)
+        expect(offered).not.toContain(GATED_TWO.id)
+    })
+
+    // These run on the claude harness and are offered to everyone. Every gate that reads an
+    // access flag fails closed, so a flag left on the catalog row after its rollout finished
+    // took them off the composer for anyone the flag service could not answer for.
+    it.each([
+        'deepseek-ai/deepseek-v4-flash-0731',
+        '@cf/zai-org/glm-5.2',
+        'zai-org/glm-5.3',
+        'zai-org/glm-5.3-flash',
+        'moonshotai/kimi-k3',
+    ])('offers %s without a flag', (model: string) => {
+        mountWithFlags([])
+
+        expect(logic.values.catalogue.map((choice) => choice.model)).toContain(model)
     })
 
     // An empty effort list is an answer, not missing metadata: the picker renders such a model with no

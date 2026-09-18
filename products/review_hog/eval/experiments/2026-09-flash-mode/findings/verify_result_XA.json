@@ -1,0 +1,601 @@
+[
+    {
+        "letter": "XA",
+        "verified": [
+            {
+                "letter": "XA",
+                "id": "XA1",
+                "cluster": 75,
+                "is_real": true,
+                "severity": "must_fix",
+                "votes": [
+                    {
+                        "is_real": true,
+                        "severity": "must_fix",
+                        "evidence": "/tmp/frozen-75215/products/stamphog/backend/tasks/tasks.py:124-127 accepts every Bot account; 167-214 grants inbox provenance to a native-branch bot PR when the task lookup and opted-in reviewer resolve, without verifying the PostHog Code bot identity. The alleged unrelated-bot linkage is reachable: products/tasks/backend/presentation/views/api.py:1101-1118 permits a task controller to set output, and facade/api.py:1770-1788,2149-2154 permits changing pr_url (only pr_merged is attested). tasks/backend/webhooks.py:41-59 matches that URL; facade/api.py:504-509 only checks team and signal/non-internal task shape. Thus a task controller can point a qualifying run at a native-branch Dependabot/Renovate PR in its repository. A later synchronize passes the generic bot predicate; stamphog tasks.py:944,967-968 then bypasses review mode and author permission. temporal/activities.py:451 passes inbox provenance as self_driving_review, and tools/pr-approval-agent/review_local.py:324-331 bypasses the engine bot refusal for that flag.",
+                        "refutation": "I first tried to refute this using exact-repository task linkage, native-head protection, opt-in, and test_tasks.py:875-887's unrelated-bot rejection. They reject an unlinked/fork PR, but the test only supplies no matching task. None proves that a matching caller-writable output.pr_url was authored by PostHog Code. A same-team signal implementation run with an opted-in assignee and a caller-replaced URL satisfies all these guards. Consequently the generic bot predicate really admits a different bot through the privileged review path; the comment promising those bots remain refused is not enforced."
+                    },
+                    {
+                        "is_real": true,
+                        "severity": "must_fix",
+                        "evidence": "In /tmp/frozen-75215/products/stamphog/backend/tasks/tasks.py:124-127 every Bot qualifies; :169-207 only add native-repo, config, task-linkage and reviewer-toggle checks, and :967-969 bypass author write permission for the resulting provenance. A different native-repo bot PR can obtain that linkage: /tmp/frozen-75215/products/tasks/backend/presentation/views/api.py:1101-1118 exposes task:write set_output; /tmp/frozen-75215/products/tasks/backend/facade/api.py:1770-1788 protects only pr_merged and explicitly permits replacing pr_url, while :2139-2154 saves it. /tmp/frozen-75215/products/tasks/backend/webhooks.py:41-56 matches that caller-written URL, and facade/api.py:504-516 accepts a same-team noninternal signal task. Thus a team task writer can point an opted-in signal run at a Renovate/Dependabot PR and its next synchronize bypasses the ordinary bot and author-trust gates.",
+                        "refutation": "First checked the positive-identification guards and tests: tasks.py:176-207 rejects forks, missing configs, missing/wrong-team linkage and missing opt-in; tests/test_tasks.py:830-887 covers those cases and an unlinked bot. Also checked forced bot authorship in /tmp/frozen-75215/products/tasks/backend/temporal/process_task/utils.py:1068-1074. These establish normal production authorship but do not attest the linked URL or compare the PR bot to that identity. The writable set_output path above defeats the assumed linkage provenance; the existing tests mock find_signal_implementation_run and do not exercise this mismatch."
+                    },
+                    {
+                        "is_real": true,
+                        "severity": "must_fix",
+                        "evidence": "products/stamphog/backend/tasks/tasks.py:124-127 admits any GitHub Bot, and :169-214 uses that generic check plus a native-head/task match to grant inbox provenance; :967-969 then skips author write permission. The task match is production-writable: products/tasks/backend/webhooks.py:41-56 matches TaskRun.output.pr_url, while facade/api.py:504-509 only adds team/signal/non-internal checks. The existing task-run PATCH at presentation/views/api.py:1082-1087 accepts output JSON through presentation/serializers.py:179; facade/api.py:1770-1788,2038-2044,2075 permits changing pr_url. An eligible signal task in the configured repository can therefore be pointed at an unrelated native-head bot PR; its later synchronize event passes these checks when the assigned reviewer opted in. Nothing requires the bot that performed the actual signal implementation.",
+                        "refutation": "I first checked the stronger safeguard after the generic bot predicate: verified task linkage is explicitly the intended identity mechanism, not login matching (products/stamphog/AGENTS.md:84-91). This would refute the finding if linkage attested PR creation. However, the implemented PR-URL match uses caller-editable output and does not validate the producer, so a current authorized PATCH can supply the competing bot PR; no future caller or forged GitHub event is needed. The finding survives on this concrete writable-link path, although replacing generic bot recognition alone is not a complete provenance solution."
+                    }
+                ]
+            },
+            {
+                "letter": "XA",
+                "id": "XA2",
+                "cluster": 6,
+                "is_real": true,
+                "severity": "must_fix",
+                "votes": [
+                    {
+                        "is_real": true,
+                        "severity": "must_fix",
+                        "evidence": "/tmp/frozen-75215/tools/pr-approval-agent/review_pr.py:225,590 gates bot/draft refusal solely on self_driving. The hosted caller tools/pr-approval-agent/review_local.py:321-330 uses that flag and the same prerequisite implementation, including for human-authored drafts. This is reachable through the current initial trigger: tasks/backend/presentation/views/api.py:1101-1118 and facade/api.py:1770-1788,2149-2154 let a task controller replace output.pr_url; review_hog/backend/receivers.py:97-138 stamps the existing signal implementation task/reviewer identity onto the submitted URL. stamphog/backend/tasks/tasks.py:1159-1181 checks fetched state=open and a nonempty head, then creates inbox provenance without checking author identity. temporal/activities.py:434-451 converts it into self_driving_review, and 715-745 posts approval when the remaining review passes. An unrelated human draft in a configured repository can therefore bypass its deterministic draft gate.",
+                        "refutation": "I first checked the caller trust boundary and ready-state behavior. The Action cannot enable self_driving (review_pr.py:973-985), and the webhook carve-out rejects humans (stamphog tasks.py:169-172), but neither protects the separate initial receiver path, whose caller-writable PR URL reaches provenance stamping without that check. The ready-PR portion is refuted: tasks.py:160-168 and tests/test_tasks.py:835-854 explicitly preserve a draft-time approval when the PR becomes ready and allow later head-changing reviews. A still-draft requirement would contradict that behavior. The independent human-draft bypass remains a reachable correctness/security defect; no hypothetical PR-author mutation or queue race is needed."
+                    },
+                    {
+                        "is_real": true,
+                        "severity": "must_fix",
+                        "evidence": "The human-draft case is reachable in the hosted caller: /tmp/frozen-75215/products/review_hog/backend/receivers.py:92-138 accepts a signal task's output.pr_url, and /tmp/frozen-75215/products/stamphog/backend/tasks/tasks.py:1159-1181 fetches the PR but validates only open state and a nonempty head before stamping inbox_review. Task output is caller-writable through /tmp/frozen-75215/products/tasks/backend/presentation/views/api.py:1101-1118 and facade/api.py:1770-1788,2139-2154. activities.py:434-451 converts that provenance to self_driving_review=True; /tmp/frozen-75215/tools/pr-approval-agent/review_local.py:321-330 accepts a human PR and invokes Pipeline._check_prerequisites, whose review_pr.py:590 skips the draft refusal. A linked human draft therefore receives the relaxed approval path without any current-author validation.",
+                        "refutation": "First checked whether true is impossible for an unintended shape: review_pr.py:202-205 and :984 keep Action invocations false, and tests/test_review_pr.py:568-600 verify intended draft relaxation plus retained changes-requested blocking. However the hosted receiver/worker path above fails the stated positive-linkage/author premise and is publicly reachable through task output updates. The ready-PR part is refuted: tasks.py:160-165 explicitly preserves draft-time approvals on ready_for_review and permits subsequent head-changing re-reviews; requiring draft forever would contradict that intended lifecycle. The retained defect is the human-draft bypass, not accepting a legitimate ready self-driving PR."
+                    },
+                    {
+                        "is_real": true,
+                        "severity": "must_fix",
+                        "evidence": "The human-draft case is production-reachable. tools/pr-approval-agent/review_local.py:321-330 accepts the hosted flag, and review_pr.py:590 skips draft prerequisites without checking author type. Task controllers can set arbitrary output.pr_url through products/tasks/backend/presentation/serializers.py:179, views/api.py:1082-1087 and facade/api.py:1770-1788,2038-2044,2075. products/review_hog/backend/receivers.py:92-105,111-138 forwards that target from an eligible opted-in signal task. stamphog/backend/tasks/tasks.py:1140-1181 checks the configured repository/open state/head SHA but not bot identity before stamping provenance at :1223-1229; temporal/activities.py:451 converts it into the engine flag. A human-authored draft can consequently reach an approval posted at temporal/activities.py:723-745.",
+                        "refutation": "I first checked whether defaults and production callers already constrain the flag. The Action leaves it off, and webhook re-reviews reject humans at tasks.py:169-172, but the initial task accepts a caller-writable target and omits that author check. Thus the human case survives without a handcrafted context. The ready-state portion is refuted: tasks.py:160-165 intentionally preserves the draft-time approval on a ready flip and permits later head-changing re-reviews. Requiring every self-driving review to remain draft would break that lifecycle; a queued review observing readiness alone is not a demonstrated defect."
+                    }
+                ]
+            },
+            {
+                "letter": "XA",
+                "id": "XA3",
+                "cluster": 18,
+                "is_real": true,
+                "severity": "consider",
+                "votes": [
+                    {
+                        "is_real": true,
+                        "severity": "consider",
+                        "evidence": "/tmp/frozen-75215/products/stamphog/backend/facade/api.py:120-124 reads the product replica through posthog/product_db_router.py:27-34, whereas sync stamps connecting_user on the writer at stamphog/presentation/views.py:461-464. For a configured enabled repository, a settings request before replica replay can return false despite the committed sync. Tracing the consumer proves a minor user-facing consequence: review_hog/backend/api/settings.py:72-81 exposes the value, CodeReviewScene.tsx:1063-1068 disables opt-in when it is false, and reviewHogSettingsLogic.ts:443-452,801-811,954-956 stores it without polling after the read. Replica catch-up does not itself re-enable the switch; refresh/remount or another settings update does. Actual worker dispatch still checks the writer at stamphog/tasks/tasks.py:1138-1146.",
+                        "refutation": "I first refuted the non-GitHub premise: serializers.py:61-63 makes provider immutable, 74-102 prevents callers supplying sync fields, authenticated sync creates/adopts only github at views.py:85-89,307-315, and only those synced rows receive connecting_user at 461-464. I originally also treated replica lag as an informational-only issue. Further caller tracing disproves that second refutation: the false response actively disables opt-in and remains cached after the replica recovers. Newly synced rows default disabled by design (views.py:311-315), so this finding only applies once a config is actually enabled; opt-out remains available. The retained issue is solely the minor stale setup/readiness control, not provider mismatch or lost backend reviews."
+                    },
+                    {
+                        "is_real": true,
+                        "severity": "consider",
+                        "evidence": "Only the read-lag portion survives. /tmp/frozen-75215/products/stamphog/backend/facade/api.py:120-124 reads connection readiness without selecting the writer; /tmp/frozen-75215/posthog/product_db_router.py:27-40 routes product reads and writes to different aliases, settings/data_stores.py:217-218 supports a separate reader, and Stamphog/AGENTS.md:61 states that this product DB has replicas. After enabling the first synced config on the writer, a settings read before replication can report false. /tmp/frozen-75215/products/review_hog/frontend/CodeReviewScene.tsx:1063-1068 then disables opt-in, and reviewHogSettingsLogic.ts:446,801-807,954-955 has no automatic connection-state catchup poll. The user must reload settings after replication.",
+                        "refutation": "First traced whether a synced non-GitHub row can exist through supported writes. Stamphog presentation/serializers.py:61-63 makes provider immutable, :74-85 omits connected_by_user_id, and :94-102 makes installation_id read-only. presentation/views.py:85-89 and :307-315 only adopt/create github configs and :461-464 stamps those connectors; tests/test_api.py:35-67 verifies the write guards. That provider premise is refuted. The narrower replica concern remains: actual replicated routing and a disabled UI control establish a transient setup obstruction, though new connections are correctly disabled until explicitly enabled and the worker at tasks/tasks.py:1138-1146 stays safely writer-pinned. This is a minor refresh-workaround issue, not the claimed unsupported-provider correctness failure."
+                    },
+                    {
+                        "is_real": true,
+                        "severity": "consider",
+                        "evidence": "The replica-lag portion is reachable with the product database routing enabled. products/stamphog/backend/facade/api.py:120-124 executes an unpinned read, and posthog/product_db_router.py:27-40 routes production reads to stamphog_db_reader while writes use stamphog_db_writer. Sync stamps the connecting user at presentation/views.py:461-465; an enabled repo can therefore exist on the writer before the predicate's reader sees it. review_hog/frontend/reviewHogSettingsLogic.ts:443-451 stores that returned settings snapshot, and CodeReviewScene.tsx:1063-1068 disables the off toggle when stamphog_connected is false. A settings read during lag can show the reconnect instruction for an already-connected enabled repository until settings reload. The worker's writer-pinned resolution at stamphog/backend/tasks/tasks.py:1140-1144 would accept it.",
+                        "refutation": "I first checked both stated premises. The non-GitHub scenario is refuted: installation_id is read-only and provider immutable at presentation/serializers.py:61-63,98-103; sync creates/adopts only GitHub rows at presentation/views.py:85-99,307-315, and only those rows receive connected_by_user_id. A fresh sync also creates repos disabled, so sync alone need not make the flag true. However, an already-enabled resynced repo, or an enabled repo read before replication catches up, still exposes the reader/writer mismatch. This is a minor temporary UI consistency issue with reload as a workaround, not a provider-support or worker-correctness defect; hence consider rather than should_fix."
+                    }
+                ]
+            },
+            {
+                "letter": "XA",
+                "id": "XA4",
+                "cluster": 4,
+                "is_real": false,
+                "severity": null,
+                "votes": [
+                    {
+                        "is_real": false,
+                        "severity": null,
+                        "evidence": "/tmp/frozen-75215/products/stamphog/backend/temporal/activities.py:232-238 explicitly disables merged-PR history for every inbox run, persists author_pr_numbers=[] at 246-256, and passes those numbers plus the same inbox-derived self_driving_review flag to build_reviewer_invocation at 434-451. tools/pr-approval-agent/review_local.py:292-303 returns without attaching familiarity when that list is empty. Its hosted review path calls this helper at 353; it does not call the Action's networked familiarity computation. reviewer.py:644-646 renders an empty block for the resulting absent familiarity. The actual chain test at stamphog/backend/tests/test_integration.py:1412-1415 asserts self_driving_review=true and author_pr_numbers=[].",
+                        "refutation": "I first traced where a self-driving classification could acquire non-empty familiarity instead of assuming arbitrary prompt input was reachable. The only production caller enabling the flag is hosted review_local.py:321; Action review_pr.py:973-985 leaves it false. The hosted producer suppresses author history before the engine receives it, and the offline attachment helper exits on that suppression. Thus the suggestion to prevent self-driving runs from attaching familiarity is already implemented upstream. A synthetic classification manually populated with familiarity could render the block, but no current supported caller produces it."
+                    },
+                    {
+                        "is_real": false,
+                        "severity": null,
+                        "evidence": "The suggested producer-side safeguard already exists. /tmp/frozen-75215/products/stamphog/backend/temporal/activities.py:233-238 detects inbox provenance and sets author_pr_numbers=[] instead of fetching the machine user's history; :246-258 persists that value and :434-451 supplies it alongside the self-driving flag. /tmp/frozen-75215/tools/pr-approval-agent/review_pr.py:474 initializes classification familiarity=None, review_local.py:301-303 returns without attaching familiarity for an empty author_pr_numbers list, and reviewer.py:644-646 renders no familiarity block for None. tests/test_integration.py:1412-1415 explicitly verifies both true self-driving context and empty author history in the real hosted chain.",
+                        "refutation": "First traced who could create a self-driving classification with nonempty familiarity. Hosted reviews use review_local.run (:314-354) and the guarded context producer above. The separate Action path can compute familiarity, but review_pr.py:984 never passes self_driving and its constructor defaults false at :196. The finding's hypothetical classification can be constructed in a unit test but is not emitted by either shipping path. Adding the proposed prompt guard would duplicate the existing producer-side suppression."
+                    },
+                    {
+                        "is_real": false,
+                        "severity": null,
+                        "evidence": "Production self-driving classifications do not receive familiarity. products/stamphog/backend/temporal/activities.py:237-238 sets author_pr_numbers=[] for inbox provenance, writes that value into the context at :246-256, and enables the self-driving flag from the same marker at :451. tools/pr-approval-agent/review_local.py:299-303 exits _attach_familiarity for an empty list before assigning classification familiarity at :307. reviewer.py:644-646 emits no familiarity block when that signal is absent. The integration test at stamphog/backend/tests/test_integration.py:1412-1415 explicitly verifies self_driving_review=True together with empty author_pr_numbers. The other runtime, the Action, never enables self_driving in its constructor at review_pr.py:984.",
+                        "refutation": "I first traced how a non-empty familiarity value could reach the cited renderer with self_driving enabled. The hosted context builder deliberately removes its author-history input, and the consumer's early return prevents computation. The Action can compute familiarity but does not set the exception flag. The suggested synthetic prompt test could assemble the combination directly, but no production caller does; the proposal duplicates an existing upstream safeguard rather than fixing a reachable approval influence."
+                    }
+                ]
+            },
+            {
+                "letter": "XA",
+                "id": "XA5",
+                "cluster": 58,
+                "is_real": true,
+                "severity": "should_fix",
+                "votes": [
+                    {
+                        "is_real": true,
+                        "severity": "should_fix",
+                        "evidence": "/tmp/frozen-75215/products/review_hog/backend/receivers.py:126-138 schedules the initial review after the TaskRun save commits; its helper at 224-234 catches the facade's final exception and only logs it. stamphog/backend/facade/api.py:149-155 performs only process_inbox_pr_review.delay, with no durable dispatch record. The first ReviewRun is written inside the task at tasks.py:1223-1229, so a broker-rejected publication has no resumable run. review_hog/backend/tests/test_inbox_trigger.py:358-369 explicitly demonstrates broker failure, successful save, and one attempted dispatch. stamphog tasks.py:160-168 excludes initial opened and ready_for_review events from the bot/draft carve-out, leaving the saved URL without an automatic initial review after this failure.",
+                        "refutation": "I first looked for worker retries, publisher retries, repeated output saves, or a webhook backstop. Worker retries at tasks.py:1150,1165,1237 only exist after a message reaches a worker; publisher retries can delay but cannot repair the final exception this helper swallows. A later output save or push/reopen can rescue it, but no such event is guaranteed, receiver.py:85-89 ignores ordinary state/status saves, and tasks/backend/webhooks.py:283-292 suppresses duplicate PR-field writes. This is a narrow outage-dependent omission with later-event/manual recovery, hence should_fix; keeping the save non-blocking does not require dropping the dispatch."
+                    },
+                    {
+                        "is_real": true,
+                        "severity": "should_fix",
+                        "evidence": "/tmp/frozen-75215/products/review_hog/backend/receivers.py:131-138 publishes in an on_commit callback, and :224-234 catches any queue failure and only logs it. /tmp/frozen-75215/products/stamphog/backend/facade/api.py:149-155 is a bare Celery delay, so a failed publish leaves no retryable dispatch or ReviewRun (the latter is created only inside the accepted worker at tasks/tasks.py:1185-1229). A final PR-output save followed by an exhausted broker publish therefore persists the task result while losing its initial approval review. Later status-only saves are expressly ignored by receivers.py:85-89.",
+                        "refutation": "First looked for retries, a webhook backstop and tests covering recovery. tasks/tasks.py:1109 supplies worker retries, but those cannot run for an unpublished message. Its :160-168 excludes opened and ready_for_review from the bot carve-out, so neither necessarily repairs the lost initial review; another output save or later push can recover, but neither is guaranteed. tests/test_inbox_trigger.py:358-369 explicitly simulates broker failure and verifies only that the save succeeds and dispatch was attempted once, not eventual delivery. Searches of both products and scheduled task registration found no pending initial-review reconciliation. The failure is narrow to broker outages and has a retrigger workaround, hence should_fix."
+                    },
+                    {
+                        "is_real": true,
+                        "severity": "should_fix",
+                        "evidence": "products/review_hog/backend/receivers.py:126-138 schedules publication after the target output transaction commits; :224-234 catches the publication error and only logs it. products/stamphog/backend/facade/api.py:149-155 calls delay before any ReviewRun exists, because run creation occurs inside the eventual worker at tasks/tasks.py:1223-1229. Publication failure therefore leaves no durable review/dispatch record. The initial bot/draft events do not provide a replacement: tasks.py:167-168 excludes opened/ready_for_review from the carve-out, while :226-231 skips their ordinary review path. Status-only follow-up saves are filtered by receivers.py:85-89. tests/test_inbox_trigger.py:358-369 explicitly confirms that a simulated broker exception does not fail the output save.",
+                        "refutation": "I first checked worker retries, publication retry exhaustion, existing run recovery, and later event paths. Worker retry code cannot execute before publication succeeds, and an eventual transport exception is swallowed rather than propagated to retry the already-successful output write. A later push or another output save may recover but is not guaranteed after the only PR target write. No pending handoff is persisted. The specific broker-outage trigger thus causes a reachable missing initial review, with a manual retrigger workaround and narrow impact."
+                    }
+                ]
+            },
+            {
+                "letter": "XA",
+                "id": "XA6",
+                "cluster": null,
+                "is_real": true,
+                "severity": "must_fix",
+                "votes": [
+                    {
+                        "is_real": true,
+                        "severity": "must_fix",
+                        "evidence": "/tmp/frozen-75215/products/stamphog/backend/tasks/tasks.py:1138-1146 reads enabled config before the network get_pr at 1159, and the later transaction at 1185 creates the run at 1223-1229 using that same object without reloading enabled. presentation/views.py:236-250 implements disable as serializer.save followed by an UPDATE of already-existing nonterminal ReviewRuns. A disable completing while get_pr is in flight sees no initial run to supersede; the task then inserts a new QUEUED run for the now-disabled config. temporal/activities.py:212-220 fetches its context without checking enabled, and post_verdict at 653-675,700-745 checks supersession/current head/engine gates, not current config enabled. With an unchanged acceptable PR it can post a new approval after disable completed.",
+                        "refutation": "I first checked the existing disable sweep, transaction ordering, and workflow fail-closed checks. The sweep is an actual safeguard (views.py:242-250 explicitly intends to stop in-flight approvals), but it cannot update a row that is only created after it finishes. The task's transaction starts after the GitHub fetch, and _upsert_pull_request at tasks.py:319-353 only reads config attributes and updates the PR, not the config's enabled state. Consequently no shared lock/recheck serializes creation with disable, and the new row is not SUPERSEDED. This is a concrete two-operation interleaving across an existing network call, not an arbitrary malformed-input edge case."
+                    },
+                    {
+                        "is_real": true,
+                        "severity": "must_fix",
+                        "evidence": "/tmp/frozen-75215/products/stamphog/backend/tasks/tasks.py:1140-1146 reads the enabled config before the external get_pr at :1159, then :1185-1229 creates the ReviewRun using that old object without rereading or locking the config. An admin PATCH can run presentation/views.py:236-250 during that fetch: save enabled=False, supersede the currently existing nonterminal runs, return. The subsequent new row was absent from that sweep. temporal/activities.py:97-109 loads the run and related config without checking enabled; post_verdict at :666-713 checks supersession and head, then :745 can post an approval. Thus a normal concurrent disable can complete before this task creates and delivers a new review.",
+                        "refutation": "First checked the disable safeguards and relevant test. presentation/views.py:225-250 deliberately soft-disables configs and supersedes active runs; tests/test_api.py:149-169 verifies an already-created REVIEWING run is superseded. That protects rows present at the sweep, not a run created after the sweep from the pre-fetch config snapshot. The worker's writer pin prevents replica lag, not this interleaving, and its atomic block begins only after get_pr. The final writer-pinned status check at activities.py:700-704 still sees the new run as active. The existing guards therefore do not close the reachable race."
+                    },
+                    {
+                        "is_real": true,
+                        "severity": "must_fix",
+                        "evidence": "products/stamphog/backend/tasks/tasks.py:1140-1146 reads enabled=True before the external GitHub fetch at :1159. The run-creation transaction starts only at :1185 and uses that cached config through :1223-1229 without rereading enabled. Meanwhile presentation/views.py:236-240 saves a disable and then _supersede_active_runs at :242-256 marks only already-existing active ReviewRuns. An administrator can finish both steps while the task is fetching, before its run exists. The subsequent run is therefore QUEUED rather than SUPERSEDED. temporal/activities.py:97-106 reloads the disabled config but does not enforce enabled; run_review_in_sandbox at :381-393 guards only SUPERSEDED, and post_verdict at :660-706 guards supersession/head movement before posting at :723-745. Disabling does not revoke installation credentials, so approval remains possible after the completed disable request.",
+                        "refutation": "I first checked the disable path's cancellation safeguard and whether fresh config loading in activities closes the race. _supersede_active_runs does cancel existing runs, but cannot mark a run created after its query completes. The creation transaction locks/updates the PullRequest, not the earlier config eligibility read, and activities never act on the reloaded config's enabled=False. Consequently the described fetch-window interleaving bypasses cancellation without requiring malformed inputs or a database outage; this is a real approval-after-disable defect."
+                    }
+                ]
+            },
+            {
+                "letter": "XA",
+                "id": "XA7",
+                "cluster": 2,
+                "is_real": true,
+                "severity": "must_fix",
+                "votes": [
+                    {
+                        "is_real": true,
+                        "severity": "must_fix",
+                        "evidence": "/tmp/frozen-75215/products/stamphog/AGENTS.md:97-99 describes linkage-verified provenance, but the initial runtime does not verify the target. tasks/backend/presentation/views/api.py:1101-1118 exposes output writes to task controllers; facade/api.py:1770-1788 protects only pr_merged, and 2123-2154 validates only optional output JSON schema and persists a caller-supplied pr_url. review_hog/backend/receivers.py:92-114,126-138 checks the task's existing signal/non-internal shape and assigned reviewer's toggle, then queues that URL with genuine task/report IDs without comparing the URL repository/head to the task. stamphog/backend/tasks/tasks.py:1130-1181 resolves the URL's configured team repository and checks only open state/nonempty head before minting inbox provenance. temporal/activities.py:451 enables self_driving_review; review_local.py:321-330 and review_pr.py:590 bypass bot/draft refusal, and activities.py:723-745 can post approval.",
+                        "refutation": "I first checked whether caller authorization, task shape, synced config, or the webhook's stricter shape checks already prove this link. Authorization in tasks facade/api.py:1807-1826 proves control of the task, not GitHub authorship of the target PR. The receiver supplies real task/report IDs, so arbitrary forged IDs are unnecessary: replacing only the allowed pr_url with an unrelated open draft in a configured repository suffices. The webhook's bot/native-head checks at stamphog tasks.py:169-178 are never invoked by process_inbox_pr_review. The documentation discrepancy therefore points to a reachable approval-eligibility bypass rather than a docs-only issue."
+                    },
+                    {
+                        "is_real": true,
+                        "severity": "must_fix",
+                        "evidence": "The documented linkage invariant at /tmp/frozen-75215/products/stamphog/AGENTS.md:97-99 is violated by the initial worker. /tmp/frozen-75215/products/review_hog/backend/receivers.py:92-138 checks a real noninternal signal task and its acting reviewer's toggle, but forwards output.pr_url without comparing the task repository or PR head. /tmp/frozen-75215/products/tasks/backend/presentation/views/api.py:1101-1118 permits task controllers to set arbitrary JSON output; facade/api.py:1770-1788 attests only pr_merged and explicitly allows changing pr_url, and :2153-2154 saves it. tasks/visibility.py:22-46 allows team members to control signal-origin tasks. Stamphog tasks/tasks.py:1140-1181 checks only that the URL resolves to an enabled synced team repository and an open PR with a head SHA, then stamps the supplied IDs. activities.py:451 enables self-driving and :745 posts an APPROVE when the engine accepts, including for an unrelated PR or fork within that configured repository.",
+                        "refutation": "First checked whether the receiver's task and reviewer guards make the target trustworthy. They do enforce server-derived run/report IDs and opt-in, so arbitrary free-standing task identifiers are not necessary for the exploit. They do not attest the caller-written PR URL. The webhook carve-out's native-head/linkage checks at tasks/tasks.py:176-207 are absent from process_inbox_pr_review. Existing initial-path tests/test_tasks.py:924-970,1051-1059 exercise valid bot drafts, config absence and closed PRs, but never a controller changing a genuine opted-in signal run to an unrelated PR. The supported output API makes that mismatch reachable without forging server IDs."
+                    },
+                    {
+                        "is_real": true,
+                        "severity": "must_fix",
+                        "evidence": "A current task controller can supply the unverified target: products/tasks/backend/presentation/serializers.py:179 and views/api.py:1082-1087 accept output PATCHes, and facade/api.py:1770-1788,2038-2044,2075 preserves editable pr_url while protecting only pr_merged. products/review_hog/backend/receivers.py:92-114 verifies signal/non-internal shape and reviewer assignment, then :126-138 queues pr_url and identifiers without validating the target or even forwarding task.repository. products/stamphog/backend/tasks/tasks.py:1130-1181 resolves the URL's configured repository, checks open state/head SHA, and constructs inbox provenance without fetching the supplied task/run. :1223-1229 persists it; temporal/activities.py:451 enables self_driving_review. The engine then relaxes bot/draft checks at review_local.py:321-330 and review_pr.py:590, and post_verdict can approve at activities.py:723-745. The initial route also omits the normal server author-permission check; that check is not literally an engine gate.",
+                        "refutation": "I first checked whether the receiver's existing eligibility checks make the documented verification at products/stamphog/AGENTS.md:97-99 true. They authenticate a qualifying TaskRun and preference but not its editable PR target. The webhook route independently checks bot/native-head/task match at tasks.py:169-200, but the initial entrypoint does not use it. Consequently an existing API caller can point a signal task at another open configured-repository PR, with no future integration or forged webhook needed. The provenance claim is therefore substantively false and exposes a shipping approval trust-boundary defect."
+                    }
+                ]
+            },
+            {
+                "letter": "XA",
+                "id": "XA8",
+                "cluster": null,
+                "is_real": false,
+                "severity": null,
+                "votes": [
+                    {
+                        "is_real": false,
+                        "severity": null,
+                        "evidence": "/tmp/frozen-75215/products/stamphog/backend/tasks/tasks.py:124-127 does omit the User login posthog-bot, so an otherwise trusted, write-authorized, non-draft machine-user PR can enter the ordinary path. It does NOT obtain inbox provenance: the same predicate fails the carve-out at 169-172, and ordinary mode/write checks remain at 944,967-968. The engine has the explicit machine-user safeguard in tools/pr-approval-agent/github.py:64,79-87 and test_github.py:191. Hosted review_local.py:321-326 refuses that author before classification or LLM review when the ordinary run's self_driving flag is false. The Action also explicitly excludes that login at .github/workflows/pr-approval-agent.yml:30,255. The final approval refusal is therefore intact.",
+                        "refutation": "I first traced whether the webhook mismatch creates an approval bypass or a demonstrated operational failure. It does neither: the normal authorization gates still run and the engine's explicit posthog-bot check deterministically refuses the PR. activities.py:466-474 shows that this may pay for a sandbox/clone before refusal, but no caller volume, exhausted resource, or user-facing failure establishes that bounded extra work as a shipping defect. Aligning an early optimization/defense-in-depth predicate with the already-enforced final predicate would be sensible cleanup; the finding itself concedes the engine refuses it. Under the duplicate-safeguard/speculative-load rule this is not a retained defect."
+                    },
+                    {
+                        "is_real": false,
+                        "severity": null,
+                        "evidence": "The webhook helper at /tmp/frozen-75215/products/stamphog/backend/tasks/tasks.py:124-127 does omit the posthog-bot machine login, but the shipping hosted engine still refuses it: /tmp/frozen-75215/tools/pr-approval-agent/github.py:62-64,79-90 recognizes that User login; review_local.py:207 uses that predicate and :324-326 returns the refusal before classification, gates or LLM review. tests/test_github.py:183-199 explicitly covers type=User, login=posthog-bot. An ordinary posthog-bot PR passing the webhook prefilter has no inbox provenance because tasks.py:872-880 only resolves a carve-out for skipped PRs, so the engine's refusal remains active.",
+                        "refutation": "First traced the downstream guard rather than assuming the webhook omission permits approval. The preserved engine guard disproves that concern, and tasks.py:237-257,967-990 additionally retains normal collaborator permission checks for this path. The finding itself concedes the engine refuses the PR; its remaining proposal is to duplicate that refusal earlier for resource savings and match the documentation's wording. Under the required rubric, missing duplicate safeguards without a proved correctness/security defect are not retained. No LLM approval bypass follows from this omitted early-out."
+                    },
+                    {
+                        "is_real": false,
+                        "severity": null,
+                        "evidence": "products/stamphog/backend/tasks/tasks.py:124-127 does omit the posthog-bot machine login, but tools/pr-approval-agent/github.py:62-64,79-89 explicitly classifies it as a bot. The actual hosted execution calls review_local.run, which refuses bot authors before classification at tools/pr-approval-agent/review_local.py:321-326. The ordinary webhook path also requires actual repository write permission at products/stamphog/backend/tasks/tasks.py:960-989. The claim therefore identifies a predicate/documentation discrepancy and an earlier copy of an already-enforced refusal, not a demonstrated incorrect approval or missed refusal.",
+                        "refutation": "I checked whether the final bot guard used the same incomplete predicate. It does not: the shared engine predicate includes posthog-bot and the hosted entry point returns REFUSE before review. A trusted machine user can reach sandbox creation (products/stamphog/backend/temporal/activities.py:466-474), so the early-filter difference is real, but the finding expressly relies on redundant defense in depth and unquantified resource savings. The claimed policy breach is refuted by the existing execution guard; no separate shipping correctness defect is established."
+                    }
+                ]
+            },
+            {
+                "letter": "XA",
+                "id": "XA9",
+                "cluster": 2,
+                "is_real": true,
+                "severity": "must_fix",
+                "votes": [
+                    {
+                        "is_real": true,
+                        "severity": "must_fix",
+                        "evidence": "/tmp/frozen-75215/products/stamphog/backend/tasks/tasks.py:1110-1117 assumes bot-authored origin from its Celery arguments; 1130-1174 only resolves the URL's team config, fetches the PR, and checks open state/nonempty head before stamping those arguments at 1176-1181 and persisting inbox_review at 1223-1229. The supported caller provides a concrete exploit path: tasks/backend/presentation/views/api.py:852-868,1101-1118 permits task controllers to submit output; facade/api.py:1770-1788 permits changing pr_url and 2149-2154 saves it. review_hog/backend/receivers.py:92-114,126-138 binds that URL to the existing non-internal signal task and opted-in reviewer without proving PR origin. The flag at stamphog/temporal/activities.py:451 then bypasses engine bot/draft refusal (review_local.py:321-326; review_pr.py:590) and can reach approval posting at activities.py:723-745 for unrelated code.",
+                        "refutation": "I first tried the strongest intended invariant: normal signal implementation PRs are forced to bot authorship by tasks/backend/temporal/process_task/utils.py:1059-1084, and the receiver checks real task/report/reviewer records. That only proves the PR the task would create is bot-authored; it does not make output.pr_url immutable or attested. The write helper explicitly anticipates callers redirecting that URL. A task controller therefore needs no direct Celery access or forged cross-team identifiers: an eligible task, opted-in assignee, and another open PR in a configured repository satisfy the initial path. The stricter webhook bot/native-head checks never run on this entrypoint."
+                    },
+                    {
+                        "is_real": true,
+                        "severity": "must_fix",
+                        "evidence": "/tmp/frozen-75215/products/stamphog/backend/tasks/tasks.py:1130-1181 resolves a config from pr_url, fetches that PR and checks open/head, but never loads task_run_id or validates the run/report/repository/head relationship before setting inbox_review. The reachable input is /tmp/frozen-75215/products/tasks/backend/presentation/views/api.py:1101-1118 (task:write set_output), backed by facade/api.py:2123-2154 (optional schema validation and caller-provided pr_url replacement) and :1770-1788 (only pr_merged is attested). visibility.py:22-46 makes signal tasks controllable by team members. /tmp/frozen-75215/products/review_hog/backend/receivers.py:92-138 forwards that new target under the existing opted-in reviewer. activities.py:451 enables the engine carve-out and :745 can approve that unrelated target; its clone path at :955-957 also supports fork PR heads.",
+                        "refutation": "First checked upstream access control and downstream source guards. The API does enforce team/task control and the receiver supplies authentic task/report IDs and current opt-in; consequently this is a same-team target substitution, not arbitrary cross-team ID injection. Those checks never compare output.pr_url to the task's generated branch. The webhook-only fork/team cases in tests/test_tasks.py:830-846 do not guard this entry point. Initial-path tests :891-944 even create a review using placeholder run/report IDs without any lookup, confirming those arguments are recorded rather than validated. Config scoping limits the affected repositories but does not prevent an unrelated PR in a connected repository from being approved."
+                    },
+                    {
+                        "is_real": true,
+                        "severity": "must_fix",
+                        "evidence": "The production PATCH set_output endpoint accepts task:write at products/tasks/backend/presentation/views/api.py:1092-1118; signal tasks are controllable by project teammates at products/tasks/backend/visibility.py:22-24,30-46. set_task_run_output preserves a caller-supplied replacement pr_url (facade/api.py:2149-2154); only pr_merged is webhook-attested at facade/api.py:1770-1788. The receiver validates a real non-internal signal task and opted-in reviewer but forwards that editable URL without comparing the task repository/branch at products/review_hog/backend/receivers.py:98-111,126-137. process_inbox_pr_review checks the URL's connected repository, open state, and head SHA, then stamps the passed IDs as inbox provenance without loading them or checking author/native head at products/stamphog/backend/tasks/tasks.py:1130-1181. activities.py:448-451 turns that marker into the trusted self_driving_review flag; review_local.py:321-325 and review_pr.py:590 bypass bot and draft refusal. An unrelated open PR in the same connected repository can consequently receive the privileged review path.",
+                        "refutation": "I first checked caller authorization, existing output attestation, repository installation scoping, and final publication gates. These constrain the attacker to a controllable signal task and a repository configured for the team, but do not bind its URL to the real implementation PR. The normal webhook's bot/native/task checks are not called by this initial task. Final posting checks unchanged head SHA and supersession (activities.py:673-679,700-704), then can approve at 723-745; it does not revalidate the signal task or PR author. Thus an opted-in canonical reviewer plus an enabled repository is a realistic configuration and the editable-output trigger remains reachable."
+                    }
+                ]
+            },
+            {
+                "letter": "XA",
+                "id": "XA10",
+                "cluster": 31,
+                "is_real": true,
+                "severity": "should_fix",
+                "votes": [
+                    {
+                        "is_real": true,
+                        "severity": "should_fix",
+                        "evidence": "/tmp/frozen-75215/products/review_hog/backend/receivers.py:111-138 checks the assignee/toggle before publishing, but stamphog/backend/tasks/tasks.py:1110-1242 never invokes the current reviewer resolver and stamps the queued acting_user_id at 1176-1181. A rate-limited attempt retries at least 60 seconds later (1160-1162), fetches the PR's then-current head (1159,1170), and can create a new run at 1223-1229 after settings are disabled. The settings PATCH only saves the setting at review_hog/backend/api/settings.py:131-137; it neither removes queued jobs nor supersedes runs. In contrast, the webhook uses the current resolver at stamphog tasks.py:201-207, which checks the live toggle in review_hog receivers.py:151-155. A delayed initial job can thus review even a subsequently pushed head after the opt-out made that head's webhook skip.",
+                        "refutation": "I first considered whether the queued task intentionally represents an already-accepted, head-pinned review that may finish after opt-out. It does not carry a head and fetches the current PR anew on every attempt, so it can authorize later commits rather than merely finish an existing review. The documented invariant says switching off stops new runs (stamphog/AGENTS.md:106-109), and the sibling ReviewHog workflow rechecks its inbox toggle during execution (review_hog/temporal/workflow.py:428-438). Existing webhook checks cannot cancel the delayed initial path. This is a real delayed/retry opt-out bypass with limited timing scope, hence should_fix."
+                    },
+                    {
+                        "is_real": true,
+                        "severity": "should_fix",
+                        "evidence": "/tmp/frozen-75215/products/review_hog/backend/receivers.py:114-138 captures opt-in and acting_user_id when publishing, but /tmp/frozen-75215/products/stamphog/backend/tasks/tasks.py:1110-1234 never resolves the current reviewer or toggle. In particular, a GitHub rate limit at :1160-1162 delays a retry at least 60 seconds before any ReviewRun exists; the reviewer can disable the toggle through settings.py:131-137 in that interval. The retry then stamps the old acting_user_id at :1176-1181 and creates/starts the run at :1223-1234. activities.py:451 enables self-driving from the persisted provenance, with no later preference check before :745 posts an approval.",
+                        "refutation": "First checked whether preference updates cancel queued requests or the worker already calls the registered resolver. /tmp/frozen-75215/products/review_hog/backend/api/settings.py:131-137 only saves the setting. The current-toggle resolver in receivers.py:144-155 exists, and tests/test_inbox_trigger.py:371-387 verifies it stops new runs, but its only relevant use is the webhook carve-out at tasks/tasks.py:201-207. Initial worker execution and retries retain the earlier decision. This is narrower than revoking an approval already in progress: the demonstrated rate-limit retry creates a new ReviewRun after opt-out. The normal webhook safety retractions remain intact, limiting severity to should_fix."
+                    },
+                    {
+                        "is_real": true,
+                        "severity": "should_fix",
+                        "evidence": "The receiver snapshots the toggle before publishing at products/review_hog/backend/receivers.py:114,126-137. The production Celery task can run later or retry three times (products/stamphog/backend/tasks/tasks.py:1109,1158-1165), but its only live eligibility query is the repository config at 1140-1146. It never resolves the task or reloads the acting reviewer's setting before stamping inbox_review at 1176-1181 and creating the run at 1223-1229. That marker enables the engine bypass at temporal/activities.py:448-451 and can reach approval posting at 723-745. A queued initial delivery or retry therefore starts a new approval-capable review after the reviewer opts out.",
+                        "refutation": "I checked whether opt-out was intentionally only a dispatch-time snapshot and whether a downstream layer rechecks it. The current resolver explicitly says switching the toggle off stops new Stamphog runs (review_hog/backend/receivers.py:144-155), and the parallel ReviewHog inbox workflow rechecks its receiver-side toggle at execution-time resolution (review_hog/backend/temporal/workflow.py:424-435). Stamphog has that live resolver for webhook re-reviews (stamphog/backend/facade/inbox_hooks.py:3-9,20-22) but its initial Celery path never invokes it. Repository enabled checks and final SHA/supersession guards do not enforce this user's toggle. The defect is limited to already-published deliveries/retries, hence should_fix."
+                    }
+                ]
+            },
+            {
+                "letter": "XA",
+                "id": "XA11",
+                "cluster": null,
+                "is_real": true,
+                "severity": "must_fix",
+                "votes": [
+                    {
+                        "is_real": true,
+                        "severity": "must_fix",
+                        "evidence": "/tmp/frozen-75215/products/signals/backend/auto_start.py:244-265 creates the real automatic implementation task with signal_report_id, ai_stage=implementation, interaction_origin=signal_report, and explicitly internal=True at 260-261. The facade forwards internal unchanged at tasks/backend/facade/api.py:891-903, and Task.create_and_run forwards it to task creation at models.py:754-768. The actual creation test asserts internal is True at signals/backend/test/test_auto_start.py:257-264. review_hog/backend/receivers.py:97-105 therefore returns before the reviewer resolution and both dispatches at 111-138. Later webhook recovery is blocked by the same assumption in tasks/backend/facade/api.py:504-509, which returns None for task.internal. Thus normal auto-started Inbox implementation PRs never reach the new hosted review path.",
+                        "refutation": "I first checked whether internal=True referred only to research/custom-agent plumbing, whether a default/facade rewrote it, or whether the explicit implementation relationship bypassed the receiver guard. The comment in receiver.py:100-103 claims implementations are non-internal, but auto_start.py:260-261 explicitly states the opposite to hide these runs from the default task list. No facade or model override changes that supplied value. The implementation relationship is separately recorded at auto_start.py:271-275 but never consulted by this guard. Tests for the receiver use their own configurable task fixture (test_inbox_trigger.py:71-79), while the real auto-start test proves the blocked shape."
+                    },
+                    {
+                        "is_real": true,
+                        "severity": "must_fix",
+                        "evidence": "The real producer contradicts the receiver's premise. /tmp/frozen-75215/products/signals/backend/auto_start.py:244-265 creates the implementation with origin SIGNAL_REPORT, signal_report_id, ai_stage=implementation and explicitly internal=True at :260-261; :271-275 records its implementation relationship. /tmp/frozen-75215/products/tasks/backend/facade/api.py:881-903 passes that internal argument through to task creation. /tmp/frozen-75215/products/review_hog/backend/receivers.py:100-105 assumes the implementation is noninternal and returns before either review dispatch at :115-138. Later pushes cannot repair it because tasks/facade/api.py:508-509 also rejects internal tasks when resolving the Stamphog webhook carve-out. Therefore normal autostarted Inbox implementation PRs never enter either path.",
+                        "refutation": "First tried to establish that internal=True applied only to research/plumbing tasks or was reset before execution. The implementation creator explicitly sets it to hide the implementation from the default task list, and no reset appears in the creation chain. products/signals/backend/test/test_auto_start.py:257-260 asserts internal is True. In contrast, products/review_hog/backend/tests/test_inbox_trigger.py:61-79 fabricates implementation fixtures with internal=False; :271-298 treats every internal fixture as a pipeline task and expects it skipped. The existing tests encode incompatible producer/consumer assumptions rather than covering the actual implementation creation path."
+                    },
+                    {
+                        "is_real": true,
+                        "severity": "must_fix",
+                        "evidence": "The real report-generation path calls maybe_autostart_implementation_task at products/signals/backend/temporal/agentic/report.py:315-325, which calls _create_implementation_task_if_absent at auto_start.py:521-532. That creator explicitly passes origin SIGNAL_REPORT, signal_report_id, ai_stage='implementation', and internal=True at auto_start.py:244-261. The facade forwards internal unchanged at products/tasks/backend/facade/api.py:891-903, and Task.create_and_run forwards it into task creation at models.py:718-768. Consequently the saved output hits review_hog/backend/receivers.py:104-105 and returns before either toggle/dispatch at 111-138. Later webhook identification also rejects task.internal at tasks/backend/facade/api.py:504-509. Production self-driving auto-start implementations cannot enter either new review path.",
+                        "refutation": "I tried to substantiate the receiver comment that only pipeline plumbing is internal and implementation tasks are non-internal (receivers.py:100-103). The production creator directly contradicts that comment: internal=True is deliberate to hide implementation tasks from the default task list (signals/backend/auto_start.py:260-261), and its existing test asserts that exact argument at signals/backend/test/test_auto_start.py:257-260. The receiver tests instead fabricate internal=False by default (review_hog/backend/tests/test_inbox_trigger.py:66,79), so their successful dispatches do not refute the production mismatch. No creator/facade reset of the flag protects this path."
+                    }
+                ]
+            },
+            {
+                "letter": "XA",
+                "id": "XA12",
+                "cluster": 39,
+                "is_real": true,
+                "severity": "should_fix",
+                "votes": [
+                    {
+                        "is_real": true,
+                        "severity": "should_fix",
+                        "evidence": "/tmp/frozen-75215/products/tasks/backend/facade/api.py:504 calls the global find_task_run before applying team and task-shape rejection at 505-509. webhooks.py:41-56 filters URL/repository only and chooses the first nonterminal/newest run; its branch leg at 68-75 likewise selects before those predicates. TaskRun is a plain models.Model with no global unique URL/branch constraint (models.py:1063-1081,1103,1144-1174). Coexisting matches are supported: output.pr_url is caller-writable (facade/api.py:1770-1788,2149-2154), and task creation accepts same-team signal_report plus internal=False (presentation/serializers.py:435-460,611-646). Thus an older qualifying run for team A and a newer/live ordinary or team B run sharing its repository/URL cause the helper to return None. stamphog/backend/tasks/tasks.py:191-200 then denies the carve-out, and 881-912 skips the bot/draft re-review despite the valid match.",
+                        "refutation": "I first looked for global uniqueness, automatic tenant scoping, or fallback after rejecting the selected run. TaskRun's default manager is global, URL/branch indexes are non-unique, the facade does not pass team_id, and neither rejection retries remaining candidates. The post-selection team check does prevent cross-team disclosure, but cannot prevent this false negative. Current auto-start internal=True tasks are separately excluded; that does not make this query defect unreachable because the public task serializer still permits qualifying non-internal signal tasks. Existing single-match tests at tests/test_webhooks.py:1245-1268 do not cover coexistence. Re-saving/replacing the qualifying run or removing the competing match is a workaround, so should_fix."
+                    },
+                    {
+                        "is_real": true,
+                        "severity": "should_fix",
+                        "evidence": "/tmp/frozen-75215/products/tasks/backend/facade/api.py:504 calls an unscoped lookup, then :505-509 rejects the single chosen row by team/report/internal status. webhooks.py:41-56 filters only URL and repository before preferring nonterminal/newest and taking first; its branch leg :69-78 likewise takes the newest repo/branch match without team or implementation filters. TaskRun has ordinary team/task FKs and no URL/branch uniqueness (models.py:1063-1081,1144-1156). Consequently a newer non-signal run recording the same PR, or another team's nonterminal match, hides an otherwise qualifying signal run, and Stamphog tasks/tasks.py:199-200 drops the re-review instead of trying it.",
+                        "refutation": "First checked whether caller scoping, uniqueness or production task creation prevents two qualifying/competing matches. The late team check prevents cross-team acceptance but cannot recover the intended row. Same-repository integrations across teams are an explicitly tested state (tests/test_webhooks.py:830-842). Noninternal report tasks are API-supported: presentation/serializers.py:435-460 exposes report/internal, validates only same-team report at :611-614, and tests/test_api.py:1300-1343 creates a signal-report implementation task through the API. Existing lookup tests/test_webhooks.py:1260-1311 exercise one matching run at a time; none tests an excluded winner masking a valid candidate. The defect is a narrow missed review, not a cross-tenant disclosure."
+                    },
+                    {
+                        "is_real": true,
+                        "severity": "should_fix",
+                        "evidence": "products/tasks/backend/webhooks.py:41-59 selects the globally newest active matching PR URL before any team/implementation constraint; its branch match similarly selects first at 64-78. TaskRun is a plain model (models.py:1063) with newest-first ordering and non-unique URL/branch indexes (1144-1174), so no implicit tenant scope or uniqueness prevents competing matches. find_signal_implementation_run applies team and implementation checks only after selection at facade/api.py:504-509; it returns None without trying the eligible row. Stamphog treats that None as an absent carve-out at products/stamphog/backend/tasks/tasks.py:191-200, skipping the requested re-review. A qualifying production run is produced by Inbox's manual Create PR path, which creates a signal-linked task without internal=True and starts its signal-report run at frontend/src/scenes/inbox/inboxTaskKickoffLogic.ts:80-96; the Task internal field defaults False. Another writable task output/branch can shadow it.",
+                        "refutation": "I first checked whether repository scoping, tenant-aware managers, unique references, or the internal-task guard made competing valid matches impossible. Repository scoping exists but does not distinguish teams or task origins; output and branch are caller-writable (presentation/serializers.py:173-180, facade/api.py:2149-2154), and no reference uniqueness exists. Although auto-start tasks are internal, manual Inbox implementations remain eligible, so that separate guard does not make this trigger unreachable. The existing foreign-team test only checks rejection of one foreign match (tests/test_webhooks.py:1286-1311), not selection when an eligible match also exists. Thus a second task referencing the same native PR can silently suppress its review."
+                    }
+                ]
+            },
+            {
+                "letter": "XA",
+                "id": "XA13",
+                "cluster": 2,
+                "is_real": true,
+                "severity": "must_fix",
+                "votes": [
+                    {
+                        "is_real": true,
+                        "severity": "must_fix",
+                        "evidence": "/tmp/frozen-75215/tools/pr-approval-agent/review_local.py:321-330 treats self_driving_review as sufficient to bypass bot refusal and invokes the shared draft prerequisite (review_pr.py:590). The initial hosted producer at stamphog/backend/tasks/tasks.py:1158-1181 verifies only open state and a head SHA before stamping inbox provenance. The target URL is writable via tasks/backend/presentation/views/api.py:1101-1118 and facade/api.py:1770-1788,2149-2154; review_hog/backend/receivers.py:92-138 forwards it with the existing signal task and opted-in reviewer. Current public task creation permits signal_report and internal=False (presentation/serializers.py:435-460,625-646), so an eligible caller-controlled task can point to an unrelated human draft. activities.py:451 carries this marker into the engine, with no author/native-head validation, and 723-745 can post approval when other checks pass.",
+                        "refutation": "I first checked two claimed bypass premises that do not survive tracing: malformed truthy values are not currently produced, because activities.py:451 explicitly creates a bool and logic/reviewer.py:119-137 serializes that server-built context; ready-state transitions are intentionally allowed (tasks.py:160-168 and tests/test_tasks.py:835-854). Nevertheless, the initial producer really lacks the bot/link check and accepts the caller-writable target URL. The webhook's bot and native-head guards at tasks.py:169-178 do not cover this separate initial path. The retained defect is the reachable human-draft/incorrect-origin approval eligibility, not hypothetical string coercion or legitimate ready PR review."
+                    },
+                    {
+                        "is_real": true,
+                        "severity": "must_fix",
+                        "evidence": "The human/unrelated-PR part is reachable. /tmp/frozen-75215/products/tasks/backend/tests/test_api.py:1307-1333 demonstrates API creation of a signal implementation task; its PR output is writable through presentation/views/api.py:1101-1118 and facade/api.py:2139-2154. /tmp/frozen-75215/products/review_hog/backend/receivers.py:92-138 uses a noninternal signal task plus current reviewer opt-in but never checks its PR target. Stamphog tasks/tasks.py:1166-1181 accepts an open human or fork PR with a head SHA and stamps inbox_review. activities.py:451 turns that into True; /tmp/frozen-75215/tools/pr-approval-agent/review_local.py:321-330 then allows the human PR into gates and review_pr.py:590 suppresses the draft refusal. The context can therefore contain false self-driving provenance for an unrelated human draft.",
+                        "refutation": "First checked strict typing and lifecycle guards. The truthy-nonboolean premise is not a real input defect: activities.py:451 produces an actual bool and logic/reviewer.py:119-139 JSON-serializes it into server-written context; tests/test_review_local.py:282-315 cover omitted/true values. Requiring draft forever is also contradicted by tasks/tasks.py:160-165, which intentionally permits later re-reviews after ready. However neither safeguard validates the initial fetched author/head against the task. The ordinary task output API can supply a wrong URL while preserving valid report/reviewer guards, so the genuine retained issue is incorrect provenance enabling human-draft review, not bool parsing or a legitimate ready transition."
+                    },
+                    {
+                        "is_real": true,
+                        "severity": "must_fix",
+                        "evidence": "A real non-internal signal task can originate from Inbox's manual Create PR flow (frontend/src/scenes/inbox/inboxTaskKickoffLogic.ts:80-96; products/tasks/backend/models.py:207-209). A task writer can replace its output.pr_url (tasks/backend/facade/api.py:1770-1788,2149-2154). The opted-in receiver dispatches that URL without checking the PR identity at review_hog/backend/receivers.py:98-114,126-138. After fetching the arbitrary connected-repository PR, process_inbox_pr_review checks only open state and head SHA before generating inbox provenance (stamphog/backend/tasks/tasks.py:1166-1181). That becomes a true self_driving_review at temporal/activities.py:448-451. review_local.py:321-326 trusts it, while review_pr.py:590 omits the draft prerequisite regardless of author. Thus a human-authored draft referenced by the editable task output can be reviewed and potentially approved under the exceptional policy.",
+                        "refutation": "I tried to refute the malformed-value and ready-state premises first. Production creates a real boolean and JSON-serializes it (stamphog/backend/logic/reviewer.py:101,131-137), so arbitrary truthy strings are not a reachable input. Reviewing a valid implementation after it becomes ready is consistent with the explicit lifecycle at stamphog/backend/tasks/tasks.py:160-165, so draft=true is not a valid universal requirement. Those portions do not justify the finding. However the human-draft case survives: the initial trigger does not call the webhook's bot/native checks, the manual Inbox path passes the internal guard, and task-output attestation protects only pr_merged. The retained defect is missing PR/task provenance validation, not permissive boolean parsing or ready-state reviews."
+                    }
+                ]
+            },
+            {
+                "letter": "XA",
+                "id": "XA14",
+                "cluster": 9,
+                "is_real": false,
+                "severity": null,
+                "votes": [
+                    {
+                        "is_real": false,
+                        "severity": null,
+                        "evidence": "/tmp/frozen-75215/products/review_hog/backend/receivers.py:85-105 suppresses state/status-only saves, failed/cancelled runs, and nonqualifying tasks before queueing at 126-138. The current tasks PATCH implementation saves only submitted fields (tasks/backend/facade/api.py:2038-2058,2074-2075), so ordinary long-running state changes do not keep firing output reviews. The webhook output writer returns before saving already-recorded PR fields (tasks/backend/webhooks.py:283-292). For actual repeated output writes, stamphog/backend/tasks/tasks.py:1154-1159 intentionally fetches the current GitHub head and 1202-1221 prevents a second handled-head review/sandbox. tests/test_tasks.py:974-1001 explicitly covers reusing a completed head and recovering a changed head whose webhook was missed.",
+                        "refutation": "I first searched the real writers for the implied repeated-output hot path. Current state/status PATCHes do not include output in update_fields, and duplicate webhooks are idempotent. Explicit repeated output submissions do cause additional Celery jobs and one head fetch, but no realistic high-frequency producer, quota failure, or duplicate expensive review is demonstrated. The unchanged task_run_id/pr_url does not imply an unchanged head, which is precisely why the recovery path fetches before deduplication. Coalescing is a possible optimization with its own recovery tradeoff; bounded repeated head checks alone are not a proven defect."
+                    },
+                    {
+                        "is_real": false,
+                        "severity": null,
+                        "evidence": "/tmp/frozen-75215/products/review_hog/backend/receivers.py:85-95 excludes created, status/state-only, failed/cancelled and targetless saves; ordinary task lifecycle status saves use explicit status fields (tasks/backend/models.py:1533,1564,1807). The remaining output-save refires intentionally fetch the current PR head: Stamphog tasks/tasks.py:1124-1128 explains that the same URL can contain unreviewed commits after a missed synchronize. :1202-1221 prevents another ReviewRun for an already-handled head and idempotently restarts a stranded queued workflow. tests/test_tasks.py:974-1020 verifies existing/completed/failed and changed-head cases.",
+                        "refutation": "First checked for an unbounded production stream of output saves and missing run deduplication. The cited hot-model premise is narrowed by explicit update_fields/status guards, tested at review_hog/backend/tests/test_inbox_trigger.py:179-203. A repeated accepted output save does incur a fetch, but the claim supplies no actual producer frequency, exhaustion threshold or observed failure; it only assumes a long-running task writes output many times. The proposed task_run_id+pr_url dedupe would suppress the tested missed-webhook/new-head recovery because the URL does not change on a push. Without a demonstrated harmful workload this is a speculative coalescing optimization, not a proved defect."
+                    },
+                    {
+                        "is_real": false,
+                        "severity": null,
+                        "evidence": "Repeat eligible output writes do publish another task, but the source explicitly uses them for current-head freshness and lost-delivery/stranded-QUEUED recovery (products/stamphog/backend/tasks/tasks.py:1124-1128,1155-1159,1198-1221). A same-head live or delivered run returns without another review. The hot status path saves only status/error/completion fields at products/tasks/backend/temporal/process_task/activities/update_task_run_status.py:69, which the receiver drops before any DB access at review_hog/backend/receivers.py:85-89. The GitHub output recorder is itself idempotent at tasks/backend/webhooks.py:276-292. No production high-frequency output writer or resulting overload is established by this claim.",
+                        "refutation": "I traced ordinary long-running task updates to test the premise that they produce many duplicate review jobs. Status/state persistence does not satisfy the receiver's output guard, and repeated PR webhook recording does not save once the field exists. Explicit caller output writes can trigger another inexpensive current-head check, but that check is intentional recovery behavior and the expensive review is deduplicated. A durable task_run_id+pr_url key would suppress recovery after a missed push because those values remain unchanged. Without a concrete rate/load failure, the finding is speculative coalescing rather than a proved shipping defect."
+                    }
+                ]
+            },
+            {
+                "letter": "XA",
+                "id": "XA15",
+                "cluster": null,
+                "is_real": true,
+                "severity": "consider",
+                "votes": [
+                    {
+                        "is_real": true,
+                        "severity": "consider",
+                        "evidence": "/tmp/frozen-75215/products/review_hog/backend/api/settings.py:72-81 calls stamphog facade/api.py:120-124 without writer pinning. posthog/product_db_router.py:27-34 routes that read to the product reader outside tests; sync writes connecting_user at stamphog/presentation/views.py:461-464 and returns success at 467-470. With an enabled config whose sync/enable update has not reached the replica, the settings response can say disconnected despite committed readiness. That response is not merely decorative: review_hog/frontend/CodeReviewScene.tsx:1063-1068 disables opting in and tells the user to connect. reviewHogSettingsLogic.ts:443-452 stores the returned settings, and 801-811,954-956 only loads them on loadAll/mount or an update failure; replica catch-up alone does not clear the disabled state. A reload/remount or another settings update is needed.",
+                        "refutation": "I first checked whether this blocks actual reviews or opt-out, and whether successful sync necessarily implies an enabled config. It does neither: new sync rows are deliberately disabled (views.py:311-315), existing opted-in users can still switch off (CodeReviewScene.tsx:1064-1066), and actual review creation reads the writer (tasks.py:1138-1146). However, for a repo that is enabled and synced on the writer, a stale false UI result is cached without automatic recovery, so the attempted informational-only refutation fails at the frontend disabledReason. This is a real but minor replica-timing setup snag with an easy refresh workaround, hence consider rather than should_fix."
+                    },
+                    {
+                        "is_real": true,
+                        "severity": "consider",
+                        "evidence": "/tmp/frozen-75215/products/review_hog/backend/api/settings.py:78 calls the unpinned exists query in Stamphog facade/api.py:120-124. ProductDBRouter.db_for_read at /tmp/frozen-75215/posthog/product_db_router.py:27-34 chooses stamphog_db_reader, while writes choose the writer at :37-40; separate reader URLs are supported by settings/data_stores.py:217-218 and Stamphog/AGENTS.md:61 records that the product DB has replicas. After the first connected config is enabled on the writer but before it is replicated, the settings response reports false. CodeReviewScene.tsx:1063-1068 disables an off toggle on that value. reviewHogSettingsLogic.ts:446,801-807,954-955 loads settings on mount, with no replication-catchup refresh, so the disabled state remains until a later settings load.",
+                        "refutation": "First checked whether sync itself guarantees readiness, whether opt-out is trapped, and whether the UI retries this read. New sync rows are intentionally disabled (Stamphog presentation/views.py:307-315; tests/test_api.py:293-296), so merely connecting correctly returns false; the actual affected transition is completing setup by enabling the first synced repo. An already-on toggle remains operable at CodeReviewScene.tsx:1064-1066, and worker config resolution is writer-pinned at tasks/tasks.py:1138-1146, preventing unsafe reviews. Thus this is only temporary blocked opt-in after a lagged settings read, recoverable by refreshing, warranting consider rather than should_fix."
+                    },
+                    {
+                        "is_real": true,
+                        "severity": "consider",
+                        "evidence": "products/review_hog/backend/api/settings.py:72-81 delegates the UI readiness flag to stamphog/backend/facade/api.py:120-124, an unpinned read. products/db_routing.yaml:2-3 and posthog/product_db_router.py:27-40 route Stamphog production reads to stamphog_db_reader and writes to stamphog_db_writer. After an existing enabled config is newly bound/restamped (stamphog/backend/presentation/views.py:312-315,461-464), or a new config is enabled, the reader can temporarily lack the qualifying state. The frontend then disables the currently-off opt-in at review_hog/frontend/CodeReviewScene.tsx:1063-1068. Its settings value is retained until loadSettings or another settings response, with no recovery polling in reviewHogSettingsLogic.ts:443-451,801-811, so the stale flag can outlive the replication delay in the open page.",
+                        "refutation": "I first checked whether initial sync alone should make the flag true. It should not: new repositories are intentionally disabled at stamphog/backend/presentation/views.py:312-315, so that simple case is not a bug. I also checked whether opt-out becomes blocked; the frontend explicitly exempts an already-on toggle at CodeReviewScene.tsx:1064-1066. The remaining reachable case is the post-enable/binding read before the replica catches up. The worker itself uses a writer-pinned eligibility query (tasks/tasks.py:1136-1146), so only a temporary UI opt-in obstruction remains, recoverable by reloading. That limited impact is consider."
+                    }
+                ]
+            },
+            {
+                "letter": "XA",
+                "id": "XA16",
+                "cluster": null,
+                "is_real": false,
+                "severity": null,
+                "votes": [
+                    {
+                        "is_real": false,
+                        "severity": null,
+                        "evidence": "/tmp/frozen-75215/products/stamphog/backend/tasks/tasks.py:422-428 executes a Django select_for_update queryset, which uses the write router; its subsequent update at 430-432 is also a write-routed operation. posthog/product_db_router.py:37-40 returns stamphog_db_writer for ReviewRun. The caller already opens transaction.atomic on router.db_for_write(ReviewRun) at tasks.py:1183-1185 and invokes the helper inside it at 1222. The existing webhook caller uses the same helper/transaction pattern at 1029-1036. A minimal no-database Django routing check through the authorized mainrepo .codex/with-flox environment returned plain='reader', locked_values='writer' for the exact select_for_update().filter().values_list() query shape.",
+                        "refutation": "I first tested the critical premise that SELECT FOR UPDATE is routed as an ordinary read. Django marks locking querysets for write routing, and filter/values_list preserve it; the isolated routing check confirms that with distinct reader/writer aliases. The frozen TeamScopedQuerySet derives from models.QuerySet (posthog/models/scoping/manager.py:62) and does not override select_for_update. Thus the absence of an explicit using(run_write_db) is not a replica bug: both the lock and UPDATE already use the same writer transaction. Adding the suggested pin would duplicate the existing routing safeguard."
+                    },
+                    {
+                        "is_real": false,
+                        "severity": null,
+                        "evidence": "/tmp/frozen-75215/products/stamphog/backend/tasks/tasks.py:423-427 calls select_for_update() on an otherwise unpinned QuerySet; Django marks such queries for write routing, so evaluation selects db_for_write rather than db_for_read. The subsequent update at :430-431 also uses write routing. /tmp/frozen-75215/posthog/product_db_router.py:37-40 returns the product writer, matching the transaction selected at tasks.py:1183-1185. /tmp/frozen-75215/posthog/models/scoping/manager.py:62-86 inherits Django QuerySet behavior without overriding select_for_update or its database routing; for_team at :118-131 only adds tenant filtering.",
+                        "refutation": "First checked the premise that every SQL SELECT necessarily invokes ProductDBRouter.db_for_read. It does not: Django's select_for_update sets _for_write=True, and QuerySet.db consults router.db_for_write for that query even though it returns rows. The local scoped manager does not force a reader alias. Thus the lock query and UPDATE already execute on the writer inside the caller's writer transaction. Existing new-head supersession tests at products/stamphog/backend/tests/test_tasks.py:974-1020 exercise this helper; the proposed explicit alias would be redundant, not a fix for a reachable read-only-replica failure."
+                    },
+                    {
+                        "is_real": false,
+                        "severity": null,
+                        "evidence": "The disputed helper uses Django QuerySet.select_for_update at products/stamphog/backend/tasks/tasks.py:423-427 and QuerySet.update at 430-431. Both are write-routed ORM operations: select_for_update sets the queryset's write-routing flag even though its SQL starts with SELECT. ProductDBRouter.db_for_write returns stamphog_db_writer (posthog/product_db_router.py:37-40; products/db_routing.yaml:2-3), matching the explicit transaction alias at tasks.py:1183-1185. ReviewRun inherits ProductTeamModel at models.py:140; its TeamScopedQuerySet/for_team manager only applies the team filter and does not force a reader alias (posthog/models/scoping/manager.py:62-74,104-148).",
+                        "refutation": "I checked the operation's routing semantics and whether the custom team manager pins the reader. It does not. The claim treats every SELECT as db_for_read, but Django routes select_for_update through db_for_write; the subsequent update is also routed to the writer. Consequently the read-replica rejection premise is false, and adding using(run_write_db) here would duplicate existing routing rather than repair a reachable defect. Ordinary unlocked reads need explicit writer pinning, but this helper is already a locking/write queryset."
+                    }
+                ]
+            },
+            {
+                "letter": "XA",
+                "id": "XA17",
+                "cluster": 36,
+                "is_real": true,
+                "severity": "should_fix",
+                "votes": [
+                    {
+                        "is_real": true,
+                        "severity": "should_fix",
+                        "evidence": "/tmp/frozen-75215/products/stamphog/backend/tasks/tasks.py:1159,1170 fetches the current head for an initial receiver job; 1202-1221 only applies the same-head dedupe in that path. If a push to B has occurred before that fetch but its synchronize job is delayed, the receiver creates/reviews B. The synchronize path at 1035-1065 accepts an equal payload clock (stale check uses > at 1048), unconditionally supersedes prior nonterminal runs, and creates a new B run. Its delivery-id guard cannot match the receiver's delivery_id=None at 1227. Once the first workflow has entered sandbox.execute at temporal/activities.py:466-474, the later supersession does not cancel that running sandbox; the second distinct run starts another workflow through tasks.py:1068-1073. This duplicates a full review for the same head and discards/delays the first result.",
+                        "refutation": "I first checked whether the PR row lock, stale-clock check, delivery id, or supersession guards collapse the two triggers. The lock serializes them but still permits two sequential rows; equal timestamps pass, and only the webhook has a delivery id. The sandbox/pre-post superseded guards (activities.py:383-389,416-429,700-713) do prevent stale publication and can avoid spending on a first run still queued, so the claim does not establish an unsafe approval race. They cannot undo a sandbox already running when the later duplicate arrives. The retained issue is concrete duplicate expensive work and review delay for the normal receiver-plus-synchronize ordering, with narrow timing impact, hence should_fix. Any fix must preserve legitimate same-head base-retarget or explicit re-review behavior."
+                    },
+                    {
+                        "is_real": true,
+                        "severity": "consider",
+                        "evidence": "For a synchronize delivery of head B with the same updated_at snapshot already fetched by the receiver, /tmp/frozen-75215/products/stamphog/backend/tasks/tasks.py:1010-1027,1045-1053 accepts equal clocks. The receiver's :1202-1221 dedupe is not present in the webhook transaction: :1054-1065 supersedes the active receiver run and creates a new run for that same head. If the first run has already entered activities.py:466-474, the delayed webhook starts a second sandbox while the first finishes uselessly. The two workflow IDs derive from different ReviewRun IDs, so delivery dedupe cannot merge them. This is a concrete two-entry-point duplication, independent of repeated identical receiver saves.",
+                        "refutation": "First checked whether row locking, delivery dedupe or stale-payload rejection suppresses the second creation. _upsert_pull_request serializes transactions but equal clocks intentionally pass; the receiver has delivery_id=None (:1227), so webhook delivery recovery at :1000-1008 cannot find it. The feared approval/comment correctness race is substantially refuted: activities.py:387-429 avoids provisioning superseded work, :700-713 rechecks status before posting, and :751-798 conditionally finalizes and dismisses orphan approvals; tests/test_integration.py:815 onward exercises late supersession. Same-head re-review is deliberately required for reopen/base/context changes, so a blanket same-head uniqueness constraint would be wrong. The surviving synchronize overlap is avoidable duplicate work, a minor issue (consider), not a proved unsafe approval."
+                    },
+                    {
+                        "is_real": true,
+                        "severity": "should_fix",
+                        "evidence": "The initial receiver task fetches the current GitHub head and deduplicates against it at products/stamphog/backend/tasks/tasks.py:1159,1202-1221, then creates a run with delivery_id=None at 1223-1229. The synchronize path only deduplicates the delivery ID (994-1008), permits equal snapshot timestamps (1010-1014), and unconditionally supersedes active runs and creates another at 1054-1064. If an initial delivery or refire fetches head B before the delayed synchronize delivery for B, that delivery cannot match the receiver's null delivery ID and replaces its same-head run. Once the first run has passed temporal/activities.py:421-429 and created its sandbox at 466, this does duplicate review work; a completed first run also does not prevent the second run. Non-internal manual Inbox implementations are a real source of receiver and webhook triggers (frontend/src/scenes/inbox/inboxTaskKickoffLogic.ts:80-96).",
+                        "refutation": "I checked timestamp ordering, locking, delivery-ID deduplication, and final posting guards. An older synchronize snapshot is correctly rejected, but equal timestamps explicitly proceed. The parent row lock serializes the two creations; it does not make the webhook inspect the existing head. Supersession guards prevent the first run from publishing after it observes cancellation (activities.py:666-672,700-713), so an unsafe-approval race is not needed to retain the claim. The proven defect is duplicate sandbox review/cancellation for one synchronize head. Any fix must still permit explicit same-head base-retarget re-review (tasks.py:832-835), rather than universally suppressing all same-head events."
+                    }
+                ]
+            },
+            {
+                "letter": "XA",
+                "id": "XA18",
+                "cluster": 58,
+                "is_real": true,
+                "severity": "should_fix",
+                "votes": [
+                    {
+                        "is_real": true,
+                        "severity": "should_fix",
+                        "evidence": "/tmp/frozen-75215/products/stamphog/backend/tasks/tasks.py:1223-1234 commits a QUEUED ReviewRun with delivery_id=None before the on_commit callback starts Temporal. The callback's failures propagate through _start_review_workflow at 366-380 and retry at 1235-1237, but the task permits only three retries (1109). Every retry can leave the committed row QUEUED; exhausting them does not mark failure or schedule further recovery. Existing QUEUED restart logic at 1212-1214 is only reached if that task is invoked again. The other recovery helper at 383-409 is delivery-id based and cannot pick up this run. The production QUEUED references in this product contain these two event-driven restart paths, not a periodic reconciler. An outage lasting through the attempts can therefore leave a visibly pending initial review without any workflow.",
+                        "refutation": "I first checked the already-implemented recovery and whether workflow idempotency itself retries a missed hand-off. The code DOES restart a queued run on a later receiver invocation (tasks.py:1212-1214), and temporal/client.py:43-48 gives that restart a stable workflow id. But an idempotent start is not a scheduled start: after Celery exhaustion neither helper is invoked automatically, and no Temporal activity retries exist before the workflow has started. Ordinary status/state saves are excluded by review_hog/receivers.py:85-89, and opened/ready webhook events are excluded by stamphog/tasks.py:160-168. A later output save or push/reopen is a workaround, hence should_fix. The outage-exhaustion path alone proves the defect without depending on worker-ack crash semantics."
+                    },
+                    {
+                        "is_real": true,
+                        "severity": "should_fix",
+                        "evidence": "/tmp/frozen-75215/products/stamphog/backend/tasks/tasks.py:1223-1234 commits a QUEUED ReviewRun with delivery_id=None before starting Temporal from on_commit. A failed start is retried at :1235-1237, but the task decorator at :1109 caps retries at three with a five-second default delay. If Temporal remains unavailable through those attempts, no workflow exists to move the row out of QUEUED. temporal/client.py:42-54 only starts a workflow after connecting; workflow-level activity retries cannot recover an unstarted workflow. The product's scheduled registration in /tmp/frozen-75215/posthog/tasks/scheduled.py:97,803-808 is the digest, and there is no queued ReviewRun reconciler in the Stamphog tasks/temporal code.",
+                        "refutation": "First checked the existing recovery paths. tasks.py:1202-1214 restarts an existing queued run when the receiver fires again, and tests/test_tasks.py:974-1001 explicitly covers that recovery. Webhook delivery recovery at :384-409 requires a delivery id, which this row lacks. Later output saves or head-changing webhooks can recover, but after a final PR-output save neither is guaranteed and ready_for_review alone is excluded by :160-168. The generic scheduled orphan TaskRun redispatch is for the Tasks product, not Stamphog ReviewRun. Thus retries handle a brief outage but an exhausted hand-off can leave the UI permanently queued until a manual/repeated trigger."
+                    },
+                    {
+                        "is_real": true,
+                        "severity": "should_fix",
+                        "evidence": "products/stamphog/backend/tasks/tasks.py:1223-1234 commits a QUEUED ReviewRun with no delivery_id before its on_commit callback starts Temporal. Temporal errors propagate into retry at 1235-1237, but the task has only three retries with a five-second default delay at 1109. If all starts fail, the row remains QUEUED: no workflow exists to execute its failure handler. The retry path can restart an existing queued row at 1211-1214, but requires another delivery of this task. Stamphog's beat schedule contains only daily digests (tasks/schedules.py; posthog/tasks/scheduled.py:803-808), not a stale ReviewRun restart sweep. Thus a finite Temporal outage can strand an already-durable initial review until an unrelated future output save or push.",
+                        "refutation": "I first checked the explicit retry and deduplication recovery: _start_review_workflow swallows only WorkflowAlreadyStartedError (tasks.py:366-380), and repeat tasks restart an existing QUEUED run rather than dropping it (1211-1214), so a single transient failure is handled. I also checked scheduled orphan recovery; posthog/tasks/scheduled.py:257-266 schedules Tasks product TaskRun redispatch, not Stamphog ReviewRun recovery. The claim still holds for an outage lasting through the bounded attempts, regardless of whether worker-crash acknowledgment settings provide redelivery. No guaranteed later TaskRun output save exists, and the initial opened bot-draft webhook is intentionally ineligible (tasks.py:160-169). The durable row makes manual recovery possible, limiting severity to should_fix."
+                    }
+                ]
+            },
+            {
+                "letter": "XA",
+                "id": "XA19",
+                "cluster": null,
+                "is_real": false,
+                "severity": null,
+                "votes": [
+                    {
+                        "is_real": false,
+                        "severity": null,
+                        "evidence": "/tmp/frozen-75215/tools/pr-approval-agent/review_local.py:329-354 does call _llm_review for denied gates, but this is also the ordinary engine's behavior at review_pr.py:250-252; _llm_review intentionally enforces REFUSED after the explanation regardless of the model at 780-785. More decisively, the suggested pending-migration helper is not effective for the stated real classification: review_pr.py:429-459 passes deny_categories into assign_tier; gates.py:685-686 makes any nonempty deny list T2-never, and review_pr.py:697-698 fails the tier gate. _only_pending_migration_check at review_pr.py:272-275 returns False whenever any gate other than deny-list failed. A PR denied for migrations therefore fails that predicate in the Action too. Simply calling it in review_local cannot skip this case.",
+                        "refutation": "I first traced whether a normal pending-migration PR would take the claimed Action short circuit, and whether deterministic denial already prevents approval. It does prevent approval, and the Action short-circuit premise is contradicted by the tier assignment: migrations implies T2-never, so the helper rejects the scenario before checking migration status. Both paths then use the model to explain a refusal. No supported input demonstrates the proposed missing-call regression, and the current code explicitly supports LLM explanations for gate denials. Fixing the unreachable helper or changing that explanation policy is separate work; the cited flag/call-site claim does not establish a new reachable defect."
+                    },
+                    {
+                        "is_real": false,
+                        "severity": null,
+                        "evidence": "The proposed Action-parity short circuit does not fire for this state even in the Action path. /tmp/frozen-75215/tools/pr-approval-agent/review_pr.py:272-276 requires deny_categories exactly ['migrations'] and no failed gate except deny-list. But _classify passes those deny categories to assign_tier at :429-438; gates.py:685-686 assigns T2-never whenever deny_categories is nonempty, and review_pr.py:697-698 makes the tier gate fail. Consequently _only_pending_migration_check returns False for the normal pending-migration classification, so merely calling it from review_local would not change the reported LLM work. Both pipelines deliberately render LLM explanations for gate denials, and review_pr.py:780-785 forces the final refusal regardless of the model's answer.",
+                        "refutation": "First traced the suggested callee and the full deterministic gate state rather than assuming the omitted call was an effective safeguard. The tier-gate condition above disproves that causal premise. Also checked the alleged full review budget: reviewer.py:306-319 uses the quick five-turn, low-effort path whenever gates deny, and :515-516 constrains the verdict. test_review_pr.py:381-406 exercises a denied PR through the refusing reviewer as expected behavior. A migration-specific early explanation could be an optimization, but this flag change neither removes a functioning migration safety check nor enables approval, and the proposed missing-call fix is ineffective."
+                    },
+                    {
+                        "is_real": false,
+                        "severity": null,
+                        "evidence": "review_local.run does call the LLM after deterministic denials (tools/pr-approval-agent/review_local.py:329-354), but so does Pipeline.run when _only_pending_migration_check is false (review_pr.py:228-252). For the claimed pending migration PR, _classify passes deny_categories=['migrations'] into assign_tier at review_pr.py:402-403,429-438. assign_tier returns T2-never for any nonempty deny list at gates.py:685-686, and the tier gate fails at review_pr.py:697-698. _only_pending_migration_check explicitly returns false if any failed gate is not deny-list (review_pr.py:272-275). Therefore adding the proposed helper does not short-circuit this production shape, and the asserted Action/offline difference is not established.",
+                        "refutation": "I tried the claimed reference behavior rather than assuming its helper name implied a working fast path. The pending migration also fails the tier gate, so the existing helper rejects it and the Action performs the same LLM review. This is the general intentional architecture in which deterministic gates remain authoritative while the LLM supplies review context; gate denial still forces REFUSED after any model result/error at review_pr.py:780-785. A change to the underlying pending-migration helper or general refusal review policy could be a separate proposal, but the cited new flag/missing call does not prove this claimed regression or savings."
+                    }
+                ]
+            },
+            {
+                "letter": "XA",
+                "id": "XA20",
+                "cluster": null,
+                "is_real": false,
+                "severity": null,
+                "votes": [
+                    {
+                        "is_real": false,
+                        "severity": null,
+                        "evidence": "/tmp/frozen-75215/products/review_hog/backend/receivers.py:126-138 queues a review because TaskRun output supplies a PR target, not because GitHub emits ready_for_review. The separate webhook carve-out rejects ready_for_review at stamphog/backend/tasks/tasks.py:160-168; its stated reason is that the transition alone does not invalidate an existing draft-time verdict. tests/test_tasks.py:835-854 names this behavior ready_for_review_keeps_the_draft_verdict. review_pr.py:587-590 likewise states that an approval granted on a draft is meant to take effect when it becomes ready. The receiver's worker only rejects closed PRs at tasks.py:1166-1169 and intentionally supports later same-URL/new-head recovery at 1125-1128.",
+                        "refutation": "I first traced the source of the review and the exact ready-state contract. In the proposed ordering the TaskRun output already triggered the review while the PR was draft; executing that accepted task after the flag flips is not a new review triggered by ready_for_review. No code or test says the transition cancels queued/in-flight reviews or withdraws their eligibility. The contract instead preserves approvals across that transition and permits subsequent synchronize/reopen/base-retarget reviews. Requiring draft=true in the worker would discard a legitimate delayed initial review and constrain the recovery path, without fixing any demonstrated correctness/security defect. The finding conflates trigger selection with review eligibility."
+                    },
+                    {
+                        "is_real": false,
+                        "severity": null,
+                        "evidence": "The stated lifecycle rule concerns the trigger, not permanently requiring draft state. /tmp/frozen-75215/products/stamphog/backend/tasks/tasks.py:160-168 explicitly says ready_for_review alone does not invalidate a draft-time head-pinned verdict and excludes that action from the webhook carve-out. tests/test_tasks.py:833-845 tests exactly that exclusion. The receiver at /tmp/frozen-75215/products/review_hog/backend/receivers.py:126-138 queues work when a PR output is saved and the reviewer is opted in; a later GitHub ready transition does not create that queued request. The worker deliberately fetches the current open PR/head at tasks.py:1159-1174 and preserves an already requested review across that transition.",
+                        "refutation": "First checked whether a ready event itself starts a new initial review or whether an existing approval becomes unsafe on readiness. The ready webhook is rejected by the action guard; the pending task was authorized by the earlier output save, so executing it later is not a ready-triggered review. review_pr.py:587-590 explicitly intends a head-pinned draft approval to take effect when the PR becomes ready, and activities.py:673-685 rejects a changed head before posting. Requiring draft=True at execution would discard legitimate queued work when a user finishes triage quickly and would undermine later permitted head-changing re-reviews. The finding conflates event eligibility with snapshot state."
+                    },
+                    {
+                        "is_real": false,
+                        "severity": null,
+                        "evidence": "The actual ready_for_review policy is event-specific: products/stamphog/backend/tasks/tasks.py:160-167 says that flip alone does not invalidate an existing draft-time verdict and therefore does not trigger another webhook review. Its test expressly names that behavior 'ready_for_review_keeps_the_draft_verdict' (tests/test_tasks.py:835-844). The initial review has already been requested by the opted-in TaskRun output event; tasks.py:1113-1128 describes its current-head/recovery semantics, and 1166-1174 permits any still-open current head. The engine's own comment says the draft approval should take effect on the ready PR (tools/pr-approval-agent/review_pr.py:587-590). No source contract revokes an already-dispatched initial review when the PR becomes ready.",
+                        "refutation": "I checked whether 'ready does not trigger a new review' meant 'an otherwise authorized review must never run while ready.' The source distinguishes those situations: the webhook event is intentionally a no-op while approvals remain valid across that transition, and later synchronize/reopen/base-retarget deliveries can still review the same identified PR without any draft-state requirement (tasks.py:160-176). The delayed initial review examines the current head, whose identity is rechecked before posting at temporal/activities.py:673-685. Requiring draft=true would discard requested reviews solely because triage happened before queue execution. The claimed behavior violation is a contradicted premise."
+                    }
+                ]
+            },
+            {
+                "letter": "XA",
+                "id": "XA21",
+                "cluster": 76,
+                "is_real": false,
+                "severity": null,
+                "votes": [
+                    {
+                        "is_real": false,
+                        "severity": null,
+                        "evidence": "/tmp/frozen-75215/products/review_hog/backend/models.py:311-314 does use the normal ORM route, but that route is not automatically a replica. products/db_routing.yaml:1-9 routes stamphog, visual_review, warehouse_sources_queue, and agent_platform only; ReviewUserSettings and SignalReportArtefact are not in those product routes. The main ReplicaRouter explicitly returns default unless the model name is opted in (posthog/dbrouter.py:22-31), and writes also return default at 33-37. posthog/settings/data_stores.py:124-127 only installs this router when a read host exists, while 271-272 initializes its model allowlist from an environment variable defaulting to empty. No frozen configuration opts ReviewUserSettings or SignalReportArtefact into that replica route. Thus the cited calls at review_hog/receivers.py:114,154 read the writer in the shown default configuration.",
+                        "refutation": "I first followed the router rather than assuming every unpinned queryset uses a replica. That assumption is true for Stamphog's separately routed product models, but false for these main-database settings/assignment models. A replica host alone is insufficient; the model must additionally appear in READ_REPLICA_OPT_IN or an explicit ALL_MODELS_USE_READ_REPLICA override. The claim supplies no evidence of either configuration for these classes. Pinning could protect a future/externally changed routing policy, but the alleged stale-toggle shipping path is not proved by the frozen source and defaults."
+                    },
+                    {
+                        "is_real": false,
+                        "severity": null,
+                        "evidence": "The premise that these normal reads use the main replica is not established. /tmp/frozen-75215/products/review_hog/backend/models.py:268 defines ReviewUserSettings as a main-DB TeamScopedRootMixin model, not a product-DB model; products/db_routing.yaml:1-9 has no review_hog or signals route. /tmp/frozen-75215/posthog/dbrouter.py:22-31 sends a model to replica only when its class name is explicitly opted in (or the ALL_MODELS override is set), otherwise to default, the same database used for writes at :33-37. settings/data_stores.py:271-272 defaults the opt-in list to empty. No frozen configuration opts ReviewUserSettings or SignalReportArtefact into replica reads.",
+                        "refutation": "First inspected the actual router and configuration instead of transferring Stamphog's product-reader behavior to ReviewHog's main-database preferences. posthog/test/test_dbrouter.py:8-15 explicitly verifies that a non-opted-in model reads from default. receivers.py:144-155 re-resolves the current acting reviewer and reloads their current toggle on each webhook, while models.py:311-314 has no cache that could independently stale it. A deployment that deliberately opts these side-effect-sensitive models into lagged reads could create the claimed behavior, but the finding supplies no evidence of that configuration and frozen source defaults to the writer. An explicit writer pin would be defensive hardening under an unproved alternate configuration."
+                    },
+                    {
+                        "is_real": false,
+                        "severity": null,
+                        "evidence": "ReviewUserSettings.load is indeed an ordinary first() query at products/review_hog/backend/models.py:311-314, but ReviewHog is not a separately routed product database (products/db_routing.yaml:1-9). Main-database reads are not automatically replica-routed: posthog/settings/data_stores.py:124-127 installs ReplicaRouter only with POSTHOG_POSTGRES_READ_HOST, and its READ_REPLICA_OPT_IN defaults to an empty list at 271-272. ReplicaRouter returns default unless the model name or ALL_MODELS_USE_READ_REPLICA is explicitly opted in (posthog/dbrouter.py:22-31). No frozen production configuration opts ReviewUserSettings into the replica. The claimed unconditional read-replica premise is therefore unproved; under the supplied configuration the toggle is read from the writer.",
+                        "refutation": "I traced both the settings manager and actual router instead of equating an unpinned read with a replica read. The new Stamphog product does use a reader by default, but the ReviewUserSettings and reviewer-assignment models remain on the separately opt-in main-database routing policy. A deployment could introduce the hypothesized stale read by explicitly opting these models or all models into a replica, but the source provides no such production setting. Without that missing configuration fact, adding writer pinning is preventative hardening for a speculative trigger rather than a proved shipped opt-out bypass."
+                    }
+                ]
+            },
+            {
+                "letter": "XA",
+                "id": "XA22",
+                "cluster": null,
+                "is_real": true,
+                "severity": "should_fix",
+                "votes": [
+                    {
+                        "is_real": true,
+                        "severity": "should_fix",
+                        "evidence": "/tmp/frozen-75215/products/stamphog/backend/tasks/tasks.py:1109 declares the initial task without acks_late or reject_on_worker_lost. The application's normal Celery construction/configuration at posthog/celery.py:40,80-87 and frozen Celery settings provide no late-ack override for it. An isolated Celery check using the same decorator options through .codex/with-flox confirms acks_late=False. This permits acknowledgement before the config/GitHub work at tasks.py:1138-1174 and before the first durable ReviewRun at 1223-1229. Abrupt worker loss during that interval leaves neither an unacknowledged message nor a run/workflow to recover. The initial source event is only the already-committed output save (review_hog/receivers.py:126-138); opened/ready webhook events do not replace it (stamphog/tasks.py:160-168).",
+                        "refutation": "I first checked for global late acknowledgements, a custom Celery task base, exception retries, and a durable pre-execution record. The app uses normal Celery, the declared task options preserve early acknowledgement, and the three retry branches require Python execution to catch an exception; abrupt worker death cannot call them. The head-based dedupe and QUEUED restart at tasks.py:1202-1214 make later re-invocation safe but do not cause that invocation after an early-acked message is lost. Ordinary state/status saves are ignored at review_hog/receivers.py:85-89. This is a real worker-loss-dependent missing review with later-output/push or manual recovery available, so should_fix."
+                    },
+                    {
+                        "is_real": true,
+                        "severity": "should_fix",
+                        "evidence": "/tmp/frozen-75215/products/stamphog/backend/tasks/tasks.py:1109 uses shared_task without acks_late or reject_on_worker_lost; the Celery configuration in /tmp/frozen-75215/posthog/settings/celery.py:18-37 and app configuration in posthog/celery.py does not override early acknowledgement. The task performs config lookup and an external GitHub fetch at :1140-1159 before creating any ReviewRun at :1223-1229. A worker loss during that acknowledged interval removes the only queued request and leaves no review row. Explicit .retry calls at :1150,1162,1165 cannot run after process death. The source output is already committed by receivers.py:131-138, and later status-only saves do not dispatch (:85-89).",
+                        "refutation": "First searched global/task acknowledgement overrides and durable recovery. No global late-ack override or custom task base applies; other tasks explicitly opt into both flags (posthog/tasks/tasks.py:348-358), confirming they are per-task choices. The same-head restart guard at Stamphog tasks.py:1202-1214 handles a new delivery only after a row exists, and the generic orphan reconciler at posthog/tasks/tasks.py:270-303 dispatches Tasks TaskRuns rather than missing Stamphog reviews. The webhook carve-out at Stamphog tasks.py:160-168 excludes opened/ready events, so a final-output save need not have another trigger. This is a narrow worker-loss delivery gap with a manual refire workaround."
+                    },
+                    {
+                        "is_real": true,
+                        "severity": "should_fix",
+                        "evidence": "The initial facade publishes only process_inbox_pr_review.delay at products/stamphog/backend/facade/api.py:138-155. Its @shared_task configuration sets retries but neither acks_late nor reject_on_worker_lost (tasks/tasks.py:1109); posthog/celery.py:80-84 loads the Django CELERY settings, whose production configuration in posthog/settings/celery.py:8-31 supplies no late-ack override. This leaves Celery's early acknowledgment behavior. The task performs repository lookup and a GitHub request before creating any durable ReviewRun (tasks.py:1140-1159,1223-1229). Losing the worker after acknowledgment during those operations loses the review request without any row for restart. No Stamphog recovery schedule exists beyond daily digests (tasks/schedules.py:1-13).",
+                        "refutation": "I checked global task configuration, local durable state, normal retries, and source-save/webhook recovery. Explicit retries require the executing code to catch an exception; they cannot run after process loss. The existing-head recovery at tasks.py:1211-1214 needs both another delivery and a committed run, neither of which exists in this window. Status saves do not refire the receiver (review_hog/backend/receivers.py:85-89), and opened bot-draft events deliberately do not use the re-review carve-out (tasks.py:160-169). The repository already uses both late acknowledgment and reject_on_worker_lost to protect task execution against process loss (posthog/tasks/tasks.py:348-358; usage_report.py:109-115). A real manual Inbox signal implementation can trigger this initial path, so worker loss produces a narrow missed review with manual refire as a workaround."
+                    }
+                ]
+            }
+        ]
+    }
+]

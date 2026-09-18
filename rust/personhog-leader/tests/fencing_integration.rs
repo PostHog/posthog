@@ -962,7 +962,7 @@ async fn healing_retakes_a_fence_for_a_served_partition() {
     let clock = AuthorityClock::unclaimed();
     clock.begin_session(Duration::from_secs(30), std::time::Instant::now());
 
-    let outcome = heal_fence(&producers, &inflight, Some(&clock), 0).await;
+    let outcome = heal_fence(&producers, &inflight, &clock, 0).await;
     assert_eq!(
         outcome,
         Ok(HealOutcome::Healed),
@@ -1003,7 +1003,7 @@ async fn healing_without_standing_does_not_steal_the_epoch() {
     let lapsed = AuthorityClock::unclaimed();
     lapsed.begin_session(Duration::from_secs(30), std::time::Instant::now());
     lapsed.surrender();
-    let outcome = heal_fence(&zombie, &inflight, Some(&lapsed), 0).await;
+    let outcome = heal_fence(&zombie, &inflight, &lapsed, 0).await;
     assert_eq!(outcome, Ok(HealOutcome::Intact));
 
     owner
@@ -1026,7 +1026,7 @@ async fn healing_skips_a_partition_under_handoff() {
     let valid = AuthorityClock::unclaimed();
     valid.begin_session(Duration::from_secs(30), std::time::Instant::now());
     inflight.fence(0);
-    let outcome = heal_fence(&other, &inflight, Some(&valid), 0).await;
+    let outcome = heal_fence(&other, &inflight, &valid, 0).await;
     assert_eq!(outcome, Ok(HealOutcome::Intact));
 
     owner
@@ -1054,7 +1054,7 @@ async fn healing_gives_back_a_fence_it_lost_standing_for() {
         losing.surrender();
     });
 
-    let outcome = heal_fence(&producers, &inflight, Some(&clock), 0).await;
+    let outcome = heal_fence(&producers, &inflight, &clock, 0).await;
     assert_ne!(
         outcome,
         Ok(HealOutcome::Healed),
@@ -1139,7 +1139,7 @@ async fn healing_leaves_a_fence_it_already_holds_alone() {
     tokio::time::sleep(Duration::from_millis(100)).await;
 
     // A reconcile tick with everything healthy.
-    let outcome = heal_fence(&producers, &inflight, Some(&clock), 0).await;
+    let outcome = heal_fence(&producers, &inflight, &clock, 0).await;
     assert_eq!(outcome, Ok(HealOutcome::Intact));
 
     let result = writing.await.expect("the write task must not panic");
@@ -1875,8 +1875,6 @@ async fn an_unwound_committer_condemns_rather_than_stranding_its_waiters() {
 async fn the_derived_production_timescales_compose_against_a_real_broker() {
     let mut config =
         personhog_leader::config::Config::init_from_env().expect("defaults are constructible");
-    config.kafka_transactional_fencing = true;
-    config.lease_gated_authority = true;
     config.lease_ttl = 30;
     config.fencing_txn_timeout_ms = 0;
     config.fencing_message_timeout_ms = 0;

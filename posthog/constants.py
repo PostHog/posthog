@@ -56,11 +56,7 @@ class AvailableFeature(StrEnum):
     APPROVALS = "approvals"
     XAA_AUTHENTICATION = "xaa_authentication"
     POSTHOG_CODE_USAGE = "posthog_code_usage"
-
-
-LOGS_RETENTION_FEATURES_BY_DAYS: dict[int, AvailableFeature] = {
-    30: AvailableFeature.LOGS_RETENTION_30D,
-}
+    TOOLBAR_HEATMAPS = "toolbar_heatmaps"
 
 
 TREND_FILTER_TYPE_ACTIONS = "actions"

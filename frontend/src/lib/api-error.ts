@@ -211,6 +211,24 @@ export function shouldReportApiFailure(error: unknown): boolean {
     return !isApprovalRequiredError(failure)
 }
 
+/**
+ * The readable message a failure carries, whether it arrived as a parsed error response body or as
+ * a value something in the request path threw. Returns undefined when nothing readable is there, so
+ * the caller falls back to its own wording instead of printing `[object Object]`.
+ */
+export function readableErrorMessage(error: unknown): string | undefined {
+    if (typeof error === 'string') {
+        return error || undefined
+    }
+    if (error === null || typeof error !== 'object') {
+        return undefined
+    }
+    const failure = error as Record<string, unknown>
+    return [failure.error, failure.detail, failure.message].find(
+        (value): value is string => typeof value === 'string' && value.length > 0
+    )
+}
+
 export class ApiError extends Error {
     /** Django REST Framework `detail` - used in downstream error handling. */
     detail: string | null
@@ -250,12 +268,9 @@ export class ApiError extends Error {
             }
         }
 
-        const errorData = data && typeof data === 'object' ? (data as Record<string, unknown>) : null
-        const responseMessage = [errorData?.error, errorData?.detail, errorData?.message].find(
-            (value): value is string => typeof value === 'string'
-        )
+        const errorData = data && typeof data === 'object' ? data : null
 
-        return new ApiError(responseMessage || fallbackMessage, response.status, response.headers, data)
+        return new ApiError(readableErrorMessage(errorData) || fallbackMessage, response.status, response.headers, data)
     }
 
     /**
