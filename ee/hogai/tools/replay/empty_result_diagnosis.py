@@ -10,6 +10,10 @@ from posthog.dataclasses import frozen
 
 UNLINKED_COVERAGE_THRESHOLD = 0.1
 SESSION_ID_DOCS_URL = "https://posthog.com/docs/data/sessions#server-sdks-and-sessions"
+RECORDING_DISABLED_GUIDANCE = (
+    "session replay is disabled for this project, so no recordings were captured. "
+    "Suggest enabling session replay in project settings. Do not offer a Replay Vision scanner."
+)
 
 
 class EmptyResultCause(StrEnum):
@@ -98,11 +102,7 @@ def describe(diagnosis: EmptyResultDiagnosis) -> str:
         )
 
     if diagnosis.cause == EmptyResultCause.RECORDING_DISABLED:
-        return (
-            f"\n\nDiagnosis: {names} events exist and carry session ids, but session replay is disabled for this "
-            "project, so no recordings were captured. Suggest enabling session replay in project settings. "
-            "Do not offer a Replay Vision scanner."
-        )
+        return f"\n\nDiagnosis: {names} events exist and carry session ids, but {RECORDING_DISABLED_GUIDANCE}"
 
     return (
         f"\n\nDiagnosis: {names} events exist and are linked to recordings, so the cause is elsewhere: another "
@@ -114,10 +114,7 @@ def describe(diagnosis: EmptyResultDiagnosis) -> str:
 def describe_scope(scope: SearchScope, *, recording_enabled: bool) -> str:
     """Guidance for a search that named no event, so event linkage cannot be the cause."""
     if not recording_enabled:
-        return (
-            "\n\nDiagnosis: session replay is disabled for this project, so no recordings were captured. "
-            "Suggest enabling session replay in project settings. Do not offer a Replay Vision scanner."
-        )
+        return f"\n\nDiagnosis: {RECORDING_DISABLED_GUIDANCE}"
 
     accounts = "excluded test accounts" if scope.filter_test_accounts else "included test accounts"
     return (

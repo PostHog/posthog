@@ -183,6 +183,9 @@ export interface aiFirstHomepageLogicActions {
     setFillInPrefix: (prefix: string) => {
         prefix: string
     }
+    setFullQuery: (value: string) => {
+        value: string
+    }
     setPreviousHomepage: (tab: SceneTab | null) => {
         tab: SceneTab | null
     }
@@ -285,6 +288,8 @@ export const aiFirstHomepageLogic = kea<aiFirstHomepageLogicType>([
         setFillInHint: (hint: string | null) => ({ hint }),
         // The fill-in suggestion's own prefix, kept apart from what the user types after it.
         setFillInPrefix: (prefix: string) => ({ prefix }),
+        // What the input now holds, prefix included. Split back into prefix and user text.
+        setFullQuery: (value: string) => ({ value }),
         // Capture-only, for grid links whose navigation the Link component already handles.
         gridItemClicked: (item: HomepageGridItem) => ({ item }),
         // Capture plus perform: submit a suggestion prompt, continue a conversation, or navigate.
@@ -545,6 +550,16 @@ export const aiFirstHomepageLogic = kea<aiFirstHomepageLogicType>([
             } else if (item.href) {
                 navigateToHref(item.href)
             }
+        },
+        setFullQuery: ({ value }) => {
+            // The textarea holds one string, so a value that no longer starts with the prefix means
+            // the user edited into the prefix: all of it becomes their own text from here on.
+            if (values.fillInPrefix && !value.startsWith(values.fillInPrefix)) {
+                actions.setFillInPrefix('')
+                actions.setQuery(value)
+                return
+            }
+            actions.setQuery(value.slice(values.fillInPrefix.length))
         },
         setQuery: ({ query }) => {
             // A query that isn't what the typewriter just wrote means the user typed or cleared

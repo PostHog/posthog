@@ -42,7 +42,7 @@ import { SUGGESTIONS_LIMIT } from './homepageSuggestions'
 
 function IdleInput(): JSX.Element {
     const { fullQuery, fillInHint, fillInPrefix } = useValues(aiFirstHomepageLogic)
-    const { setQuery, submitQuery, enterAiMode, startHandsFreeChat, setFillInHint, setFillInPrefix } =
+    const { setQuery, setFullQuery, submitQuery, enterAiMode, startHandsFreeChat, setFillInHint, setFillInPrefix } =
         useActions(aiFirstHomepageLogic)
     const { dataProcessingAccepted } = useValues(maxGlobalLogic)
     const handsFreeFlag = useFeatureFlag('MAX_HANDS_FREE')
@@ -116,14 +116,7 @@ function IdleInput(): JSX.Element {
                             if (fillInHint) {
                                 setFillInHint(null)
                             }
-                            if (fillInPrefix && !value.startsWith(fillInPrefix)) {
-                                // The edit reaches into the prefix, so the whole value is now the
-                                // user's own text and search mode must submit all of it.
-                                setFillInPrefix('')
-                                setQuery(value)
-                                return
-                            }
-                            setQuery(value.slice(fillInPrefix.length))
+                            setFullQuery(value)
                         }}
                         onKeyDown={(e) => {
                             if (e.key === 'Tab' && fullQuery.trim()) {
@@ -186,13 +179,7 @@ function IdleInput(): JSX.Element {
                             )}
                             <Tooltip title={!fullQuery.trim() ? 'Try asking a question' : undefined}>
                                 <ButtonPrimitive
-                                    onClick={() => {
-                                        posthog.capture('homepage query submitted', {
-                                            mode: 'ai',
-                                            from_fill_in: !!fillInPrefix,
-                                        })
-                                        submitQuery('ai')
-                                    }}
+                                    onClick={submitAi}
                                     iconOnly
                                     className="-mr-0.5 shrink-0"
                                     disabled={!fullQuery.trim()}
