@@ -22,3 +22,18 @@ export function createAllowEventsStep<T extends { headers: EventHeaders }>(
         return Promise.resolve(dlq('event_not_in_allowlist'))
     }
 }
+
+/**
+ * Prefix form of {@link createAllowEventsStep}: DLQs any event whose header
+ * `event` name does not start with `prefix`. Same header-only contract, same
+ * pass-through when the header is absent.
+ */
+export function createAllowEventPrefixStep<T extends { headers: EventHeaders }>(prefix: string): ProcessingStep<T, T> {
+    return function allowEventPrefixStep(input) {
+        const name = input.headers.event
+        if (name === undefined || name.startsWith(prefix)) {
+            return Promise.resolve(ok(input))
+        }
+        return Promise.resolve(dlq('event_name_prefix_mismatch'))
+    }
+}
