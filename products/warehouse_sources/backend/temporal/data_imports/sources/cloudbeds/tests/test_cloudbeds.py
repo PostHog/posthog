@@ -1,4 +1,5 @@
 import json
+from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
 import pytest
@@ -18,6 +19,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.cloudbeds.
 from products.warehouse_sources.backend.temporal.data_imports.sources.cloudbeds.settings import (
     CLOUDBEDS_ENDPOINTS,
     ENDPOINTS,
+    RATE_PLAN_WINDOW_DAYS,
 )
 
 # RESTClient builds its session via make_tracked_session in the rest_client module.
@@ -205,6 +207,65 @@ class TestPagination:
             {"roomID": "r1", "roomName": "101", "propertyID": "1"},
             {"roomID": "r2", "roomName": "102", "propertyID": "1"},
         ]
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_users_are_exploded_out_of_the_per_property_map(self, MockSession: mock.MagicMock) -> None:
+        session = MockSession.return_value
+        # getUsers keys `data` by property ID instead of returning a list, so each property's users
+        # arrive nested under the ID they belong to.
+        _wire(
+            session,
+            [
+                _response(
+                    None,
+                    body={
+                        "success": True,
+                        "data": {
+                            "1": [{"userID": "u1", "email": "a@example.com"}, {"userID": "u2"}],
+                            "2": [{"userID": "u1", "email": "a@example.com"}],
+                        },
+                    },
+                )
+            ],
+        )
+
+        rows = _rows(_source("users", manager=_make_manager()))
+
+        # The same user at two properties must stay two rows, each carrying its own propertyID -
+        # that is what makes the ["propertyID", "userID"] key unique.
+        assert rows == [
+            {"userID": "u1", "email": "a@example.com", "propertyID": "1"},
+            {"userID": "u2", "propertyID": "1"},
+            {"userID": "u1", "email": "a@example.com", "propertyID": "2"},
+        ]
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_rate_plans_request_the_required_forward_stay_window(self, MockSession: mock.MagicMock) -> None:
+        session = MockSession.return_value
+        params = _wire(session, [_response([{"rateID": "r1"}])])
+
+        _rows(_source("rate_plans", manager=_make_manager(), property_id="12345"))
+
+        start = date.fromisoformat(params[0]["startDate"])
+        end = date.fromisoformat(params[0]["endDate"])
+        # getRatePlans rejects a request without a stay window, so the window has to be built for it.
+        assert start <= datetime.now(UTC).date() <= end
+        assert end - start == timedelta(days=RATE_PLAN_WINDOW_DAYS)
+
+    @parameterized.expand([("rate_plans", "propertyIDs"), ("users", "property_ids")])
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_property_is_scoped_under_the_param_the_endpoint_accepts(
+        self, endpoint: str, param: str, MockSession: mock.MagicMock
+    ) -> None:
+        session = MockSession.return_value
+        params = _wire(session, [_response(None, body={"success": True, "data": {}})])
+
+        _rows(_source(endpoint, manager=_make_manager(), property_id="12345"))
+
+        # These two methods spell the property filter their own way; sending `propertyID` instead
+        # would leave a group credential reading every property it can see.
+        assert params[0][param] == "12345"
+        assert "propertyID" not in params[0]
 
 
 class TestApiVersion:
