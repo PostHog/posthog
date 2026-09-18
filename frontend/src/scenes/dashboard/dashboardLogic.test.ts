@@ -2589,6 +2589,7 @@ describe('dashboardLogic', () => {
 
                 expect(logic.values.oldestRefreshed?.toISOString()).toEqual(dayjs(staleIso).toISOString())
                 expect(logic.values.effectiveLastRefresh?.toISOString()).toEqual(dayjs(staleIso).toISOString())
+                expect(logic.values.blockRefresh).toBe(false)
             })
 
             it('persisting the last refresh keeps refreshed results instead of an earlier snapshot', async () => {

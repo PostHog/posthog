@@ -138,6 +138,7 @@ import {
     DASHBOARD_MIN_REFRESH_INTERVAL_MINUTES,
     IS_TEST_MODE,
     DEFAULT_AUTO_PREVIEW_TILE_LIMIT,
+    isEffectiveRefreshStale,
     SEARCH_PARAM_FILTERS_KEY,
     SEARCH_PARAM_QUERY_VARIABLES_KEY,
     combineDashboardFilters,
@@ -1221,6 +1222,7 @@ export interface dashboardLogicMeta {
         nextAllowedDashboardRefresh: (lastDashboardRefresh: Dayjs | null) => Dayjs | null
         blockRefresh: (
             nextAllowedDashboardRefresh: Dayjs | null,
+            effectiveLastRefresh: Dayjs | null,
             placement: DashboardPlacement,
             pageVisibility: boolean
         ) => boolean
@@ -3144,13 +3146,14 @@ export const dashboardLogic = kea<dashboardLogicType>([
         ],
         blockRefresh: [
             // page visibility is only here to trigger a recompute when the page is hidden/shown
-            (s) => [s.nextAllowedDashboardRefresh, s.placement, s.pageVisibility],
-            (nextAllowedDashboardRefresh: Dayjs, placement: DashboardPlacement) => {
+            (s) => [s.nextAllowedDashboardRefresh, s.effectiveLastRefresh, s.placement, s.pageVisibility],
+            (nextAllowedDashboardRefresh: Dayjs, effectiveLastRefresh: Dayjs | null, placement: DashboardPlacement) => {
                 return (
                     !(placement === DashboardPlacement.FeatureFlag) &&
                     !(placement === DashboardPlacement.Group) &&
                     !!nextAllowedDashboardRefresh &&
-                    nextAllowedDashboardRefresh?.isAfter(now())
+                    nextAllowedDashboardRefresh?.isAfter(now()) &&
+                    !isEffectiveRefreshStale(effectiveLastRefresh)
                 )
             },
         ],
