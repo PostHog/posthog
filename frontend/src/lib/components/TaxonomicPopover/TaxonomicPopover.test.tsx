@@ -7,7 +7,6 @@ import { Provider } from 'kea'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
 import { useMocks } from '~/mocks/jest'
-import { actionsModel } from '~/models/actionsModel'
 import { groupsModel } from '~/models/groupsModel'
 import { initKeaTests } from '~/test/init'
 import { mockGetEventDefinitions } from '~/test/mocks'
@@ -20,17 +19,23 @@ jest.mock('lib/components/AutoSizer', () => ({
 }))
 
 describe('TaxonomicPopover', () => {
+    let actionRequestCount: number
+
     beforeEach(() => {
+        actionRequestCount = 0
         useMocks({
             get: {
                 '/api/projects/:team/event_definitions': mockGetEventDefinitions,
+                '/api/projects/:team/actions/': () => {
+                    actionRequestCount++
+                    return [200, { results: [], count: 0 }]
+                },
             },
             post: {
                 '/api/environments/:team/query': { results: [] },
             },
         })
         initKeaTests()
-        actionsModel.mount()
         groupsModel.mount()
     })
 
@@ -53,6 +58,21 @@ describe('TaxonomicPopover', () => {
     it('displays the current value in the button', () => {
         renderPopover({ value: 'pageview' })
         expect(screen.getByText('pageview')).toBeInTheDocument()
+    })
+
+    it('loads actions only after an actions picker opens', async () => {
+        renderPopover({
+            groupType: TaxonomicFilterGroupType.Actions,
+            groupTypes: [TaxonomicFilterGroupType.Actions],
+        })
+
+        expect(actionRequestCount).toBe(0)
+
+        await userEvent.click(screen.getByText('Please select'))
+
+        await waitFor(() => {
+            expect(actionRequestCount).toBe(1)
+        })
     })
 
     it('opens dropdown on click and calls onChange with correct args on selection', async () => {

@@ -153,34 +153,36 @@ export const TaxonomicPopover = forwardRef(function TaxonomicPopover_<
     const legacyEl = (
         <LemonDropdown
             overlay={
-                <TaxonomicFilter
-                    taxonomicFilterLogicKey={taxonomicFilterLogicKey}
-                    groupType={groupType}
-                    value={value}
-                    filter={filter}
-                    onChange={({ type }, payload, item) => {
-                        onChange?.(payload as ValueType, type, item)
-                        if (closeOnChange) {
-                            setVisible(false)
-                        }
-                    }}
-                    taxonomicGroupTypes={groupTypes ?? [groupType]}
-                    eventNames={eventNames}
-                    schemaColumns={schemaColumns}
-                    metadataSource={metadataSource}
-                    excludedProperties={excludedProperties}
-                    includeHiddenEvents={includeHiddenEvents}
-                    selectedProperties={selectedProperties}
-                    showNumericalPropsOnly={showNumericalPropsOnly}
-                    dataWarehousePopoverFields={dataWarehousePopoverFields}
-                    maxContextOptions={maxContextOptions}
-                    allowNonCapturedEvents={allowNonCapturedEvents}
-                    definitionPopoverRenderer={definitionPopoverRenderer}
-                    suggestedFiltersLabel={suggestedFiltersLabel}
-                    enableKeywordShortcuts={enableKeywordShortcuts}
-                    selectingKeyOnly={selectingKeyOnly}
-                    width={width}
-                />
+                visible ? (
+                    <TaxonomicFilter
+                        taxonomicFilterLogicKey={taxonomicFilterLogicKey}
+                        groupType={groupType}
+                        value={value}
+                        filter={filter}
+                        onChange={({ type }, payload, item) => {
+                            onChange?.(payload as ValueType, type, item)
+                            if (closeOnChange) {
+                                setVisible(false)
+                            }
+                        }}
+                        taxonomicGroupTypes={groupTypes ?? [groupType]}
+                        eventNames={eventNames}
+                        schemaColumns={schemaColumns}
+                        metadataSource={metadataSource}
+                        excludedProperties={excludedProperties}
+                        includeHiddenEvents={includeHiddenEvents}
+                        selectedProperties={selectedProperties}
+                        showNumericalPropsOnly={showNumericalPropsOnly}
+                        dataWarehousePopoverFields={dataWarehousePopoverFields}
+                        maxContextOptions={maxContextOptions}
+                        allowNonCapturedEvents={allowNonCapturedEvents}
+                        definitionPopoverRenderer={definitionPopoverRenderer}
+                        suggestedFiltersLabel={suggestedFiltersLabel}
+                        enableKeywordShortcuts={enableKeywordShortcuts}
+                        selectingKeyOnly={selectingKeyOnly}
+                        width={width}
+                    />
+                ) : null
             }
             matchWidth={false}
             actionable
