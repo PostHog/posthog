@@ -36,6 +36,7 @@ jq '.title' /posthog/api/notebook/<short-id>.json
 The guest includes BusyBox tools, `jq`, `vi`, `joe`, `less`, and Lua.
 Pipes, redirection, completion, terminal colors, Ctrl+C, and scrollback use the real shell and terminal.
 The terminal uses a black background in both app themes and fills the available page height.
+The guest clock and local timezone offset follow your browser, with synchronization every 30 seconds and when you return to the tab.
 Selecting text copies it automatically. **Copy selection** also copies selected text, and **Paste** inserts clipboard text into the terminal.
 Keyboard shortcuts are ⌘C/⌘V on macOS and Ctrl+Shift+C/V on Linux and Windows; Ctrl+C still interrupts the running command.
 If the browser denies clipboard access, focus the terminal and use its native paste shortcut or context menu.

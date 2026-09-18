@@ -76,6 +76,7 @@ export const terminalLogic = kea<terminalLogicType>([
             disposables.add(
                 () => () => {
                     controller.abort()
+                    disposables.dispose('clock-sync')
                     runtime.dispose()
                     if (window.posthogTerminal?.read === agent.read) {
                         delete window.posthogTerminal
@@ -104,6 +105,11 @@ export const terminalLogic = kea<terminalLogicType>([
                     if (!controller.signal.aborted) {
                         window.posthogTerminal = agent
                         actions.setStatus('ready')
+                        disposables.add(() => {
+                            runtime.syncClock()
+                            const interval = setInterval(() => runtime.syncClock(), 30_000)
+                            return () => clearInterval(interval)
+                        }, 'clock-sync')
                     }
                 })
                 disposables.add(

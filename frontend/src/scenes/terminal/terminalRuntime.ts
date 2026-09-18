@@ -7,6 +7,19 @@ import { NinePServer } from './ninepServer'
 
 const FIRMWARE = 'https://raw.githubusercontent.com/copy/v86/589487c7758a2775f606ec631bd78609497f6e05/bios'
 
+function browserClock(): { timestamp: number; timezone: string } {
+    const now = new Date()
+    const offset = now.getTimezoneOffset()
+    const hours = Math.floor(Math.abs(offset) / 60)
+    const minutes = String(Math.abs(offset) % 60).padStart(2, '0')
+    // POSIX timezone offsets have the opposite sign to the displayed UTC offset.
+    const label = `${offset > 0 ? '-' : '+'}${String(hours).padStart(2, '0')}${minutes}`
+    return {
+        timestamp: Math.floor(now.getTime() / 1000),
+        timezone: offset === 0 ? 'UTC0' : `<${label}>${offset > 0 ? '' : '-'}${hours}:${minutes}`,
+    }
+}
+
 async function verifiedImage(url: string, sha256: string, signal: AbortSignal): Promise<ArrayBuffer> {
     const response = await fetch(url, {
         signal,
@@ -94,20 +107,19 @@ export class TerminalRuntime {
             boot = (boot + String.fromCharCode(byte)).slice(-4096)
             if (!configured && boot.endsWith('~% ')) {
                 configured = true
-                // Parse setup together so stty cannot flush commands still queued on the serial input.
-                emulator.serial0_send(
+                const clock = browserClock()
+                const setup = new TextEncoder().encode(
                     [
-                        'stty -echo',
                         `stty rows ${this.rows} cols ${this.columns}`,
                         'export TERM=xterm-256color',
-                        'mkdir -p /posthog',
-                        'umount /mnt',
-                        'mount -t 9p -o trans=virtio,version=9p2000.L,cache=none host9p /posthog || exit',
+                        'unset TZ',
+                        `printf '%s\\n' '${clock.timezone}' > /etc/TZ`,
+                        `date -s @${clock.timestamp} > /dev/null`,
                         'cp /posthog/bin/jq /usr/bin/jq && chmod +x /usr/bin/jq || exit',
                         'cp /posthog/bin/ph /usr/bin/ph && chmod +x /usr/bin/ph || exit',
                         'stty -F /dev/ttyS1 raw -echo',
-                        // Detach the resize helper so the shell's wait command only waits for user jobs.
-                        '(while read -r rows cols; do stty -F /dev/ttyS0 rows "$rows" cols "$cols"; done < /dev/ttyS1 &)',
+                        // Detach the control helper so the shell's wait command only waits for user jobs.
+                        '(while read -r command first second; do case "$command" in resize) stty -F /dev/ttyS0 rows "$first" cols "$second";; clock) date -s "@$first" > /dev/null; printf "%s\\n" "$second" > /etc/TZ;; esac; done < /dev/ttyS1 &)',
                         "alias ls='ls --color=auto'",
                         "export PS1='\\[\\033[32m\\]posthog\\[\\033[0m\\]:\\[\\033[34m\\]\\w\\[\\033[0m\\] $ '",
                         'cd /posthog/files',
@@ -115,7 +127,13 @@ export class TerminalRuntime {
                         'printf \'PostHog terminal\\n\\nTry:\\n  ls --color=auto\\n  find . -name "*.md"\\n  vi Unfiled/Notebooks/Foobar.md\\n  mkdir Research\\n  ph tools\\n  ph notebooks-list --limit 10 | jq .\\n  cat /posthog/README.txt\\n\\nUse your own notebook path with vi. Save with :wq; quit with :q!.\\nSelecting text copies it. Folder creation and moves update PostHog.\\n\\n\'',
                         'stty echo',
                         "printf '\\036' > /dev/ttyS1",
-                    ].join('; ') + '\n'
+                    ].join('\n') + '\n'
+                )
+                server.filesystem.file('init.sh', bin, async () => ({ bytes: setup })).size = setup.byteLength
+                // Source setup from 9P to stay within the guest shell's input limit.
+                // Parse the bootstrap together so stty cannot flush queued serial input.
+                emulator.serial0_send(
+                    'stty -echo; mkdir -p /posthog; umount /mnt; mount -t 9p -o trans=virtio,version=9p2000.L,cache=none host9p /posthog && . /posthog/bin/init.sh\n'
                 )
             }
         })
@@ -131,11 +149,18 @@ export class TerminalRuntime {
         return this.output
     }
 
+    syncClock(): void {
+        if (this.ready && !this.disposed) {
+            const { timestamp, timezone } = browserClock()
+            this.emulator?.serial_send_bytes(1, new TextEncoder().encode(`clock ${timestamp} ${timezone}\n`))
+        }
+    }
+
     resize(columns: number, rows: number): void {
         this.columns = Math.max(20, Math.min(500, Math.floor(columns)))
         this.rows = Math.max(5, Math.min(200, Math.floor(rows)))
         if (this.ready) {
-            this.emulator?.serial_send_bytes(1, new TextEncoder().encode(`${this.rows} ${this.columns}\n`))
+            this.emulator?.serial_send_bytes(1, new TextEncoder().encode(`resize ${this.rows} ${this.columns}\n`))
         }
     }
 
