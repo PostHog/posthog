@@ -52,9 +52,12 @@ def schedule_task_digests(cursor: str | None = None) -> None:
             continue
         digest_date = now.astimezone(ZoneInfo(config.team.timezone)).date()
         campaign_key = task_digest_campaign_key(config.team_id, config.user_id, digest_date)
-        if MessagingRecord.objects.filter(campaign_key=campaign_key, sent_at__isnull=False).exists():
+        campaign_records = MessagingRecord.objects.filter(  # nosemgrep: celery-task-team-scope-audit - this global model has no team field, and the key embeds team_id
+            campaign_key=campaign_key
+        )
+        if campaign_records.filter(sent_at__isnull=False).exists():
             continue
-        record = MessagingRecord.objects.filter(campaign_key=campaign_key).first()
+        record = campaign_records.first()
         if record is not None and (record.sent_at is not None or (record.campaign_count or 0) >= MAX_SEND_ATTEMPTS):
             continue
         send_task_digest.delay(config.team_id, config.user_id, digest_date.isoformat())
