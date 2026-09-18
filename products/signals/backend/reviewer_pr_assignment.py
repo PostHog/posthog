@@ -23,17 +23,20 @@ from __future__ import annotations
 
 import json
 from typing import Any
+from uuid import UUID
 
 from django.conf import settings
 from django.db import transaction
 
 import structlog
+from pydantic import ValidationError
 
 from posthog.models import Team
 from posthog.models.github_integration_base import PullRequestRef
 from posthog.models.integration import GitHubIntegration
 from posthog.ph_client import feature_enabled_or_false
 
+from products.signals.backend.artefact_schemas import TASK_RUN_TYPE_IMPLEMENTATION, TaskRunArtefact
 from products.signals.backend.models import (
     SignalActorKind,
     SignalReport,
@@ -42,7 +45,7 @@ from products.signals.backend.models import (
     SignalUserAutonomyConfig,
 )
 from products.signals.backend.pr_owning_team import OwningTeam, OwningTeamResolver
-from products.signals.backend.report_claims import get_active_claim
+from products.signals.backend.report_claims import get_active_claim, responsible_user
 from products.signals.backend.report_generation.resolve_reviewers import (
     _normalized_reviewer_user_uuid,
     get_org_member_github_logins_by_user_uuid,
@@ -163,19 +166,51 @@ def _pr_dri_enabled(team_id: int) -> bool:
         return False
 
 
+def _is_manual_implementation_task(*, team_id: int, report_id: str, task_id: UUID) -> bool:
+    """Whether a person started the implementation task, rather than auto-start creating it.
+
+    Auto-start stamps the branch it generated onto the run artefact, and a manual start leaves it
+    unset, so only a run without one is somebody's decision. Anything unreadable counts as
+    automatic, because a claim nobody can vouch for must not outrank the team that owns the code.
+    """
+    rows = SignalReportArtefact.objects.filter(
+        team_id=team_id,
+        report_id=report_id,
+        type=SignalReportArtefact.ArtefactType.TASK_RUN,
+        task_id=task_id,
+    )
+    for row in rows:
+        try:
+            content = TaskRunArtefact.model_validate_json(row.content)
+        except ValidationError:
+            continue
+        if content.type == TASK_RUN_TYPE_IMPLEMENTATION and content.automation_branch is None:
+            return True
+    return False
+
+
 def human_claimant_login(*, team_id: int, report_id: str) -> str | None:
     """The GitHub login of the person who chose to work on the report, when they can be assigned.
 
-    Only a claim a person stands behind counts. A task claim names whoever auto-start ran the
-    implementation task as, which is the report's top suggested reviewer, so it says nothing about
-    who chose the work. An agent claim carries the person whose agent claimed it, so it does count.
+    A claim a person made counts, and so does one their agent made for them, because an agent claim
+    carries the person it ran as. A task claim counts only when a person started that task: an
+    auto-started task runs as the report's top suggested reviewer, so it names a commit-history
+    guess rather than a decision.
     """
     claim = get_active_claim(team_id=team_id, report_id=report_id)
-    if claim is None or claim.actor_user is None:
+    if claim is None:
         return None
-    if claim.actor_kind not in (SignalActorKind.USER, SignalActorKind.AGENT):
+    if claim.actor_kind in (SignalActorKind.USER, SignalActorKind.AGENT):
+        user = claim.actor_user
+    elif claim.actor_task_id is not None and _is_manual_implementation_task(
+        team_id=team_id, report_id=report_id, task_id=claim.actor_task_id
+    ):
+        user = responsible_user(claim)
+    else:
         return None
-    user_uuid = str(claim.actor_user.uuid)
+    if user is None:
+        return None
+    user_uuid = str(user.uuid)
     return get_org_member_github_logins_by_user_uuid(team_id, [user_uuid]).get(user_uuid)
 
 

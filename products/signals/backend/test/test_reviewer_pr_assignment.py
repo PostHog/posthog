@@ -453,7 +453,9 @@ class TestDirectlyResponsibleIndividual:
     def _team_x(self, github: MagicMock) -> None:
         github.list_team_members.return_value = {"success": True, "logins": ["bob", "dave", "stranger"]}
 
-    def _claim(self, team, report, users: dict, *, kind: str, login: str) -> None:
+    def _claim(
+        self, team, report, users: dict, *, kind: str, login: str, automation_branch: str | None = "auto"
+    ) -> None:
         if kind in ("user", "agent"):
             actor = (
                 ArtefactAttribution.from_user(users[login].id)
@@ -466,6 +468,12 @@ class TestDirectlyResponsibleIndividual:
             team=team, title="Implementation", description="", origin_product="signals", created_by=users[login]
         )
         claim_report_for_task(team_id=team.id, report_id=str(report.id), task_id=str(task.id))
+        record_implementation_task(
+            team_id=team.id,
+            report_id=str(report.id),
+            task_id=str(task.id),
+            automation_branch=automation_branch,
+        )
 
     @pytest.mark.django_db
     @pytest.mark.parametrize(
@@ -475,6 +483,7 @@ class TestDirectlyResponsibleIndividual:
             (["alice"], "user", "carol"),
             (["alice"], "agent", "carol"),
             (["alice"], "task", "alice"),
+            (["alice"], "manual-task", "carol"),
             ([], "task", None),
             (["uuid:bob", "alice"], None, "bob"),
             (["stranger", "bob"], None, "bob"),
@@ -484,7 +493,8 @@ class TestDirectlyResponsibleIndividual:
             "top_reviewer",
             "a_person_who_chose_the_work_is_the_dri",
             "an_agent_claim_names_the_person_who_ran_it",
-            "a_task_claim_does_not_rank_its_claimant",
+            "an_auto_started_task_claim_does_not_rank_its_claimant",
+            "a_task_a_person_started_ranks_its_creator",
             "a_task_claim_alone_is_nobody_to_assign",
             "reviewer_stored_by_uuid",
             "non_member_skipped",
@@ -497,7 +507,14 @@ class TestDirectlyResponsibleIndividual:
         org, team = org_and_team
         report, users = self._setup(org, team, reviewers)
         if claimant:
-            self._claim(team, report, users, kind=claimant, login="carol")
+            self._claim(
+                team,
+                report,
+                users,
+                kind="task" if claimant == "manual-task" else claimant,
+                login="carol",
+                automation_branch=None if claimant == "manual-task" else "auto",
+            )
 
         calls = self._assign(team, report, self._github(existing_assignees=[], assignable=None))
 
