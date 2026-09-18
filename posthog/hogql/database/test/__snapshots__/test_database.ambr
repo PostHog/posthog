@@ -132,43 +132,6 @@
 # ---
 # name: TestDatabase.test_database_with_warehouse_tables_and_saved_queries_n_plus_1.10
   '''
-  SELECT "data_tools_datawarehouseexpression"."deleted",
-         "data_tools_datawarehouseexpression"."deleted_at",
-         "data_tools_datawarehouseexpression"."id",
-         "data_tools_datawarehouseexpression"."team_id",
-         "data_tools_datawarehouseexpression"."created_at",
-         "data_tools_datawarehouseexpression"."created_by_id",
-         "data_tools_datawarehouseexpression"."table_name",
-         "data_tools_datawarehouseexpression"."field_name",
-         "data_tools_datawarehouseexpression"."expression",
-         "data_tools_datawarehouseexpression"."connection_id"
-  FROM "data_tools_datawarehouseexpression"
-  WHERE ("data_tools_datawarehouseexpression"."team_id" = 99999
-         AND NOT ("data_tools_datawarehouseexpression"."deleted"
-                  AND "data_tools_datawarehouseexpression"."deleted" IS NOT NULL)
-         AND "data_tools_datawarehouseexpression"."connection_id" IS NULL)
-  '''
-# ---
-# name: TestDatabase.test_database_with_warehouse_tables_and_saved_queries_n_plus_1.11
-  '''
-  SELECT "posthog_datawarehousecredential"."created_by_id",
-         "posthog_datawarehousecredential"."created_at",
-         "posthog_datawarehousecredential"."id",
-         "posthog_datawarehousecredential"."access_key",
-         "posthog_datawarehousecredential"."access_secret",
-         "posthog_datawarehousecredential"."team_id"
-  FROM "posthog_datawarehousecredential"
-  WHERE ("posthog_datawarehousecredential"."id" IN ('00000000000000000000000000000000'::uuid,
-                                                    '00000000000000000000000000000000'::uuid,
-                                                    '00000000000000000000000000000000'::uuid,
-                                                    '00000000000000000000000000000000'::uuid,
-                                                    '00000000000000000000000000000000'::uuid,
-                                                    '00000000000000000000000000000000'::uuid)
-         AND "posthog_datawarehousecredential"."team_id" = 99999)
-  '''
-# ---
-# name: TestDatabase.test_database_with_warehouse_tables_and_saved_queries_n_plus_1.2
-  '''
   SELECT "posthog_datawarehousetable"."created_by_id",
          "posthog_datawarehousetable"."created_at",
          "posthog_datawarehousetable"."updated_at",
@@ -200,7 +163,25 @@
   ORDER BY "posthog_datawarehousetable"."created_at" DESC
   '''
 # ---
-# name: TestDatabase.test_database_with_warehouse_tables_and_saved_queries_n_plus_1.3
+# name: TestDatabase.test_database_with_warehouse_tables_and_saved_queries_n_plus_1.11
+  '''
+  SELECT "posthog_datawarehousecredential"."created_by_id",
+         "posthog_datawarehousecredential"."created_at",
+         "posthog_datawarehousecredential"."id",
+         "posthog_datawarehousecredential"."access_key",
+         "posthog_datawarehousecredential"."access_secret",
+         "posthog_datawarehousecredential"."team_id"
+  FROM "posthog_datawarehousecredential"
+  WHERE ("posthog_datawarehousecredential"."id" IN ('00000000000000000000000000000000'::uuid,
+                                                    '00000000000000000000000000000000'::uuid,
+                                                    '00000000000000000000000000000000'::uuid,
+                                                    '00000000000000000000000000000000'::uuid,
+                                                    '00000000000000000000000000000000'::uuid,
+                                                    '00000000000000000000000000000000'::uuid)
+         AND "posthog_datawarehousecredential"."team_id" = 99999)
+  '''
+# ---
+# name: TestDatabase.test_database_with_warehouse_tables_and_saved_queries_n_plus_1.2
   '''
   SELECT "posthog_datawarehousejoin"."created_by_id",
          "posthog_datawarehousejoin"."created_at",
@@ -220,7 +201,7 @@
                   AND "posthog_datawarehousejoin"."deleted" IS NOT NULL))
   '''
 # ---
-# name: TestDatabase.test_database_with_warehouse_tables_and_saved_queries_n_plus_1.4
+# name: TestDatabase.test_database_with_warehouse_tables_and_saved_queries_n_plus_1.3
   '''
   SELECT "data_tools_datawarehouseexpression"."deleted",
          "data_tools_datawarehouseexpression"."deleted_at",
@@ -237,6 +218,39 @@
          AND NOT ("data_tools_datawarehouseexpression"."deleted"
                   AND "data_tools_datawarehouseexpression"."deleted" IS NOT NULL)
          AND "data_tools_datawarehouseexpression"."connection_id" IS NULL)
+  '''
+# ---
+# name: TestDatabase.test_database_with_warehouse_tables_and_saved_queries_n_plus_1.4
+  '''
+  SELECT "posthog_datawarehousetable"."created_by_id",
+         "posthog_datawarehousetable"."created_at",
+         "posthog_datawarehousetable"."updated_at",
+         "posthog_datawarehousetable"."deleted",
+         "posthog_datawarehousetable"."deleted_at",
+         "posthog_datawarehousetable"."id",
+         "posthog_datawarehousetable"."name",
+         "posthog_datawarehousetable"."format",
+         "posthog_datawarehousetable"."team_id",
+         "posthog_datawarehousetable"."url_pattern",
+         "posthog_datawarehousetable"."queryable_folder",
+         "posthog_datawarehousetable"."credential_id",
+         "posthog_datawarehousetable"."external_data_source_id",
+         "posthog_datawarehousetable"."created_via",
+         "posthog_datawarehousetable"."columns",
+         "posthog_datawarehousetable"."column_order",
+         "posthog_datawarehousetable"."options",
+         "posthog_datawarehousetable"."row_count",
+         "posthog_datawarehousetable"."size_in_s3_mib"
+  FROM "posthog_datawarehousetable"
+  LEFT OUTER JOIN "posthog_externaldatasource" ON ("posthog_datawarehousetable"."external_data_source_id" = "posthog_externaldatasource"."id")
+  WHERE ("posthog_datawarehousetable"."team_id" = 99999
+         AND NOT ("posthog_datawarehousetable"."deleted"
+                  AND "posthog_datawarehousetable"."deleted" IS NOT NULL)
+         AND NOT ("posthog_externaldatasource"."deleted"
+                  AND "posthog_externaldatasource"."deleted" IS NOT NULL)
+         AND NOT ("posthog_externaldatasource"."access_method" = 'direct'
+                  AND "posthog_externaldatasource"."access_method" IS NOT NULL))
+  ORDER BY "posthog_datawarehousetable"."created_at" DESC
   '''
 # ---
 # name: TestDatabase.test_database_with_warehouse_tables_and_saved_queries_n_plus_1.5
@@ -360,39 +374,6 @@
 # ---
 # name: TestDatabase.test_database_with_warehouse_tables_and_saved_queries_n_plus_1.8
   '''
-  SELECT "posthog_datawarehousetable"."created_by_id",
-         "posthog_datawarehousetable"."created_at",
-         "posthog_datawarehousetable"."updated_at",
-         "posthog_datawarehousetable"."deleted",
-         "posthog_datawarehousetable"."deleted_at",
-         "posthog_datawarehousetable"."id",
-         "posthog_datawarehousetable"."name",
-         "posthog_datawarehousetable"."format",
-         "posthog_datawarehousetable"."team_id",
-         "posthog_datawarehousetable"."url_pattern",
-         "posthog_datawarehousetable"."queryable_folder",
-         "posthog_datawarehousetable"."credential_id",
-         "posthog_datawarehousetable"."external_data_source_id",
-         "posthog_datawarehousetable"."created_via",
-         "posthog_datawarehousetable"."columns",
-         "posthog_datawarehousetable"."column_order",
-         "posthog_datawarehousetable"."options",
-         "posthog_datawarehousetable"."row_count",
-         "posthog_datawarehousetable"."size_in_s3_mib"
-  FROM "posthog_datawarehousetable"
-  LEFT OUTER JOIN "posthog_externaldatasource" ON ("posthog_datawarehousetable"."external_data_source_id" = "posthog_externaldatasource"."id")
-  WHERE ("posthog_datawarehousetable"."team_id" = 99999
-         AND NOT ("posthog_datawarehousetable"."deleted"
-                  AND "posthog_datawarehousetable"."deleted" IS NOT NULL)
-         AND NOT ("posthog_externaldatasource"."deleted"
-                  AND "posthog_externaldatasource"."deleted" IS NOT NULL)
-         AND NOT ("posthog_externaldatasource"."access_method" = 'direct'
-                  AND "posthog_externaldatasource"."access_method" IS NOT NULL))
-  ORDER BY "posthog_datawarehousetable"."created_at" DESC
-  '''
-# ---
-# name: TestDatabase.test_database_with_warehouse_tables_and_saved_queries_n_plus_1.9
-  '''
   SELECT "posthog_datawarehousejoin"."created_by_id",
          "posthog_datawarehousejoin"."created_at",
          "posthog_datawarehousejoin"."deleted",
@@ -409,6 +390,25 @@
   WHERE ("posthog_datawarehousejoin"."team_id" = 99999
          AND NOT ("posthog_datawarehousejoin"."deleted"
                   AND "posthog_datawarehousejoin"."deleted" IS NOT NULL))
+  '''
+# ---
+# name: TestDatabase.test_database_with_warehouse_tables_and_saved_queries_n_plus_1.9
+  '''
+  SELECT "data_tools_datawarehouseexpression"."deleted",
+         "data_tools_datawarehouseexpression"."deleted_at",
+         "data_tools_datawarehouseexpression"."id",
+         "data_tools_datawarehouseexpression"."team_id",
+         "data_tools_datawarehouseexpression"."created_at",
+         "data_tools_datawarehouseexpression"."created_by_id",
+         "data_tools_datawarehouseexpression"."table_name",
+         "data_tools_datawarehouseexpression"."field_name",
+         "data_tools_datawarehouseexpression"."expression",
+         "data_tools_datawarehouseexpression"."connection_id"
+  FROM "data_tools_datawarehouseexpression"
+  WHERE ("data_tools_datawarehouseexpression"."team_id" = 99999
+         AND NOT ("data_tools_datawarehouseexpression"."deleted"
+                  AND "data_tools_datawarehouseexpression"."deleted" IS NOT NULL)
+         AND "data_tools_datawarehouseexpression"."connection_id" IS NULL)
   '''
 # ---
 # name: TestDatabase.test_serialize_database_no_person_on_events
