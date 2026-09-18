@@ -1,0 +1,20 @@
+{
+  "source_repository": "https://github.com/PostHog/posthog-sdk-test-harness",
+  "source_revision": "b4b4bd527e024f92427504011da8435262a6ffab",
+  "release_status": "unreleased",
+  "contract_version": "2.2.0",
+  "v2_boolean_evaluation_version": "1.0.0",
+  "v1_corpus_version": "1.1.0",
+  "registry_version": "2.0.0",
+  "config_schema_version": "1.0.0",
+  "source_sha256sums_digest": "682551efadc7972e3a246c37ff52b3a45caece9ab9b4cebfcd4a5f4810b8a2cc",
+  "files": [
+    "README.md",
+    "manifest.json",
+    "registries/literals.json",
+    "schemas/config.schema.json",
+    "schemas/v2_boolean_evaluation.schema.json",
+    "corpus/v2_boolean_evaluation.json"
+  ],
+  "follow_up": "Merge and release the companion artifact, then repin to its immutable release revision before marking the dependency complete."
+}

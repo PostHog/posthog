@@ -44,12 +44,23 @@ pub fn parse_relative_date(date_str: &str) -> Option<DateTime<Utc>> {
 /// instant) is what makes "in the last N days" land on the same local day
 /// boundary in both engines.
 pub fn parse_relative_date_in_tz(date_str: &str, tz: Tz) -> Option<DateTime<Utc>> {
+    parse_relative_date_in_tz_at(date_str, tz, None)
+}
+
+pub(crate) fn parse_relative_date_in_tz_at(
+    date_str: &str,
+    tz: Tz,
+    now: Option<DateTime<Utc>>,
+) -> Option<DateTime<Utc>> {
     // Cheap reject for the common case (absolute date strings) before reading the
     // clock and localizing — that work is wasted whenever the regex won't match.
     if !RELATIVE_DATE_REGEX.is_match(date_str) {
         return None;
     }
-    let now_local = Utc::now().with_timezone(&tz).naive_local();
+    let now_local = now
+        .unwrap_or_else(Utc::now)
+        .with_timezone(&tz)
+        .naive_local();
     let result = parse_relative_date_naive(date_str, now_local)?;
     naive_to_utc_in_tz(result, tz)
 }
