@@ -724,11 +724,11 @@ export interface experimentReplayTabLogicMeta {
         groupAggregatedExposure: (arg: any) => boolean
         listUnavailableReason: (
             variantKeys: string[],
-            groupAggregatedExposure: any,
+            groupAggregatedExposure: boolean,
             arg: any
         ) => ExperimentRecordingsListUnavailableReason | null
         behaviorComparisonUnavailableReason: (
-            groupAggregatedExposure: any
+            groupAggregatedExposure: boolean
         ) => ExperimentBehaviorComparisonUnavailableReason | null
         effectiveVariantKey: (selectedVariantKey: string | null, variantKeys: string[]) => string | null
         exposureInSessionUnavailableReason: (inSessionExposure: ExperimentInSessionExposureApi | null) => string | null
