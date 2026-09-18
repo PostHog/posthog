@@ -17,6 +17,7 @@ export interface AccountsViewFilters {
     search: string
     assignmentStatus: AssignmentStatus
     assignedTo: RoleFilterValue
+    includeChurnedAndIgnored: boolean
     tags: string[]
     tileFilter: TileFilter | null
     customProperties: AccountFilter[]
@@ -91,6 +92,9 @@ export function serializeAccountsView(state: AccountsViewState): AccountsViewPay
     if (state.filters.tags.length > 0) {
         filters.tags = state.filters.tags
     }
+    if (state.filters.includeChurnedAndIgnored) {
+        filters.includeChurnedAndIgnored = true
+    }
     // Store `all` so new views differ from field-less legacy views.
     filters.assignmentStatus = state.filters.assignmentStatus
     if (state.filters.assignmentStatus === 'assigned' && state.filters.assignedTo.length > 0) {
@@ -144,6 +148,8 @@ const AccountsViewDraft = z.object({
         search: z.string(),
         assignmentStatus: z.enum(['all', 'assigned', 'unassigned']),
         assignedTo: z.array(z.number()),
+        // Drafts written before this filter existed stay readable.
+        includeChurnedAndIgnored: z.boolean().default(false),
         tags: z.array(z.string()),
         tileFilter: z
             .object({
@@ -205,6 +211,7 @@ export function deserializeAccountsView(view: Partial<ColumnConfigurationApi>): 
             search: rawFilters.search ?? '',
             assignmentStatus: assignmentStatusFromRaw(rawFilters),
             assignedTo: normalizeRoleFilter(rawFilters.assignedTo),
+            includeChurnedAndIgnored: rawFilters.includeChurnedAndIgnored === true,
             tags: rawFilters.tags ?? [],
             tileFilter: rawFilters.tileFilter ?? null,
             customProperties: Array.isArray(rawFilters.customProperties) ? rawFilters.customProperties : [],

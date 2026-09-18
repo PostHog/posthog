@@ -212,6 +212,7 @@ describe('accountsViewsLogic', () => {
                 tags: ['enterprise'],
                 assignmentStatus: 'assigned',
                 assignedTo: [1, 2, 3],
+                includeChurnedAndIgnored: false,
                 tileFilter: {
                     tileId: 't1',
                     filter: {
@@ -347,6 +348,7 @@ describe('accountsViewsLogic', () => {
                 search: '',
                 assignmentStatus: 'all',
                 assignedTo: [],
+                includeChurnedAndIgnored: false,
                 tags: [],
                 tileFilter: null,
                 customProperties: [],

@@ -26,8 +26,15 @@ import {
 import { AccountsViewSelector } from './AccountsViewSelector'
 
 export function AccountsTabFilters(): JSX.Element {
-    const { searchInput, tagsFilter, assignmentStatus, assignedToCurrentUser, assignedToFilter, accountFilters } =
-        useValues(accountsLogic)
+    const {
+        searchInput,
+        tagsFilter,
+        assignmentStatus,
+        assignedToCurrentUser,
+        assignedToFilter,
+        accountFilters,
+        includeChurnedAndIgnored,
+    } = useValues(accountsLogic)
     const { responseLoading: accountsLoading } = useValues(dataNodeLogic)
     const {
         setSearchInput,
@@ -35,6 +42,7 @@ export function AccountsTabFilters(): JSX.Element {
         setAssignmentStatus,
         setAssignedToCurrentUser,
         setAssignedToFilter,
+        setIncludeChurnedAndIgnored,
         updateAccountFilters,
         refresh,
         reportFilterChange,
@@ -57,6 +65,17 @@ export function AccountsTabFilters(): JSX.Element {
                         size="small"
                         className="min-w-64"
                         data-attr="accounts-search"
+                    />
+                    <LemonCheckbox
+                        checked={includeChurnedAndIgnored}
+                        onChange={(value) => {
+                            setIncludeChurnedAndIgnored(value)
+                            reportFilterChange('include_churned_and_ignored')
+                        }}
+                        label="Include churned and ignored"
+                        info="Churned and ignored accounts are hidden by default. Turn this on to find them in search and count them in the tiles above."
+                        disabledReason={accountsLoading ? 'Loading…' : undefined}
+                        data-attr="accounts-include-churned-and-ignored-filter"
                     />
                     <AccountsViewSelector />
                 </div>

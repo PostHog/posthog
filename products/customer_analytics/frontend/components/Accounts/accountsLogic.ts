@@ -107,7 +107,12 @@ function clearSortIfColumnRemoved(values: SortLikeValues, actions: SortLikeActio
 
 export type RoleFilterValue = number[]
 
-export type AccountFilterType = 'tag' | 'assignment_status' | 'my_accounts' | 'assigned_to'
+export type AccountFilterType =
+    | 'tag'
+    | 'assignment_status'
+    | 'my_accounts'
+    | 'assigned_to'
+    | 'include_churned_and_ignored'
 
 export type AccountSortableColumn = string
 
@@ -176,6 +181,8 @@ export interface AccountsViewUrlState {
     unassigned?: boolean
     /** Concrete user IDs make shared links independent of the viewer. */
     assignedTo?: number[]
+    /** Written only when on, so a link without it keeps the hidden lifecycle states hidden. */
+    includeChurnedAndIgnored?: boolean
     /** @deprecated Legacy viewer-relative flag; still read so old shared links
      * resolve to the opener's own id. Never written. */
     mine?: boolean
@@ -244,6 +251,7 @@ function accountsViewStateFromUrl(
             search: typeof view.search === 'string' ? view.search : '',
             assignmentStatus,
             assignedTo: assignmentStatus === 'assigned' ? (assignedTo.length ? assignedTo : legacyMine) : [],
+            includeChurnedAndIgnored: view.includeChurnedAndIgnored === true,
             tags: Array.isArray(view.tags) ? view.tags.filter((tag): tag is string => typeof tag === 'string') : [],
             tileFilter: view.tileFilter && typeof view.tileFilter === 'object' ? view.tileFilter : null,
             customProperties: Array.isArray(view.customProperties) ? view.customProperties : [],
@@ -287,6 +295,7 @@ export interface accountsLogicValues {
     currentUserId: number | null
     customPropertyOverrides: Record<string, CustomPropertyValueWriteApi['value']>
     draftRestored: boolean
+    includeChurnedAndIgnored: boolean
     isCustomPropertySaving: (accountId: string, definitionId: string) => boolean
     isRoleSaving: (accountId: string, column: string) => boolean
     isTagsSaving: (accountId: string) => boolean
@@ -541,6 +550,9 @@ export interface accountsLogicActions {
     setDraftRestored: (restored: boolean) => {
         restored: boolean
     }
+    setIncludeChurnedAndIgnored: (include: boolean) => {
+        include: boolean
+    }
     setRelationshipOverride: (
         accountId: string,
         column: string,
@@ -628,6 +640,7 @@ export interface accountsLogicMeta {
             searchQuery: string,
             tagsFilter: string[],
             assignmentStatus: AssignmentStatus,
+            includeChurnedAndIgnored: boolean,
             accountFilters: AccountFilter[]
         ) => number
         viewState: (
@@ -636,6 +649,7 @@ export interface accountsLogicMeta {
             tagsFilter: string[],
             assignmentStatus: AssignmentStatus,
             assignedToFilter: RoleFilterValue,
+            includeChurnedAndIgnored: boolean,
             sortOrder: AccountSortOrder,
             tileFilter: TileFilter | null,
             tiles: AccountsOverviewTile[],
@@ -647,6 +661,7 @@ export interface accountsLogicMeta {
             tagsFilter: string[],
             assignmentStatus: AssignmentStatus,
             assignedToFilter: RoleFilterValue,
+            includeChurnedAndIgnored: boolean,
             sortOrder: AccountSortOrder,
             selectColumns: string[],
             defaultSelectColumns: string[],
@@ -668,6 +683,7 @@ export interface accountsLogicMeta {
             assignmentStatus: AssignmentStatus,
             assignedToFilter: RoleFilterValue,
             accountIdFilter: string | null,
+            includeChurnedAndIgnored: boolean,
             tileFilter: TileFilter | null,
             accountFilters: AccountFilter[],
             relationshipDefinitionsById: Record<string, AccountRelationshipDefinitionApi>,
@@ -775,6 +791,7 @@ export const accountsLogic = kea<accountsLogicType>([
         setAccountFilters: (filters: AccountFilter[]) => ({ filters }),
         updateAccountFilters: (filters: AccountFilter[]) => ({ filters }),
         setAssignmentStatus: (status: AssignmentStatus) => ({ status }),
+        setIncludeChurnedAndIgnored: (include: boolean) => ({ include }),
         setAssignedToFilter: (value: RoleFilterValue) => ({ value }),
         setAssignedToCurrentUser: (value: boolean) => ({ value }),
         setSortOrder: (sortOrder: AccountSortOrder) => ({ sortOrder }),
@@ -860,6 +877,12 @@ export const accountsLogic = kea<accountsLogicType>([
             [] as RoleFilterValue,
             {
                 setAssignedToFilter: (_, { value }) => value,
+            },
+        ],
+        includeChurnedAndIgnored: [
+            false,
+            {
+                setIncludeChurnedAndIgnored: (_, { include }) => include,
             },
         ],
         accountIdFilter: [
@@ -1008,17 +1031,19 @@ export const accountsLogic = kea<accountsLogicType>([
                     !!savingTags[accountId],
         ],
         activeFilterCount: [
-            (s) => [s.searchQuery, s.tagsFilter, s.assignmentStatus, s.accountFilters],
+            (s) => [s.searchQuery, s.tagsFilter, s.assignmentStatus, s.includeChurnedAndIgnored, s.accountFilters],
             (
                 searchQuery: string,
                 tagsFilter: string[],
                 assignmentStatus: AssignmentStatus,
+                includeChurnedAndIgnored: boolean,
                 accountFilters: AccountFilter[]
             ): number =>
                 [
                     !!searchQuery.trim(),
                     tagsFilter.length > 0,
                     assignmentStatus !== 'all',
+                    includeChurnedAndIgnored,
                     accountFilters.length > 0,
                 ].filter(Boolean).length,
         ],
@@ -1029,6 +1054,7 @@ export const accountsLogic = kea<accountsLogicType>([
                 s.tagsFilter,
                 s.assignmentStatus,
                 s.assignedToFilter,
+                s.includeChurnedAndIgnored,
                 s.sortOrder,
                 s.tileFilter,
                 s.tiles,
@@ -1041,6 +1067,7 @@ export const accountsLogic = kea<accountsLogicType>([
                 tags: string[],
                 assignmentStatus: AssignmentStatus,
                 assignedTo: RoleFilterValue,
+                includeChurnedAndIgnored: boolean,
                 sortOrder: AccountSortOrder,
                 tileFilter: TileFilter | null,
                 tiles: import('./accountsOverviewTilesLogic').AccountsOverviewTile[],
@@ -1049,7 +1076,15 @@ export const accountsLogic = kea<accountsLogicType>([
             ): AccountsViewState => ({
                 columns,
                 sortOrder,
-                filters: { search, assignmentStatus, assignedTo, tags, tileFilter, customProperties },
+                filters: {
+                    search,
+                    assignmentStatus,
+                    assignedTo,
+                    includeChurnedAndIgnored,
+                    tags,
+                    tileFilter,
+                    customProperties,
+                },
                 tiles,
                 columnDisplay,
             }),
@@ -1060,6 +1095,7 @@ export const accountsLogic = kea<accountsLogicType>([
                 s.tagsFilter,
                 s.assignmentStatus,
                 s.assignedToFilter,
+                s.includeChurnedAndIgnored,
                 s.sortOrder,
                 s.selectColumns,
                 s.defaultSelectColumns,
@@ -1072,6 +1108,7 @@ export const accountsLogic = kea<accountsLogicType>([
                 tagsFilter: string[],
                 assignmentStatus: AssignmentStatus,
                 assignedToFilter: RoleFilterValue,
+                includeChurnedAndIgnored: boolean,
                 sortOrder: AccountSortOrder,
                 selectColumns: string[],
                 defaultSelectColumns: string[],
@@ -1094,6 +1131,9 @@ export const accountsLogic = kea<accountsLogicType>([
                     if (assignedToFilter.length > 0) {
                         state.assignedTo = assignedToFilter
                     }
+                }
+                if (includeChurnedAndIgnored) {
+                    state.includeChurnedAndIgnored = true
                 }
                 if (sortOrder) {
                     state.sort = sortOrder
@@ -1144,6 +1184,7 @@ export const accountsLogic = kea<accountsLogicType>([
                 s.assignmentStatus,
                 s.assignedToFilter,
                 s.accountIdFilter,
+                s.includeChurnedAndIgnored,
                 s.tileFilter,
                 s.accountFilters,
                 s.relationshipDefinitionsById,
@@ -1160,6 +1201,7 @@ export const accountsLogic = kea<accountsLogicType>([
                 assignmentStatus: AssignmentStatus,
                 assignedToFilter: RoleFilterValue,
                 accountIdFilter: string | null,
+                includeChurnedAndIgnored: boolean,
                 tileFilter: TileFilter | null,
                 accountFilters: AccountFilter[],
                 relationshipDefinitionsById: Record<string, AccountRelationshipDefinitionApi>,
@@ -1175,6 +1217,7 @@ export const accountsLogic = kea<accountsLogicType>([
                 assignmentStatus,
                 assignedToFilter,
                 accountIdFilter,
+                includeChurnedAndIgnored,
                 tileFilter,
                 accountFilters,
                 relationshipDefinitionsById,
@@ -1272,6 +1315,7 @@ export const accountsLogic = kea<accountsLogicType>([
                 actions.setAssignedToFilter(
                     viewState.filters.assignmentStatus === 'assigned' ? viewState.filters.assignedTo : []
                 )
+                actions.setIncludeChurnedAndIgnored(viewState.filters.includeChurnedAndIgnored)
                 actions.setAccountFilters(viewState.filters.customProperties)
                 actions.setSortOrder(viewState.sortOrder)
                 actions.setTiles(viewState.tiles)
@@ -1454,6 +1498,10 @@ export const accountsLogic = kea<accountsLogicType>([
                     properties.value = values.assignedToCurrentUser
                     properties.is_cleared = !values.assignedToCurrentUser
                     break
+                case 'include_churned_and_ignored':
+                    properties.value = values.includeChurnedAndIgnored
+                    properties.is_cleared = !values.includeChurnedAndIgnored
+                    break
                 case 'assigned_to':
                     properties.value = values.assignedToFilter
                     properties.role_count = values.assignedToFilter.length
@@ -1461,6 +1509,9 @@ export const accountsLogic = kea<accountsLogicType>([
                     break
             }
             posthog.capture(AccountsEvents.FilterChanged, properties)
+        },
+        setIncludeChurnedAndIgnored: () => {
+            persistViewStateAndUrl(actions, cache.applyingViewState, values.viewStateHydrated)
         },
         // Selected users apply only to assigned accounts.
         setAssignmentStatus: ({ status }) => {
@@ -1789,6 +1840,9 @@ export const accountsLogic = kea<accountsLogicType>([
                 }
                 if (values.accountFilters.length > 0) {
                     actions.setAccountFilters([])
+                }
+                if (!values.includeChurnedAndIgnored) {
+                    actions.setIncludeChurnedAndIgnored(true)
                 }
                 const term = externalId || name
                 if (term) {
