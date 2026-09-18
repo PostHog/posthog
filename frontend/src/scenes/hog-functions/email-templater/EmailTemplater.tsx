@@ -8,7 +8,6 @@ import EmailEditor, { EditorRef } from 'react-email-editor'
 import { IconCollapse, IconExpand, IconExternal, IconPlus, IconX } from '@posthog/icons'
 import {
     LemonButton,
-    LemonCard,
     LemonInputSelect,
     LemonLabel,
     LemonModal,
@@ -485,14 +484,18 @@ export function TemplatePickerModal({ isOpen, onClose }: { isOpen: boolean; onCl
                 {/* On an email that already has content, keeping the current content is what closing
                     the picker does, so the blank card would be a no-op. */}
                 {!hasEmailContent && (
-                    <LemonCard
-                        className="w-48 h-56 flex flex-col gap-2 items-center justify-center cursor-pointer"
+                    <LemonButton
+                        type="secondary"
+                        className="w-48 h-56"
+                        center
                         onClick={onClose}
                         data-attr="template-picker-blank"
                     >
-                        <IconPlus className="text-2xl" />
-                        <span>Blank template</span>
-                    </LemonCard>
+                        <span className="flex flex-col gap-2 items-center">
+                            <IconPlus className="text-2xl" />
+                            <span>Blank template</span>
+                        </span>
+                    </LemonButton>
                 )}
                 {templates.map((template, index) => (
                     <div key={template.id} className="w-48 h-56">

@@ -361,6 +361,7 @@ export interface emailTemplaterLogicMeta {
         unlayerEditorProjectId: (preflight: PreflightStatus | null) => 275430 | undefined
         visibleFields: (arg: EmailTemplaterType, revealedAdvancedFields: EmailMetaFieldKey[]) => EmailMetaField[]
         hiddenAdvancedFields: (arg: EmailTemplaterType, visibleFields: EmailMetaField[]) => EmailMetaField[]
+        hasEmailContent: (emailTemplate: EmailTemplate) => boolean
     }
 }
 
