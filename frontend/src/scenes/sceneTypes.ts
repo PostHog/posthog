@@ -209,7 +209,6 @@ export enum Scene {
     Workflow = 'Workflow',
     Workflows = 'Workflows',
     Broadcast = 'Broadcast',
-    Wizard = 'Wizard',
     EarlyAccessFeature = 'EarlyAccessFeature',
     EndpointsScene = 'EndpointsScene',
     Game368Hedgehogs = 'Game368Hedgehogs',
