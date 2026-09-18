@@ -12,15 +12,16 @@ export const HIDDEN_FIELD_TYPES: DatabaseSerializedFieldType[] = [
  * Columns the given data warehouse tables offer as a breakdown or a property.
  * The join field itself is always dropped, because it resolves to a table and not to a value.
  *
- * `includeJoinedColumns` also emits the columns of every joined table one level deep, as a dotted
- * path (`campaigns.name`). Only a caller whose query backend splits that path back into a field
- * chain may turn it on. Trends splits it in `get_properties_chain`, but the funnel backend reads
- * the whole dotted string as one column name, so the query cannot resolve the field.
+ * `includeJoinedColumns` also emits the columns of every joined table one level deep, prefixed by
+ * the join field's own name (`campaign.name`). Only a caller whose query backend splits that path
+ * back into a field chain may turn it on. Trends splits it in `get_properties_chain`, but the
+ * funnel backend reads the whole dotted string as one column name, so the query cannot resolve the
+ * field.
  */
 export function dataWarehouseColumnsWithJoins(
     tableNames: string[],
     tablesMap: Record<string, DatabaseSchemaTable>,
-    includeJoinedColumns: boolean
+    { includeJoinedColumns }: { includeJoinedColumns: boolean }
 ): DatabaseSchemaField[] {
     const columns: DatabaseSchemaField[] = []
 

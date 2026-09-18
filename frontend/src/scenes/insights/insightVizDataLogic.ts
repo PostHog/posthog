@@ -2340,7 +2340,9 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
 
                 // Only the trends backend splits a dotted breakdown value into a field chain, so a
                 // joined column would fail to resolve on a funnel.
-                return dataWarehouseColumnsWithJoins(dataWarehouseSeriesTableNames, allTablesMap, isTrends)
+                return dataWarehouseColumnsWithJoins(dataWarehouseSeriesTableNames, allTablesMap, {
+                    includeJoinedColumns: isTrends,
+                })
             },
         ],
 

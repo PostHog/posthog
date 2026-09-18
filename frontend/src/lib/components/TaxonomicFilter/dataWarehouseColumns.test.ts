@@ -38,7 +38,7 @@ describe('dataWarehouseColumnsWithJoins', () => {
     ])(
         'always drops the join placeholder and emits dotted joined columns only when asked (includeJoinedColumns=%s)',
         (includeJoinedColumns, expected) => {
-            const columns = dataWarehouseColumnsWithJoins(['ad_stats'], tablesMap, includeJoinedColumns)
+            const columns = dataWarehouseColumnsWithJoins(['ad_stats'], tablesMap, { includeJoinedColumns })
 
             expect(columns.map((column) => column.name)).toEqual(expected)
         }
@@ -54,7 +54,7 @@ describe('dataWarehouseColumnsWithJoins', () => {
                 ]),
                 'stripe.campaigns': table('stripe.campaigns', [field('title', 'string')]),
             },
-            true
+            { includeJoinedColumns: true }
         )
 
         expect(columns.map((column) => column.name)).toEqual(['spend', 'campaign.title'])
@@ -67,21 +67,21 @@ describe('dataWarehouseColumnsWithJoins', () => {
                 ad_spend: table('ad_spend', [field('spend', 'integer'), field('evt', 'lazy_table', 'events')]),
                 events: table('events', [field('event', 'string'), field('person', 'field_traverser')]),
             },
-            true
+            { includeJoinedColumns: true }
         )
 
         expect(columns.map((column) => column.name)).toEqual(['spend', 'evt.event'])
     })
 
     it('keeps a table without joins unchanged and tolerates an unknown joined table', () => {
-        expect(dataWarehouseColumnsWithJoins(['unknown_table'], tablesMap, true)).toEqual([])
+        expect(dataWarehouseColumnsWithJoins(['unknown_table'], tablesMap, { includeJoinedColumns: true })).toEqual([])
         expect(
             dataWarehouseColumnsWithJoins(
                 ['orders'],
                 {
                     orders: table('orders', [field('total', 'integer'), field('customer', 'lazy_table', 'missing')]),
                 },
-                true
+                { includeJoinedColumns: true }
             ).map((column) => column.name)
         ).toEqual(['total'])
     })
