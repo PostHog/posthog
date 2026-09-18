@@ -359,6 +359,7 @@ export const materializationJobsLogic = kea<materializationJobsLogicType>([
                 loadDataModelingJobs: async (_: void, breakpoint) => {
                     const jobs = await dataModelingJobsList(String(ApiConfig.getCurrentTeamId()), {
                         saved_query_id: props.viewId,
+                        include_incremental_history: true,
                         limit: DEFAULT_JOBS_PAGE_SIZE,
                         offset: 0,
                     })
@@ -552,7 +553,12 @@ export const materializationJobsLogic = kea<materializationJobsLogicType>([
                 page: number,
                 latest: PaginatedDataModelingJobListApi | null,
                 older: PaginatedDataModelingJobListApi | null
-            ): PaginatedDataModelingJobListApi | null => (page === 1 ? latest : older),
+            ): PaginatedDataModelingJobListApi | null => {
+                if (page === 1 || !older) {
+                    return page === 1 ? latest : older
+                }
+                return { ...older, has_incremental_history: latest?.has_incremental_history }
+            },
         ],
         lastSuccessfulSyncAt: [
             (s) => [s.dataModelingJobs, s.latestCompletedJob],

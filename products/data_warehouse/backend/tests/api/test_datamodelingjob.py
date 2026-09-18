@@ -118,6 +118,14 @@ class TestDataModelingJob(APIBaseTest):
         self.assertEqual(response.status_code, 200)
         self.assertEqual([job["id"] for job in response.json()["results"]], [str(self.job3.id)])
 
+    def test_incremental_history_rejects_an_invalid_saved_query_id(self):
+        response = self.client.get(
+            f"/api/environments/{self.team.pk}/data_modeling_jobs/"
+            "?saved_query_id=not-a-uuid&include_incremental_history=true"
+        )
+
+        self.assertEqual(response.status_code, 400)
+
     def test_pagination_honors_offset_and_returns_count(self):
         paged_query = DataWarehouseSavedQuery.objects.create(team=self.team, name="Paged saved query")
         for _ in range(12):
@@ -141,6 +149,55 @@ class TestDataModelingJob(APIBaseTest):
         first_ids = {job["id"] for job in first_page["results"]}
         second_ids = {job["id"] for job in second_page["results"]}
         self.assertEqual(first_ids & second_ids, set())
+
+    def test_list_reports_incremental_history_outside_the_current_page(self):
+        query_with_incremental_history = DataWarehouseSavedQuery.objects.create(
+            team=self.team, name="Incremental history"
+        )
+        first_run = DataModelingJob.objects.create(
+            team=self.team,
+            saved_query=query_with_incremental_history,
+            status=DataModelingJob.Status.COMPLETED,
+            run_mode=DataModelingJob.RunMode.FULL_REFRESH,
+            full_refresh_reason="first run",
+            last_run_at=timezone.now(),
+        )
+        for _ in range(11):
+            DataModelingJob.objects.create(
+                team=self.team,
+                saved_query=query_with_incremental_history,
+                status=DataModelingJob.Status.COMPLETED,
+                run_mode=DataModelingJob.RunMode.FULL_REFRESH,
+                full_refresh_reason="not configured for incremental materialization",
+                last_run_at=timezone.now(),
+            )
+
+        response = self.client.get(
+            f"/api/environments/{self.team.pk}/data_modeling_jobs/"
+            f"?saved_query_id={query_with_incremental_history.id}&limit=10&include_incremental_history=true"
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.json()["has_incremental_history"])
+        self.assertNotIn(str(first_run.id), [job["id"] for job in response.json()["results"]])
+
+        full_refresh_only = DataWarehouseSavedQuery.objects.create(team=self.team, name="Full refresh only")
+        DataModelingJob.objects.create(
+            team=self.team,
+            saved_query=full_refresh_only,
+            status=DataModelingJob.Status.COMPLETED,
+            run_mode=DataModelingJob.RunMode.FULL_REFRESH,
+            full_refresh_reason="not configured for incremental materialization",
+            last_run_at=timezone.now(),
+        )
+
+        response = self.client.get(
+            f"/api/environments/{self.team.pk}/data_modeling_jobs/"
+            f"?saved_query_id={full_refresh_only.id}&include_incremental_history=true"
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(response.json()["has_incremental_history"])
 
     def test_recent_reports_a_skip_over_the_older_success(self):
         query = DataWarehouseSavedQuery.objects.create(team=self.team, name="Blocked saved query")

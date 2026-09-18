@@ -46,22 +46,6 @@ const STATUS_TAG_TYPES: Record<string, LemonTagType> = {
 
 const LOG_LEVELS: LogEntryLevel[] = ['LOG', 'INFO', 'WARN', 'WARNING', 'ERROR']
 
-const FULL_REFRESH_WITHOUT_INCREMENTAL_SETTINGS = new Set([
-    'not configured for incremental materialization',
-    'incremental materialization is not enabled',
-])
-
-function usedIncrementalSettings(job: DataModelingJobApi): boolean {
-    if (job.run_mode === 'incremental') {
-        return true
-    }
-    return (
-        job.run_mode === 'full_refresh' &&
-        !!job.full_refresh_reason &&
-        !FULL_REFRESH_WITHOUT_INCREMENTAL_SETTINGS.has(job.full_refresh_reason)
-    )
-}
-
 interface MaterializationStatusPanelProps {
     viewId: string
     /**
@@ -479,7 +463,7 @@ export function MaterializationStatusPanel({
                         {
                             title: 'Refresh mode',
                             dataIndex: 'run_mode',
-                            isHidden: !incrementalFlagOn || !jobsPageResults?.results?.some(usedIncrementalSettings),
+                            isHidden: !incrementalFlagOn || !jobsPageResults?.has_incremental_history,
                             render: (_, { run_mode, full_refresh_reason }: DataModelingJobApi) => {
                                 if (run_mode === 'incremental') {
                                     return 'Incremental'

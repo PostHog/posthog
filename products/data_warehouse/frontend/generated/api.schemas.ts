@@ -77,6 +77,8 @@ export interface PaginatedDataModelingJobListApi {
     /** @nullable */
     previous?: string | null
     results: DataModelingJobApi[]
+    /** Whether any run for this saved query used incremental settings. */
+    has_incremental_history?: boolean
 }
 
 export interface CheckDatabaseNameResponseApi {
@@ -4978,6 +4980,10 @@ export interface ViewLinkValidationErrorApi {
 }
 
 export type DataModelingJobsListParams = {
+    /**
+     * Add whether any run for the requested saved query used incremental settings.
+     */
+    include_incremental_history?: boolean
     /**
      * Number of results to return per page.
      */
