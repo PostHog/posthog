@@ -45,5 +45,5 @@ Quick sanity checks that `discover_posthog_code_repository_via_agent_activity` i
 
 ## Running tests locally
 
-- Activities and most workflows can be tested without spinning up the dev stack: `pytest posthog/temporal/path/to/your_test.py`. Some require the temporal docker service — see the [Local development](./README.md#local-development) section of the main README.
+- Activities and most workflows can be tested without spinning up the dev stack: `pytest posthog/temporal/path/to/your_test.py`. Some require the temporal docker service — see the [Develop locally with Temporal](./README.md#develop-locally-with-temporal) section of the main README.
 - Batch-export destination tests have extra setup (real BigQuery / Redshift / Databricks credentials). See [`products/batch_exports/backend/tests/temporal/README.md`](../../products/batch_exports/backend/tests/temporal/README.md).
