@@ -19,6 +19,15 @@ off the live canvas. A publish creates a source version and queues its build.
 The live artifact changes only after a successful build. A failed build leaves
 the last successful artifact available.
 
+For a component entry at `/src/canvas.tsx`, the builder adds the React mount code.
+The script's `src` attribute can use single or double quotes, with spaces around `=`.
+Builder fixes apply to new builds, not existing artifacts.
+Republish an affected canvas after the builder fix is deployed to replace a blank artifact.
+
+Canvas artifact responses use their enforced CSP without the application-wide report-only policy.
+Only the artifact response helper sets this exception; a CSP header alone does not enable it.
+Admin policy enforcement and reporting on other pages remain unchanged.
+
 Use `expected_current_version_id` when publishing. A stale version returns HTTP 409.
 Read the current source, apply the change again, and retry against that version.
 Use version history to inspect earlier source and revert an unwanted change.
@@ -32,6 +41,31 @@ shows a new composer. View mode shows an empty chat state. Comments remain attac
 to the earlier task. Each new edit starts a new task and session.
 
 ## Release checks
+
+### Agent reads and run health
+
+The canvas runtime still reads complete state when it omits read options.
+The `canvas-state-retrieve` MCP tool defaults to a paged key inventory (`keys_only=true`).
+Keep `scope`, `key`, and `key_prefix` unchanged when following `next_offset`.
+Set `keys_only=false` to read small selected values.
+Use `canvas-state-value-retrieve` for long values: join `value_json` chunks, then parse the complete JSON.
+Pass the first chunk's `revision` on each continuation; restart from zero after HTTP 409.
+Inventory pages are not a snapshot, so re-read the inventory if another writer changes keys during traversal.
+
+Context wiki MCP reads also return bounded chunks.
+Follow `next_offset` with the same `head_sha` and `limit` until `complete` is true.
+Join every content chunk before editing or proposing a replacement page.
+Restart after HTTP 409 rather than joining content from different revisions.
+The ordinary page API remains a full read when `limit` is absent.
+
+Run health comes from task records, not saved canvas labels.
+Use `tasks-list` with the space's `channel`, `status=failed`, `internal=all`, and `archived=all`.
+For workflow-backed loops, add `hog_flow_id`.
+Results include the latest run's error and completion time even if the agent could not write canvas state.
+Read `tasks-runs-list` for earlier runs, or use `loops-runs-retrieve` with `status=failed` for a loop's paged failure history.
+These reads do not change task states or grant additional permissions.
+
+### Validation
 
 The desktop changes use existing endpoints and version fields. They can ship before
 or after the backend changes. The backend still controls write access. An older

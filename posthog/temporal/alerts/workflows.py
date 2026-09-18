@@ -32,6 +32,7 @@ from posthog.temporal.alerts.types import (
     PrepareAction,
     PrepareAlertActivityInputs,
     RecordFailedEvaluationActivityInputs,
+    ScheduleDueAlertChecksWorkflowInputs,
 )
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.errors import MAX_ERROR_MESSAGE_CHARS, truncate_for_temporal_payload, unwrap_temporal_cause
@@ -45,13 +46,21 @@ with temporalio.workflow.unsafe.imports_passed_through():
 @temporalio.workflow.defn(name="schedule-due-alert-checks")
 class ScheduleDueAlertChecksWorkflow(PostHogWorkflow):
     @staticmethod
-    def parse_inputs(inputs: list[str]) -> None:
-        return None
+    def parse_inputs(inputs: list[str]) -> ScheduleDueAlertChecksWorkflowInputs:
+        if not inputs:
+            return ScheduleDueAlertChecksWorkflowInputs()
+
+        loaded = json.loads(inputs[0])
+        return ScheduleDueAlertChecksWorkflowInputs(**loaded)
 
     @temporalio.workflow.run
-    async def run(self) -> None:
+    async def run(self, inputs: ScheduleDueAlertChecksWorkflowInputs | None = None) -> None:
+        if inputs is None:
+            inputs = ScheduleDueAlertChecksWorkflowInputs()
+
         alerts = await temporalio.workflow.execute_activity(
             retrieve_due_alerts,
+            inputs,
             start_to_close_timeout=dt.timedelta(minutes=2),
             retry_policy=temporalio.common.RetryPolicy(
                 initial_interval=dt.timedelta(seconds=5),

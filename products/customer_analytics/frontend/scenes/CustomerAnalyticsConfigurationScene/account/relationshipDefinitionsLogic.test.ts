@@ -21,6 +21,7 @@ const buildDefinition = (
     name: 'CSM',
     description: null,
     is_single_holder: true,
+    is_controlled: false,
     ...overrides,
 })
 

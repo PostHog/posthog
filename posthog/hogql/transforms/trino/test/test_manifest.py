@@ -7,7 +7,10 @@ from syrupy.assertion import SnapshotAssertion
 
 from posthog.schema import DateRange, HogQLFilters, HogQLQueryModifiers, HogQLVariable
 
+from posthog.hogql import ast
+from posthog.hogql.database.models import ExpressionField, StringDatabaseField
 from posthog.hogql.errors import QueryError
+from posthog.hogql.parser import parse_expr
 from posthog.hogql.transforms.trino.errors import TrinoLoweringError
 from posthog.hogql.transforms.trino.manifest import (
     TrinoCatalogManifest,
@@ -55,6 +58,52 @@ def test_transpiles_core_table_with_values_without_django_queries(
         )
 
     assert (result.sql, result.values, result.hogql) == snapshot
+
+
+@pytest.mark.parametrize(
+    "expression",
+    [
+        "date('2026-01-01')",
+        "Date('2026-01-01')",
+        "ifNotFinite(1, 2)",
+        "ifnotfinite(1, 2)",
+        "IFNOTFINITE(1, 2)",
+        "cardinality([1, 2])",
+        "CARDINALITY([1, 2])",
+        "json_value('{\"a\": 1}', '$.a')",
+        "medianExactWeighted(3, 2)",
+        "medianexactweighted(3, 2)",
+        "medianExactWeightedIf(3, 2, true)",
+        "medianexactweightedif(3, 2, true)",
+        "quantiles(0.25, 0.75)(3)",
+        "quantilesIf(0.25, 0.75)(3, true)",
+        "sum(DISTINCT 3) FILTER (WHERE true)",
+        "array_agg(3 ORDER BY 3 DESC)",
+        "percentile_cont(0.5) WITHIN GROUP (ORDER BY 3 ASC)",
+    ],
+)
+@pytest.mark.parametrize("alias", ["", " AS result"])
+def test_hogql_diagnostics_accept_trino_signatures(expression: str, alias: str) -> None:
+    query = f"SELECT {expression}{alias}"
+    result = transpile_hogql_to_trino(query, manifest=_manifest(), include_hogql=True)
+    without_hogql = transpile_hogql_to_trino(query, manifest=_manifest())
+
+    assert (result.sql, result.values) == (without_hogql.sql, without_hogql.values)
+    assert result.hogql is not None
+    expected_expression = "toDate" + expression[4:] if expression[:4].lower() == "date" else expression
+    assert result.print_columns == (("result" if alias else expected_expression),)
+    round_trip = transpile_hogql_to_trino(result.hogql, manifest=_manifest())
+    assert (round_trip.sql, round_trip.values) == (result.sql, result.values)
+
+
+@pytest.mark.parametrize("include_hogql", [False, True])
+@pytest.mark.parametrize(
+    ("expression", "error"),
+    [("quantiles(0.5)(1, 2)", "quantiles"), ("unknownFunction(1)", "(?i)unknownfunction")],
+)
+def test_hogql_diagnostics_preserve_trino_validation(expression: str, error: str, include_hogql: bool) -> None:
+    with pytest.raises(QueryError, match=error):
+        transpile_hogql_to_trino(f"SELECT {expression}", manifest=_manifest(), include_hogql=include_hogql)
 
 
 def test_transpiles_manifest_table_without_django_queries(django_assert_num_queries: Any) -> None:
@@ -173,3 +222,94 @@ def test_accepts_content_free_filters_and_null_modifiers() -> None:
 def test_rejects_tables_absent_from_manifest() -> None:
     with pytest.raises(QueryError, match="Unknown table `saved_query`"):
         transpile_hogql_to_trino("SELECT * FROM saved_query", manifest=_manifest(_events()))
+
+
+def test_manifest_preserves_curated_physical_names_and_computed_fields() -> None:
+    created_at_field = ExpressionField(name="created_at", expr=parse_expr("toDateTime(created)"), isolate_scope=True)
+    fields = {
+        "customer_id": StringDatabaseField(name="customer"),
+        "created_at": created_at_field,
+    }
+    table = TrinoManifestTable(
+        logical_name="billing.subscriptions",
+        locator=("catalog", "imports", "subscriptions"),
+        columns=(
+            TrinoManifestColumn(name="customer", type=DatabaseSerializedFieldType.STRING),
+            TrinoManifestColumn(name="created", type=DatabaseSerializedFieldType.INTEGER),
+        ),
+        field_overrides=fields,
+    )
+    result = transpile_hogql_to_trino(
+        "SELECT customer_id AS customer_id, created_at AS created_at FROM billing.subscriptions",
+        manifest=_manifest(table),
+    )
+
+    assert '"billing__subscriptions"."customer" AS "customer_id"' in result.sql
+    assert 'from_unixtime(CAST("billing__subscriptions"."created" AS DOUBLE))' in result.sql
+    assert isinstance(created_at_field.expr, ast.Call)
+
+
+def test_manifest_qualifies_renamed_physical_field_across_join() -> None:
+    subscriptions = TrinoManifestTable(
+        logical_name="billing.subscriptions",
+        locator=("catalog", "imports", "subscriptions"),
+        columns=(
+            TrinoManifestColumn(name="id", type=DatabaseSerializedFieldType.STRING),
+            TrinoManifestColumn(name="customer", type=DatabaseSerializedFieldType.STRING),
+        ),
+        field_overrides={"customer_id": StringDatabaseField(name="customer")},
+    )
+    payments = TrinoManifestTable(
+        logical_name="billing.payments",
+        locator=("catalog", "imports", "payments"),
+        columns=(
+            TrinoManifestColumn(name="id", type=DatabaseSerializedFieldType.STRING),
+            TrinoManifestColumn(name="customer", type=DatabaseSerializedFieldType.STRING),
+        ),
+    )
+    result = transpile_hogql_to_trino(
+        "SELECT customer_id FROM billing.subscriptions AS s JOIN billing.payments AS p ON s.id = p.id",
+        manifest=_manifest(subscriptions, payments),
+    )
+
+    assert 'SELECT "s"."customer" AS "customer_id"' in result.sql
+
+
+@pytest.mark.parametrize(
+    ("query", "expected_fields"),
+    [
+        (
+            "SELECT l.id FROM left_table AS l JOIN right_table AS r USING (id)",
+            ('"l"."id" = "r"."id"',),
+        ),
+        (
+            "WITH l AS (SELECT id FROM left_table), r AS (SELECT id FROM right_table) "
+            "SELECT l.id FROM l JOIN r USING (id)",
+            ('"l"."id" = "r"."id"',),
+        ),
+        (
+            "SELECT 1 FROM (SELECT id, value FROM left_table) "
+            "JOIN (SELECT id, value FROM right_table) USING (id, value)",
+            (
+                '"__using_join_1"."id" = "__using_join_2"."id"',
+                '"__using_join_1"."value" = "__using_join_2"."value"',
+            ),
+        ),
+    ],
+)
+def test_manifest_preserves_using_join_sources_through_trino_lowering(
+    query: str, expected_fields: tuple[str, ...]
+) -> None:
+    columns = (
+        TrinoManifestColumn(name="id", type=DatabaseSerializedFieldType.STRING),
+        TrinoManifestColumn(name="value", type=DatabaseSerializedFieldType.STRING),
+    )
+    manifest = _manifest(
+        TrinoManifestTable(logical_name="left_table", locator=("catalog", "imports", "left_table"), columns=columns),
+        TrinoManifestTable(logical_name="right_table", locator=("catalog", "imports", "right_table"), columns=columns),
+    )
+
+    result = transpile_hogql_to_trino(query, manifest=manifest)
+
+    assert " USING " not in result.sql
+    assert all(field_comparison in result.sql for field_comparison in expected_fields)

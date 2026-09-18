@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import json
 import time
 import uuid
@@ -13,9 +14,10 @@ import threading
 from collections.abc import Iterable
 from dataclasses import dataclass
 from functools import lru_cache
+from http import HTTPStatus
 from io import StringIO
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, Literal, NoReturn, cast
 
 from django.conf import settings
 
@@ -29,6 +31,7 @@ from modal.exception import (
     ServiceError as ModalServiceError,
     TimeoutError as ModalTimeoutError,
 )
+from python_socks import ProxyError as SocksProxyError
 from semantic_version import NpmSpec
 
 from posthog.exceptions_capture import capture_exception
@@ -43,15 +46,24 @@ from products.tasks.backend.constants import (
 )
 from products.tasks.backend.exceptions import (
     SandboxCleanupError,
+    SandboxControlPlaneError,
+    SandboxControlPlaneUnavailableError,
     SandboxExecutionError,
     SandboxNetworkPolicyError,
     SandboxNotFoundError,
     SandboxNotRunningError,
     SandboxProvisionError,
+    SandboxRateLimitedError,
     SandboxTimeoutError,
     SnapshotCreationError,
     SnapshotFileLimitExceededError,
     SnapshotTimeoutError,
+)
+from products.tasks.backend.logic.services.agentsh import (
+    BASH_ENV_SCRIPT,
+    GH_GUARD_INSTALL_PATH,
+    generate_bash_env_script,
+    read_gh_guard_script,
 )
 from products.tasks.backend.logic.services.cpu_billing import (
     CPU_BILLING_SAMPLER_PATH as CPU_BILLING_SAMPLER_PATH,
@@ -60,6 +72,7 @@ from products.tasks.backend.logic.services.cpu_billing import (
     compute_billed_cpu_usage_usec,
     parse_cpu_stat_usage_usec,
 )
+from products.tasks.backend.logic.services.launch_preparation_metrics import record_launch_preparation_ms
 from products.tasks.backend.logic.services.local_packages import (
     LocalPackage,
     get_local_package_runtime_dependencies,
@@ -70,6 +83,7 @@ from products.tasks.backend.logic.services.local_skills import (
     LocalSkillsCache,
     populate_skills_directory,
 )
+from products.tasks.backend.logic.services.modal_launch_preparation import build_modal_launch_preparation_script
 from products.tasks.backend.logic.services.modal_provision_diagnostics import (
     SandboxProvisionDiagnostics,
     capture_modal_output_if_debug,
@@ -105,6 +119,9 @@ STREAMLIT_MODAL_APP_NAME = "posthog-sandbox-streamlit"
 SELF_DRIVING_MODAL_APP_NAME = "posthog-sandbox-self-driving"
 
 
+# The Modal SDK reports an exec that outlives its `timeout` as this return code instead of raising.
+MODAL_EXEC_TIMEOUT_RETURNCODE = -1
+
 SANDBOX_BASE_IMAGE = "ghcr.io/posthog/posthog-sandbox-base"
 SANDBOX_NOTEBOOK_IMAGE = "ghcr.io/posthog/posthog-sandbox-notebook"
 SANDBOX_VM_IMAGE = "ghcr.io/posthog/posthog-sandbox-vm"
@@ -117,7 +134,7 @@ SANDBOX_IMAGE = SANDBOX_BASE_IMAGE
 # Dockerfile.sandbox-slim's NODE_MAJOR / uv COPY --from pins (and with Dockerfile.sandbox-base,
 # which both mirror).
 SANDBOX_SLIM_NODE_MAJOR = 24
-SANDBOX_SLIM_UV_IMAGE = "ghcr.io/astral-sh/uv:0.11.15"
+SANDBOX_SLIM_UV_IMAGE = "ghcr.io/astral-sh/uv:0.12.13"
 POST_RESTORE_PROBE_TIMEOUT_SECONDS = 45
 
 # Recoverable infra errors Modal surfaces when filesystem snapshotting times out or loses its
@@ -133,6 +150,87 @@ TRANSIENT_SNAPSHOT_ERRORS: tuple[type[BaseException], ...] = (
 )
 
 DIRECTORY_SNAPSHOT_TIMEOUT_SECONDS = 240
+
+PROXY_RATE_LIMIT_MARKERS = ("too many requests",)
+PROXY_UNAVAILABLE_MARKERS = ("bad gateway", "service unavailable", "gateway timeout")
+PROXY_ERROR_TYPES: tuple[type[BaseException], ...] = (SocksProxyError, requests.exceptions.ProxyError)
+_MAX_PROXY_ERROR_CHAIN_DEPTH = 10
+# The proxy answers a refused CONNECT with a bare status line ("502 Bad gateway"), which
+# python_socks re-raises verbatim. This runs against every exception in the chain, not just the
+# proxy types, because the wrapper a gateway status arrives in is not guaranteed to be one of
+# them. To make that safe it matches the whole message and bounds the reason phrase to the three
+# words a real one takes at most, so provider prose that merely opens with a number ("500 lines
+# of output were truncated") is not read as a control-plane failure. A status buried inside a
+# longer message is left to `error_code` or the markers below.
+_PROXY_STATUS_LINE = re.compile(r"\s*(\d{3})\s+[A-Za-z]+(?: [A-Za-z]+){0,2}\s*")
+# A proxy error wraps the CONNECT reply in its own prose ("Tunnel connection failed: 500
+# Internal Server Error"), so the status has to be read out of the middle of the message.
+_EMBEDDED_PROXY_STATUS = re.compile(r"\b([45]\d{2})\b")
+
+ControlPlaneFailure = Literal["rate_limited", "unavailable"]
+
+RUNNING_STATUS_CACHE_SECONDS = 10.0
+
+
+def _classify_control_plane_failure(error: BaseException) -> ControlPlaneFailure | None:
+    """Classify one error as a refusal by the control plane, reading its status where it has one.
+
+    python_socks re-raises a non-200 CONNECT reply as ``ProxyError(error_code=<status>)``, so
+    the status is structured. ``requests`` proxy errors carry it in the message only.
+    """
+    message = str(error)
+    status = getattr(error, "error_code", None)
+    if not isinstance(status, int) and isinstance(error, PROXY_ERROR_TYPES):
+        status_line = _PROXY_STATUS_LINE.fullmatch(message)
+        status = int(status_line.group(1)) if status_line else None
+    # A proxy error only ever wraps a CONNECT reply, never command output, so its message is
+    # safe to search for a status the wrapper did not expose structurally.
+    if status is None and isinstance(error, PROXY_ERROR_TYPES):
+        embedded = _EMBEDDED_PROXY_STATUS.search(message)
+        status = int(embedded.group(1)) if embedded else None
+
+    if status == HTTPStatus.TOO_MANY_REQUESTS:
+        return "rate_limited"
+    if status is not None and 500 <= status < 600:
+        return "unavailable"
+    # A proxy that names the reason but not the status.
+    if isinstance(error, PROXY_ERROR_TYPES):
+        folded = message.casefold()
+        if any(marker in folded for marker in PROXY_RATE_LIMIT_MARKERS):
+            return "rate_limited"
+        if any(marker in folded for marker in PROXY_UNAVAILABLE_MARKERS):
+            return "unavailable"
+    return None
+
+
+def _classify_control_plane_failure_chain(error: BaseException) -> ControlPlaneFailure | None:
+    seen: set[int] = set()
+    current: BaseException | None = error
+    for _ in range(_MAX_PROXY_ERROR_CHAIN_DEPTH):
+        if current is None or id(current) in seen:
+            return None
+        seen.add(id(current))
+        failure = _classify_control_plane_failure(current)
+        if failure is not None:
+            return failure
+        current = current.__cause__ or current.__context__
+    return None
+
+
+def _raise_if_proxy_failure(error: BaseException, sandbox_id: str | None, operation: str) -> None:
+    """Re-raise a control-plane refusal as the matching retryable, uncaptured error.
+
+    Returns without raising when the failure is not the control plane's, so the caller's own
+    classification still runs.
+    """
+    failure = _classify_control_plane_failure_chain(error)
+    if failure is None:
+        return
+    context = {"sandbox_id": sandbox_id, "operation": operation}
+    if failure == "rate_limited":
+        raise SandboxRateLimitedError("Sandbox control plane is rate limited", context) from error
+    raise SandboxControlPlaneUnavailableError("Sandbox control plane is unavailable", context) from error
+
 
 # Heavy, reproducible directories to prune before retrying a snapshot that hit Modal's
 # 1M-file cap. Each is a package cache or install tree the resume sandbox rebuilds, so
@@ -236,6 +334,7 @@ LOCAL_MODAL_DOCKERFILES = {
 LOCAL_MODAL_INSTALL_SKILLS_SCRIPT = Path("products/tasks/backend/sandbox/images/install-skills.sh")
 LOCAL_MODAL_GIT_GUARD_SCRIPT = Path("products/tasks/backend/sandbox/images/git-guard.sh")
 LOCAL_MODAL_GH_GUARD_SCRIPT = Path("products/tasks/backend/sandbox/images/gh-guard.sh")
+LOCAL_MODAL_HOGLI_SHIM_SCRIPT = Path("products/tasks/backend/sandbox/images/hogli-shim.sh")
 # The notebook image bakes the notebooks SQLV2 kernel and stamps its content hash,
 # so a local build context needs the package and the module that computes the hash.
 LOCAL_MODAL_NOTEBOOK_KERNEL_MODULE = Path("products/notebooks/backend/kernel_package.py")
@@ -594,6 +693,10 @@ def _prepare_local_modal_build_context(template: SandboxTemplate) -> tuple[str, 
         shutil.copy2(base_dir / LOCAL_MODAL_CPU_BILLING_SAMPLER, destination_sampler_path)
 
     if template == SandboxTemplate.DEFAULT_BASE:
+        destination_hogli_shim_path = context_dir / LOCAL_MODAL_HOGLI_SHIM_SCRIPT
+        destination_hogli_shim_path.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(base_dir / LOCAL_MODAL_HOGLI_SHIM_SCRIPT, destination_hogli_shim_path)
+
         source_install_script_path = base_dir / LOCAL_MODAL_INSTALL_SKILLS_SCRIPT
         destination_install_script_path = context_dir / LOCAL_MODAL_INSTALL_SKILLS_SCRIPT
         destination_install_script_path.parent.mkdir(parents=True, exist_ok=True)
@@ -641,6 +744,7 @@ class ModalSandbox(AgentServerLaunchMixin):
     _sandbox: modal.Sandbox
     _app: modal.App
     _sandbox_url: str | None
+    _running_status_expires_at: float = 0.0
     provision_diagnostics: SandboxProvisionDiagnostics | None
     DEFAULT_APP_NAME = DEFAULT_MODAL_APP_NAME
     NOTEBOOK_APP_NAME = NOTEBOOK_MODAL_APP_NAME
@@ -653,8 +757,83 @@ class ModalSandbox(AgentServerLaunchMixin):
         self._sandbox = sandbox
         self._app = type(self)._get_app_for_config(config)
         self._sandbox_url = sandbox_url
+        self._running_status_expires_at = 0.0
         self.provision_diagnostics = None
         self._destroyed = False
+
+    def _reuse_healthy_agent_server(self, allowed_domains: list[str] | None) -> bool:
+        if self._agent_server_is_healthy() and (allowed_domains is None or self._agentsh_daemon_is_healthy()):
+            # A restored snapshot can carry a healthy agent-server with a stale bash-env
+            # or gh shim from the snapshot's epoch. Refresh both before accepting reuse;
+            # agentsh setup and session replacement stay on the fresh-launch path so
+            # reuse doesn't disrupt the running server or its agentsh session.
+            self._write_required_file(BASH_ENV_SCRIPT, generate_bash_env_script().encode())
+            self._write_required_file(GH_GUARD_INSTALL_PATH, read_gh_guard_script())
+            self._chmod_required(GH_GUARD_INSTALL_PATH, "+x")
+            logger.info(f"Agent-server already healthy in sandbox {self.id}; skipping relaunch")
+            return True
+        self._free_agent_server_port()
+        return False
+
+    def _prepare_agent_server_launch(self, allowed_domains: list[str] | None) -> None:
+        script_path = f"/tmp/posthog-launch-preparation-{uuid.uuid4().hex}.sh"
+        started_at = time.monotonic()
+        result: ExecutionResult | None = None
+        try:
+            self._write_required_file(script_path, build_modal_launch_preparation_script(allowed_domains).encode())
+            uploaded_at = time.monotonic()
+            result = self.execute(f"bash {shlex.quote(script_path)}", timeout_seconds=120)
+        finally:
+            total_ms = round((time.monotonic() - started_at) * 1000)
+            record_launch_preparation_ms(
+                total_ms, "COMPLETED" if result is not None and result.exit_code == 0 else "FAILED"
+            )
+        timings = {
+            stage: int(duration)
+            for stage, duration in re.findall(
+                r"^__posthog_launch_preparation_(install_ms|daemon_session_ms)=(\d+)$", result.stdout, re.MULTILINE
+            )
+        }
+        logger.info(
+            "Modal launch preparation finished in sandbox %s: upload_ms=%d install_ms=%s "
+            "daemon_session_ms=%s total_ms=%d exit_code=%d",
+            self.id,
+            round((uploaded_at - started_at) * 1000),
+            timings.get("install_ms"),
+            timings.get("daemon_session_ms"),
+            total_ms,
+            result.exit_code,
+        )
+        if result.exit_code != 0:
+            stage = re.search(
+                r"^__posthog_launch_preparation_failed=(install|daemon_session)$", result.stderr, re.MULTILINE
+            )
+            preparation_stage = stage.group(1) if stage else "unknown"
+            agentsh_log = ""
+            if preparation_stage == "daemon_session":
+                try:
+                    agentsh_log = self.execute(
+                        "tail -c 2000 /var/log/agentsh/agentsh.log 2>/dev/null || true", timeout_seconds=5
+                    ).stdout[-2000:]
+                except Exception:
+                    logger.warning("Failed to read agentsh diagnostics in sandbox %s", self.id, exc_info=True)
+                logger.error(
+                    "Modal launch preparation failed in sandbox %s; stderr=%r agentsh_log=%r",
+                    self.id,
+                    result.stderr[-1000:],
+                    agentsh_log,
+                )
+            raise SandboxExecutionError(
+                "Failed to prepare agent-server launch",
+                {
+                    "sandbox_id": self.id,
+                    "preparation_stage": preparation_stage,
+                    "exit_code": result.exit_code,
+                    "stderr": result.stderr[-1000:],
+                    "agentsh_log": agentsh_log,
+                },
+                cause=RuntimeError("Modal launch preparation failed"),
+            )
 
     @property
     def sandbox_url(self) -> str | None:
@@ -690,9 +869,14 @@ class ModalSandbox(AgentServerLaunchMixin):
 
     @classmethod
     def create(cls, config: SandboxConfig) -> ModalSandbox:
+        sb: modal.Sandbox | None = None
         try:
             modal.enable_output()
-            app = cls._get_app_for_config(config)
+            try:
+                app = cls._get_app_for_config(config)
+            except Exception as e:
+                _raise_if_proxy_failure(e, None, "lookup")
+                raise
             base_image = _get_template_image(config.template)
             custom_image_bare: modal.Image | None = None
             custom_image: modal.Image | None = None
@@ -912,6 +1096,13 @@ class ModalSandbox(AgentServerLaunchMixin):
 
             return sandbox
 
+        except SandboxControlPlaneError:
+            if sb is not None:
+                try:
+                    sb.terminate()
+                except Exception as e:
+                    logger.warning(f"Failed to terminate sandbox {sb.object_id} after control-plane failure: {e}")
+            raise
         except SandboxNetworkPolicyError:
             raise
         except Exception as e:
@@ -941,6 +1132,7 @@ class ModalSandbox(AgentServerLaunchMixin):
                 with capture_modal_output_if_debug() as modal_output:
                     sb = modal.Sandbox.create(**attempt_kwargs)  # type: ignore[arg-type]
             except Exception as e:
+                _raise_if_proxy_failure(e, None, "create")
                 if config.outbound_domain_allowlist is not None and _is_modal_network_policy_rejection(e):
                     raise SandboxNetworkPolicyError(
                         "Modal rejected the requested sandbox network policy.",
@@ -982,6 +1174,7 @@ class ModalSandbox(AgentServerLaunchMixin):
                     return False
                 time.sleep(1)
         except Exception as e:
+            _raise_if_proxy_failure(e, sb.object_id, "restore_probe")
             logger.warning(f"Post-restore health probe errored for sandbox {sb.object_id}: {e}")
             return False
         if returncode != 0:
@@ -1007,20 +1200,32 @@ class ModalSandbox(AgentServerLaunchMixin):
             return ModalSandbox(sandbox=sb, config=config)
 
         except Exception as e:
+            _raise_if_proxy_failure(e, sandbox_id, "lookup")
             logger.exception(f"Failed to retrieve sandbox {sandbox_id}: {e}")
             raise SandboxNotFoundError(
                 f"Sandbox {sandbox_id} not found", {"sandbox_id": sandbox_id, "error": str(e)}, cause=e
             )
 
     def get_status(self) -> SandboxStatus:
-        return SandboxStatus.SHUTDOWN if self._destroyed or self._sandbox.poll() is not None else SandboxStatus.RUNNING
+        if self._destroyed:
+            return SandboxStatus.SHUTDOWN
+        try:
+            poll_result = self._sandbox.poll()
+        except Exception as e:
+            _raise_if_proxy_failure(e, self.id, "poll")
+            raise
+        return SandboxStatus.SHUTDOWN if poll_result is not None else SandboxStatus.RUNNING
 
-    def execute(
-        self,
-        command: str,
-        timeout_seconds: int | None = None,
-    ) -> ExecutionResult:
-        if not self.is_running():
+    def _is_running_cached(self) -> bool:
+        if time.monotonic() < self._running_status_expires_at:
+            return True
+        running = self.is_running()
+        if running:
+            self._running_status_expires_at = time.monotonic() + RUNNING_STATUS_CACHE_SECONDS
+        return running
+
+    def _prepare_command(self, command: str, timeout_seconds: int | None) -> tuple[str, int]:
+        if not self._is_running_cached():
             raise SandboxNotRunningError(
                 f"Sandbox not in running state.",
                 {"sandbox_id": self.id},
@@ -1030,8 +1235,37 @@ class ModalSandbox(AgentServerLaunchMixin):
         if timeout_seconds is None:
             timeout_seconds = self.config.default_execution_timeout_seconds
 
+        return redact_sandbox_command(command), timeout_seconds
+
+    def _raise_command_failure(self, error: Exception, redacted_command: str, timeout_seconds: int) -> NoReturn:
+        if isinstance(error, TimeoutError):
+            capture_exception(error)
+            raise SandboxTimeoutError(
+                f"Execution timed out after {timeout_seconds} seconds",
+                {"sandbox_id": self.id, "timeout_seconds": timeout_seconds},
+                cause=error,
+            )
+
+        _raise_if_proxy_failure(error, self.id, "exec")
+        redacted_error = redact_sandbox_command(str(error))
+        # Provider exceptions can echo the shell command, so avoid exc_info here.
+        logger.error(  # noqa: TRY400
+            "Failed to execute command", extra={"sandbox_id": self.id, "redacted_error": redacted_error}
+        )
+        raise SandboxExecutionError(
+            "Failed to execute command",
+            {"sandbox_id": self.id, "command": redacted_command, "error": redacted_error},
+            cause=RuntimeError(redacted_error),
+        )
+
+    def execute(
+        self,
+        command: str,
+        timeout_seconds: int | None = None,
+    ) -> ExecutionResult:
+        redacted_command, timeout_seconds = self._prepare_command(command, timeout_seconds)
+
         try:
-            redacted_command = redact_sandbox_command(command)
             process = self._sandbox.exec("bash", "-c", command, timeout=timeout_seconds)
 
             process.wait()
@@ -1046,87 +1280,68 @@ class ModalSandbox(AgentServerLaunchMixin):
                 error=None,
             )
 
+            if result.exit_code == MODAL_EXEC_TIMEOUT_RETURNCODE:
+                # Not captured: the launcher re-raises this with startup diagnostics and captures that instead.
+                raise SandboxTimeoutError(
+                    f"Execution timed out after {timeout_seconds} seconds",
+                    {"sandbox_id": self.id, "timeout_seconds": timeout_seconds, "command": redacted_command},
+                    cause=TimeoutError(
+                        f"exec returned {MODAL_EXEC_TIMEOUT_RETURNCODE} after {timeout_seconds} seconds"
+                    ),
+                    capture=False,
+                )
+
             return result
 
-        except TimeoutError as e:
-            capture_exception(e)
-            raise SandboxTimeoutError(
-                f"Execution timed out after {timeout_seconds} seconds",
-                {"sandbox_id": self.id, "timeout_seconds": timeout_seconds},
-                cause=e,
-            )
+        except SandboxTimeoutError:
+            raise
         except Exception as e:
-            redacted_error = redact_sandbox_command(str(e))
-            # Provider exceptions can echo the shell command, so avoid exc_info here.
-            logger.error(  # noqa: TRY400
-                "Failed to execute command", extra={"sandbox_id": self.id, "redacted_error": redacted_error}
-            )
-            raise SandboxExecutionError(
-                "Failed to execute command",
-                {"sandbox_id": self.id, "command": redacted_command, "error": redacted_error},
-                cause=RuntimeError(redacted_error),
-            )
+            self._raise_command_failure(e, redacted_command, timeout_seconds)
 
     def execute_stream(
         self,
         command: str,
         timeout_seconds: int | None = None,
     ) -> ExecutionStream:
-        if not self.is_running():
-            raise SandboxNotRunningError(
-                f"Sandbox not in running state.",
-                {"sandbox_id": self.id},
-                cause=RuntimeError(f"Sandbox {self.id} is not running"),
-            )
-
-        if timeout_seconds is None:
-            timeout_seconds = self.config.default_execution_timeout_seconds
+        redacted_command, timeout_seconds = self._prepare_command(command, timeout_seconds)
 
         try:
-            redacted_command = redact_sandbox_command(command)
             process = self._sandbox.exec("bash", "-c", command, timeout=timeout_seconds)
-        except TimeoutError as e:
-            capture_exception(e)
-            raise SandboxTimeoutError(
-                f"Execution timed out after {timeout_seconds} seconds",
-                {"sandbox_id": self.id, "timeout_seconds": timeout_seconds},
-                cause=e,
-            )
         except Exception as e:
-            redacted_error = redact_sandbox_command(str(e))
-            # Provider exceptions can echo the shell command, so avoid exc_info here.
-            logger.error(  # noqa: TRY400
-                "Failed to execute command", extra={"sandbox_id": self.id, "redacted_error": redacted_error}
-            )
-            raise SandboxExecutionError(
-                "Failed to execute command",
-                {"sandbox_id": self.id, "command": redacted_command, "error": redacted_error},
-                cause=RuntimeError(redacted_error),
-            )
+            self._raise_command_failure(e, redacted_command, timeout_seconds)
 
         class _ModalExecutionStream:
-            def __init__(self, process: Any):
+            def __init__(self, process: Any, sandbox_id: str):
                 self._process = process
+                self._sandbox_id = sandbox_id
                 self._stdout_buffer: list[str] = []
                 self._stdout_iterated = False
 
             def iter_stdout(self) -> Iterable[str]:
                 self._stdout_iterated = True
-                for line in self._process.stdout:
-                    output = line.decode("utf-8") if isinstance(line, bytes) else line
-                    self._stdout_buffer.append(output)
-                    yield output
+                try:
+                    for line in self._process.stdout:
+                        output = line.decode("utf-8") if isinstance(line, bytes) else line
+                        self._stdout_buffer.append(output)
+                        yield output
+                except Exception as e:
+                    _raise_if_proxy_failure(e, self._sandbox_id, "exec")
+                    raise
 
             def wait(self) -> ExecutionResult:
-                self._process.wait()
-                if not self._stdout_iterated:
-                    stdout = self._process.stdout.read()
-                    stdout_text = stdout.decode("utf-8") if isinstance(stdout, bytes) else stdout
-                else:
-                    stdout_text = "".join(self._stdout_buffer)
+                try:
+                    self._process.wait()
+                    if not self._stdout_iterated:
+                        stdout = self._process.stdout.read()
+                        stdout_text = stdout.decode("utf-8") if isinstance(stdout, bytes) else stdout
+                    else:
+                        stdout_text = "".join(self._stdout_buffer)
 
-                stderr = self._process.stderr.read()
-                stderr_text = stderr.decode("utf-8") if isinstance(stderr, bytes) else stderr
+                    stderr = self._process.stderr.read()
+                    stderr_text = stderr.decode("utf-8") if isinstance(stderr, bytes) else stderr
+                except Exception as e:
+                    _raise_if_proxy_failure(e, self._sandbox_id, "exec")
+                    raise
                 return ExecutionResult(
                     stdout=stdout_text,
                     stderr=stderr_text,
@@ -1134,10 +1349,10 @@ class ModalSandbox(AgentServerLaunchMixin):
                     error=None,
                 )
 
-        return _ModalExecutionStream(process)
+        return _ModalExecutionStream(process, self.id)
 
     def write_file(self, path: str, payload: bytes, timeout_seconds: int | None = None) -> ExecutionResult:
-        if not self.is_running():
+        if not self._is_running_cached():
             raise SandboxNotRunningError(
                 "Sandbox not in running state.",
                 {"sandbox_id": self.id},
@@ -1147,12 +1362,12 @@ class ModalSandbox(AgentServerLaunchMixin):
         temp_path = f"{path}.tmp-{uuid.uuid4().hex}"
         step_timeout = timeout_seconds or self.config.default_execution_timeout_seconds
         write_stage = "filesystem_write" if timeout_seconds is None else "exec_write"
-        write_result: ExecutionResult | None = None
         try:
             if timeout_seconds is None:
                 try:
                     self._sandbox.filesystem.write_bytes(payload, temp_path)
                 except Exception as filesystem_error:
+                    _raise_if_proxy_failure(filesystem_error, self.id, "filesystem_write")
                     logger.warning(
                         "sandbox_filesystem_write_fallback",
                         extra={
@@ -1162,36 +1377,32 @@ class ModalSandbox(AgentServerLaunchMixin):
                             "error_type": type(filesystem_error).__name__,
                         },
                     )
-                    write_stage = "exec_write"
-                    write_result = self._write_file_with_exec(temp_path, payload, step_timeout)
-            else:
-                write_result = self._write_file_with_exec(temp_path, payload, step_timeout)
-            if write_result is not None and write_result.exit_code != 0:
-                write_result.error = "exec_write"
-                try:
-                    self.execute(f"rm -f {shlex.quote(temp_path)}", timeout_seconds=min(step_timeout, 10))
-                except Exception:
-                    pass
-                return write_result
-            write_stage = "atomic_move"
-            mv_command = f"mv {shlex.quote(temp_path)} {shlex.quote(path)}"
-            result = self.execute(mv_command, timeout_seconds=step_timeout)
+                else:
+                    write_stage = "atomic_move"
+                    mv_command = f"mv {shlex.quote(temp_path)} {shlex.quote(path)}"
+                    result = self.execute(mv_command, timeout_seconds=step_timeout)
+                    if result.exit_code != 0:
+                        logger.warning(
+                            "sandbox_write_failed",
+                            extra={"stdout": result.stdout, "stderr": result.stderr, "sandbox_id": self.id},
+                        )
+                        result.error = "atomic_move"
+                        self._remove_temp_file(temp_path, step_timeout)
+                    return result
+            write_stage = "exec_write"
+            result = self._write_file_with_exec(path, temp_path, payload, step_timeout)
             if result.exit_code != 0:
                 logger.warning(
                     "sandbox_write_failed",
                     extra={"stdout": result.stdout, "stderr": result.stderr, "sandbox_id": self.id},
                 )
-                result.error = "atomic_move"
-                try:
-                    self.execute(f"rm -f {shlex.quote(temp_path)}", timeout_seconds=min(step_timeout, 10))
-                except Exception:
-                    pass
+                result.error = "exec_write"
+                self._remove_temp_file(temp_path, step_timeout)
             return result
+        except SandboxControlPlaneError:
+            raise
         except Exception as e:
-            try:
-                self.execute(f"rm -f {shlex.quote(temp_path)}", timeout_seconds=min(step_timeout, 10))
-            except Exception:
-                pass
+            self._remove_temp_file(temp_path, step_timeout)
             capture_exception(e)
             logger.exception(f"Failed to write file to sandbox: {e}")
             raise SandboxExecutionError(
@@ -1200,18 +1411,28 @@ class ModalSandbox(AgentServerLaunchMixin):
                 cause=e,
             )
 
-    def _write_file_with_exec(self, temp_path: str, payload: bytes, timeout_seconds: int) -> ExecutionResult:
+    def _remove_temp_file(self, temp_path: str, step_timeout: int) -> None:
+        try:
+            self.execute(f"rm -f {shlex.quote(temp_path)}", timeout_seconds=min(step_timeout, 10))
+        except Exception:
+            pass
+
+    def _write_file_with_exec(self, path: str, temp_path: str, payload: bytes, timeout_seconds: int) -> ExecutionResult:
         parent_path = str(Path(temp_path).parent)
         chunk_starts = range(0, len(payload), 37_500) if payload else (0,)
+        last_index = len(chunk_starts) - 1
         for index, start in enumerate(chunk_starts):
             chunk = base64.b64encode(payload[start : start + 37_500]).decode("ascii")
-            redirect = ">" if index == 0 else ">>"
-            command = (
-                f"mkdir -p {shlex.quote(parent_path)} && base64 -d {redirect} {shlex.quote(temp_path)} "
-                "<<'POSTHOG_FILE_EOF'\n"
-                f"{chunk}\n"
-                "POSTHOG_FILE_EOF"
-            )
+            if index == 0:
+                opener = (
+                    f"umask 077 && mkdir -p {shlex.quote(parent_path)} && "
+                    f"rm -f {shlex.quote(path)}.tmp-* && "
+                    f"base64 -d > {shlex.quote(temp_path)}"
+                )
+            else:
+                opener = f"base64 -d >> {shlex.quote(temp_path)}"
+            move = f" && mv {shlex.quote(temp_path)} {shlex.quote(path)}" if index == last_index else ""
+            command = f"{opener} <<'POSTHOG_FILE_EOF'{move}\n{chunk}\nPOSTHOG_FILE_EOF"
             result = self.execute(command, timeout_seconds=timeout_seconds)
             if result.exit_code != 0:
                 return result
@@ -1222,7 +1443,7 @@ class ModalSandbox(AgentServerLaunchMixin):
         return ExecutionResult(stdout="", stderr="", exit_code=0, error=None)
 
     def is_git_clean(self, repository: str) -> tuple[bool, str]:
-        if not self.is_running():
+        if not self._is_running_cached():
             raise RuntimeError(f"Sandbox not in running state.")
 
         org, repo = repository.lower().split("/")
@@ -1245,10 +1466,14 @@ class ModalSandbox(AgentServerLaunchMixin):
         Modal connect tokens provide authenticated HTTP access to port 8080 in the sandbox.
         Should be called after sandbox creation to get the URL and token needed for connection.
         """
-        if not self.is_running():
-            raise RuntimeError("Sandbox not in running state.")
+        try:
+            if not self.is_running():
+                raise RuntimeError("Sandbox not in running state.")
 
-        credentials = self._sandbox.create_connect_token()
+            credentials = self._sandbox.create_connect_token()
+        except Exception as e:
+            _raise_if_proxy_failure(e, self.id, "create_connect_token")
+            raise
         self._sandbox_url = credentials.url
 
         logger.info(f"Got connect credentials for sandbox {self.id}: {credentials.url}")
@@ -1439,8 +1664,10 @@ class ModalSandbox(AgentServerLaunchMixin):
         try:
             self._sandbox.terminate()
             self._destroyed = True
+            self._running_status_expires_at = 0.0
             logger.info(f"Destroyed sandbox {self.id}")
         except Exception as e:
+            _raise_if_proxy_failure(e, self.id, "terminate")
             logger.exception(f"Failed to destroy sandbox: {e}")
             raise SandboxCleanupError(
                 f"Failed to destroy sandbox: {e}", {"sandbox_id": self.id, "error": str(e)}, cause=e

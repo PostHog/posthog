@@ -80,6 +80,11 @@ has a prompt to send. A task description or an existing run does not imply that 
 prompt is pending. This lets an empty session open after a failed startup instead
 of keeping it in the loading view. Opening it does not resend the description.
 
+A local task without a session is idle in the space sidebar after an app restart.
+The sidebar shows startup only when a startup marker or a live session reports it.
+The open chat can still show loading while it waits for its local connection.
+The shared lifecycle state must not treat an unopened task as an active startup.
+
 New cloud runs seed the full user message before subscribing to setup progress.
 The chat renders that message immediately, including its space context chip.
 Reopened transcripts reconcile the plain initial prompt with its context-bearing

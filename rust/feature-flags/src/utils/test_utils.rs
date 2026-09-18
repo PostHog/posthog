@@ -176,8 +176,17 @@ pub async fn insert_flags_with_metadata_for_team_in_redis(
         "evaluation_metadata": evaluation_metadata
     })
     .to_string();
+    write_flags_wire_json_to_redis(client, team_id, json_string).await
+}
+
+/// Preserves raw numeric tokens that Value-based test setup would round away.
+pub async fn write_flags_wire_json_to_redis(
+    client: Arc<dyn RedisClientTrait + Send + Sync>,
+    team_id: i32,
+    wire_json: String,
+) -> Result<(), Error> {
     let pickled_bytes =
-        serde_pickle::to_vec(&json_string, Default::default()).expect("Failed to pickle flags");
+        serde_pickle::to_vec(&wire_json, Default::default()).expect("Failed to pickle flags");
 
     let cache_key = format!("posthog:1:cache/teams/{team_id}/feature_flags/flags.json");
     client.set_bytes(cache_key, pickled_bytes, None).await?;
@@ -699,10 +708,10 @@ pub async fn insert_flag_for_team_in_pg(
     let mut conn = client.get_connection().await?;
     let row: (i32,) = sqlx::query_as(
         r#"INSERT INTO posthog_featureflag
-        (team_id, name, key, filters, deleted, active, ensure_experience_continuity, evaluation_runtime, created_at) VALUES
-        ($1, $2, $3, $4, $5, $6, $7, $8, '2024-06-17')
+        (team_id, name, key, filters, deleted, active, ensure_experience_continuity, evaluation_runtime, version, created_at) VALUES
+        ($1, $2, $3, $4, $5, $6, $7, $8, $9, '2024-06-17')
         RETURNING id"#
-    ).bind(team_id).bind(&payload_flag.name).bind(&payload_flag.key).bind(&payload_flag.filters).bind(payload_flag.deleted).bind(payload_flag.active).bind(payload_flag.ensure_experience_continuity).bind(&payload_flag.evaluation_runtime).fetch_one(&mut *conn).await?;
+    ).bind(team_id).bind(&payload_flag.name).bind(&payload_flag.key).bind(&payload_flag.filters).bind(payload_flag.deleted).bind(payload_flag.active).bind(payload_flag.ensure_experience_continuity).bind(&payload_flag.evaluation_runtime).bind(payload_flag.version).fetch_one(&mut *conn).await?;
 
     payload_flag.id = row.0;
 
@@ -1826,15 +1835,27 @@ impl TestContext {
             .await
     }
 
-    /// Populate cache for a team and store an ETag alongside it.
-    /// The ETag is stored at `{cache_key}:etag` using pickle serialization,
-    /// matching Django's HyperCache behavior.
+    /// Populate cache for a team and store an ETag alongside it, on the shared Redis.
+    /// See `populate_cache_for_team_with_etag_on`.
     pub async fn populate_cache_for_team_with_etag(
         &self,
         team_id: i32,
         etag: &str,
     ) -> Result<(), Error> {
         let redis_client = setup_redis_client(Some(self.config.redis_url.clone())).await;
+        self.populate_cache_for_team_with_etag_on(redis_client, team_id, etag)
+            .await
+    }
+
+    /// Populate cache for a team and store an ETag alongside it, on the given Redis.
+    /// The ETag is stored at `{cache_key}:etag` using pickle serialization,
+    /// matching Django's HyperCache behavior.
+    pub async fn populate_cache_for_team_with_etag_on(
+        &self,
+        redis_client: Arc<dyn RedisClientTrait + Send + Sync>,
+        team_id: i32,
+        etag: &str,
+    ) -> Result<(), Error> {
         self.populate_flag_definitions_cache(redis_client.clone(), team_id)
             .await?;
 

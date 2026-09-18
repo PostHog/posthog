@@ -24,10 +24,9 @@ export interface MergePersonsSource {
 }
 
 /**
- * Per-source verdicts a merge can answer. Both backends share the
- * vocabulary; 'skipped_race' and the 'failed_*' verdicts come only
- * from the Postgres merge's retrying transaction, and 'error' only
- * from the saga.
+ * Per-source merge verdicts. Both backends share the vocabulary;
+ * 'skipped_race' and 'failed_*' come only from Postgres, 'error' in
+ * practice only from the saga.
  */
 export type MergePersonsOutcome =
     | 'merged'
@@ -37,24 +36,40 @@ export type MergePersonsOutcome =
     | 'skipped_already_identified'
     | 'skipped_conflict'
     | 'skipped_move_limit'
+    /**
+     * Definitively refused before destroying anything; the recorded
+     * verdict replays on every retry, so the pair settles as a lost merge.
+     */
+    | 'skipped_refused'
     | 'skipped_race'
     | 'failed_source_not_found'
     | 'failed_target_not_found'
     | 'failed_source_has_distinct_ids'
     | 'error'
+    /**
+     * A verdict this build cannot name, from a backend running ahead;
+     * distinct from 'error' because the merge may well have happened.
+     */
+    | 'unknown'
 
 export interface MergePersonsSourceResult {
     sourceDistinctId: string
     outcome: MergePersonsOutcome
-    /** The source person the verdict speaks about, when the backend resolved one. */
+    /**
+     * The backend's durability statement: false means a retry under the
+     * same op id may change the answer. Personhog only; absent is settled.
+     */
+    settled?: boolean
+    /** The source person the verdict speaks about. Postgres only; the saga reports ids. */
     sourcePersonUuid?: string
     /**
      * The source person this verdict destroyed, present only on a merged
      * source. Merging away is permanent, so a caller may reconcile cached
      * state against it without re-reading, including entries cached under
-     * distinct ids the request never named.
+     * distinct ids the request never named. Absent or null on every other
+     * verdict.
      */
-    sourcePersonId?: string
+    sourcePersonId?: string | null
 }
 
 export interface MergePersonsRequest {
@@ -84,17 +99,18 @@ export interface MergePersonsRequest {
     allowIdentifiedSources: boolean
     /**
      * The caller's move policy, from the same config the processor's
-     * over-limit handling reads. The Postgres merge bounds its
-     * distinct-id moves by it; the saga backend uses LIMIT/ASYNC's limit
-     * as its move-limit guard and falls back to its own configured
-     * guard for SYNC, which the saga cannot run unbounded.
+     * over-limit handling reads; both backends bound their moves by it.
      */
     mergeMode: MergeMode
-    /** Merge event created_at, epoch millis; becomes the survivor's when older. */
+    /**
+     * Merge event created_at, epoch millis; consulted only where a person
+     * is born from the request. Otherwise the survivor keeps the earliest
+     * created_at among the merged persons.
+     */
     createdAtMs: number
 }
 
-export type MergeFoldAbortReason = 'limit' | 'conflict' | 'deadlock' | 'error'
+export type MergeFoldAbortReason = 'limit' | 'conflict' | 'refused' | 'deadlock' | 'error'
 
 export interface MergePersonsResult {
     /** The surviving person; null when the merge settled without one. */
@@ -103,12 +119,17 @@ export interface MergePersonsResult {
     /** Post-commit ClickHouse production the caller may chain on; absent when the backend produced before returning. */
     kafkaAck?: Promise<void>
     /**
-     * Whether the caller still needs its follow-up property update;
-     * false when person creation already applied the event's properties.
-     * Absent means true.
+     * Whether the caller still needs its follow-up property update; absent
+     * means true. Postgres reports false when its own creation applied the
+     * event's properties; personhog never claims it.
      */
     survivorNeedsUpdate?: boolean
-    /** Multi-source only: the folded transaction rolled back untouched; the caller falls back to per-event merges. */
+    /**
+     * Multi-source only: the folded transaction rolled back and the caller
+     * falls back to per-event merges. Not always untouched — a bootstrap
+     * creation can commit before the fold begins, and its `kafkaAck` travels
+     * on this result for the caller to await.
+     */
     foldAborted?: MergeFoldAbortReason
 }
 
@@ -141,9 +162,7 @@ export interface PersonsStore extends BatchWritingStore<FlushResult> {
 
     /**
      * Applies one event's extracted ops to a person, resolving what they
-     * mean against this store's own state: snapshot refinement, the
-     * identity OR-merge, the last-seen advance, and whether anything is
-     * worth writing at all.
+     * mean against this store's own state.
      */
     applyEventOps(
         person: InternalPerson,

@@ -276,7 +276,7 @@ function SurveyListContent({ data, app }: { data: SurveyListData; app: App | nul
             try {
                 const result = await app.callServerTool({
                     name: 'survey-get',
-                    arguments: { surveyId: item.id },
+                    arguments: { id: item.id },
                 })
                 if (result.isError || !result.structuredContent) {
                     fallbackToChat(item.name)

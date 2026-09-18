@@ -95,7 +95,10 @@ export function PurePlayer({ noMeta = false, noBorder = false }: PurePlayerProps
         endReached,
         hasLateFullSnapshot,
         leadingUnplayableMs,
+        hasUnrenderableWindow,
+        unrenderableWindowMs,
         hasOversizedMutations,
+        fullyLoaded,
     } = useValues(sessionRecordingPlayerLogic)
 
     const {
@@ -135,7 +138,7 @@ export function PurePlayer({ noMeta = false, noBorder = false }: PurePlayerProps
             if (isRecentAndInvalid) {
                 posthog.capture('session loaded recent and invalid', {
                     viewedSessionRecording: sessionRecordingId,
-                    recordingStartTime: sessionPlayerData?.start,
+                    recordingStartTime: sessionPlayerData?.start?.toISOString(),
                 })
             }
         },
@@ -148,7 +151,7 @@ export function PurePlayer({ noMeta = false, noBorder = false }: PurePlayerProps
             if (isOldAndInvalid) {
                 posthog.capture('session loaded old and invalid', {
                     viewedSessionRecording: sessionRecordingId,
-                    recordingStartTime: sessionPlayerData?.start,
+                    recordingStartTime: sessionPlayerData?.start?.toISOString(),
                 })
             }
         },
@@ -156,18 +159,53 @@ export function PurePlayer({ noMeta = false, noBorder = false }: PurePlayerProps
         [isOldAndInvalid]
     )
 
+    // `durationMs` only applies the metadata cap once the recording is fully loaded, so the span and
+    // the duration it is measured against are both final only then. `fullyLoaded` also drops back
+    // while the inspector fetches full event data, so remember which recording was reported to keep
+    // this one event per view.
+    const reportedLateFullSnapshotFor = useRef<string | null>(null)
+
     useEffect(
         () => {
-            if (hasLateFullSnapshot) {
-                posthog.capture('session loaded with late full snapshot', {
-                    viewedSessionRecording: sessionRecordingId,
-                    recordingStartTime: sessionPlayerData?.start,
-                    leadingUnplayableMs,
-                })
+            if (!hasLateFullSnapshot || !fullyLoaded || reportedLateFullSnapshotFor.current === sessionRecordingId) {
+                return
             }
+            reportedLateFullSnapshotFor.current = sessionRecordingId
+            posthog.capture('session loaded with late full snapshot', {
+                viewedSessionRecording: sessionRecordingId,
+                recordingStartTime: sessionPlayerData?.start?.toISOString(),
+                recordingDurationMs: sessionPlayerData?.durationMs,
+                leadingUnplayableMs,
+            })
         },
         // eslint-disable-next-line react-hooks/exhaustive-deps
-        [hasLateFullSnapshot]
+        [hasLateFullSnapshot, fullyLoaded, sessionRecordingId]
+    )
+
+    // An unrenderable span keeps growing while sources arrive, so the duration is only final once
+    // the recording is fully loaded. `fullyLoaded` also drops back while the inspector fetches full
+    // event data, so remember which recording was reported to keep this one event per view.
+    const reportedUnrenderableWindowFor = useRef<string | null>(null)
+
+    useEffect(
+        () => {
+            if (
+                !hasUnrenderableWindow ||
+                !fullyLoaded ||
+                reportedUnrenderableWindowFor.current === sessionRecordingId
+            ) {
+                return
+            }
+            reportedUnrenderableWindowFor.current = sessionRecordingId
+            posthog.capture('session loaded with unrenderable window', {
+                viewedSessionRecording: sessionRecordingId,
+                recordingStartTime: sessionPlayerData?.start?.toISOString(),
+                recordingDurationMs: sessionPlayerData?.durationMs,
+                unrenderableWindowMs,
+            })
+        },
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+        [hasUnrenderableWindow, fullyLoaded, sessionRecordingId]
     )
 
     // Track if the recording has ended to be able to reliably get it from the BE and stop the recording
@@ -357,7 +395,7 @@ export function PurePlayer({ noMeta = false, noBorder = false }: PurePlayerProps
                         ) : (
                             <div className="flex w-full h-full">
                                 <div className="flex flex-col flex-1 w-full relative">
-                                    {hasLateFullSnapshot && !hidePlayerElements ? (
+                                    {(hasLateFullSnapshot || hasUnrenderableWindow) && !hidePlayerElements ? (
                                         <LemonBanner
                                             type="warning"
                                             // The player column over-commits its height, so a flexible banner gets
@@ -365,10 +403,26 @@ export function PurePlayer({ noMeta = false, noBorder = false }: PurePlayerProps
                                             className="shrink-0"
                                             dismissKey={`late-full-snapshot-${sessionRecordingId}`}
                                         >
-                                            The first{' '}
-                                            {humanFriendlyDuration(leadingUnplayableMs / 1000, { maxUnits: 2 })} of this
-                                            recording can't be played. The first screen snapshot arrived late, so
-                                            playback starts at the first frame we can render.{' '}
+                                            {hasLateFullSnapshot ? (
+                                                <>
+                                                    The first{' '}
+                                                    {humanFriendlyDuration(leadingUnplayableMs / 1000, {
+                                                        maxUnits: 2,
+                                                    })}{' '}
+                                                    of this recording can't be played. The first screen snapshot arrived
+                                                    late, so playback starts at the first frame we can render.{' '}
+                                                </>
+                                            ) : null}
+                                            {hasUnrenderableWindow ? (
+                                                <>
+                                                    {humanFriendlyDuration(unrenderableWindowMs / 1000, {
+                                                        maxUnits: 2,
+                                                    })}{' '}
+                                                    of this recording can't be played. A browser window opened without
+                                                    sending a screen snapshot, so the player stays blank while that
+                                                    window is on screen.{' '}
+                                                </>
+                                            ) : null}
                                             <Link to="https://posthog.com/docs/session-replay/troubleshooting">
                                                 Learn more
                                             </Link>

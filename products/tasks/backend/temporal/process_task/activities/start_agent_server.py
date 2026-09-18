@@ -25,10 +25,12 @@ from products.tasks.backend.exceptions import (
     OAuthTokenError,
     ProcessTaskError,
     ProcessTaskFatalError,
+    SandboxControlPlaneError,
     SandboxExecutionError,
     SandboxMissingRepositoryError,
 )
 from products.tasks.backend.logic.services.connection_token import create_sandbox_event_ingest_token
+from products.tasks.backend.logic.services.launch_preparation_metrics import launch_preparation_metric_context
 from products.tasks.backend.logic.services.sandbox import (
     REPO_READY_FILE,
     SNAPSHOT_KIND_DIRECTORY,
@@ -89,6 +91,12 @@ def _emit_agent_server_log_tail(ctx: TaskProcessingContext, sandbox: SandboxBase
     log_tail = result.stdout.strip()
     if log_tail:
         emit_agent_log(ctx.run_id, "debug", f"agent-server log tail:\n{log_tail}")
+    else:
+        emit_agent_log(
+            ctx.run_id,
+            "debug",
+            "agent-server log tail: empty. The agent-server wrote nothing to /tmp/agent-server.log.",
+        )
 
 
 def _resolve_protected_base_branch(ctx: TaskProcessingContext) -> str | None:
@@ -545,6 +553,7 @@ def _invoke_start_agent_server(
             provider=ctx.provider,
             model=ctx.model,
             reasoning_effort=ctx.reasoning_effort,
+            service_tier=ctx.service_tier,
             context_window=ctx.context_window,
             fast_mode=ctx.fast_mode,
             initial_permission_mode=ctx.initial_permission_mode,
@@ -564,6 +573,8 @@ def _invoke_start_agent_server(
         )
         return health_duration_ms if isinstance(health_duration_ms, int) else None
 
+    except SandboxControlPlaneError:
+        raise
     except ProcessTaskError:
         if params.agentsh_domains is not None:
             _emit_agentsh_log_tail(ctx, sandbox)
@@ -669,10 +680,14 @@ def start_agent_server(input: StartAgentServerInput) -> StartAgentServerOutput:
     """
     ctx = input.context
 
-    with log_activity_execution(
-        "start_agent_server",
-        sandbox_id=input.sandbox_id,
-        **ctx.to_log_context(),
+    with (
+        log_activity_execution("start_agent_server", sandbox_id=input.sandbox_id, **ctx.to_log_context()),
+        launch_preparation_metric_context(
+            boot_path=input.boot_path,
+            runtime=sandbox_runtime_label(ctx.use_modal_vm_sandbox),
+            origin_product=ctx.origin_product,
+            used_snapshot=input.used_snapshot,
+        ),
     ):
         emit_agent_log(ctx.run_id, "debug", "Starting agent server")
 
@@ -802,10 +817,14 @@ def start_agent_server(input: StartAgentServerInput) -> StartAgentServerOutput:
 def launch_agent_server(input: StartAgentServerInput) -> StartAgentServerOutput:
     ctx = input.context
 
-    with log_activity_execution(
-        "launch_agent_server",
-        sandbox_id=input.sandbox_id,
-        **ctx.to_log_context(),
+    with (
+        log_activity_execution("launch_agent_server", sandbox_id=input.sandbox_id, **ctx.to_log_context()),
+        launch_preparation_metric_context(
+            boot_path=input.boot_path,
+            runtime=sandbox_runtime_label(ctx.use_modal_vm_sandbox),
+            origin_product=ctx.origin_product,
+            used_snapshot=input.used_snapshot,
+        ),
     ):
         emit_agent_log(ctx.run_id, "debug", "Launching agent server (deferred readiness)")
 
@@ -865,10 +884,14 @@ def mark_repo_ready(input: MarkRepoReadyInput) -> None:
 def await_agent_server_ready(input: StartAgentServerInput) -> StartAgentServerOutput:
     ctx = input.context
 
-    with log_activity_execution(
-        "await_agent_server_ready",
-        sandbox_id=input.sandbox_id,
-        **ctx.to_log_context(),
+    with (
+        log_activity_execution("await_agent_server_ready", sandbox_id=input.sandbox_id, **ctx.to_log_context()),
+        launch_preparation_metric_context(
+            boot_path=input.boot_path,
+            runtime=sandbox_runtime_label(ctx.use_modal_vm_sandbox),
+            origin_product=ctx.origin_product,
+            used_snapshot=input.used_snapshot,
+        ),
     ):
         sandbox = get_sandbox_class_for_sandbox_id(input.sandbox_id).get_by_id(input.sandbox_id)
         agentsh_domains = _agentsh_domains_for(ctx)
@@ -936,7 +959,7 @@ def await_agent_server_ready(input: StartAgentServerInput) -> StartAgentServerOu
                             ),
                         )
                     _record_agent_server_launch(sandbox, ctx, params)
-        except Exception:
+        except Exception as error:
             if attempt > 1:
                 increment_agent_server_readiness_retry(
                     attempt,
@@ -945,9 +968,10 @@ def await_agent_server_ready(input: StartAgentServerInput) -> StartAgentServerOu
                     origin_product=ctx.origin_product,
                     runtime=runtime,
                 )
-            if agentsh_domains is not None:
-                _emit_agentsh_log_tail(ctx, sandbox)
-            _emit_agent_server_log_tail(ctx, sandbox)
+            if not isinstance(error, SandboxControlPlaneError):
+                if agentsh_domains is not None:
+                    _emit_agentsh_log_tail(ctx, sandbox)
+                _emit_agent_server_log_tail(ctx, sandbox)
             raise
 
         if attempt > 1:

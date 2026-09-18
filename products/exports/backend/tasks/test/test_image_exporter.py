@@ -931,6 +931,35 @@ class TestScreenshotAssetBrowserless(SimpleTestCase):
         assert isinstance(ctx.exception.__cause__, PlaywrightTimeoutError)
         assert "Timeout 30000ms exceeded" in str(ctx.exception.__cause__)
 
+    def test_replay_export_finds_the_player_inside_its_frame_document(self) -> None:
+        # The player can mount rrweb inside its own frame document. A selector wait or a document query
+        # never looks inside a frame, so the export would time out, or measure the page without the player.
+        page = MagicMock()
+        context = MagicMock()
+        context.new_page.return_value = page
+        browser = MagicMock()
+        browser.new_context.return_value = context
+        playwright_obj = MagicMock()
+        playwright_obj.chromium.connect_over_cdp.return_value = browser
+        sync_playwright_cm = MagicMock()
+        sync_playwright_cm.__enter__.return_value = playwright_obj
+
+        with (
+            patch(
+                "products.exports.backend.tasks.image_exporter.sync_playwright",
+                return_value=sync_playwright_cm,
+            ),
+            patch.object(settings, "BROWSERLESS_CDP_URL", "wss://chrome.browserless.io"),
+        ):
+            image_exporter._screenshot_asset_browserless("p", "u", 1400, ".replayer-wrapper")
+
+        assert all(call.args[0] != ".replayer-wrapper" for call in page.wait_for_selector.call_args_list)
+        page.wait_for_function.assert_called_once()
+        assert "iframe.PlayerFrame__document" in page.wait_for_function.call_args.args[0]
+        measure_scripts = [call.args[0] for call in page.evaluate.call_args_list]
+        assert measure_scripts
+        assert all("iframe.PlayerFrame__document" in script for script in measure_scripts)
+
 
 class TestDimensionHelpers(SimpleTestCase):
     @parameterized.expand(

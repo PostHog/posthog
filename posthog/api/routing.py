@@ -175,8 +175,7 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
         calling super() would otherwise leak the token.
 
         Note: a subclass that overrides `dispatch` itself without super() would
-        also bypass this cleanup; in this codebase only `query_coalescer.py`
-        overrides dispatch and it does call super().
+        also bypass this cleanup.
 
         ContextVars in sync Django are thread-local and the same worker thread
         is reused across requests, so a leaked token would let scope from one
@@ -474,7 +473,10 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
                 team = Team.objects.select_related("organization").get(id=self.team_id)
             except (Team.DoesNotExist, ValueError):
                 raise NotFound(
-                    detail="Project not found."  # TODO: "Environment" instead of "Project" when project environments are rolled out
+                    # TODO: "Environment" instead of "Project" when project environments are rolled out.
+                    # Keep in sync with SCOPE_NOT_FOUND_DETAILS in frontend/src/lib/api-error.ts, which
+                    # matches this exact text to stop dead-scope polling and to skip error reports.
+                    detail="Project not found."
                 )
 
         tag_queries(**get_team_query_tags(team))
@@ -604,7 +606,9 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
                     current_team = self.request.user.team
                     if current_team is None:
                         raise NotFound(
-                            "Project not found."  # TODO: "Environment" instead of "Project" when project environments are rolled out
+                            # TODO: "Environment" instead of "Project" when project environments are rolled out.
+                            # Keep in sync with SCOPE_NOT_FOUND_DETAILS in frontend/src/lib/api-error.ts.
+                            "Project not found."
                         )
                     query_value = current_team.id
                 elif query_lookup == "project_id":
@@ -621,7 +625,9 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
                 try:
                     query_value = team_from_request.id if team_from_request else int(query_value)
                 except ValueError:
-                    raise NotFound("Project not found.")  # TODO: "Environment"
+                    # TODO: "Environment" instead of "Project" when project environments are rolled out.
+                    # Keep in sync with SCOPE_NOT_FOUND_DETAILS in frontend/src/lib/api-error.ts.
+                    raise NotFound("Project not found.")
             elif query_lookup == "project_id":
                 try:
                     query_value = team_from_request.project_id if team_from_request else int(query_value)

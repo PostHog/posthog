@@ -1683,6 +1683,7 @@ async fn dirty_person_with_failed_recovery_is_unavailable_not_stale() {
             version: mark.version,
             offset: mark.offset + 1_000,
             partition: mark.partition,
+            is_deleted: mark.is_deleted,
         },
     );
     cache.remove(routing_partition, &key);
@@ -2078,6 +2079,7 @@ async fn cancelled_recovery_returns_its_consumer_to_the_pool() {
         version: 1,
         offset: 0,
         partition: 0,
+        is_deleted: false,
     };
 
     // Nothing is produced yet, so each fetch parks awaiting the record;

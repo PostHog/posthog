@@ -134,6 +134,20 @@ def test_search_recovery_after_zero_hit(calls: list[list[str]], expected_score: 
         assert result.score == expected_score
 
 
+@pytest.mark.parametrize("learn_first", [True, False])
+def test_search_recovery_rejects_a_product_call_parallel_with_the_learn(learn_first: bool) -> None:
+    zero_hit = _exec("zero", "learn -s xyz", ZERO_HIT)
+    learn = _exec("recover", "learn skills", "posthog:s")
+    product = _exec("give-up", "call execute-sql {}", "[]")
+    first, second = (learn, product) if learn_first else (product, learn)
+    output: dict[str, object] = {
+        "raw_log": "\n".join([*zero_hit, first[0], second[0], first[1], second[1]]),
+        "prompt": "analyze revenue",
+    }
+
+    assert _score(SearchRecoveryAfterZeroHit(), output, _recovery_expected()).score == 0.0
+
+
 def test_skill_answer_correctness_self_skips_when_not_requested() -> None:
     prepared = SkillAnswerCorrectness()._prepare({"last_message": "anything"}, {})
     assert isinstance(prepared, Score)

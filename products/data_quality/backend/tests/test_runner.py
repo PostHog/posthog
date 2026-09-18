@@ -6,9 +6,15 @@ from unittest.mock import patch
 
 from parameterized import parameterized
 
+from posthog.hogql import ast
+from posthog.hogql.context import HogQLContext
+from posthog.hogql.printer import prepare_ast_for_printing
+
 from posthog.clickhouse.query_tagging import Feature, Product, QueryTags, get_query_tags
+from posthog.models.team import Team
 from posthog.models.user import User
 
+from products.data_catalog.backend.facade.api import upsert_metric
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.data_quality.backend.facade.enums import (
     CheckRunStatus,
@@ -23,6 +29,7 @@ from products.data_quality.backend.models import DataQualityCheck, DataQualityCh
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
 RUNNER_QUERY = "products.data_quality.backend.logic.runner.execute_hogql_query"
+CREATE_NOTIFICATION = "products.data_quality.backend.logic.notifications.create_notification"
 
 
 class _Response:
@@ -34,7 +41,9 @@ class _Response:
 class TestCheckRunner(BaseTest):
     def setUp(self) -> None:
         super().setUp()
-        self.view = DataWarehouseSavedQuery.objects.create(team=self.team, name="orders", query={"kind": "HogQLQuery"})
+        self.view = DataWarehouseSavedQuery.objects.create(
+            team=self.team, name="orders", query={"kind": "HogQLQuery", "query": "SELECT 1 AS customer_id"}
+        )
         self.suite_run = DataQualitySuiteRun.objects.for_team(self.team.id).create(
             team=self.team, trigger=SuiteRunTrigger.MANUAL
         )
@@ -50,6 +59,99 @@ class TestCheckRunner(BaseTest):
             "fingerprint": uuid4().hex,
         }
         return DataQualityCheck.objects.for_team(self.team.id).create(**{**defaults, **kwargs})
+
+    def _metric_check(self, **overrides: object) -> DataQualityCheck:
+        metric = upsert_metric(
+            team=self.team,
+            user=self.user,
+            name="revenue",
+            description="Revenue",
+            definition={"kind": "HogQLQuery", "query": "SELECT 1 AS value"},
+        )
+        return self._check(
+            subject_type=SubjectType.METRIC,
+            saved_query_id=None,
+            metric_id=metric.id,
+            check_type=CheckType.CUSTOM_SQL,
+            column_name="",
+            config={"query": "SELECT * FROM {metric} WHERE value < 1"},
+            **overrides,
+        )
+
+    @parameterized.expand(
+        [
+            ("passed", 0, None, CheckRunStatus.PASSED),
+            ("failed", 3, None, CheckRunStatus.FAILED),
+            ("errored", 0, RuntimeError("Execution failed"), CheckRunStatus.ERRORED),
+        ]
+    )
+    def test_metric_sql_uses_the_common_result_path(
+        self, _name: str, count: int, error: Exception | None, expected: CheckRunStatus
+    ) -> None:
+        check = self._metric_check()
+        self.suite_run.created_by = self.user
+        with patch(
+            RUNNER_QUERY, return_value=_Response(["failure_count", "observed_value"], [count, count]), side_effect=error
+        ):
+            outcome = run_check(check, self.suite_run, self.team)
+        assert outcome.status == expected
+        assert outcome.failed_row_count == (None if error else count)
+        assert DataQualityCheckRun.objects.for_team(self.team.id).get(quality_check=check).status == expected
+
+    @parameterized.expand(
+        [
+            ("manual", SuiteRunTrigger.MANUAL, True, True, False),
+            ("manual_missing_initiator", SuiteRunTrigger.MANUAL, False, True, True),
+            ("scheduled_creator", SuiteRunTrigger.SCHEDULED, False, True, False),
+            ("scheduled_missing_author", SuiteRunTrigger.SCHEDULED, False, False, True),
+        ]
+    )
+    def test_metric_run_requires_the_correct_principal(
+        self, _name: str, trigger: SuiteRunTrigger, initiator: bool, author: bool, errors: bool
+    ) -> None:
+        check = self._metric_check(created_by=self.user if author else None)
+        self.suite_run.trigger = trigger
+        self.suite_run.created_by = self.user if initiator else None
+        with patch(RUNNER_QUERY, return_value=_Response(["failure_count", "observed_value"], [0, 0])) as query:
+            outcome = run_check(check, self.suite_run, self.team)
+        assert outcome.status == (CheckRunStatus.ERRORED if errors else CheckRunStatus.PASSED)
+        if errors:
+            query.assert_not_called()
+        else:
+            assert query.call_args.kwargs["user"] == self.user
+            assert query.call_args.kwargs["bypass_warehouse_access_control"] is False
+
+    def test_metric_definition_drift_reaches_the_next_execution(self) -> None:
+        check = self._metric_check()
+        self.suite_run.created_by = self.user
+
+        def execute_with_resolution(
+            *, query: ast.SelectQuery, team: Team, user: User, bypass_warehouse_access_control: bool, **kwargs: object
+        ) -> _Response:
+            prepare_ast_for_printing(
+                query,
+                HogQLContext(
+                    team_id=team.id,
+                    user=user,
+                    enable_select_queries=True,
+                    bypass_warehouse_access_control=bypass_warehouse_access_control,
+                ),
+                "clickhouse",
+            )
+            return _Response(["failure_count", "observed_value"], [0, 0])
+
+        with patch(RUNNER_QUERY, side_effect=execute_with_resolution):
+            assert run_check(check, self.suite_run, self.team).status == CheckRunStatus.PASSED
+            upsert_metric(
+                team=self.team,
+                user=self.user,
+                name="revenue",
+                description="Revenue",
+                definition={"kind": "HogQLQuery", "query": "SELECT 1 AS replacement"},
+            )
+            outcome = run_check(check, self.suite_run, self.team)
+        assert outcome.status == CheckRunStatus.ERRORED
+        assert "value" in outcome.error
 
     @parameterized.expand(
         [
@@ -213,14 +315,34 @@ class TestCheckRunner(BaseTest):
         assert query.call_args.kwargs["bypass_warehouse_access_control"] is False
         assert query.call_args.kwargs["user"] == self.user
 
-    def test_an_edited_referencing_check_runs_as_whoever_last_changed_it(self) -> None:
+    @parameterized.expand([("custom_sql", CheckType.CUSTOM_SQL), ("relationships", CheckType.RELATIONSHIPS)])
+    def test_a_manual_referencing_check_without_an_initiator_never_reaches_the_warehouse(
+        self, _name, check_type: CheckType
+    ) -> None:
+        suite_run = DataQualitySuiteRun.objects.for_team(self.team.id).create(
+            team=self.team, trigger=SuiteRunTrigger.MANUAL
+        )
+        check = self._referencing_check(check_type, created_by=self.user)
+
+        with patch(RUNNER_QUERY) as query:
+            outcome = run_check(check, suite_run, self.team)
+
+        assert outcome.status == CheckRunStatus.ERRORED
+        query.assert_not_called()
+
+    @parameterized.expand([("view",), ("metric",)])
+    def test_an_edited_referencing_check_runs_as_whoever_last_changed_it(self, subject_type: str) -> None:
         # The creator may never have seen what the check reads now, and may have lost access to it;
         # the editor is the one whose warehouse ACL was checked against the current definition.
         editor = User.objects.create_and_join(self.organization, "editor@posthog.com", None)
         suite_run = DataQualitySuiteRun.objects.for_team(self.team.id).create(
             team=self.team, trigger=SuiteRunTrigger.MATERIALIZATION
         )
-        check = self._referencing_check(CheckType.CUSTOM_SQL, created_by=self.user, definition_author=editor)
+        check = (
+            self._metric_check(created_by=self.user, definition_author=editor)
+            if subject_type == "metric"
+            else self._referencing_check(CheckType.CUSTOM_SQL, created_by=self.user, definition_author=editor)
+        )
 
         with patch(RUNNER_QUERY, return_value=_Response(["failure_count", "observed_value"], [0, 0])) as query:
             run_check(check, suite_run, self.team)
@@ -376,33 +498,14 @@ class TestCheckRunner(BaseTest):
         query.assert_not_called()
         assert outcome.status == CheckRunStatus.ERRORED
 
-    @parameterized.expand(
-        [
-            ("first_failure", "", CheckSeverity.ERROR, True),
-            ("still_failing", CheckRunStatus.FAILED, CheckSeverity.ERROR, False),
-            ("warn_severity", "", CheckSeverity.WARN, False),
-            ("recovered_then_failed_again", CheckRunStatus.PASSED, CheckSeverity.ERROR, True),
-        ]
-    )
-    def test_became_failing_marks_only_error_severity_transitions(
-        self, _name, previous_status: str, severity: CheckSeverity, expected: bool
-    ) -> None:
-        check = self._check(last_status=previous_status, severity=severity)
-        with patch(RUNNER_QUERY, return_value=_Response(["failure_count", "observed_value"], [3, 3])):
-            outcome = run_check(check, self.suite_run, self.team)
+    def test_a_failing_run_records_the_outcome_without_notifying(self) -> None:
+        check = self._check(last_status=CheckRunStatus.PASSED, severity=CheckSeverity.ERROR)
 
-        assert outcome.became_failing is expected
+        with patch(CREATE_NOTIFICATION) as create_notification:
+            with patch(RUNNER_QUERY, return_value=_Response(["failure_count", "observed_value"], [3, 3])):
+                outcome = run_check(check, self.suite_run, self.team)
+
+        create_notification.assert_not_called()
+        assert outcome.status == CheckRunStatus.FAILED
         check.refresh_from_db()
         assert check.last_status == CheckRunStatus.FAILED
-
-    def test_an_overlapping_run_does_not_claim_the_same_failing_transition(self) -> None:
-        # Stands in for a manual run racing the scheduled one: this run still holds the passing
-        # status it loaded, but the row already moved to failing, so it must not notify a second time.
-        check = self._check(last_status=CheckRunStatus.PASSED, severity=CheckSeverity.ERROR)
-        DataQualityCheck.objects.for_team(self.team.id).filter(id=check.id).update(last_status=CheckRunStatus.FAILED)
-
-        with patch(RUNNER_QUERY, return_value=_Response(["failure_count", "observed_value"], [3, 3])):
-            outcome = run_check(check, self.suite_run, self.team)
-
-        assert outcome.status == CheckRunStatus.FAILED
-        assert outcome.became_failing is False

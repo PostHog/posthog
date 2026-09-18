@@ -50,7 +50,7 @@ class Ticket(UUIDTModel):
     # Dynamic attribute set by TicketViewSet._attach_persons_to_tickets for serialization
     person: "Person | None"
 
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
     ticket_number = models.PositiveIntegerField()
     channel_source = models.CharField(max_length=20, choices=Channel, default=Channel.WIDGET)
     channel_detail = models.CharField(max_length=30, choices=ChannelDetail, null=True, blank=True)
@@ -197,6 +197,17 @@ class Ticket(UUIDTModel):
                 fields=["organization_id", "slack_channel_id"],
                 name="posthog_org_slack_ch_idx",
                 condition=models.Q(channel_source="slack"),
+            ),
+            # Compose dedupe fallback: find recent outbound email tickets by (team, email channel,
+            # sender) within a short window, newest first. Runs on every new compose, so without
+            # this it scans the channel's whole ticket history. Partial to email keeps it small.
+            models.Index(
+                models.F("team_id"),
+                models.F("email_config_id"),
+                models.F("email_from"),
+                models.F("created_at").desc(),
+                name="posthog_con_compose_dedupe_idx",
+                condition=models.Q(channel_source="email"),
             ),
         ]
         constraints = [

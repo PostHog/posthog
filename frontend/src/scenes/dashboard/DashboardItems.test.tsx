@@ -9,7 +9,7 @@ import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { insightsModel } from '~/models/insightsModel'
-import { DashboardMode, DashboardPlacement } from '~/types'
+import { DashboardPlacement } from '~/types'
 
 import { DashboardItems } from './DashboardItems'
 
@@ -89,6 +89,7 @@ jest.mock('lib/components/Cards/InsightCard', () => ({
         tile: { id: number }
         showResizeHandles: boolean
         apiErrored?: boolean
+        canEditDashboard?: boolean
         queryId?: string
         apiError?: Error & {
             status?: number
@@ -106,6 +107,7 @@ jest.mock('lib/components/Cards/InsightCard', () => ({
                 data-tile-id={String(tile.id)}
                 data-show-resize-handles={String(showResizeHandles)}
                 data-api-errored={apiErrored ? 'true' : undefined}
+                data-can-edit-dashboard={props.canEditDashboard === false ? 'false' : undefined}
                 data-api-error-status={apiError?.status}
                 data-api-error-detail={apiError?.detail ?? undefined}
                 data-api-error-code={apiError?.code ?? undefined}
@@ -182,11 +184,13 @@ const mockedUseAsyncActions = useAsyncActions as jest.Mock
 const mockRemoveTile = jest.fn()
 const mockTriggerDashboardRefresh = jest.fn()
 const mockInsightCard = jest.fn()
+let canEditDashboard = true
 
 describe('DashboardItems', () => {
     beforeEach(() => {
         mockInsightCard.mockClear()
         jest.clearAllMocks()
+        canEditDashboard = true
 
         mockedUseValues.mockImplementation((logic) => {
             if (logic === dashboardLogic) {
@@ -201,7 +205,7 @@ describe('DashboardItems', () => {
                     layouts: {
                         sm: [{ i: '1', x: 0, y: 0, w: 6, h: 5 }],
                     },
-                    dashboardMode: DashboardMode.Edit,
+                    dashboardEditing: { filters: true, layout: true },
                     layoutEditMode: true,
                     placement: DashboardPlacement.Dashboard,
                     isRefreshingQueued: () => false,
@@ -211,10 +215,10 @@ describe('DashboardItems', () => {
                     itemsLoading: false,
                     dashboardStreaming: false,
                     effectiveEditBarFilters: {},
-                    effectiveDashboardVariableOverrides: {},
+                    currentDashboardVariables: {},
                     temporaryBreakdownColors: [],
                     dataColorThemeId: null,
-                    canEditDashboard: true,
+                    canEditDashboard,
                     layoutZoom: 0.75,
                 }
             }
@@ -284,6 +288,26 @@ describe('DashboardItems', () => {
         expect(container.firstChild).toMatchSnapshot()
     })
 
+    it('disables layout controls for read-only viewers', () => {
+        canEditDashboard = false
+
+        const { container } = render(<DashboardItems />)
+
+        expect(container.querySelector('[data-attr="react-grid-layout"]')).toHaveAttribute('data-drag-enabled', 'false')
+        expect(container.querySelector('[data-attr="react-grid-layout"]')).toHaveAttribute(
+            'data-resize-enabled',
+            'false'
+        )
+        expect(container.querySelector('[data-attr="insight-card"]')).toHaveAttribute(
+            'data-show-resize-handles',
+            'false'
+        )
+        expect(container.querySelector('[data-attr="insight-card"]')).toHaveAttribute(
+            'data-can-edit-dashboard',
+            'false'
+        )
+    })
+
     it.each([
         ['tight', '8,8'],
         ['condensed', '12,12'],
@@ -295,7 +319,7 @@ describe('DashboardItems', () => {
                     dashboard: { id: 5, customization: { tile_spacing: tileSpacing } },
                     tiles: [],
                     layouts: { sm: [] },
-                    dashboardMode: DashboardMode.Edit,
+                    dashboardEditing: { filters: true, layout: true },
                     layoutEditMode: true,
                     placement: DashboardPlacement.Dashboard,
                     isRefreshingQueued: () => false,
@@ -304,7 +328,7 @@ describe('DashboardItems', () => {
                     refreshStatus: {},
                     dashboardStreaming: false,
                     effectiveEditBarFilters: {},
-                    effectiveDashboardVariableOverrides: {},
+                    currentDashboardVariables: {},
                     dataColorThemeId: null,
                     canEditDashboard: true,
                     layoutZoom: 1,
@@ -330,7 +354,7 @@ describe('DashboardItems', () => {
                     dashboard: { id: 5, customization: { tile_spacing: 'unknown' } },
                     tiles: [],
                     layouts: { sm: [] },
-                    dashboardMode: DashboardMode.Edit,
+                    dashboardEditing: { filters: true, layout: true },
                     layoutEditMode: true,
                     placement: DashboardPlacement.Dashboard,
                     isRefreshingQueued: () => false,
@@ -339,7 +363,7 @@ describe('DashboardItems', () => {
                     refreshStatus: {},
                     dashboardStreaming: false,
                     effectiveEditBarFilters: {},
-                    effectiveDashboardVariableOverrides: {},
+                    currentDashboardVariables: {},
                     dataColorThemeId: null,
                     canEditDashboard: true,
                     layoutZoom: 1,
@@ -379,7 +403,7 @@ describe('DashboardItems', () => {
                     itemsLoading: false,
                     dashboardStreaming: false,
                     effectiveEditBarFilters: {},
-                    effectiveDashboardVariableOverrides: {},
+                    currentDashboardVariables: {},
                     temporaryBreakdownColors: [],
                     dataColorThemeId: null,
                     canEditDashboard: false,
@@ -417,7 +441,7 @@ describe('DashboardItems', () => {
                     refreshStatus: {},
                     dashboardStreaming: false,
                     effectiveEditBarFilters: {},
-                    effectiveDashboardVariableOverrides: {},
+                    currentDashboardVariables: {},
                     temporaryBreakdownColors: [],
                     dataColorThemeId: null,
                     canEditDashboard: true,
@@ -470,7 +494,7 @@ describe('DashboardItems', () => {
                     refreshStatus: {},
                     dashboardStreaming: false,
                     effectiveEditBarFilters: {},
-                    effectiveDashboardVariableOverrides: {},
+                    currentDashboardVariables: {},
                     temporaryBreakdownColors: [],
                     dataColorThemeId: null,
                     canEditDashboard: true,
@@ -527,7 +551,7 @@ describe('DashboardItems', () => {
                     refreshStatus,
                     dashboardStreaming: false,
                     effectiveEditBarFilters: {},
-                    effectiveDashboardVariableOverrides: {},
+                    currentDashboardVariables: {},
                     temporaryBreakdownColors: [],
                     dataColorThemeId: null,
                     canEditDashboard: true,

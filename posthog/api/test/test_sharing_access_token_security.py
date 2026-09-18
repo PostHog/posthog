@@ -6,7 +6,7 @@ import json
 from datetime import timedelta
 from typing import Any, cast
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest
 
 from django.conf import settings
@@ -62,7 +62,7 @@ class SharingAccessTokenSecurityTest(APIBaseTest):
 
         # Jump past the grace period so the old token is fully expired
         future = timezone.now() + timedelta(seconds=settings.SHARING_TOKEN_GRACE_PERIOD_SECONDS + 60)
-        with freeze_time(future):
+        with time_machine.travel(future, tick=False):
             # Old token must be rejected
             response = self.client.get(
                 f"/api/environments/{self.team.id}/insights/{insight.id}/",
@@ -111,7 +111,7 @@ class SharingAccessTokenSecurityTest(APIBaseTest):
 
         # Jump past the grace period
         future = timezone.now() + timedelta(seconds=settings.SHARING_TOKEN_GRACE_PERIOD_SECONDS + 60)
-        with freeze_time(future):
+        with time_machine.travel(future, tick=False):
             # Old JWT against expired config must be rejected
             response = self.client.get(
                 f"/api/environments/{self.team.id}/insights/{insight.id}/",

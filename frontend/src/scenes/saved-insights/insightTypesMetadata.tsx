@@ -508,6 +508,12 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconLive,
         inMenu: false,
     },
+    [NodeKind.MetricsHistogramQuery]: {
+        name: 'Metrics heatmap',
+        description: 'Chart a histogram metric as a latency-over-time heatmap',
+        icon: IconLive,
+        inMenu: false,
+    },
     [NodeKind.TraceSpansQuery]: {
         name: 'Trace Spans',
         icon: IconLive,
@@ -619,6 +625,12 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
     [NodeKind.MCPHarnessBreakdownQuery]: {
         name: 'MCP harness breakdown',
         description: 'MCP tool-call activity grouped by client harness.',
+        icon: IconPieChart,
+        inMenu: false,
+    },
+    [NodeKind.MCPModelBreakdownQuery]: {
+        name: 'MCP model breakdown',
+        description: 'MCP tool-call activity grouped by captured model.',
         icon: IconPieChart,
         inMenu: false,
     },

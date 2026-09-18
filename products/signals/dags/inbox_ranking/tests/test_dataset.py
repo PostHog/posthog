@@ -4,13 +4,18 @@ from typing import Any
 import pytest
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event
 
+import dagster
 import pyarrow as pa
 from parameterized import parameterized
 
 from products.event_definitions.backend.models.property_definition import PropertyDefinition
 from products.signals.backend.models import SignalReport
+from products.signals.backend.report_embeddings import EMBEDDING_RENDERING_TITLE, EMBEDDING_RENDERING_TITLE_SUMMARY
 from products.signals.dags.inbox_ranking import common
+from products.signals.dags.inbox_ranking.dataset import dag
 from products.signals.dags.inbox_ranking.dataset.dag import (
+    EMBEDDINGS_SCHEMA,
+    LABELS_SCHEMA,
     MODEL_DATA_SCHEMA,
     assemble_model_rows,
     label_provenance_ok,
@@ -21,6 +26,7 @@ from products.signals.dags.inbox_ranking.dataset.queries import (
     LABEL_DEFAULTS,
     LABEL_STREAMS,
     LABELED_REPORT_IDS_SQL,
+    OUTCOME_FIRST_EVENT_COLUMNS,
     STATUS_COLUMNS,
     STATUS_SQL,
     hogql_rows,
@@ -163,13 +169,14 @@ def test_merge_label_streams_fills_defaults_and_maps_columns():
         "impressions": [(UUID_A, T1.replace(tzinfo=None), 5, 2, 3, 1, ["error_tracking"])],
         "opens": [(UUID_A.upper(), T2, 4, 2), (UUID_B, T2, 1, 1)],
         "actions": [
-            ("bogus-id", 1, T1, 1, T1, 1, 1, 1, T1, 1, T1, 1, T1),
+            ("bogus-id", 1, T1, 1, T1, 1, T1, 1, T1, 1, T1, 1, T1, 1, T1),
             # Distinct values per column, so a shifted or swapped ACTIONS_SQL/ACTIONS_COLUMNS
             # position lands a wrong value in some asserted field below.
-            (UUID_B, 5, T1, 0, None, 0, 0, 2, T1, 3, T2, 4, T1),
+            (UUID_B, 5, T1, 0, None, 6, T2, 7, T1, 2, T1, 3, T2, 4, T1),
         ],
+        "feedback": [(UUID_B, 2, T1, 1, T2, T1, "negative")],
         "status_changes": [],
-        "pr_events": [],
+        "pr_events": [(UUID_B, 1, T1, 1, T2, 1, T2)],
     }
     rows = {row["report_id"]: row for row in merge_label_streams(stream_rows, SNAPSHOT_DATE)}
 
@@ -183,11 +190,21 @@ def test_merge_label_streams_fills_defaults_and_maps_columns():
     assert r1["source_products"] == ["error_tracking"]
     assert r1["first_impressed_at"] == T1
     assert r1["open_count"] == 4
+    assert r1["pr_created_count"] == 0
     r2 = rows[UUID_B]
     assert r2["impression_unit_count"] == 0
     assert r2["first_impressed_at"] is None
-    assert r2["pr_created_count"] == 0
     assert r2["ui_dismiss_count"] == 5
+    assert r2["discuss_count"] == 6
+    assert r2["first_discussed_at"] == T2
+    assert r2["snooze_count"] == 7
+    assert r2["first_snooze_clicked_at"] == T1
+    assert r2["feedback_positive_count"] == 2
+    assert r2["first_positive_feedback_at"] == T1
+    assert r2["feedback_negative_count"] == 1
+    assert r2["first_negative_feedback_at"] == T2
+    assert r2["pr_closed_count"] == 1
+    assert r2["first_pr_closed_at"] == T2
     assert r2["reviewer_add_count"] == 2
     assert r2["first_reviewer_added_at"] == T1
     assert r2["reviewer_remove_count"] == 3
@@ -220,6 +237,22 @@ def test_stream_row_width_mismatch_fails_loudly():
 def test_label_stream_columns_all_exist_in_defaults():
     for _name, _sql, columns in LABEL_STREAMS:
         assert set(columns) <= set(LABEL_DEFAULTS)
+
+
+def test_every_outcome_count_is_paired_with_a_first_event_timestamp():
+    # A horizon label ("did the outcome happen within N days of this moment?") and a time-to-outcome
+    # read both need the moment the outcome first arrived. The cumulative count only says it
+    # happened somewhere in the partition's whole window, so a new count column has to arrive with
+    # its paired timestamp or be named as a uniq over an outcome that already has one.
+    count_columns = {name for name in LABEL_DEFAULTS if name.endswith("_count")}
+    # The user counts are uniq aggregates over an outcome the map already pairs, not outcomes of
+    # their own.
+    assert count_columns == set(OUTCOME_FIRST_EVENT_COLUMNS) | {"impressed_user_count", "opened_user_count"}
+
+    for count_column, first_event_column in OUTCOME_FIRST_EVENT_COLUMNS.items():
+        assert first_event_column in LABEL_DEFAULTS, count_column
+        assert LABEL_DEFAULTS[first_event_column] is None, count_column
+        assert LABELS_SCHEMA.field(first_event_column).type == pa.timestamp("us", tz="UTC")
 
 
 @pytest.mark.parametrize(
@@ -417,8 +450,40 @@ class TestStatusStream(ClickhouseTestMixin, BaseTest):
 
         row = self._status_row()
         assert row["dismissal_reason"] == "already_fixed"
+        assert row["first_dismissal_reason"] == "analysis_wrong"
         assert row["wrong_dismissal_count"] == 1
         assert row["first_dismissed_server_at"] == T1
+        assert row["first_wrong_dismissed_at"] == T1
+
+    @parameterized.expand([(datetime.timedelta(hours=1),), (datetime.timedelta(minutes=1),)])
+    def test_a_reasonless_first_dismissal_carries_no_reason_forward(self, gap):
+        # A dismissal with no reason is normal: the PR-closed path suppresses a report with no
+        # artefact. The earliest dismissal must not borrow the reason of a later one, or a consumer
+        # pairs that reason with first_dismissed_server_at and misreads why the report was dismissed.
+        self._transition(T1, "ready", "suppressed", None)
+        self._transition(T1 + gap, "suppressed", "ready")
+        self._transition(T1 + 2 * gap, "ready", "suppressed", "analysis_wrong")
+
+        row = self._status_row()
+        assert row["first_dismissed_server_at"] == T1
+        assert row["first_dismissal_reason"] is None
+        assert row["dismissal_reason"] == "analysis_wrong"
+        assert row["first_wrong_dismissed_at"] == T1 + 2 * gap
+
+    @parameterized.expand([(datetime.timedelta(hours=1),), (datetime.timedelta(minutes=1),)])
+    def test_first_wrong_dismissed_at_skips_an_earlier_plain_dismissal(self, gap):
+        # dismissed as already_fixed, restored, then dismissed as analysis_wrong. The bucket's own
+        # first timestamp is the plain dismissal, so a time-to-outcome read would date the wrong
+        # dismissal to a moment it did not happen. The one-minute variant puts all three in one
+        # ten-minute dedupe bucket.
+        self._transition(T1, "ready", "suppressed", "already_fixed")
+        self._transition(T1 + gap, "suppressed", "ready")
+        self._transition(T1 + 2 * gap, "ready", "suppressed", "analysis_wrong")
+
+        row = self._status_row()
+        assert row["wrong_dismissal_count"] == 1
+        assert row["first_dismissed_server_at"] == T1
+        assert row["first_wrong_dismissed_at"] == T1 + 2 * gap
 
     @parameterized.expand(
         [
@@ -437,7 +502,29 @@ class TestStatusStream(ClickhouseTestMixin, BaseTest):
         row = self._status_row()
         assert row["status_event_team_id"] == self.team.id
         assert row["dismissal_reason"] == reason
+        # The forged reason is also the earliest one, so it must not reach first_dismissal_reason.
+        assert row["first_dismissal_reason"] == reason
         assert row["wrong_dismissal_count"] == 0
+        assert row["first_wrong_dismissed_at"] is None
+        # The forged dismissal is the only one in the later_bucket case, so an unscoped min() dates
+        # a dismissal the report's tenant never made.
+        assert row["first_dismissed_server_at"] != T1
+
+    def test_no_status_column_reads_an_event_from_another_tenant(self):
+        # Forged-event invariance: transitions naming another team, all earlier than the genuine
+        # ones, must leave every status column exactly as the genuine transitions alone produce it.
+        # Asserted over STATUS_COLUMNS rather than a list written out here, so an aggregate added
+        # later is covered without being enumerated. The genuine transitions carry distinct
+        # timestamps so the latest-wins columns have one unambiguous winner.
+        statuses = ("resolved", "suppressed", "failed", "potential")
+        for offset, status in enumerate(statuses):
+            self._transition(T2 + datetime.timedelta(hours=offset), "ready", status)
+        genuine_only = self._status_row()
+
+        for status in statuses:
+            self._transition(T1, "ready", status, "analysis_wrong", team_id=999)
+
+        assert self._status_row() == genuine_only
 
     def test_tied_tenants_count_and_report_the_same_team(self):
         # Two tenants' buckets with the same last timestamp: whichever wins the tie, the count and
@@ -448,3 +535,74 @@ class TestStatusStream(ClickhouseTestMixin, BaseTest):
 
         row = self._status_row()
         assert row["wrong_dismissal_count"] == (0 if row["status_event_team_id"] == self.team.id else 1)
+
+
+def _run_embeddings_asset(monkeypatch, asset, rows):
+    """Run one embeddings asset against a stubbed ClickHouse and S3, and return what it wrote."""
+    captured: dict[str, Any] = {}
+
+    def fake_sync_execute(sql, params, **kwargs):
+        captured["params"] = params
+        return rows
+
+    def fake_write_parquet(client, bucket, key, table, **kwargs):
+        captured["key"] = key
+        captured["table"] = table
+
+    monkeypatch.setattr(dag, "sync_execute", fake_sync_execute)
+    monkeypatch.setattr(dag, "write_parquet", fake_write_parquet)
+    monkeypatch.setattr(dag, "skip_unconfigured", lambda context: False)
+    monkeypatch.setattr(dag, "_tag_dagster_queries", lambda context, query_type: None)
+    monkeypatch.setattr(dag, "dataset_bucket", lambda: "test-bucket")
+    monkeypatch.setattr(dag, "s3_client", lambda: None)
+    monkeypatch.setattr(dag.settings, "INBOX_RANKING_DATASET_S3_PREFIX", "inbox_ranking")
+
+    context = dagster.build_asset_context(partition_key=SNAPSHOT_DATE.isoformat())
+    asset(context)
+    return captured
+
+
+@pytest.mark.parametrize(
+    "asset,table,rendering",
+    [
+        (dag.inbox_report_embeddings, "inbox_report_embeddings", EMBEDDING_RENDERING_TITLE_SUMMARY),
+        (dag.inbox_report_title_embeddings, "inbox_report_title_embeddings", EMBEDDING_RENDERING_TITLE),
+    ],
+)
+def test_each_embeddings_asset_snapshots_its_own_rendering(monkeypatch, asset, table, rendering):
+    written = _run_embeddings_asset(monkeypatch, asset, [(2, UUID_A, [0.5, 0.25], False, T1)])
+
+    assert written["params"]["rendering"] == rendering
+    assert written["key"] == common.partition_object_key("inbox_ranking", table, SNAPSHOT_DATE.isoformat())
+    assert written["table"].schema == EMBEDDINGS_SCHEMA
+    assert written["table"].column("embedding_rendering").to_pylist() == [rendering]
+    assert written["table"].column("report_id").to_pylist() == [UUID_A]
+
+
+@pytest.mark.parametrize("asset", [dag.inbox_report_embeddings, dag.inbox_report_title_embeddings])
+def test_an_empty_result_still_writes_the_full_schema(monkeypatch, asset):
+    # A day before a rendering was emitted must read as "present, zero rows", not as missing.
+    written = _run_embeddings_asset(monkeypatch, asset, [])
+
+    assert written["table"].num_rows == 0
+    assert written["table"].schema == EMBEDDINGS_SCHEMA
+
+
+def test_the_title_snapshot_is_a_leaf_ordered_after_the_join():
+    selection = dag.inbox_ranking_dataset_job.selection.resolve(
+        [
+            dag.inbox_report_state,
+            dag.inbox_report_embeddings,
+            dag.inbox_signal_embeddings,
+            dag.inbox_report_labels,
+            dag.inbox_report_model_data,
+            dag.inbox_report_title_embeddings,
+        ]
+    )
+    assert dagster.AssetKey(dag.TITLE_EMBEDDINGS_TABLE) in selection
+
+    model_data_deps = {key.path[-1] for key in dag.inbox_report_model_data.keys_by_input_name.values()}
+    assert dag.TITLE_EMBEDDINGS_TABLE not in model_data_deps
+
+    title_deps = {key.path[-1] for key in dag.inbox_report_title_embeddings.keys_by_input_name.values()}
+    assert title_deps == {dag.MODEL_DATA_TABLE}

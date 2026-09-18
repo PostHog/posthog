@@ -1,5 +1,6 @@
 import { isDismissedReport } from "@posthog/core/inbox/reportMembership";
 import type { SignalReport } from "@posthog/shared/types";
+import { useTriageFocusEnabled } from "@posthog/ui/features/feature-flags/useTriageFocusEnabled";
 import { DismissedReportDetailContent } from "@posthog/ui/features/inbox/components/DismissedReportDetail";
 import {
   InboxReportDetailGate,
@@ -8,6 +9,8 @@ import {
 import { PullRequestDetailContent } from "@posthog/ui/features/inbox/components/PullRequestDetail";
 import { ReportDetailContent } from "@posthog/ui/features/inbox/components/ReportDetail";
 import { ReportPageContext } from "@posthog/ui/features/inbox/components/ReportPageContext";
+import { useCloseReportWhenTerminal } from "@posthog/ui/features/inbox/hooks/useCloseReport";
+import { useInboxTriageHotkey } from "@posthog/ui/features/inbox/hooks/useInboxTriageHotkey";
 import { LoadingState } from "@posthog/ui/primitives/LoadingState";
 import {
   resolveNavigationSource,
@@ -65,6 +68,9 @@ export function ReportPage({
 
 function ReportPageContent({ report }: { report: SignalReport }) {
   const archived = isDismissedReport(report);
+  const triageEnabled = useTriageFocusEnabled();
+  useCloseReportWhenTerminal(report);
+  useInboxTriageHotkey({ enabled: triageEnabled });
   const hasPr = Boolean(report.implementation_pr_url);
   return (
     <ReportPageContext value={report}>
@@ -72,14 +78,11 @@ function ReportPageContent({ report }: { report: SignalReport }) {
         <ReportOpenTracker report={report} tab={hasPr ? "pulls" : "reports"} />
       )}
       {archived ? (
-        <DismissedReportDetailContent
-          report={report}
-          back={{ to: "/inbox/dismissed", label: "Report" }}
-        />
+        <DismissedReportDetailContent report={report} />
       ) : hasPr ? (
         <PullRequestDetailContent report={report} />
       ) : (
-        <ReportDetailContent report={report} backTo="/" backLabel="Report" />
+        <ReportDetailContent report={report} />
       )}
     </ReportPageContext>
   );

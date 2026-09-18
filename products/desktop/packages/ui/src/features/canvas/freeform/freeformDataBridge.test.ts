@@ -100,19 +100,94 @@ describe("assertCanvasCapability", () => {
 
 describe("handleFreeformDataRequest", () => {
   it.each([true, false])(
+    "asks before retrying an MCP tool (allowed: %s)",
+    async (allowed) => {
+      const queryClient = new QueryClient({
+        defaultOptions: { queries: { retry: false } },
+      });
+      const requestConnectorPermission = vi
+        .fn()
+        .mockResolvedValueOnce(true)
+        .mockResolvedValue(allowed);
+      callConnector
+        .mockReset()
+        .mockResolvedValueOnce({
+          status: "needs_approval",
+          approval_token: "server-issued-token",
+        })
+        .mockResolvedValue({ status: "ok", result: {} });
+      const read = handleFreeformDataRequest(
+        "connectorCall",
+        {
+          provider: "mcp:example.com",
+          tool: "list_events",
+          arguments: { limit: 5 },
+          approved: true,
+          approval_token: "iframe-forgery",
+        },
+        queryClient,
+        {
+          dashboardId: "canvas-1",
+          sourceVersionId: "version-1",
+          requestConnectorPermission,
+        },
+      );
+      if (allowed) {
+        await expect(read).resolves.toMatchObject({ status: "ok" });
+        expect(callConnector).toHaveBeenLastCalledWith(
+          {
+            id: "canvas-1",
+            provider: "mcp:example.com",
+            tool: "list_events",
+            arguments: { limit: 5 },
+            approval_token: "server-issued-token",
+          },
+          expect.objectContaining({ signal: expect.any(AbortSignal) }),
+        );
+      } else {
+        await expect(read).rejects.toThrow("not granted");
+        expect(callConnector).toHaveBeenCalledTimes(1);
+      }
+      expect(callConnector).toHaveBeenNthCalledWith(
+        1,
+        {
+          id: "canvas-1",
+          provider: "mcp:example.com",
+          tool: "list_events",
+          arguments: { limit: 5 },
+        },
+        expect.objectContaining({ signal: expect.any(AbortSignal) }),
+      );
+      expect(requestConnectorPermission).toHaveBeenLastCalledWith(
+        {
+          provider: "mcp:example.com",
+          tool: "list_events",
+          arguments: { limit: 5 },
+          reason: "tool",
+        },
+        expect.any(AbortSignal),
+      );
+      queryClient.clear();
+    },
+  );
+  it.each([true, false])(
     "requires viewer consent before fetching (allowed: %s)",
     async (allowed) => {
       const queryClient = new QueryClient({
         defaultOptions: { queries: { retry: false } },
       });
-      const confirm = vi.spyOn(window, "confirm").mockReturnValue(allowed);
+      const confirm = vi.fn().mockResolvedValue(allowed);
       callConnector.mockReset().mockResolvedValue({ status: "ok", result: {} });
       const read = () =>
         handleFreeformDataRequest(
           "connectorCall",
           { provider: "github", tool: "list_pull_requests" },
           queryClient,
-          { dashboardId: "canvas-1", sourceVersionId: "version-1" },
+          {
+            dashboardId: "canvas-1",
+            sourceVersionId: "version-1",
+            requestConnectorPermission: confirm,
+          },
         );
       for (let attempt = 0; attempt < 2; attempt += 1) {
         if (allowed) await read();
@@ -122,7 +197,7 @@ describe("handleFreeformDataRequest", () => {
       }
       if (!allowed) {
         vi.stubGlobal("navigator", { userActivation: { isActive: true } });
-        confirm.mockReturnValue(true);
+        confirm.mockResolvedValue(true);
         await read();
         expect(confirm).toHaveBeenCalledTimes(2);
         expect(callConnector).toHaveBeenCalledTimes(1);
@@ -133,7 +208,7 @@ describe("handleFreeformDataRequest", () => {
 
   it("removes connector results and consent on an authentication change", async () => {
     const queryClient = new QueryClient();
-    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+    const confirm = vi.fn().mockResolvedValue(true);
     callConnector
       .mockReset()
       .mockResolvedValueOnce({ status: "ok", result: { viewer: "first" } })
@@ -143,7 +218,11 @@ describe("handleFreeformDataRequest", () => {
         "connectorCall",
         { provider: "github", tool: "list_pull_requests" },
         queryClient,
-        { dashboardId: "canvas-1", sourceVersionId: "version-1" },
+        {
+          dashboardId: "canvas-1",
+          sourceVersionId: "version-1",
+          requestConnectorPermission: confirm,
+        },
       );
     await expect(read()).resolves.toMatchObject({
       result: { viewer: "first" },
@@ -160,7 +239,7 @@ describe("handleFreeformDataRequest", () => {
 
   it("requests consent again for a different canvas version or tool", async () => {
     const queryClient = new QueryClient();
-    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+    const confirm = vi.fn().mockResolvedValue(true);
     callConnector.mockReset().mockResolvedValue({ status: "ok", result: {} });
     for (const [sourceVersionId, tool] of [
       ["version-1", "list_pull_requests"],
@@ -171,7 +250,11 @@ describe("handleFreeformDataRequest", () => {
         "connectorCall",
         { provider: "github", tool },
         queryClient,
-        { dashboardId: "canvas-1", sourceVersionId },
+        {
+          dashboardId: "canvas-1",
+          sourceVersionId,
+          requestConnectorPermission: confirm,
+        },
       );
     }
     expect(confirm).toHaveBeenCalledTimes(3);
@@ -220,7 +303,7 @@ describe("handleFreeformDataRequest", () => {
   // The capability check that admits a connector call is per canvas, so a cached
   // result must not be served to a second canvas that made the same call.
   it("does not share a cached connector result across canvases", async () => {
-    vi.spyOn(window, "confirm").mockReturnValue(true);
+    const confirm = vi.fn().mockResolvedValue(true);
     const queryClient = new QueryClient();
     callConnector.mockReset().mockResolvedValue({
       status: "ok",
@@ -238,23 +321,29 @@ describe("handleFreeformDataRequest", () => {
     await handleFreeformDataRequest("connectorCall", payload, queryClient, {
       dashboardId: "canvas-1",
       sourceVersionId: "version-1",
+      requestConnectorPermission: confirm,
     });
     await handleFreeformDataRequest("connectorCall", payload, queryClient, {
       dashboardId: "canvas-1",
       sourceVersionId: "version-1",
+      requestConnectorPermission: confirm,
     });
     await handleFreeformDataRequest("connectorCall", payload, queryClient, {
       dashboardId: "canvas-2",
       sourceVersionId: "version-1",
+      requestConnectorPermission: confirm,
     });
 
     expect(callConnector).toHaveBeenCalledTimes(2);
-    expect(callConnector).toHaveBeenLastCalledWith({
-      id: "canvas-2",
-      provider: "github",
-      tool: "list_pull_requests",
-      arguments: { repository: "app" },
-    });
+    expect(callConnector).toHaveBeenLastCalledWith(
+      {
+        id: "canvas-2",
+        provider: "github",
+        tool: "list_pull_requests",
+        arguments: { repository: "app" },
+      },
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    );
   });
 
   // Reads are cached by their content, so `variables` has to be part of the key. If

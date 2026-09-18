@@ -1,5 +1,11 @@
+import { useService } from "@posthog/di/react";
 import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
 import { AUTH_SCOPED_QUERY_META } from "@posthog/ui/features/auth/useCurrentUser";
+import {
+  BROWSER_TABS_CLIENT,
+  type BrowserTabsClient,
+} from "@posthog/ui/features/browser-tabs/browserTabsClient";
+import { focusOrOpenBrowserTab } from "@posthog/ui/features/browser-tabs/imperativeTabNavigation";
 import { reportKeys } from "@posthog/ui/features/inbox/hooks/useInboxReports";
 import { toast } from "@posthog/ui/primitives/toast";
 import { navigateToReport } from "@posthog/ui/router/navigationBridge";
@@ -13,9 +19,13 @@ const log = logger.scope("open-inbox-report");
 export function useOpenInboxReport() {
   const queryClient = useQueryClient();
   const client = useOptionalAuthenticatedClient();
+  const tabsClient = useService<BrowserTabsClient>(BROWSER_TABS_CLIENT);
 
   return useCallback(
-    async (reportId: string, options?: { preserveSource?: boolean }) => {
+    async (
+      reportId: string,
+      options?: { preserveSource?: boolean; newTab?: boolean },
+    ) => {
       const sourceKey = getRouterOrNull()?.history.location.state.__TSR_key;
       if (!client) {
         log.warn("Ignoring open-report request – not authenticated");
@@ -39,6 +49,16 @@ export function useOpenInboxReport() {
 
         if (getRouterOrNull()?.history.location.state.__TSR_key !== sourceKey)
           return;
+        if (options?.newTab) {
+          const handled = await focusOrOpenBrowserTab(tabsClient, {
+            href: `/reports/${report.id}`,
+            appView: "report",
+          });
+          if (handled) {
+            log.info(`Successfully opened report: ${report.id}`);
+            return;
+          }
+        }
         navigateToReport(report.id, options);
         log.info(`Successfully opened report: ${report.id}`);
       } catch (error) {
@@ -46,6 +66,6 @@ export function useOpenInboxReport() {
         toast.error("Failed to open report");
       }
     },
-    [client, queryClient],
+    [client, queryClient, tabsClient],
   );
 }

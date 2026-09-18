@@ -6,7 +6,7 @@ from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, flus
 
 from parameterized import parameterized
 
-from posthog.schema import CustomBotDefinition, CustomBotField, CustomBotMatcher, HogQLQueryModifiers
+from posthog.schema import CustomBotCondition, CustomBotField, CustomBotMatcher, CustomBotRule, HogQLQueryModifiers
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
@@ -23,6 +23,8 @@ from posthog.hogql.functions.traffic_type import (
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.query import execute_hogql_query
+
+from posthog.schema_enums import FilterLogicalOperator
 
 from products.actions.backend.models.action import Action
 from products.web_analytics.backend.hogql_queries.bot_definitions import BOT_DEFINITIONS
@@ -651,7 +653,14 @@ class TestMacroExpansionGuard(BaseTest):
         # Without any rule the same nesting is allowed
         # (test_non_duplicating_macro_inside_duplicating_macro_is_allowed).
         modifiers = HogQLQueryModifiers(
-            customBotDefinitions=[CustomBotDefinition(id="1", name="Acme", key=key, pattern=pattern, matcher=matcher)]
+            customBotDefinitions=[
+                CustomBotRule(
+                    id="1",
+                    name="Acme",
+                    combiner=FilterLogicalOperator.AND_,
+                    items=[CustomBotCondition(id="c1", key=key, pattern=pattern, matcher=matcher)],
+                )
+            ]
         )
         context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, modifiers=modifiers)
         query = parse_select("SELECT __preview_isBot(toString(__preview_isBot(properties.x))) FROM events")
@@ -702,11 +711,10 @@ CHROME_USER_AGENT = (
 )
 
 
-def _custom_bot(**kwargs) -> CustomBotDefinition:
-    return CustomBotDefinition(
+def _custom_condition(**kwargs) -> CustomBotCondition:
+    return CustomBotCondition(
         **{
-            "id": "1",
-            "name": "Acme scraper",
+            "id": "c1",
             "key": CustomBotField.FIELD_RAW_USER_AGENT,
             "pattern": "AcmeBot",
             "matcher": CustomBotMatcher.CONTAINS,
@@ -715,10 +723,23 @@ def _custom_bot(**kwargs) -> CustomBotDefinition:
     )
 
 
+def _custom_bot(**kwargs) -> CustomBotRule:
+    condition_overrides = {key: kwargs.pop(key) for key in ("key", "pattern", "matcher") if key in kwargs}
+    return CustomBotRule(
+        **{
+            "id": "1",
+            "name": "Acme scraper",
+            "combiner": FilterLogicalOperator.AND_,
+            "items": kwargs.pop("items", None) or [_custom_condition(**condition_overrides)],
+            **kwargs,
+        }
+    )
+
+
 class TestCustomBotDefinitions(ClickhouseTestMixin, BaseTest):
     """Runs the project's rules the way a query does: team settings, then ClickHouse."""
 
-    def _classify(self, definitions: list[CustomBotDefinition], properties: dict) -> tuple:
+    def _classify(self, definitions: list[CustomBotRule], properties: dict) -> tuple:
         self.team.modifiers = {"customBotDefinitions": [d.model_dump(mode="json") for d in definitions]}
         self.team.save()
 
@@ -868,3 +889,182 @@ class TestCustomBotDefinitions(ClickhouseTestMixin, BaseTest):
         )
 
         assert (is_bot, category) == (True, "no_user_agent")
+
+    @parameterized.expand(
+        [
+            # The reason conditions combine: neither 800 wide nor 600 tall alone identifies the
+            # headless browser, only the pair does.
+            ("AND with both matching", FilterLogicalOperator.AND_, {"$screen_width": 800, "$screen_height": 600}, True),
+            ("AND with one matching", FilterLogicalOperator.AND_, {"$screen_width": 800, "$screen_height": 768}, False),
+            ("OR with one matching", FilterLogicalOperator.OR_, {"$screen_width": 800, "$screen_height": 768}, True),
+            ("OR with none matching", FilterLogicalOperator.OR_, {"$screen_width": 1024, "$screen_height": 768}, False),
+        ]
+    )
+    def test_a_multi_condition_rule_combines_the_way_it_says(
+        self, _name: str, combiner: FilterLogicalOperator, screen: dict, expected: bool
+    ):
+        is_bot, name, _category = self._classify(
+            [
+                _custom_bot(
+                    name="Headless 800x600",
+                    combiner=combiner,
+                    items=[
+                        _custom_condition(
+                            id="w",
+                            key=CustomBotField.FIELD_SCREEN_WIDTH,
+                            matcher=CustomBotMatcher.EXACT,
+                            pattern="800",
+                        ),
+                        _custom_condition(
+                            id="h",
+                            key=CustomBotField.FIELD_SCREEN_HEIGHT,
+                            matcher=CustomBotMatcher.EXACT,
+                            pattern="600",
+                        ),
+                    ],
+                )
+            ],
+            {"$raw_user_agent": CHROME_USER_AGENT, **screen},
+        )
+
+        assert (is_bot, name) == (expected, "Headless 800x600" if expected else "")
+
+    def test_an_exact_condition_does_not_match_a_longer_value(self):
+        # Equality is the reason the matcher exists: a contains rule on "800" would also flag every
+        # 1800-wide screen.
+        is_bot, _name, _category = self._classify(
+            [
+                _custom_bot(
+                    name="Exactly 800",
+                    key=CustomBotField.FIELD_SCREEN_WIDTH,
+                    matcher=CustomBotMatcher.EXACT,
+                    pattern="800",
+                )
+            ],
+            {"$raw_user_agent": CHROME_USER_AGENT, "$screen_width": 1800},
+        )
+
+        assert is_bot is False
+
+
+class TestCookielessClassification(ClickhouseTestMixin, BaseTest):
+    def _classify(
+        self,
+        properties: dict,
+        cookieless_traffic_is_regular: bool = True,
+        definitions: list[CustomBotRule] | None = None,
+    ) -> tuple:
+        modifiers: dict = {"cookielessTrafficIsRegular": cookieless_traffic_is_regular}
+        if definitions:
+            modifiers["customBotDefinitions"] = [d.model_dump(mode="json") for d in definitions]
+        self.team.modifiers = modifiers
+        self.team.save()
+
+        tag = uuid4().hex
+        _create_event(
+            team=self.team,
+            distinct_id="visitor",
+            event="$pageview",
+            properties={**properties, "_test_tag": tag},
+        )
+        flush_persons_and_events()
+
+        response = execute_hogql_query(
+            "SELECT `$virt_is_bot`, `$virt_traffic_type`, `$virt_traffic_category`, `$virt_bot_name`, "
+            "`$virt_bot_operator`, getBotType(properties.`$raw_user_agent`, properties.`$ip`) "
+            f"FROM events WHERE properties._test_tag = '{tag}'",
+            self.team,
+        )
+        assert response.results is not None
+        return response.results[0]
+
+    @parameterized.expand(
+        [("missing", {}), ("empty", {"$raw_user_agent": ""}), ("string_flag", {"$cookieless_mode": "true"})]
+    )
+    def test_a_cookieless_event_is_regular_traffic(self, _name: str, properties: dict) -> None:
+        assert self._classify({"$cookieless_mode": True, **properties}) == (False, "Regular", "regular", "", "", "")
+
+    @parameterized.expand(
+        [
+            ("user_agent", {"$raw_user_agent": "Googlebot/2.1"}, False),
+            ("ip", {"$ip": "66.249.66.1"}, False),
+            ("user_agent_with_project_rules", {"$raw_user_agent": "Googlebot/2.1"}, True),
+            ("ip_with_project_rules", {"$ip": "66.249.66.1"}, True),
+        ]
+    )
+    def test_positive_bot_signals_still_classify_cookieless_events(
+        self, _name: str, properties: dict, with_project_rules: bool
+    ) -> None:
+        definitions = (
+            [_custom_bot(name="Staging checker", key=CustomBotField.FIELD_HOST, pattern="staging")]
+            if with_project_rules
+            else None
+        )
+        assert self._classify({"$cookieless_mode": True, **properties}, definitions=definitions) == (
+            True,
+            "Bot",
+            "search_crawler",
+            "Googlebot",
+            "Google",
+            "search_crawler",
+        )
+
+    def test_a_cookieless_event_is_still_automation_while_the_rollout_is_off(self):
+        assert self._classify({"$cookieless_mode": True}, cookieless_traffic_is_regular=False) == (
+            True,
+            "Automation",
+            "no_user_agent",
+            "",
+            "",
+            "no_user_agent",
+        )
+
+    def test_a_non_cookieless_event_with_no_user_agent_is_still_automation(self):
+        assert self._classify({}) == (True, "Automation", "no_user_agent", "", "", "no_user_agent")
+
+    def test_the_flag_is_read_as_a_value_not_as_presence(self):
+        is_bot, traffic_type, _category, _name, _operator, _bot_type = self._classify(
+            {"$cookieless_mode": False, "$raw_user_agent": "Googlebot/2.1 (+http://www.google.com/bot.html)"}
+        )
+
+        assert (is_bot, traffic_type) == (True, "Bot")
+
+    @parameterized.expand(
+        [("no_builtin", {}), ("user_agent", {"$raw_user_agent": "Googlebot/2.1"}), ("ip", {"$ip": "66.249.66.1"})]
+    )
+    def test_a_project_rule_still_names_a_cookieless_event(self, _name: str, properties: dict) -> None:
+        is_bot, traffic_type, category, name, _operator, bot_type = self._classify(
+            {"$cookieless_mode": True, "$host": "staging.example.com", **properties},
+            definitions=[
+                _custom_bot(
+                    name="Staging checker", key=CustomBotField.FIELD_HOST, pattern="staging", category="monitoring"
+                )
+            ],
+        )
+
+        assert (is_bot, traffic_type, category, name, bot_type) == (
+            True,
+            "Bot",
+            "monitoring",
+            "Staging checker",
+            "monitoring",
+        )
+
+
+COOKIELESS_ON = HogQLQueryModifiers(cookielessTrafficIsRegular=True)
+
+
+class TestCookielessOverrideExpression:
+    @parameterized.expand(
+        [
+            ("getTrafficType", get_traffic_type, "if"),
+            ("isLikelyBot", is_bot, "toBool"),
+        ]
+    )
+    def test_a_user_agent_with_no_properties_object_is_left_unwrapped(self, name, factory_fn, expected_top_call):
+        result = factory_fn(
+            node=ast.Call(name=name, args=[]), args=[ast.Call(name="lower", args=[])], modifiers=COOKIELESS_ON
+        )
+
+        assert isinstance(result, ast.Call)
+        assert result.name == expected_top_call

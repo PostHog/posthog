@@ -5,12 +5,17 @@ import {
   type ContextWikiDreamList,
   type ContextWikiHealthReport,
   type ContextWikiPage,
+  type ContextWikiPageProposal,
   type ContextWikiTree,
   ContextWikiUnavailableError,
 } from "@posthog/api-client/posthog-client";
 import { useAuthenticatedMutation } from "@posthog/ui/hooks/useAuthenticatedMutation";
 import { useAuthenticatedQuery } from "@posthog/ui/hooks/useAuthenticatedQuery";
-import { useQueryClient } from "@tanstack/react-query";
+import {
+  type UseMutationResult,
+  type UseQueryResult,
+  useQueryClient,
+} from "@tanstack/react-query";
 
 const CONTEXT_WIKI_TREE_KEY = ["context-wiki", "tree"] as const;
 const CONTEXT_WIKI_PAGE_KEY = (path: string) =>
@@ -190,6 +195,35 @@ export function useContextWikiPageMutation() {
       );
     },
   });
+}
+
+export function useContextWikiProposals(): UseQueryResult<
+  ContextWikiPageProposal[] | null,
+  Error
+> {
+  return useAuthenticatedQuery<ContextWikiPageProposal[] | null>(
+    ["context-wiki", "proposals"],
+    (client) => client.getContextWikiProposals(),
+    { staleTime: 0, refetchOnMount: "always" },
+  );
+}
+
+export function useApplyContextWikiProposal(): UseMutationResult<
+  { head_sha: string },
+  Error,
+  string
+> {
+  const queryClient = useQueryClient();
+  return useAuthenticatedMutation<{ head_sha: string }, Error, string>(
+    (client, id) => client.applyContextWikiProposal(id),
+    {
+      retry: shouldRetryWikiWrite,
+      retryDelay: wikiWriteRetryDelay,
+      onSuccess: () => {
+        void queryClient.invalidateQueries({ queryKey: ["context-wiki"] });
+      },
+    },
+  );
 }
 
 export function useEnableContextWiki() {

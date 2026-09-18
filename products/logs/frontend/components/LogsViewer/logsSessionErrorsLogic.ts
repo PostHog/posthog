@@ -151,9 +151,10 @@ export type logsSessionErrorsLogicType = MakeLogicType<
 // errors" without the user opening the row's Related errors tab first. The count answers the
 // session, not the log line: an exception in the same session is co-occurring evidence, not a cause.
 //
-// The count comes from raw `$exception` events, while the tab it opens resolves them into Error
-// Tracking issues. So the badge counts events the tab may group, suppress, or filter out, and the
-// two can disagree on the number.
+// Only exceptions error tracking linked to an issue count: an event with no issue id failed
+// ingestion parsing, so the tab this badge opens can never list it. The two still disagree at the
+// edges, because the tab anchors its window to one row rather than the whole page, caps at 100
+// issues, and resolves issues through fingerprint state this query cannot see.
 export const logsSessionErrorsLogic = kea<logsSessionErrorsLogicType>([
     props({} as LogsSessionErrorsLogicProps),
     key((props) => props.id),
@@ -197,6 +198,7 @@ export const logsSessionErrorsLogic = kea<logsSessionErrorsLogicType>([
                             SELECT properties.$session_id AS session_id, count() AS exceptions
                             FROM events
                             WHERE event = '$exception'
+                              AND isNotNull(properties.$exception_issue_id)
                               AND timestamp >= ${range.from}
                               AND timestamp <= ${range.to}
                               AND properties.$session_id IN ${sessionIds}

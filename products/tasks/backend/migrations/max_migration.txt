@@ -1,1 +1,1 @@
-0121_squash_2026_09_07_finalize_fks
+0124_drop_retired_code_home_tables

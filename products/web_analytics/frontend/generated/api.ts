@@ -21,13 +21,13 @@ import type {
     ContentAutopilotSiteDiscoveryRequestApi,
     ContentAutopilotSiteDiscoveryResponseApi,
     ContentAutopilotSiteProfileApi,
-    CustomBotRuleApi,
     GeneratePathCleaningSuggestionResponseApi,
     HeatmapEventsResponseApi,
     HeatmapPreflightRequestApi,
     HeatmapPreflightResponseApi,
     HeatmapPrewarmRequestApi,
     HeatmapScreenshotResponseApi,
+    HeatmapScreenshotSettingsApi,
     HeatmapScreenshotsContentRetrieveParams,
     HeatmapsEventsRetrieveParams,
     HeatmapsListParams,
@@ -39,6 +39,7 @@ import type {
     PaginatedContentAutopilotSiteProfileListApi,
     PaginatedWebAnalyticsFilterPresetListApi,
     PatchedContentAutopilotSiteProfileApi,
+    PatchedHeatmapScreenshotSettingsRequestApi,
     PatchedSavedHeatmapRequestApi,
     PatchedWebAnalyticsFilterPresetApi,
     PreviewPathCleaningSuggestionResponseApi,
@@ -49,6 +50,7 @@ import type {
     SavedHeatmapListResponseApi,
     SavedHeatmapRequestApi,
     SavedListParams,
+    WebAnalyticsBotRuleApi,
     WebAnalyticsContentAutopilotProfilesListParams,
     WebAnalyticsContentAutopilotProposalsListParams,
     WebAnalyticsContentAutopilotRunsListParams,
@@ -77,6 +79,37 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
           [P in keyof Writable<T>]: T[P] extends object ? NonReadonly<NonNullable<T[P]>> : T[P]
       }
     : DistributeReadOnlyOverUnions<T>
+
+export const getHeatmapScreenshotSettingsRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/heatmap_screenshot/settings/`
+}
+
+export const heatmapScreenshotSettingsRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<HeatmapScreenshotSettingsApi> => {
+    return apiMutator<HeatmapScreenshotSettingsApi>(getHeatmapScreenshotSettingsRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getHeatmapScreenshotSettingsUpdateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/heatmap_screenshot/settings/`
+}
+
+export const heatmapScreenshotSettingsUpdate = async (
+    projectId: string,
+    patchedHeatmapScreenshotSettingsRequestApi?: PatchedHeatmapScreenshotSettingsRequestApi,
+    options?: RequestInit
+): Promise<HeatmapScreenshotSettingsApi> => {
+    return apiMutator<HeatmapScreenshotSettingsApi>(getHeatmapScreenshotSettingsUpdateUrl(projectId), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedHeatmapScreenshotSettingsRequestApi),
+    })
+}
 
 export const getHeatmapScreenshotsContentRetrieveUrl = (
     projectId: string,
@@ -589,8 +622,8 @@ export const getWebAnalyticsBotRulesListUrl = (projectId: string) => {
 export const webAnalyticsBotRulesList = async (
     projectId: string,
     options?: RequestInit
-): Promise<CustomBotRuleApi[]> => {
-    return apiMutator<CustomBotRuleApi[]>(getWebAnalyticsBotRulesListUrl(projectId), {
+): Promise<WebAnalyticsBotRuleApi[]> => {
+    return apiMutator<WebAnalyticsBotRuleApi[]>(getWebAnalyticsBotRulesListUrl(projectId), {
         ...options,
         method: 'GET',
     })
@@ -601,19 +634,19 @@ export const getWebAnalyticsBotRulesCreateUrl = (projectId: string) => {
 }
 
 /**
- * Add one bot rule to the project. The pattern is rejected if it cannot run, because a broken rule would break every query that classifies traffic for the project.
+ * Add one bot rule to the project. A rule combines one or more single-property conditions with AND or OR. A pattern is rejected if it cannot run, because a broken rule would break every query that classifies traffic for the project.
  * @summary Create a custom bot rule
  */
 export const webAnalyticsBotRulesCreate = async (
     projectId: string,
-    customBotRuleApi: NonReadonly<CustomBotRuleApi>,
+    webAnalyticsBotRuleApi: NonReadonly<WebAnalyticsBotRuleApi>,
     options?: RequestInit
-): Promise<CustomBotRuleApi> => {
-    return apiMutator<CustomBotRuleApi>(getWebAnalyticsBotRulesCreateUrl(projectId), {
+): Promise<WebAnalyticsBotRuleApi> => {
+    return apiMutator<WebAnalyticsBotRuleApi>(getWebAnalyticsBotRulesCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(customBotRuleApi),
+        body: JSON.stringify(webAnalyticsBotRuleApi),
     })
 }
 

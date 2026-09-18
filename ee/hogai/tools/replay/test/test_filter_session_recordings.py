@@ -1,6 +1,6 @@
 from datetime import datetime, timedelta
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import ClickhouseTestMixin, NonAtomicBaseTest, _create_event, flush_persons_and_events
 
 from langchain_core.runnables import RunnableConfig
@@ -26,7 +26,7 @@ from ee.hogai.utils.types import AssistantState
 from ee.hogai.utils.types.base import NodePath
 
 
-@freeze_time("2025-01-15T12:00:00Z")
+@time_machine.travel("2025-01-15T12:00:00Z", tick=False)
 class TestFilterSessionRecordingsTool(ClickhouseTestMixin, NonAtomicBaseTest):
     CLASS_DATA_LEVEL_SETUP = False
 

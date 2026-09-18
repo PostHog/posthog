@@ -1,7 +1,7 @@
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
@@ -64,7 +64,7 @@ class TestProductIntent(BaseTest):
         assert intent is not None
         assert intent.contexts == {ProductIntentContext.QUICK_START_PRODUCT_SELECTED: 2}
 
-    @freeze_time("2024-01-01T12:00:00Z")
+    @time_machine.travel("2024-01-01T12:00:00Z", tick=False)
     def test_register_with_onboarding_sets_onboarding_completed_at(self):
         ProductIntent.register(
             team=self.team,
@@ -78,7 +78,7 @@ class TestProductIntent(BaseTest):
         assert intent.onboarding_completed_at == datetime(2024, 1, 1, 12, 0, 0, tzinfo=UTC)
         assert intent.contexts == {ProductIntentContext.ONBOARDING_PRODUCT_SELECTED___PRIMARY: 1}
 
-    @freeze_time("2024-01-01T12:00:00Z")
+    @time_machine.travel("2024-01-01T12:00:00Z", tick=False)
     def test_register_without_onboarding_does_not_set_onboarding_completed_at(self):
         ProductIntent.register(
             team=self.team,
@@ -92,7 +92,7 @@ class TestProductIntent(BaseTest):
         assert intent.onboarding_completed_at is None
         assert intent.contexts == {ProductIntentContext.TAXONOMIC_FILTER_EMPTY_STATE: 1}
 
-    @freeze_time("2024-06-15T12:00:00Z")
+    @time_machine.travel("2024-06-15T12:00:00Z", tick=False)
     def test_has_activated_data_warehouse_with_valid_query(self):
         Insight.objects.create(
             team=self.team, query={"kind": "DataVisualizationNode", "source": {"query": "SELECT * FROM custom_table"}}
@@ -100,7 +100,7 @@ class TestProductIntent(BaseTest):
 
         self.assertTrue(self.product_intent.has_activated_data_warehouse())
 
-    @freeze_time("2024-06-15T12:00:00Z")
+    @time_machine.travel("2024-06-15T12:00:00Z", tick=False)
     def test_has_activated_data_warehouse_with_excluded_table(self):
         Insight.objects.create(
             team=self.team, query={"kind": "DataVisualizationNode", "source": {"query": "SELECT * FROM events"}}
@@ -108,9 +108,9 @@ class TestProductIntent(BaseTest):
 
         self.assertFalse(self.product_intent.has_activated_data_warehouse())
 
-    @freeze_time("2024-06-15T12:00:00Z")
+    @time_machine.travel("2024-06-15T12:00:00Z", tick=False)
     def test_has_activated_data_warehouse_with_old_insight(self):
-        with freeze_time("2024-05-15T12:00:00Z"):  # Before June 1st, 2024
+        with time_machine.travel("2024-05-15T12:00:00Z", tick=False):  # Before June 1st, 2024
             Insight.objects.create(
                 team=self.team,
                 query={"kind": "DataVisualizationNode", "source": {"query": "SELECT * FROM custom_table"}},
@@ -118,7 +118,7 @@ class TestProductIntent(BaseTest):
 
         self.assertFalse(self.product_intent.has_activated_data_warehouse())
 
-    @freeze_time("2024-06-15T12:00:00Z")
+    @time_machine.travel("2024-06-15T12:00:00Z", tick=False)
     def test_check_and_update_activation_sets_activated_at(self):
         Insight.objects.create(
             team=self.team, query={"kind": "DataVisualizationNode", "source": {"query": "SELECT * FROM custom_table"}}
@@ -129,7 +129,7 @@ class TestProductIntent(BaseTest):
         self.product_intent.refresh_from_db()
         assert self.product_intent.activated_at == datetime(2024, 6, 15, 12, 0, 0, tzinfo=UTC)
 
-    @freeze_time("2024-06-15T12:00:00Z")
+    @time_machine.travel("2024-06-15T12:00:00Z", tick=False)
     def test_calculate_product_activation_task(self):
         # Create an insight that should trigger activation
         Insight.objects.create(
@@ -151,13 +151,13 @@ class TestProductIntent(BaseTest):
         self.product_intent.refresh_from_db()
         self.assertIsNone(self.product_intent.activated_at)
 
-    @freeze_time("2024-06-15T12:00:00Z")
+    @time_machine.travel("2024-06-15T12:00:00Z", tick=False)
     def test_calculate_product_activation_skips_activated_products(self):
         # Set product as already activated
         self.product_intent.activated_at = datetime.now(tz=UTC)
         self.product_intent.save()
 
-        with freeze_time(datetime.now(tz=UTC) + timedelta(days=2)):
+        with time_machine.travel(datetime.now(tz=UTC) + timedelta(days=2), tick=False):
             calculate_product_activation(self.team.id)
             self.product_intent.refresh_from_db()
             assert self.product_intent.activated_at == datetime(2024, 6, 15, 12, 0, 0, tzinfo=UTC)
@@ -236,7 +236,7 @@ class TestProductIntent(BaseTest):
 
         self.assertFalse(self.product_intent.has_activated_feature_flags())
 
-    @freeze_time("2024-06-15T12:00:00Z")
+    @time_machine.travel("2024-06-15T12:00:00Z", tick=False)
     def test_has_activated_session_replay_with_five_recordings_viewed_and_filters_set(self):
         # Create 5 recordings and mark them as viewed
         for i in range(5):
@@ -256,7 +256,7 @@ class TestProductIntent(BaseTest):
 
         self.assertTrue(self.product_intent.has_activated_session_replay())
 
-    @freeze_time("2024-06-15T12:00:00Z")
+    @time_machine.travel("2024-06-15T12:00:00Z", tick=False)
     def test_has_not_activated_session_replay_with_less_than_five_recordings(self):
         # Create a product intent with the filters set
         ProductIntent.objects.create(
@@ -276,7 +276,7 @@ class TestProductIntent(BaseTest):
 
         assert self.product_intent.has_activated_session_replay() is False
 
-    @freeze_time("2024-06-15T12:00:00Z")
+    @time_machine.travel("2024-06-15T12:00:00Z", tick=False)
     def test_has_not_activated_session_replay_with_unviewed_recordings(self):
         # Create a product intent with the filters set
         ProductIntent.objects.create(
@@ -319,7 +319,7 @@ class TestProductIntent(BaseTest):
 
         assert self.product_intent.has_activated_session_replay() is False
 
-    @freeze_time("2024-01-01T12:00:00Z")
+    @time_machine.travel("2024-01-01T12:00:00Z", tick=False)
     @patch("posthog.event_usage.report_user_action")
     def test_register_reports_correct_user_action_for_onboarding(self, mock_report_user_action):
         ProductIntent.register(
@@ -347,7 +347,7 @@ class TestProductIntent(BaseTest):
             team=self.team,
         )
 
-    @freeze_time("2024-01-01T12:00:00Z")
+    @time_machine.travel("2024-01-01T12:00:00Z", tick=False)
     @patch("posthog.event_usage.report_user_action")
     def test_register_reports_correct_user_action_for_non_onboarding(self, mock_report_user_action):
         ProductIntent.register(
@@ -375,7 +375,7 @@ class TestProductIntent(BaseTest):
             team=self.team,
         )
 
-    @freeze_time("2024-01-01T12:00:00Z")
+    @time_machine.travel("2024-01-01T12:00:00Z", tick=False)
     @patch("posthog.event_usage.report_user_action")
     def test_register_managed_warehouse_intent(self, mock_report_user_action):
         # Managed warehouse is a distinct product from data_warehouse imports. Provisioning is the
@@ -511,7 +511,7 @@ class TestProductIntent(BaseTest):
 
         assert self.product_intent.has_activated_product_analytics() is True
 
-    @freeze_time("2024-06-15T12:00:00Z")
+    @time_machine.travel("2024-06-15T12:00:00Z", tick=False)
     @patch("posthog.event_usage.report_user_action")
     def test_register_tracks_intent_even_when_already_activated(self, mock_report_user_action):
         # Create an insight that should trigger activation for data_warehouse
@@ -580,7 +580,7 @@ class TestProductIntent(BaseTest):
         Survey.objects.create(team=self.team, name="Survey Test")
         assert self.product_intent.has_activated_surveys() is False
 
-    @freeze_time("2024-06-15T12:00:00Z")
+    @time_machine.travel("2024-06-15T12:00:00Z", tick=False)
     def test_check_and_update_activation_skips_if_already_activated(self):
         # First activate it
         Insight.objects.create(
@@ -591,7 +591,7 @@ class TestProductIntent(BaseTest):
         initial_last_checked = self.product_intent.activation_last_checked_at
 
         # Move time forward and check again
-        with freeze_time("2024-06-16T12:00:00Z"):
+        with time_machine.travel("2024-06-16T12:00:00Z", tick=False):
             result = self.product_intent.check_and_update_activation()
             self.product_intent.refresh_from_db()
 
@@ -599,7 +599,7 @@ class TestProductIntent(BaseTest):
             assert self.product_intent.activated_at == initial_activated_at  # Activation time unchanged
             assert self.product_intent.activation_last_checked_at == initial_last_checked  # Last checked unchanged
 
-    @freeze_time("2024-06-15T12:00:00Z")
+    @time_machine.travel("2024-06-15T12:00:00Z", tick=False)
     def test_check_and_update_activation_updates_last_checked_for_non_activated(self):
         initial_last_checked = self.product_intent.activation_last_checked_at
         result = self.product_intent.check_and_update_activation()

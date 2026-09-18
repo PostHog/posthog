@@ -36,6 +36,7 @@ vi.mock("@posthog/ui/features/canvas/hooks/useChannels", () => ({
 vi.mock("@posthog/ui/features/canvas/hooks/useDashboards", () => ({
   useDashboards: () => mocks.dashboards,
   useDashboardMutations: () => ({ setPinned: mocks.setPinned }),
+  usePrimeCanvasView: () => () => {},
 }));
 vi.mock("@posthog/ui/features/canvas/hooks/useChannelFeed", () => ({
   useChannelFeed: () => mocks.feed,

@@ -274,8 +274,24 @@ class VercelIntegration:
             account=account,
         )
 
+        contact_email_matches_token = (
+            user_claims.user_email.lower() == contact_data["email"].lower() if user_claims.user_email else None
+        )
+
+        if contact_email_matches_token is False:
+            logger.warning(
+                "Vercel installation contact email differs from token email",
+                installation_id=installation_id,
+                vercel_user_id=vercel_user_id,
+                integration="vercel",
+            )
+
         logger.info(
-            "Starting Vercel installation upsert process", installation_id=installation_id, integration="vercel"
+            "Starting Vercel installation upsert process",
+            installation_id=installation_id,
+            integration="vercel",
+            token_email_verified=user_claims.user_email_verified,
+            contact_email_matches_token=contact_email_matches_token,
         )
 
         # Check if there's already an OrganizationIntegration for this installation_id
@@ -303,7 +319,7 @@ class VercelIntegration:
                 name=config.account.name or f"Vercel Installation {installation_id}"
             )
 
-            existing_user = User.objects.filter(email=config.account.contact.email, is_active=True).first()
+            existing_user = User.objects.filter(email=config.account.contact.email).first()
 
             if existing_user:
                 user = existing_user
@@ -312,17 +328,14 @@ class VercelIntegration:
                 VercelIntegration._add_user_to_organization(
                     existing_user, organization, OrganizationMembership.Level.OWNER
                 )
-                # Only create mapping if user is trusted (has existing Vercel mapping somewhere)
-                # External users will get mapped during SSO when they prove ownership
-                should_create_mapping = VercelIntegration._user_has_any_vercel_mapping(existing_user)
             else:
-                user, user_created = VercelIntegration._find_or_create_user_by_email(
+                user = VercelIntegration._create_user_for_email(
                     email=config.account.contact.email,
                     name=config.account.contact.name,
                     organization=organization,
                     level=OrganizationMembership.Level.OWNER,  # User installing gets owner level
                 )
-                should_create_mapping = user_created
+                user_created = True
 
             try:
                 org_integration, _ = OrganizationIntegration.objects.update_or_create(
@@ -336,7 +349,7 @@ class VercelIntegration:
                     },
                 )
 
-                if should_create_mapping:
+                if user_created:
                     VercelIntegration._set_user_mapping(org_integration, vercel_user_id, user.pk)
 
                 logger.info("Created new Vercel installation", installation_id=installation_id, integration="vercel")
@@ -1062,26 +1075,6 @@ class VercelIntegration:
         return response
 
     @staticmethod
-    def _user_has_any_vercel_mapping(user: User) -> bool:
-        """Check if user has any Vercel mappings (i.e., they've used Vercel before)."""
-        configs = (
-            OrganizationIntegration.objects.filter(kind=OrganizationIntegration.OrganizationIntegrationKind.VERCEL)
-            .values_list("config", flat=True)
-            .iterator()
-        )
-        for config in configs:
-            if not config:
-                continue
-            user_mappings = config.get("user_mappings", {})
-            for v in user_mappings.values():
-                try:
-                    if int(v) == user.pk:
-                        return True
-                except (ValueError, TypeError):
-                    capture_exception(ValueError(f"Corrupted user_mapping value: {v}"))
-        return False
-
-    @staticmethod
     def _get_user_mapping(installation: OrganizationIntegration, vercel_user_id: str) -> int | None:
         user_mappings = installation.config.get("user_mappings", {})
         return user_mappings.get(vercel_user_id)
@@ -1099,35 +1092,26 @@ class VercelIntegration:
         installation.save(update_fields=["config"])
 
     @staticmethod
-    def _find_or_create_user_by_email(
+    def _create_user_for_email(
         email: str, name: str | None, organization: Organization, level: OrganizationMembership.Level
-    ) -> tuple[User, bool]:
-        user = User.objects.filter(email=email).first()
-        created = False
+    ) -> User:
+        first_name = ""
+        if name:
+            first_name = name.split()[0] if name.split() else name
+        elif email:
+            first_name = email.split("@")[0]
 
-        if user:
-            if not user.is_active:
-                user.is_active = True
-                user.save(update_fields=["is_active"])
-        else:
-            first_name = ""
-            if name:
-                first_name = name.split()[0] if name.split() else name
-            elif email:
-                first_name = email.split("@")[0]
-
-            user = User.objects.create_user(
-                email=email,
-                password=None,
-                first_name=first_name,
-                is_staff=False,
-                is_email_verified=False,
-            )
-            created = True
+        user = User.objects.create_user(
+            email=email,
+            password=None,
+            first_name=first_name,
+            is_staff=False,
+            is_email_verified=False,
+        )
 
         VercelIntegration._add_user_to_organization(user, organization, level)
 
-        return user, created
+        return user
 
     @staticmethod
     def _find_sso_user(claims: VercelUserClaims) -> User:
@@ -1158,7 +1142,7 @@ class VercelIntegration:
                 del user_mappings[claims.user_id]
                 installation.save(update_fields=["config"])
 
-        existing_user = User.objects.filter(email=claims.user_email, is_active=True).first()
+        existing_user = User.objects.filter(email=claims.user_email).first()
         if existing_user:
             raise RequiresExistingUserLogin(
                 email=claims.user_email, vercel_user_id=claims.user_id, installation_id=claims.installation_id
@@ -1166,7 +1150,7 @@ class VercelIntegration:
 
         intended_level = VercelIntegration._determine_membership_level(claims.user_email, installation)
 
-        user, _ = VercelIntegration._find_or_create_user_by_email(
+        user = VercelIntegration._create_user_for_email(
             email=claims.user_email,
             name=claims.user_name,
             organization=installation.organization,

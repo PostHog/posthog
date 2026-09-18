@@ -49,6 +49,9 @@ def suppress_report_from_slack(
             )
             return False
 
+        # Name the clicker in the comments the receiver leaves on GitHub, when the Slack identity
+        # resolved to a PostHog user. An unresolved click stays unattributed.
+        report._transition_actor_user_id = user_id  # type: ignore[attr-defined]
         report.save(update_fields=updated_fields)
         # Attribute to the resolved PostHog user when the caller mapped the Slack click to one;
         # fall back to system if not. Either way the slack_user_id stays in the content as the
