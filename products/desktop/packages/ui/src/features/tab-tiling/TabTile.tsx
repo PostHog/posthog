@@ -11,7 +11,6 @@ import { useActivitySelection } from "@posthog/ui/features/canvas/stores/activit
 import { TaskHeaderActions } from "@posthog/ui/features/task-detail/components/TaskHeaderActions";
 import { useTasks } from "@posthog/ui/features/tasks/useTasks";
 import { ChromeBar } from "@posthog/ui/primitives/ChromeBar";
-import { useAppView } from "@posthog/ui/router/useAppView";
 import { useHeaderStore } from "@posthog/ui/shell/headerStore";
 import type { ReactNode } from "react";
 import { BackgroundTileProvider } from "./backgroundTile";
@@ -66,33 +65,24 @@ function TileName({
 }) {
   const label = tileLabel(tab);
   const icon = tileIcon(tab);
-  const { ref, isDragSource } = useTileDrag(tab.id);
   return (
     <button
       type="button"
-      className="flex h-full min-w-0 flex-1 items-center text-left"
+      className="flex h-full min-w-0 flex-1 items-center gap-1.5 text-left"
       onClick={() => {
         if (!isActive) onActivate(tab);
       }}
       title={label}
     >
-      <span
-        ref={ref}
+      {icon && <span className="flex shrink-0 items-center">{icon}</span>}
+      <Text
         className={cn(
-          "flex min-w-0 max-w-full cursor-grab items-center gap-1.5 rounded-sm px-1 py-0.5",
-          isDragSource && "bg-background shadow-lg ring-1 ring-border",
+          "truncate text-xs",
+          isActive ? "font-medium" : "text-muted-foreground",
         )}
       >
-        {icon && <span className="flex shrink-0 items-center">{icon}</span>}
-        <Text
-          className={cn(
-            "truncate text-xs",
-            isActive ? "font-medium" : "text-muted-foreground",
-          )}
-        >
-          {label}
-        </Text>
-      </span>
+        {label}
+      </Text>
     </button>
   );
 }
@@ -108,25 +98,19 @@ function ActiveTileHeader({
 }) {
   const content = useHeaderStore((state) => state.content);
   const activitySelection = useActivitySelection();
-  const view = useAppView();
   const { data: tasks } = useTasks();
-  const task =
-    view.type === "task-detail"
-      ? tasks?.find((t) => t.id === view.taskId)
-      : undefined;
+  const task = tab.taskId ? tasks?.find((t) => t.id === tab.taskId) : undefined;
   return (
     <ChromeBar
       inset={content ? "control" : "text"}
       className="bg-background"
       actions={<RemoveButton tab={tab} onUntile={onUntile} />}
     >
+      <TileGrip tab={tab} />
       {content ? (
-        <>
-          <TileGrip tab={tab} />
-          <div className="flex h-full min-w-0 flex-1 items-center justify-between overflow-hidden">
-            {content}
-          </div>
-        </>
+        <div className="flex h-full min-w-0 flex-1 items-center justify-between overflow-hidden">
+          {content}
+        </div>
       ) : (
         <TileName tab={tab} isActive onActivate={onActivate} />
       )}
@@ -162,7 +146,6 @@ interface TabTileProps {
   groupFull: boolean;
   onActivate: (tab: BrowserTab) => void;
   onUntile: (tab: BrowserTab) => void;
-  children?: ReactNode;
 }
 
 export function TabTile({
@@ -172,7 +155,6 @@ export function TabTile({
   groupFull,
   onActivate,
   onUntile,
-  children,
 }: TabTileProps) {
   return (
     <div
@@ -180,6 +162,7 @@ export function TabTile({
         "relative flex h-full min-h-0 flex-col overflow-hidden",
         !isActive && "opacity-90",
       )}
+      data-tile={tab.id}
       data-active={isActive || undefined}
     >
       {isActive ? (
@@ -193,17 +176,14 @@ export function TabTile({
           className="bg-muted"
           actions={<RemoveButton tab={tab} onUntile={onUntile} />}
         >
+          <TileGrip tab={tab} />
           <TileName tab={tab} isActive={false} onActivate={onActivate} />
         </ChromeBar>
       )}
       <div className="relative min-h-0 flex-1 overflow-hidden">
-        {isActive ? (
-          children
-        ) : (
-          <BackgroundTileProvider value={true}>
-            <TileTabContent tab={tab} onActivate={() => onActivate(tab)} />
-          </BackgroundTileProvider>
-        )}
+        <BackgroundTileProvider value={true}>
+          <TileTabContent tab={tab} onActivate={onActivate} />
+        </BackgroundTileProvider>
       </div>
       {dropTarget && <TileDropZones tabId={tab.id} disabled={groupFull} />}
     </div>

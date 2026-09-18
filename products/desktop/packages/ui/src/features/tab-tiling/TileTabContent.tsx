@@ -10,6 +10,7 @@ import {
 import { pickFreshestTask } from "@posthog/ui/features/tasks/taskFreshness";
 import { TaskDetailSkeleton } from "@posthog/ui/router/routeSkeletons";
 import { useQuery } from "@tanstack/react-query";
+import { memo } from "react";
 import { TileRouter } from "./TileRouter";
 
 function TiledTask({ taskId }: { taskId: string }) {
@@ -44,20 +45,35 @@ function Notice({
   );
 }
 
-export function TileTabContent({
+function TileTabContentView({
   tab,
   onActivate,
 }: {
   tab: BrowserTab;
-  onActivate: () => void;
+  onActivate: (tab: BrowserTab) => void;
 }) {
   if (tab.taskId) return <TiledTask taskId={tab.taskId} />;
   if (tab.dashboardId)
     return <WebsiteDashboard dashboardId={tab.dashboardId} />;
   if (tab.href) return <TileRouter key={tab.id} tab={tab} href={tab.href} />;
   return (
-    <Notice action={{ label: "Show this tab", onClick: onActivate }}>
+    <Notice action={{ label: "Show this tab", onClick: () => onActivate(tab) }}>
       This page only shows in the active tile.
     </Notice>
   );
 }
+
+function sameContent(a: BrowserTab, b: BrowserTab): boolean {
+  return (
+    a.id === b.id &&
+    a.href === b.href &&
+    a.taskId === b.taskId &&
+    a.dashboardId === b.dashboardId
+  );
+}
+
+export const TileTabContent = memo(
+  TileTabContentView,
+  (prev, next) =>
+    sameContent(prev.tab, next.tab) && prev.onActivate === next.onActivate,
+);

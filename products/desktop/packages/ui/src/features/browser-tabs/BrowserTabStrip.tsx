@@ -51,6 +51,7 @@ import {
   lastActiveIn,
   tabIdsIn,
 } from "@posthog/ui/features/tab-tiling/tileTree";
+import { useFocusTab } from "@posthog/ui/features/tab-tiling/useFocusTab";
 import { getTaskInputSessionId } from "@posthog/ui/features/task-detail/taskInputSession";
 import { taskDetailQuery } from "@posthog/ui/features/tasks/queries";
 import { useTasks } from "@posthog/ui/features/tasks/useTasks";
@@ -90,6 +91,7 @@ import {
 } from "./tabAppViews";
 import { useTabReorderStore } from "./tabReorderStore";
 import { applyLocalTransform, persistWrite, readMirror } from "./tabsSync";
+import { useActiveTabId } from "./useActiveTabId";
 import { useTabsSnapshot } from "./useBrowserTabs";
 import { useGoToTab } from "./useGoToTab";
 import { useOpenBrowserTab } from "./useOpenBrowserTab";
@@ -130,6 +132,19 @@ function taskHasCloseableEditorTab(taskId: string | undefined): boolean {
   return !!activeTab && activeTab.closeable !== false;
 }
 
+function navigationOwner(
+  settledTabId: string | null,
+  windowActive: { id: string; href: string | null } | null,
+  href: string,
+): string | null {
+  if (!windowActive) return null;
+  const isSwitch = settledTabId !== null && settledTabId !== windowActive.id;
+  if (isSwitch || windowActive.href === href) return windowActive.id;
+  const { groups, activeByGroup } = useTileLayoutStore.getState();
+  const group = groupForTab(groups, windowActive.id);
+  return group ? lastActiveIn(group, activeByGroup) : windowActive.id;
+}
+
 function BrowserTabStripImpl() {
   const spacesLayout = useChannelsLayout();
   const snapshot = useTabsSnapshot();
@@ -145,12 +160,6 @@ function BrowserTabStripImpl() {
     reportId?: string;
   };
   const routeFeedId = params.feedId ?? null;
-  // The in-flight tag: flips the instant you navigate, so the strip's highlight
-  // and the active tab's name don't lag a navigation behind. Rendering only —
-  // the effect below must not write from it (see settledLocation).
-  const historyTabId = useRouterState({
-    select: (s) => s.location.state.tabId,
-  });
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   // What the effect reconciles against: the settled href and the tab that entry
   // belongs to, read from one snapshot (see settledLocation for why that
@@ -195,6 +204,7 @@ function BrowserTabStripImpl() {
   // With channel reports on, a restored inbox tab lands on the spaces index
   // (the inbox is gone as a destination).
   const goToTab = useGoToTab();
+  const focusTab = useFocusTab();
 
   // The active channel sub-section (artifacts/history/context) is the
   // route segment after the channelId. Null when on the channel home or a
@@ -230,16 +240,7 @@ function BrowserTabStripImpl() {
 
   const win = primaryWindow(snapshot);
   const windowId = win?.id;
-  // The history state flips the instant you navigate, while the server snapshot
-  // round-trips — so prefer it for "which tab is active" to avoid a one-step lag
-  // in the highlight and the name. Validate it against the live tab list first:
-  // back/forward can replay an entry tagged with a since-closed tab, and a dead
-  // id here would blank the strip highlight and point Cmd+W at a tab that no
-  // longer exists (the navigation effect heals the tag, but asynchronously).
-  const historyTabIsLive =
-    !!historyTabId && snapshot.tabs.some((t) => t.id === historyTabId);
-  const activeTabId =
-    (historyTabIsLive ? historyTabId : null) ?? win?.activeTabId ?? null;
+  const activeTabId = useActiveTabId();
 
   const feeds = useProjectTaskFeeds();
   const feedName = useMemo(() => {
@@ -374,8 +375,12 @@ function BrowserTabStripImpl() {
     const mirror = readMirror();
     const mirrorWin = primaryWindow(mirror);
     const mirrorTabs = mirror.tabs.filter((t) => t.windowId === windowId);
-    const mirrorActive = mirrorWin?.activeTabId
-      ? mirrorTabs.find((t) => t.id === mirrorWin.activeTabId)
+    const windowActive = mirrorWin?.activeTabId
+      ? (mirrorTabs.find((t) => t.id === mirrorWin.activeTabId) ?? null)
+      : null;
+    const ownerId = navigationOwner(settledTabId, windowActive, locationHref);
+    const mirrorActive = ownerId
+      ? mirrorTabs.find((t) => t.id === ownerId)
       : undefined;
     // The label/icon cache written alongside the location. Never the thing the
     // decision is made on: it is all-null outside its vocabulary, so two
@@ -414,12 +419,13 @@ function BrowserTabStripImpl() {
       // The SETTLED tag, not the in-flight one. Pairing the in-flight tag with
       // the settled href tells the effect "tab B is on tab A's href", and it
       // dutifully writes A's href onto B.
-      historyTabId: settledTabId,
+      historyTabId:
+        ownerId && ownerId !== mirrorWin?.activeTabId ? ownerId : settledTabId,
       // Validates history tags: back/forward can replay an entry tagged with a
       // closed tab; activating that dead id would persist a dangling
       // activeTabId, after which every nav "opens" (no active tab found).
       windowTabIds: mirrorTabs.map((t) => t.id),
-      serverActiveTabId: mirrorWin?.activeTabId ?? null,
+      serverActiveTabId: ownerId,
       activeTab: mirrorActive
         ? {
             id: mirrorActive.id,
@@ -729,13 +735,23 @@ function BrowserTabStripImpl() {
       if (!windowId) return;
       const group = groupForTab(tileGroups, tabId);
       const targetId = group ? lastActiveIn(group, activeByGroup) : tabId;
-      if (group && targetId === activeTabId) return;
       const target = readMirror().tabs.find(
         (tab) => tab.windowId === windowId && tab.id === targetId,
       );
-      if (target) goToTab(target);
+      if (target) focusTab(target);
     },
-    [goToTab, windowId, tileGroups, activeByGroup, activeTabId],
+    [focusTab, windowId, tileGroups, activeByGroup],
+  );
+
+  const handleSelectMember = useCallback(
+    (tabId: string) => {
+      if (!windowId || tabId === activeTabId) return;
+      const target = readMirror().tabs.find(
+        (tab) => tab.windowId === windowId && tab.id === tabId,
+      );
+      if (target) focusTab(target);
+    },
+    [focusTab, windowId, activeTabId],
   );
 
   // Navigate to the close's survivor, or — when the last tab was closed — to the
@@ -926,6 +942,7 @@ function BrowserTabStripImpl() {
       tabs={tabs}
       activeTabId={activeTabId}
       onSelect={handleSelect}
+      onSelectMember={handleSelectMember}
       onClose={handleClosePill}
       onTogglePin={handleTogglePin}
       onCloseOthers={handleCloseOthers}

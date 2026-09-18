@@ -1,6 +1,13 @@
 import { useDroppable } from "@dnd-kit/react";
+import { useService } from "@posthog/di/react";
 import { cn } from "@posthog/quill";
-import type { CSSProperties } from "react";
+import {
+  BROWSER_TABS_CLIENT,
+  type BrowserTabsClient,
+} from "@posthog/ui/features/browser-tabs/browserTabsClient";
+import { type CSSProperties, type DragEvent, useState } from "react";
+import { nativeDragKindOf } from "./nativeDrag";
+import { dropIntoTile } from "./tileDrop";
 import type { TileEdge } from "./tileTree";
 
 export const TILE_DROP_TYPE = "tile-drop";
@@ -50,14 +57,35 @@ function EdgeZone({
     data,
     disabled,
   });
+  const client = useService<BrowserTabsClient>(BROWSER_TABS_CLIENT);
+  const [nativeOver, setNativeOver] = useState(false);
+  const acceptsNative = (event: DragEvent) =>
+    !disabled && nativeDragKindOf(event.dataTransfer) !== null;
+  const onDragOver = (event: DragEvent) => {
+    if (!acceptsNative(event)) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "copy";
+    setNativeOver(true);
+  };
+  const onDrop = (event: DragEvent) => {
+    setNativeOver(false);
+    if (!acceptsNative(event)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    dropIntoTile(client, event.dataTransfer, tabId, edge);
+  };
   return (
     <>
+      {/* biome-ignore lint/a11y/noStaticElementInteractions: a pointer-only drop target; the keyboard path to tiling is the tab menu */}
       <div
         ref={ref}
         className="pointer-events-auto absolute"
         style={HIT_AREAS[edge]}
+        onDragOver={onDragOver}
+        onDragLeave={() => setNativeOver(false)}
+        onDrop={onDrop}
       />
-      {isDropTarget && (
+      {(isDropTarget || nativeOver) && (
         <div
           aria-hidden
           className={cn(

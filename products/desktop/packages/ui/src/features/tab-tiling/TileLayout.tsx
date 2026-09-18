@@ -15,6 +15,7 @@ import {
   useMemo,
 } from "react";
 import { Panel, PanelGroup, PanelResizeHandle } from "react-resizable-panels";
+import { useNativeDragStore, useNativeDragWatcher } from "./nativeDrag";
 import { TabTile } from "./TabTile";
 import { TileDropZones } from "./TileDropZones";
 import { useTileLayoutStore } from "./tileLayoutStore";
@@ -25,6 +26,7 @@ import {
   type TileNode,
   tabIdsIn,
 } from "./tileTree";
+import { useFocusTab } from "./useFocusTab";
 
 const MIN_TILE_PERCENT = 15;
 
@@ -33,14 +35,14 @@ interface TileTreeProps {
   tabsById: Map<string, BrowserTab>;
   activeTabId: string;
   draggingTabId: string | null;
+  nativeDragActive: boolean;
   groupFull: boolean;
   onActivate: (tab: BrowserTab) => void;
   onUntile: (tab: BrowserTab) => void;
-  children: ReactNode;
 }
 
 function TileTree(props: TileTreeProps) {
-  const { node, tabsById, activeTabId, children } = props;
+  const { node, tabsById, activeTabId } = props;
   const setSplitSizes = useTileLayoutStore((s) => s.setSplitSizes);
   if (node.type === "tab") {
     const tab = tabsById.get(node.tabId);
@@ -50,14 +52,13 @@ function TileTree(props: TileTreeProps) {
         tab={tab}
         isActive={tab.id === activeTabId}
         dropTarget={
-          props.draggingTabId !== null && props.draggingTabId !== tab.id
+          props.nativeDragActive ||
+          (props.draggingTabId !== null && props.draggingTabId !== tab.id)
         }
         groupFull={props.groupFull}
         onActivate={props.onActivate}
         onUntile={props.onUntile}
-      >
-        {children}
-      </TabTile>
+      />
     );
   }
   const equalShare = 100 / node.children.length;
@@ -92,6 +93,7 @@ function TileTree(props: TileTreeProps) {
 
 export function TileLayout({ children }: { children: ReactNode }) {
   const goToTab = useGoToTab();
+  const focusTab = useFocusTab();
   const snapshot = useTabsSnapshot();
   const groups = useTileLayoutStore((s) => s.groups);
   const prune = useTileLayoutStore((s) => s.prune);
@@ -111,6 +113,8 @@ export function TileLayout({ children }: { children: ReactNode }) {
     return loose ? rawDraggingTabId : null;
   }, [rawDraggingTabId, dragSource, groups, pinnedTabIds]);
   const activeTabId = useActiveTabId();
+  useNativeDragWatcher();
+  const nativeDragActive = useNativeDragStore((s) => s.kind !== null);
 
   useEffect(() => {
     if (snapshot.windows.length === 0) return;
@@ -154,9 +158,11 @@ export function TileLayout({ children }: { children: ReactNode }) {
     return (
       <div className="relative h-full">
         {children}
-        {draggingTabId && activeTabId && draggingTabId !== activeTabId && (
-          <TileDropZones tabId={activeTabId} />
-        )}
+        {activeTabId &&
+          (nativeDragActive ||
+            (draggingTabId && draggingTabId !== activeTabId)) && (
+            <TileDropZones tabId={activeTabId} />
+          )}
       </div>
     );
   }
@@ -173,12 +179,11 @@ export function TileLayout({ children }: { children: ReactNode }) {
         tabsById={tabsById}
         activeTabId={activeTabId}
         draggingTabId={draggingTabId}
+        nativeDragActive={nativeDragActive}
         groupFull={groupFull}
-        onActivate={goToTab}
+        onActivate={focusTab}
         onUntile={onUntile}
-      >
-        {children}
-      </TileTree>
+      />
     </div>
   );
 }

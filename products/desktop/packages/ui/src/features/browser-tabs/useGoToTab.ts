@@ -3,6 +3,7 @@ import { channelSectionFor } from "@posthog/ui/features/canvas/channelSections";
 import { useChannelReportsEnabled } from "@posthog/ui/features/feature-flags/useChannelReportsEnabled";
 import { useNavigate, useRouter } from "@tanstack/react-router";
 import { useCallback } from "react";
+import { usePendingTabFocusStore } from "./pendingTabFocusStore";
 import { isTabAppView } from "./tabAppViews";
 import { pushTabHistoryEntry } from "./tabHistory";
 
@@ -23,6 +24,7 @@ export function useGoToTab(): (tab: TabRef) => void {
   const channelReportsEnabled = useChannelReportsEnabled();
   return useCallback(
     (tab: TabRef) => {
+      usePendingTabFocusStore.getState().setPending(tab.id);
       const state = (prev: object) => ({ ...prev, tabId: tab.id });
       if (tab.href) {
         pushTabHistoryEntry(router.history, tab.href, tab.id);

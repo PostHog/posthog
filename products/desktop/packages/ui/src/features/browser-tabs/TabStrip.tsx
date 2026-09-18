@@ -62,6 +62,7 @@ export interface TabStripProps {
   tabs: TabView[];
   activeTabId: string | null;
   onSelect: (tabId: string) => void;
+  onSelectMember: (tabId: string) => void;
   onClose: (tabId: string) => void;
   /** When omitted, the trailing new-tab button is hidden. The app always passes
    * it: `+` opens the space index, which has nothing to do with what the
@@ -85,6 +86,7 @@ export function TabStrip({
   tabs,
   activeTabId,
   onSelect,
+  onSelectMember,
   onClose,
   onNewTab,
   onTogglePin,
@@ -141,6 +143,7 @@ export function TabStrip({
             isActive={(tab.split?.activeId ?? tab.id) === activeTabId}
             closable={closable[index]}
             onSelect={onSelect}
+            onSelectMember={onSelectMember}
             onClose={onClose}
             onTogglePin={onTogglePin}
             onCloseOthers={onCloseOthers}
@@ -171,12 +174,70 @@ export function TabStrip({
   );
 }
 
+function SplitPill({
+  tab,
+  split,
+  isActive,
+  onSelectMember,
+}: {
+  tab: TabView;
+  split: SplitView;
+  isActive: boolean;
+  onSelectMember: (tabId: string) => void;
+}) {
+  const labelEvery = split.members.length <= 2;
+  return (
+    <div
+      role="tab"
+      tabIndex={-1}
+      aria-selected={isActive}
+      aria-label={`${tab.label} (split, ${split.members.length} tabs)`}
+      className={cn(
+        "flex h-6 w-full items-stretch overflow-hidden rounded-md bg-muted ring-1 ring-border ring-inset transition-[padding] group-hover:pr-5",
+        !isActive && "opacity-60 hover:opacity-100",
+      )}
+    >
+      {split.members.map((member, index) => {
+        const shown = member.id === split.activeId;
+        const labelled = labelEvery || shown;
+        return (
+          <button
+            key={member.id}
+            type="button"
+            title={member.label}
+            aria-current={shown && isActive ? "true" : undefined}
+            onClick={() => onSelectMember(member.id)}
+            className={cn(
+              "flex min-w-0 items-center gap-1 text-xs transition-colors",
+              index > 0 && "border-border border-l",
+              labelled ? "flex-1 justify-start px-1.5" : "w-7 justify-center",
+              shown
+                ? "bg-background font-medium shadow-xs"
+                : "text-muted-foreground hover:bg-background/60 hover:text-foreground",
+            )}
+          >
+            <span className="flex shrink-0 items-center [&>svg]:size-3">
+              {member.icon ?? <SplitHorizontalIcon size={12} />}
+            </span>
+            {labelled && (
+              <span className="min-w-0 flex-1 overflow-hidden whitespace-nowrap text-left [-webkit-mask-image:linear-gradient(to_right,#000,#000_calc(100%-0.75rem),#0000)] [mask-image:linear-gradient(to_right,#000,#000_calc(100%-0.75rem),#0000)]">
+                {member.label}
+              </span>
+            )}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 function SortableTabPill({
   tab,
   index,
   isActive,
   closable,
   onSelect,
+  onSelectMember,
   onClose,
   onTogglePin,
   onCloseOthers,
@@ -191,6 +252,7 @@ function SortableTabPill({
 } & Pick<
   TabStripProps,
   | "onSelect"
+  | "onSelectMember"
   | "onClose"
   | "onTogglePin"
   | "onCloseOthers"
@@ -229,57 +291,48 @@ function SortableTabPill({
       className={cn(
         tab.pinned
           ? "no-drag flex shrink-0 items-center"
-          : "no-drag group relative flex min-w-0 max-w-[200px] flex-1 basis-[200px] items-center overflow-hidden",
+          : split
+            ? "no-drag group relative flex min-w-0 max-w-[340px] flex-1 basis-[340px] items-center overflow-hidden"
+            : "no-drag group relative flex min-w-0 max-w-[200px] flex-1 basis-[200px] items-center overflow-hidden",
         detached && "rounded-md bg-background shadow-lg ring-1 ring-border",
       )}
     >
-      <Button
-        variant="default"
-        size="sm"
-        role="tab"
-        aria-selected={isActive}
-        aria-label={
-          tab.pinned
-            ? `${tab.label} (pinned)`
-            : split
-              ? `${tab.label} (split, ${split.members.length} tabs)`
-              : undefined
-        }
-        onClick={() => onSelect(tab.id)}
-        className={`h-6 px-2 ${
-          tab.pinned
-            ? "w-auto justify-center"
-            : "w-full justify-start gap-1 transition-[padding] group-hover:pr-6"
-        } ${isActive ? "" : "opacity-60 hover:opacity-100"}`}
-      >
-        {split ? (
-          <span
-            aria-hidden
-            className="flex shrink-0 items-center divide-x divide-foreground/40 rounded-xs border border-foreground/40 [&_svg]:size-2"
-          >
-            {split.members.map((member) => (
-              <span
-                key={member.id}
-                className="flex h-3 w-3.5 items-center justify-center"
-              >
-                {member.icon ?? <SplitHorizontalIcon size={8} />}
-              </span>
-            ))}
-          </span>
-        ) : tab.icon || tab.pinned ? (
-          <span className="flex shrink-0 items-center [&>svg]:size-3.5">
-            {tab.icon ?? <PushPinIcon size={14} weight="fill" />}
-          </span>
-        ) : null}
-        {/* Fade the right edge instead of an ellipsis; the label shrinks on
+      {split ? (
+        <SplitPill
+          tab={tab}
+          split={split}
+          isActive={isActive}
+          onSelectMember={onSelectMember}
+        />
+      ) : (
+        <Button
+          variant="default"
+          size="sm"
+          role="tab"
+          aria-selected={isActive}
+          aria-label={tab.pinned ? `${tab.label} (pinned)` : undefined}
+          onClick={() => onSelect(tab.id)}
+          className={`h-6 px-2 ${
+            tab.pinned
+              ? "w-auto justify-center"
+              : "w-full justify-start gap-1 transition-[padding] group-hover:pr-6"
+          } ${isActive ? "" : "opacity-60 hover:opacity-100"}`}
+        >
+          {tab.icon || tab.pinned ? (
+            <span className="flex shrink-0 items-center [&>svg]:size-3.5">
+              {tab.icon ?? <PushPinIcon size={14} weight="fill" />}
+            </span>
+          ) : null}
+          {/* Fade the right edge instead of an ellipsis; the label shrinks on
             hover (button gets pr) so the fade follows, clearing room for the
             close button. */}
-        {tab.pinned ? null : (
-          <span className="min-w-0 flex-1 overflow-hidden whitespace-nowrap text-left [-webkit-mask-image:linear-gradient(to_right,#000,#000_calc(100%-0.75rem),#0000)] [mask-image:linear-gradient(to_right,#000,#000_calc(100%-0.75rem),#0000)]">
-            {tab.label}
-          </span>
-        )}
-      </Button>
+          {tab.pinned ? null : (
+            <span className="min-w-0 flex-1 overflow-hidden whitespace-nowrap text-left [-webkit-mask-image:linear-gradient(to_right,#000,#000_calc(100%-0.75rem),#0000)] [mask-image:linear-gradient(to_right,#000,#000_calc(100%-0.75rem),#0000)]">
+              {tab.label}
+            </span>
+          )}
+        </Button>
+      )}
       {tab.pinned ? null : (
         <button
           type="button"
