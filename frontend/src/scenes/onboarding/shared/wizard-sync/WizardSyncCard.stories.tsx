@@ -224,7 +224,7 @@ export const Failed: Story = {
         progress: progress({
             phase: 'error',
             steps: cloudSteps(['completed', 'completed', 'failed', 'pending', 'pending', 'pending']),
-            error: { title: 'Setup hit a snag', detail: 'The setup wizard could not finish.' },
+            error: { title: 'Setup hit a snag', detail: 'The setup wizard could not finish.', kind: 'failed' },
         }),
     },
 }
@@ -297,7 +297,10 @@ export const Playground: StoryObj<PlaygroundArgs> = {
                 args.currentTask ? { at: args.completedSteps, text: args.currentTask } : undefined
             ),
             prUrl: args.phase === 'completed' ? 'https://github.com/acme-co/web/pull/42' : null,
-            error: args.phase === 'error' ? { title: 'Setup hit a snag', detail: 'Something stopped the run.' } : null,
+            error:
+                args.phase === 'error'
+                    ? { title: 'Setup hit a snag', detail: 'Something stopped the run.', kind: 'failed' as const }
+                    : null,
         })
         return (
             <WizardSyncCard
