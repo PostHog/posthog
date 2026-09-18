@@ -22,6 +22,8 @@ from typing import Any
 LABEL_FORCE_GITHUB = "ci-backend-github"
 LABEL_FORCE_DEPOT = "ci-backend-depot"
 PERCENT_VARIABLE = "CI_BACKEND_DEPOT_PERCENT"
+# The Trunk merge queue tests each batch through a draft pull request on this branch.
+MERGE_QUEUE_PREFIX = "trunk-merge/"
 HANDOFF_CHECK = "Hand off backend tests to Depot CI"
 GITHUB_ACTIONS_APP_ID = 15368
 ENGINE_BY_HANDOFF_CONCLUSION = {"success": "depot", "skipped": "github"}
@@ -80,9 +82,12 @@ def decide(
     is_fork: bool,
     is_draft: bool,
     prior_handoff: str | None = None,
+    head_ref: str = "",
 ) -> Decision:
     if event != "pull_request":
         return Decision("github", f"{event} events stay on GitHub Actions")
+    if head_ref.startswith(MERGE_QUEUE_PREFIX):
+        return Decision("github", "merge queue batches stay on GitHub Actions")
     prior_engine = ENGINE_BY_HANDOFF_CONCLUSION.get(prior_handoff or "")
     if prior_engine:
         return Decision(prior_engine, f"an earlier run of this commit chose {prior_engine}")
@@ -160,6 +165,7 @@ def main() -> int:
         is_fork=is_fork,
         is_draft=env.get("IS_DRAFT", "false") == "true",
         prior_handoff=prior_handoff,
+        head_ref=env.get("HEAD_REF", ""),
     )
     sys.stdout.write(f"::notice::Backend CI engine: {decision.engine} ({decision.reason})\n")
     output_path = env.get("GITHUB_OUTPUT")

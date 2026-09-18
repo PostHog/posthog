@@ -198,6 +198,7 @@ jobs:
                   LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
                   IS_FORK: ${{ github.event.pull_request.head.repo.fork }}
                   IS_DRAFT: ${{ github.event.pull_request.draft }}
+                  HEAD_REF: ${{ github.head_ref }}
                   # The script reads this commit's earlier hand-off check, the durable record
                   # of the engine that already ran its tests and side effects.
                   GH_TOKEN: ${{ github.token }}

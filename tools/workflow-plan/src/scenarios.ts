@@ -211,8 +211,9 @@ const SCRIPT_STUBS: Record<string, ScriptStubs> = {
     },
 }
 
-// The router keeps forks, pushes and the schedule on GitHub Actions, so Depot's wait job
-// declines those events; only same-repo pull requests and manual dispatches run there.
+// The router keeps forks, merge queue batches, pushes and the schedule on GitHub Actions,
+// so Depot's wait job declines those events; only same-repo pull requests and manual
+// dispatches run there.
 const NOT_HANDED_OFF: ScriptStubs = { jobOutputs: { 'wait-for-handoff': { handed_off: 'false' } } }
 
 export function defaultScenarios(workflow: Workflow, workflowPath: string): Scenario[] {
@@ -224,7 +225,7 @@ export function defaultScenarios(workflow: Workflow, workflowPath: string): Scen
         { name: 'draft', github: pullRequest({ draft: true }), ...common },
         { name: 'ready', github: pullRequest(), ...common },
         { name: 'fork', github: pullRequest({ fork: true }), ...keptOnGitHub },
-        { name: 'queued', github: mergeQueue(), ...common },
+        { name: 'queued', github: mergeQueue(), ...keptOnGitHub },
         { name: 'merged', github: push(), ...keptOnGitHub },
         { name: 'scheduled', github: schedule(), ...keptOnGitHub },
         { name: 'dispatched', github: workflowDispatch(), ...common },

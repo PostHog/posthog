@@ -49,6 +49,12 @@ def test_non_pull_request_events_stay_on_github(event: str) -> None:
     assert route.decide(event, 100, None, ["ci-backend-depot"], False, False, "success").engine == "github"
 
 
+def test_merge_queue_batches_stay_on_github() -> None:
+    queued = route.decide("pull_request", 100, 124, ["ci-backend-depot"], False, True, "success", "trunk-merge/pr-1/x")
+    assert queued.engine == "github"
+    assert route.decide("pull_request", 100, 124, [], False, False, None, "feature/trunk-merge").engine == "depot"
+
+
 def test_missing_pr_number_stays_on_github() -> None:
     assert pr(number=None, percent=100).engine == "github"
 
