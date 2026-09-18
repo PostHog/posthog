@@ -5,6 +5,7 @@ import { PersonDisplay } from 'products/persons/frontend/components/PersonDispla
 
 import { EnrichedReviewer } from '../../types'
 import { getReviewerDisplayName } from './reviewerDisplay'
+import { SuggestedReviewerScoutTag } from './SuggestedReviewerScoutTag'
 
 const OTHER_SOURCE_LABELS = new Set(['Code history', 'Added by teammate', 'Agent suggestion'])
 
@@ -33,25 +34,6 @@ export function getReviewerExplanation(reviewer: EnrichedReviewer): string | nul
         return reviewer.explanation ?? null
     }
     return reviewer.reason ?? reviewer.relevant_commits[0]?.reason ?? null
-}
-
-export function SuggestedReviewerScoutTag({ scoutNames }: { scoutNames: string[] }): JSX.Element {
-    // The tag is a div, so it needs a tab stop: the tooltip holds the only copy of the scout names.
-    return (
-        <Tooltip
-            title={
-                <div className="flex flex-col">
-                    {scoutNames.map((scoutName) => (
-                        <span key={scoutName}>{scoutName}</span>
-                    ))}
-                </div>
-            }
-        >
-            <LemonTag type="muted" size="small" className="cursor-help" tabIndex={0}>
-                Added by scout
-            </LemonTag>
-        </Tooltip>
-    )
 }
 
 export function SuggestedReviewerPerson({

@@ -5,7 +5,8 @@ import { PersonDisplay } from 'products/persons/frontend/components/PersonDispla
 
 import { EnrichedReviewer } from '../../types'
 import { getReviewerDisplayName } from './reviewerDisplay'
-import { getReviewerSourceLabel, isScoutReviewer, SuggestedReviewerScoutTag } from './SuggestedReviewerPerson'
+import { getReviewerSourceLabel, isScoutReviewer } from './SuggestedReviewerPerson'
+import { SuggestedReviewerScoutTag } from './SuggestedReviewerScoutTag'
 
 export function SuggestedReviewerReasonGroup({
     reviewers,
