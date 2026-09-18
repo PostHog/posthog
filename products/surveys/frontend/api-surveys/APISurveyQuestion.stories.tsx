@@ -50,3 +50,28 @@ export const EmojiRating: Story = {
         },
     },
 }
+
+export const ManyChoices: Story = {
+    args: {
+        question: {
+            id: 'many',
+            type: SurveyQuestionType.SingleChoice,
+            question: 'Where did you get stuck?',
+            choices: ['Setup', 'Navigation', 'Filters', 'Sharing', 'Exporting', 'Something else'],
+        },
+    },
+}
+
+export const LongChoices: Story = {
+    args: {
+        question: {
+            id: 'long',
+            type: SurveyQuestionType.MultipleChoice,
+            question: 'What could improve?',
+            choices: [
+                'Make the settings easier to find from the main navigation',
+                'Explain which filters apply to the current results',
+            ],
+        },
+    },
+}

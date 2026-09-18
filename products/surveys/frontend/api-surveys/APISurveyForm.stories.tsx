@@ -5,6 +5,7 @@ import { LemonButton, LemonModal } from '@posthog/lemon-ui'
 
 import { exampleApiSurvey, exampleSurveyClient } from './apiSurvey.fixtures'
 import { APISurveyForm } from './APISurveyForm'
+import { SurveyFeedbackButtons, SurveyFeedbackRating } from './SurveyFeedbackButtons'
 
 const meta: Meta<typeof APISurveyForm> = {
     title: 'Surveys/API survey form',
@@ -63,15 +64,15 @@ export const Dialog: Story = {
     render: (args, { parameters }) => {
         const [isOpen, setIsOpen] = useState(!!parameters.initiallyOpen)
         const titleId = useId()
+        const [rating, setRating] = useState<SurveyFeedbackRating | undefined>()
         return (
             <>
-                <LemonButton
-                    type="secondary"
-                    onClick={() => setIsOpen(true)}
-                    data-attr="api-survey-share-more-feedback"
-                >
-                    Share more feedback
-                </LemonButton>
+                <SurveyFeedbackButtons
+                    value={rating}
+                    onChange={setRating}
+                    onMoreFeedback={() => setIsOpen(true)}
+                    expanded={isOpen}
+                />
                 <LemonModal
                     isOpen={isOpen}
                     onClose={() => setIsOpen(false)}
@@ -80,7 +81,7 @@ export const Dialog: Story = {
                     width={520}
                     hasUnsavedInput
                 >
-                    {isOpen && <APISurveyForm {...args} />}
+                    {isOpen && <APISurveyForm {...args} context={{ ...args.context, feedback_rating: rating }} />}
                 </LemonModal>
             </>
         )

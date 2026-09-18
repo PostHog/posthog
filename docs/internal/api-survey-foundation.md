@@ -27,6 +27,18 @@ An unsuccessful SDK queue operation leaves answers available for retry.
 Queue success does not confirm ingestion.
 This foundation does not submit partial answers or emit automatic dismissal events.
 
+## Feedback controls
+
+`SurveyFeedbackButtons` is a controlled thumbs-up/down input with a separate Share more feedback action.
+It calls `onChange` immediately with `1` for helpful or `2` for not helpful; clicking the selected rating again does nothing.
+The caller owns persistence, pending and error state, and any link between a quick rating and a detailed response.
+Pass `loading` while saving to prevent duplicate actions, and update `value` when the caller accepts the rating.
+The component does not load a survey or emit analytics events itself.
+
+Ratings and up to four short single-choice options use compact selectable buttons with native radio inputs.
+Short multiple-choice lists use bordered checkboxes that wrap onto another row when needed.
+Long labels and larger choice lists keep the vertical layout.
+
 ## Keyboard navigation
 
 Shortcuts only act on a focused answer inside the form.
@@ -51,7 +63,9 @@ Replay is off by default.
 `Surveys/API survey form` covers the reference form, unavailable and loading states, and request failures.
 `Surveys/API survey question` covers each supported control.
 Stories inject a client that uses invented surveys and never sends analytics events.
-The Dialog story explores an explicit Share more feedback action using LemonModal; DialogOpen captures the open state.
+The Dialog story starts with SurveyFeedbackButtons and opens LemonModal only on Share more feedback; DialogOpen captures the open state.
+Its quick rating stays selected when the dialog closes and is included in the detailed response context.
+The story stores the rating locally; it does not demonstrate production persistence or response enrichment.
 The form mounts only while the dialog is open, and Escape or the close button returns focus to the trigger.
 Backdrop clicks leave the dialog open to avoid losing input accidentally.
 Closing discards the draft; reopening starts a new response.
