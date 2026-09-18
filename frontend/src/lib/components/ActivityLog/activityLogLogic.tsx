@@ -188,12 +188,15 @@ export const activityLogLogic = kea<activityLogLogicType>([
         activity: [
             { results: [], next: null } as PaginatedResponse<ActivityLogItem>,
             {
-                fetchActivity: async () => {
+                fetchActivity: async (_, breakpoint) => {
                     const transformedProps = activityLogTransforms.expandListLegacyScopes(props)
                     const [response] = await Promise.all([
                         api.activity.listLegacy(transformedProps, values.page),
                         ensureActivityDescribersLoaded(),
                     ])
+
+                    breakpoint()
+
                     return { results: response.results, next: response.next ?? null }
                 },
             },
