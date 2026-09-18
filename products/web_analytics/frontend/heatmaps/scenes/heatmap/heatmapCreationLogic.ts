@@ -20,6 +20,7 @@ import {
     authorizedUrlListLogic,
     defaultAuthorizedUrlProperties,
 } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
+import { heatmapUrlPatternToRegex, resolveHeatmapUrlFilter } from 'lib/components/heatmaps/heatmapUrlMatch'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
@@ -70,19 +71,6 @@ const authorizedUrlsLogic = authorizedUrlListLogic({
     ...defaultAuthorizedUrlProperties,
     type: AuthorizedUrlListType.TOOLBAR_URLS,
 })
-
-export function heatmapUrlPatternToRegex(value: string): string {
-    let normalized = value
-    if (!normalized.startsWith('^')) {
-        normalized = `^${normalized}`
-    }
-    if (!normalized.endsWith('$')) {
-        normalized = `${normalized}$`
-    }
-    return Array.from(normalized)
-        .map((character, index) => (character === '*' && index > 0 && normalized[index - 1] !== '.' ? '.+' : character))
-        .join('')
-}
 
 export function getPageStepBlockReason({
     displayUrl,
@@ -443,7 +431,7 @@ export const heatmapCreationLogic = kea<heatmapCreationLogicType>([
                     const query =
                         matchType === 'pattern'
                             ? hogql`SELECT count() FROM heatmaps WHERE match(current_url, ${heatmapUrlPatternToRegex(
-                                  url
+                                  resolveHeatmapUrlFilter(url)?.href ?? url
                               )}) AND timestamp >= now() - INTERVAL 30 DAY`
                             : hogql`SELECT count() FROM heatmaps WHERE trimRight(current_url, '/') = trimRight(${url}, '/') AND timestamp >= now() - INTERVAL 30 DAY`
                     let response: Awaited<ReturnType<typeof api.queryHogQL>> | null = null

@@ -18,6 +18,7 @@ import { collectAllElementsDeep } from 'query-selector-shadow-dom'
 
 import type { PaginatedResponse } from 'lib/api'
 import { heatmapDataLogic } from 'lib/components/heatmaps/heatmapDataLogic'
+import { escapeUnescapedRegex } from 'lib/components/heatmaps/heatmapUrlMatch'
 import { HeatmapBoundsFilter } from 'lib/components/heatmaps/types'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { createSliceYielder } from 'lib/utils/async'
@@ -1654,6 +1655,3 @@ function aggregateAndSortElements(elements: CountedHTMLElement[]): CountedHTMLEl
 
     return sorted.map((e, i) => ({ ...e, position: i + 1 }))
 }
-
-export const escapeUnescapedRegex = (str: string): string =>
-    str.replace(/\\.|([.*+?^=!:${}()|[\]/\\])/g, (match, group1) => (group1 ? `\\${group1}` : match))

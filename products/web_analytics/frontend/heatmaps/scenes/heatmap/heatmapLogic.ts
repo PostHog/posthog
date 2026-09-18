@@ -40,7 +40,7 @@ import type {
     SavedHeatmapRequestApi,
 } from 'products/web_analytics/frontend/generated/api.schemas'
 
-import { IFrameBanner, PagePreflight, heatmapsBrowserLogic, isUrlPattern } from '../../components/heatmapsBrowserLogic'
+import { IFrameBanner, PagePreflight, heatmapsBrowserLogic } from '../../components/heatmapsBrowserLogic'
 import { heatmapsSceneLogic } from '../heatmaps/heatmapsSceneLogic'
 import { DEFAULT_HEATMAP_NAME, HeatmapSettings, normalizeHeatmapSettings } from './heatmapSettings'
 
@@ -85,11 +85,13 @@ function getCreationFailureCategory(error: unknown): 'validation' | 'permission'
     return 'unknown'
 }
 
+const hasPageUrlPatternChars = (url: string): boolean => /[*+?^${}()|[\]\\]/.test(url)
+
 function isValidPageUrl(url: string | null): boolean {
     if (!url) {
         return true
     }
-    if (isUrlPattern(url)) {
+    if (hasPageUrlPatternChars(url)) {
         return false
     }
     try {
@@ -902,12 +904,18 @@ export const heatmapLogic = kea<heatmapLogicType>([
             (error: string | JSX.Element | null, generating: boolean): boolean => !!error || generating,
         ],
         isDisplayUrlValid: [(s) => [s.displayUrl], (displayUrl: string | null) => isValidPageUrl(displayUrl)],
-        displayUrlIsPattern: [(s) => [s.displayUrl], (displayUrl: string | null) => isUrlPattern(displayUrl ?? '')],
+        displayUrlIsPattern: [
+            (s) => [s.displayUrl],
+            (displayUrl: string | null) => hasPageUrlPatternChars(displayUrl ?? ''),
+        ],
         isPageUrlDraftValid: [
             (s) => [s.pageUrlDraft],
             (pageUrlDraft: string) => isValidPageUrl(pageUrlDraft.trim() || null),
         ],
-        pageUrlDraftIsPattern: [(s) => [s.pageUrlDraft], (pageUrlDraft: string) => isUrlPattern(pageUrlDraft)],
+        pageUrlDraftIsPattern: [
+            (s) => [s.pageUrlDraft],
+            (pageUrlDraft: string) => hasPageUrlPatternChars(pageUrlDraft),
+        ],
         desiredNumericWidth: [
             (s) => [s.widthOverride, s.containerWidth],
             (widthOverride: number, containerWidth: number | null) => {
