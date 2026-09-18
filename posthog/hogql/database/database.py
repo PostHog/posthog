@@ -1975,6 +1975,10 @@ class Database(BaseModel):
                         # credential attached in bulk below, not joined per row; the access-control
                         # creator check compares created_by_id, so created_by is not joined either
                         .select_related("table", "managed_viewset")
+                        # The build reads the SQL body and the column types of every view, so both
+                        # stay in the select. These two JSONB columns it never reads, and Postgres
+                        # detoasts each one per view.
+                        .defer("external_tables", "incremental_state")
                     )
                     all_saved_queries = list(queryset)
                     saved_queries = (

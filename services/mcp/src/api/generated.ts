@@ -110070,13 +110070,17 @@ export namespace Schemas {
 
     export type WarehouseSavedQueriesListParams = {
     /**
-     * Include column definitions. Set to false for table-only lists.
+     * Include column definitions. Off by default: the columns of a view are a large payload that most list callers do not render. Set to true to get them.
      */
     include_columns?: boolean;
     /**
      * A page number within the paginated result set.
      */
     page?: number;
+    /**
+     * Number of results to return per page.
+     */
+    page_size?: number;
     /**
      * A search term.
      */

@@ -5649,8 +5649,14 @@ const api = {
     },
 
     dataWarehouseSavedQueries: {
-        async list(): Promise<PaginatedResponse<DataWarehouseSavedQuery>> {
-            return await new ApiRequest().dataWarehouseSavedQueries().get()
+        async list(params?: {
+            page_size?: number
+            include_columns?: boolean
+        }): Promise<PaginatedResponse<DataWarehouseSavedQuery>> {
+            return await new ApiRequest()
+                .dataWarehouseSavedQueries()
+                .withQueryString(params ?? {})
+                .get()
         },
         async get(viewId: DataWarehouseSavedQuery['id']): Promise<DataWarehouseSavedQuery> {
             return await new ApiRequest().dataWarehouseSavedQuery(viewId).get()

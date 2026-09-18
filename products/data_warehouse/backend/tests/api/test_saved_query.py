@@ -700,6 +700,8 @@ class TestSavedQuery(APIBaseTest):
         assert json["count"] == 1
 
     def test_listing_many_queries(self):
+        # A default page is a screen of views, so a caller that wants the whole team asks for a
+        # bigger page. Without that, a project of this size silently paid for every row at once.
         for i in range(150):
             DataWarehouseSavedQuery.objects.create(
                 team=self.team,
@@ -718,7 +720,48 @@ class TestSavedQuery(APIBaseTest):
         json = response.json()
 
         assert json["count"] == 150
-        assert len(json["results"]) == 150
+        assert len(json["results"]) == 100
+        assert json["next"] is not None
+
+        page_two = self.client.get(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/",
+            {"page": 2},
+        )
+
+        assert page_two.status_code == 200
+        assert len(page_two.json()["results"]) == 50
+        assert page_two.json()["next"] is None
+
+        whole_team = self.client.get(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/",
+            {"page_size": 1000},
+        )
+
+        assert whole_team.status_code == 200
+        assert len(whole_team.json()["results"]) == 150
+
+    def test_list_omits_columns_unless_the_caller_asks(self):
+        # Columns are the largest part of a list row, and most callers render none of them, so a
+        # page carries them only on request.
+        DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="view_a",
+            query={"kind": "HogQLQuery", "query": "select event as event from events LIMIT 100"},
+            columns={"event": {"hogql": "StringDatabaseField", "clickhouse": "String", "valid": True}},
+        )
+
+        default_page = self.client.get(f"/api/environments/{self.team.id}/warehouse_saved_queries/")
+        opted_in = self.client.get(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/",
+            {"include_columns": "true"},
+        )
+
+        self.assertEqual(default_page.status_code, 200, default_page.json())
+        self.assertEqual([row["columns"] for row in default_page.json()["results"]], [[]])
+        self.assertEqual(
+            [[column["key"] for column in row["columns"]] for row in opted_in.json()["results"]],
+            [["event"]],
+        )
 
     @parameterized.expand([True, False])
     def test_list_request_reads_neither_the_sql_body_nor_the_activity_log(self, include_columns: bool):
@@ -755,7 +798,7 @@ class TestSavedQuery(APIBaseTest):
                 "query",
                 "external_tables",
                 "incremental_state",
-                *(("columns",) if not include_columns else ()),
+                *(("columns", "column_order") if not include_columns else ()),
             ):
                 self.assertNotIn(f'"{table}"."{column}"', sql)
 
@@ -773,7 +816,7 @@ class TestSavedQuery(APIBaseTest):
 
     def test_list_reads_folders_through_the_join(self):
         # Both list serializer folder fields resolve through `instance.folder`, so a page of
-        # foldered views used to cost one folder select each, up to the 1000-view page size.
+        # foldered views used to cost one folder select each.
         folder = DataWarehouseSavedQueryFolder.objects.create(team=self.team, name="Marketing")
         for name in ("view_a", "view_b", "view_c"):
             DataWarehouseSavedQuery.objects.create(
@@ -2751,10 +2794,28 @@ class TestSavedQueryDescription(APIBaseTest):
         assert described[column_name] == "The order amount in cents."
 
     def test_list_includes_view_description(self):
-        self._create(name="described_view", description="Listed description.")
-        results = self.client.get(self._base()).json()["results"]
+        view = self._create(name="described_view", description="Listed description.")
+        column_name = self.client.get(f"{self._base()}{view['id']}/").json()["columns"][0]["name"]
+        annotate = self.client.post(
+            f"/api/projects/{self.team.id}/saved_query_column_annotations/",
+            {"saved_query": view["id"], "column_name": column_name, "description": "The order amount."},
+        )
+        assert annotate.status_code == 201, annotate.content
+
+        with CaptureQueriesContext(connection) as queries:
+            results = self.client.get(self._base()).json()["results"]
+
         described = {v["name"]: v.get("description") for v in results}
         assert described["described_view"] == "Listed description."
+        # A column-free page renders no per-column description, so it must read the view-level
+        # annotation alone rather than a row per column.
+        annotations = DataWarehouseSavedQueryColumnAnnotation._meta.db_table
+        annotation_selects = [q["sql"] for q in queries.captured_queries if f'FROM "{annotations}"' in q["sql"]]
+        assert annotation_selects
+        for sql in annotation_selects:
+            filters = sql.split(" WHERE ", 1)
+            assert len(filters) == 2, sql
+            assert "column_name" in filters[1], sql
 
 
 class TestSavedQueryStateComesFromTheServingRun(APIBaseTest):
