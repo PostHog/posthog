@@ -167,6 +167,9 @@ tools:
     data-quality-checks-schedule-retrieve:
         operation: data_quality_checks_schedule_retrieve
         enabled: false
+    data-quality-checks-schedules-list:
+        operation: data_quality_checks_schedules_list
+        enabled: false
     data-quality-checks-update:
         operation: data_quality_checks_update
         enabled: false
