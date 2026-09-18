@@ -169,7 +169,9 @@ class TestSeriesBands(ClickhouseTestMixin, BaseTest):
         assert quiet.verdict is None
 
         spike = by_time[slot + dt.timedelta(hours=2)]
-        assert (spike.observed, spike.lower, spike.upper) == (500, 0, pytest.approx(quiet_upper))
+        assert spike.observed == 500
+        assert spike.lower == 0
+        assert spike.upper == pytest.approx(quiet_upper)
         assert spike.verdict == "above"
 
         drop = by_time[slot + dt.timedelta(hours=3)]
@@ -431,13 +433,16 @@ class TestSeriesBands(ClickhouseTestMixin, BaseTest):
         earliest = WINDOW_START - dt.timedelta(weeks=1)
 
         with patch.object(series_bands, "VALIDATED_BASELINE_WEEKS_FOR_BAND", validated_weeks):
-            _, ready, ready_at = _band_gate(WINDOW_START, WINDOW_END, earliest)
+            readiness = _band_gate(WINDOW_START, WINDOW_END, earliest)
 
-            assert ready is False
-            assert ready_at == earliest + dt.timedelta(weeks=validated_weeks) + (WINDOW_END - WINDOW_START)
+            assert readiness.ready is False
+            ready_at = earliest + dt.timedelta(weeks=validated_weeks) + (WINDOW_END - WINDOW_START)
+            assert readiness.ready_at == ready_at
             window = WINDOW_END - WINDOW_START
-            assert _band_gate(ready_at - window - dt.timedelta(hours=1), ready_at, earliest)[1] is False
-            assert _band_gate(ready_at - window, ready_at, earliest)[1:] == (True, None)
+            assert _band_gate(ready_at - window - dt.timedelta(hours=1), ready_at, earliest).ready is False
+            mature = _band_gate(ready_at - window, ready_at, earliest)
+            assert mature.ready is True
+            assert mature.ready_at is None
 
     def test_missing_baseline_week_counts_as_a_zero_sample(self):
         service = "svc-gappy"
@@ -518,7 +523,10 @@ class TestBandReadinessWithoutValidatedPolicy(SimpleTestCase):
         assert all(
             bucket.lower is None and bucket.upper is None and bucket.verdict is None for bucket in result.buckets
         )
-        assert _band_gate(WINDOW_START, WINDOW_END, history_start) == (weeks, False, None)
+        readiness = _band_gate(WINDOW_START, WINDOW_END, history_start)
+        assert readiness.baseline_weeks == weeks
+        assert readiness.ready is False
+        assert readiness.ready_at is None
 
 
 class TestResolveWindow(SimpleTestCase):

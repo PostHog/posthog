@@ -349,9 +349,14 @@ def _weeks_between(later_ts: int, lifetime_ts: int) -> int:
     return min(BASELINE_WEEKS, max(0, (later_ts - lifetime_ts) // SECONDS_PER_WEEK))
 
 
-def _band_gate(
-    window_start: dt.datetime, window_end: dt.datetime, lifetime_start: dt.datetime
-) -> tuple[int, bool, dt.datetime | None]:
+@frozen
+class _BandReadiness:
+    baseline_weeks: int
+    ready: bool
+    ready_at: dt.datetime | None
+
+
+def _band_gate(window_start: dt.datetime, window_end: dt.datetime, lifetime_start: dt.datetime) -> _BandReadiness:
     """Baseline depth, readiness, and the next readiness date under a validated policy.
 
     The gate reads sustained history before window_start, so a live window must
@@ -361,11 +366,11 @@ def _band_gate(
     """
     baseline_weeks = _baseline_weeks_available(window_start, lifetime_start)
     if VALIDATED_BASELINE_WEEKS_FOR_BAND is None:
-        return baseline_weeks, False, None
+        return _BandReadiness(baseline_weeks=baseline_weeks, ready=False, ready_at=None)
     if baseline_weeks >= VALIDATED_BASELINE_WEEKS_FOR_BAND:
-        return baseline_weeks, True, None
+        return _BandReadiness(baseline_weeks=baseline_weeks, ready=True, ready_at=None)
     threshold = lifetime_start + dt.timedelta(weeks=VALIDATED_BASELINE_WEEKS_FOR_BAND)
-    return baseline_weeks, False, threshold + (window_end - window_start)
+    return _BandReadiness(baseline_weeks=baseline_weeks, ready=False, ready_at=threshold + (window_end - window_start))
 
 
 class _FoldedHistory:
@@ -463,8 +468,8 @@ def _build_series(
 ) -> BandSeries:
     history = _FoldedHistory(series_rows, window_start, window_end, interval_minutes, detection)
     lifetime_start = series_rows.lifetime_start
-    baseline_weeks, band_ready, band_ready_at = _band_gate(window_start, window_end, lifetime_start)
-    banded = band_ready and include_bands
+    readiness = _band_gate(window_start, window_end, lifetime_start)
+    banded = readiness.ready and include_bands
 
     grain = interval_minutes / BUCKET_MINUTES
     band_model = NegativeBinomialBandModel(
@@ -502,9 +507,9 @@ def _build_series(
         environment=key.environment,
         severity=key.severity,
         total_count=total_count,
-        baseline_weeks=baseline_weeks,
+        baseline_weeks=readiness.baseline_weeks,
         history_start=lifetime_start,
-        band_ready_at=band_ready_at,
+        band_ready_at=readiness.ready_at,
         interval_minutes=interval_minutes,
         coarsened_reason=None,
         buckets=buckets,

@@ -23,6 +23,8 @@ from typing import Protocol
 import numpy as np
 from scipy import stats
 
+from posthog.dataclasses import frozen
+
 from products.apm.backend.logic.anomaly_detection.types import Band
 
 TRIM_FRACTION = 0.1
@@ -72,6 +74,13 @@ class PoissonBandModel:
         return Band(lower=lower, upper=upper, expected=mu)
 
 
+@frozen
+class _CountMoments:
+    mean: float
+    variance: float
+    expected: float
+
+
 class NegativeBinomialBandModel:
     """Poisson band inflated to the measured sample dispersion.
 
@@ -86,18 +95,18 @@ class NegativeBinomialBandModel:
         self.dispersion_floor = dispersion_floor
 
     def compute(self, samples: np.ndarray, observed: float, alpha: float) -> Band:
-        mu, var, expected = self._moments(samples)
-        mu_eff = max(mu, self.rate_floor)
-        if var <= mu_eff * OVERDISPERSION_TOLERANCE:
+        moments = self._moments(samples)
+        mu_eff = max(moments.mean, self.rate_floor)
+        if moments.variance <= mu_eff * OVERDISPERSION_TOLERANCE:
             lower, upper = _poisson_interval(mu_eff, alpha)
         else:
-            r = mu_eff**2 / (var - mu_eff)
+            r = mu_eff**2 / (moments.variance - mu_eff)
             p = r / (r + mu_eff)
             lower = float(stats.nbinom.ppf(alpha, r, p))
             upper = float(stats.nbinom.ppf(1.0 - alpha, r, p))
-        return Band(lower=lower, upper=upper, expected=expected)
+        return Band(lower=lower, upper=upper, expected=moments.expected)
 
-    def _moments(self, samples: np.ndarray) -> tuple[float, float, float]:
+    def _moments(self, samples: np.ndarray) -> _CountMoments:
         if samples.size >= MIN_SPIKE_BASELINE_SAMPLES:
             ordered = np.sort(samples)
             rest = ordered[:-1]
@@ -111,15 +120,17 @@ class NegativeBinomialBandModel:
         mu = float(np.mean(samples))
         mu_eff = max(mu, self.rate_floor)
         variance = float(np.var(samples, ddof=1)) if samples.size >= 2 else mu_eff
-        return mu, max(variance, mu_eff * self.dispersion_floor), _robust_rate(samples)
+        return _CountMoments(
+            mean=mu, variance=max(variance, mu_eff * self.dispersion_floor), expected=_robust_rate(samples)
+        )
 
     def compute_many(self, samples: list[np.ndarray], alpha: float) -> list[Band]:
         if not samples:
             return []
-        moments = np.array([self._moments(sample) for sample in samples])
-        means = moments[:, 0]
+        moments = [self._moments(sample) for sample in samples]
+        means = np.array([moment.mean for moment in moments])
         effective_means = np.maximum(means, self.rate_floor)
-        variances = moments[:, 1]
+        variances = np.array([moment.variance for moment in moments])
         overdispersed = variances > effective_means * OVERDISPERSION_TOLERANCE
         lower = np.empty(len(samples))
         upper = np.empty(len(samples))
@@ -132,8 +143,8 @@ class NegativeBinomialBandModel:
         lower[overdispersed] = stats.nbinom.ppf(alpha, shapes, probabilities)
         upper[overdispersed] = stats.nbinom.ppf(1.0 - alpha, shapes, probabilities)
         return [
-            Band(lower=float(low), upper=float(high), expected=float(expected))
-            for low, high, expected in zip(lower, upper, moments[:, 2], strict=True)
+            Band(lower=float(low), upper=float(high), expected=moment.expected)
+            for low, high, moment in zip(lower, upper, moments, strict=True)
         ]
 
 

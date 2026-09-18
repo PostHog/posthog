@@ -52,7 +52,7 @@ seed=7 weeks=10 eval_weeks=2 series=49 anomalies=133
 
 ## Band model bake-off
 
-```
+```text
   model: poisson
     verdicts 17998, fp/series/day 64.023
     issues/day median 110.0 p95 121.0, issue precision 0.033 (50/1524)
@@ -140,7 +140,7 @@ seed=7 weeks=10 eval_weeks=2 series=49 anomalies=133
 
 ## Band calibration sweep (clean NB data; calibrated ~= 2\*alpha = 3.5e-04)
 
-```
+```text
   poisson
     cv=0.12  lam=     1: 0.0000  lam=    10: 0.0000  lam=   100: 0.0020  lam=  1000: 0.3560  lam= 10000: 0.7800
     cv=0.5   lam=     1: 0.0000  lam=    10: 0.0220  lam=   100: 0.4760  lam=  1000: 0.8300  lam= 10000: 0.9580
@@ -165,7 +165,7 @@ seed=7 weeks=10 eval_weeks=2 series=49 anomalies=133
 
 ## Persistence gate ablation (negative_binomial)
 
-```
+```text
   full design                  silence fp ephemeral    0, persistent 1578, opens/day median 22.5
   no persistence gate          silence fp ephemeral  134, persistent 1578, opens/day median 22.5
   naive (no gate, 1h history)  silence fp ephemeral    0, persistent 1176, opens/day median 21.0
@@ -173,7 +173,7 @@ seed=7 weeks=10 eval_weeks=2 series=49 anomalies=133
 
 ## Level shift re-baselining (permanent shift, 5 weeks runway)
 
-```
+```text
   x2 passive (exclusion cap)      2.6 days (402 verdicts)
   x2 stability test (12 buckets)  0.0 days (12 verdicts)
   x4 passive (exclusion cap)      still firing at run end (7810 verdicts)
