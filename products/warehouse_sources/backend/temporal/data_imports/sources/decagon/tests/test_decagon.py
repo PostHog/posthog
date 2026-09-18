@@ -685,14 +685,34 @@ class TestArticleTables:
         assert [[r["id"] for r in b] for b in batches] == [[1, 2]]
         logger.warning.assert_called_once()
 
-    def test_rows_are_read_from_the_response_only_list_when_the_configured_key_is_absent(self) -> None:
-        # A renamed envelope key otherwise reads as an empty page: the walk ends on the
-        # first request and the sync reports success with an empty table.
+    @parameterized.expand(
+        [
+            ("only_list", {"data": [{"id": 1}, {"id": 2}], "total": 2}),
+            ("configured_key_one_level_down", {"result": {"articles": [{"id": 1}, {"id": 2}]}, "total": 2}),
+            ("only_list_one_level_down", {"result": {"items": [{"id": 1}, {"id": 2}]}, "total": 2}),
+            (
+                "only_list_carrying_the_primary_key",
+                {"items": [{"id": 1}, {"id": 2}], "warnings": ["stale"], "total": 2},
+            ),
+        ]
+    )
+    def test_rows_are_read_from_a_renamed_or_re_nested_envelope(self, _name: str, body: dict[str, Any]) -> None:
+        # A renamed or re-nested envelope key otherwise reads as an empty page, which fails
+        # the walk against the reported total and leaves the table empty until support
+        # updates the config.
         manager = _fresh_manager()
-        responses = [_make_response({"data": [{"id": 1}, {"id": 2}], "total": 2})]
-        _, batches = _drive_rows(manager, responses, endpoint="articles")
+        _, batches = _drive_rows(manager, [_make_response(body)], endpoint="articles")
 
         assert [[r["id"] for r in b] for b in batches] == [[1, 2]]
+
+    def test_an_ambiguous_envelope_fails_rather_than_guessing_a_list(self) -> None:
+        # Two lists both look like rows, so picking one would import the wrong table
+        # silently. The walk keeps nothing and the contract guard fails the sync.
+        manager = _fresh_manager()
+        responses = [_make_response({"drafts": [{"id": 1}], "published": [{"id": 2}], "total": 2})]
+
+        with pytest.raises(DecagonContractError):
+            _drive_rows(manager, responses, endpoint="articles")
 
     def test_no_rows_against_a_nonzero_total_fails_the_sync(self) -> None:
         # The endpoint reports articles and the walk kept none, so the config no longer
@@ -703,6 +723,11 @@ class TestArticleTables:
         with pytest.raises(DecagonContractError) as excinfo:
             _drive_rows(manager, responses, endpoint="articles")
 
+        # Support cannot read the Decagon account, so the shape the walk saw has to travel
+        # with the failure; without it the next envelope change needs a live credential to
+        # diagnose.
+        assert "unexpected: object(id)" in str(excinfo.value)
+        assert "total: int" in str(excinfo.value)
         # The failure is deterministic, so the source must classify the message it actually
         # raises. An unclassified message repeats this identical request for the whole attempt
         # budget, reports it every time, and leaves the schema enabled for the next schedule.

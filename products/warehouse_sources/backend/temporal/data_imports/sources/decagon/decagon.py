@@ -158,30 +158,73 @@ def _incremental_window_value(config: DecagonEndpointConfig, value: Any) -> int 
     return _to_epoch_seconds(value)
 
 
+def _list_candidates(data: dict[str, Any]) -> list[tuple[str, list[Any]]]:
+    """Every list in the envelope, at the top level or one object below it."""
+    candidates: list[tuple[str, list[Any]]] = []
+    for key, value in data.items():
+        if isinstance(value, list):
+            candidates.append((key, value))
+        elif isinstance(value, dict):
+            candidates.extend((f"{key}.{nested}", item) for nested, item in value.items() if isinstance(item, list))
+    return candidates
+
+
+def _looks_like_rows(config: DecagonEndpointConfig, items: list[Any]) -> bool:
+    """Whether a list can hold this endpoint's rows: objects carrying its primary keys."""
+    if not items or not isinstance(items[0], dict):
+        return False
+    if config.primary_keys is None:
+        return True
+    return all(key in items[0] for key in config.primary_keys)
+
+
+def _describe_shape(data: dict[str, Any]) -> str:
+    """The envelope's keys and value shapes, so the log names what arrived, not what did not."""
+    parts: list[str] = []
+    for key in sorted(data):
+        value = data[key]
+        if isinstance(value, list):
+            parts.append(f"{key}: list[{len(value)}]")
+        elif isinstance(value, dict):
+            parts.append(f"{key}: object({', '.join(sorted(value))})")
+        else:
+            parts.append(f"{key}: {type(value).__name__}")
+    return ", ".join(parts)
+
+
 def _resolve_items(
     data: dict[str, Any], config: DecagonEndpointConfig, endpoint: str, logger: FilteringBoundLogger
 ) -> list[Any]:
     """Read the row list out of a response envelope.
 
-    Decagon renames envelope fields between doc revisions (the conversations export alone
-    documents three names for one cursor field), and a lookup that misses reads as an
-    empty page, which ends the walk and reports success. So fall back to the response's
-    only list when the configured key is absent.
+    Decagon renames and re-nests envelope fields between doc revisions (the conversations
+    export alone documents three names for one cursor field), and a lookup that misses
+    reads as an empty page, which fails the walk against the reported total. So search the
+    envelope for the list the rows moved to: the same key one object down, the response's
+    only list, or the only list whose items carry this endpoint's primary keys.
     """
     items = data.get(config.data_key)
     if isinstance(items, list):
         return items
 
-    list_keys = [key for key, value in data.items() if isinstance(value, list)]
-    if len(list_keys) == 1:
-        logger.warning(
-            f"Decagon: {endpoint} response carries no '{config.data_key}' list; reading rows from "
-            f"'{list_keys[0]}' instead (response keys: {sorted(data.keys())})"
-        )
-        return data[list_keys[0]]
+    candidates = _list_candidates(data)
+    same_key = [found for found in candidates if found[0].rsplit(".", 1)[-1] == config.data_key]
+    row_like = [found for found in candidates if _looks_like_rows(config, found[1])]
+    # Most specific first: the configured key one level down, then the envelope's only
+    # list, then the only list that carries the endpoint's primary keys. Anything that
+    # leaves more than one candidate is a guess, so it fails instead.
+    for shortlist in (same_key, candidates, row_like):
+        if len(shortlist) == 1:
+            path, found_items = shortlist[0]
+            logger.warning(
+                f"Decagon: {endpoint} response carries no '{config.data_key}' list; reading rows from "
+                f"'{path}' instead (response shape: {_describe_shape(data)})"
+            )
+            return found_items
 
     logger.warning(
-        f"Decagon: {endpoint} response carries no '{config.data_key}' list (response keys: {sorted(data.keys())})"
+        f"Decagon: {endpoint} response carries no readable '{config.data_key}' list "
+        f"(response shape: {_describe_shape(data)})"
     )
     return []
 
@@ -399,6 +442,7 @@ class _RowWalk:
         self._logger = logger
         self._saw_rows = False
         self._reported_total: Any = None
+        self._envelope_shape = ""
 
     def run(self) -> Iterator[list[dict[str, Any]]]:
         yield from self._walk()
@@ -416,6 +460,7 @@ class _RowWalk:
     def _read(self, position_params: dict[str, str]) -> _Batch:
         params: dict[str, str] = {**self._config.extra_params, **position_params, **self._window_params}
         data = self._fetcher.fetch(params)
+        self._envelope_shape = _describe_shape(data)
         items = _resolve_items(data, self._config, self._endpoint, self._logger)
         fresh = self._deduplicator.fresh(items)
         self._saw_rows = self._saw_rows or bool(fresh)
@@ -443,7 +488,8 @@ class _RowWalk:
         ):
             raise DecagonContractError(
                 f"{CONTRACT_MISMATCH_ERROR}: {self._endpoint} reports {self._reported_total} rows and the walk "
-                f"kept none. Check the response envelope against the endpoint config."
+                f"kept none. The last response carried {self._envelope_shape}, and the config reads rows from "
+                f"'{self._config.data_key}'."
             )
 
     def _save_position(self, **position: Any) -> None:
