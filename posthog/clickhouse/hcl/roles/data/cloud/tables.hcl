@@ -441,6 +441,9 @@ database "posthog" {
     column "has_autocapture" {
       type = "SimpleAggregateFunction(max, Bool)"
     }
+    column "flag_key_values" {
+      type = "SimpleAggregateFunction(groupUniqArrayArray(2000), Array(String))"
+    }
     column "flag_values" {
       type = "AggregateFunction(groupUniqArrayMap, Map(String, String))"
     }
@@ -1074,6 +1077,9 @@ database "posthog" {
     }
     column "has_autocapture" {
       type = "SimpleAggregateFunction(max, Bool)"
+    }
+    column "flag_key_values" {
+      type = "SimpleAggregateFunction(groupUniqArrayArray(2000), Array(String))"
     }
     column "flag_values" {
       type = "AggregateFunction(groupUniqArrayMap, Map(String, String))"
