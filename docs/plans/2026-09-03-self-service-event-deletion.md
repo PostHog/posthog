@@ -127,7 +127,7 @@ No join back to the events table is required. Such a join would add an expensive
 
 ## Dedicated ClickHouse principal
 
-Introduce a `data_deletion_request_executor` principal for this operation.
+Use the `deletion_executor` principal for this operation.
 
 It needs:
 
@@ -141,7 +141,7 @@ It needs:
 
 The principal must be separate from the identity used by `deletes_job`, which performs the actual mutations.
 
-A separate user limits the impact of a parser, compiler, or query-composition defect. The executor may append deletion candidates, but it cannot mutate event storage or write elsewhere. Infrastructure must provision equivalent grants in every environment before application code depends on the new principal.
+A separate user limits the impact of a parser, compiler, or query-composition defect. The executor may append deletion candidates, but it cannot mutate event storage or write elsewhere. Infrastructure provisions equivalent grants in every environment before application code depends on the principal.
 
 The query should run under an offline workload with server-controlled limits for execution time, memory, bytes read, temporary disk, threads, and concurrency. Settings constraints must prevent the compiled inner query from weakening those limits.
 
@@ -270,40 +270,47 @@ Django Admin should display and filter by request type, `created_by_staff`, acto
 - Include the request ID in deferred request queue inserts (#100385).
 - Leave it unset on processed replacement rows so `NULL` represents processed state.
 
-### 2. Postgres model PR
+### 2. Postgres model (completed)
 
-- Add `hogql_event_removal` and immutable HogQL snapshot fields.
-- Define criteria-reset and immutability rules.
-- Add model-level validation for query-backed event removals.
-- Keep `created_by_staff` and populate it independently from the request type.
-- Preserve compatibility with existing admin-created requests.
+- Added `hogql_event_removal` and immutable HogQL snapshot fields (#100857).
+- Defined criteria-reset and immutability rules.
+- Added model-level validation for query-backed event removals.
+- Kept `created_by_staff` independent from the request type.
+- Preserved compatibility with existing admin-created requests.
 
-### 3. ClickHouse executor and infrastructure PRs
+### 3. ClickHouse executor and infrastructure (completed)
 
-- Provision the dedicated ClickHouse principal in every environment.
-- Add a credential path for the executor.
-- Compile regular HogQL within the request's team and user context.
-- Execute the server-owned `INSERT ... SELECT` under offline limits.
-- Add provenance and retry-safe queue accounting.
+- Provisioned the `deletion_executor` ClickHouse principal (#10463 in `posthog-cloud-infra`).
+- Configured Dagster with the executor credentials (#15810 in `charts`).
+- Compiled regular HogQL within the request's team and user context (#101678).
+- Executed the server-owned `INSERT ... SELECT` under offline limits.
+- Added provenance-based queue verification and retry-safe accounting.
 
-Infrastructure grants should land before application code uses them. Application code should fail closed when the dedicated credentials are absent in cloud environments.
+Application code fails closed when the dedicated credentials are absent.
 
-### 4. API PR
+### 4. Product API PR (next)
 
 - Add preview, create, list, and detail endpoints.
-- Register the team-scoped, read-only `data_deletion_requests` HogQL table.
 - Add permission and tenant-scoping checks.
 - Add idempotent submission.
+- Add payload-size, rate, and active-request limits.
 - Regenerate OpenAPI clients.
 
-### 5. Frontend PR
+### 5. HogQL table PR
+
+- Register the team-scoped, read-only `data_deletion_requests` HogQL table.
+- Expose only product-created `hogql_event_removal` requests.
+- Define explicit customer-safe columns and omit operational metadata.
+- Apply the same destructive-feature permission used by the API.
+
+### 6. Frontend PR
 
 - Add the SQL editor menu action and confirmation dialog.
 - Add the deletion request status surface.
 - Add feature-flag and permission gates.
 - Document the customer workflow.
 
-### 6. Operational rollout
+### 7. Operational rollout
 
 - Enable the approval, pickup, weekend deletion, and verification automation.
 - Start with manual approval and a restricted cohort.
