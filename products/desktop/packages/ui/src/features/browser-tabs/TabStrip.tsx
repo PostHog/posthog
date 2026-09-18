@@ -179,6 +179,53 @@ export function TabStrip({
   );
 }
 
+function MemberGlyph({ member }: { member: SplitMember }) {
+  if (member.icon) {
+    return (
+      <span className="flex shrink-0 items-center [&>svg]:size-3.5">
+        {member.icon}
+      </span>
+    );
+  }
+  return (
+    <span className="flex size-3.5 shrink-0 items-center justify-center rounded-xs bg-foreground/10 font-medium text-[9px] uppercase leading-none">
+      {member.label.trim().charAt(0) || "?"}
+    </span>
+  );
+}
+
+function SplitTooltip({ split }: { split: SplitView }) {
+  return (
+    <div className="flex min-w-44 flex-col gap-1.5 py-0.5">
+      <div className="flex items-center justify-between gap-3 text-muted">
+        <span className="flex items-center gap-1.5">
+          <SplitHorizontalIcon size={12} />
+          {split.name ?? "Split"}
+        </span>
+        <span>{split.members.length} tabs</span>
+      </div>
+      <div className="flex flex-col gap-1">
+        {split.members.map((member) => {
+          const shown = member.id === split.activeId;
+          return (
+            <div
+              key={member.id}
+              className={cn(
+                "flex items-center gap-2",
+                shown ? "font-medium" : "text-muted",
+              )}
+            >
+              <MemberGlyph member={member} />
+              <span className="min-w-0 flex-1">{member.label}</span>
+              {shown && <span className="text-muted text-xxs">showing</span>}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 function SplitPill({
   tab,
   split,
@@ -201,7 +248,7 @@ function SplitPill({
       aria-selected={isActive}
       aria-label={`${split.name ?? tab.label} (split, ${split.members.length} tabs)`}
       className={cn(
-        "flex h-6 max-w-[280px] items-stretch overflow-hidden rounded-md bg-muted ring-1 ring-border ring-inset",
+        "flex h-6 max-w-[280px] items-stretch overflow-hidden rounded-md border border-border bg-background transition-[padding] group-hover:pr-5",
         !isActive && "opacity-60 hover:opacity-100",
       )}
     >
@@ -212,7 +259,7 @@ function SplitPill({
           defaultValue={split.name ?? ""}
           placeholder="Name this split"
           aria-label="Split name"
-          className="h-full w-36 min-w-0 bg-background px-1.5 text-xs outline-none"
+          className="h-full w-36 min-w-0 border-border border-r bg-background px-2 text-xs outline-none"
           onKeyDown={(event) => {
             if (event.key === "Enter") onRename(event.currentTarget.value);
             if (event.key === "Escape") onRename(null);
@@ -220,37 +267,32 @@ function SplitPill({
           onBlur={(event) => onRename(event.currentTarget.value)}
         />
       ) : split.name ? (
-        <span className="flex min-w-0 items-center truncate px-1.5 font-medium text-xs">
+        <span className="flex min-w-0 items-center truncate border-border border-r px-2 font-medium text-xs">
           {split.name}
         </span>
       ) : null}
-      {split.members.map((member, index) => {
-        const shown = member.id === split.activeId;
-        return (
-          <button
-            key={member.id}
-            type="button"
-            title={member.label}
-            aria-current={shown && isActive ? "true" : undefined}
-            onClick={() => onSelectMember(member.id)}
-            className={cn(
-              "flex w-7 shrink-0 items-center justify-center transition-colors",
-              (index > 0 || split.name || renaming) && "border-border border-l",
-              shown
-                ? "bg-background shadow-xs"
-                : "text-muted-foreground hover:bg-background/60 hover:text-foreground",
-            )}
-          >
-            <span className="flex shrink-0 items-center [&>svg]:size-3">
-              {member.icon ?? (
-                <span className="flex size-3.5 items-center justify-center rounded-xs bg-foreground/10 font-medium text-[9px] uppercase leading-none">
-                  {member.label.trim().charAt(0) || "?"}
-                </span>
+      <span className="flex items-stretch gap-px bg-border/60 p-px">
+        {split.members.map((member) => {
+          const shown = member.id === split.activeId;
+          return (
+            <button
+              key={member.id}
+              type="button"
+              title={member.label}
+              aria-current={shown && isActive ? "true" : undefined}
+              onClick={() => onSelectMember(member.id)}
+              className={cn(
+                "flex w-6 shrink-0 items-center justify-center rounded-[3px] transition-colors",
+                shown
+                  ? "bg-accent-3 text-accent-11"
+                  : "bg-background text-muted-foreground hover:bg-muted hover:text-foreground",
               )}
-            </span>
-          </button>
-        );
-      })}
+            >
+              <MemberGlyph member={member} />
+            </button>
+          );
+        })}
+      </span>
     </div>
   );
 }
@@ -396,29 +438,21 @@ function SortableTabPill({
           {/* Channel context first (always `#`-prefixed); the channel-home tab
               reads `#channel / home`. Then the page name, unless it would just
               repeat the channel-home name already shown above. */}
-          {tab.channelName ? (
-            <div className="text-muted">
-              {tab.channelName}
-              {tab.isChannelHome ? " / home" : null}
-            </div>
-          ) : null}
           {split ? (
+            <SplitTooltip split={split} />
+          ) : (
             <>
-              <div className="text-muted">Split view</div>
-              {split.members.map((member) => (
-                <div
-                  key={member.id}
-                  className={
-                    member.id === split.activeId ? "font-medium" : undefined
-                  }
-                >
-                  {member.label}
+              {tab.channelName ? (
+                <div className="text-muted">
+                  {tab.channelName}
+                  {tab.isChannelHome ? " / home" : null}
                 </div>
-              ))}
+              ) : null}
+              {tab.label && !(tab.isChannelHome && tab.channelName) ? (
+                <div className="font-medium">{tab.label}</div>
+              ) : null}
             </>
-          ) : tab.label && !(tab.isChannelHome && tab.channelName) ? (
-            <div className="font-medium">{tab.label}</div>
-          ) : null}
+          )}
         </TooltipContent>
       </Tooltip>
       {/* no-drag: the menu opens under the title bar's drag region, and
