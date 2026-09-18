@@ -3,9 +3,10 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any, Literal, Optional, cast
 from urllib.parse import urlparse
+from zoneinfo import ZoneInfo
 
 from django.contrib.postgres.fields import ArrayField
 from django.db import models, transaction
@@ -328,21 +329,75 @@ class Subscription(ModelActivityMixin, models.Model):
         )
 
     @staticmethod
-    def _compute_next_delivery_date(*, from_dt: Optional[datetime] = None, **rrule_fields: Any) -> Optional[datetime]:
+    def _compute_next_delivery_date(
+        *, from_dt: Optional[datetime] = None, tz_name: Optional[str] = None, **rrule_fields: Any
+    ) -> Optional[datetime]:
         interval = rrule_fields.get("interval") or 1
         byweekday = rrule_fields.get("byweekday")
         start_date = rrule_fields.get("start_date")
+        until_date = rrule_fields.get("until_date")
+
+        # Anchor the recurrence to the project's local wall clock so deliveries keep the
+        # same local time across DST transitions (#42016). start_date is stored in UTC;
+        # converting the anchor instant to local time recovers the originally chosen wall
+        # time, because the instant carries the offset in effect when it was picked. The
+        # rrule then runs on naive local times and each occurrence is localized on its own
+        # date, so the UTC delivery time follows the offset in effect on that date.
+        tz: Optional[ZoneInfo] = None
+        if tz_name and start_date is not None:
+            try:
+                tz = ZoneInfo(tz_name)
+            except Exception:
+                tz = None  # unknown timezone name: fall back to UTC-anchored recurrence
+        if tz is not None:
+            anchor = start_date.astimezone(tz).replace(tzinfo=None)
+            rrule_fields = {
+                **rrule_fields,
+                "start_date": anchor,
+                **({"until_date": until_date.astimezone(tz).replace(tzinfo=None)} if until_date else {}),
+            }
+            weekday_source = anchor
+        else:
+            weekday_source = start_date
+
         if (
             rrule_fields.get("frequency") == Subscription.SubscriptionFrequency.DAILY
             and interval % 7 == 0
             and byweekday
-            and start_date
-            and start_date.strftime("%A").lower() not in byweekday
+            and weekday_source
+            and weekday_source.strftime("%A").lower() not in byweekday
         ):
             return None
         # Buffer of 15 minutes since we might run a bit early — never schedule into the past.
         now = timezone.now() + timedelta(minutes=15)
-        return Subscription._build_rrule(**rrule_fields).after(dt=max(from_dt or now, now), inc=False)
+        lower = max(from_dt or now, now)
+        if tz is None:
+            return Subscription._build_rrule(**rrule_fields).after(dt=lower, inc=False)
+        # Widen the wall-time window beyond any tzdb offset shift: the wall occurrence
+        # whose later fold is still ahead can sit behind `lower` on the wall clock by up
+        # to the size of the shift, so the rrule must start before it and the filtering
+        # below decides purely by instant. 26h covers every shift in tzdb, including
+        # whole-day dateline skips, where 2h would silently drop multi-hour folds.
+        wall_lower = (lower - timedelta(hours=26)).astimezone(tz).replace(tzinfo=None)
+        occurrence = Subscription._build_rrule(**rrule_fields).after(dt=wall_lower, inc=False)
+        # Compare in instants, not wall time: an ambiguous occurrence exists twice (both
+        # folds are returned earliest-first), a nonexistent one falls forward using the
+        # pre-transition offset, and any candidate already past on the real clock is skipped.
+        while occurrence is not None:
+            candidates: list[datetime] = []
+            for fold in (0, 1):
+                instant = occurrence.replace(tzinfo=tz, fold=fold).astimezone(UTC)
+                if instant.astimezone(tz).replace(tzinfo=None) == occurrence and instant not in candidates:
+                    candidates.append(instant)
+            if not candidates:
+                # Wall time skipped by a spring-forward transition: deliver at the
+                # pre-transition offset, i.e. as soon as the local clock jumps past it.
+                candidates.append(occurrence.replace(tzinfo=tz, fold=0).astimezone(UTC))
+            for instant in sorted(candidates):
+                if instant > lower:
+                    return instant
+            occurrence = Subscription._build_rrule(**rrule_fields).after(dt=occurrence, inc=False)
+        return None
 
     @property
     def rrule(self) -> rrule:
@@ -350,23 +405,28 @@ class Subscription(ModelActivityMixin, models.Model):
 
     def set_next_delivery_date(self, from_dt: Optional[datetime] = None) -> None:
         # Authoritative schedule — a client-side preview mirror lives in
-        # frontend/src/lib/components/Subscriptions/utils.tsx (getNextDeliveryDate).
+        # products/subscriptions/frontend/components/Subscriptions/utils.tsx (getNextDeliveryDate).
         self.next_delivery_date = self._compute_next_delivery_date(
-            from_dt=from_dt, **{f: getattr(self, f) for f in self.RRULE_FIELDS}
+            from_dt=from_dt,
+            tz_name=self.team.timezone if self.team_id else None,
+            **{f: getattr(self, f) for f in self.RRULE_FIELDS},
         )
 
     @classmethod
     def project_next_delivery_date(
-        cls, instance: Optional["Subscription"] = None, **overrides: Any
+        cls, instance: Optional["Subscription"] = None, timezone_name: Optional[str] = None, **overrides: Any
     ) -> Optional[datetime]:
         """What `next_delivery_date` would be for the rrule defined by `instance` fields
         (when given) layered with `overrides`, without persisting. Returns None on an
-        exhausted rrule. Pass `instance` for PATCH validation, omit it for creates."""
+        exhausted rrule. Pass `instance` for PATCH validation, omit it for creates.
+        `timezone_name` should be the project timezone, matching set_next_delivery_date."""
         base = {f: getattr(instance, f) for f in cls.RRULE_FIELDS} if instance is not None else {}
         merged = {**base, **{k: v for k, v in overrides.items() if k in cls.RRULE_FIELDS}}
         if "frequency" not in merged or "start_date" not in merged:
             return None  # DRF field validation should reject before we get here.
-        return cls._compute_next_delivery_date(**merged)
+        if timezone_name is None and instance is not None and instance.team_id:
+            timezone_name = instance.team.timezone
+        return cls._compute_next_delivery_date(tz_name=timezone_name, **merged)
 
     @classmethod
     def check_subscription_limit(cls, team_id: int, organization: "Organization") -> str | None:
