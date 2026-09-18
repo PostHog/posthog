@@ -97,7 +97,11 @@ from products.customer_analytics.backend.facade.contracts import (
     InvalidCustomPropertyOptions as InvalidCustomPropertyOptions,
 )
 from products.customer_analytics.backend.facade.email_matching import schedule_email_thread_link_recalculation
-from products.customer_analytics.backend.facade.enums import AccountPropertyPinKind, AccountRelationshipSource
+from products.customer_analytics.backend.facade.enums import (
+    AccountPropertyPinKind,
+    AccountRelationshipSource,
+    TaskDigestCadence,
+)
 from products.customer_analytics.backend.logic import (
     account_presence as _account_presence_logic,
     account_track_rules as _account_track_rules_logic,
@@ -1213,7 +1217,8 @@ def _to_user_customer_analytics_config(
         pinned_properties=[
             contracts.PinnedAccountProperty(kind=reference["kind"], id=UUID(str(reference["id"])))
             for reference in raw_references
-        ]
+        ],
+        task_digest=_user_customer_analytics_config_logic.read_task_digest(config),
     )
 
 
@@ -1229,6 +1234,24 @@ def update_user_customer_analytics_config(
         team_id=team_id,
         user_id=user_id,
         references=[(AccountPropertyPinKind(reference.kind), reference.id) for reference in pinned_properties],
+    )
+    return _to_user_customer_analytics_config(config)
+
+
+def update_user_task_digest_preferences(
+    *,
+    team_id: int,
+    user_id: int,
+    enabled: bool | None = None,
+    send_time: time | None = None,
+    cadence: str | None = None,
+) -> contracts.UserCustomerAnalyticsConfig:
+    config = _user_customer_analytics_config_logic.update_task_digest(
+        team_id=team_id,
+        user_id=user_id,
+        enabled=enabled,
+        send_time=send_time,
+        cadence=TaskDigestCadence(cadence) if cadence is not None else None,
     )
     return _to_user_customer_analytics_config(config)
 

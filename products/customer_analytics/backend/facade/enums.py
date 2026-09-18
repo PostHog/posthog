@@ -8,6 +8,13 @@ class AccountPropertyPinKind(str, Enum):
     RELATIONSHIP = "relationship"
 
 
+class TaskDigestCadence(models.TextChoices):
+    """How often a user's customer task digest email is sent."""
+
+    WEEKDAYS = "weekdays", "Weekdays"
+    EVERY_DAY = "every_day", "Every day"
+
+
 class AccountRelationshipSource(models.TextChoices):
     """Which kind of writer created or ended a relationship row. Rows written before provenance
     was recorded carry NULL."""
@@ -43,4 +50,5 @@ __all__ = [
     "AccountRelationshipSource",
     "OwnershipRoleDiagnostic",
     "OwnershipRoleState",
+    "TaskDigestCadence",
 ]
