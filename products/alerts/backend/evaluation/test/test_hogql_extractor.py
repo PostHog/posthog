@@ -366,3 +366,36 @@ def test_any_row_rejects_relative_conditions():
             condition_type=AlertConditionType.RELATIVE_INCREASE,
             config={"type": "HogQLAlertConfig", "evaluation": "any_row"},
         )
+
+
+@pytest.mark.parametrize("condition_type", [AlertConditionType.ABSOLUTE_VALUE, AlertConditionType.RELATIVE_INCREASE])
+@pytest.mark.parametrize("recent_rows", [[["hour-2", 4], ["hour-1", 7]], [["hour-1", 7]], []])
+def test_last_row_scan_preserves_anchors_and_falls_back_for_sparse_data(recent_rows, condition_type):
+    insight = MagicMock()
+    insight.query = {
+        "kind": "HogQLQuery",
+        "query": """SELECT toStartOfHour(timestamp) AS bucket, count() AS value FROM events
+            WHERE timestamp >= toStartOfHour(now()) - INTERVAL 48 HOUR
+              AND timestamp < toStartOfHour(now()) GROUP BY bucket ORDER BY bucket ASC""",
+    }
+    original_sql = insight.query["query"]
+    alert = _alert(condition_type, config={"column": "value", "label_column": "bucket"})
+    seen_queries = []
+
+    def calculate(_insight, **kwargs):
+        assert _insight is insight
+        assert kwargs["team"] is alert.team
+        assert kwargs["user"] is alert.created_by
+        assert kwargs["execution_mode"] == _IF_STALE
+        override = kwargs.get("query_override")
+        seen_queries.append(override)
+        rows = recent_rows if override else [["old-hour", 1], ["hour-2", 4], ["hour-1", 7]]
+        return MagicMock(result=rows, columns=["bucket", "value"])
+
+    with patch(CALC_PATH, side_effect=calculate):
+        result = HogQLExtractor().extract(alert, insight, MagicMock(), _IF_STALE)
+    assert [p.value for p in result.series[0].points] == [4, 7]
+    assert result.series[0].label == "hour-1"
+    assert seen_queries[0] is not None
+    assert len(seen_queries) == (1 if len(recent_rows) == 2 else 2)
+    assert insight.query["query"] == original_sql
