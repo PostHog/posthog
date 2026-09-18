@@ -107,8 +107,7 @@ DIFF_CHECKS: list[DiffCheck] = [
         triggers=[
             "package.json",
             "*/package.json",
-            "pnpm-lock.yaml",
-            "*/pnpm-lock.yaml",
+            *LOCKFILE_GLOBS,
             "pnpm-workspace.yaml",
             "*/pnpm-workspace.yaml",
             "patches/*",
