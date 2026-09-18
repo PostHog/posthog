@@ -615,7 +615,9 @@ tools:
             a report routed to the wrong codebase: pass `owner/repo` to replace the report's target in place, rather
             than authoring a duplicate that carries the right one, or the `NO_REPO` sentinel for a report where nothing
             under version control could change. It re-runs autostart too, and omitting it leaves the report's target
-            alone. The response carries `repository`, the target the report holds after the edit, read back from the
+            alone. A scout configured with repositories can only name one of them: any other value is refused and the
+            report keeps the target it had. A scout configured with no repositories can name any repo the team
+            reaches. The response carries `repository`, the target the report holds after the edit, read back from the
             report — check it against what you sent, because the call fails when a correction you named did not land.
             Prefer `append_note` over rewriting a report you didn't author (additive and audit-friendly); title/summary
             edits are best-effort, since the pipeline may later re-research and overwrite them. Optional
@@ -659,10 +661,13 @@ tools:
             authoring a near-duplicate. `suggested_reviewers` is the primary way a report reaches a human (each a
             `github_login` and/or a PostHog `user_uuid` resolved server-side); for a concrete, fixable issue, passing
             `repository` + `priority` + `suggested_reviewers` also opens a draft PR automatically (autostart,
-            custom_agent parity); omit them to just surface the report. Optional `charts` attach queries the inbox
-            renders inline — reference one from `summary` as `[label](chart:<chart_id>)` to place it in the body, or
-            leave it unreferenced and it renders below. Optional `metrics` adds at most six typed impact measurements:
-            one primary metric for the key observation and supporting facts around it. Every metric requires a bounded
+            custom_agent parity); omit them to just surface the report. A scout configured with repositories can only
+            name one of them: any other value is refused, and a target derived from an omitted `repository` is limited
+            to the same list. A scout configured with no repositories can name any repo the team reaches. Optional
+            `charts` attach queries the inbox renders inline — reference one from `summary` as
+            `[label](chart:<chart_id>)` to place it in the body, or leave it unreferenced and it renders below.
+            Optional `metrics` adds at most six typed impact measurements: one primary metric for the key observation
+            and supporting facts around it. Every metric requires a bounded
             live InsightVizNode/TrendsQuery built only from EventsNode or ActionsNode sources, with no more than 1,000
             estimated longitudinal points; its snapshot is only an optional cached fallback. An affected-users metric
             counts distinct people through one series with `math: dau`. Consumers derive a `BoldNumber` query for each

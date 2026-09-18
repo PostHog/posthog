@@ -4492,7 +4492,7 @@ export interface EditReportRequestApi {
      */
     suggested_reviewers?: SuggestedReviewerApi[]
     /**
-     * Optional repository to point the report at, as `owner/repo` — the fix for a report that surfaced against the wrong codebase, so you correct it in place instead of filing a duplicate. It replaces the report's current target and re-runs autostart, so a report that had no repository to open a PR against can now open a draft PR. Omit the field to leave the target as it is, and pass the `NO_REPO` sentinel for a report where nothing under version control could change.
+     * Optional repository to point the report at, as `owner/repo` — the fix for a report that surfaced against the wrong codebase, so you correct it in place instead of filing a duplicate. It replaces the report's current target and re-runs autostart, so a report that had no repository to open a PR against can now open a draft PR. Omit the field to leave the target as it is, and pass the `NO_REPO` sentinel for a report where nothing under version control could change. A scout configured with repositories can only name one of them: any other value is refused and the report keeps the target it had. A scout configured with no repositories can name any repo the team reaches.
      * @nullable
      */
     repository?: string | null
@@ -4693,7 +4693,7 @@ export interface EmitReportRequestApi {
     /** Whether the issue is already being handled — fixed in recent changes, or with a fix in flight (an open PR, a recently active branch, an assigned / in-progress issue or agent task). Gates autostart, so a wrong `false` opens a duplicate PR. Tracked separately. */
     already_addressed?: boolean
     /**
-     * Optional repo for opening a draft PR, by autostart or by a person from the inbox. Pass `owner/repo` whenever you can say where a fix would land. Omit the field when you can't, which triggers free-form selection across the team's repos (the slow path on a many-repo team). Keep the `NO_REPO` sentinel for the rare report where nothing under version control could change, since a skill body, a config file, or a doc still lives in a repo.
+     * Optional repo for opening a draft PR, by autostart or by a person from the inbox. Pass `owner/repo` whenever you can say where a fix would land. Omit the field when you can't, which triggers selection across the repos you may target (the slow path on a many-repo team). Keep the `NO_REPO` sentinel for the rare report where nothing under version control could change, since a skill body, a config file, or a doc still lives in a repo. A scout configured with repositories can only name one of them: any other value is refused, and a target derived from an omitted field is limited to the same list. A scout configured with no repositories can name any repo the team reaches.
      * @nullable
      */
     repository?: string | null
