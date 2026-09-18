@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from datetime import timedelta
 from hashlib import sha256
 from time import perf_counter
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from django.conf import settings
 from django.db.models import QuerySet
@@ -12,12 +12,14 @@ from django.db.models import QuerySet
 import requests
 import posthoganalytics
 
-from posthog.schema import DatabaseSchemaQueryResponse
+from posthog.schema import DatabaseSchemaDataWarehouseTable, DatabaseSchemaQueryResponse
 
+from posthog.hogql.database.s3_table import S3Table
 from posthog.hogql.editor_assist_metrics import (
     LANGUAGE_SERVICE_HTTP_DURATION_SECONDS,
     LANGUAGE_SERVICE_RESPONSE_SIZE_BYTES,
 )
+from posthog.hogql.errors import QueryError, ResolutionError
 
 from posthog.jwt import PosthogJwtAudience, encode_jwt
 from posthog.models import PropertyDefinition, Team, User
@@ -25,6 +27,9 @@ from posthog.security.outbound_proxy import internal_requests
 from posthog.taxonomy.property_access import restricted_property_names
 
 from products.event_definitions.backend.models.property_definition import effective_project_id_expr
+
+if TYPE_CHECKING:
+    from posthog.hogql.database.database import Database
 
 FEATURE_FLAG = "hogql-language-service"
 AFFINITY_HEADER = "X-HogQL-Affinity-Key"
@@ -66,7 +71,14 @@ def is_language_service_enabled(team: Team, user: User) -> bool:
     )
 
 
-def build_catalog(team: Team, user: User, schema: DatabaseSchemaQueryResponse) -> dict[str, Any]:
+def build_catalog(
+    team: Team,
+    user: User,
+    schema: DatabaseSchemaQueryResponse,
+    *,
+    database: Database | None = None,
+    publish_warehouse_aliases: bool = False,
+) -> dict[str, Any]:
     tables: dict[str, Any] = {}
     for name, table in schema.tables.items():
         fields = {
@@ -86,7 +98,57 @@ def build_catalog(team: Team, user: User, schema: DatabaseSchemaQueryResponse) -
         properties[f"group:{group_type_index}"] = _properties_for_namespace(
             team, user, PropertyDefinition.Type.GROUP, group_type_index
         )
-    return {"tables": tables, "properties": properties}
+    catalog: dict[str, Any] = {"tables": tables, "properties": properties}
+    if publish_warehouse_aliases:
+        if database is None:
+            raise LanguageServiceError("warehouse aliases require the resolved database")
+        catalog["tableAliases"] = _warehouse_table_aliases(schema, database)
+    return catalog
+
+
+def _warehouse_table_aliases(schema: DatabaseSchemaQueryResponse, database: Database) -> dict[str, str]:
+    visible_names = set(database.tables.resolve_visible_table_names())
+    canonical_by_resolved_object: dict[int, list[str]] = {}
+    warehouse_tables: list[DatabaseSchemaDataWarehouseTable] = []
+
+    for canonical_name, schema_table in schema.tables.items():
+        if not isinstance(schema_table, DatabaseSchemaDataWarehouseTable):
+            continue
+        warehouse_tables.append(schema_table)
+        resolved = _visible_warehouse_table(database, visible_names, canonical_name)
+        if resolved.table_id != schema_table.id:
+            raise LanguageServiceError(f"catalog table {canonical_name!r} does not match the HogQL resolver")
+        canonical_by_resolved_object.setdefault(id(resolved), []).append(canonical_name)
+
+    aliases: dict[str, str] = {}
+    canonical_names = set(schema.tables)
+    for schema_table in warehouse_tables:
+        for alias in schema_table.search_aliases or []:
+            resolved = _visible_warehouse_table(database, visible_names, alias)
+            targets = canonical_by_resolved_object.get(id(resolved), [])
+            if len(targets) != 1:
+                raise LanguageServiceError(f"catalog alias {alias!r} has no unique visible target")
+            target = targets[0]
+            if alias == target:
+                continue
+            if alias in canonical_names:
+                raise LanguageServiceError(f"catalog alias {alias!r} collides with a canonical table")
+            previous = aliases.setdefault(alias, target)
+            if previous != target:
+                raise LanguageServiceError(f"catalog alias {alias!r} resolves to conflicting tables")
+    return aliases
+
+
+def _visible_warehouse_table(database: Database, visible_names: set[str], name: str) -> S3Table:
+    if name not in visible_names:
+        raise LanguageServiceError(f"catalog table {name!r} is not visible")
+    try:
+        table = database.get_table(name)
+    except (QueryError, ResolutionError) as error:
+        raise LanguageServiceError(f"catalog table {name!r} cannot be resolved") from error
+    if not isinstance(table, S3Table) or table.table_id is None:
+        raise LanguageServiceError(f"catalog table {name!r} is not a warehouse table")
+    return table
 
 
 def _properties_for_namespace(

@@ -32,6 +32,15 @@ Django remains authoritative for authentication, team membership, entitlements, 
 resolution. The Go service does not read PostHog permission tables or accept browser-selected identity without an
 authenticated internal request.
 
+When warehouse alias publication is enabled, Django adds resolver-confirmed `tableAliases` to the same permission-filtered catalog snapshot.
+For example, a catalog can map `demo_postgres_orders` to `postgres.demo.orders` when both names resolve to the same visible warehouse table.
+Aliases from another project or hidden tables are not published.
+If a candidate is hidden or unresolvable, or a canonical name resolves to different metadata, Django abandons the publication and uses the Python path.
+An alias must resolve to the same table object as exactly one exported canonical name; matching physical IDs alone do not establish equivalence.
+An alias candidate that resolves unambiguously to another visible canonical table follows that effective resolver winner.
+Nonrepresentable resolver collisions require a separate catalog contract before they can use the Go service.
+Built-in `posthog.*` namespaces are outside this rollout.
+
 ## Query analysis
 
 `internal/analysis` owns parsed statements, nested scopes, table and CTE bindings, and projected fields for validation and completion.
@@ -282,6 +291,14 @@ Local and debug environments may use the service directly. Production integratio
 feature flag and should progress through shadow comparison before serving editor results.
 The Go consumer accepts alias metadata before Django publishes it.
 Deploy this consumer first, then enable alias publication separately; catalogs without aliases continue to work throughout the rollout.
+
+`HOGQL_LANGUAGE_SERVICE_PUBLISH_WAREHOUSE_ALIASES` controls warehouse alias publication and defaults to disabled.
+Deploy a language service version that accepts `tableAliases` before enabling this setting in Django.
+When enabled, Django refreshes a cached legacy catalog before it uses the response.
+When disabled again, Django refreshes a cached alias catalog to remove the aliases.
+Existing numeric legacy revisions remain valid while publication is disabled, which avoids a catalog rebuild during the default-off deployment.
+Each request attempts at most one publication and one retry.
+If publication fails because a service instance is incompatible, Django uses the Python autocomplete or validation path instead of publishing a catalog that would reject valid alias SQL.
 
 The initial rollout keeps ClickHouse execution in Django:
 

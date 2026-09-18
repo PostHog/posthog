@@ -4,7 +4,7 @@ from typing import cast
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
 from rest_framework.exceptions import ValidationError
@@ -33,12 +33,20 @@ from posthog.hogql.database.models import TableNode
 from posthog.hogql.database.postgres_table import PostgresTable
 from posthog.hogql.direct_connection import INVALID_CONNECTION_ID_ERROR
 from posthog.hogql.errors import ResolutionError
-from posthog.hogql.language_service import LanguageServiceResult
+from posthog.hogql.language_service import CatalogMissing, LanguageServiceError, LanguageServiceResult, build_catalog
 
-from posthog.api.services.query import _language_service_eligible, process_query_model
+from posthog.api.services.query import (
+    _build_database_schema_query,
+    _DatabaseSchemaCatalog,
+    _language_service_call,
+    _language_service_eligible,
+    process_query_model,
+)
+from posthog.constants import AvailableFeature
 from posthog.exceptions import DatabaseSchemaUnavailable
-from posthog.models import Team, User
+from posthog.models import OrganizationMembership, Team, User
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.data_tools.backend.models.expression import DataWarehouseExpression
 from products.data_tools.backend.models.join import DataWarehouseJoin
 from products.warehouse_sources.backend.facade.models import (
@@ -156,8 +164,233 @@ class TestLanguageServiceRouting(SimpleTestCase):
         assert response.errors == []
         assert response.warnings[0].message == 'Unknown property "missing"'
 
+    @parameterized.expand(
+        [
+            (False, "legacy-v1:cached"),
+            (False, "1789766573113832612"),
+            (True, "warehouse-aliases-v1:cached"),
+        ]
+    )
+    @patch("posthog.api.services.query.is_language_service_enabled", return_value=True)
+    @patch("posthog.api.services.query.LanguageServiceClient")
+    def test_accepts_a_cached_catalog_from_the_active_rollout_mode(
+        self,
+        publish_aliases: bool,
+        revision: str,
+        client_class: MagicMock,
+        _enabled: MagicMock,
+    ) -> None:
+        client_class.return_value.validate.return_value = LanguageServiceResult(
+            body={"valid": True, "catalogRevision": revision}, duration_seconds=0, response_size_bytes=0
+        )
+
+        with override_settings(HOGQL_LANGUAGE_SERVICE_PUBLISH_WAREHOUSE_ALIASES=publish_aliases):
+            result = _language_service_call(
+                cast(Team, SimpleNamespace(pk=12)),
+                cast(User, SimpleNamespace(pk=34)),
+                HogQLMetadata(query="SELECT 1", language=HogLanguage.HOG_QL),
+            )
+
+        assert result is not None
+        client_class.return_value.publish.assert_not_called()
+
+    @parameterized.expand(
+        [
+            (True, "legacy-v1:cached", "warehouse-aliases-v1:"),
+            (False, "warehouse-aliases-v1:cached", "legacy-v1:"),
+            (True, None, "warehouse-aliases-v1:"),
+        ]
+    )
+    @patch("posthog.api.services.query.build_catalog", return_value={"tables": {}, "properties": {}})
+    @patch("posthog.api.services.query._build_database_schema_query")
+    @patch("posthog.api.services.query.is_language_service_enabled", return_value=True)
+    @patch("posthog.api.services.query.LanguageServiceClient")
+    def test_refreshes_a_missing_or_wrong_mode_catalog_once(
+        self,
+        publish_aliases: bool,
+        cached_revision: str | None,
+        expected_prefix: str,
+        client_class: MagicMock,
+        _enabled: MagicMock,
+        build_schema: MagicMock,
+        build_catalog_mock: MagicMock,
+    ) -> None:
+        client = client_class.return_value
+        first = (
+            CatalogMissing("missing")
+            if cached_revision is None
+            else LanguageServiceResult(
+                body={"valid": True, "catalogRevision": cached_revision}, duration_seconds=0, response_size_bytes=0
+            )
+        )
+        published_revision: list[str] = []
+
+        def publish(_team_id: int, _user_id: int, revision: str, _catalog: dict[str, object]) -> None:
+            published_revision.append(revision)
+
+        client.publish.side_effect = publish
+
+        def validate(*_args: object) -> LanguageServiceResult:
+            if client.validate.call_count == 1:
+                if isinstance(first, Exception):
+                    raise first
+                return first
+            return LanguageServiceResult(
+                body={"valid": True, "catalogRevision": published_revision[0]},
+                duration_seconds=0,
+                response_size_bytes=0,
+            )
+
+        client.validate.side_effect = validate
+        build_schema.return_value = _DatabaseSchemaCatalog(response=MagicMock(), database=MagicMock())
+
+        with override_settings(HOGQL_LANGUAGE_SERVICE_PUBLISH_WAREHOUSE_ALIASES=publish_aliases):
+            result = _language_service_call(
+                cast(Team, SimpleNamespace(pk=12)),
+                cast(User, SimpleNamespace(pk=34)),
+                HogQLMetadata(query="SELECT 1", language=HogLanguage.HOG_QL),
+            )
+
+        assert result is not None
+        assert published_revision[0].startswith(expected_prefix)
+        assert client.validate.call_count == 2
+        assert build_catalog_mock.call_args.kwargs["publish_warehouse_aliases"] is publish_aliases
+
+    @patch("posthog.api.services.query.build_catalog", return_value={"tableAliases": {"alias": "canonical"}})
+    @patch("posthog.api.services.query._build_database_schema_query")
+    @patch("posthog.api.services.query.is_language_service_enabled", return_value=True)
+    @patch("posthog.api.services.query.LanguageServiceClient")
+    def test_falls_back_when_alias_publication_is_not_supported(
+        self,
+        client_class: MagicMock,
+        _enabled: MagicMock,
+        build_schema: MagicMock,
+        _build_catalog: MagicMock,
+    ) -> None:
+        client_class.return_value.validate.return_value = LanguageServiceResult(
+            body={"valid": True, "catalogRevision": "legacy-v1:cached"},
+            duration_seconds=0,
+            response_size_bytes=0,
+        )
+        client_class.return_value.publish.side_effect = LanguageServiceError("language service returned 400")
+        build_schema.return_value = _DatabaseSchemaCatalog(response=MagicMock(), database=MagicMock())
+
+        with override_settings(HOGQL_LANGUAGE_SERVICE_PUBLISH_WAREHOUSE_ALIASES=True):
+            result = _language_service_call(
+                cast(Team, SimpleNamespace(pk=12)),
+                cast(User, SimpleNamespace(pk=34)),
+                HogQLMetadata(query="SELECT 1", language=HogLanguage.HOG_QL),
+            )
+
+        assert result is None
+        client_class.return_value.publish.assert_called_once()
+
+    @patch("posthog.api.services.query.build_catalog", return_value={"tables": {}, "properties": {}})
+    @patch("posthog.api.services.query._build_database_schema_query")
+    @patch("posthog.api.services.query.is_language_service_enabled", return_value=True)
+    @patch("posthog.api.services.query.LanguageServiceClient")
+    def test_falls_back_when_the_retry_uses_a_different_revision(
+        self,
+        client_class: MagicMock,
+        _enabled: MagicMock,
+        build_schema: MagicMock,
+        _build_catalog: MagicMock,
+    ) -> None:
+        client_class.return_value.validate.side_effect = [
+            LanguageServiceResult(
+                body={"valid": True, "catalogRevision": "legacy-v1:cached"},
+                duration_seconds=0,
+                response_size_bytes=0,
+            ),
+            LanguageServiceResult(
+                body={"valid": True, "catalogRevision": "warehouse-aliases-v1:other"},
+                duration_seconds=0,
+                response_size_bytes=0,
+            ),
+        ]
+        build_schema.return_value = _DatabaseSchemaCatalog(response=MagicMock(), database=MagicMock())
+
+        with override_settings(HOGQL_LANGUAGE_SERVICE_PUBLISH_WAREHOUSE_ALIASES=True):
+            result = _language_service_call(
+                cast(Team, SimpleNamespace(pk=12)),
+                cast(User, SimpleNamespace(pk=34)),
+                HogQLMetadata(query="SELECT 1", language=HogLanguage.HOG_QL),
+            )
+
+        assert result is None
+        assert client_class.return_value.validate.call_count == 2
+
 
 class TestQueryService(APIBaseTest):
+    @patch("posthog.hogql.language_service._properties_for_namespace", return_value=[])
+    @patch("posthog.hogql.database.database.feature_enabled_or_false", return_value=True)
+    def test_alias_publication_uses_the_permission_filtered_database(
+        self, _feature_enabled: MagicMock, _properties: MagicMock
+    ) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        membership = OrganizationMembership.objects.get(user=self.user, organization=self.organization)
+        membership.level = OrganizationMembership.Level.MEMBER
+        membership.save()
+
+        credential = DataWarehouseCredential.objects.create(access_key="key", access_secret="secret", team=self.team)
+        source = ExternalDataSource.objects.create(
+            team=self.team, source_type=ExternalDataSourceType.POSTGRES, prefix="demo"
+        )
+        allowed = DataWarehouseTable.objects.create(
+            team=self.team,
+            name="demo_postgres_orders",
+            external_data_source=source,
+            credential=credential,
+            format="Parquet",
+            url_pattern="https://example.com/orders/*",
+            columns={"id": {"hogql": "StringDatabaseField", "clickhouse": "String"}},
+        )
+        denied = DataWarehouseTable.objects.create(
+            team=self.team,
+            name="demo_postgres_private_orders",
+            external_data_source=source,
+            credential=credential,
+            format="Parquet",
+            url_pattern="https://example.com/private-orders/*",
+            columns={"id": {"hogql": "StringDatabaseField", "clickhouse": "String"}},
+        )
+        AccessControl.objects.create(
+            team=self.team, resource="warehouse_table", resource_id=str(denied.id), access_level="none"
+        )
+
+        other_team = Team.objects.create(organization=self.organization, name="Other project")
+        other_credential = DataWarehouseCredential.objects.create(
+            access_key="key", access_secret="secret", team=other_team
+        )
+        other_source = ExternalDataSource.objects.create(
+            team=other_team, source_type=ExternalDataSourceType.POSTGRES, prefix="other"
+        )
+        DataWarehouseTable.objects.create(
+            team=other_team,
+            name="other_postgres_orders",
+            external_data_source=other_source,
+            credential=other_credential,
+            format="Parquet",
+            url_pattern="https://example.com/other-orders/*",
+            columns={"id": {"hogql": "StringDatabaseField", "clickhouse": "String"}},
+        )
+
+        schema_catalog = _build_database_schema_query(self.team, DatabaseSchemaQuery(), user=self.user)
+        catalog = build_catalog(
+            self.team,
+            self.user,
+            schema_catalog.response,
+            database=schema_catalog.database,
+            publish_warehouse_aliases=True,
+        )
+
+        assert catalog["tableAliases"][allowed.name] == "postgres.demo.orders"
+        assert denied.name not in catalog["tableAliases"]
+        assert "other_postgres_orders" not in catalog["tableAliases"]
+
     @patch("posthog.api.services.query.get_query_runner_or_none")
     def test_data_visualization_node_surfaces_hogql_resolution_error_without_value_error_context(
         self, mock_get_query_runner_or_none: MagicMock
