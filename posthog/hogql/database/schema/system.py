@@ -1318,6 +1318,45 @@ teams: PostgresTable = PostgresTable(
     },
 )
 
+data_deletion_requests: PostgresTable = PostgresTable(
+    name="data_deletion_requests",
+    postgres_table_name="posthog_datadeletionrequest",
+    description="Self-service event deletion requests submitted for the project; one row per immutable HogQL query snapshot.",
+    predicates=[parse_expr("request_type = 'hogql_event_removal'")],
+    fields={
+        "id": UUIDDatabaseField(name="id", description="Deletion request UUID."),
+        "team_id": IntegerDatabaseField(name="team_id", hidden=True),
+        "request_type": StringDatabaseField(name="request_type", hidden=True),
+        "status": StringDatabaseField(name="status", description="Current request workflow status."),
+        "query": StringDatabaseField(name="hogql_query", description="Immutable HogQL query snapshot."),
+        "variables": StringJSONDatabaseField(
+            name="hogql_variables", description="Variables stored with the immutable HogQL query snapshot."
+        ),
+        "selected_count": IntegerDatabaseField(
+            name="count", nullable=True, description="Number of selected events, if calculated."
+        ),
+        "created_by_id": IntegerDatabaseField(
+            name="created_by_id", nullable=True, description="User who submitted the request."
+        ),
+        "created_by_staff": BooleanDatabaseField(
+            name="created_by_staff",
+            nullable=True,
+            description="Whether the submitting user was a PostHog staff member.",
+        ),
+        "created_at": DateTimeDatabaseField(name="created_at", description="When the request was created."),
+        "updated_at": DateTimeDatabaseField(name="updated_at", description="When the request was last updated."),
+        "approved_at": DateTimeDatabaseField(
+            name="approved_at", nullable=True, description="When the request was approved."
+        ),
+        "selection_calculated_at": DateTimeDatabaseField(
+            name="stats_calculated_at",
+            nullable=True,
+            description="When the selected event count was last calculated.",
+        ),
+    },
+)
+
+
 exports: PostgresTable = PostgresTable(
     name="exports",
     postgres_table_name="posthog_exportedasset",
@@ -2954,6 +2993,7 @@ class SystemTables(TableNode):
         "dataset_items": TableNode(name="dataset_items", table=dataset_items),
         "dataset_revisions": TableNode(name="dataset_revisions", table=dataset_revisions),
         "datasets": TableNode(name="datasets", table=datasets),
+        "data_deletion_requests": TableNode(name="data_deletion_requests", table=data_deletion_requests),
         "data_modeling_jobs": TableNode(name="data_modeling_jobs", table=data_modeling_jobs),
         "data_modeling_views": TableNode(name="data_modeling_views", table=data_modeling_views),
         "data_modeling_endpoint_versions": TableNode(name="data_modeling_endpoint_versions", table=endpoint_versions),
