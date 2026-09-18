@@ -14,7 +14,10 @@ SearchPlan = Literal["project_scan", "trigram"]
 # are level for short terms; the largest projects have millions of rows and must keep the index.
 PROJECT_SCAN_MAX_DEFINITIONS = 50_000
 
-# A project rarely crosses the threshold, and a stale answer only costs query time, never results.
+# A project rarely crosses the threshold, so one answer serves it for a day.
+# A stale answer costs query time for a project that has grown past the threshold.
+# For a project that has fallen back below it, the stale answer also holds the bounded count and the
+# name order that `is_large_project` selects, so the list reads as large until the key expires.
 SEARCH_PLAN_CACHE_SECONDS = 24 * 60 * 60
 
 # An exact count over a large project walks its whole index range on every page load. Its list
