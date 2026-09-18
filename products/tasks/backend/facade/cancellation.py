@@ -174,13 +174,12 @@ def cancel_task_run(
             validated_data={"status": TaskRun.Status.CANCELLED, "error_message": error_message},
             only_if_not_started=True,
         )
-        if dto is not None and dto.status == TaskRun.Status.CANCELLED:
+        if dto is not None:
             capture_cancel_request(run, "not_needed")
             return "accepted", dto
-        refreshed_run = tasks_api._get_visible_run(run_id, task_id, team_id)
-        if refreshed_run is None:
+        run = tasks_api._get_visible_run(run_id, task_id, team_id)
+        if run is None:
             return "not_found", None
-        run = refreshed_run
         if run.is_terminal:
             return "already_terminal", tasks_api._task_run_detail_to_dto(run)
 

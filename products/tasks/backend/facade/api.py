@@ -6255,7 +6255,6 @@ def create_task_and_run(
 
     create_data = dict(validated_data)
     create_data.pop("branch", None)
-    create_data.pop("scheduled_at", None)
     task = create_task(
         team_id,
         user_id,

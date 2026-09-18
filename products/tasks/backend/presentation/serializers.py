@@ -3409,20 +3409,16 @@ class TaskRunCreateRequestSerializer(
             if attrs.get("claude_model_access") == "own-subscription":
                 errors["claude_model_access"] = "Scheduled runs must use the PostHog gateway."
         if attrs.get("model") and attrs.get("runtime_adapter") is None:
-            adapter = get_runtime_adapter_for_model(attrs["model"])
-            if adapter is None:
-                adapter = next(
-                    (
-                        RuntimeAdapter(choice.runtime_adapter)
-                        for choice in available_model_choices(TASK_RUN_GATEWAY_PRODUCT)
-                        if choice.model == attrs["model"]
-                    ),
-                    None,
-                )
-            if adapter is None:
+            attrs["runtime_adapter"] = get_runtime_adapter_for_model(attrs["model"]) or next(
+                (
+                    RuntimeAdapter(choice.runtime_adapter)
+                    for choice in available_model_choices(TASK_RUN_GATEWAY_PRODUCT)
+                    if choice.model == attrs["model"]
+                ),
+                None,
+            )
+            if attrs["runtime_adapter"] is None:
                 errors["model"] = "Unknown model. Use tasks-models-retrieve to list available models."
-            else:
-                attrs["runtime_adapter"] = adapter
         if is_pi_task:
             for field in ("runtime_adapter", "model", "reasoning_effort", "initial_permission_mode"):
                 if attrs.get(field) is not None:
