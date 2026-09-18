@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconFlag, IconWarning } from '@posthog/icons'
-import { LemonDivider, LemonTag, Link, ProfilePicture, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonTag, ProfilePicture, Tooltip } from '@posthog/lemon-ui'
 
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
@@ -83,14 +83,17 @@ export function ExperimentMetaBar(): JSX.Element | null {
                     <CopyToClipboardInline className="font-normal truncate max-w-80" description="feature flag key">
                         {experiment.feature_flag.key}
                     </CopyToClipboardInline>
-                    <Link
+                    <LemonButton
+                        type="tertiary"
+                        size="xsmall"
                         to={urls.featureFlag(experiment.feature_flag.id)}
-                        target="_blank"
+                        targetBlank
+                        hideExternalLinkIcon
+                        icon={<IconOpenInNew />}
                         tooltip="Open feature flag"
-                        className="flex items-center"
-                    >
-                        <IconOpenInNew className="text-base" />
-                    </Link>
+                        aria-label="Open feature flag"
+                        data-attr="experiment-open-feature-flag"
+                    />
                 </div>
 
                 <MetaDivider />
