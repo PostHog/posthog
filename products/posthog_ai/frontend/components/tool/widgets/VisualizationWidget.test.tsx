@@ -12,16 +12,37 @@ import { PropertyFilterType, PropertyOperator } from '~/types'
 
 import { VisualizationWidget } from './VisualizationWidget'
 
-jest.mock('~/queries/Query/Query', () => ({
-    Query: () => {
-        throw new Error('The collapsed visualization must not mount its query')
+/** The response the stubbed `Query` reports; null means the query must never mount. */
+let mockQueryResponse: Record<string, unknown> | null = null
+
+jest.mock('~/queries/Query/Query', () => {
+    const { useEffect } = require('react')
+    return {
+        Query: ({ context }: { context?: { onQueryData?: (response: unknown) => void } }) => {
+            useEffect(() => {
+                context?.onQueryData?.(mockQueryResponse)
+            }, [context])
+            if (!mockQueryResponse) {
+                throw new Error('The collapsed visualization must not mount its query')
+            }
+            return null
+        },
+    }
+})
+
+const TRENDS_CONTENT: VisualizationArtifactContent = {
+    content_type: ArtifactContentType.Visualization,
+    query: {
+        kind: NodeKind.TrendsQuery,
+        series: [{ kind: NodeKind.EventsNode, event: '$pageview' }],
     },
-}))
+}
 
 describe('VisualizationWidget', () => {
     beforeEach(() => {
         initKeaTests()
         router.actions.push('/project/997/insights/current')
+        mockQueryResponse = null
     })
 
     afterEach(cleanup)
@@ -66,5 +87,21 @@ describe('VisualizationWidget', () => {
         fireEvent.click(screen.getByText('Trends'))
         expect(detail).toHaveBeenCalledTimes(2)
         expect(list).not.toHaveBeenCalled()
+    })
+
+    // A thread of empty results used to stack one chart-sized box of nothing per attempt.
+    it.each([
+        ['matched nothing', [], true],
+        ['has rows', [{ count: 3 }], false],
+    ])('collapses a card whose query %s', async (_name, results, expectedNotice) => {
+        mockQueryResponse = { results }
+        render(
+            <Provider>
+                <VisualizationWidget content={TRENDS_CONTENT} embedded />
+            </Provider>
+        )
+        await waitFor(() => {
+            expect(!!screen.queryByText('No data matched this query.')).toBe(expectedNotice)
+        })
     })
 })

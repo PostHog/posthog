@@ -103,6 +103,11 @@ export interface QueryContext<Q extends QuerySchema = QuerySchema> {
     includeHiddenEvents?: boolean
     /** Drop axis ticks and titles, for thumbnail-sized renders such as the chart type gallery. */
     hideAxes?: boolean
+    /**
+     * Called with every loaded response, so a surface that embeds the query can react to the result
+     * itself — e.g. collapse a card whose query matched nothing.
+     */
+    onQueryData?: (response: Record<string, unknown> | null | undefined) => void
 }
 
 export type QueryContextColumnTitleComponent = ComponentType<{

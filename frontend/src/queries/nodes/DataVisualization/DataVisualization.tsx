@@ -120,6 +120,7 @@ export function DataTableVisualization({
         key: vizKey,
         cachedResults,
         loadPriority: insightProps.loadPriority,
+        onData: insightProps.onData ?? context?.onQueryData,
         dataNodeCollectionId,
         variablesOverride,
         limitContext: context?.limitContext,

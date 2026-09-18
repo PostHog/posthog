@@ -104,6 +104,21 @@ class FormattedQueryResult:
     response: dict = field(repr=False)
 
 
+def response_has_no_rows(response: dict) -> bool:
+    """
+    Whether a successful response matched nothing.
+
+    Every formatter renders a zero-row response as a header-only table, which reads the same as a
+    small result, so the model is told in words instead and stops re-running near-identical queries.
+    """
+    if "results" not in response:
+        return False
+    results = response["results"]
+    if results is None:
+        return True
+    return isinstance(results, list | dict) and len(results) == 0
+
+
 def is_supported_query(query: AnyPydanticModelQuery | AnyAssistantGeneratedQuery) -> bool:
     return isinstance(
         query,
@@ -651,12 +666,13 @@ async def execute_and_format_query(
     utc_now_datetime = timezone.now().astimezone(UTC)
     query_runner = AssistantQueryExecutor(team, utc_now_datetime, user=user, event_source=event_source)
 
-    results, used_fallback = await query_runner.arun_and_format_query(
-        query, execution_mode, insight_id, truncate_results=truncate_results
+    execution = await query_runner.arun_format_and_capture(
+        query, execution_mode, insight_id=insight_id, truncate_results=truncate_results
     )
+    results = execution.formatted
     if not include_prompt_framing:
         return results
-    example_prompt = FALLBACK_EXAMPLE_PROMPT if used_fallback else get_example_prompt(query)
+    example_prompt = FALLBACK_EXAMPLE_PROMPT if execution.fallback_used else get_example_prompt(query)
 
     insight_schema = ""
     if not isinstance(query, AssistantHogQLQuery | HogQLQuery):
@@ -664,11 +680,11 @@ async def execute_and_format_query(
 
     # Check if SQL results contain truncated values
     has_truncated_values = isinstance(query, AssistantHogQLQuery | HogQLQuery | DataVisualizationNode) and (
-        TRUNCATED_MARKER in results and not used_fallback
+        TRUNCATED_MARKER in results and not execution.fallback_used
     )
     # Check if SQL results contain null values
     has_null_values = isinstance(query, AssistantHogQLQuery | HogQLQuery | DataVisualizationNode) and (
-        NULL_MARKER in results and not used_fallback
+        NULL_MARKER in results and not execution.fallback_used
     )
 
     query_result = format_prompt_string(
@@ -681,6 +697,7 @@ async def execute_and_format_query(
         project_timezone=team.timezone_info.tzname(utc_now_datetime),
         has_truncated_values=has_truncated_values,
         has_null_values=has_null_values,
+        has_no_results=response_has_no_rows(execution.response),
         sql_query=True if isinstance(query, AssistantHogQLQuery | HogQLQuery | DataVisualizationNode) else None,
     )
 

@@ -21,13 +21,19 @@ export default meta
 
 type Story = StoryObj<typeof ReplayVisionScanWidget>
 
-function observation(sessionId: string, status: string, modelOutput?: Record<string, unknown>): Record<string, any> {
+function observation(
+    sessionId: string,
+    status: string,
+    modelOutput?: Record<string, unknown>,
+    errorReason?: string
+): Record<string, any> {
     return {
         id: `obs-${sessionId}`,
         scanner_id: SCAN_ID,
         session_id: sessionId,
         status,
-        error_reason: status === 'ineligible' ? 'too_short:the recording is under five seconds long' : '',
+        error_reason:
+            errorReason ?? (status === 'ineligible' ? 'too_short:the recording is under five seconds long' : ''),
         scanner_result: modelOutput ? { model_output: modelOutput, signals_count: 0 } : null,
     }
 }
@@ -88,4 +94,27 @@ export const WithSkipped: Story = {
         )
     },
     name: 'Some recordings skipped',
+}
+
+export const WithUnsuccessfulScans: Story = {
+    render: () => {
+        const sessions = Array.from({ length: 9 }, (_, index) => `0199c0de-2222-7000-8000-0000000000c${index}`)
+        mockObservations([
+            observation(SESSION_A, 'succeeded', {
+                title: 'Abandoned checkout at the payment step',
+                summary: 'The user retyped the card number four times, then closed the tab.',
+            }),
+            ...sessions.map((sessionId) => observation(sessionId, 'ineligible')),
+            observation(SESSION_B, 'failed', undefined, 'provider_transient:the model timed out'),
+            observation(SESSION_C, 'failed', undefined, 'provider_transient:the model timed out'),
+        ])
+        return (
+            <ReplayVisionScanWidget
+                scanId={SCAN_ID}
+                sessionIds={[SESSION_A, SESSION_B, SESSION_C, ...sessions]}
+                skipped={[]}
+            />
+        )
+    },
+    name: 'Most recordings did not qualify',
 }
