@@ -99,13 +99,20 @@ def _load_candidates(team_id: int, settings: DetectionSettings) -> tuple[list[Ti
     if not tickets:
         return [], {}
 
-    # Private notes are our own words; grouping on them would cluster our triage habits.
+    # A ticket can open with our own words: outbound mail an agent composed, or a teammate's post
+    # in a shared channel. An outbound batch puts near-identical text on several tickets to several
+    # recipients, which is the strongest grouping signal there is, so those tickets would report the
+    # team's own campaign back to them as a customer spike. Only a customer-authored opener counts.
+    # The test is an allowlist because the team side is spelled several ways ("support", "human",
+    # "AI"), and an unlabelled message is not worth a false alert. Private notes are our own words
+    # too; grouping on them would cluster our triage habits.
     first_messages: dict[str, str] = {}
     for item_id, content in (
         Comment.objects.filter(
             team_id=team_id,
             scope="conversations_ticket",
             item_id__in=[str(t.id) for t in tickets],
+            item_context__author_type="customer",
         )
         .exclude(item_context__is_private=True)
         .order_by("created_at")
@@ -117,8 +124,11 @@ def _load_candidates(team_id: int, settings: DetectionSettings) -> tuple[list[Ti
     requesters = {}
     for ticket in tickets:
         ticket_id = str(ticket.id)
+        if ticket_id not in first_messages:
+            continue
         subject = (ticket.email_subject or "").strip()
-        message = (first_messages.get(ticket_id) or ticket.last_message_text or "").strip()
+        # No fallback to last_message_text: it holds whatever was said last, including our reply.
+        message = first_messages[ticket_id].strip()
         if not subject and not message:
             continue
         candidates.append(

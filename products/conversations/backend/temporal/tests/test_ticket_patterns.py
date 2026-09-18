@@ -3,6 +3,7 @@ from __future__ import annotations
 import uuid
 from datetime import timedelta
 
+from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
@@ -11,9 +12,12 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
+from posthog.models.comment import Comment
+
+from products.conversations.backend.models.ticket import Status, Ticket
 from products.conversations.backend.temporal.ticket_patterns.constants import COORDINATOR_INTERVAL_MINUTES
 from products.conversations.backend.temporal.ticket_patterns.coordinator import _collect_eligible_teams
-from products.conversations.backend.temporal.ticket_patterns.detect import _qualifying_clusters
+from products.conversations.backend.temporal.ticket_patterns.detect import _load_candidates, _qualifying_clusters
 from products.conversations.backend.temporal.ticket_patterns.schemas import DetectionSettings
 
 COORD_MODULE = "products.conversations.backend.temporal.ticket_patterns.coordinator"
@@ -227,3 +231,63 @@ class TestRecentSpikes(SimpleTestCase):
         topics = [s["topic"] for s in recent_spikes(7)]
         assert ("older" in topics) is expected
         assert "newer" in topics
+
+
+class TestLoadCandidates(BaseTest):
+    def _ticket_with_opener(self, *, subject: str, author_type: str, distinct_id: str) -> Ticket:
+        ticket = Ticket.objects.create_with_number(
+            team=self.team,
+            channel_source="email",
+            widget_session_id="",
+            distinct_id=distinct_id,
+            email_from=distinct_id,
+            email_subject=subject,
+            status=Status.OPEN,
+        )
+        Comment.objects.create(
+            team=self.team,
+            scope="conversations_ticket",
+            item_id=str(ticket.id),
+            content=f"{subject} body",
+            item_context={"author_type": author_type, "is_private": False},
+        )
+        return ticket
+
+    @parameterized.expand(
+        [
+            ("customer", "customer", True),
+            ("outbound mail an agent composed", "human", False),
+            ("a teammate's post in a shared channel", "support", False),
+            ("unlabelled", None, False),
+        ]
+    )
+    def test_only_a_customer_authored_opener_makes_a_candidate(self, _name, author_type, expected):
+        # An outbound batch carries one subject to many recipients, so without this a team's own
+        # campaign clears the thresholds and is reported back to them as a customer spike.
+        ticket = self._ticket_with_opener(
+            subject="Scheduled maintenance",
+            author_type=author_type,
+            distinct_id="someone@example.com",
+        )
+        if author_type is None:
+            Comment.objects.filter(item_id=str(ticket.id)).update(item_context={"is_private": False})
+
+        candidates, requesters = _load_candidates(self.team.id, _settings())
+
+        assert [c.ticket_id for c in candidates] == ([str(ticket.id)] if expected else [])
+        assert (str(ticket.id) in requesters) is expected
+
+    def test_a_team_reply_does_not_stand_in_for_a_missing_customer_opener(self):
+        # last_message_text holds whatever was said last, so a reply on a team-started ticket
+        # used to put that ticket back into the candidate set.
+        ticket = self._ticket_with_opener(
+            subject="Scheduled maintenance",
+            author_type="human",
+            distinct_id="someone@example.com",
+        )
+        ticket.last_message_text = "We are still working on it."
+        ticket.save(update_fields=["last_message_text"])
+
+        candidates, _ = _load_candidates(self.team.id, _settings())
+
+        assert candidates == []
