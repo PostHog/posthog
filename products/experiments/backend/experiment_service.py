@@ -4420,7 +4420,7 @@ class ExperimentService:
         # queryset, and a subquery inside the OR leaves the planner no bitmap path.
         saved_metric_ids = list(
             ExperimentSavedMetric.objects.filter(team__project_id=self.team.project_id)
-            .annotate(_references_event=jsonb_matches_jsonpath("posthog_experimentsavedmetric", "query", jsonpath))
+            .alias(_references_event=jsonb_matches_jsonpath("posthog_experimentsavedmetric", "query", jsonpath))
             .filter(_references_event=True)
             .values_list("pk", flat=True)
         )
@@ -4429,7 +4429,10 @@ class ExperimentService:
                 "experiment_id", flat=True
             )
         )
-        return queryset.annotate(
+        # `alias` rather than `annotate`, so the predicates stay out of the SELECT list. An
+        # annotation survives the `only()` narrowing that `matching_ids` applies, and Postgres
+        # would then parse the metric JSON again for every row it returns.
+        return queryset.alias(
             _metrics_reference_event=jsonb_matches_jsonpath("posthog_experiment", "metrics", jsonpath),
             _secondary_metrics_reference_event=jsonb_matches_jsonpath(
                 "posthog_experiment", "metrics_secondary", jsonpath
