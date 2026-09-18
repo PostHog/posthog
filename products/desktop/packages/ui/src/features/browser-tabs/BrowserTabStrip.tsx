@@ -26,6 +26,7 @@ import {
 } from "@posthog/ui/features/canvas/hooks/useDashboards";
 import { useProjectTaskFeeds } from "@posthog/ui/features/canvas/hooks/useProjectTaskFeeds";
 import { useRailPane } from "@posthog/ui/features/canvas/hooks/useRailSurface";
+import { useSelectedCanvasId } from "@posthog/ui/features/canvas/hooks/useSelectedCanvasId";
 import { isRestorableVisitHref } from "@posthog/ui/features/canvas/railPane";
 import {
   activityReportIdFromHref,
@@ -147,6 +148,8 @@ function BrowserTabStripImpl() {
     reportId?: string;
   };
   const routeFeedId = params.feedId ?? null;
+  const selectedCanvasId = useSelectedCanvasId();
+  const effectiveCanvasId = selectedCanvasId ?? params.dashboardId;
   // The in-flight tag: flips the instant you navigate, so the strip's highlight
   // and the active tab's name don't lag a navigation behind. Rendering only —
   // the effect below must not write from it (see settledLocation).
@@ -258,7 +261,7 @@ function BrowserTabStripImpl() {
   // Only poll the all-tasks list when a task tab actually needs a title.
   const hasTaskTab = snapshot.tabs.some((t) => t.taskId != null);
   const { dashboards } = useDashboards(params.channelId);
-  const { dashboard: activeRecord } = useDashboard(params.dashboardId);
+  const { dashboard: activeRecord } = useDashboard(effectiveCanvasId);
   const { data: allTasks } = useTasks(undefined, { enabled: hasTaskTab });
   // Keyed on the active SESSION, not the path param: on Activity the session
   // comes from the route's search, and without this its title would wait on the
@@ -297,9 +300,9 @@ function BrowserTabStripImpl() {
       if (activeTaskRecord?.id === sessionId) return activeTaskRecord.title;
       return allTasks?.find((t) => t.id === sessionId)?.title ?? null;
     }
-    if (params.dashboardId) {
-      if (activeRecord?.id === params.dashboardId) return activeRecord.name;
-      return dashboards.find((d) => d.id === params.dashboardId)?.name ?? null;
+    if (effectiveCanvasId) {
+      if (activeRecord?.id === effectiveCanvasId) return activeRecord.name;
+      return dashboards.find((d) => d.id === effectiveCanvasId)?.name ?? null;
     }
     if (activeReportId) {
       if (activeReportRecord?.id !== activeReportId) return null;
@@ -308,7 +311,7 @@ function BrowserTabStripImpl() {
     return null;
   }, [
     activeSession.taskId,
-    params.dashboardId,
+    effectiveCanvasId,
     activeReportId,
     activeTaskRecord,
     allTasks,
@@ -380,7 +383,7 @@ function BrowserTabStripImpl() {
     // decision is made on: it is all-null outside its vocabulary, so two
     // unrelated routes look identical through it.
     const identity: TabIdentity = {
-      dashboardId: params.dashboardId ?? null,
+      dashboardId: effectiveCanvasId ?? null,
       // `activeSession`, not `params`: Activity and a feed read a session into
       // the pane from their route's SEARCH rather than a path param, so the tab
       // would otherwise show "New tab" over an open session.
@@ -503,7 +506,7 @@ function BrowserTabStripImpl() {
     locationIsCurrent,
     settledTabId,
     params.channelId,
-    params.dashboardId,
+    effectiveCanvasId,
     routeChannelSection,
     routeAppView,
     locationHref,
@@ -560,7 +563,7 @@ function BrowserTabStripImpl() {
         // route (instant) rather than its stored ids (which lag a navigation).
         const isActive = t.id === activeTabId;
         const taskId = isActive ? (activeSession.taskId ?? null) : t.taskId;
-        const dashId = isActive ? (params.dashboardId ?? null) : t.dashboardId;
+        const dashId = isActive ? (effectiveCanvasId ?? null) : t.dashboardId;
         const channelId = isActive
           ? (params.channelId ?? activeSession.channelId ?? null)
           : t.channelId;
@@ -669,7 +672,7 @@ function BrowserTabStripImpl() {
     activeTaskRecord,
     activeTabId,
     params.channelId,
-    params.dashboardId,
+    effectiveCanvasId,
     activeSession.taskId,
     activeSession.channelId,
     activeReportId,
