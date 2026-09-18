@@ -44,7 +44,7 @@ jobs:
 
     build-and-test:
         name: Build & Test
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         timeout-minutes: 10
         needs: changes
         if: needs.changes.outputs.oauth-proxy == 'true'
@@ -66,7 +66,7 @@ jobs:
     oauth_proxy_tests:
         needs: [changes, build-and-test]
         name: OAuth Proxy Tests Pass
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         timeout-minutes: 5
         if: ${{ !cancelled() }}
         steps:

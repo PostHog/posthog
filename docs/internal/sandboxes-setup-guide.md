@@ -196,6 +196,37 @@ When a run lands on the Python gateway unexpectedly, check those two variables f
 Their absence means no token was minted, so the agent falls back to deriving the
 product from the task run it fetches at boot, which is the path that fails quietly.
 
+ReviewHog Flash uses `gpt-5.6-luna` at `medium` reasoning effort for review, blind-spot checks, and validation.
+The shared `FLASH_ARM` in `products/review_hog/backend/reviewer/constants.py` pins the Codex runtime and `full-access` permission mode.
+Flash uses the existing `review_hog` model allowance.
+Both review modes instruct the agent to fetch pinned review and validation skills through the PostHog MCP with `skill-get`.
+The agent can fetch referenced bundled files with `skill-file-get`.
+Choose **Review in Flash mode** from the Code review page's review menu to run it for one turn without changing the PR's full-review configuration.
+Flash requests preserve an existing report's review tier, including when they join a running review.
+Flash labels its GitHub messages with `FLASH MODE` and never starts comment resolution.
+To run Flash locally, use `run_review --review-mode flash` from the repository root:
+
+```bash
+.codex/with-flox python manage.py run_review \
+  --pr-url https://github.com/PostHog/posthog/pull/PR_NUMBER \
+  --team-id 1 --user-id 1 --review-mode flash
+```
+
+Replace `PR_NUMBER` and use the team and user IDs from your local instance.
+The command defaults to Full mode and only requests GitHub publishing when you add `--publish`.
+For isolated tests, use a fresh local report with no active review on the same PR and an original branch that still points at the reviewed commit.
+An existing workflow keeps its original inputs, and an existing report's status comment can still receive progress updates.
+If a review fails, the next attempt keeps cached reviewer results for the same commit and model.
+Deduplication retires superseded findings from the unfinished turn and reuses a verdict only when its finding, commit, review mode, and model configurations are unchanged.
+Completed turns remain in the report history.
+Review-started, completed, and failed event IDs distinguish Full and Flash retries while preserving the legacy Full IDs.
+When calculating completion rates, match report, turn, and mode, treating an absent mode as Full for legacy events.
+Flash finding-outcome events use the model configuration saved with the finding, even if the Flash defaults change before classification.
+Full findings retain report-level model attribution, and findings without readable saved context have an unknown review mode.
+When recovering a failed Flash publish with `python manage.py publish_review`, pass `--review-mode flash` to preserve the Flash labels.
+The recovery command defaults to Full and does not infer the mode from the stored report.
+Recovery uses the completed turn's commit when recorded, even if a newer unfinished turn has fetched another commit.
+
 ### Agent run telemetry (optional)
 
 To ship agent-server run metadata to PostHog Logs, set both of the first two; the third additionally produces one APM trace per run (root `task_run` span, a `turn` span per prompt, a `tool_call:<kind>` span per tool call) with trace/span ids stamped on the log records:

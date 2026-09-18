@@ -43,8 +43,21 @@ Completion replaces the identifier at the cursor with a placeholder and resolves
 An empty query, whitespace, or the start of a statement offers SELECT and WITH, filtered by the typed prefix.
 Completed comments can precede these starters; completion remains disabled inside strings and unfinished comments.
 These suggestions do not carry a parser error for the unfinished statement.
+After a completed JOIN ON condition, completion includes WHERE, including before an existing ORDER BY clause.
+For example, `SELECT * FROM events AS e JOIN events AS other ON e.uuid = other.uuid |` offers WHERE at `|`.
+Completion does not offer WHERE inside unfinished ON parentheses or between the bounds of BETWEEN.
+Completion also keeps query clauses out of unfinished CASE expressions.
+Before another JOIN at the same query scope, an ON condition offers only AND and OR as clause continuations while retaining applicable comparison operators.
+For example, `SELECT * FROM events AS e JOIN events AS other ON e.uuid = other.uuid | JOIN persons AS p ON 1 = 1` offers AND and OR at `|`, but not WHERE, GROUP BY, ORDER BY, or LIMIT.
+Nested JOINs, comments, strings, and later statements do not suppress a valid WHERE suggestion.
+Other clauses already present after the cursor are not globally filtered from suggestions.
+An incomplete cursor placeholder can still produce a `parseError` alongside these keyword suggestions.
+Unquoted TRUE and FALSE are boolean literals, regardless of case, and validation does not look them up as fields.
+For example, `SELECT uuid FROM events WHERE TRUE AND NOT FALSE` validates without unknown-field errors.
+Expression completion offers TRUE and FALSE, including when typing `tr` or `fa` after a comparison operator.
+Quoted or qualified names such as `events.TRUE` remain field references and require a matching catalog field.
 CTE and aliased `FROM` subquery suggestions contain their projected output names, including aliases and wildcard expansion.
-Direct field projections retain catalog types; expression types remain unknown.
+Direct field projections retain catalog types, and boolean literals project as `boolean`; other expression types remain unknown.
 Qualified CTE completion also works before `FROM`, for example `WITH t AS (SELECT event FROM events) SELECT t.`.
 Inner bindings take precedence, and sibling queries and statements do not contribute suggestions.
 Validation checks aliased subquery output fields and continues to report only underlying catalog tables in `tableNames`.
@@ -110,20 +123,61 @@ Aliases of the same relation share a cached field index and one candidate entry 
 Completion returns HTTP 400 when either limit is exceeded; validation returns a `query_limit` diagnostic.
 Derived qualified suggestions are sorted and deduplicated before pagination.
 
+### Completion recovery
+
+Completion first analyzes the query after replacing the identifier at the cursor.
+If that parse fails, a query with complete CTE definitions can recover its outer scope when the SELECT list and FROM/JOIN sources remain parseable.
+Recovery retains those source slices and discards the outer trailing clause, rather than guessing CTE fields or scanning aliases across scopes.
+The shared analyzer still resolves projected fields, types, exact-case relation names, and known property origins.
+
+With `|` marking the cursor, this incomplete query suggests `properties`:
+
+```sql
+WITH recent AS (SELECT uuid, properties FROM events)
+SELECT recent.pro| FROM recent WHERE (
+```
+
+The cursor can also be inside the unfinished outer predicate:
+
+```sql
+WITH recent AS (SELECT properties AS props FROM events)
+SELECT * FROM recent WHERE (recent.props.$br|
+```
+
+With `$browser` in the event property catalog, completion suggests that property.
+A corresponding projection from `persons` uses the person property catalog instead.
+The response keeps the original cursor-replaced `parseError`; validation still checks the original query and reports its syntax error.
+Recovery never makes invalid SQL executable or changes the validation contract.
+Supported trailing boundaries are WHERE, PREWHERE, GROUP BY, HAVING, ORDER BY, and LIMIT.
+
+Recovery preserves SELECT aliases when their defining SELECT items survive parsing.
+An outer predicate can see those aliases, but an earlier SELECT item cannot see a later alias.
+The recovered cursor position preserves that distinction, including when the original cursor falls inside the discarded clause.
+Recovered analysis uses the existing projection and field-lookup work limits.
+
+For a single SELECT without WITH, the existing fallback recovers only a parseable FROM clause and does not reconstruct discarded SELECT aliases.
+Neither fallback replaces successfully parsed bindings.
+
+An unfinished block comment returns a parser error instead of blocking completion or validation.
+For example, `WITH recent AS (SELECT uuid FROM events) SELECT recent.uuid FROM recent WHERE /* unfinished` produces a `syntax_error` validation diagnostic.
+Completion before that comment returns a `parseError` without recovering CTE field suggestions; completion inside the comment remains disabled.
+Closed block comments and line comments at end of input remain valid.
+
 ### Recovery and remaining work
 
 - Source-specific case-insensitive relation lookup remains unsupported. Python catalog nodes can opt in, for example for Snowflake, but the Go catalog payload does not carry that per-node flag. Supporting it requires publishing the metadata and implementing exact-match-first, opt-in fallback without merging distinct names. The service requires exact relation names until then; autocomplete prefix matching remains case-insensitive.
 - Physical field and property-key case sensitivity remain separate from relation-name resolution. This layer does not claim complete identifier-case parity with the Python resolver.
-- Cursor replacement must produce parseable SQL to resolve CTE and subquery fields. Recovery for missing parentheses or incomplete predicates in multi-scope queries remains follow-up work.
-- For an incomplete single `SELECT` without `WITH`, completion can recover a parseable `FROM` clause before an unfinished predicate. The response retains `parseError`. Recovery never overlays parsed bindings or scans aliases from sibling scopes.
+- CTE recovery requires complete CTE definitions and a parseable outer SELECT/FROM prefix. Broken CTE bodies, missing CTE-closing parentheses, and incomplete SELECT or JOIN sources remain unsupported because they do not establish a reliable projected schema. Recovering those forms requires separate structural recovery for each damaged scope.
+- Recovery does not target a cursor inside a CTE definition or FROM/JOIN source section. It also rejects queries with any nested SELECT in the outer query, including an intact FROM subquery or predicate subquery. Per-scope recovery must first preserve cursor ownership and alias visibility without importing sibling bindings.
+- Set-operation and multi-statement recovery, scalar WITH declarations, and unterminated quoted tokens or comments remain excluded. These need separate statement/branch selection and lexical recovery rules before the service can infer bindings safely.
 - Property provenance covers direct containers only. Computed JSON expressions, nested JSON schemas, conflicting sources, and duplicate projected names do not establish a namespace. Completion suppresses property suggestions and validation skips property-name checks when the origin is unknown. Expression inference and ambiguous-column diagnostics remain follow-up work; duplicate source names produce `duplicate_table`.
 - Projecting a nested virtual container such as `e.person.properties AS props` does not retain provenance. Model virtual-table traversal before enabling those projected namespaces; existing direct physical property paths remain available.
-- Select-alias recovery requires parseable cursor-replaced SQL. Single-SELECT recovery retains only FROM bindings and does not guess discarded aliases. Preserve SELECT items in a structured recovery pass before enabling those suggestions.
+- Single-SELECT recovery without WITH retains only FROM bindings and does not guess discarded aliases. Extending SELECT-alias recovery there requires preserving its SELECT list and visibility positions as the CTE-aware path does.
 - SELECT-alias property provenance follows the existing visibility and case-sensitive precedence rules. An alias without a known container origin suppresses property-owner fallback; it does not inherit a namespace from a name such as `person` or `properties`.
 - Scalar WITH aliases, aliases inside expressions, ARRAY JOIN aliases, QUALIFY, and duplicate SELECT-alias diagnostics remain follow-up work. Model their resolver order and parser support before extending the top-level SELECT alias index. For duplicate declarations, the index retains the first field and type, but property provenance becomes unknown once the duplicate declaration is visible; earlier references retain their original provenance.
 - Validation skips field checks when a query has no known FROM bindings, including SELECT without FROM. Completion can still suggest its aliases. Add explicit empty-source scopes and distinguish unknown relations before enabling strict validation there.
 - JOIN USING output coalescing and ambiguous unqualified-field diagnostics remain follow-up work. Completion offers each source's qualified field; it does not choose a join-wide value or change validation's ambiguity rules.
-- CTE table-name suggestions require cursor replacement to produce parseable SQL. Malformed WITH clauses fall back to catalog suggestions without guessing CTE scope. Structured recovery remains follow-up work.
+- CTE table-name suggestions in malformed FROM/JOIN clauses still require cursor replacement to produce parseable SQL. This recovery slice targets outer expression completion with intact sources; recovering incomplete source declarations needs its own scope and ambiguity checks.
 - Unaliased `FROM` subquery outputs, completion inside quoted identifiers, expression type inference, and complete set-operation semantics remain follow-up work.
 - Recursive CTEs, lateral subqueries, and full HogQL compiler parity are outside this layer. The service does not execute queries or fetch metadata during analysis.
 

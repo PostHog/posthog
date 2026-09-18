@@ -39,7 +39,7 @@ from django.db.models import (
     When,
 )
 from django.db.models.fields.json import KeyTextTransform, KeyTransform
-from django.db.models.functions import Coalesce
+from django.db.models.functions import Cast, Coalesce
 from django.utils import timezone as django_timezone
 from django.utils.http import content_disposition_header
 
@@ -68,7 +68,6 @@ from products.tasks.backend.constants import (
     DEV_STACK_PREVIEW_STATE_KEY,
     MAX_CUSTOM_IMAGES_PER_TEAM,
     MAX_CUSTOM_IMAGES_PER_USER,
-    PI_CLOUD_RUNTIME_FEATURE_FLAG,
     PR_LOOP_ENABLED_STATE_KEY,
     PR_STATES as PR_STATES,  # re-exported for presentation
     RESERVED_SANDBOX_ENVIRONMENT_VARIABLE_KEYS,
@@ -82,7 +81,11 @@ from products.tasks.backend.constants import (
     is_same_run_resume_state,
 )
 from products.tasks.backend.error_telemetry import truncate_error_message
-from products.tasks.backend.feature_flags import get_model_access_error, is_workflow_dispatch_shadow_enabled
+from products.tasks.backend.feature_flags import (
+    get_model_access_error,
+    is_workflow_dispatch_shadow_enabled,
+    pi_cloud_runtime_enabled,
+)
 from products.tasks.backend.github_repository_access import (
     inaccessible_repositories_via_integration as _inaccessible_repositories_via_integration,
 )
@@ -1599,6 +1602,7 @@ def create_and_run_task(
     create_pr: bool = True,
     mode: str = "background",
     start_workflow: bool = True,
+    scheduled_at: datetime | None = None,
     branch: str | None = None,
     signal_report_id: str | None = None,
     free_trial_enabled: bool | None = None,
@@ -1620,6 +1624,9 @@ def create_and_run_task(
     ``free_trial_enabled`` is a free-trial verdict the caller already resolved. Auto-start reads
     that flag before it takes the report row lock, so handing the result over keeps the flag
     request out of the lock. Left NULL, the gate reads the flag itself.
+
+    ``scheduled_at`` creates the run in NOT_STARTED and defers its workflow until the dispatcher
+    materializes it at or after that time. The run still stores its complete execution settings.
     """
     # create_pr=False sessions (research, repo selection, custom agents) can never open the
     # billable PR, so the quota gate must not block them.
@@ -1645,6 +1652,7 @@ def create_and_run_task(
         create_pr=create_pr,
         mode=mode,
         start_workflow=start_workflow,
+        scheduled_at=scheduled_at,
         branch=branch,
         signal_report_id=signal_report_id,
         internal=internal,
@@ -5262,8 +5270,9 @@ _STARTABLE_TASK_RUN_STATUSES = (TaskRun.Status.NOT_STARTED, TaskRun.Status.QUEUE
 def check_task_run_startable(run_id: str | UUID, task_id: str | UUID, team_id: int) -> tuple[str, str | None]:
     """Whether a run can be started via the start endpoint.
 
-    Returns ``"not_found"`` (run missing), ``"not_cloud"``, ``"bad_status:<current>"``, or
-    ``"ok"``, together with the stored run source. The view applies the usage gate before ``start_task_run``.
+    Returns ``"not_found"`` (run missing), ``"not_cloud"``, ``"scheduled"``,
+    ``"bad_status:<current>"``, or ``"ok"``, together with the stored run source. The view
+    applies the usage gate before ``start_task_run``.
     """
     run = _get_visible_run(run_id, task_id, team_id)
     if run is None:
@@ -5271,6 +5280,8 @@ def check_task_run_startable(run_id: str | UUID, task_id: str | UUID, team_id: i
     run_source = (run.state or {}).get("run_source")
     if run.environment != TaskRun.Environment.CLOUD:
         return "not_cloud", run_source
+    if run.status == TaskRun.Status.NOT_STARTED and run.scheduled_at is not None:
+        return "scheduled", run_source
     if run.status not in _STARTABLE_TASK_RUN_STATUSES:
         return f"bad_status:{run.status}", run_source
     return "ok", run_source
@@ -5600,25 +5611,6 @@ def get_conversation_task_dtos(
         .annotate(_latest_run_id=Subquery(latest_run_id_sq))
     )
     return {task.id: _task_detail_to_dto(task, user_id=user_id, include_latest_run=False) for task in tasks}
-
-
-def pi_cloud_runtime_enabled(team: Team, user: User) -> bool:
-    distinct_id = user.distinct_id or f"user_{user.id}"
-    organization_id = str(team.organization_id)
-    try:
-        return bool(
-            posthoganalytics.feature_enabled(
-                PI_CLOUD_RUNTIME_FEATURE_FLAG,
-                distinct_id,
-                groups={"organization": organization_id},
-                group_properties={"organization": {"id": organization_id}},
-                only_evaluate_locally=False,
-                send_feature_flag_events=False,
-            )
-        )
-    except Exception:
-        logger.exception("pi-harness flag check failed; treating as disabled")
-        return False
 
 
 def task_analysis_enabled(team: Team, user: User) -> bool:
@@ -9665,10 +9657,70 @@ def _task_activity_qs(team_id: int, user_id: int) -> QuerySet[TaskActivity]:
     return TaskActivity.objects.for_team(team_id).filter(user_id=user_id, task__in=visible_tasks)
 
 
+def _visible_canvas_comment_ids(team_id: int, user_id: int) -> QuerySet[Canvas, dict[str, str]]:
+    return (
+        Canvas.objects.for_team(team_id)
+        .filter(deleted=False)
+        .filter(visible_channels_q(user_id, relation="channel"))
+        .annotate(comment_item_id=Cast("id", output_field=CharField()))
+        .values("comment_item_id")
+    )
+
+
 def _comment_activity_qs(team_id: int, user_id: int) -> QuerySet[TaskCommentActivity]:
     visible_tasks = _activity_visible_task_qs(team_id, user_id)
-    return TaskCommentActivity.objects.for_team(team_id).filter(
-        user_id=user_id, task__in=visible_tasks, comment__deleted=False
+    return (
+        TaskCommentActivity.objects.for_team(team_id)
+        .filter(user_id=user_id, comment__deleted=False)
+        .filter(
+            Q(comment__scope="desktop_canvas", comment__item_id__in=_visible_canvas_comment_ids(team_id, user_id))
+            | (~Q(comment__scope="desktop_canvas") & Q(task__in=visible_tasks))
+        )
+    )
+
+
+def _visible_canvases_by_id(
+    team_id: int, user_id: int, comment_rows: Sequence[TaskCommentActivity]
+) -> dict[str, Canvas]:
+    canvas_ids: list[UUID] = []
+    for row in comment_rows:
+        if row.comment.scope != "desktop_canvas":
+            continue
+        try:
+            canvas_ids.append(UUID(row.comment.item_id))
+        except ValueError:
+            continue
+    if not canvas_ids:
+        return {}
+    canvases = (
+        Canvas.objects.for_team(team_id)
+        .filter(id__in=canvas_ids, deleted=False)
+        .filter(visible_channels_q(user_id, relation="channel"))
+        .select_related("channel")
+    )
+    return {str(canvas.id): canvas for canvas in canvases}
+
+
+@frozen
+class _ActivityTaskDetails:
+    title: str
+    channel_id: UUID | None
+    channel_name: str | None
+
+
+def _activity_task_details(
+    row: TaskActivity | TaskCommentActivity, canvases_by_id: dict[str, Canvas]
+) -> _ActivityTaskDetails:
+    if isinstance(row, TaskCommentActivity) and row.comment.scope == "desktop_canvas" and row.comment.item_id:
+        canvas = canvases_by_id.get(row.comment.item_id)
+        if canvas is not None:
+            return _ActivityTaskDetails(
+                title=canvas.name, channel_id=canvas.channel_id, channel_name=canvas.channel.name
+            )
+    return _ActivityTaskDetails(
+        title=row.task.title,
+        channel_id=row.task.channel_id,
+        channel_name=row.task.channel.name if row.task.channel else None,
     )
 
 
@@ -9704,8 +9756,12 @@ def list_task_activity(
         task_qs = task_qs.filter(cursor)
         comment_qs = comment_qs.filter(cursor)
     task_rows = task_qs.select_related("task__channel", "message__author").order_by("-activity_at", "-id")[: limit + 1]
-    comment_rows = comment_qs.select_related("task__channel", "comment__created_by").order_by("-activity_at", "-id")[
-        : limit + 1
+    comment_rows = list(
+        comment_qs.select_related("task__channel", "comment__created_by").order_by("-activity_at", "-id")[: limit + 1]
+    )
+    canvases_by_id = _visible_canvases_by_id(team_id, user_id, comment_rows)
+    comment_rows = [
+        row for row in comment_rows if row.comment.scope != "desktop_canvas" or row.comment.item_id in canvases_by_id
     ]
     activity_rows: list[TaskActivity | TaskCommentActivity] = [*task_rows, *comment_rows]
     rows: list[TaskActivity | TaskCommentActivity] = sorted(
@@ -9722,9 +9778,9 @@ def list_task_activity(
             contracts.TaskActivityDTO(
                 id=row.id,
                 task_id=row.task_id,
-                task_title=row.task.title,
-                channel_id=row.task.channel_id,
-                channel_name=row.task.channel.name if row.task.channel else None,
+                task_title=task_details.title,
+                channel_id=task_details.channel_id,
+                channel_name=task_details.channel_name,
                 activity_at=row.activity_at,
                 activity_kind=row.kind,
                 snippet=_bounded_activity_snippet(
@@ -9744,6 +9800,7 @@ def list_task_activity(
                 is_unread=row.read_at is None,
             )
             for row in rows
+            for task_details in [_activity_task_details(row, canvases_by_id)]
         ],
         unread_count=count_unread_task_activity(team_id, user_id),
         next_before=next_row.activity_at if next_row else None,

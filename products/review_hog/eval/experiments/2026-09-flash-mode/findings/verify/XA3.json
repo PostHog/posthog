@@ -1,0 +1,27 @@
+{
+    "letter": "XA",
+    "id": "XA3",
+    "cluster": 18,
+    "is_real": true,
+    "severity": "consider",
+    "votes": [
+        {
+            "is_real": true,
+            "severity": "consider",
+            "evidence": "/tmp/frozen-75215/products/stamphog/backend/facade/api.py:120-124 reads the product replica through posthog/product_db_router.py:27-34, whereas sync stamps connecting_user on the writer at stamphog/presentation/views.py:461-464. For a configured enabled repository, a settings request before replica replay can return false despite the committed sync. Tracing the consumer proves a minor user-facing consequence: review_hog/backend/api/settings.py:72-81 exposes the value, CodeReviewScene.tsx:1063-1068 disables opt-in when it is false, and reviewHogSettingsLogic.ts:443-452,801-811,954-956 stores it without polling after the read. Replica catch-up does not itself re-enable the switch; refresh/remount or another settings update does. Actual worker dispatch still checks the writer at stamphog/tasks/tasks.py:1138-1146.",
+            "refutation": "I first refuted the non-GitHub premise: serializers.py:61-63 makes provider immutable, 74-102 prevents callers supplying sync fields, authenticated sync creates/adopts only github at views.py:85-89,307-315, and only those synced rows receive connecting_user at 461-464. I originally also treated replica lag as an informational-only issue. Further caller tracing disproves that second refutation: the false response actively disables opt-in and remains cached after the replica recovers. Newly synced rows default disabled by design (views.py:311-315), so this finding only applies once a config is actually enabled; opt-out remains available. The retained issue is solely the minor stale setup/readiness control, not provider mismatch or lost backend reviews."
+        },
+        {
+            "is_real": true,
+            "severity": "consider",
+            "evidence": "Only the read-lag portion survives. /tmp/frozen-75215/products/stamphog/backend/facade/api.py:120-124 reads connection readiness without selecting the writer; /tmp/frozen-75215/posthog/product_db_router.py:27-40 routes product reads and writes to different aliases, settings/data_stores.py:217-218 supports a separate reader, and Stamphog/AGENTS.md:61 states that this product DB has replicas. After enabling the first synced config on the writer, a settings read before replication can report false. /tmp/frozen-75215/products/review_hog/frontend/CodeReviewScene.tsx:1063-1068 then disables opt-in, and reviewHogSettingsLogic.ts:446,801-807,954-955 has no automatic connection-state catchup poll. The user must reload settings after replication.",
+            "refutation": "First traced whether a synced non-GitHub row can exist through supported writes. Stamphog presentation/serializers.py:61-63 makes provider immutable, :74-85 omits connected_by_user_id, and :94-102 makes installation_id read-only. presentation/views.py:85-89 and :307-315 only adopt/create github configs and :461-464 stamps those connectors; tests/test_api.py:35-67 verifies the write guards. That provider premise is refuted. The narrower replica concern remains: actual replicated routing and a disabled UI control establish a transient setup obstruction, though new connections are correctly disabled until explicitly enabled and the worker at tasks/tasks.py:1138-1146 stays safely writer-pinned. This is a minor refresh-workaround issue, not the claimed unsupported-provider correctness failure."
+        },
+        {
+            "is_real": true,
+            "severity": "consider",
+            "evidence": "The replica-lag portion is reachable with the product database routing enabled. products/stamphog/backend/facade/api.py:120-124 executes an unpinned read, and posthog/product_db_router.py:27-40 routes production reads to stamphog_db_reader while writes use stamphog_db_writer. Sync stamps the connecting user at presentation/views.py:461-465; an enabled repo can therefore exist on the writer before the predicate's reader sees it. review_hog/frontend/reviewHogSettingsLogic.ts:443-451 stores that returned settings snapshot, and CodeReviewScene.tsx:1063-1068 disables the off toggle when stamphog_connected is false. A settings read during lag can show the reconnect instruction for an already-connected enabled repository until settings reload. The worker's writer-pinned resolution at stamphog/backend/tasks/tasks.py:1140-1144 would accept it.",
+            "refutation": "I first checked both stated premises. The non-GitHub scenario is refuted: installation_id is read-only and provider immutable at presentation/serializers.py:61-63,98-103; sync creates/adopts only GitHub rows at presentation/views.py:85-99,307-315, and only those rows receive connected_by_user_id. A fresh sync also creates repos disabled, so sync alone need not make the flag true. However, an already-enabled resynced repo, or an enabled repo read before replication catches up, still exposes the reader/writer mismatch. This is a minor temporary UI consistency issue with reload as a workaround, not a provider-support or worker-correctness defect; hence consider rather than should_fix."
+        }
+    ]
+}

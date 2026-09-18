@@ -435,6 +435,12 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconFlask,
         inMenu: false,
     },
+    [NodeKind.ExperimentExposureNode]: {
+        name: 'Experiment Exposure',
+        description: 'Retention metric start resolved to the experiment exposure.',
+        icon: IconFlask,
+        inMenu: false,
+    },
     [NodeKind.TeamTaxonomyQuery]: {
         name: 'Team Taxonomy',
         icon: IconHogQL,

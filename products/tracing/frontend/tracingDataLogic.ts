@@ -131,7 +131,7 @@ export interface tracingDataLogicValues {
     timeComparison: TimeComparison | null // tracingFiltersLogic
     utcDateRange: {
         date_from: string | null | undefined
-        date_to: string | null | undefined
+        date_to: string
     } // tracingFiltersLogic
     aggregation: {
         current: AggregatedSpanRow[]
@@ -219,8 +219,12 @@ export interface tracingDataLogicActions {
     setComparison: (comparison: TimeComparison | null) => {
         comparison: TimeComparison | null
     } // tracingFiltersLogic
-    setDateRange: (dateRange: DateRange) => {
+    setDateRange: (
+        dateRange: DateRange,
+        source?: import('./sparklineSelection').TracingDateRangeSource | undefined
+    ) => {
         dateRange: DateRange
+        source: import('./sparklineSelection').TracingDateRangeSource | undefined
     } // tracingFiltersLogic
     setFilterGroup: (
         filterGroup: UniversalFiltersGroup,
@@ -1398,7 +1402,7 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
             posthog.capture('tracing filter changed', { filter_type: filterType, ...extraProps })
             actions.runQuery()
         },
-        setDateRange: () => actions.handleFilterChange('date_range'),
+        setDateRange: ({ source }) => actions.handleFilterChange('date_range', source ? { source } : undefined),
         setServiceNames: () => actions.handleFilterChange('service_names'),
         // skipQuery: the trace drawer's attribute buttons update the filter chips immediately but
         // queue the actual re-query for when the drawer closes — see refreshDeferredFilters.

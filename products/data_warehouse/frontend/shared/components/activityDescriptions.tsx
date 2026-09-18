@@ -2,6 +2,7 @@ import {
     ActivityLogItem,
     ActivityLogUserName,
     HumanizedChange,
+    activityLogSummary,
     defaultDescriber,
 } from 'lib/components/ActivityLog/humanizeActivity'
 
@@ -75,6 +76,7 @@ export function externalDataSourceActivityDescriber(
     if (logItem.activity == 'created') {
         if (logItem.scope === ActivityScope.EXTERNAL_DATA_SCHEMA) {
             return {
+                summary: activityLogSummary(logItem, 'Created the schema', displayName),
                 description: (
                     <>
                         <ActivityLogUserName logItem={logItem} /> created schema <strong>{displayName}</strong>
@@ -83,6 +85,7 @@ export function externalDataSourceActivityDescriber(
             }
         }
         return {
+            summary: activityLogSummary(logItem, 'Created the source', displayName),
             description: (
                 <>
                     <ActivityLogUserName logItem={logItem} /> created source <strong>{displayName}</strong>
@@ -98,6 +101,7 @@ export function externalDataSourceActivityDescriber(
     ) {
         if (logItem.scope === ActivityScope.EXTERNAL_DATA_SCHEMA) {
             return {
+                summary: activityLogSummary(logItem, 'Deleted the schema', displayName),
                 description: (
                     <>
                         <ActivityLogUserName logItem={logItem} /> deleted schema <strong>{displayName}</strong>
@@ -106,6 +110,7 @@ export function externalDataSourceActivityDescriber(
             }
         }
         return {
+            summary: activityLogSummary(logItem, 'Deleted the source', displayName),
             description: (
                 <>
                     <ActivityLogUserName logItem={logItem} /> deleted source <strong>{displayName}</strong>
@@ -121,6 +126,7 @@ export function externalDataSourceActivityDescriber(
             if (enabledChange && changes.length === 1) {
                 const verb = enabledChange.after ? 'enabled' : 'disabled'
                 return {
+                    summary: activityLogSummary(logItem, `${verb} the schema`, displayName),
                     description: (
                         <>
                             <ActivityLogUserName logItem={logItem} /> {verb} schema <strong>{displayName}</strong>
@@ -129,6 +135,7 @@ export function externalDataSourceActivityDescriber(
                 }
             }
             return {
+                summary: activityLogSummary(logItem, 'Updated the schema', displayName),
                 description: (
                     <>
                         <ActivityLogUserName logItem={logItem} /> updated schema <strong>{displayName}</strong>
@@ -137,6 +144,7 @@ export function externalDataSourceActivityDescriber(
             }
         }
         return {
+            summary: activityLogSummary(logItem, 'Updated the source', displayName),
             description: (
                 <>
                     <ActivityLogUserName logItem={logItem} /> updated source <strong>{displayName}</strong>

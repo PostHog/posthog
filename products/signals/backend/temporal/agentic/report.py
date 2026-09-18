@@ -90,6 +90,13 @@ class RunAgenticReportOutput:
     # Resolved impact-metric payload, with the same replay-safe replace/clear/preserve semantics as
     # charts. The transition activity writes it with the matching title and summary.
     metrics: list[dict[str, Any]] | None = None
+    # Check specs the verification turn authored, written as rows by the transition activity that
+    # writes the metrics they reference — a check naming a metric the report never got is dropped
+    # there rather than stored pointing at nothing. `None` predates the field and writes none.
+    checks: list[dict[str, Any]] | None = None
+    # The research sandbox task the check rows are attributed to, so the report's log names what
+    # decided the fix was worth re-measuring. `None` for saved fixtures and pre-existing outputs.
+    research_task_id: str | None = None
     # Whether the rollout let this run author charts at all. Carried so telemetry can tell a run
     # that chose not to chart apart from one that was never allowed to, which would otherwise read
     # as the agent's charting rate moving on every rollout step. `None` predates the field.
@@ -579,6 +586,29 @@ async def _persist_agentic_report_artefacts(
     # `maybe_autostart_implementation_activity` in temporal/summary.py.
 
 
+def _team_runs_scouts(team_id: int) -> bool:
+    """Whether this team's scout fleet could take an `agent` check dispatched at it.
+
+    The enrollment half of the gate the check dispatcher applies, read at authoring time so the
+    research turn is never offered a kind whose lane does not exist. A project at its daily run
+    budget still counts as running scouts: a research check stays pending until its report resolves
+    and its soak passes, so today's budget says nothing about that day, and the dispatcher defers a
+    throttled check by itself. Fails closed to False: a flag-service hiccup costs the run the agent
+    kind, never the report.
+    """
+    from products.signals.backend.scout_harness.run_gates import (  # noqa: PLC0415
+        ScoutRunRejectionKind,
+        check_fleet_gates,
+    )
+
+    try:
+        rejection = check_fleet_gates(team_id)
+        return rejection is None or rejection.kind == ScoutRunRejectionKind.THROTTLED
+    except Exception:
+        logger.warning("scout fleet availability check failed", team_id=team_id, exc_info=True)
+        return False
+
+
 def _team_has_business_knowledge(team_id: int) -> bool:
     """Flag + ready-sources check, evaluated fresh per run so a flag flip takes
     effect immediately. Fail open to False — research must not die on a flag-service
@@ -670,6 +700,11 @@ async def run_agentic_report_activity(input: RunAgenticReportInput) -> RunAgenti
             metrics_enabled = await database_sync_to_async(team_report_metrics_enabled, thread_sensitive=False)(
                 input.team_id
             )
+            # An `agent` check needs a scout fleet to dispatch it. A team with none degrades to
+            # deterministic checks rather than storing a check that could never run.
+            agent_checks_enabled = await database_sync_to_async(_team_runs_scouts, thread_sensitive=False)(
+                input.team_id
+            )
             # 2. Load previous research if this is a re-promoted report
             previous_research = await _load_previous_research(input.team_id, input.report_id)
             # 2b. Load the resolved report this one recurred from, if any, as extra research context
@@ -702,6 +737,7 @@ async def run_agentic_report_activity(input: RunAgenticReportInput) -> RunAgenti
                 resolved_report_title=resolved_report_title,
                 resolved_report_summary=resolved_report_summary,
                 metrics_enabled=metrics_enabled,
+                agent_checks_enabled=agent_checks_enabled,
                 steering_section=steering.section,
             )
             # 4. Persist artefacts, avoid partial data from failed runs
@@ -738,6 +774,8 @@ async def run_agentic_report_activity(input: RunAgenticReportInput) -> RunAgenti
             repository=repository,
             charts=charts_payload,
             metrics=metrics_payload,
+            checks=[check.model_dump(mode="json") for check in result.checks],
+            research_task_id=result.research_task_id,
             charts_enabled=True,
         )
     except Exception as error:

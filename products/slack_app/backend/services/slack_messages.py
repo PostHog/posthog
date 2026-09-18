@@ -34,6 +34,7 @@ from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
 from slack_sdk.http_retry.builtin_handlers import RateLimitErrorRetryHandler
 
+from posthog.comment.formatting import escape_slack_mrkdwn
 from posthog.dataclasses import frozen
 from posthog.models.integration import Integration, SlackIntegration
 from posthog.utils import absolute_uri
@@ -675,6 +676,9 @@ class RunFooter:
     reasoning_effort: str | None = None
     run_id: str | None = None
     task_id: str | None = None
+    # The project the thread's task belongs to, so a reader can tell which project's
+    # data the answer was drawn from.
+    project: str | None = None
 
     def has_content(self) -> bool:
         """Whether this would render as anything.
@@ -684,7 +688,25 @@ class RunFooter:
         keeps meaning "None-coalesce" and cannot silently discard a partial instance.
         The ids are not part of the answer — they say nothing on their own.
         """
-        return any((self.task_url, self.desktop_url, self.model))
+        return any((self.task_url, self.desktop_url, self.model, self.project))
+
+
+def _project_name(team_id: int) -> str | None:
+    """The project a run answered from, named for the footer.
+
+    The run's own team is the project, so this needs no join through the thread mapping:
+    a task, its mapping and every run on it belong to one project.
+    """
+    from posthog.models.team.team import Team  # noqa: PLC0415 — keeps the model off this module's import path
+
+    try:
+        team = Team.objects.filter(pk=team_id).only("name").first()
+    except Exception:
+        # Its own guard, not the caller's: a failed lookup must cost the reader one
+        # segment, not the links and the model with it.
+        logger.warning("slack_app_footer_project_lookup_failed", team_id=team_id)
+        return None
+    return team.name if team else None
 
 
 def load_run_footer(run_id: str | UUID | None) -> RunFooter:
@@ -720,6 +742,7 @@ def load_run_footer(run_id: str | UUID | None) -> RunFooter:
             desktop_url=_desktop_bridge_url(run.task_id),
             model=state.model,
             reasoning_effort=state.reasoning_effort,
+            project=_project_name(run.team_id),
         )
     except Exception:
         logger.exception("slack_app_run_footer_load_failed", run_id=str(run_id))
@@ -738,6 +761,11 @@ def reply_footer_block(footer: RunFooter, configure_url: str | None = None) -> d
         segments.append(f"<{footer.task_url}|View on web>")
     if footer.desktop_url:
         segments.append(f"<{footer.desktop_url}|View on desktop>")
+    if footer.project:
+        # A project name is tenant text in a `mrkdwn` block, so `<!channel>` broadcasts
+        # and `<url|label>` renders a link the reader reads as the bot's. Escaped here
+        # rather than on the way in, so `RunFooter.project` stays the plain name.
+        segments.append(f"Project: *{escape_slack_mrkdwn(footer.project)}*")
     if footer.model:
         segments.append(describe_run_model(footer.model, footer.reasoning_effort))
     if configure_url:
