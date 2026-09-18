@@ -16,7 +16,7 @@ from typing import Optional, Protocol, Union
 import structlog
 from prometheus_client import Counter
 
-from posthog.schema import WebOverviewQuery, WebStatsTableQuery, WebVitalsPathBreakdownQuery
+from posthog.schema import HogQLQueryModifiers, WebOverviewQuery, WebStatsTableQuery, WebVitalsPathBreakdownQuery
 
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
@@ -125,7 +125,7 @@ class LazyPrecomputeRunner(Protocol):
     def events_session_property(self) -> ast.Expr: ...
 
     @property
-    def modifiers(self) -> object: ...
+    def modifiers(self) -> HogQLQueryModifiers: ...
 
 
 class LazyPrecomputeIneligible(Exception):
