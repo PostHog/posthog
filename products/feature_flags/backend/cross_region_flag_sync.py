@@ -27,6 +27,7 @@ from posthoganalytics.request import US_INGESTION_ENDPOINT
 from posthog.utils import capture_exception_throttled, get_instance_region
 
 from products.feature_flags.backend.cache_keys import EU_CROSS_REGION_MIRROR_CACHE_KEY
+from products.feature_flags.backend.legacy_definitions_cache import PROVENANCE_HEADER
 from products.feature_flags.backend.local_evaluation import flag_definitions_hypercache
 
 logger = structlog.get_logger(__name__)
@@ -79,6 +80,10 @@ def sync_cross_region_flags() -> None:
     except requests.RequestException as e:
         capture_exception_throttled(_SYNC_FAILURE_CAPTURE_THROTTLE_KEY, e, _SYNC_FAILURE_CAPTURE_THROTTLE_TTL)
         logger.warning("cross_region_flags_sync_request_failed", error=str(e))
+        return
+
+    if response.headers.get(PROVENANCE_HEADER) != "1":
+        logger.warning("cross_region_flags_sync_unverified_definitions")
         return
 
     if response.status_code == 304:

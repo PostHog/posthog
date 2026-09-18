@@ -16,6 +16,7 @@ _MODULE = "products.feature_flags.backend.cross_region_flag_sync"
 def _mock_response(status_code: int, json_data: dict | list | None = None, json_error: bool = False) -> Mock:
     response = Mock()
     response.status_code = status_code
+    response.headers = {"x-posthog-legacy-definitions": "1"}
     if json_error:
         response.json.side_effect = ValueError("bad json")
     else:
@@ -86,6 +87,15 @@ class TestSyncCrossRegionFlags(BaseTest):
         # conditional GET, silently degrading to a full transfer on every poll.
         assert flag_definitions_hypercache.get_etag(EU_CROSS_REGION_MIRROR_CACHE_KEY)
         assert flag_definitions_hypercache.get_from_cache(2) == real_team_payload
+
+    def test_unverified_upstream_cannot_replace_mirror(self):
+        payload = {"flags": [{"key": "healthy"}], "group_type_mapping": {}, "cohorts": {}}
+        flag_definitions_hypercache.set_cache_value(EU_CROSS_REGION_MIRROR_CACHE_KEY, payload)
+        response = _mock_response(200, {**payload, "flags": [{"key": "unverified"}]})
+        response.headers = {}
+        with patch(f"{_MODULE}.requests.get", return_value=response):
+            sync_cross_region_flags()
+        assert flag_definitions_hypercache.get_from_cache(EU_CROSS_REGION_MIRROR_CACHE_KEY) == payload
 
     @parameterized.expand(
         [

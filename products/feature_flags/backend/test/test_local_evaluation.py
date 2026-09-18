@@ -1338,7 +1338,17 @@ class TestLocalEvaluationBatch(BaseTest):
         flag.refresh_from_db()
         assert flag.filters == stored_filters
 
-    def test_batch_drops_unsupported_config_format_and_keeps_siblings(self):
+    @parameterized.expand(
+        [
+            (2, True, False, True),
+            (2.0, False, False, False),
+            ("2", True, True, False),
+            (None, False, True, True),
+            (True, True, False, False),
+            (3, True, False, True),
+        ]
+    )
+    def test_batch_drops_unsupported_config_format_and_keeps_siblings(self, version, active, deleted, expected):
         team = self._create_team_with_project("Unsupported format")
         cohort = self._create_cohort(team, "sibling-cohort")
         FeatureFlag.objects.create(
@@ -1349,12 +1359,14 @@ class TestLocalEvaluationBatch(BaseTest):
         # A v2 discriminator over v1-looking groups: reading the groups as v1 would leak the
         # cohort reference and the flag itself into the legacy payload.
         unsupported_filters = {
-            "version": 2,
+            "version": version,
             "groups": [
                 {"properties": [{"key": "id", "type": "cohort", "value": cohort.pk}], "rollout_percentage": 100}
             ],
         }
-        unsupported = FeatureFlag.objects.create(team=team, key="unsupported-format", filters=unsupported_filters)
+        unsupported = FeatureFlag.objects.create(
+            team=team, key="unsupported-format", filters=unsupported_filters, active=active, deleted=deleted
+        )
         FeatureFlag.objects.create(
             team=team,
             key="depends-on-unsupported",
@@ -1362,7 +1374,12 @@ class TestLocalEvaluationBatch(BaseTest):
                 "groups": [
                     {
                         "properties": [
-                            {"key": str(unsupported.pk), "type": "flag", "value": True, "operator": "flag_evaluates_to"}
+                            {
+                                "key": str(unsupported.pk),
+                                "type": "flag",
+                                "value": expected,
+                                "operator": "flag_evaluates_to",
+                            }
                         ],
                         "rollout_percentage": 100,
                     }
@@ -1374,16 +1391,54 @@ class TestLocalEvaluationBatch(BaseTest):
         results = _get_flags_response_for_local_evaluation_batch([team])
 
         flags_by_key = {f["key"]: f for f in results[team.id]["flags"]}
-        assert set(flags_by_key) == {"v1-sibling", "depends-on-unsupported"}
+        assert set(flags_by_key) == {"v1-sibling"}
         assert set(results[team.id]["cohorts"]) == {str(cohort.pk)}
-        assert FLAG_PROCESSING_ERROR_COUNTER._value.get() == dropped_before + 1
-        # The dropped flag never reaches flag_id_to_key, so its dependent publishes the same
-        # shape as a reference to a flag that never existed (see test_missing_dependency).
-        flag_property = flags_by_key["depends-on-unsupported"]["filters"]["groups"][0]["properties"][0]
-        assert flag_property["key"] == str(unsupported.pk)
-        assert flag_property["dependency_chain"] == []
+        assert FLAG_PROCESSING_ERROR_COUNTER._value.get() == dropped_before
         unsupported.refresh_from_db()
         assert unsupported.filters == unsupported_filters
+
+    @parameterized.expand([([],), ({"groups": [None]},), ({"groups": [{"properties": {}}]},)])
+    def test_batch_malformed_stored_root_keeps_other_teams(self, filters):
+        other = self._create_team_with_project("Independent")
+        bad = FeatureFlag.objects.create(team=self.team, key="malformed", filters={})
+        FeatureFlag.objects.filter(pk=bad.pk).update(filters=filters)
+        FeatureFlag.objects.create(team=self.team, key="healthy", filters={"groups": []})
+        FeatureFlag.objects.create(team=other, key="other", filters={"groups": []})
+        result = _get_flags_response_for_local_evaluation_batch([self.team, other])
+        assert [flag["key"] for flag in result[self.team.id]["flags"]] == ["healthy"]
+        assert [flag["key"] for flag in result[other.id]["flags"]] == ["other"]
+
+    @parameterized.expand([(None,), ([],), ([{"type": "person", "key": "tier", "value": "example"}],)])
+    def test_batch_preserves_legacy_cohort_property_forms(self, properties):
+        cohort = self._create_cohort(self.team, "Legacy properties")
+        Cohort.objects.filter(pk=cohort.pk).update(filters={"properties": properties})
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="healthy",
+            filters={"groups": [{"properties": [{"type": "cohort", "key": "id", "value": cohort.pk}]}]},
+        )
+        result = _get_flags_response_for_local_evaluation(self.team)
+        cohort.refresh_from_db()
+        assert [flag["key"] for flag in result["flags"]] == ["healthy"]
+        assert result["cohorts"][str(cohort.pk)] == cohort.properties.to_dict()
+
+    def test_batch_malformed_nested_cohort_keeps_independent_flags(self):
+        child = self._create_cohort(self.team, "Malformed child")
+        parent = Cohort.objects.create(
+            team=self.team,
+            name="Parent",
+            filters={"properties": {"type": "AND", "values": [{"type": "cohort", "key": "id", "value": child.pk}]}},
+        )
+        Cohort.objects.filter(pk=child.pk).update(filters={"properties": {"values": [None]}})
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="affected",
+            filters={"groups": [{"properties": [{"type": "cohort", "key": "id", "value": parent.pk}]}]},
+        )
+        FeatureFlag.objects.create(team=self.team, key="healthy", filters={"groups": []})
+        result = _get_flags_response_for_local_evaluation(self.team)
+        assert [flag["key"] for flag in result["flags"]] == ["healthy"]
+        assert result["cohorts"] == {}
 
 
 @override_settings(FLAGS_REDIS_URL="redis://test")
@@ -1477,7 +1532,9 @@ class TestFlagDefinitionsCache(BaseTest):
             assert hypercache.cache_client is caches[FLAGS_DEDICATED_CACHE_ALIAS]
             assert hypercache.secondary_cache_client is caches["default"]
 
-            hypercache.set_cache_value_redis_only(self.team.id, {"flags": [], "v": 1})
+            hypercache.set_cache_value_redis_only(
+                self.team.id, {"flags": [], "cohorts": {}, "group_type_mapping": {}, "v": 1}
+            )
 
             cache_key = hypercache.get_cache_key(self.team.id)
             etag_key = hypercache.get_etag_key(self.team.id)

@@ -26,11 +26,14 @@ use common_metrics::inc;
 use common_types::TeamId;
 use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use serde_json::{value::RawValue, Value};
 use sqlx::PgPool;
 use std::collections::HashSet;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tracing::{info, warn};
+
+const PROVENANCE_OBJECT: &str = "flags_with_cohorts.provenance.json";
+const PROVENANCE_HEADER: &str = "x-posthog-legacy-definitions";
 
 const ALLOWLIST_TTL_SECS: u64 = 60;
 
@@ -227,6 +230,18 @@ pub async fn flags_definitions(
         }
     };
 
+    let provenance = state
+        .flags_with_cohorts_hypercache_reader
+        .companion(PROVENANCE_OBJECT)
+        .get(&team_key)
+        .await;
+    let proven_etag = provenance
+        .as_ref()
+        .ok()
+        .and_then(|value| value.get("etag"))
+        .and_then(Value::as_str);
+    let current_etag = current_etag.filter(|etag| Some(etag.as_str()) == proven_etag);
+
     // If client sent a matching ETag, short-circuit with 304 (skip full data fetch)
     if let (Some(ref client_val), Some(ref current_val)) = (&client_etag, &current_etag) {
         if client_val == current_val {
@@ -251,7 +266,7 @@ pub async fn flags_definitions(
     );
 
     // Retrieve cached response from HyperCache (always with cohorts)
-    let cached_response = get_from_cache(&state, &team_key, team.id).await?;
+    let cached_response = get_from_cache(&state, &team_key, team.id, provenance).await?;
 
     // Record usage for billing, filtering out non-billable flags (surveys, product tours).
     // Placed after the ETag/304 path intentionally: 304 responses skip billing,
@@ -278,6 +293,7 @@ pub(crate) fn not_modified_response(etag: &str) -> Response {
     (
         StatusCode::NOT_MODIFIED,
         [
+            (PROVENANCE_HEADER, "1".to_string()),
             ("etag", format_weak_etag(etag)),
             ("cache-control", "private, must-revalidate".to_string()),
         ],
@@ -291,6 +307,7 @@ fn ok_response_with_etag(data: Value, etag: Option<&str>) -> Response {
         Some(etag_val) => (
             StatusCode::OK,
             [
+                (PROVENANCE_HEADER, "1".to_string()),
                 ("content-type", "application/json".to_string()),
                 ("etag", format_weak_etag(etag_val)),
                 ("cache-control", "private, must-revalidate".to_string()),
@@ -298,7 +315,7 @@ fn ok_response_with_etag(data: Value, etag: Option<&str>) -> Response {
             Json(data),
         )
             .into_response(),
-        None => Json(data).into_response(),
+        None => ([(PROVENANCE_HEADER, "1")], Json(data)).into_response(),
     }
 }
 
@@ -407,11 +424,32 @@ async fn get_from_cache(
     state: &AppState,
     team_key: &KeyType,
     team_id: i32,
+    provenance: Result<Value, HyperCacheError>,
 ) -> Result<FlagDefinitionsResponse, FlagError> {
-    let result = state
-        .flags_with_cohorts_hypercache_reader
-        .get_with_source(team_key)
-        .await;
+    let result = async {
+        let provenance = provenance?;
+        let proven_etag = provenance
+            .get("etag")
+            .and_then(Value::as_str)
+            .ok_or(HyperCacheError::CacheMiss)?;
+        let (raw, source) = state
+            .flags_with_cohorts_hypercache_reader
+            .get_typed_with_source::<Box<RawValue>>(team_key)
+            .await?;
+        let raw = raw.ok_or(HyperCacheError::CacheMiss)?;
+        if common_hypercache::writer::compute_etag(raw.get()) != proven_etag {
+            return Err(HyperCacheError::CacheMiss);
+        }
+        let data: Value = serde_json::from_str(raw.get())?;
+        if !data.get("flags").is_some_and(Value::is_array)
+            || !data.get("cohorts").is_some_and(Value::is_object)
+            || !data.get("group_type_mapping").is_some_and(Value::is_object)
+        {
+            return Err(HyperCacheError::CacheMiss);
+        }
+        Ok((data, source))
+    }
+    .await;
 
     match result {
         Ok((data, source)) => {

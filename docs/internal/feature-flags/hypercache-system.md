@@ -167,10 +167,10 @@ This matches the Rust fallback path's petgraph-based cycle handling, where all c
 Feature flag local evaluation uses a HyperCache instance in `products/feature_flags/backend/local_evaluation.py`:
 
 ```python
-flag_definitions_hypercache = HyperCache(
+flag_definitions_hypercache = LegacyDefinitionsHyperCache(
     namespace="feature_flags",
     value="flags_with_cohorts.json",
-    load_fn=lambda key: _get_flags_response_for_local_evaluation(HyperCache.team_from_key(key)),
+    load_fn=_load_flag_definitions_with_cohorts,
     enable_etag=True,
     # Set only when FLAGS_REDIS_URL is configured. See "Dedicated flags Redis" below.
     cache_alias=FLAGS_DEDICATED_CACHE_ALIAS,
@@ -180,8 +180,43 @@ flag_definitions_hypercache = HyperCache(
 
 It includes full cohort definitions and group type mappings, since all current SDKs support cohort evaluation locally. A legacy `flag_definitions_without_cohorts_hypercache` variant — pre-flattened cohort filters for SDKs too old to evaluate cohorts locally — was removed once nothing served it to real clients anymore.
 
-The builder reads cohort references and flag dependencies through the same `facade/references.py` accessors as the service cache.
-A flag in an unsupported config format is dropped from the payload by the per-flag error handling (logged and counted in `posthog_flag_definitions_processing_error`), the team's other flags are published as before, and the cohort prepass skips that flag so one document cannot fail the whole batch.
+The builder classifies stored filters before reading cohort references, transforming dependencies, or serializing flags.
+Only absent or numeric version 1 configurations enter the legacy feed.
+Classification includes inactive and deleted targets before existing lifecycle filtering omits them.
+Unsupported formats are expected exclusions; malformed flags increment `posthog_flag_definitions_processing_error`.
+A malformed flag or reachable cohort removes the affected flag and its transitive dependents while independent flags remain available.
+Dependencies on excluded targets are omitted even when the condition expects false.
+Supported v1 missing targets, inactive targets, cycles, cohort scoping, mappings, and metadata retain their existing behavior.
+The internal `flags.json` producer keeps its separate rejection and inactive-filter behavior.
+
+### Legacy cache provenance
+
+`LegacyDefinitionsHyperCache` validates supplied payloads as well as ordinary rebuilds.
+Each Redis tier and object storage receive a companion `flags_with_cohorts.provenance.json` object containing the hash of the guarded body.
+The legacy body, ETag algorithm, keys, TTLs, and public JSON shape remain unchanged.
+The companion is written after its body; a partial write or mismatched pair causes a retry instead of serving an unverified value.
+
+Readers require matching provenance because an older builder can omit an unsupported target while leaving a dependent with an empty chain.
+The cached dependent alone cannot distinguish that case from an ordinary missing v1 target.
+The Python provider rebuilds unverified entries through the existing database loader.
+The Rust definitions endpoint and its `local_evaluation` aliases retain their cache-only contract: an unverified entry follows the miss/self-heal path and returns a retryable error.
+Infrastructure failures keep their existing failure classification.
+An attested matching ETag can still return 304 before loading the body, with no duplicate billing.
+A full response verifies the exact cached bytes against provenance before attaching an ETag.
+
+Successful responses include `x-posthog-legacy-definitions: 1` so a cross-region mirror can require a guarded upstream reader.
+A mirror ignores an older upstream response without this header and waits for a later sync.
+The mirror's cold-cache behavior remains retryable; it does not create a database miss sentinel.
+
+Deploy producers and warm or verify caches before deploying readers to avoid temporary cache misses.
+New readers reject changed bodies from old producers unless their content hash already has matching provenance.
+Unchanged safe v1 bodies retain their ETag through the transition.
+Old readers still consume the unchanged body keys, but old producers and readers together cannot establish format exclusion.
+
+Before unsupported data exists, producer, publication, and reader changes can each be reversed.
+Afterwards, producer rollback must retain classification and dependent exclusion; publication rollback must retain guarded bodies and matching provenance; reader rollback must retain the safety checks required by cached data.
+Coordinate these changes across regions and both Redis tiers.
+Disabling a writer does not repair existing unsafe cache contents, and rollback never converts stored configurations.
 
 ### Cache invalidation
 
