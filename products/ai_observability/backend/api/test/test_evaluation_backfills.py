@@ -19,7 +19,7 @@ from temporalio.service import RPCError, RPCStatusCode
 from posthog.constants import AvailableFeature
 from posthog.models import Organization, OrganizationMembership, PersonalAPIKey, Project, Team, User
 from posthog.models.personal_api_key import hash_key_value
-from posthog.models.utils import generate_random_token_personal
+from posthog.models.utils import generate_random_token_personal, uuid7
 from posthog.rate_limit import (
     AIObservabilityBackfillCreateSustainedThrottle,
     AIObservabilityBackfillCreateThrottle,
@@ -588,6 +588,34 @@ class TestEvaluationBackfillsApi(APIBaseTest):
 
         assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
         assert EvaluationBackfill.objects.unscoped().count() == 0
+
+    def test_list_pages_do_not_skip_or_repeat_rows_created_at_the_same_time(self):
+        now = timezone.now()
+        ids = sorted(uuid7() for _ in range(5))
+        # Insert newest id first: without the tie-breaker the rows come back in this order, so a
+        # walk over the pages skips some runs and repeats others.
+        for backfill_id in reversed(ids):
+            EvaluationBackfill.objects.unscoped().create(
+                id=backfill_id,
+                evaluation=self.evaluation,
+                team=self.team,
+                window_start=now - timedelta(days=1),
+                window_end=now,
+                target="generation",
+                conditions=[],
+                total_count=1,
+                status=EvaluationBackfillStatus.COMPLETED,
+            )
+        # created_at is auto_now_add, so tying the rows to one timestamp takes an update.
+        EvaluationBackfill.objects.unscoped().filter(pk__in=ids).update(created_at=now)
+
+        walked: list[str] = []
+        for offset in range(0, len(ids), 2):
+            response = self.client.get(f"{self.url}/?limit=2&offset={offset}")
+            assert response.status_code == status.HTTP_200_OK, response.json()
+            walked.extend(row["id"] for row in response.json()["results"])
+
+        assert walked == [str(backfill_id) for backfill_id in ids]
 
     def test_list_is_scoped_to_evaluation_and_team(self):
         mine = self._running_backfill()
