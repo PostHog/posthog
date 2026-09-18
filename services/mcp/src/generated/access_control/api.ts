@@ -47,7 +47,7 @@ export const OrganizationsProjectsAccessControlDefaultPropertiesRetrieveParams =
 })
 
 /**
- * Set or clear the rule everyone in the project gets for a scope, unless a member or role rule of their own applies. The scope is the project (`resource: project` with the project id as `resource_id`), a whole resource type, one object, or one property definition. A null `access_level` removes the rule. Returns the stored rule with 201 when created and 200 when updated, and 204 with no body when the rule is cleared.
+ * Set or clear the rule everyone in the project gets for a scope, unless a member or role rule of their own applies. The scope is the project (`resource: project` with the project id as `resource_id`), a whole resource type, one object, or one property definition. A null `access_level` removes the rule. Returns the stored rule, or 204 with no body when the rule is cleared.
  */
 export const organizationsProjectsAccessControlDefaultRulesUpdatePathIdMin = -2147483648
 export const organizationsProjectsAccessControlDefaultRulesUpdatePathIdMax = 2147483647
@@ -215,7 +215,7 @@ export const OrganizationsProjectsAccessControlMemberPropertiesRetrieveQueryPara
 })
 
 /**
- * Set or clear one member's rule for a scope. A member rule applies to that person only and takes precedence over their role rules and the default. The scope is the project (`resource: project` with the project id as `resource_id`), a whole resource type, one object, or one property definition. A null `access_level` removes the rule. Returns the stored rule with 201 when created and 200 when updated, and 204 with no body when the rule is cleared.
+ * Set or clear one member's rule for a scope. A member rule applies to that person only and takes precedence over their role rules and the default. The scope is the project (`resource: project` with the project id as `resource_id`), a whole resource type, one object, or one property definition. A null `access_level` removes the rule. Returns the stored rule, or 204 with no body when the rule is cleared.
  */
 export const organizationsProjectsAccessControlMemberRulesUpdatePathIdMin = -2147483648
 export const organizationsProjectsAccessControlMemberRulesUpdatePathIdMax = 2147483647
@@ -384,7 +384,7 @@ export const OrganizationsProjectsAccessControlRolePropertiesRetrieveQueryParams
 })
 
 /**
- * Set or clear one role's rule for a scope. A role rule applies to every member of the role and takes precedence over the default. Requires the role-based access feature. The scope is the project (`resource: project` with the project id as `resource_id`), a whole resource type, one object, or one property definition. A null `access_level` removes the rule. Returns the stored rule with 201 when created and 200 when updated, and 204 with no body when the rule is cleared.
+ * Set or clear one role's rule for a scope. A role rule applies to every member of the role and takes precedence over the default. Requires the role-based access feature. The scope is the project (`resource: project` with the project id as `resource_id`), a whole resource type, one object, or one property definition. A null `access_level` removes the rule. Returns the stored rule, or 204 with no body when the rule is cleared.
  */
 export const organizationsProjectsAccessControlRoleRulesUpdatePathIdMin = -2147483648
 export const organizationsProjectsAccessControlRoleRulesUpdatePathIdMax = 2147483647
