@@ -245,8 +245,7 @@ function TileEditorRow({ tile, numericColumns, onChange, onRemove }: TileEditorR
         emit({ label: labelAfterMetricChange(nextMetric), metric: nextMetric })
     }
 
-    // Clearing or half-typing the input (valueAsNumber → NaN) keeps the previous threshold, so the
-    // metric never carries a non-numeric value into the query.
+    // Clearing or half-typing the input (valueAsNumber → NaN) keeps the previous threshold.
     const onThresholdValueChange = (value: number | undefined): void => {
         if (tile.metric.type !== 'count_threshold' || value === undefined || !Number.isFinite(value)) {
             return
