@@ -9,10 +9,9 @@ name: Backend CI shadow drift check
 #
 # Cheap to run: it triggers only on changes to the backend workflow, local actions, Depot files, or the check itself.
 # Always enforced (no variable gate): keeping the depot mirror in sync with canonical is
-# a structural invariant worth holding whether or not the shadow is currently sampling —
-# you want them already in sync the moment the shadow is switched on. The sampling rate
-# lives in the CI_DEPOT_SHADOW_PERCENT Depot CI variable, which this check deliberately
-# does not read.
+# a structural invariant worth holding whatever the rollout percent is: you want them
+# already in sync the moment an event is routed to Depot. The percent lives in the
+# CI_BACKEND_DEPOT_PERCENT GitHub variable, which this check deliberately does not read.
 
 on:
     pull_request:

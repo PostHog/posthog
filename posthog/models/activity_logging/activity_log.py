@@ -773,6 +773,7 @@ field_exclusions: dict[AuditableScope, list[str]] = {
     "DataWarehouseSavedQuery": [
         "name",
         "columns",
+        "query_revision",
         "status",
         "external_tables",
         "last_run_at",
