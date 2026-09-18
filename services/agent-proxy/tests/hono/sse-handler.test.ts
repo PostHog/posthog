@@ -733,50 +733,71 @@ describe('sse-handler', () => {
                 name: 'rebuild when its cursor is trimmed while the reader is stalled',
                 failRecheck: false,
                 shortPauses: 1,
+                trimDuringRead: false,
                 expectedFrame: `event: ${SSE_EVENT_END}\ndata: {"type":"resync","reason":"trimmed"}\n\n`,
             },
             {
                 name: 'rebuild when its cursor is trimmed while the reader lags in short pauses',
                 failRecheck: false,
                 shortPauses: 4,
+                trimDuringRead: false,
+                expectedFrame: `event: ${SSE_EVENT_END}\ndata: {"type":"resync","reason":"trimmed"}\n\n`,
+            },
+            {
+                name: 'rebuild when its cursor is trimmed while the read is in flight',
+                failRecheck: false,
+                shortPauses: 1,
+                trimDuringRead: true,
                 expectedFrame: `event: ${SSE_EVENT_END}\ndata: {"type":"resync","reason":"trimmed"}\n\n`,
             },
             {
                 name: 'reconnect when the stalled trim check fails',
                 failRecheck: true,
                 shortPauses: 1,
+                trimDuringRead: false,
                 expectedFrame: `event: ${SSE_EVENT_ERROR}\ndata: {"error":"Connection lost to task run stream"}\n\n`,
             },
-        ])('tells a resync-capable client to $name', async ({ failRecheck, shortPauses, expectedFrame }) => {
-            vi.useFakeTimers()
-            const runId = uniqueRunId()
-            const streamKey = makeStreamKey(runId)
+        ])(
+            'tells a resync-capable client to $name',
+            async ({ failRecheck, shortPauses, trimDuringRead, expectedFrame }) => {
+                vi.useFakeTimers()
+                const runId = uniqueRunId()
+                const streamKey = makeStreamKey(runId)
 
-            xaddData(redis, streamKey, { type: 'notification', msg: 'first' })
-            const gen = streamTaskRunEvents(streamKey, redis as unknown as Redis, { resyncCapable: true })
-            const first = await gen.next()
-            expect(first.value?.toString('utf8')).toContain('"first"')
+                xaddData(redis, streamKey, { type: 'notification', msg: 'first' })
+                const gen = streamTaskRunEvents(streamKey, redis as unknown as Redis, { resyncCapable: true })
+                const first = await gen.next()
+                expect(first.value?.toString('utf8')).toContain('"first"')
 
-            const pauseMs = Math.floor(STREAM_CURSOR_RECHECK_STALL_MS / shortPauses)
-            for (let pause = 1; pause < shortPauses; pause++) {
-                xaddData(redis, streamKey, { type: 'notification', msg: `lag-${pause}` })
+                const pauseMs = Math.floor(STREAM_CURSOR_RECHECK_STALL_MS / shortPauses)
+                for (let pause = 1; pause < shortPauses; pause++) {
+                    xaddData(redis, streamKey, { type: 'notification', msg: `lag-${pause}` })
+                    vi.advanceTimersByTime(pauseMs)
+                    const lagging = await gen.next()
+                    expect(lagging.value?.toString('utf8')).toContain(`"lag-${pause}"`)
+                }
+
+                xaddData(redis, streamKey, { type: 'notification', msg: 'second' })
+                xaddData(redis, streamKey, { type: 'notification', msg: 'third' })
+                if (trimDuringRead) {
+                    const readStream = redis.xread.bind(redis)
+                    vi.spyOn(redis, 'xread').mockImplementation(async (...args: unknown[]) => {
+                        redis._xtrimKeepLast(streamKey, 1)
+                        return readStream(...args)
+                    })
+                } else {
+                    redis._xtrimKeepLast(streamKey, 1)
+                }
+                if (failRecheck) {
+                    vi.spyOn(redis, 'xrange').mockRejectedValue(new Error('Connection is closed'))
+                }
                 vi.advanceTimersByTime(pauseMs)
-                const lagging = await gen.next()
-                expect(lagging.value?.toString('utf8')).toContain(`"lag-${pause}"`)
-            }
 
-            xaddData(redis, streamKey, { type: 'notification', msg: 'second' })
-            xaddData(redis, streamKey, { type: 'notification', msg: 'third' })
-            redis._xtrimKeepLast(streamKey, 1)
-            if (failRecheck) {
-                vi.spyOn(redis, 'xrange').mockRejectedValue(new Error('Connection is closed'))
+                const next = await gen.next()
+                expect(next.value?.toString('utf8')).toBe(expectedFrame)
+                expect((await gen.next()).done).toBe(true)
             }
-            vi.advanceTimersByTime(pauseMs)
-
-            const next = await gen.next()
-            expect(next.value?.toString('utf8')).toBe(expectedFrame)
-            expect((await gen.next()).done).toBe(true)
-        })
+        )
 
         it('id field in each SSE frame matches the Redis stream ID used for resuming', async () => {
             const runId = uniqueRunId()

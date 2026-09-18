@@ -296,19 +296,6 @@ export class TaskRunRedisStream {
                 throw new TaskRunStreamError('Stream timeout — task run took too long')
             }
 
-            if (recheckCursor) {
-                recheckCursor = false
-                let trimmed: boolean
-                try {
-                    trimmed = await this.resumePointTrimmed(currentId)
-                } catch {
-                    throw new TaskRunStreamError('Connection lost to task run stream')
-                }
-                if (trimmed) {
-                    throw new TaskRunStreamCursorTrimmedError(currentId)
-                }
-            }
-
             let messages: Array<[string, Array<[string, string[]]>]> | null = null
             try {
                 // ioredis XREAD returns: Array<[streamName, Array<[id, fields]>]>
@@ -336,6 +323,19 @@ export class TaskRunRedisStream {
                     throw new TaskRunStreamError('Stream read timeout')
                 }
                 throw new TaskRunStreamError('Stream read error')
+            }
+
+            if (recheckCursor) {
+                recheckCursor = false
+                let trimmed: boolean
+                try {
+                    trimmed = await this.resumePointTrimmed(currentId)
+                } catch {
+                    throw new TaskRunStreamError('Connection lost to task run stream')
+                }
+                if (trimmed) {
+                    throw new TaskRunStreamCursorTrimmedError(currentId)
+                }
             }
 
             // TypeScript 6 incorrectly narrows `messages` to `never` inside an
