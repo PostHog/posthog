@@ -63,33 +63,38 @@ class Command(BaseCommand):
             queryset = queryset[:limit]
 
         count = 0
-        by_team: dict[int, int] = {}
+        by_team: dict[int, list[str]] = {}
         for hog_function in queryset:
             count += 1
-            by_team[hog_function.team_id] = by_team.get(hog_function.team_id, 0) + 1
+            by_team.setdefault(hog_function.team_id, []).append(str(hog_function.id))
             error = (hog_function.filters or {}).get("bytecode_error", "")
             self.stdout.write(
                 f"team={hog_function.team_id} id={hog_function.id} type={hog_function.type} "
                 f"name={hog_function.name!r} error={error!r}"
             )
 
-            if not apply:
-                continue
-
-            if disable:
+            if apply and disable:
                 hog_function.enabled = False
                 # save() rather than a queryset update: the post_save receiver is what tells the
                 # workers to reload, and without it the function stays live in their cache. The
                 # cost is that save() recompiles the filters, which fails again and rewrites the
                 # same bytecode_error. That is wasted work, not a wrong result.
                 hog_function.save(update_fields=["enabled"])
-            send_hog_function_filters_uncompilable.delay(str(hog_function.id))
 
         self.stdout.write("")
-        self.stdout.write(f"{count} enabled function(s) with uncompilable filters across {len(by_team)} team(s)")
+        for team_id, ids in sorted(by_team.items()):
+            self.stdout.write(f"team={team_id}: {len(ids)} destination(s)")
+            # One email per project. A shared mistake breaks many destinations at once, so a task
+            # per destination would mail the same admins the same root cause repeatedly. Queued
+            # after the loop so the email reports the enabled state --disable has already written.
+            if apply:
+                send_hog_function_filters_uncompilable.delay(team_id, ids)
+
+        self.stdout.write("")
+        self.stdout.write(f"{count} enabled destination(s) with uncompilable filters across {len(by_team)} team(s)")
         if not apply:
             self.stdout.write("Dry run. Re-run with --apply to send the emails.")
         elif disable:
-            self.stdout.write("Disabled each function and queued an email to its project admins and creator.")
+            self.stdout.write("Disabled each destination and emailed each project's admins and creators.")
         else:
-            self.stdout.write("Queued an email to each function's project admins and creator.")
+            self.stdout.write("Emailed each project's admins and creators.")

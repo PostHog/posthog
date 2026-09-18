@@ -48,7 +48,7 @@ class TestNotifyUncompilableHogFunctionFilters(BaseTest):
         with patch(TASK) as task:
             call_command("notify_uncompilable_hog_function_filters", "--apply", stdout=StringIO())
 
-        task.delay.assert_called_once_with(str(hog_function.id))
+        task.delay.assert_called_once_with(self.team.id, [str(hog_function.id)])
         hog_function.refresh_from_db()
         assert hog_function.enabled is True
 
@@ -58,7 +58,7 @@ class TestNotifyUncompilableHogFunctionFilters(BaseTest):
         with patch(TASK) as task:
             call_command("notify_uncompilable_hog_function_filters", "--apply", "--disable", stdout=StringIO())
 
-        task.delay.assert_called_once_with(str(hog_function.id))
+        task.delay.assert_called_once_with(self.team.id, [str(hog_function.id)])
         hog_function.refresh_from_db()
         assert hog_function.enabled is False
 
@@ -77,7 +77,7 @@ class TestNotifyUncompilableHogFunctionFilters(BaseTest):
             call_command("notify_uncompilable_hog_function_filters", "--apply", stdout=out)
 
         task.delay.assert_not_called()
-        assert "0 enabled function(s)" in out.getvalue()
+        assert "0 enabled destination(s)" in out.getvalue()
 
     def test_scopes_to_one_team_and_selects_nothing_for_a_zero(self) -> None:
         other_team = Team.objects.create(organization=self.organization, name="Other project")
@@ -91,7 +91,7 @@ class TestNotifyUncompilableHogFunctionFilters(BaseTest):
         with patch(TASK) as zero:
             call_command("notify_uncompilable_hog_function_filters", "--apply", "--team-id", 0, stdout=out)
 
-        scoped.delay.assert_called_once_with(str(mine.id))
+        scoped.delay.assert_called_once_with(self.team.id, [str(mine.id)])
         zero.delay.assert_not_called()
 
     def test_rejects_a_limit_below_one(self) -> None:
@@ -112,4 +112,4 @@ class TestNotifyUncompilableHogFunctionFilters(BaseTest):
             call_command("notify_uncompilable_hog_function_filters", "--apply", stdout=out)
 
         task.delay.assert_not_called()
-        assert "0 enabled function(s)" in out.getvalue()
+        assert "0 enabled destination(s)" in out.getvalue()

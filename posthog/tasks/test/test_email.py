@@ -1131,7 +1131,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
             filters={"bytecode": None, "bytecode_error": "Cohort membership can't be evaluated"}
         )
 
-        send_hog_function_filters_uncompilable(str(hog_function.id))
+        send_hog_function_filters_uncompilable(self.team.id, [str(hog_function.id)])
 
         recipients = {entry["recipient"] for entry in mocked_email_messages[0].to}
         assert "creator@posthog.com" in recipients
@@ -1151,7 +1151,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         # The email names the project and quotes the error, so it must not follow a stale created_by.
         OrganizationMembership.objects.filter(user=creator, organization=self.organization).delete()
 
-        send_hog_function_filters_uncompilable(str(hog_function.id))
+        send_hog_function_filters_uncompilable(self.team.id, [str(hog_function.id)])
 
         recipients = {entry["recipient"] for entry in mocked_email_messages[0].to}
         assert "gone@posthog.com" not in recipients
@@ -1182,7 +1182,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
             filters={"bytecode": None, "bytecode_error": "Cohort membership can't be evaluated"}
         )
 
-        send_hog_function_filters_uncompilable(str(hog_function.id))
+        send_hog_function_filters_uncompilable(self.team.id, [str(hog_function.id)])
 
         recipients = {entry["recipient"] for entry in mocked_email_messages[0].to}
         assert "denied@posthog.com" not in recipients
@@ -1199,9 +1199,9 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
             filters={"bytecode": None, "bytecode_error": "Cohort membership can't be evaluated"}
         )
 
-        send_hog_function_filters_uncompilable(str(hog_function.id))
+        send_hog_function_filters_uncompilable(self.team.id, [str(hog_function.id)])
         HogFunction.objects.filter(id=hog_function.id).update(enabled=False)
-        send_hog_function_filters_uncompilable(str(hog_function.id))
+        send_hog_function_filters_uncompilable(self.team.id, [str(hog_function.id)])
 
         assert "switch it back on" not in mocked_email_messages[0].html_body
         assert "switch it back on" in mocked_email_messages[1].html_body
@@ -1221,15 +1221,14 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
             filters={"bytecode": None, "bytecode_error": bytecode_error}
         )
 
-        send_hog_function_filters_uncompilable(str(hog_function.id))
+        send_hog_function_filters_uncompilable(self.team.id, [str(hog_function.id)])
 
         # The key decides whether a re-run emails the same people again, so it has to survive a
-        # worker restart. hash() is salted per interpreter and would not.
-        digest = hashlib.sha256(bytecode_error.encode("utf-8")).hexdigest()[:16]
-        assert (
-            mocked_email_messages[0].campaign_key
-            == f"hog_function_filters_uncompilable_{hog_function.id}_{digest}_enabled"
-        )
+        # worker restart. hash() is salted per interpreter and would not. It covers the whole set,
+        # because one email now lists every broken destination in the project.
+        fingerprint = f"{hog_function.id}:{bytecode_error}:1"
+        digest = hashlib.sha256(fingerprint.encode("utf-8")).hexdigest()[:16]
+        assert mocked_email_messages[0].campaign_key == f"hog_function_filters_uncompilable_{self.team.id}_{digest}"
 
     def test_send_hog_function_filters_uncompilable_subject_survives_a_newline_in_a_name(
         self, MockEmailMessage: MagicMock
@@ -1248,12 +1247,12 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
             filters={"bytecode": None, "bytecode_error": "Cohort membership can't be evaluated"}
         )
 
-        send_hog_function_filters_uncompilable(str(hog_function.id))
+        send_hog_function_filters_uncompilable(self.team.id, [str(hog_function.id)])
 
         subject = MockEmailMessage.call_args.kwargs["subject"]
         assert "\n" not in subject
         assert "\r" not in subject
-        assert "Broken destination" in subject
+        assert "Production" in subject
 
     @parameterized.expand(
         [
@@ -1275,7 +1274,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         hog_function = HogFunction.objects.create(team=self.team, name="A destination", enabled=True)
         HogFunction.objects.filter(id=hog_function.id).update(filters=filters, deleted=deleted)
 
-        send_hog_function_filters_uncompilable(str(hog_function.id))
+        send_hog_function_filters_uncompilable(self.team.id, [str(hog_function.id)])
 
         assert mocked_email_messages == []
 

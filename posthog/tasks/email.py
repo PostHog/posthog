@@ -762,68 +762,84 @@ def send_hog_function_disabled(hog_function_id: str) -> None:
 
 
 @shared_task(**EMAIL_TASK_KWARGS)
-def send_hog_function_filters_uncompilable(hog_function_id: str) -> None:
+@with_team_scope()
+def send_hog_function_filters_uncompilable(team_id: int, hog_function_ids: list[str]) -> None:
     """
-    Tell a project that a destination's filters cannot be compiled, so it delivers nothing.
+    Tell a project which of its destinations have filters that cannot be compiled.
+
+    One email per project rather than per destination. A single mistake breaks many at once: a
+    team's test-account filters are shared, so adding a cohort to them breaks every destination
+    that filters test accounts. A message per destination would mail the same admins the same root
+    cause repeatedly, and the campaign key could not collapse them because it named the function.
 
     Deliberately not gated by the pipeline-error notification settings, matching
-    send_email_sending_suspended: the destination is silently sending nothing until someone edits
-    it, and a muted notification would leave that indefinitely. Recipients are the project admins,
-    who can act on it, plus whoever created the destination, who knows what it was for.
+    send_email_sending_suspended: the destinations send nothing until someone edits them, and a
+    muted notification would leave that indefinitely. Recipients are the project admins, who can
+    act on it, plus the creators of the destinations listed.
     """
     if not is_email_available(with_absolute_urls=True):
         return
-    # Archived between the command's enqueue and the worker picking the task up: the email would
-    # link to a page the owner just archived. A missing row is terminal too, so return rather than
-    # let the retry policy try three more times for work that cannot succeed.
-    hog_function = (
-        HogFunction.objects.prefetch_related("team", "created_by").filter(id=hog_function_id, deleted=False).first()
-    )
-    if hog_function is None:
-        return
-    team = hog_function.team
-    bytecode_error = (hog_function.filters or {}).get("bytecode_error")
-    if not bytecode_error:
+    team = Team.objects.filter(id=team_id).first()
+    if team is None:
         return
 
+    # Archived between the command's enqueue and the worker picking the task up: the email would
+    # link to a page the owner just archived. A row that has gone entirely is dropped the same way,
+    # rather than letting the retry policy try again for work that cannot succeed.
+    hog_functions = HogFunction.objects.prefetch_related("created_by").filter(
+        team_id=team_id, id__in=hog_function_ids, deleted=False
+    )
+    broken = [
+        {"hog_function": hog_function, "bytecode_error": (hog_function.filters or {}).get("bytecode_error")}
+        for hog_function in hog_functions
+        if (hog_function.filters or {}).get("bytecode_error")
+    ]
+    if not broken:
+        return
+    broken.sort(key=lambda entry: entry["hog_function"].name or "")
+
     recipients = {membership.user for membership in _get_project_admins_to_notify_of_email_sending_suspension(team)}
-    # The creator may have left the organization, or kept organization membership while losing
-    # access to this project. The email names the project and quotes the compilation error, so the
+    # A creator may have left the organization, or kept organization membership while losing access
+    # to this project. The email names the project, the destinations and the filter errors, so a
     # creator is included by effective access to this team, not by organization membership.
-    creator = hog_function.created_by
-    if creator:
+    for entry in broken:
+        creator = entry["hog_function"].created_by
+        if not creator or creator in recipients:
+            continue
         creator_membership = OrganizationMembership.objects.filter(
             organization_id=team.organization_id, user=creator
         ).first()
-        if creator_membership:
-            effective_level = (
-                UserPermissions(creator)
-                .team(team)
-                .effective_membership_level_for_parent_membership(creator_membership.organization, creator_membership)
-            )
-            if effective_level is not None:
-                recipients.add(creator)
+        if not creator_membership:
+            continue
+        effective_level = (
+            UserPermissions(creator)
+            .team(team)
+            .effective_membership_level_for_parent_membership(creator_membership.organization, creator_membership)
+        )
+        if effective_level is not None:
+            recipients.add(creator)
     if not recipients:
         return
 
-    # Keyed on the error as well as the function: a second, different breakage is worth a second
-    # email, while a re-run of the command over the same breakage is not. sha256 rather than
-    # hash(), which is seeded per process and would give the same error a new key after a restart.
-    error_digest = hashlib.sha256(bytecode_error.encode("utf-8")).hexdigest()[:16]
-    # The enabled state is part of the key too. An operator who notifies first and escalates to
-    # --disable later has to be able to tell the recipients the destination is now off, and the
-    # error alone would dedupe that second email away.
-    state = "enabled" if hog_function.enabled else "disabled"
-    campaign_key: str = f"hog_function_filters_uncompilable_{hog_function_id}_{error_digest}_{state}"
+    # Keyed on the destinations, their errors and whether each is still on. A re-run over the same
+    # breakage must not email the same people twice, while a new breakage must. The enabled state
+    # is in the key because an operator who notifies first and escalates to --disable later has to
+    # be able to tell the recipients the destinations are now off. sha256 rather than hash(), which
+    # is seeded per process and would give the same set a new key after a worker restart.
+    fingerprint = ";".join(
+        f"{entry['hog_function'].id}:{entry['bytecode_error']}:{int(entry['hog_function'].enabled)}" for entry in broken
+    )
+    digest = hashlib.sha256(fingerprint.encode("utf-8")).hexdigest()[:16]
     # No urgency prefix in the subject: a bracketed one got the suspension emails filtered to junk
     # in production. single_line because a CR or LF in a name raises BadHeaderError, which the send
     # path swallows, so every recipient would silently lose the email.
-    destination_label = single_line(hog_function.name or "an unnamed destination")
+    count = len(broken)
+    noun = "destination" if count == 1 else "destinations"
     message = EmailMessage(
-        campaign_key=campaign_key,
-        subject=f"Destination '{destination_label}' in project '{single_line(str(team))}' is not delivering events",
+        campaign_key=f"hog_function_filters_uncompilable_{team_id}_{digest}",
+        subject=f"{count} {noun} in project '{single_line(str(team))}' are not delivering events",
         template_name="hog_function_filters_uncompilable",
-        template_context={"hog_function": hog_function, "team": team, "bytecode_error": bytecode_error},
+        template_context={"team": team, "broken": broken},
     )
     for user in recipients:
         message.add_user_recipient(user)
