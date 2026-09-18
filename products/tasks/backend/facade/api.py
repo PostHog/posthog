@@ -9709,14 +9709,25 @@ def _visible_canvases_by_id(
     return {str(canvas.id): canvas for canvas in canvases}
 
 
+@frozen
+class _ActivityTaskDetails:
+    title: str
+    channel_id: UUID | None
+    channel_name: str | None
+
+
 def _activity_task_details(
     row: TaskActivity | TaskCommentActivity, canvases_by_id: dict[str, Canvas]
-) -> tuple[str, UUID | None, str | None]:
+) -> _ActivityTaskDetails:
     if isinstance(row, TaskCommentActivity) and row.comment.scope == "desktop_canvas" and row.comment.item_id:
         canvas = canvases_by_id.get(row.comment.item_id)
         if canvas is not None:
-            return canvas.name, canvas.channel_id, canvas.channel.name
-    return row.task.title, row.task.channel_id, row.task.channel.name if row.task.channel else None
+            return _ActivityTaskDetails(title=canvas.name, channel_id=canvas.channel_id, channel_name=canvas.channel.name)
+    return _ActivityTaskDetails(
+        title=row.task.title,
+        channel_id=row.task.channel_id,
+        channel_name=row.task.channel.name if row.task.channel else None,
+    )
 
 
 def count_unread_task_activity(team_id: int, user_id: int | None) -> int:
@@ -9773,9 +9784,9 @@ def list_task_activity(
             contracts.TaskActivityDTO(
                 id=row.id,
                 task_id=row.task_id,
-                task_title=task_title,
-                channel_id=channel_id,
-                channel_name=channel_name,
+                task_title=task_details.title,
+                channel_id=task_details.channel_id,
+                channel_name=task_details.channel_name,
                 activity_at=row.activity_at,
                 activity_kind=row.kind,
                 snippet=_bounded_activity_snippet(
@@ -9795,7 +9806,7 @@ def list_task_activity(
                 is_unread=row.read_at is None,
             )
             for row in rows
-            for task_title, channel_id, channel_name in [_activity_task_details(row, canvases_by_id)]
+            for task_details in [_activity_task_details(row, canvases_by_id)]
         ],
         unread_count=count_unread_task_activity(team_id, user_id),
         next_before=next_row.activity_at if next_row else None,
