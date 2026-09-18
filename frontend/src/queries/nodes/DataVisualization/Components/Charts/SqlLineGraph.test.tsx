@@ -15,7 +15,8 @@ import {
     renderWithInsights,
     sqlChart,
 } from '~/test/insight-testing'
-import { ChartDisplayType } from '~/types'
+import { buildAnnotation } from '~/test/insight-testing/test-data'
+import { AnnotationScope, ChartDisplayType } from '~/types'
 
 import { AxisSeries } from '../../dataVisualizationLogic'
 import { SqlChartProps } from './SqlChart'
@@ -115,6 +116,58 @@ const renderLine = (
     })
 
 describe('SqlLineGraph', () => {
+    describe('annotations', () => {
+        it('renders annotations when enabled', async () => {
+            renderDataVisualization({
+                query: buildDataVisualizationQuery({
+                    display: ChartDisplayType.ActionsLineGraph,
+                    chartSettings: { xAxis: { column: 'month' }, showAnnotations: true },
+                }),
+                response: twoSeries(),
+                mocks: {
+                    annotations: [
+                        buildAnnotation({
+                            scope: AnnotationScope.Project,
+                            content: 'Feature released',
+                            date_marker: '2025-12-01T12:00:00Z',
+                        }),
+                    ],
+                },
+            })
+
+            await waitFor(() => {
+                expect(
+                    [...document.querySelectorAll<HTMLButtonElement>('.AnnotationsBadge')].some(
+                        (element) => element.textContent === '1'
+                    )
+                ).toBe(true)
+            })
+        })
+
+        it('does not render annotations for a categorical X axis', async () => {
+            renderDataVisualization({
+                query: buildDataVisualizationQuery({
+                    display: ChartDisplayType.ActionsLineGraph,
+                    chartSettings: { xAxis: { column: 'category' }, showAnnotations: true },
+                }),
+                response: {
+                    columns: ['category', 'accounts'],
+                    types: [
+                        ['category', 'String'],
+                        ['accounts', 'UInt64'],
+                    ],
+                    results: [
+                        ['small', 1],
+                        ['large', 2],
+                    ],
+                },
+            })
+
+            await screen.findByLabelText(/chart with/i)
+            expect(document.querySelectorAll('.AnnotationsBadge')).toHaveLength(0)
+        })
+    })
+
     describe('y-axis tick formatting', () => {
         const waitForYTicks = async (): Promise<string[]> => {
             await waitFor(() => expect(getHogChart().yTicks().length).toBeGreaterThan(0))

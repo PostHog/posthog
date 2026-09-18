@@ -35,6 +35,20 @@ const meta: Meta = {
                     200,
                     { ...MOCK_DEFAULT_ORGANIZATION, membership_level: OrganizationMembershipLevel.Owner },
                 ],
+                // This page also renders the member notifications section, which would otherwise
+                // sit on a spinner and make the snapshot depend on timing.
+                '/api/organizations/:id/notification_locks/': [
+                    {
+                        user_id: 1,
+                        uuid: '0198aaaa-0000-4000-8000-000000000001',
+                        first_name: 'Ada',
+                        last_name: 'Kowalski',
+                        email: 'ada@example.com',
+                        organization_membership_level: 1,
+                        editable: true,
+                        locks: [],
+                    },
+                ],
             },
         }),
     ],

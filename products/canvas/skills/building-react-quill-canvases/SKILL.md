@@ -25,10 +25,15 @@ Use React, Quill, Recharts, Lucide, and Day.js for the standard application shel
 also admits ten optional libraries for specialized work. Read
 [references/platform-libraries.md](references/platform-libraries.md) before choosing one.
 
+PostHog data comes through `import { ph } from "@posthog/canvas-sdk"` — a platform-provided
+module, so it needs no `dependencies` entry. The same object exists as the `window.ph` global
+(how existing canvases reach it); prefer the import in new code.
+
 Other bare imports, dynamic `import()`, `require()`, `<script>` tags, and remote code fail
-validation. Direct `fetch()` requires an exact HTTPS origin in `capabilities.network.origins`,
-and works only in the **published** canvas — the edit-mode preview blocks all direct network
-access regardless of declaration, so verify origin-fetching code after publishing, not in preview.
+validation. Direct network requests and external images, fonts, media, or frames require an exact
+HTTPS origin in `capabilities.network.origins`. They work only in the **published** canvas — the
+edit-mode preview blocks direct network access regardless of declaration. Stylesheets from declared
+origins are allowed; remote scripts remain blocked, so bundle code with the canvas.
 
 ## Quill component rules
 
@@ -39,6 +44,10 @@ control or a styled `<div>` standing in for one:
   text field → `Input`/`Textarea`; checkbox → `Checkbox`; label → `Label`.
 - Table → `Table` (`TableHeader` > `TableRow` > `TableHead`, then `TableBody` > `TableRow` > `TableCell`);
   panel → `Card` (`CardHeader` + `CardTitle` + `CardContent`); pill → `Badge`; titles → `Heading`; body → `Text`.
+- A `Table` inside a `Card` needs `<Card size="sm" flush>` around `<Table size="sm" fullWidth>`.
+  Without `flush` the card's padding insets the table, so its header and rows stop meeting the card's edges.
+  `flush` drops the card's section gap, bottom padding, and the `CardContent` inline padding, while the header keeps its own padding and divider.
+  Matching `size="sm"` on both lines the table's edge columns up with the card's title.
 - The only non-Quill tags allowed are plain layout `<div>`s and `recharts` elements.
 - Quill is built on Base UI: compose compound parts (`Select` + `SelectTrigger`/`SelectContent`/`SelectItem`),
   use controlled `value` + `onValueChange`, and swap a part's element with the `render` prop
@@ -50,10 +59,12 @@ control or a styled `<div>` standing in for one:
 
 ## Styling and theme
 
-- Give the canvas's outermost element `h-screen` (`height: 100vh`) so it fills the iframe viewport.
-  Do not use `h-full` there: a published canvas's artifact shell gives its `html`, `body`, and
-  `#root` elements no explicit height, so a percentage root height collapses to content height.
-  Nested elements may use `h-full` once their parent establishes a height.
+- Give the canvas's outermost element `min-h-screen` (`min-height: 100vh`) so it fills the iframe viewport and grows past it as content demands.
+  Do not use `h-screen` there: a fixed viewport height caps a flex column, so tall children shrink and clip instead of scrolling.
+  Do not use `h-full` there either: a published canvas's artifact shell gives its `html`, `body`, and `#root` elements no explicit height, so a percentage root height collapses to content height.
+- The root needs no `overflow-y-auto`: once it grows past the viewport the iframe's own document scrolls.
+- A `min-height` root is not a definite height, so `h-full` on a direct child still collapses to content height.
+  Give an intermediate wrapper an explicit height (`h-[280px]`) when a child must fill a box.
 - Style with Tailwind utilities and Quill components; reserve inline `style` for genuinely dynamic
   runtime values (fixed sizes use arbitrary-value utilities like `h-[280px]`).
 - Write specific interface copy. Never use lorem ipsum or placeholder labels in a finished canvas.
@@ -66,6 +77,11 @@ text-card-foreground`; borders `border-border`. Never a hardcoded hex or light-o
   always use the `-foreground` utility; a filled pill pairs `bg-success text-success-foreground`.
   Prefer the Quill `Badge` (`variant="success"`/`"destructive"`) for deltas so you don't hand-pick.
 - `bg-secondary`, `text-secondary`, `bg-accent`, and `bg-popover` are not defined in the canvas — avoid them.
+- Never declare a CSS variable with a platform token name (`--background`, `--border`, `--card`,
+  `--chrome`, `--input`, `--muted`, `--primary`, `--fill-*`), in a stylesheet or a `<style>` block.
+  Quill sets those on every element, so your value never applies and text can turn unreadable.
+  Prefix your own variables (`--doc-muted`); validation rejects the collision with
+  `platform_token_redeclared`.
 - recharts strokes/fills use token CSS variables (`stroke="var(--primary)"`, grid/axes in
   `var(--border)`/`var(--muted-foreground)`).
 - Write Unicode glyphs (curly quotes, ellipsis, arrows, emoji) as literal characters in JSX —

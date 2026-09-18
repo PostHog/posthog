@@ -20,6 +20,38 @@ from uuid import UUID
 
 from pydantic.dataclasses import dataclass
 
+from .enums import ShiftBandKind
+
+# Classification thresholds, applied by `diffing.classify_compare_result`:
+#
+# 1. Pixel diff ratio — fast path for obvious changes. Snapshots above
+#    this are immediately classified as CHANGED.
+# 2. SSIM perceptual threshold — safety net for tall-page dilution. A real UI
+#    change at the bottom of a long screenshot affects few pixels but produces
+#    a measurable structural shift that SSIM catches.
+#
+# Only when both are below threshold is the snapshot reclassified as UNCHANGED.
+# When the pair aligned, both are measured after alignment, so a vertical
+# shift is judged on what actually changed rather than on everything below it.
+#
+# They live here rather than next to the classifier because they are also what
+# `FlakinessEntry.headroom` is measured against, so a consumer reading that
+# field needs them. Importing the classifier instead would pull the image
+# libraries onto the web request path.
+PIXEL_DIFF_THRESHOLD_PERCENT = 2.5
+SSIM_DISSIMILARITY_THRESHOLD = 0.01  # 1% structural difference
+
+# How many inserted or deleted rows the classifier absorbs as noise before it
+# calls the change a layout change.
+#
+# Every run measures its shift against the committed baseline, not against the
+# previous run, so an absorbed shift cannot accumulate into a page that has
+# quietly moved by twenty rows. Two rows is also the point where the change
+# stops being actionable: a reviewer cannot do anything about one or two pixels
+# of spacing, but a taller band is a block that appeared or disappeared and
+# somebody should look at it.
+SHIFT_ABSORB_MAX_ROWS = 2
+
 # --- Input DTOs ---
 
 
@@ -118,6 +150,7 @@ class AddSnapshotsInput:
 
     snapshots: list[SnapshotManifestItem]
     baseline_hashes: dict[str, str] = field(default_factory=dict)
+    story_index_hash: str = ""
 
 
 @dataclass(frozen=True)
@@ -126,6 +159,7 @@ class AddSnapshotsResult:
 
     added: int
     uploads: list[UploadTarget]
+    story_index_upload: UploadTarget | None = None
 
 
 @dataclass(frozen=True)
@@ -189,6 +223,49 @@ class ClusterSummary:
 
 
 @dataclass(frozen=True)
+class ShiftBand:
+    """One run of rows the current image gained or lost.
+
+    A deleted band has no rows of its own in the current image, so `y` is the
+    seam the removed rows left behind and `rows` counts what went away.
+    """
+
+    y: int
+    rows: int
+    kind: ShiftBandKind
+
+
+@dataclass(frozen=True)
+class RowShift:
+    """A vertical shift between baseline and current, separated from the real change.
+
+    Row alignment pairs the rows that exist in both images, so the pixels
+    below an inserted row stop counting as differences. `residual_percentage`
+    is what survives that pairing. The snapshot's `diff_percentage` adds the
+    area of the rows the shift added or removed, and that combined number is
+    what the pixel threshold judges. `raw_diff_percentage` is what the same
+    pair measured without alignment, which is how the UI can say what the
+    shift would otherwise have cost.
+    """
+
+    inserted_rows: int
+    deleted_rows: int
+    residual_percentage: float
+    raw_diff_percentage: float
+    bands: list[ShiftBand]
+
+    @property
+    def shifted_rows(self) -> int:
+        """How far the rows moved. What the absorb cap judges.
+
+        A page that grew has only inserts and one that shrank has only deletes.
+        A same-height translation shows up as both, so the larger side is the
+        movement, not the sum.
+        """
+        return max(self.inserted_rows, self.deleted_rows)
+
+
+@dataclass(frozen=True)
 class Snapshot:
     """A snapshot with its comparison results."""
 
@@ -222,6 +299,10 @@ class Snapshot:
     change_kind: str = ""
     cluster_summary: ClusterSummary | None = None
     size_mismatch: bool = False
+    # The vertical shift the diff pipeline measured, if it could align the
+    # pair. Present on absorbed (UNCHANGED) snapshots as well, because a shift
+    # small enough to absorb is still the only trace of why the pixels moved.
+    row_shift: RowShift | None = None
 
 
 @dataclass(frozen=True)
@@ -336,6 +417,9 @@ class QuarantinedIdentifierEntry:
     identifier: str
     run_type: str
     reason: str
+    # Who opened it: a person in the UI, or an agent through MCP. `created_by` is
+    # the delegating user either way, so it cannot answer this on its own.
+    source: str
     expires_at: datetime | None
     created_at: datetime
     updated_at: datetime
@@ -366,6 +450,7 @@ class UpdateRepoRequestInput:
 
     baseline_file_paths: dict[str, str] | None = None
     enable_pr_comments: bool | None = None
+    debt_digest_enabled: bool | None = None
 
 
 @dataclass(frozen=True)
@@ -375,6 +460,7 @@ class UpdateRepoInput:
     repo_id: UUID
     baseline_file_paths: dict[str, str] | None = None
     enable_pr_comments: bool | None = None
+    debt_digest_enabled: bool | None = None
 
 
 @dataclass(frozen=True)
@@ -399,6 +485,9 @@ class SnapshotHistoryEntry:
     ssim_score: float | None = None
     change_kind: str = ""
     size_mismatch: bool = False
+    # Same meaning as on `Snapshot`, and present on absorbed rows too, so the
+    # history view can show which runs only moved rather than changed.
+    row_shift: RowShift | None = None
 
 
 @dataclass(frozen=True)
@@ -411,6 +500,7 @@ class Repo:
     repo_full_name: str
     baseline_file_paths: dict[str, str]
     enable_pr_comments: bool
+    debt_digest_enabled: bool
     created_at: datetime
 
 
@@ -426,6 +516,11 @@ BASELINE_OVERVIEW_MAX_ENTRIES = 5000
 # to wash out a single jittery render while staying responsive on real changes.
 BASELINE_DRIFT_RECENT_RUN_COUNT = 10
 
+# Accepted variants against one current baseline at which the baseline stops describing one
+# rendering and starts describing a set. Three is the point where a reader can no longer hold what
+# "the baseline" means for that snapshot, and the same floor the frequently-tolerated stat uses.
+VARIANT_PILEUP_MIN = 3
+
 
 @dataclass(frozen=True)
 class BaselineQuarantineSummary:
@@ -437,6 +532,7 @@ class BaselineQuarantineSummary:
 
     id: UUID
     reason: str
+    source: str
     expires_at: datetime | None
     created_at: datetime
     created_by: UserBasicInfo | None = None
@@ -460,6 +556,11 @@ class BaselineEntry:
     height: int | None
     tolerate_count_30d: int
     tolerate_count_90d: int
+    # Accepted variants still recorded against the hash this baseline currently holds. Distinct
+    # from the two counts above, which measure how often somebody accepted drift in a rolling
+    # window. A baseline change drops this to zero, because a toleration is recorded against the
+    # baseline hash it was decided for and stops matching when that hash moves.
+    active_variants_current_baseline: int
     is_quarantined: bool
     last_run_at: datetime
     # Lifetime count of YAML baseline flips on master/main for this identifier.
@@ -490,6 +591,8 @@ class BaselineTotals:
     recently_tolerated: int
     frequently_tolerated: int
     currently_quarantined: int
+    # Baselines carrying at least `VARIANT_PILEUP_MIN` accepted variants of their current hash.
+    variant_pileups: int
     by_run_type: dict[str, int]
 
 
@@ -503,15 +606,37 @@ class BaselineOverview:
     generated_at: datetime
 
 
-# How recently a snapshot must have rendered a variant to count as unstable
-# rather than settled. A Storybook run lands many times a day on an active
-# repo, so a week is wide enough that a genuinely flaky snapshot cannot stay
-# quiet through it by chance.
-FLAKINESS_RECENT_DAYS = 7
+# How far back the page reads. Sets the width of the per-day activity strip and
+# the span `headroom` looks over, where more days mean better evidence of the
+# worst case a snapshot can produce.
+FLAKINESS_WINDOW_DAYS = 30
 
-# Width of the per-day activity strip on each row. Fixed rather than following
-# the baseline era, so every row shares one time axis and rows stay comparable.
-FLAKINESS_STRIP_DAYS = 30
+# How far back the rates count, inside that window. Shorter on purpose, and
+# shorter than the strip: the rates decide whether a snapshot is failing *now*,
+# and a quarantine over one that stopped failing three weeks ago has to become
+# liftable rather than keep reporting the failures it used to have.
+#
+# The default branch lands a run every few minutes on an active repo, so a week
+# is hundreds of runs. That is far more than a rate needs, and widening it only
+# blunts the signal.
+FLAKINESS_RATE_DAYS = 7
+
+# Hard-failure rate at or above which a snapshot is broken rather than flaky.
+# The two need different actions: a flaky snapshot wants a quarantine or a
+# stabilized story, a broken one wants its baseline fixed, and quarantining it
+# only hides that.
+FLAKINESS_BROKEN_RATE = 0.9
+
+# Below this many runs in the window, a rate is not worth reporting as one:
+# one failure out of two runs is 50% and means nothing. Rows under it still
+# list, they just cannot reach `broken`.
+FLAKINESS_MIN_WINDOW_RUNS = 5
+
+# Fraction of the pixel threshold a snapshot must keep free to count as having
+# headroom. Below it, the snapshot passes only because its diff has stayed on
+# the safe side of a line it is already touching, and the next unrelated
+# rendering change pushes it over.
+FLAKINESS_MIN_HEADROOM = 0.2
 
 # A quarantine this close to running out needs a human to extend it or let it
 # lapse, so it counts toward `needs_decision`.
@@ -543,32 +668,55 @@ class FlakinessEntry:
     # snapshot's current baseline. Reads as "how many different images this
     # snapshot is currently allowed to produce".
     variant_count: int
-    # Last default-branch run that rendered one of those variants. Not when a
-    # variant was first recorded: a snapshot can cycle through variants it
-    # already recorded forever without adding a new one, and that is the worst
-    # case this page exists to find. None when no run has matched one.
+    # Default-branch runs in the window that rendered this snapshot differently
+    # from its baseline, split by what that cost. `hard` failed the gate.
+    # `soft` was absorbed by a toleration and blocked nobody.
+    hard_count: int
+    soft_count: int
+    # Completed default-branch runs of this run type in the window. The rate
+    # denominator, reported so a reader can tell 2 failures out of 3 runs from
+    # 2 out of 300.
+    window_runs: int
+    # `hard_count` and `soft_count` over `window_runs`, clamped to 1.0. The
+    # denominator counts every run of this run type, so a snapshot that only
+    # started rendering partway through the window reads lower than it is.
+    hard_rate: float
+    soft_rate: float
+    # Last default-branch run in the window that rendered a difference of
+    # either kind. None when every run in the window matched the baseline.
     last_flaked_at: datetime | None
-    # Mean pixel-diff fraction across those variants. Separates sub-pixel
+    # Mean pixel-diff fraction across the live variants. Separates sub-pixel
     # noise from a small but real rendering change.
     avg_diff_percentage: float | None
+    # Worst pixel diff any absorbed run in the window produced, and what
+    # fraction of the pixel threshold that leaves free. A snapshot always
+    # tolerated at 0.01% is safe; one always tolerated just under the
+    # threshold passes on luck, and the next unrelated change turns it red.
+    # None when nothing was absorbed in the window.
+    worst_soft_diff_percentage: float | None
+    headroom: float | None
     # Days since the first default-branch run that compared against the
     # current baseline, which is when that baseline took effect.
     baseline_age_days: int | None
-    # Variants recorded per day over the last `FLAKINESS_STRIP_DAYS`, oldest
-    # first. Always that length so the frontend can render a fixed axis.
-    daily_variant_counts: list[int]
-    # Index into `daily_variant_counts` where the baseline moved. None when it
-    # moved before the window opened, which is the common case.
+    # Hard and soft runs per day over the window, oldest first. Always
+    # `FLAKINESS_WINDOW_DAYS` long so the frontend can render a fixed axis.
+    daily_hard_counts: list[int]
+    daily_soft_counts: list[int]
+    # Index into the daily series where the baseline moved. None when it moved
+    # before the window opened, which is the common case.
     baseline_moved_day_index: int | None
     # One of `FlakinessState`. Named with a prefix because a field called
     # `state` collides with other products' enums in the OpenAPI schema.
     flakiness_state: str
     is_quarantined: bool
     # True when an active quarantine has run out, is about to, or covers a
-    # snapshot that has gone clean. All three mean a human has to choose
+    # snapshot that has stopped failing. All three mean a human has to choose
     # between extending it and lifting it.
     needs_decision: bool
     quarantine: BaselineQuarantineSummary | None = None
+    # Team that owns the story file, `UNOWNED_TEAM` when no entry covers it, and None when
+    # ownership is unknown.
+    owner_team: str | None = None
 
 
 @dataclass(frozen=True)
@@ -580,8 +728,14 @@ class FlakinessTotals:
     # Identifiers with a current baseline, listed or not. The denominator that
     # tells a reader how much of the repo is quiet.
     tracked: int
+    broken: int
     unstable: int
-    settled: int
+    at_risk: int
+    noisy: int
+    # Listed, but nothing failing or absorbed inside the rate span. A row
+    # reaches this state by carrying live variants, or history further back in
+    # the read window, so it is reported rather than silently unreachable.
+    clean: int
     quarantined: int
     needs_decision: int
     by_run_type: dict[str, int]

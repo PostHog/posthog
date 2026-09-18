@@ -7,9 +7,10 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
-export type PropertyGroupOperatorApi = (typeof PropertyGroupOperatorApi)[keyof typeof PropertyGroupOperatorApi]
+export type PropertyGroupOperatorEnumApi =
+    (typeof PropertyGroupOperatorEnumApi)[keyof typeof PropertyGroupOperatorEnumApi]
 
-export const PropertyGroupOperatorApi = {
+export const PropertyGroupOperatorEnumApi = {
     And: 'AND',
     Or: 'OR',
 } as const
@@ -190,7 +191,7 @@ export interface PropertyApi {
      *
      * * `AND` - AND
      * * `OR` - OR */
-    type?: PropertyGroupOperatorApi
+    type?: PropertyGroupOperatorEnumApi
     values: PropertyItemApi[]
 }
 
@@ -316,13 +317,15 @@ export type PersonBulkDeleteResponseApiDeletionErrorsItem = { [key: string]: unk
 export interface PersonBulkDeleteResponseApi {
     /** Number of persons matched by the provided IDs or distinct IDs. */
     persons_found: number
-    /** Number of person records deleted from the database. 0 if keep_person was true. */
+    /** Number of person records deleted from the database during this request. 0 if keep_person was true or if the deletion was queued (see persons_queued_for_deletion). */
     persons_deleted: number
+    /** Number of persons queued for deletion in the background. Their person records and distinct IDs are removed shortly after the request completes. 0 if keep_person was true. */
+    persons_queued_for_deletion: number
     /** Whether event deletion was requested for the matched persons. If a deletion was already queued for a person, it will not be duplicated. */
     events_queued_for_deletion: boolean
     /** Whether recording deletion was requested for the matched persons. If a deletion was already queued for a person, it will not be duplicated. */
     recordings_queued_for_deletion: boolean
-    /** Persons that could not be deleted. Each entry contains 'person_uuid'. Contact support if this persists. */
+    /** Persons whose deletion did not fully complete in this request. Each entry contains 'person_uuid' and 'step', the deletion step that failed for that person. A failed database delete is reported here rather than as an error response, so a 202 with entries means some or all persons were not deleted. A 'log_activity' step means the person was deleted but the activity log entry was not written. Always empty when the deletion was queued (see persons_queued_for_deletion). Contact support if this persists. */
     deletion_errors?: PersonBulkDeleteResponseApiDeletionErrorsItem[]
 }
 
@@ -432,7 +435,7 @@ export type PersonsListParams = {
      */
     properties?: PropertyApi[]
     /**
-     * Search persons, either by email (full text search) or distinct_id (exact match).
+     * Search persons by email, name, person ID, or distinct ID. Partial values match. When the term is a complete email address or UUID that exactly matches a distinct ID or person ID, only that person is returned.
      */
     search?: string
 }

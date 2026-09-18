@@ -30,13 +30,13 @@ from posthog.temporal.common.client import async_connect, sync_connect
 from posthog.temporal.common.schedule import (
     a_create_schedule,
     a_delete_schedule,
+    a_describe_schedule,
     a_schedule_exists,
     a_trigger_schedule,
     a_unpause_schedule,
     a_update_schedule,
     create_schedule,
     delete_schedule,
-    describe_schedule,
     pause_schedule,
     schedule_exists,
     trigger_schedule,
@@ -44,6 +44,8 @@ from posthog.temporal.common.schedule import (
     update_schedule,
 )
 from posthog.temporal.utils import ExternalDataWorkflowInputs
+
+from products.warehouse_sources.backend.facade.types import ExternalDataSchemaStatus, ExternalDataSchemaSyncType
 
 if TYPE_CHECKING:
     from posthog.models import Team
@@ -415,7 +417,7 @@ def is_any_external_data_schema_paused(team_id: int) -> bool:
 
     return (
         ExternalDataSchema.objects.exclude(deleted=True)
-        .filter(team_id=team_id, status=ExternalDataSchema.Status.PAUSED)
+        .filter(team_id=team_id, status=ExternalDataSchemaStatus.PAUSED)
         .exists()
     )
 
@@ -517,7 +519,7 @@ def sync_cdc_extraction_schedule(source: ExternalDataSource, create: bool = Fals
     cdc_schemas = list(
         ExternalDataSchema.objects.filter(
             source=source,
-            sync_type=ExternalDataSchema.SyncType.CDC,
+            sync_type=ExternalDataSchemaSyncType.CDC,
             should_sync=True,
         )
         .exclude(deleted=True)
@@ -616,7 +618,7 @@ async def is_cdc_extraction_schedule_paused(source_id: str) -> bool:
     schedule_id = _get_cdc_extraction_schedule_id(source_id)
     temporal = await async_connect()
     try:
-        desc = await describe_schedule(temporal, schedule_id=schedule_id)
+        desc = await a_describe_schedule(temporal, schedule_id=schedule_id)
     except temporalio.service.RPCError as e:
         if e.status == temporalio.service.RPCStatusCode.NOT_FOUND:
             return False
@@ -635,7 +637,7 @@ async def cdc_extraction_schedule_has_running_action(source_id: str) -> bool:
     schedule_id = _get_cdc_extraction_schedule_id(source_id)
     temporal = await async_connect()
     try:
-        desc = await describe_schedule(temporal, schedule_id=schedule_id)
+        desc = await a_describe_schedule(temporal, schedule_id=schedule_id)
     except temporalio.service.RPCError as e:
         if e.status == temporalio.service.RPCStatusCode.NOT_FOUND:
             return False

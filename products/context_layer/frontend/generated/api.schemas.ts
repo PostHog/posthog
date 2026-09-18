@@ -55,6 +55,117 @@ export interface LintErrorApi {
 }
 
 /**
+ * * `not_started` - not_started
+ * * `queued` - queued
+ * * `in_progress` - in_progress
+ */
+export type ActiveDreamRunRunStatusEnumApi =
+    (typeof ActiveDreamRunRunStatusEnumApi)[keyof typeof ActiveDreamRunRunStatusEnumApi]
+
+export const ActiveDreamRunRunStatusEnumApi = {
+    NotStarted: 'not_started',
+    Queued: 'queued',
+    InProgress: 'in_progress',
+} as const
+
+/**
+ * A dreaming task that has not reached a terminal state yet.
+ */
+export interface ActiveDreamRunApi {
+    /** The current task-run state for the active dream.
+     *
+     * * `not_started` - not_started
+     * * `queued` - queued
+     * * `in_progress` - in_progress */
+    run_status: ActiveDreamRunRunStatusEnumApi
+    /** When the active dream task was created. */
+    started_at: string
+}
+
+export interface UnpublishedDreamRunApi {
+    /** Task URL in its project for the unpublished dream outcome and logs. */
+    task_url: string
+    /** The terminal task-run state, such as completed, failed, or cancelled. */
+    run_status: string
+    /** When the unpublished dream task was created. */
+    started_at: string
+}
+
+/**
+ * One dreaming run: the merge commit it landed as, plus what it changed.
+ */
+export interface DreamRunApi {
+    /** Merge commit sha the run landed as; pass back as `sha` on the detail read. */
+    sha: string
+    /** The run's date, `YYYY-MM-DD`. */
+    date: string
+    /** When the run landed. */
+    committed_at: string
+    /** The run summary the dreaming agent wrote. */
+    summary: string
+    /** Pages the run created. */
+    pages_added: number
+    /** Pages the run edited. */
+    pages_modified: number
+    /** Pages the run removed. */
+    pages_deleted: number
+}
+
+/**
+ * Response shape for the wiki's dream run listing.
+ */
+export interface DreamRunListApi {
+    /** Commit sha of the wiki's current head. */
+    head_sha: string
+    /** The organization's active dreaming task, or null when no dream is running. */
+    active_run: ActiveDreamRunApi | null
+    /** The latest finished dream when no update was published after it started, or null otherwise. */
+    unpublished_run: UnpublishedDreamRunApi | null
+    /** Every landed dream run, newest first. */
+    dreams: DreamRunApi[]
+}
+
+/**
+ * * `added` - added
+ * * `modified` - modified
+ * * `deleted` - deleted
+ */
+export type DreamFileDiffStatusEnumApi = (typeof DreamFileDiffStatusEnumApi)[keyof typeof DreamFileDiffStatusEnumApi]
+
+export const DreamFileDiffStatusEnumApi = {
+    Added: 'added',
+    Modified: 'modified',
+    Deleted: 'deleted',
+} as const
+
+/**
+ * One file a dream run changed, with its unified patch.
+ */
+export interface DreamFileDiffApi {
+    /** Repo-relative path of the changed page. */
+    path: string
+    /** How the run changed the page.
+     *
+     * * `added` - added
+     * * `modified` - modified
+     * * `deleted` - deleted */
+    status: DreamFileDiffStatusEnumApi
+    /** Unified git patch for this file. */
+    patch: string
+    /** Whether the patch was cut off for size. */
+    truncated: boolean
+}
+
+/**
+ * Response shape for one dream run: the run plus the diff it landed.
+ */
+export interface DreamRunDetailApi {
+    run: DreamRunApi
+    /** Per-file patches, in diff order. */
+    files: DreamFileDiffApi[]
+}
+
+/**
  * Response shape for a wiki bundle export.
  */
 export interface WikiExportApi {
@@ -76,6 +187,17 @@ export interface WikiPageApi {
     head_sha: string
     /** When this page was last changed in the wiki history. */
     updated_at: string
+    /** Character offset of this chunk. */
+    offset: number
+    /** Character length of the complete page. */
+    total_length: number
+    /**
+     * Next character offset, or null when complete.
+     * @nullable
+     */
+    next_offset: number | null
+    /** True when no further chunks remain. Do not write a page until all chunks are read. */
+    complete: boolean
 }
 
 /**
@@ -109,6 +231,32 @@ export interface HeadConflictApi {
     current_head: string
 }
 
+export interface WikiPageProposalApi {
+    /** Immutable suggested edit ID. Only its author can apply it through the user API. */
+    id: string
+    /** Task that proposed the edit. */
+    task_id: string
+    /** Shared wiki page to review. */
+    path: string
+    /** Page content at the revision the proposal is based on. */
+    original_content: string
+    /** Proposed page content. This is not published wiki content. */
+    content: string
+    /** Wiki revision the proposal is based on. */
+    base_head: string
+    /** When the edit was proposed. */
+    created_at: string
+}
+
+export interface PaginatedWikiPageProposalListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: WikiPageProposalApi[]
+}
+
 /**
  * Response shape for the wiki's page listing.
  */
@@ -135,16 +283,84 @@ export interface WikiHealthReportApi {
     findings: WikiHealthFindingApi[]
 }
 
+/**
+ * Request body for creating or replacing one wiki page.
+ */
+export interface WikiPageProposalWriteApi {
+    /**
+     * Repo-relative Markdown path inside the wiki's structure, for example `projects/12/spaces/general.md`.
+     * @maxLength 512
+     */
+    path: string
+    /**
+     * The complete Markdown content for the page.
+     * @maxLength 1000000
+     */
+    content: string
+    /**
+     * The head_sha returned when reading the page. Required to bind the proposed edit.
+     * @maxLength 64
+     */
+    base_head: string
+}
+
 export type ContextLayerPagesRetrieveParams = {
     /**
+     * Head from the first chunk. Required for continuation. A changed head returns 409.
+     * @minLength 1
+     * @maxLength 64
+     */
+    head_sha?: string
+    /**
+     * Maximum characters to read. Omit for the full page.
+     * @minimum 1
+     * @maximum 12000
+     */
+    limit?: number
+    /**
+     * Character offset from next_offset.
+     * @minimum 0
+     */
+    offset?: number
+    /**
      * Repo-relative Markdown path of the page to read.
+     * @minLength 1
      */
     path: string
 }
 
+export type ContextLayerProposalsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
 export type ContextLayerAgentPagesRetrieveParams = {
     /**
+     * Head from the first chunk. Required for continuation. A changed head returns 409.
+     * @minLength 1
+     * @maxLength 64
+     */
+    head_sha?: string
+    /**
+     * Maximum characters to read. Omit for the full page.
+     * @minimum 1
+     * @maximum 12000
+     */
+    limit?: number
+    /**
+     * Character offset from next_offset.
+     * @minimum 0
+     */
+    offset?: number
+    /**
      * Repo-relative Markdown path of the page to read.
+     * @minLength 1
      */
     path: string
 }

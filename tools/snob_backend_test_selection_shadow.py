@@ -45,6 +45,7 @@ import warnings
 import subprocess
 from dataclasses import asdict, dataclass, field
 from pathlib import Path, PurePosixPath
+from typing import Any
 
 REPO_ROOT = Path(__file__).parent.parent.resolve()
 DURATIONS_PATH = REPO_ROOT / ".test_durations"
@@ -411,6 +412,10 @@ def _candidate_conventional_tests(path: str) -> list[str]:
     return [str(candidate) for candidate in candidates if (REPO_ROOT / candidate).is_file()]
 
 
+def _existing_test_files(paths: list[str] | set[str]) -> list[str]:
+    return sorted(path for path in paths if (REPO_ROOT / path).is_file())
+
+
 def _add_group(groups: dict[str, set[str]], name: str, tests: list[str] | set[str]) -> None:
     if not tests:
         return
@@ -423,7 +428,7 @@ def ast_select_tests(changed_files: list[str], features_by_path: dict[str, TestF
     all_test_files = set(features_by_path.keys())
 
     # ── 1. Changed test files themselves ─────────────────────────────
-    changed_tests = [path for path in changed_files if _is_test_file(path)]
+    changed_tests = _existing_test_files([path for path in changed_files if _is_test_file(path)])
     _add_group(groups, "changed_tests", changed_tests)
 
     # ── 2. Conventional test neighbors (test_<name>.py next to <name>.py) ─
@@ -562,18 +567,18 @@ def ast_select_tests(changed_files: list[str], features_by_path: dict[str, TestF
     )
 
 
-def snob_select_tests(changed_files: list[str]) -> dict[str, object]:
+def snob_select_tests(changed_files: list[str]) -> dict[str, Any]:
     changed_py_files = [path for path in changed_files if path.endswith(".py")]
     if not changed_py_files:
         return {"status": "ok", "tests": [], "count": 0}
 
     try:
-        import snob_lib
+        import snob_lib  # ty: ignore[unresolved-import]
     except ImportError as exc:
         return {"status": "error", "error": f"could not import snob_lib: {exc}", "tests": [], "count": 0}
 
     try:
-        tests = sorted(normalize_repo_path(str(test)) for test in snob_lib.get_tests(changed_py_files))
+        tests = _existing_test_files({normalize_repo_path(str(test)) for test in snob_lib.get_tests(changed_py_files)})
     except Exception as exc:
         return {"status": "error", "error": f"snob_lib.get_tests failed: {exc}", "tests": [], "count": 0}
 
@@ -603,9 +608,7 @@ def estimate_duration(test_files: list[str], durations: dict[str, float]) -> flo
 _TEMPORAL_PREFIXES = ("posthog/temporal/", "products/signals/backend/emission/")
 _POE_PREFIXES = (
     "posthog/clickhouse/",
-    "posthog/queries/",
     "ee/clickhouse/",
-    "products/product_analytics/backend/tests/api/",
 )
 _CORE_IGNORED_PREFIXES = ("posthog/dags/", "common/hogvm/python/test/", "posthog/test/repo_invariants/")
 
@@ -674,7 +677,7 @@ def narrowable_baseline_seconds(durations: dict[str, float]) -> float:
     return total
 
 
-def build_result(base_ref: str) -> dict[str, object]:
+def build_result(base_ref: str) -> dict[str, Any]:
     os.chdir(REPO_ROOT)
     changed_files = changed_files_from_git(base_ref)
     features_by_path = classify_tests()
@@ -682,7 +685,7 @@ def build_result(base_ref: str) -> dict[str, object]:
     snob_selection = snob_select_tests(changed_files)
 
     snob_tests = [str(test) for test in snob_selection.get("tests", [])]
-    combined_tests = sorted(set(snob_tests) | set(ast_selection.tests))
+    combined_tests = _existing_test_files(set(snob_tests) | set(ast_selection.tests))
 
     durations = load_durations()
     selected_seconds = estimate_duration(combined_tests, durations)
@@ -717,7 +720,7 @@ def build_result(base_ref: str) -> dict[str, object]:
     }
 
 
-def format_summary(result: dict[str, object]) -> str:
+def format_summary(result: dict[str, Any]) -> str:
     snob = result["snob"]
     ast_data = result["ast"]
     combined = result["combined"]

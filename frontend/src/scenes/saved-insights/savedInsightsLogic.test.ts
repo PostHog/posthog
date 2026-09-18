@@ -91,6 +91,10 @@ describe('savedInsightsLogic', () => {
         await expectLogic(logic).toDispatchActions(['setSavedInsightsFilters', 'loadInsights', 'loadInsightsSuccess'])
     })
 
+    it('always asks the API to exclude auto-generated feature flag insights', () => {
+        expect(logic.values.paramsFromFilters).toMatchObject({ hide_feature_flag_insights: true })
+    })
+
     it('can filter the insights', async () => {
         // makes a search query
         logic.actions.setSavedInsightsFilters({ search: 'hello' })
@@ -255,6 +259,30 @@ describe('savedInsightsLogic', () => {
         )
     })
 
+    it('flags a failed load so the list can show an error instead of an empty state', async () => {
+        useMocks({
+            get: {
+                '/api/environments/:team_id/insights/': () => [500, { detail: 'boom' }],
+            },
+        })
+
+        logic.actions.loadInsights(false)
+        await expectLogic(logic)
+            .toDispatchActions(['loadInsights', 'loadInsightsFailure'])
+            .toMatchValues({ insightsLoadFailed: true })
+
+        // A later successful load clears the flag so a recovered list drops the error state
+        useMocks({
+            get: {
+                '/api/environments/:team_id/insights/': () => [200, createSavedInsights('recovered', 0)],
+            },
+        })
+        logic.actions.loadInsights(false)
+        await expectLogic(logic)
+            .toDispatchActions(['loadInsights', 'loadInsightsSuccess'])
+            .toMatchValues({ insightsLoadFailed: false })
+    })
+
     it('discards stale API responses when a newer request is in flight', async () => {
         const pendingRequests: Array<{
             resolve: (value: [number, any]) => void
@@ -395,7 +423,6 @@ describe('savedInsightsLogic', () => {
             ['created by', { createdBy: [1] }],
             ['favorites', { favorited: true }],
             ['a date range', { dateFrom: '-7d' }],
-            ['the feature flag insights toggle', { hideFeatureFlagInsights: true }],
             ['a dashboard', { dashboardId: 5 }],
         ])('counts %s as a narrowing filter', (_label, overrides) => {
             expect(hasNarrowingFilters(cleanFilters(overrides))).toBe(true)

@@ -12,7 +12,6 @@ import {
 } from "@posthog/core/billing/spendLimits";
 import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
 import { AUTH_SCOPED_QUERY_META } from "@posthog/ui/features/auth/useCurrentUser";
-import { useSpendAnalysisEnabled } from "@posthog/ui/features/usage/useSpendAnalysisEnabled";
 import { useQuery } from "@tanstack/react-query";
 import { useMemo } from "react";
 
@@ -57,14 +56,13 @@ function fetchSpendWindow(
  */
 export function useSpendTotals(): SpendSnapshot | null {
   const client = useOptionalAuthenticatedClient();
-  const enabled = useSpendAnalysisEnabled();
   const query = useQuery({
     queryKey: SPEND_TOTALS_QUERY_KEY,
     queryFn: () => {
       if (!client) throw new Error("Not authenticated");
       return fetchSpendWindow(client);
     },
-    enabled: client !== null && enabled,
+    enabled: client !== null,
     refetchInterval: POLL_INTERVAL_MS,
     staleTime: 60_000,
     retry: false,

@@ -49,7 +49,7 @@ describe("pendingTaskPromptStore", () => {
     expect(pendingTaskPromptStoreApi.get("k1")).toBeUndefined();
   });
 
-  it("returns every surviving entry newest-first for recovery", () => {
+  it("recovers unsent prompts newest-first while keeping submitted prompts available for chat", () => {
     pendingTaskPromptStoreApi.set("old", {
       promptText: "old",
       attachments: [],
@@ -62,10 +62,12 @@ describe("pendingTaskPromptStore", () => {
       promptText: "new",
       attachments: [],
     });
+    pendingTaskPromptStoreApi.markSubmitted("mid");
 
-    const recovered = pendingTaskPromptStoreApi.getAllNewestFirst();
+    const recovered = pendingTaskPromptStoreApi.getRecoverableNewestFirst();
 
-    expect(recovered.map((r) => r.key)).toEqual(["new", "mid", "old"]);
+    expect(recovered.map((r) => r.key)).toEqual(["new", "old"]);
+    expect(pendingTaskPromptStoreApi.get("mid")?.promptText).toBe("mid");
   });
 
   it("caps stored prompts to the newest, dropping the oldest", () => {
@@ -76,7 +78,7 @@ describe("pendingTaskPromptStore", () => {
       });
     }
 
-    const recovered = pendingTaskPromptStoreApi.getAllNewestFirst();
+    const recovered = pendingTaskPromptStoreApi.getRecoverableNewestFirst();
 
     expect(recovered).toHaveLength(20);
     expect(pendingTaskPromptStoreApi.get("k0")).toBeUndefined();

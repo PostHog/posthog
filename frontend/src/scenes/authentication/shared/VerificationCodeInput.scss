@@ -1,0 +1,29 @@
+// Border color and its states live here rather than in Tailwind classes.
+// The error state must react to .Field--error, which LemonField sets only on its wrapper.
+// The other interaction states stay next to it, so all conditional styles are in one place.
+.VerificationCodeInput {
+    .VerificationCodeInput__slot {
+        border-color: var(--color-border-primary);
+        outline: none;
+
+        &:hover:not(:disabled, :focus-visible) {
+            border-color: var(--color-border-secondary);
+        }
+
+        &:focus-visible {
+            border-color: var(--color-accent);
+            box-shadow: 0 0 0 2px var(--color-accent-highlight-secondary);
+        }
+
+        &:disabled {
+            cursor: not-allowed;
+            opacity: 0.5;
+        }
+    }
+
+    // This rule is last, so the error border wins over the hover and focus states above
+    &.VerificationCodeInput--danger .VerificationCodeInput__slot,
+    .Field--error & .VerificationCodeInput__slot {
+        border-color: var(--danger);
+    }
+}

@@ -16,6 +16,7 @@ from django.utils import timezone
 import structlog
 
 from products.notebooks.backend.models import NotebookNodeRun
+from products.notebooks.backend.sql_v2_concurrency import release_run_slots, renew_run_slots
 from products.notebooks.backend.sql_v2_metrics import OUTCOME_TIMED_OUT, outcome_for_status, record_node_run_terminal
 
 logger = structlog.get_logger(__name__)
@@ -63,12 +64,16 @@ def finish_node_run(
     # select_related: the recorder reads run.user and run.notebook; a plain refresh wipes
     # the FK caches and forces a lazy query per relation.
     run.refresh_from_db(from_queryset=NotebookNodeRun.objects.for_team(run.team_id).select_related("user", "notebook"))
+    # Released whether or not this call won: the run is terminal either way, and giving a slot
+    # back twice removes an absent set member, which does nothing. Holding it on the losing
+    # path would keep a notebook blocked until the slot's TTL.
+    release_run_slots(run.team_id, run.notebook.short_id, str(run.id))
     if updated:
         record_node_run_terminal(run, outcome or outcome_for_status(status))
     return bool(updated)
 
 
-def touch_run_progress(team_id: int, run_id: str) -> None:
+def touch_run_progress(team_id: int, notebook_short_id: str, run_id: str) -> None:
     """Record that the kernel is still working on `run_id`, resetting its watchdog clock.
 
     Called from the data plane, which is the kernel's only way back to PostHog during a run:
@@ -80,6 +85,10 @@ def touch_run_progress(team_id: int, run_id: str) -> None:
     watchdog already finished. Best effort: the run's progress matters less than the query
     the sandbox is waiting on, so a failure here must never fail the fetch.
     """
+    # The same sign of life keeps the run's concurrency slots alive. Without it a long cell's
+    # slot expires while it works, and the ceiling degrades from "ten at once" to "ten every
+    # TTL" — a caller could hold an unbounded number by starting a batch each time one lapses.
+    renew_run_slots(team_id, notebook_short_id, run_id)
     try:
         NotebookNodeRun.objects.for_team(team_id).filter(id=run_id, status=NotebookNodeRun.Status.RUNNING).update(
             updated_at=timezone.now()

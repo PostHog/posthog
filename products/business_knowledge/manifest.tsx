@@ -18,16 +18,35 @@ export const manifest: ProductManifest = {
             import: () => import('./frontend/scenes/BusinessKnowledgeScene'),
             projectBased: true,
             activityScope: 'KnowledgeSource',
+            iconType: 'conversations',
             description:
                 'Upload text, public URLs, or files so PostHog AI can understand your business context, vision, and policies.',
+        },
+        BusinessKnowledgeSettings: {
+            name: 'Business knowledge settings',
+            import: () => import('./frontend/scenes/BusinessKnowledgeSettingsScene'),
+            projectBased: true,
+            iconType: 'conversations',
+        },
+        BusinessKnowledgeSource: {
+            name: 'Knowledge source',
+            import: () => import('./frontend/scenes/KnowledgeSourceScene'),
+            projectBased: true,
+            activityScope: 'KnowledgeSource',
+            iconType: 'conversations',
         },
     },
     routes: {
         '/business-knowledge': ['BusinessKnowledge', 'businessKnowledge'],
+        // Static sibling must stay above :id so kea-router does not treat "settings" as an id.
+        '/business-knowledge/settings': ['BusinessKnowledgeSettings', 'businessKnowledgeSettings'],
+        '/business-knowledge/:id': ['BusinessKnowledgeSource', 'businessKnowledgeSource'],
     },
     redirects: {},
     urls: {
         businessKnowledge: (): string => '/business-knowledge',
+        businessKnowledgeSettings: (): string => '/business-knowledge/settings',
+        businessKnowledgeSource: (id: string): string => `/business-knowledge/${id}`,
     },
     fileSystemTypes: {},
     treeItemsNew: [],

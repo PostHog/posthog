@@ -10,6 +10,7 @@ from rest_framework.exceptions import PermissionDenied
 from posthog.auth import SharingAccessTokenAuthentication
 
 from products.product_analytics.backend.facade.api import map_stale_to_latest
+from products.product_analytics.backend.facade.contracts import InsightVariableDefinition
 from products.product_analytics.backend.facade.models import InsightVariable
 from products.product_analytics.backend.presentation.insight_variable import (
     InsightVariableSerializer,
@@ -337,11 +338,8 @@ class TestInsightVariableSerializer(TestCase):
 
 
 class TestMapStaleToLatest(TestCase):
-    def _make_variable(self, code_name: str) -> InsightVariable:
-        var = MagicMock(spec=InsightVariable)
-        var.id = uuid4()
-        var.code_name = code_name
-        return var
+    def _make_variable(self, code_name: str) -> InsightVariableDefinition:
+        return InsightVariableDefinition(id=uuid4(), name=code_name, code_name=code_name, type="String")
 
     @parameterized.expand(
         [

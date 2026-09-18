@@ -3,6 +3,7 @@ from enum import Enum
 from typing import Any, Optional, TypeVar
 
 import structlog
+from rest_framework.exceptions import ValidationError
 
 from posthog.schema import (
     ExperimentFunnelMetric,
@@ -29,7 +30,6 @@ from posthog.models import Team, User
 
 from products.experiments.backend.hogql_queries import CONTROL_VARIANT_KEY
 from products.experiments.backend.hogql_queries.cuped_config import CupedQueryConfig, get_cuped_config
-from products.experiments.stats.bayesian.enums import PriorType
 from products.experiments.stats.bayesian.method import BayesianConfig, BayesianMethod
 from products.experiments.stats.frequentist.method import (
     DEFAULT_SEQUENTIAL_TUNING_PARAMETER,
@@ -142,7 +142,12 @@ def split_baseline_and_test_variants(
 ) -> tuple[V, list[V]]:
     control_variants = [variant for variant in variants if variant.key == baseline_key]
     if not control_variants:
-        raise ValueError("No control variant found")
+        # Expected while an experiment has no exposures for its baseline yet — a
+        # user-facing validation error, not a server error.
+        raise ValidationError(
+            f"No exposures for the '{baseline_key}' variant yet. Results can be calculated once it has data.",
+            code="no_data",
+        )
     if len(control_variants) > 1:
         raise ValueError("Multiple control variants found")
     control_variant = control_variants[0]
@@ -620,7 +625,6 @@ def get_bayesian_experiment_result(
         difference_type=_parse_enum_config(
             bayesian_config.get("difference_type", "RELATIVE"), DifferenceType, DifferenceType.RELATIVE
         ),
-        prior_type=_parse_enum_config(bayesian_config.get("prior_type", "RELATIVE"), PriorType, PriorType.RELATIVE),
     )
     method = BayesianMethod(config)
 

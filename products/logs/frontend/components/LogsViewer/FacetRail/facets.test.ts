@@ -5,6 +5,8 @@ import {
     FACETS as CONFIGURED_FACETS,
     FacetConfig,
     FacetScope,
+    buildCustomFacet,
+    customFacetIdentity,
     facetScopeSignature,
     filterFacetsByName,
     mergeSelectedIntoOptions,
@@ -302,6 +304,27 @@ describe('facets', () => {
 
         it('keeps column facets whatever the tenant emits', () => {
             expect(resolveFacets(CONFIGURED_FACETS, []).map((f) => f.key)).toEqual(['level', 'service'])
+        })
+
+        it('passes a plain-attribute facet through unchanged, regardless of presence', () => {
+            // Custom facets are added by the user picking a real key, not resolved against a curated
+            // alias list — resolveFacets must never drop or rewrite them the way it does resourceAttribute.
+            const attributeFacet = buildCustomFacet('http.status_code', 'attribute')
+            expect(resolveFacets([attributeFacet], [])).toEqual([attributeFacet])
+        })
+    })
+
+    describe('buildCustomFacet / customFacetIdentity', () => {
+        it.each<['attribute' | 'resourceAttribute']>([['attribute'], ['resourceAttribute']])(
+            'round-trips the key and sourceType through a %s facet',
+            (sourceType) => {
+                const built = buildCustomFacet('http.status_code', sourceType)
+                expect(customFacetIdentity(built)).toEqual({ key: 'http.status_code', sourceType })
+            }
+        )
+
+        it('returns null for a curated facet', () => {
+            expect(customFacetIdentity(CONFIGURED_FACETS[0])).toBeNull()
         })
     })
 })

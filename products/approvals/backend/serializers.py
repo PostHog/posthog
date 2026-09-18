@@ -4,7 +4,32 @@ from rest_framework import serializers
 from posthog.api.shared import UserBasicSerializer
 
 from products.access_control.backend.models.role import Role
-from products.approvals.backend.models import Approval, ApprovalPolicy, ChangeRequest
+from products.approvals.backend.experiment_policy_sync import SYNCED_ACTION_KEYS
+from products.approvals.backend.models import Approval, ApprovalPolicy, ChangeRequest, ChangeRequestState
+
+
+class ChangeRequestSummarySerializer(serializers.ModelSerializer):
+    """Minimal read-only ChangeRequest shape for embedding on resources gated by an approval,
+    e.g. the scheduled change that carries it. Exposes just enough to show the approval state
+    and link to the change request."""
+
+    id = serializers.UUIDField(
+        read_only=True,
+        help_text="ID of the approval change request. Use it to link to the change request in the UI.",
+    )
+    state = serializers.ChoiceField(
+        choices=ChangeRequestState.choices,
+        read_only=True,
+        help_text=(
+            "Current approval state: 'pending' (awaiting approval), 'approved' (awaiting application), "
+            "'applied', 'rejected', 'expired', or 'failed'."
+        ),
+    )
+
+    class Meta:
+        model = ChangeRequest
+        fields = ["id", "state"]
+        read_only_fields = ["id", "state"]
 
 
 class ChangeRequestSerializer(serializers.ModelSerializer):
@@ -103,10 +128,14 @@ class ChangeRequestSerializer(serializers.ModelSerializer):
                 # but RoleMembership.role_id is a UUID, so a raw set intersection always misses.
                 user_role_ids = {
                     str(rid)
-                    for rid in RoleMembership.objects.filter(
-                        user=user,
-                        role__organization=obj.organization,
-                    ).values_list("role_id", flat=True)
+                    for rid in (
+                        RoleMembership.objects.filter(
+                            user=user,
+                            role__organization=obj.organization,
+                        )
+                        .valid_for_authorization()
+                        .values_list("role_id", flat=True)
+                    )
                 }
 
                 if user_role_ids & {str(r) for r in approver_roles}:
@@ -212,6 +241,13 @@ class ApprovalPolicySerializer(serializers.ModelSerializer):
             "updated_at",
         ]
         read_only_fields = ["id", "created_by", "created_at", "updated_at"]
+
+    # TODO(experiment-approval-policies): temporary. Only the sync may write experiment policies.
+    # See experiment_policy_sync.py.
+    def validate_action_key(self, value: str) -> str:
+        if value in SYNCED_ACTION_KEYS:
+            raise serializers.ValidationError("This approval action isn't available yet.")
+        return value
 
     def validate_approver_config(self, value):
         quorum = value.get("quorum", 0)

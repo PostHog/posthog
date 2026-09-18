@@ -19,13 +19,18 @@ from posthog.hogql.database.models import (
     UUIDDatabaseField,
 )
 from posthog.hogql.database.schema.channel_type import DEFAULT_CHANNEL_TYPES, ChannelTypeExprs, create_channel_type_expr
-from posthog.hogql.database.schema.sessions_v1 import DEFAULT_BOUNCE_RATE_DURATION_SECONDS
+from posthog.hogql.database.schema.sessions_v1 import (
+    DEFAULT_BOUNCE_RATE_DURATION_SECONDS,
+    finalize_aggregation,
+    select_session_property_values,
+)
 from posthog.hogql.database.schema.util.where_clause_extractor import SessionMinTimestampWhereClauseExtractorV3
 from posthog.hogql.errors import ResolutionError
 from posthog.hogql.modifiers import create_default_modifiers_for_team
+from posthog.hogql.parser import parse_expr
 
-from posthog.queries.insight import insight_sync_execute
 from posthog.raw_sessions_v3_ad_ids import SESSION_V3_LOWER_TIER_AD_IDS
+from posthog.schema_enums import SessionTableVersion
 
 if TYPE_CHECKING:
     from posthog.schema import CustomChannelRule
@@ -576,38 +581,33 @@ def get_lazy_session_table_properties_v3(search: Optional[str]):
 
 
 # NOTE: Keep the AD IDs in sync with `products.web_analytics.backend.hogql_queries.session_attribution_explorer_query_runner.py`
-SESSION_PROPERTY_TO_RAW_SESSIONS_EXPR_MAP = {
-    "$entry_referring_domain": "finalizeAggregation(entry_referring_domain)",
-    "$entry_utm_source": "finalizeAggregation(entry_utm_source)",
-    "$entry_utm_campaign": "finalizeAggregation(entry_utm_campaign)",
-    "$entry_utm_medium": "finalizeAggregation(entry_utm_medium)",
-    "$entry_utm_term": "finalizeAggregation(entry_utm_term)",
-    "$entry_utm_content": "finalizeAggregation(entry_utm_content)",
-    "$entry_gclid": "finalizeAggregation(entry_gclid)",
-    "$entry_gad_source": "finalizeAggregation(entry_gad_source)",
-    "$entry_fbclid": "finalizeAggregation(entry_fbclid)",
-    "$entry_current_url": "finalizeAggregation(entry_url)",
-    "$entry_pathname": "path(finalizeAggregation(entry_url))",
-    "$entry_hostname": "domain(finalizeAggregation(entry_url))",
-    "$end_current_url": "finalizeAggregation(end_url)",
-    "$end_pathname": "path(finalizeAggregation(end_url))",
-    "$end_hostname": "domain(finalizeAggregation(end_url))",
-    "$last_external_click_url": "finalizeAggregation(last_external_click_url)",
+SESSION_PROPERTY_TO_RAW_SESSIONS_EXPR: dict[str, ast.Expr] = {
+    "$entry_referring_domain": finalize_aggregation("entry_referring_domain"),
+    "$entry_utm_source": finalize_aggregation("entry_utm_source"),
+    "$entry_utm_campaign": finalize_aggregation("entry_utm_campaign"),
+    "$entry_utm_medium": finalize_aggregation("entry_utm_medium"),
+    "$entry_utm_term": finalize_aggregation("entry_utm_term"),
+    "$entry_utm_content": finalize_aggregation("entry_utm_content"),
+    "$entry_gclid": finalize_aggregation("entry_gclid"),
+    "$entry_gad_source": finalize_aggregation("entry_gad_source"),
+    "$entry_fbclid": finalize_aggregation("entry_fbclid"),
+    "$entry_current_url": finalize_aggregation("entry_url"),
+    "$entry_pathname": ast.Call(name="path", args=[finalize_aggregation("entry_url")]),
+    "$entry_hostname": ast.Call(name="domain", args=[finalize_aggregation("entry_url")]),
+    "$end_current_url": finalize_aggregation("end_url"),
+    "$end_pathname": ast.Call(name="path", args=[finalize_aggregation("end_url")]),
+    "$end_hostname": ast.Call(name="domain", args=[finalize_aggregation("end_url")]),
+    "$last_external_click_url": finalize_aggregation("last_external_click_url"),
 }
 
 for session_ad_id in SESSION_V3_LOWER_TIER_AD_IDS:
-    SESSION_PROPERTY_TO_RAW_SESSIONS_EXPR_MAP["$entry_" + session_ad_id] = (
-        f"arrayElement(finalizeAggregation(entry_ad_ids_map), '{session_ad_id}')"
+    SESSION_PROPERTY_TO_RAW_SESSIONS_EXPR["$entry_" + session_ad_id] = ast.Call(
+        name="arrayElement",
+        args=[finalize_aggregation("entry_ad_ids_map"), ast.Constant(value=session_ad_id)],
     )
 
 
 def get_lazy_session_table_values_v3(key: str, search_term: Optional[str], team: "Team"):
-    # lazy import keeps the raw-sessions SQL module (Django ORM) off this module's import path
-    from posthog.models.raw_sessions.sessions_v3 import (  # noqa: PLC0415
-        RAW_SELECT_SESSION_PROP_STRING_VALUES_SQL_V3,
-        RAW_SELECT_SESSION_PROP_STRING_VALUES_SQL_WITH_FILTER_V3,
-    )
-
     # the sessions table does not have a properties json object like the events and person tables
 
     if key == "$channel_type":
@@ -628,23 +628,19 @@ def get_lazy_session_table_values_v3(key: str, search_term: Optional[str], team:
         return []
 
     if isinstance(field_definition, StringDatabaseField):
-        expr = SESSION_PROPERTY_TO_RAW_SESSIONS_EXPR_MAP.get(key)
+        value_expr = SESSION_PROPERTY_TO_RAW_SESSIONS_EXPR.get(key)
 
-        if not expr:
+        if value_expr is None:
             return []
 
-        if search_term:
-            return insight_sync_execute(
-                RAW_SELECT_SESSION_PROP_STRING_VALUES_SQL_WITH_FILTER_V3.format(property_expr=expr),
-                {"team_id": team.pk, "key": key, "value": "%{}%".format(search_term)},
-                query_type="get_session_property_values_with_value",
-                team_id=team.pk,
-            )
-        return insight_sync_execute(
-            RAW_SELECT_SESSION_PROP_STRING_VALUES_SQL_V3.format(property_expr=expr),
-            {"team_id": team.pk, "key": key},
-            query_type="get_session_property_values",
-            team_id=team.pk,
+        return select_session_property_values(
+            team,
+            session_table_version=SessionTableVersion.V3,
+            table="raw_sessions_v3",
+            value_expr=value_expr,
+            order_by="session_id_v7",
+            search_term=search_term,
+            recent_sessions_only=parse_expr("session_timestamp >= now() - INTERVAL 30 DAY"),
         )
     if isinstance(field_definition, BooleanDatabaseField):
         # ideally we'd be able to just send [[True], [False]]

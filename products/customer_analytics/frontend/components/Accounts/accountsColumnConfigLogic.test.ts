@@ -33,6 +33,7 @@ function definition(
         created_by: null,
         updated_at: null,
         references: [],
+        has_workflow_reference: false,
         source: null,
         ...overrides,
     }
@@ -47,6 +48,7 @@ const relationshipDefinition = (
     name,
     description: null,
     is_single_holder: true,
+    is_controlled: false,
     ...overrides,
 })
 

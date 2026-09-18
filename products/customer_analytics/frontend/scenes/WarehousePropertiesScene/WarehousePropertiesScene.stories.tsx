@@ -31,6 +31,7 @@ const definitions: CustomPropertyDefinitionApi[] = [
         created_by: null,
         updated_at: null,
         references: [],
+        has_workflow_reference: false,
         source: {
             id: '01890000-0000-0000-0000-0000000000a1',
             definition: '01890000-0000-0000-0000-000000000001',
@@ -51,6 +52,13 @@ const definitions: CustomPropertyDefinitionApi[] = [
             next_sync_at: '2023-02-16T14:30:00Z',
             latest_run: {
                 id: '01890000-0000-0000-0000-0000000000b1',
+                job_id: null,
+                account_segment: null,
+                sync_phase: null,
+                attempt: null,
+                workflow_id: null,
+                workflow_run_id: null,
+                temporal_url: null,
                 trigger: 'scheduled',
                 status: 'completed',
                 started_at: '2023-02-15T14:29:00Z',
@@ -75,6 +83,7 @@ const definitions: CustomPropertyDefinitionApi[] = [
         created_by: null,
         updated_at: null,
         references: [],
+        has_workflow_reference: false,
         source: {
             id: '01890000-0000-0000-0000-0000000000a2',
             definition: '01890000-0000-0000-0000-000000000002',
@@ -107,6 +116,7 @@ const definitions: CustomPropertyDefinitionApi[] = [
         created_by: null,
         updated_at: null,
         references: [],
+        has_workflow_reference: false,
         source: {
             id: '01890000-0000-0000-0000-0000000000a3',
             definition: '01890000-0000-0000-0000-000000000003',
@@ -138,6 +148,7 @@ const definitions: CustomPropertyDefinitionApi[] = [
         created_by: null,
         updated_at: null,
         references: [],
+        has_workflow_reference: false,
         // View-backed: bound to a materialized view rather than an imported table, so it carries a
         // saved_query and no warehouse source to link through.
         source: {
@@ -160,6 +171,13 @@ const definitions: CustomPropertyDefinitionApi[] = [
             next_sync_at: '2023-02-15T13:00:00Z',
             latest_run: {
                 id: '01890000-0000-0000-0000-0000000000b4',
+                job_id: null,
+                account_segment: null,
+                sync_phase: null,
+                attempt: null,
+                workflow_id: null,
+                workflow_run_id: null,
+                temporal_url: null,
                 trigger: 'scheduled',
                 status: 'completed',
                 started_at: '2023-02-15T11:59:00Z',
@@ -179,6 +197,13 @@ const definitions: CustomPropertyDefinitionApi[] = [
 const runs: CustomPropertySyncRunApi[] = [
     {
         id: '01890000-0000-0000-0000-0000000000c1',
+        job_id: null,
+        account_segment: null,
+        sync_phase: null,
+        attempt: null,
+        workflow_id: null,
+        workflow_run_id: null,
+        temporal_url: null,
         trigger: 'scheduled',
         status: 'completed',
         started_at: '2023-02-15T14:29:00Z',
@@ -193,6 +218,13 @@ const runs: CustomPropertySyncRunApi[] = [
     },
     {
         id: '01890000-0000-0000-0000-0000000000c2',
+        job_id: null,
+        account_segment: null,
+        sync_phase: null,
+        attempt: null,
+        workflow_id: null,
+        workflow_run_id: null,
+        temporal_url: null,
         trigger: 'manual',
         status: 'failed',
         started_at: '2023-02-14T09:00:00Z',

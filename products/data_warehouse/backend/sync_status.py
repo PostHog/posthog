@@ -1,13 +1,16 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import datetime
 from typing import TYPE_CHECKING, cast
 
 from django.db.models import Q
 
 import humanize
 
+from posthog.utils import ensure_utc
+
 from products.warehouse_sources.backend.facade.models import ExternalDataSchema
+from products.warehouse_sources.backend.facade.types import ExternalDataSchemaStatus
 
 if TYPE_CHECKING:
     from posthog.schema import DataWarehouseSyncWarning
@@ -23,9 +26,10 @@ STALE_RUNNING_MULTIPLIER = 2
 # circular import between sync_status.py and posthog.hogql.database.database.
 _NOT_DELETED = Q(deleted=False) | Q(deleted__isnull=True)
 
-
-def _ensure_utc(dt: datetime) -> datetime:
-    return dt if dt.tzinfo is not None else dt.replace(tzinfo=UTC)
+_BILLING_LIMIT_REASONS: dict[str, str] = {
+    ExternalDataSchemaStatus.BILLING_LIMIT_REACHED: "the data warehouse billing limit has been reached",
+    ExternalDataSchemaStatus.BILLING_LIMIT_TOO_LOW: "the configured billing limit is too low",
+}
 
 
 def _is_stale(schema: ExternalDataSchema, now: datetime) -> bool:
@@ -33,7 +37,7 @@ def _is_stale(schema: ExternalDataSchema, now: datetime) -> bool:
     interval = schema.sync_frequency_interval
     if interval is None or schema.last_synced_at is None:
         return False
-    return (now - _ensure_utc(schema.last_synced_at)) > interval * STALE_RUNNING_MULTIPLIER
+    return (now - ensure_utc(schema.last_synced_at)) > interval * STALE_RUNNING_MULTIPLIER
 
 
 def _active_external_data_schemas(warehouse_table: DataWarehouseTable) -> list[ExternalDataSchema]:
@@ -47,6 +51,46 @@ def _active_external_data_schemas(warehouse_table: DataWarehouseTable) -> list[E
         return []
     # select_related("source"): _build_warning_for_schema reads schema.source.source_type.
     return list(ExternalDataSchema.objects.filter(_NOT_DELETED, table_id=warehouse_table.id).select_related("source"))
+
+
+def _failed_sync_message(table_name: str, source_type: str, last_synced_at: datetime | None, now: datetime) -> str:
+    sync_detail = (
+        f" Results reflect data from {humanize.naturaltime(now - ensure_utc(last_synced_at))}."
+        if last_synced_at
+        else " No successful sync has completed yet — the table may be empty or incomplete."
+    )
+    return f"Last sync of `{table_name}` (from {source_type}) failed.{sync_detail} Check the data warehouse source for details."
+
+
+def _paused_sync_message(table_name: str, source_type: str, schema: ExternalDataSchema, now: datetime) -> str:
+    if schema.last_synced_at is None:
+        return (
+            f"Sync of `{table_name}` (from {source_type}) is paused and hasn't completed a sync yet "
+            "— the table may be empty or incomplete."
+        )
+
+    ago = humanize.naturaltime(now - ensure_utc(schema.last_synced_at))
+    if _is_stale(schema, now):
+        return (
+            f"Sync of `{table_name}` (from {source_type}) is paused. "
+            f"Results reflect the last successful sync from {ago}."
+        )
+    return (
+        f"Sync of `{table_name}` (from {source_type}) is paused — results are current as of "
+        f"{ago}, but won't update until syncing is re-enabled."
+    )
+
+
+def _stale_sync_message(table_name: str, source_type: str, status: str | None, ago: str) -> str:
+    if status == ExternalDataSchemaStatus.RUNNING:
+        return (
+            f"`{table_name}` (from {source_type}) last completed syncing {ago}, more than twice its "
+            "configured sync interval. A new sync is in progress but results may be out of date."
+        )
+    return (
+        f"`{table_name}` (from {source_type}) last synced {ago}, more than twice its configured "
+        "sync interval. Results may be out of date."
+    )
 
 
 def _build_warning_for_schema(
@@ -73,73 +117,41 @@ def _build_warning_for_schema(
             message=message,
         )
 
-    if schema_status == ExternalDataSchema.Status.FAILED:
-        message = f"Last sync of `{table_name}` (from {source_type}) failed."
-        if schema.last_synced_at:
-            message += f" Results reflect data from {humanize.naturaltime(now - _ensure_utc(schema.last_synced_at))}."
-        else:
-            message += " No successful sync has completed yet — the table may be empty or incomplete."
+    if schema_status == ExternalDataSchemaStatus.FAILED:
         # Deliberately omit schema.latest_error: it holds raw exception text (DB hostnames,
         # credentials, stack traces) and this message reaches LLM contexts via MCP/Max. The full
         # error stays in the data warehouse source screen, which is access-scoped.
-        message += " Check the data warehouse source for details."
-        return build(status=ExternalDataSchema.Status.FAILED, message=message)
-
-    if schema_status == ExternalDataSchema.Status.BILLING_LIMIT_REACHED:
         return build(
-            status=ExternalDataSchema.Status.BILLING_LIMIT_REACHED,
-            message=(
-                f"Sync of `{table_name}` (from {source_type}) is paused because the data warehouse "
-                "billing limit has been reached. Results may be out of date."
-            ),
+            status=ExternalDataSchemaStatus.FAILED,
+            message=_failed_sync_message(table_name, source_type, schema.last_synced_at, now),
         )
 
-    if schema_status == ExternalDataSchema.Status.BILLING_LIMIT_TOO_LOW:
+    if schema_status is not None and (billing_limit_reason := _BILLING_LIMIT_REASONS.get(schema_status)):
         return build(
-            status=ExternalDataSchema.Status.BILLING_LIMIT_TOO_LOW,
-            message=(
-                f"Sync of `{table_name}` (from {source_type}) is paused because the configured "
-                "billing limit is too low. Results may be out of date."
-            ),
+            status=schema_status,
+            message=f"Sync of `{table_name}` (from {source_type}) is paused because {billing_limit_reason}. Results may be out of date.",
         )
 
-    if schema_status == ExternalDataSchema.Status.PAUSED or not schema.should_sync:
-        if schema.last_synced_at is None:
-            message = (
-                f"Sync of `{table_name}` (from {source_type}) is paused and hasn't completed a sync yet "
-                "— the table may be empty or incomplete."
-            )
-        else:
-            ago = humanize.naturaltime(now - _ensure_utc(schema.last_synced_at))
-            if _is_stale(schema, now):
-                message = (
-                    f"Sync of `{table_name}` (from {source_type}) is paused. "
-                    f"Results reflect the last successful sync from {ago}."
-                )
-            else:
-                message = (
-                    f"Sync of `{table_name}` (from {source_type}) is paused — results are current as of "
-                    f"{ago}, but won't update until syncing is re-enabled."
-                )
-        return build(status=ExternalDataSchema.Status.PAUSED, message=message)
+    if schema_status == ExternalDataSchemaStatus.PAUSED or not schema.should_sync:
+        return build(
+            status=ExternalDataSchemaStatus.PAUSED,
+            message=_paused_sync_message(table_name, source_type, schema, now),
+        )
 
     # Enabled and healthy: warn only once data is actually stale (covers RUNNING and idle COMPLETED).
     last_synced = schema.last_synced_at
     if last_synced is None or not _is_stale(schema, now):
         return None
 
-    ago = humanize.naturaltime(now - _ensure_utc(last_synced))
-    if schema_status == ExternalDataSchema.Status.RUNNING:
-        message = (
-            f"`{table_name}` (from {source_type}) last completed syncing {ago}, more than twice its "
-            "configured sync interval. A new sync is in progress but results may be out of date."
-        )
-    else:
-        message = (
-            f"`{table_name}` (from {source_type}) last synced {ago}, more than twice its configured "
-            "sync interval. Results may be out of date."
-        )
-    return build(status=schema_status or ExternalDataSchema.Status.RUNNING, message=message)
+    return build(
+        status=schema_status or ExternalDataSchemaStatus.RUNNING,
+        message=_stale_sync_message(
+            table_name,
+            source_type,
+            schema_status,
+            humanize.naturaltime(now - ensure_utc(last_synced)),
+        ),
+    )
 
 
 def get_warehouse_sync_warnings(

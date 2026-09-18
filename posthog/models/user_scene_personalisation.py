@@ -5,7 +5,9 @@ from posthog.models.utils import RootTeamMixin, UUIDTModel
 
 class UserScenePersonalisation(UUIDTModel, RootTeamMixin):
     scene = models.CharField(max_length=200)
-    dashboard = models.ForeignKey("dashboards.Dashboard", on_delete=models.CASCADE, null=True, blank=True)
+    dashboard = models.ForeignKey(
+        "dashboards.Dashboard", on_delete=models.CASCADE, null=True, blank=True, related_name="+"
+    )
     team = models.ForeignKey("Team", on_delete=models.CASCADE, null=True, blank=True)
     user = models.ForeignKey(
         "User",

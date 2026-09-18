@@ -8,6 +8,7 @@ import {
   deriveAlternativeConnectedProjects,
   deriveConnectButtonState,
   deriveGithubApprovalState,
+  didGithubConnectCompleteFromIntegrations,
   getGithubPanelMessage,
   isAnyIntegrationStale,
   resolveSelectedProjectId,
@@ -75,6 +76,48 @@ describe("isAnyIntegrationStale", () => {
     const integrations = [{ installation_id: "a" }, { installation_id: "b" }];
     expect(isAnyIntegrationStale(integrations, ["b"])).toBe(true);
     expect(isAnyIntegrationStale(integrations, ["z"])).toBe(false);
+  });
+});
+
+describe("didGithubConnectCompleteFromIntegrations", () => {
+  it("completes an initial connection when the first integration appears", () => {
+    expect(
+      didGithubConnectCompleteFromIntegrations({
+        isConnecting: true,
+        integrationCountAtStart: 0,
+        currentIntegrationCount: 1,
+      }),
+    ).toBe(true);
+  });
+
+  it("completes an additional organization connection when its integration appears", () => {
+    expect(
+      didGithubConnectCompleteFromIntegrations({
+        isConnecting: true,
+        integrationCountAtStart: 1,
+        currentIntegrationCount: 2,
+      }),
+    ).toBe(true);
+  });
+
+  it("does not complete before the integration count increases", () => {
+    expect(
+      didGithubConnectCompleteFromIntegrations({
+        isConnecting: true,
+        integrationCountAtStart: 1,
+        currentIntegrationCount: 1,
+      }),
+    ).toBe(false);
+  });
+
+  it("ignores integration changes outside an active connection", () => {
+    expect(
+      didGithubConnectCompleteFromIntegrations({
+        isConnecting: false,
+        integrationCountAtStart: 0,
+        currentIntegrationCount: 1,
+      }),
+    ).toBe(false);
   });
 });
 

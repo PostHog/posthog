@@ -45,8 +45,8 @@ export function SuppressionList(): JSX.Element {
             dataIndex: 'source',
             key: 'source',
             render: (source) => (
-                <LemonTag type={source === 'MANUAL' ? 'completion' : 'warning'}>
-                    {source === 'MANUAL' ? 'Manual' : 'Bounces'}
+                <LemonTag type={source === 'MANUAL' ? 'completion' : source === 'COMPLAINT' ? 'danger' : 'warning'}>
+                    {source === 'MANUAL' ? 'Manual' : source === 'COMPLAINT' ? 'Spam complaint' : 'Bounces'}
                 </LemonTag>
             ),
         },

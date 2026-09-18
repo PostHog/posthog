@@ -42,8 +42,27 @@ class MetricRunResponseSerializer(serializers.Serializer):
     results = _FreeJSONField(
         allow_null=True, help_text="The query results, for an executable metric. Null for a markdown metric."
     )
+    columns = serializers.ListField(
+        child=serializers.CharField(),
+        allow_null=True,
+        help_text="Names of the result columns, in the order of the values in each positional result row. "
+        "Null when the results are already labeled, or the query kind returns no column names.",
+    )
     compiled_query = serializers.CharField(allow_null=True, help_text="The compiled HogQL, when available.")
     query_status = _FreeJSONField(allow_null=True, help_text="Async query status, when the run is not blocking.")
+    has_more = serializers.BooleanField(
+        help_text="True when the query hit its row limit and more rows exist. Narrow the window or the "
+        "interval and run the metric again. A HogQLQuery metric fixes its window in SQL and rejects those "
+        "overrides, so report the window the definition itself covers, or ask for a parameterized metric. "
+        "Either way, do not re-derive the series by hand. False whenever row_limit is null, because no row "
+        "cap was reported for that run."
+    )
+    row_limit = serializers.IntegerField(
+        allow_null=True,
+        help_text="Row limit applied to this run. Null when no row cap was reported: a markdown metric, an "
+        "insight or trends query, or a HogQL metric that sets its own LIMIT or uses a UNION. This field "
+        "cannot verify the completeness of those runs.",
+    )
     posthog_url = serializers.CharField(
         allow_null=True, help_text="Deep link to open the query in the app (SQL editor or insight)."
     )
@@ -247,7 +266,7 @@ class CertificationSerializer(serializers.ModelSerializer):
         "(avoid this source). Informational once the mark is settled.",
     )
     target_type = serializers.SerializerMethodField(help_text="Whether the marked target is a 'table' or a 'view'.")
-    target_name = serializers.SerializerMethodField(help_text="Name of the marked table or view.")
+    target_name = serializers.SerializerMethodField(help_text="Queryable HogQL name of the marked table or view.")
     certified_by = UserBasicSerializer(
         read_only=True, allow_null=True, help_text="User who last set certified/deprecated, or null."
     )
@@ -287,9 +306,7 @@ class CertificationSerializer(serializers.ModelSerializer):
 
     @extend_schema_field(OpenApiTypes.STR)
     def get_target_name(self, obj: TableCertification) -> str:
-        if obj.table_id:
-            return obj.table.name if obj.table else ""
-        return obj.saved_query.name if obj.saved_query else ""
+        return api.certification_target_name(obj)
 
 
 class CertificationCreateSerializer(serializers.Serializer):
@@ -297,8 +314,12 @@ class CertificationCreateSerializer(serializers.Serializer):
 
     table_id = serializers.UUIDField(required=False, help_text="Warehouse table id to certify (XOR the other targets).")
     saved_query_id = serializers.UUIDField(required=False, help_text="Warehouse view (saved query) id to certify.")
-    table_name = serializers.CharField(required=False, help_text="Table name; 409 with candidates if ambiguous.")
-    view_name = serializers.CharField(required=False, help_text="View name; 409 with candidates if ambiguous.")
+    table_name = serializers.CharField(
+        required=False, help_text="Queryable HogQL table name; 409 with candidates if ambiguous."
+    )
+    view_name = serializers.CharField(
+        required=False, help_text="Queryable HogQL view name; 409 with candidates if ambiguous."
+    )
     notes = serializers.CharField(required=False, allow_blank=True, help_text="Why this mark exists.")
     proposed_status = serializers.ChoiceField(
         choices=["certified", "deprecated"],

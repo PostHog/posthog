@@ -62,6 +62,7 @@ export async function buildHogFunctionInvocations(
         filterGlobals: HogFunctionFilterGlobals
     ): Promise<boolean> => {
         const filterResults = await filterFunctionInstrumented({
+            caller: 'build_hog_function_invocations',
             fn: hogFunction,
             filters,
             filterGlobals,
@@ -202,6 +203,7 @@ export function createInvocationResult<T extends CyclotronJobInvocation>(
         | 'capturedPostHogEvents'
         | 'warehouseWebhookPayloads'
         | 'messageAssets'
+        | 'conversionWatchers'
         | 'logs'
         | 'metrics'
         | 'error'
@@ -214,6 +216,7 @@ export function createInvocationResult<T extends CyclotronJobInvocation>(
         capturedPostHogEvents: [],
         warehouseWebhookPayloads: [],
         messageAssets: [],
+        conversionWatchers: [],
         logs: [],
         metrics: [],
         ...resultParams,

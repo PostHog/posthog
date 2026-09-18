@@ -68,6 +68,17 @@ STAMPHOG_OPTIONAL_POLICY_PATHS: tuple[str, ...] = (STAMPHOG_STEERING_PATH,)
 # Per-activity start-to-close timeouts.
 FETCH_CONTEXT_TIMEOUT = timedelta(minutes=5)
 RUN_REVIEW_TIMEOUT = timedelta(minutes=30)
+
+# Ceilings for the steps inside the review activity. They add up to more than RUN_REVIEW_TIMEOUT on
+# purpose: each one caps a step that should never take that long, while the shared deadline in
+# run_review_in_sandbox caps what the steps can spend between them. Granting each step its own
+# independent budget was the bug — the clone alone could hold the activity for twice its ceiling.
+CLONE_STEP_TIMEOUT_SECONDS = 5 * 60
+PREFETCH_BLAME_TIMEOUT_SECONDS = 3 * 60
+REVIEWER_TIMEOUT_SECONDS = 25 * 60
+# Held back from the deadline so a step that runs to its limit still leaves room for the sandbox
+# teardown and the terminal save that follow it.
+SANDBOX_PHASE_RESERVE_SECONDS = 2 * 60
 POST_VERDICT_TIMEOUT = timedelta(minutes=5)
 MARK_FAILED_TIMEOUT = timedelta(minutes=1)
 
@@ -80,7 +91,20 @@ ACTIVITY_RETRY_POLICY = RetryPolicy(
     maximum_interval=timedelta(minutes=1),
 )
 
-# The sandbox review provisions a box, clones the repo, and runs the reviewer agent —
-# expensive and side-effecting, so a transient failure fails the run rather than
-# silently paying for it twice. The workflow-level wrapper marks the run FAILED.
-SANDBOX_RETRY_POLICY = RetryPolicy(maximum_attempts=1)
+
+class SandboxPhaseError(Exception):
+    """Marks the paid phase of the review activity: this attempt made a sandbox, or found the claim
+    of an earlier one. SANDBOX_RETRY_POLICY excludes this type, so no run pays for a review twice.
+    """
+
+
+# Two attempts. The free phase — context load, token mint, sandbox config — costs nothing and is
+# safe to repeat, so a refusal there must not burn the whole review. The paid phase is fenced twice:
+# it raises SandboxPhaseError, which this policy excludes, and it records a claim that stops a
+# second sandbox when Temporal retries a lost worker instead. Both fences are on every worker, so
+# the rolling-deploy hole that held this at one attempt is closed.
+SANDBOX_RETRY_POLICY = RetryPolicy(
+    maximum_attempts=2,
+    initial_interval=timedelta(seconds=10),
+    non_retryable_error_types=["SandboxPhaseError"],
+)

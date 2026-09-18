@@ -1,4 +1,4 @@
-import { LemonCheckbox, LemonInput, LemonSelect, Link } from '@posthog/lemon-ui'
+import { LemonCheckbox, LemonInput, LemonSelect, LemonSwitch, Link } from '@posthog/lemon-ui'
 
 import { IntegrationChoice } from 'lib/components/CyclotronJob/integrations/IntegrationChoice'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -203,6 +203,15 @@ const JSONLINES_COMPRESSION_OPTIONS = [
     { value: null, label: 'No compression' },
 ]
 
+// Mirrors COMPRESSION_EXTENSIONS in the backend's destinations/constants.py.
+const COMPRESSION_EXTENSIONS: Record<string, string> = {
+    gzip: 'gz',
+    snappy: 'sz',
+    brotli: 'br',
+    zstd: 'zst',
+    lz4: 'lz4',
+}
+
 export function isSelectedCompressionOptionValid(fileFormat: string | undefined, value: string | null): boolean {
     if (fileFormat === 'Parquet') {
         return PARQUET_COMPRESSION_OPTIONS.some((option) => option.value === value)
@@ -242,6 +251,67 @@ export function FileFormatField(): JSX.Element {
             info="We recommend Parquet with zstd compression for the best performance"
         >
             <LemonSelect options={FILE_FORMAT_OPTIONS} />
+        </LemonField>
+    )
+}
+
+interface ParquetExtensionFieldProps {
+    isNew: boolean
+    fileFormat: string | undefined
+    compression: string | null | undefined
+    savedConfig?: Record<string, any> | null
+}
+
+// The setting only changes a name that carries a codec, so it needs compressed Parquet on both
+// sides: the form values say what the export is about to write, `savedConfig` what it has been
+// writing. Without a codec the name is `.parquet` either way and the switch would do nothing.
+//
+// Reading the saved side also stops the field disappearing the moment the user switches it on.
+export function shouldShowParquetExtensionField({
+    isNew,
+    fileFormat,
+    compression,
+    savedConfig,
+}: ParquetExtensionFieldProps): boolean {
+    if (isNew || fileFormat !== 'Parquet' || !compression || !COMPRESSION_EXTENSIONS[compression]) {
+        return false
+    }
+    const wroteCompressedParquet = savedConfig?.file_format === 'Parquet' && !!savedConfig.compression
+    return wroteCompressedParquet && savedConfig?.legacy_parquet_extension !== false
+}
+
+export function ParquetExtensionField(props: ParquetExtensionFieldProps): JSX.Element | null {
+    if (!shouldShowParquetExtensionField(props)) {
+        return null
+    }
+
+    const legacyExtension = `.parquet.${COMPRESSION_EXTENSIONS[props.compression as string]}`
+
+    return (
+        <LemonField
+            name="legacy_parquet_extension"
+            label="File extension"
+            help="Note: switching this on cannot be undone; after you save, the setting no longer appears for this export."
+            info={
+                <>
+                    Parquet records the compression codec inside the file, so the standard extension is{' '}
+                    <code>.parquet</code> regardless of the codec. This export writes <code>{legacyExtension}</code>{' '}
+                    instead. Turn this on to name new files <code>.parquet</code>. Files already exported keep their
+                    names.
+                </>
+            }
+        >
+            {({ value, onChange }) => (
+                <LemonSwitch
+                    label={`Use the standard .parquet extension rather than ${legacyExtension}`}
+                    // The stored setting names the legacy behaviour, so the switch reads the other
+                    // way round: turning it on opts the export out of that behaviour.
+                    checked={value === false}
+                    onChange={(checked) => onChange(!checked)}
+                    fullWidth
+                    bordered
+                />
+            )}
         </LemonField>
     )
 }
@@ -297,6 +367,7 @@ export const S3_FAMILY_EVENT_TABLE_EXTRA_FIELDS: Record<string, DatabaseSchemaFi
 export function S3FamilyFields({
     isNew,
     formValues,
+    savedConfig,
     regionOptions,
     allowCustomRegion = false,
     showEncryption,
@@ -305,6 +376,7 @@ export function S3FamilyFields({
 }: {
     isNew: boolean
     formValues: Record<string, any>
+    savedConfig?: Record<string, any> | null
     regionOptions: { value: string; label: string }[]
     // Let users type a region not in the preset list. True for the S3-compatible catch-all, where we
     // can't enumerate every provider's regions; false for AWS S3, whose regions are a closed set.
@@ -393,11 +465,17 @@ export function S3FamilyFields({
                 )}
             </div>
 
+            <ParquetExtensionField
+                isNew={isNew}
+                fileFormat={formValues.file_format}
+                compression={formValues.compression}
+                savedConfig={savedConfig}
+            />
+
             {showVirtualStyleAddressing && (
                 <LemonField
                     name="use_virtual_style_addressing"
                     label="Virtual style addressing"
-                    showOptional
                     info={
                         <>
                             Some non-AWS S3-compatible destinations may require this setting enabled. Check your

@@ -1,0 +1,11 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "conversation": {
+            "description": "A UUID string identifying this conversation.",
+            "type": "string"
+        }
+    },
+    "required": ["conversation"],
+    "type": "object"
+}

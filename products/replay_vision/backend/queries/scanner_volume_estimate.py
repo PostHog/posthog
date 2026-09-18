@@ -3,6 +3,8 @@ from dataclasses import dataclass
 
 from django.utils import timezone
 
+from rest_framework.exceptions import PermissionDenied, ValidationError
+
 from posthog.schema import FilterLogicalOperator, RecordingsQuery
 
 from posthog.hogql import ast
@@ -19,6 +21,7 @@ from posthog.exceptions import (
 from posthog.models import Team, User
 from posthog.session_recordings.queries.session_recording_list_from_query import SessionRecordingListFromQuery
 
+from products.replay_vision.backend.billing import ESTIMATE_MONTH_DAYS
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, SamplingMode
 from products.replay_vision.backend.queries.scanner_candidate_query import (
     eligibility_predicates,
@@ -26,7 +29,7 @@ from products.replay_vision.backend.queries.scanner_candidate_query import (
 )
 
 # The estimate always projects to a calendar month.
-ESTIMATE_WINDOW_DAYS = 30
+ESTIMATE_WINDOW_DAYS = ESTIMATE_MONTH_DAYS
 # Fallback sample rate for events subqueries; matched counts are corrected back up.
 _ESTIMATE_EVENTS_SAMPLE_FACTOR = 0.1
 _EXACT_ATTEMPT_BUDGET_FRACTION = 0.5
@@ -48,6 +51,8 @@ class EstimateBudget:
     # Used when the operand rules out sampling, which makes the scan full price. None keeps one window
     # for both cases, which is what any estimate that gets persisted needs.
     unsampled_scan_window_days: int | None = None
+    # Skips the exact attempt so the caller blocks for at most one query.
+    sampled_only: bool = False
 
     def window_days(self, *, unsampled: bool) -> int:
         if unsampled and self.unsampled_scan_window_days is not None:
@@ -59,7 +64,7 @@ class EstimateBudget:
 BATCH_ESTIMATE_BUDGET = EstimateBudget(max_execution_seconds=30, scan_window_days=7)
 # A save blocks the request, so it gets a tighter clock and fails soft. It still writes the persisted
 # number, so the window stays a whole week.
-SAVE_ESTIMATE_BUDGET = EstimateBudget(max_execution_seconds=10, scan_window_days=7)
+SAVE_ESTIMATE_BUDGET = EstimateBudget(max_execution_seconds=10, scan_window_days=7, sampled_only=True)
 # The editor's cost preview and Max both re-estimate freely and neither result is persisted, so where
 # sampling is unavailable they take an order-of-magnitude answer from a shorter window.
 PREVIEW_ESTIMATE_BUDGET = EstimateBudget(max_execution_seconds=10, scan_window_days=7, unsampled_scan_window_days=2)
@@ -68,6 +73,9 @@ PREVIEW_ESTIMATE_BUDGET = EstimateBudget(max_execution_seconds=10, scan_window_d
 # track data drift between edits (an edit nulls `estimated_at` and refreshes within one cycle), so a
 # slower clock trades projection freshness directly for ClickHouse reads.
 ESTIMATE_STALE_AFTER = dt.timedelta(hours=72)
+# A scanner whose estimate query keeps failing waits this long between attempts, so it can't burn its
+# full ClickHouse budget on every refresher tick.
+ESTIMATE_RETRY_BACKOFF = dt.timedelta(hours=1)
 # Disabled scanners refresh on a slower clock still: fresh enough that re-enabling one puts a usable
 # number into the quota sum, without paying a full-price estimate for every parked scanner.
 DISABLED_ESTIMATE_STALE_AFTER = dt.timedelta(days=7)
@@ -133,12 +141,16 @@ def estimate_scanner_session_volume(
     )
 
     tag_queries(team_id=team.id, product=Product.REPLAY_VISION, feature=Feature.QUERY)
-    if not sampled_plan.sampled:
+    if not sampled_plan.sampled or budget.sampled_only:
         # Nothing was sampled, so a fallback would rerun the identical query.
         return _execute_estimate_query(
             sampled_plan,
             team=team,
-            query_type="ReplayVisionScannerEstimateQuery",
+            query_type=(
+                "ReplayVisionScannerEstimateSampledQuery"
+                if sampled_plan.sampled
+                else "ReplayVisionScannerEstimateQuery"
+            ),
             max_execution_seconds=budget.max_execution_seconds,
             scan_window_days=scan_window_days,
             ch_user=ch_user,
@@ -206,6 +218,8 @@ def _plan_estimate_query(
         user=user,
         extra_having_predicates=extra_having,
         events_sample_factor=sample_factor,
+        # Negative filters never sample, so they'd scan at full price; dropping them only over-counts.
+        skip_negative_blocklists=True,
     )
     inner = list_query.get_query()
     # The inner query groups by session_id, so one row is one session; order is irrelevant to a count.
@@ -290,6 +304,8 @@ def refresh_scanner_estimate(
     ch_user: ClickHouseUser = ClickHouseUser.APP,
 ) -> None:
     """Recompute and persist the scanner's projected monthly volume. Raises on failure; callers decide severity."""
+    # An attempt is the query starting, not how it ends: a worker killed mid-query must still back off.
+    ReplayScanner.objects.filter(pk=scanner.pk).update(estimate_attempted_at=timezone.now())
     # Scoped, not tag_queries: a bare tag on the worker thread would leak onto later queries and
     # charge other scanners' reads to this one in the meter. Previews stay untagged (no scanner yet).
     with tags_context(scanner_id=str(scanner.pk)):
@@ -320,6 +336,35 @@ def refresh_scanner_estimate(
     if updated:
         scanner.estimated_monthly_observations = projection
         scanner.estimated_at = estimated_at
+
+
+def is_experiment_linkage_unresolved(scanner: ReplayScanner, error: Exception) -> bool:
+    """True when an estimate failure means the scanner's experiment targeting cannot resolve an
+    exposed population: a draft that has not launched, a deleted or group-aggregated experiment,
+    no variants, a renamed variant, exposures still computing, or lost creator access. False when
+    the scanner's own query is what fails to build, for example a deleted action or a bad cohort
+    reference; no launch heals that, so callers keep it on their error path. Both groups raise
+    the same DRF ValidationError type inside the recordings query, so this re-resolves the
+    linkage to tell them apart. The extra resolution runs on the failure path only."""
+    targeting = scanner.experiment_targeting if isinstance(scanner.experiment_targeting, dict) else {}
+    experiment_id = targeting.get("experiment_id")
+    if experiment_id is None:
+        return False
+    if isinstance(error, PermissionDenied):
+        # Only the exposure access check raises PermissionDenied inside the recordings query.
+        return True
+    # Deferred: the experiments facade imports posthog.api on init, which circles back into the
+    # recordings query modules this package loads.
+    from products.experiments.backend.facade.replay import resolve_exposure_linkage  # noqa: PLC0415
+
+    try:
+        resolve_exposure_linkage(scanner.team, experiment_id=experiment_id, variant=targeting.get("variant"))
+    except ValidationError:
+        return True
+    except Exception:
+        # The re-resolution failed on infrastructure. Callers treat that as the loud path.
+        return False
+    return False
 
 
 def _clamp_window_days(earliest: object, scan_window_days: int) -> int:
