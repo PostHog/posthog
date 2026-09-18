@@ -336,7 +336,7 @@ The feature lives in `features/tab-tiling/`; this section keeps the model and th
 
 ### The split in the strip
 - `collapseSplits` (`displayOrder.ts`) keeps one pill per group in the slot of its first member (the **anchor**); the other members leave the strip.
-- The pill is a normal pill: a split icon, the group's name, the hover close, a tooltip with the name. Click it to return to the split on the focused tile. `Rename split` in its menu edits the name inline; `Separate all tabs` dissolves the group.
+- The pill is a normal pill: a split icon, the group's name, the hover close. Its tooltip lists the name and the tabs inside, the one on screen in full color. Click it to return to the split on the focused tile. `Rename split` in its menu edits the name inline; `Separate all tabs` dissolves the group.
 - The X, middle-click and `Close split` close every tab of the split. Cmd/Ctrl+W closes the focused tile only.
 
 ### Analytics

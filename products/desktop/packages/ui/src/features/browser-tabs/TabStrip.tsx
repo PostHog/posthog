@@ -325,7 +325,20 @@ function SortableTabPill({
               reads `#channel / home`. Then the page name, unless it would just
               repeat the channel-home name already shown above. */}
           {split ? (
-            <div className="font-medium">{label}</div>
+            <>
+              <div className="font-medium">{label}</div>
+              {split.members.map((member) => (
+                <div
+                  key={member.id}
+                  className={cn(
+                    "mt-0.5",
+                    member.id !== split.activeId && "text-muted",
+                  )}
+                >
+                  {member.label}
+                </div>
+              ))}
+            </>
           ) : (
             <>
               {tab.channelName ? (
