@@ -1,6 +1,6 @@
 import './Setup2FA.scss'
 
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 
 import { LemonButton, LemonInput } from '@posthog/lemon-ui'
@@ -9,12 +9,37 @@ import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
+import { BackupCodesList } from './BackupCodesList'
 import { twoFactorLogic } from './twoFactorLogic'
 
 export function TwoFactorSetup({ onSuccess }: { onSuccess: () => void }): JSX.Element | null {
-    const { startSetupLoading, startSetup, generalError, isTokenSubmitting } = useValues(twoFactorLogic({ onSuccess }))
+    const logic = twoFactorLogic({ onSuccess })
+    const { startSetupLoading, startSetup, generalError, isTokenSubmitting, setupBackupCodes } = useValues(logic)
+    const { finishSetup } = useActions(logic)
+
     if (startSetupLoading) {
         return null
+    }
+
+    if (setupBackupCodes.length) {
+        return (
+            <div className="flex flex-col deprecated-space-y-4">
+                <p className="mb-0">
+                    Save these backup codes somewhere safe. Each one signs you in once if you lose your authenticator
+                    app. You can view or replace them later in your settings.
+                </p>
+                <BackupCodesList codes={setupBackupCodes} />
+                <LemonButton
+                    type="primary"
+                    fullWidth
+                    center
+                    data-attr="2fa-backup-codes-saved"
+                    onClick={() => finishSetup()}
+                >
+                    I've saved my backup codes
+                </LemonButton>
+            </div>
+        )
     }
 
     return (

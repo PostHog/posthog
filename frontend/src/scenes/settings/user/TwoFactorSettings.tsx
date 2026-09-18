@@ -1,9 +1,9 @@
 import { useActions, useValues } from 'kea'
 
-import { IconCheckCircle, IconCopy, IconInfo, IconWarning } from '@posthog/icons'
+import { IconCheckCircle, IconInfo, IconWarning } from '@posthog/icons'
 import { LemonButton, LemonModal, LemonSwitch, Tooltip, lemonToast } from '@posthog/lemon-ui'
 
-import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { BackupCodesList } from 'scenes/authentication/two-factor-setup/BackupCodesList'
 import { twoFactorLogic } from 'scenes/authentication/two-factor-setup/twoFactorLogic'
 import { membersLogic } from 'scenes/organization/membersLogic'
 import { userLogic } from 'scenes/userLogic'
@@ -72,26 +72,10 @@ export function TwoFactorSettings(): JSX.Element {
                                     Save these backup codes in a secure location. Each code can only be used once to
                                     sign in if you lose access to your authentication device.
                                 </p>
-                                <div className="bg-primary p-4 rounded font-mono deprecated-space-y-1 relative">
-                                    <LemonButton
-                                        icon={<IconCopy />}
-                                        size="small"
-                                        className="absolute top-4 right-4"
-                                        onClick={() => {
-                                            void copyToClipboard(status.backup_codes.join('\n') || '', 'backup codes')
-                                        }}
-                                    >
-                                        Copy
-                                    </LemonButton>
-                                    {status.backup_codes.map((code) => (
-                                        <div key={code}>{code}</div>
-                                    ))}
-                                </div>
+                                <BackupCodesList codes={status.backup_codes} />
                             </>
                         ) : (
-                            <div className="bg-primary p-4 rounded font-mono deprecated-space-y-1 relative">
-                                <p className="text-secondary mb-0">No backup codes generated</p>
-                            </div>
+                            <p className="text-secondary mb-0">No backup codes generated</p>
                         )}
                         <LemonButton
                             type="primary"

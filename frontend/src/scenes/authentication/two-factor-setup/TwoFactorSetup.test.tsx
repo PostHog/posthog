@@ -1,9 +1,10 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, fireEvent, render } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { Provider } from 'kea'
 import { expectLogic } from 'kea-test-utils'
 
+import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import { twoFactorLogic } from './twoFactorLogic'
@@ -18,10 +19,10 @@ describe('TwoFactorSetup', () => {
         cleanup()
     })
 
-    function renderSetup(): HTMLInputElement {
+    function renderSetup(onSuccess: () => void = jest.fn()): HTMLInputElement {
         const { container } = render(
             <Provider>
-                <TwoFactorSetup onSuccess={jest.fn()} />
+                <TwoFactorSetup onSuccess={onSuccess} />
             </Provider>
         )
         return container.querySelector<HTMLInputElement>('input[data-attr="token"]')!
@@ -42,6 +43,27 @@ describe('TwoFactorSetup', () => {
         commit(input)
 
         await expectLogic(twoFactorLogic).toMatchValues({ token: { token: '123456' } })
+    })
+
+    it('shows the backup codes and holds setup open until the user confirms them', async () => {
+        useMocks({
+            post: {
+                '/api/users/@me/two_factor_validate/': () => [200, { success: true, backup_codes: ['aaa', 'bbb'] }],
+            },
+            get: { '/api/users/@me/two_factor_status/': () => [200, { is_enabled: true, backup_codes: [] }] },
+        })
+        const onSuccess = jest.fn()
+        const input = renderSetup(onSuccess)
+
+        fireEvent.change(input, { target: { value: '123456' } })
+        fireEvent.click(screen.getByRole('button', { name: 'Submit' }))
+
+        await waitFor(() => expect(screen.getByText('aaa')).toBeInTheDocument())
+        expect(onSuccess).not.toHaveBeenCalled()
+
+        fireEvent.click(screen.getByRole('button', { name: "I've saved my backup codes" }))
+
+        expect(onSuccess).toHaveBeenCalled()
     })
 
     it('strips non-digits as the user types', async () => {
