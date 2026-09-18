@@ -3624,16 +3624,66 @@ describe('dashboardLogic', () => {
                 .toDispatchActions(['loadDashboard'])
         })
 
-        it('reloads when an external rename lands before the tile is in state', async () => {
+        it.each<[string, QueryBasedInsightModel['dashboard_tiles']]>([
+            ['the payload lists this dashboard', [{ id: 1, dashboard_id: 9 }]],
+            ['the payload carries no tile membership', null],
+        ])('reloads when an external rename lands before the tile is in state and %s', async (_, dashboardTiles) => {
             await expectLogic(logic, () => {
                 insightsModel.actions.renameInsightSuccess({
                     ...insight800(),
                     short_id: 'not_already_on_the_dashboard' as InsightShortId,
-                    dashboard_tiles: [{ id: 1, dashboard_id: 9 }],
+                    dashboard_tiles: dashboardTiles,
                 })
             })
                 .toFinishAllListeners()
                 .toDispatchActions(['loadDashboard'])
+        })
+
+        it('keeps a rename that lands while a dashboard load is in flight', async () => {
+            // The load answers with the tiles as they were when it started, so without the
+            // deferred re-apply the tile drops back to its old name until a page refresh.
+            logic.actions.loadDashboard({ action: DashboardLoadAction.Update })
+            insightsModel.actions.renameInsightSuccess({
+                ...insight800(),
+                name: 'renamed mid-load',
+            })
+
+            await expectLogic(logic).toDispatchActions(['loadDashboardSuccess', 'reapplyInsightRenames'])
+            expect(logic.values.insightTiles[0].insight!.name).toEqual('renamed mid-load')
+        })
+
+        it('reloads when a rename deferred during a load has no tile in the response', async () => {
+            // The loading guard defers the rename before the missing-tile check can reach it, so
+            // the completed load carries no tile to patch and only a reload recovers the name.
+            logic.actions.loadDashboard({ action: DashboardLoadAction.Update })
+            insightsModel.actions.renameInsightSuccess({
+                ...insight800(),
+                short_id: 'not_already_on_the_dashboard' as InsightShortId,
+            })
+
+            await expectLogic(logic).toDispatchActions([
+                'loadDashboardSuccess',
+                'reapplyInsightRenames',
+                'loadDashboard',
+            ])
+        })
+
+        it('refreshes with the completed load action when a deferred rename starts a recovery load', async () => {
+            // The recovery load replaces dashboardLoadData, so reading the action after starting it
+            // labels the finished initial load as an update and skips its initial-load reporting.
+            logic.actions.loadDashboard({ action: DashboardLoadAction.InitialLoad })
+            insightsModel.actions.renameInsightSuccess({
+                ...insight800(),
+                short_id: 'not_already_on_the_dashboard' as InsightShortId,
+            })
+
+            await expectLogic(logic).toDispatchActions([
+                'loadDashboardSuccess',
+                'reapplyInsightRenames',
+                (action) =>
+                    action.type === logic.actionTypes.refreshDashboardItems &&
+                    action.payload.action === DashboardLoadAction.InitialLoad,
+            ])
         })
 
         it('does not reload when an external rename targets a different dashboard only', async () => {
