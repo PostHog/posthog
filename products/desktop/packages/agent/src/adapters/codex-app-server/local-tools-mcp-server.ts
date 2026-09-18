@@ -19,7 +19,7 @@ import {
   LOCAL_TOOLS,
   LOCAL_TOOLS_MCP_NAME,
   type LocalToolCtx,
-} from "../local-tools";
+} from "@posthog/harness/extensions/local-tools";
 
 function die(message: string): never {
   process.stderr.write(`[local-tools-mcp-server] ${message}\n`);
