@@ -179,6 +179,9 @@ tools:
     vision-observations-search-viewed-create:
         operation: vision_observations_search_viewed_create
         enabled: false
+    vision-observations-signal-reports-list:
+        operation: vision_observations_signal_reports_list
+        enabled: false
     vision-observations-viewed-create:
         operation: vision_observations_viewed_create
         enabled: false
@@ -492,6 +495,9 @@ tools:
         url_prefix: /replay
     vision-scanners-observations-retry-create:
         operation: vision_scanners_observations_retry_create
+        enabled: false
+    vision-scanners-observations-signal-reports-list:
+        operation: vision_scanners_observations_signal_reports_list
         enabled: false
     vision-scanners-observations-stats:
         operation: vision_scanners_observations_stats_retrieve

@@ -123,16 +123,10 @@ export function createMlMirrorReplayPipeline(
                             .pipeChunk(async function readMlKeyBatch(values) {
                                 if (mlOptions.keyManager) {
                                     await mlOptions.keyManager.prepare(
-                                        values.map((value) => {
-                                            if (!value.team.organizationId) {
-                                                throw new Error('ML key manager requires organization ownership')
-                                            }
-                                            return {
-                                                teamId: value.team.teamId,
-                                                organizationId: value.team.organizationId,
-                                                sessionId: value.headers.session_id,
-                                            }
-                                        })
+                                        values.map((value) => ({
+                                            teamId: value.team.teamId,
+                                            sessionId: value.headers.session_id,
+                                        }))
                                     )
                                 }
                                 return values.map((value) => ok(value))

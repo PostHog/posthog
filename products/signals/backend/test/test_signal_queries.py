@@ -10,7 +10,11 @@ from parameterized import parameterized
 
 from posthog.clickhouse.client import sync_execute
 
-from products.signals.backend.facade.api import SignalSourceSliceOutcomes, get_outcomes_for_signal_source_slice
+from products.signals.backend.facade.api import (
+    SignalSourceSliceOutcomes,
+    get_outcomes_for_signal_source_slice,
+    get_reports_for_signal_source_slice,
+)
 from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalReportPullRequest
 from products.signals.backend.signal_metadata import (
     EMBEDDING_MODEL,
@@ -499,3 +503,30 @@ class TestGetOutcomesForSignalSourceSlice(_SignalEmbeddingsTestBase):
         )
 
         assert outcomes == SignalSourceSliceOutcomes(signal_count=5, report_count=2, pr_count=2, merged_pr_count=1)
+
+    def test_hydrates_the_same_slice_newest_first(self) -> None:
+        # The link surface shares the slice query with the counters, so it must drop the same
+        # malformed and soft-deleted ids, and order newest first rather than by CH's set order.
+        older = SignalReport.objects.create(team=self.team, title="older", summary="s")
+        newer = SignalReport.objects.create(team=self.team, title="newer", summary="s")
+        SignalReport.objects.filter(pk=older.id).update(created_at=self.base - timedelta(hours=1))
+        soft_deleted = SignalReport.objects.create(
+            team=self.team, title="gone", summary="s", status=SignalReport.Status.DELETED
+        )
+        for index, report_id in enumerate([str(older.id), str(newer.id), str(soft_deleted.id), "not-a-uuid"]):
+            self._emit_version(
+                document_id=f"h{index}",
+                report_id=report_id,
+                source_product="errors",
+                inserted_at=self.base,
+                extra={"observation_id": "obs-1"},
+            )
+
+        reports = get_reports_for_signal_source_slice(
+            team=self.team, source_product="errors", source_type="some_type", extra_equals={"observation_id": "obs-1"}
+        )
+
+        assert [(r.id, r.title, r.status) for r in reports] == [
+            (str(newer.id), "newer", "potential"),
+            (str(older.id), "older", "potential"),
+        ]

@@ -341,9 +341,11 @@ CONSTANCE_CONFIG = {
         int,
     ),
     "WEB_ANALYTICS_WARMING_SELECTION_TTL_SECONDS": (
-        get_from_env("WEB_ANALYTICS_WARMING_SELECTION_TTL_SECONDS", default=21600, type_cast=int),
+        get_from_env("WEB_ANALYTICS_WARMING_SELECTION_TTL_SECONDS", default=7200, type_cast=int),
         "How long the fleet-wide demand selection is cached in object storage. Warming replays the "
-        "cached shape list every run; the expensive query_log scan only re-runs once this expires (default 6h).",
+        "cached shape list every run; the expensive query_log scan only re-runs once this expires (default 2h). "
+        "Shorter means a newly-hot shape enters the warm set sooner, at the cost of re-running the query_log "
+        "scan more often.",
         int,
     ),
     "WEB_ANALYTICS_WARMING_MIN_QUERY_COUNT": (
@@ -381,6 +383,14 @@ CONSTANCE_CONFIG = {
         "compiles HogQL on its own core, so this bounds real CPU parallelism; the run pod requests "
         "CPU to match (dagster-k8s/config on the job). Clamped to 1-16; applies at the next run.",
         int,
+    ),
+    "WEB_ANALYTICS_WARMING_PRESET_LANE_ENABLED": (
+        get_from_env("WEB_ANALYTICS_WARMING_PRESET_LANE_ENABLED", default=False, type_cast=str_to_bool),
+        "Whether web analytics warming also selects the query shapes teams ran under a saved filter "
+        "preset, below the usual demand floor. Bounded per team by the preset lane's own caps. The "
+        "flag is part of the selection cache key, so turning it off drops preset shapes on the next "
+        "run rather than at the end of the cache TTL.",
+        bool,
     ),
 }
 
@@ -447,6 +457,7 @@ SETTINGS_ALLOWING_API_OVERRIDE = (
     "WEB_ANALYTICS_WARMING_MAX_SHAPES",
     "WEB_ANALYTICS_WARMING_SHARD_THREADS",
     "WEB_ANALYTICS_WARMING_SHARDS",
+    "WEB_ANALYTICS_WARMING_PRESET_LANE_ENABLED",
 )
 
 # SECRET_SETTINGS can only be updated but will never be exposed through the API (we do store them plain text in the DB)

@@ -38,12 +38,12 @@ class TestBunnySource:
         # get_schemas is a static catalog with no I/O, so the public docs can render the table list.
         assert self.source.lists_tables_without_credentials is True
 
-    def test_get_schemas_marks_only_the_statistics_tables_incremental(self) -> None:
+    def test_get_schemas_marks_only_the_date_filtered_tables_incremental(self) -> None:
         schemas = {s.name: s for s in self.source.get_schemas(self.config, self.team_id)}
         assert set(schemas) == set(ENDPOINTS)
         # The list endpoints have no server-side timestamp filter, so they stay full refresh.
         assert {name for name, s in schemas.items() if s.supports_incremental} == set(INCREMENTAL_FIELDS)
-        # Appending would re-add a row per run for every interval the statistics window still covers.
+        # Appending would re-add a row per run for every interval the request window still covers.
         assert all(s.supports_append is False for s in schemas.values())
         assert all(
             [f["field"] for f in schema.incremental_fields] == [f["field"] for f in INCREMENTAL_FIELDS.get(name, [])]
@@ -63,6 +63,8 @@ class TestBunnySource:
             "403 Client Error: Forbidden for url: https://api.bunny.net/dnszone?page=2&perPage=1000",
             "401 Client Error: Unauthorized for url: https://video.bunnycdn.com/library/7/videos?page=1",
             "403 Client Error: Forbidden for url: https://video.bunnycdn.com/library/7/statistics",
+            "401 Client Error: Unauthorized for url: https://logging.bunnycdn.com/v2/pullzones/3/logs?offset=0",
+            "403 Client Error: Forbidden for url: https://logging.bunnycdn.com/v2/pullzones/3/logs?offset=0",
         ],
     )
     def test_non_retryable_errors_match_auth_failures(self, observed_error: str) -> None:
@@ -75,6 +77,8 @@ class TestBunnySource:
             "500 Server Error: Internal Server Error for url: https://api.bunny.net/pullzone",
             "HTTPSConnectionPool(host='api.bunny.net', port=443): Read timed out.",
             "429 Client Error: Too Many Requests for url: https://api.bunny.net/storagezone",
+            # Logging is simply off for that pull zone, so the sync skips it rather than failing.
+            "404 Client Error: Not Found for url: https://logging.bunnycdn.com/v2/pullzones/3/logs",
         ],
     )
     def test_non_retryable_errors_ignore_transient(self, unrelated_error: str) -> None:

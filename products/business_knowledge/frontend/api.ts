@@ -7,6 +7,7 @@ import {
     businessKnowledgeSourcesList,
     businessKnowledgeSourcesPartialUpdate,
     businessKnowledgeSourcesRefreshCreate,
+    businessKnowledgeSourcesRetrieve,
     businessKnowledgeSourcesTextRetrieve,
 } from './generated/api'
 import type {
@@ -61,6 +62,10 @@ export async function listSources(params?: { search?: string; sourceType?: strin
     }
     const response = await businessKnowledgeSourcesList(String(getCurrentTeamId()), query)
     return response.results
+}
+
+export async function getSource(id: string): Promise<KnowledgeSourceApi> {
+    return await businessKnowledgeSourcesRetrieve(String(getCurrentTeamId()), id)
 }
 
 export async function getSourceText(id: string): Promise<{ id: string; text: string }> {
