@@ -5,9 +5,9 @@ Stable, framework-free dataclasses defining what this product hands to the rest 
 codebase. No Django or DRF imports, and enums are flattened to their ``str`` value, so a
 consumer never needs a model class to read a batch export.
 
-The fields are the ones consumers read today and nothing more. A destination's stored
-config never crosses: the model decrypts it on read, so it carries that destination's
-credentials. Only the two event filters a consumer reads are lifted out of it.
+The fields are the ones consumers read today and nothing more. An encrypted model field
+never crosses whole, because reading one decrypts it; ``BatchExportDetail`` documents the
+case that matters here.
 
 Most contracts use ``pydantic.dataclasses.dataclass`` — same syntax and
 ``is_dataclass()`` compatibility as the stdlib variant, with runtime validation on
@@ -38,7 +38,14 @@ class BatchExportRef:
 
 @dataclass(frozen=True)
 class BatchExportDetail:
-    """A scheduled batch export and the destination it writes to."""
+    """A scheduled batch export and the destination it writes to.
+
+    The destination's stored config is deliberately absent. It decrypts on read, so it
+    holds that destination's credentials: passwords, private keys, tokens. Only the two
+    event filters a consumer reads are lifted out of it. A consumer that needs more of
+    the config gets a redacted read of its own rather than this contract widened, and
+    the redaction has to recurse - Redshift nests credentials under ``copy_inputs``.
+    """
 
     id: UUID
     team_id: int
