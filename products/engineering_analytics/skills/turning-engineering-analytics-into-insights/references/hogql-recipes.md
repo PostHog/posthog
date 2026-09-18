@@ -217,6 +217,8 @@ ORDER BY week, estimated_cost_usd DESC
 
 Both bounds are required, because the view carries no window of its own.
 The parsed `created_at` filter is the exact boundary; the coarse `created_at_raw` string floor (a day below the window) is the only predicate the parquet scan can prune on, so without it every refresh reads the team's whole job history.
+That floor is a literal date, so it stays where you wrote it while `now() - INTERVAL 60 DAY` rolls forward.
+A saved insight then scans one extra day of job history for every day since you saved it, so re-set the floor when you next edit the tile.
 The floor trims that scan only: the view's re-run-copy duplicate scan reads no `created_at_raw`, so keep the window as tight as the tile needs.
 
 Grain is one row per job attempt, so `sum` is correct across retries.
