@@ -29,9 +29,10 @@ DECAGON_PAGE_SIZE = 100
 # than relying on 429 backoff alone.
 MIN_SECONDS_BETWEEN_REQUESTS = 1.0
 
-# Hard bound on the pages a "page" walk requests when the response gives no total to
-# derive one from. It stops a server that ignores the page param and returns a full page
-# on every request; a real export of this size would still end on its short last page.
+# Hard bound on the requests a "page" or "offset" walk makes when the response gives no
+# total to derive one from. It stops a server that ignores the position param and returns
+# a full page on every request; a real export of this size would still end on its short
+# last page.
 MAX_PAGES_WITHOUT_TOTAL = 10_000
 
 # Maps a conversation row column to the `timestamp_filter` enum value that makes the
@@ -552,6 +553,22 @@ class _RowWalk:
         page_size = self._config.page_size
         return not batch.items or (page_size is not None and len(batch.items) < page_size)
 
+    def _request_cap_reached(self, requests_made: int, position_param: str) -> bool:
+        """Constant bound for a walk with no usable total to size one from.
+
+        A server that ignores the position param answers every request with a full page,
+        which short-page termination never ends. With no total to check the kept rows
+        against, the cap can only warn.
+        """
+        if requests_made < MAX_PAGES_WITHOUT_TOTAL:
+            return False
+        self._logger.warning(
+            f"Decagon: {self._endpoint} walk stopped at the cap of {MAX_PAGES_WITHOUT_TOTAL} requests with no "
+            f"usable total (got {self._reported_total!r}). If the synced row count looks truncated, check that "
+            f"the endpoint honors the {position_param} param."
+        )
+        return True
+
     def _check_contract(self) -> None:
         # A walk that read every row of the endpoint and kept none, while the endpoint itself
         # reports rows, means the response no longer matches this config. Fail the sync: the
@@ -681,19 +698,9 @@ class _RowWalk:
             return True
 
         if total is None:
-            # A missing or malformed total falls back to short-page termination and a
-            # constant cap. With nothing to check the kept rows against, the cap can only
-            # warn.
-            if self._short_page(batch):
-                return True
-            if page < MAX_PAGES_WITHOUT_TOTAL:
-                return False
-            self._logger.warning(
-                f"Decagon: {self._endpoint} walk stopped at the page cap of {MAX_PAGES_WITHOUT_TOTAL} with no "
-                f"usable total (got {reported!r}). If the synced row count looks truncated, check that the "
-                f"endpoint honors the page param."
-            )
-            return True
+            # A missing or malformed total falls back to short-page termination, bounded by
+            # the constant cap.
+            return self._short_page(batch) or self._request_cap_reached(page, "page")
 
         # One page more than the total needs at the server's page size, so rows that shift
         # pages mid-walk (arriving twice, kept once) do not push the last unique rows past
@@ -713,6 +720,7 @@ class _RowWalk:
     def _walk_offset(self) -> Iterator[list[dict[str, Any]]]:
         config = self._config
         offset = self._resume.offset or 0
+        requests_made = 0
 
         while True:
             params = {"offset": str(offset)}
@@ -720,6 +728,7 @@ class _RowWalk:
                 params["limit"] = str(config.page_size)
 
             batch = self._read(params)
+            requests_made += 1
             total = _usable_total(self._reported_total)
 
             # Advance by the rows actually received rather than by page_size, so a server that
@@ -729,7 +738,9 @@ class _RowWalk:
             if total is not None:
                 exhausted = not batch.items or next_offset >= total
             else:
-                exhausted = self._short_page(batch)
+                # A server that ignores `offset` sends a full page to every request and never
+                # the short page this would otherwise end on.
+                exhausted = self._short_page(batch) or self._request_cap_reached(requests_made, "offset")
 
             if batch.fresh:
                 yield batch.fresh

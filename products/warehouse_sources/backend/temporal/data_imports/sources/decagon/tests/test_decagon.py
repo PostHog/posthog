@@ -446,6 +446,28 @@ class TestPaginationModes:
 
         assert [[r["id"] for r in b] for b in batches] == [["r1", "r2"], ["r3"]]
 
+    def test_offset_mode_without_a_total_stops_at_the_constant_request_cap(self) -> None:
+        # With no usable total the short page is the only natural end, and a server that
+        # ignores `offset` never sends one: the walk then requests once a second until the
+        # activity times out, burning a worker per attempt and inviting vendor throttling.
+        cfg = _synthetic_endpoint(pagination="offset", page_size=2)
+        cap = 7
+
+        def respond(_params: dict[str, Any]) -> Response:
+            return _make_response({"rows": [_row("r1"), _row("r2")]})
+
+        logger = MagicMock()
+        with (
+            patch.dict(DECAGON_ENDPOINTS, {"synthetic": cfg}),
+            patch(f"{DECAGON_MODULE}.MAX_PAGES_WITHOUT_TOTAL", cap),
+        ):
+            manager = _fresh_manager()
+            sent_params, batches = _drive_server(manager, respond, cap, endpoint="synthetic", logger=logger)
+
+        assert len(sent_params) == cap
+        assert [[r["id"] for r in b] for b in batches] == [["r1", "r2"]]
+        assert "offset" in logger.warning.call_args.args[0]
+
     def test_a_page_that_omits_the_total_keeps_the_one_already_reported(self) -> None:
         # Falling back to short-page termination here ends the walk on a server-capped
         # page, so the rows past it never sync and the job still reports success.
