@@ -16,6 +16,7 @@ import { MaterializationRunActions } from 'products/data_warehouse/frontend/shar
 
 import { dataWarehouseViewsLogic } from './dataWarehouseViewsLogic'
 import { materializationJobsLogic } from './materializationJobsLogic'
+import { MaterializationStatusPanel } from './MaterializationStatusPanel'
 
 const ELIGIBLE_CHECK = {
     eligible: true,
@@ -93,6 +94,61 @@ describe('materializationJobsLogic', () => {
         logic?.unmount()
         featureFlagLogic.unmount()
         jest.useRealTimers()
+    })
+
+    it.each([
+        ['shows a first run with incremental settings', 'full_refresh', 'first run', true],
+        ['shows a completed incremental run', 'incremental', null, true],
+        ['hides full-refresh-only history', 'full_refresh', 'not configured for incremental materialization', false],
+    ])('%s', async (_name, runMode, fullRefreshReason, showsRefreshMode) => {
+        const mocks = apiMocks({
+            isMaterialized: true,
+            incremental: {
+                enabled: false,
+                unique_key: ['day'],
+                incremental_key: 'day',
+            },
+            savedQueryExtras: { has_incremental_history: showsRefreshMode },
+        })
+        mocks.get!['/api/projects/:team_id/data_modeling_jobs/'] = [
+            200,
+            {
+                count: 1,
+                results: [
+                    {
+                        id: 'run-1',
+                        status: 'Completed',
+                        run_mode: runMode,
+                        full_refresh_reason: fullRefreshReason,
+                        rows_materialized: 20,
+                    },
+                ],
+            },
+        ]
+        useMocks(mocks)
+        logic = materializationJobsLogic({ viewId: 'view-1' })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadSavedQuerySuccess', 'loadDataModelingJobsSuccess'])
+
+        render(
+            createElement(MaterializationStatusPanel, {
+                viewId: 'view-1',
+                showRunActions: false,
+                showStatusSummary: false,
+            })
+        )
+
+        // The settings section carries the same heading text, so match the table header cell itself.
+        const showsRefreshModeColumn = Array.from(document.querySelectorAll('th')).some(
+            (header) => header.textContent?.trim() === 'Refresh mode'
+        )
+        expect(showsRefreshModeColumn).toBe(showsRefreshMode)
+        if (fullRefreshReason === 'first run') {
+            expect(screen.getByLabelText('Full refresh. Reason: first run.')).toBeTruthy()
+        }
+        if (runMode === 'incremental') {
+            expect(screen.getByText('Incremental')).toBeTruthy()
+        }
     })
 
     it('pages through older runs without changing the latest run or growing polling requests', async () => {
