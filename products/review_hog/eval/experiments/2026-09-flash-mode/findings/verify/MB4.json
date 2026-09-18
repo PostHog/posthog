@@ -1,0 +1,27 @@
+{
+    "letter": "MB",
+    "id": "MB4",
+    "cluster": 58,
+    "is_real": true,
+    "severity": "should_fix",
+    "votes": [
+        {
+            "is_real": true,
+            "severity": "should_fix",
+            "evidence": "/tmp/frozen-75215/products/stamphog/backend/facade/api.py:149-155 publishes the task without storing pending dispatch state. Its caller runs after the TaskRun output commit (/tmp/frozen-75215/products/review_hog/backend/receivers.py:131-138) and catches a final publication error with only a log at :233-234. ReviewRun creation happens inside the unpublished task at /tmp/frozen-75215/products/stamphog/backend/tasks/tasks.py:1223-1229, so there is no queued run to recover. Existing test /tmp/frozen-75215/products/review_hog/backend/tests/test_inbox_trigger.py:358-369 shows the queue exception is swallowed and the save succeeds. Opened and ready_for_review webhook events do not replace the missed initial bot review (tasks.py:167-168; test_tasks.py:835-844). With no later output change or push, an opted-in PR can remain unreviewed after broker recovery.",
+            "refutation": "I first checked Celery task retries, repeat-output dispatch, and webhook fallback. Task retries require the message to reach a worker; any built-in publish retries still end at the swallowed exception if the outage lasts long enough. Repeated output saves can recover, but status/state saves are filtered out at receivers.py:85-89, and the webhook PR-URL backstop avoids another save once the URL is already stored (tasks/backend/webhooks.py:283-292). Neither a duplicate opened delivery nor marking the bot PR ready guarantees recovery. The defect is a missed optional review during a publication outage, with later pushes/output saves as workarounds, so should_fix rather than the claimed must_fix."
+        },
+        {
+            "is_real": true,
+            "severity": "should_fix",
+            "evidence": "products/stamphog/backend/facade/api.py:149-155 only publishes process_inbox_pr_review. Its receiver calls it after the output transaction commits (products/review_hog/backend/receivers.py:131-138) and catches/logs any final publication exception (:224-234). No pending ReviewRun exists at that point: the worker creates it only in tasks/tasks.py:1223-1229. If the PR URL's final output save occurs while publication cannot complete, the output save succeeds but no durable dispatch remains to retry. The normal opened/ready_for_review webhook events do not create the missing bot review because tasks.py:160-168 excludes them from the carve-out.",
+            "refutation": "I checked worker retry configuration, the queued-run restart guard, subsequent-save behavior, and existing failure tests. max_retries=3 on the task (tasks.py:1109) and restarting an existing QUEUED row (:1211-1214) both require the task to have reached the broker/worker first. Any synchronous Celery publication retries still end in the swallowed exception if exhausted. Repeated output saves can recover, but status-only completion is explicitly ignored (test_inbox_trigger.py:179-191), and no later output save or push is guaranteed. The broker-down test at :358-369 verifies one caught failure and successful save, not eventual dispatch. This is real review loss with a manual/new-output/new-push workaround, so should_fix rather than the claimed must_fix."
+        },
+        {
+            "is_real": true,
+            "severity": "should_fix",
+            "evidence": "products/stamphog/backend/facade/api.py:149-155 publishes with delay before creating any durable ReviewRun; creation is inside the eventual worker at tasks/tasks.py:1223-1229. The receiver invokes publication after the output transaction commits at products/review_hog/backend/receivers.py:126-138 and catches/logs its exception without persistence or rescheduling at :224-234. tests/test_inbox_trigger.py:358-369 explicitly simulates a broker failure and confirms the output save succeeds. If this is the last target-bearing output write, no pending dispatch remains to recover. The initial bot/draft PR webhook is filtered at stamphog/backend/tasks/tasks.py:226-231, with opened/ready events excluded from the carve-out at :167-168. Later status-only saves are ignored by receivers.py:85-89, so normal completion cannot guarantee retry.",
+            "refutation": "I first checked whether Celery worker retries, the durable run, repeated saves, or webhooks recover the handoff. Worker retries operate only after successful publication; transport-level retries can still ultimately raise into the catch. The durable run is created too late to record this failure, and repeat output saves or future pushes are opportunistic rather than guaranteed after a completed implementation. No other production dispatcher or recovery scan for this handoff was found. The failure is therefore real, but its broker-outage scope and ability to recover through another output write/push make should_fix more appropriate than the claimed must_fix."
+        }
+    ]
+}
