@@ -97,7 +97,7 @@ class TestMailgunWarehouseWebhookTemplate(BaseHogFunctionTemplateTest):
 
         res = self.run_function(self._inputs(), globals=globals)
 
-        assert res.result == {"httpResponse": {"status": 400, "body": "Bad signature"}}
+        assert res.result == {"httpResponse": {"status": 406, "body": "Bad signature"}}
         self.mock_produce_to_warehouse_webhooks.assert_not_called()
 
     def test_replayed_delivery_outside_the_time_window_is_rejected(self):
@@ -105,7 +105,7 @@ class TestMailgunWarehouseWebhookTemplate(BaseHogFunctionTemplateTest):
 
         res = self.run_function(self._inputs(), globals=globals)
 
-        assert res.result == {"httpResponse": {"status": 400, "body": "Timestamp outside tolerance"}}
+        assert res.result == {"httpResponse": {"status": 406, "body": "Timestamp outside tolerance"}}
         self.mock_produce_to_warehouse_webhooks.assert_not_called()
 
     @parameterized.expand(
@@ -130,7 +130,7 @@ class TestMailgunWarehouseWebhookTemplate(BaseHogFunctionTemplateTest):
             ("missing_token", {"timestamp": "1699999999", "signature": "deadbeef"}),
         ]
     )
-    def test_incomplete_signature_block_returns_400(self, _name, signature_block):
+    def test_incomplete_signature_block_returns_406(self, _name, signature_block):
         body = {"signature": signature_block, "event-data": _event_data()}
         globals = {
             "request": {
@@ -144,7 +144,7 @@ class TestMailgunWarehouseWebhookTemplate(BaseHogFunctionTemplateTest):
 
         res = self.run_function(self._inputs(), globals=globals)
 
-        assert res.result == {"httpResponse": {"status": 400, "body": "Missing signature"}}
+        assert res.result == {"httpResponse": {"status": 406, "body": "Missing signature"}}
         self.mock_produce_to_warehouse_webhooks.assert_not_called()
 
     def test_event_type_we_do_not_subscribe_to_is_skipped(self):

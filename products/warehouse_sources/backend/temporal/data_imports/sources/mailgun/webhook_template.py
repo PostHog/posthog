@@ -32,10 +32,13 @@ if (not inputs.bypass_signature_check) {
     }
   }
 
+  // Mailgun retries every response except 200 and 406 for up to 8 hours. A retry resends the same
+  // signature block, so a delivery that fails a check below fails again on every retry unless the
+  // signing key changes in between. The checks answer 406 so that Mailgun stops retrying.
   if (empty(signature) or empty(signature.timestamp) or empty(signature.token) or empty(signature.signature)) {
     return {
       'httpResponse': {
-        'status': 400,
+        'status': 406,
         'body': 'Missing signature',
       }
     }
@@ -48,7 +51,7 @@ if (not inputs.bypass_signature_check) {
   if (computedSignature != signature.signature) {
     return {
       'httpResponse': {
-        'status': 400,
+        'status': 406,
         'body': 'Bad signature',
       }
     }
@@ -70,7 +73,7 @@ if (not inputs.bypass_signature_check) {
   if (timestampDelta > 300 or timestampDelta < -300) {
     return {
       'httpResponse': {
-        'status': 400,
+        'status': 406,
         'body': 'Timestamp outside tolerance',
       }
     }
