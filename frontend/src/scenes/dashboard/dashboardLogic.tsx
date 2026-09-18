@@ -1775,10 +1775,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
                             }
                         },
                         // onError callback
-                        (error) => {
+                        (error, terminal) => {
                             console.error('❌ Tile streaming error:', error)
                             if (cache.acceptedDashboardLoadId === loadId) {
-                                actions.tileStreamingFailure(error, loadId)
+                                actions.tileStreamingFailure(error, loadId, terminal)
                             }
                         }
                     )

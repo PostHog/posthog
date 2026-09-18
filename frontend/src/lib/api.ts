@@ -3487,7 +3487,7 @@ const api = {
             } = {},
             onMessage: (data: any) => void,
             onComplete: () => void,
-            onError: (error: any) => void
+            onError: (error: any, terminal?: boolean) => void
         ): Promise<() => void> {
             const url = new ApiRequest()
                 .dashboardsDetail(id)
@@ -3503,12 +3503,12 @@ const api = {
 
             const abortController = new AbortController()
             let streamFinished = false
-            const handleConnectionError = (error: any): void => {
+            const handleConnectionError = (error: any, terminal = false): void => {
                 if (isAbortError(error)) {
                     return
                 }
                 apiStatusLogic.findMounted()?.actions.onApiResponse(undefined, error)
-                onError(error)
+                onError(error, terminal)
             }
 
             fetchEventSource(url, {
@@ -3520,7 +3520,8 @@ const api = {
 
                     if (!response.ok) {
                         const error = await ApiError.fromResponse(response, apiErrorFallback(response, 'GET', url))
-                        onError(error)
+                        streamFinished = true
+                        onError(error, true)
                         abortController.abort()
                         return
                     }
@@ -3533,7 +3534,7 @@ const api = {
                             onComplete()
                         } else if (data.type === 'error') {
                             streamFinished = true
-                            onError(new Error(data.error || 'Streaming error'))
+                            onError(new Error(data.error || 'Streaming error'), true)
                         } else {
                             onMessage(data)
                         }
@@ -3544,13 +3545,17 @@ const api = {
                 onerror: (error) => {
                     handleConnectionError(error)
                 },
-            }).then(() => {
-                if (!abortController.signal.aborted && !streamFinished) {
-                    handleConnectionError(
-                        new Error('Dashboard stream ended before loading finished. Refresh the page.')
-                    )
-                }
-            }, handleConnectionError)
+            }).then(
+                () => {
+                    if (!abortController.signal.aborted && !streamFinished) {
+                        handleConnectionError(
+                            new Error('Dashboard stream ended before loading finished. Refresh the page.'),
+                            true
+                        )
+                    }
+                },
+                (error) => handleConnectionError(error, true)
+            )
 
             return () => abortController.abort()
         },
