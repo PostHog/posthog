@@ -1,0 +1,19 @@
+{
+    "run": "luna-medium-mcp-1",
+    "repo_commit": "ff0cbba9bd79decca7fa21e52d3d4582c9010a9b",
+    "frozen_sha": "a7fb363bef6947e4e7fc30a0fe8a0a4cc4deaa82",
+    "pin_sha256": "ab0fcb103daffd1a35adcaf21251bac8b5993c8af739f149e2e00fccd5b58289",
+    "publish": false,
+    "team_id": 1,
+    "pr_number": 75215,
+    "max_concurrent_sandboxes": 4,
+    "arm": "luna-medium",
+    "skill_delivery": "MCP instructions; no inlined bodies",
+    "reviewer_result_cache": "fresh report",
+    "pr_comments": [],
+    "chunks": 4,
+    "files": 22,
+    "quality_judged": false,
+    "published_implementation_commit": "6232415d8418c22417c0743d4f0de13c5ca416b0",
+    "source_patch": "luna-medium-mcp-1.source.patch"
+}

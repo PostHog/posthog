@@ -1,0 +1,37 @@
+{
+    "raw_usage_sha256": "6846f73c0aa83b69457c9adc7abb8bd4b507cbd7106ffe494e27a03d75dea037",
+    "normalized_usage_sha256": "fe70f81671dea2c029d2acb46b8010567580adcc54021364cecd17201016aada",
+    "original_stage": null,
+    "attributed_stage": "validation-c4",
+    "event_indices_zero_based": [130, 133, 136, 142, 150, 152, 156, 159, 163, 166],
+    "session": "c9fee9f2-a8c4-4a68-af5e-31de2d38c062",
+    "task_run_id": "95240cd5-e7fc-488e-94e7-47dd4c409513",
+    "cost_usd": "0.02285444",
+    "evidence": "The session ID occurs in exactly one of the 16 owned TaskRun transcripts, validation-c4, including its session/new and _posthog/run_started notifications.",
+    "transcript_matches": [
+        {
+            "line": 29,
+            "method": "_posthog/console"
+        },
+        {
+            "line": 34,
+            "method": "session/new"
+        },
+        {
+            "line": 37,
+            "method": "_posthog/console"
+        },
+        {
+            "line": 45,
+            "method": "_posthog/run_started"
+        },
+        {
+            "line": 48,
+            "method": "_posthog/console"
+        }
+    ],
+    "raw_transcripts": "Retained privately because they contain temporary sandbox authorization headers.",
+    "acceptance": "The review completed successfully. The driver rejected its unlabeled usage rows; this separate session audit attributes them without changing model, effort, tokens, timestamps, or prices.",
+    "original_capture_sha256": "6f1dc5e7a33041824ec2c62b4a7faae1a188d5046ee1693a90f8712d64479cdf",
+    "formatting_note": "Repository formatting changes whitespace only. Decoded raw and normalized rows match their pre-formatting copies exactly."
+}

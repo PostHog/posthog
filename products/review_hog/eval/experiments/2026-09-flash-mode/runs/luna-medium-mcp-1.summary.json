@@ -1,0 +1,20 @@
+{
+    "run": "luna-medium-mcp-1",
+    "set": "MC",
+    "quality_judged": false,
+    "cost_usd": "0.60319142",
+    "gateway_calls": 190,
+    "wall_seconds": 700,
+    "chunks": 4,
+    "files": 22,
+    "review_units": 12,
+    "raw_findings": 16,
+    "deduplicated_findings": 12,
+    "validator_verdicts": 12,
+    "retained_findings": 9,
+    "baseline_inline_medium_mean_cost_usd": "0.59062807",
+    "baseline_inline_medium_mean_wall_seconds": 632.5,
+    "cost_change_percent": 2.127116985821551,
+    "time_change_percent": 10.671936758893285,
+    "publication": false
+}

@@ -1,0 +1,526 @@
+diff --git a/docs/internal/sandboxes-setup-guide.md b/docs/internal/sandboxes-setup-guide.md
+index 14eb9a48a19..673bd48157f 100644
+--- a/docs/internal/sandboxes-setup-guide.md
++++ b/docs/internal/sandboxes-setup-guide.md
+@@ -198,8 +198,9 @@ product from the task run it fetches at boot, which is the path that fails quiet
+ 
+ ReviewHog Flash uses `gpt-5.6-luna` at `medium` reasoning effort for review, blind-spot checks, and validation.
+ The shared `FLASH_ARM` in `products/review_hog/backend/reviewer/constants.py` pins the Codex runtime and `full-access` permission mode.
+-Flash uses the existing `review_hog` model allowance and inlines the pinned review skills into its prompts.
+-Custom skills with bundled files include a file manifest so the agent can fetch each file at the pinned skill version.
++Flash uses the existing `review_hog` model allowance.
++Both review modes instruct the agent to fetch pinned review and validation skills through the PostHog MCP with `skill-get`.
++The agent can fetch referenced bundled files with `skill-file-get`.
+ Choose **Review in Flash mode** from the Code review page's review menu to run it for one turn without changing the PR's full-review configuration.
+ Flash requests preserve an existing report's review tier, including when they join a running review.
+ Flash labels its GitHub messages with `FLASH MODE` and never starts comment resolution.
+diff --git a/products/review_hog/ARCHITECTURE.md b/products/review_hog/ARCHITECTURE.md
+index e7e5699db36..28a558b8707 100644
+--- a/products/review_hog/ARCHITECTURE.md
++++ b/products/review_hog/ARCHITECTURE.md
+@@ -427,8 +427,8 @@ of all of this: **Flash mode** (`review_mode` on the workflow input, `REVIEW_MOD
+ one cheap arm, `FLASH_ARM` (`gpt-5.6-luna` @ medium, Codex with `full-access`), for that turn only. The report's tier and arm are
+ untouched, so the PR's next normal trigger reviews normally; `review_arm_for_mode` / `validation_arm_for_mode`
+ are the two helpers the activities and the analytics events both read, so a flash turn's events name the flash
+-arm in both seats. A flash turn never chains the resolution stage, and its review and validation prompts carry
+-the pinned skill bodies inline instead of the MCP pull (see [Prompts](#prompts)). See [DECISIONS.md](./DECISIONS.md)
++arm in both seats. A flash turn never chains the resolution stage. Both modes instruct the agent to fetch pinned
++review and validation skills over MCP (see [Prompts](#prompts)). See [DECISIONS.md](./DECISIONS.md)
+ for the Sonnet-vs-Sol production A/B that picked Sol (and the `full-access` permission-mode gotcha headless Codex
+ needs) and for the tier decision, and [Selecting the sandbox model & reasoning
+ effort](#selecting-the-sandbox-model--reasoning-effort) below for the path that applies these knobs.
+@@ -548,11 +548,9 @@ content". Most begin with `{{ CLAUDE_CODE_CONTEXT | safe }}` (the `@path#L…` r
+ - `chunking/prompt.jinja` — group changed files into logical, independently reviewable chunks by cohesion /
+   imports / layer boundaries; order by review priority. → `ChunksList`.
+ - `issues_review/prompt.jinja` — the core review prompt, run once per perspective per chunk; 10-step process
+-  with mandatory codebase investigation. The per-perspective focus is **no longer spliced in** — the
+-  `<your_review_perspective>` block instructs the agent to `skill-get(PERSPECTIVE_SKILL_NAME, version=N)` over
+-  MCP and apply that perspective's focus (pull delivery). A **flash** turn embeds the instructions without a tool lookup:
+-  the activity loads the same pinned body (`load_skill_body`) and the
+-  template embeds it (`PERSPECTIVE_SKILL_BODY`); the validation prompt does the same (`VALIDATION_SKILL_BODY`).
++  with mandatory codebase investigation. In both full and Flash mode, the `<your_review_perspective>` block
++  instructs the agent to `skill-get(PERSPECTIVE_SKILL_NAME, version=N)` over MCP and apply that perspective's focus.
++  Validation uses the same delivery path for its pinned criteria.
+   → `IssuesReview`. The perspective focuses themselves
+   live as **DB-synced LLMA skills** at
+   `products/review_hog/skills/review-hog-perspective-{logic-correctness,contracts-security,performance-reliability}/SKILL.md`.
+diff --git a/products/review_hog/DECISIONS.md b/products/review_hog/DECISIONS.md
+index 205cf5fa116..6b22c5feeae 100644
+--- a/products/review_hog/DECISIONS.md
++++ b/products/review_hog/DECISIONS.md
+@@ -242,8 +242,9 @@ read `FINAL_REPORT.md` there first (config glossary + coverage matrix + ranking)
+   `FLASH_ARM` uses `gpt-5.6-luna` at `medium` reasoning effort with the Codex runtime and `full-access` permission mode.
+   The perspective reviews, blind-spot sweep, and validator share that arm.
+   Chunking, selection, and deduplication keep their Sonnet one-shots.
+-  Flash embeds the pinned review and validation skills into its prompts so the instructions do not depend on a tool lookup.
++  Flash prompts instruct the agent to fetch pinned review and validation skills over MCP with `skill-get`, as full reviews do.
+ - **Why.** The [Flash experiment](https://github.com/PostHog/posthog/blob/1f09ba3e98adb9d23c8c63cff6d9978ed6a9ba17/products/review_hog/eval/experiments/2026-09-flash-mode/FINAL_REPORT.md) compared five configurations, with two runs each on one frozen PR.
++  Those benchmark runs used inlined skill bodies.
+   Luna medium posted three distinct serious issues per run for $0.59, compared with 1.5 for $0.30 at low.
+   Its false-comment share was 53%, so it remains a budget choice with permissive validation.
+   Xhigh improved coverage but cost $3.32 per run.
+diff --git a/products/review_hog/backend/reviewer/prompts/issue_validation/prompt.jinja b/products/review_hog/backend/reviewer/prompts/issue_validation/prompt.jinja
+index 94fc04caa5a..e13fa6033b9 100644
+--- a/products/review_hog/backend/reviewer/prompts/issue_validation/prompt.jinja
++++ b/products/review_hog/backend/reviewer/prompts/issue_validation/prompt.jinja
+@@ -30,19 +30,11 @@ Return your assessment as a JSON object that conforms to the provided schema.
+ 
+ <your_validation_criteria>
+ ## Your validation criteria
+-{% if VALIDATION_SKILL_BODY %}
+-The bar for what counts as a valid, worth-keeping issue is the skill below ({{ VALIDATION_SKILL_NAME }} v{{ VALIDATION_SKILL_VERSION }}). It defines what this team considers worth flagging and what to drop (overengineering, speculative edge cases, defensive paranoia, style, and the like). Read it first and apply it as the standard for your `is_valid` decision.
+-
+-<validation_skill>
+-{{ VALIDATION_SKILL_BODY | safe }}
+-</validation_skill>
+-{% else %}
+ The bar for what counts as a valid, worth-keeping issue lives in a skill you MUST read before judging. As your first step, call this over the PostHog MCP:
+ 
+     skill-get(skill_name="{{ VALIDATION_SKILL_NAME }}", version={{ VALIDATION_SKILL_VERSION }})
+ 
+ Pin to version {{ VALIDATION_SKILL_VERSION }} explicitly — this review was planned against it; fetching by name alone could race a version published mid-run. The skill defines what this team considers worth flagging and what to drop (overengineering, speculative edge cases, defensive paranoia, style, and the like). Apply it as the standard for your `is_valid` decision. If the skill body references bundled files, pull them on demand with `skill-file-get`. Do not decide before you have read it.
+-{% endif %}
+ </your_validation_criteria>
+ 
+ <output_format>
+@@ -66,4 +58,4 @@ After completing your analysis:
+ ```json
+ {{VALIDATION_SCHEMA | safe}}
+ ```
+-</output_schema>
+\ No newline at end of file
++</output_schema>
+diff --git a/products/review_hog/backend/reviewer/prompts/issues_review/prompt.jinja b/products/review_hog/backend/reviewer/prompts/issues_review/prompt.jinja
+index 9d53ff56718..28214eb2d3f 100644
+--- a/products/review_hog/backend/reviewer/prompts/issues_review/prompt.jinja
++++ b/products/review_hog/backend/reviewer/prompts/issues_review/prompt.jinja
+@@ -86,19 +86,11 @@ This repository is checked out at this PR's branch, so read any file in full and
+ 
+ <your_review_perspective>
+ ## Your review perspective
+-{% if PERSPECTIVE_SKILL_BODY %}
+-Your specific focus for this review is the skill below ({{ PERSPECTIVE_SKILL_NAME }} v{{ PERSPECTIVE_SKILL_VERSION }}). It is the brain of this review: it tells you what to investigate, the commands to run, where to focus, what to leave to other perspectives, and what a valid finding looks like. Read it first and apply it as your lens for this entire review.
+-
+-<review_skill>
+-{{ PERSPECTIVE_SKILL_BODY | safe }}
+-</review_skill>
+-{% else %}
+ Your specific focus for this review lives in a skill you MUST read before analyzing. As your first step, call this over the PostHog MCP:
+ 
+     skill-get(skill_name="{{ PERSPECTIVE_SKILL_NAME }}", version={{ PERSPECTIVE_SKILL_VERSION }})
+ 
+ Pin to version {{ PERSPECTIVE_SKILL_VERSION }} explicitly — this review was planned against it; fetching by name alone could race a version published mid-run. The skill body is the brain of this review: it tells you what to investigate, the commands to run, where to focus, what to leave to other perspectives, and what a valid finding looks like. Apply it as your lens for this entire review. If the skill body references bundled files, pull them on demand with `skill-file-get`. Do not start analyzing before you have read it.
+-{% endif %}
+ {% if WAVE_PERSPECTIVES %}
+ 
+ These review perspectives have each ALREADY reviewed this exact chunk — their lenses already ran:
+@@ -285,4 +277,4 @@ After completing your analysis:
+ ```json
+ {{ OUTPUT_SCHEMA | safe }}
+ ```
+-</output_schema>
+\ No newline at end of file
++</output_schema>
+diff --git a/products/review_hog/backend/reviewer/skill_loader.py b/products/review_hog/backend/reviewer/skill_loader.py
+index 93c5cbd4e9b..ce5bae40095 100644
+--- a/products/review_hog/backend/reviewer/skill_loader.py
++++ b/products/review_hog/backend/reviewer/skill_loader.py
+@@ -3,13 +3,12 @@
+ ReviewHog's review **perspectives**, its **validation criteria**, and its **blind-spot check** are
+ stored and synced the way Signals' scouts store theirs: canonical `SKILL.md` on disk
+ (`products/review_hog/skills/`) mirrored into per-team `LLMSkill` rows by `lazy_seed.sync_canonical_*`.
+-Each run pins the current version per skill. Full turns pull bodies and bundled files over the
+-PostHog MCP. Flash turns embed bodies and supply pinned MCP calls for bundled files.
++Each run pins the current version per skill. Both full and Flash prompts instruct the agent to pull
++bodies and bundled files over the PostHog MCP.
+ """
+ 
+ from __future__ import annotations
+ 
+-import json
+ import logging
+ from dataclasses import dataclass
+ 
+@@ -17,7 +16,7 @@ from posthog.models.scoping.manager import resolve_effective_team_id
+ 
+ from products.review_hog.backend.models import ReviewSkillConfig
+ from products.review_hog.backend.reviewer.models.issues_review import PerspectiveType
+-from products.skills.backend.models.skills import LLMSkill, LLMSkillFile
++from products.skills.backend.models.skills import LLMSkill
+ 
+ logger = logging.getLogger(__name__)
+ 
+@@ -408,33 +407,3 @@ def load_resolution_skill_for_run(team_id: int, acting_user_id: int | None) -> L
+ # only needs to exist as a synced team `LLMSkill` so any agent can `skill-get` it.
+ REVIEW_HOG_AUTHORING_PREFIX = "review-hog-authoring"
+ REVIEW_HOG_AUTHORING_SKILL_NAME = REVIEW_HOG_AUTHORING_PREFIX
+-
+-
+-class SkillBodyNotFoundError(LookupError):
+-    """The pinned skill version has no live row on the team."""
+-
+-
+-def load_skill_body(team_id: int, skill_name: str, version: int) -> str:
+-    """The body of one pinned skill version, for a turn that carries the skill in its prompt.
+-
+-    Full turns pull the skill over MCP (`skill-get`). Flash embeds the pinned body and keeps
+-    bundled files available through version-pinned MCP calls.
+-    """
+-    skill = (
+-        LLMSkill.objects.filter(team_id=team_id, name=skill_name, version=version, deleted=False).only("body").first()
+-    )
+-    if skill is None:
+-        raise SkillBodyNotFoundError(f"No live skill '{skill_name}' v{version} on team {team_id}")
+-    file_paths = list(LLMSkillFile.objects.filter(skill=skill).order_by("path").values_list("path", flat=True))
+-    if not file_paths:
+-        return skill.body
+-    file_calls = "\n".join(
+-        f"- `call skill-file-get {json.dumps({'skill_name': skill_name, 'file_path': path, 'version': version})}`"
+-        for path in file_paths
+-    )
+-    return (
+-        f"{skill.body}\n\n<bundled_skill_files>\n"
+-        "The files below belong to this pinned skill version. Read referenced files over the PostHog MCP "
+-        "before applying their instructions. Use these calls to keep each file pinned to this version:\n\n"
+-        f"{file_calls}\n</bundled_skill_files>"
+-    )
+diff --git a/products/review_hog/backend/reviewer/tools/issue_validation.py b/products/review_hog/backend/reviewer/tools/issue_validation.py
+index 4c9dff5a052..f0e83412fb2 100644
+--- a/products/review_hog/backend/reviewer/tools/issue_validation.py
++++ b/products/review_hog/backend/reviewer/tools/issue_validation.py
+@@ -24,14 +24,11 @@ def build_validation_prompt(
+     skill_version: int,
+     pr_metadata: PRMetadata,
+     pr_files: list[PRFile],
+-    skill_body: str | None = None,
+ ) -> str:
+     """Render the validation prompt for one issue against the live codebase.
+ 
+-    The keep/drop criteria aren't spliced in — the prompt instructs the agent to `skill-get` them
+-    over MCP — so we pass the validation skill's name and pinned version, not its body; a flash
+-    turn passes `skill_body` and the prompt embeds it instead, because its model cannot reach the
+-    MCP tool. `pr_files` is already narrowed to the issue's own file by the caller.
++    The prompt instructs the agent to pull the validation criteria over MCP using the skill's name
++    and pinned version. `pr_files` is already narrowed to the issue's own file by the caller.
+     """
+     claude_code_context = prepare_code_context([issue.file], pr_files) if issue.file else ""
+     template, schema = load_template_and_schema("issue_validation")
+@@ -43,7 +40,6 @@ def build_validation_prompt(
+         VALIDATION_SCHEMA=schema.strip(),
+         VALIDATION_SKILL_NAME=skill_name,
+         VALIDATION_SKILL_VERSION=skill_version,
+-        VALIDATION_SKILL_BODY=skill_body,
+     )
+ 
+ 
+diff --git a/products/review_hog/backend/reviewer/tools/issues_review.py b/products/review_hog/backend/reviewer/tools/issues_review.py
+index dc694a7a3af..159b0246390 100644
+--- a/products/review_hog/backend/reviewer/tools/issues_review.py
++++ b/products/review_hog/backend/reviewer/tools/issues_review.py
+@@ -65,18 +65,15 @@ def build_review_prompt(
+     dig_deeper: bool = False,
+     blind_spot_check: bool = False,
+     wave_perspectives: dict[str, str] | None = None,
+-    skill_body: str | None = None,
+ ) -> str:
+     """Render one (perspective, chunk) review prompt — also the blind-spot check's, via the same shape.
+ 
+     Each (perspective × chunk) review is independent — no cross-perspective context; overlap between
+     perspectives is resolved downstream by deduplication. The reviewer reconstructs the chunk's intent
+     itself from the diff + `<pr_intent>` (its mandated investigation step), so no separate analysis
+-    pass is fed in. The skill's focus isn't spliced in — the prompt instructs the agent to `skill-get`
+-    it over MCP — so we pass the skill name and pinned version, not its body; a flash turn passes
+-    `skill_body` and the prompt embeds it instead, because its model cannot reach the MCP tool.
+-    `prior_findings` are
+-    problems earlier turns already found on this chunk's files; surfacing them tells the agent not to
++    pass is fed in. The prompt instructs the agent to pull the skill over MCP using its name and
++    pinned version. `prior_findings` are problems earlier turns already found on this chunk's files;
++    surfacing them tells the agent not to
+     re-investigate already-covered ground.
+ 
+     The blind-spot check adds cross-perspective context WITHIN a turn: `same_turn_findings` are issues
+@@ -96,5 +93,4 @@ def build_review_prompt(
+         OUTPUT_SCHEMA=output_schema,
+         PERSPECTIVE_SKILL_NAME=skill_name,
+         PERSPECTIVE_SKILL_VERSION=skill_version,
+-        PERSPECTIVE_SKILL_BODY=skill_body,
+     )
+diff --git a/products/review_hog/backend/temporal/activities.py b/products/review_hog/backend/temporal/activities.py
+index b7203ec3482..810758b885c 100644
+--- a/products/review_hog/backend/temporal/activities.py
++++ b/products/review_hog/backend/temporal/activities.py
+@@ -95,7 +95,6 @@ from products.review_hog.backend.reviewer.sandbox.executor import (
+ from products.review_hog.backend.reviewer.skill_loader import (
+     load_blind_spots_skill_for_run,
+     load_perspectives_for_run,
+-    load_skill_body,
+     load_validation_skill_for_run,
+ )
+ from products.review_hog.backend.reviewer.status_comment import (
+@@ -479,13 +478,6 @@ def _sandbox_workflow_id_prefix(step_name: str) -> str:
+     return f"{activity.info().workflow_id}:{step_name}".lower()
+ 
+ 
+-async def _inline_skill_body(review_mode: str, team_id: int, skill_name: str, skill_version: int) -> str | None:
+-    """The pinned skill body a flash turn embeds in its prompt; None for a full turn (MCP pull)."""
+-    if review_mode != REVIEW_MODE_FLASH:
+-        return None
+-    return await database_sync_to_async(load_skill_body, thread_sensitive=False)(team_id, skill_name, skill_version)
+-
+-
+ async def _refresh_status_comment(team_id: int, report_id: str, review_mode: str) -> None:
+     """Refresh the PR's status comment after this activity persisted progress (debounced, best-effort)."""
+     await database_sync_to_async(maybe_refresh_status_comment, thread_sensitive=False)(
+@@ -945,7 +937,6 @@ def _prepare_review_prompt(
+     blind_spot_check: bool,
+     wave_perspectives: list[LoadedPerspectiveDTO],
+     review_model: str,
+-    skill_body: str | None,
+ ) -> str | None:
+     """Build the review prompt for one (perspective, chunk), or None if already reviewed this turn."""
+     done = load_perspective_results(team_id=team_id, report_id=report_id, head_sha=head_sha, review_model=review_model)
+@@ -978,7 +969,6 @@ def _prepare_review_prompt(
+         dig_deeper=bool(same_turn_findings),
+         blind_spot_check=blind_spot_check,
+         wave_perspectives={p.skill_name: p.description for p in wave_perspectives} if blind_spot_check else None,
+-        skill_body=skill_body,
+     )
+ 
+ 
+@@ -995,8 +985,6 @@ async def review_chunk_activity(input: ReviewChunkInput) -> bool:
+         team_id=input.team_id, report_id=input.report_id
+     )
+     arm = review_arm_for_mode(input.review_mode, persisted_arm)
+-    # Inline the pinned skill for Flash so its instructions do not depend on a tool lookup.
+-    skill_body = await _inline_skill_body(input.review_mode, input.team_id, input.skill_name, input.skill_version)
+     prompt = await database_sync_to_async(_prepare_review_prompt, thread_sensitive=False)(
+         input.team_id,
+         input.report_id,
+@@ -1009,7 +997,6 @@ async def review_chunk_activity(input: ReviewChunkInput) -> bool:
+         input.blind_spot_check,
+         input.wave_perspectives,
+         arm.model,
+-        skill_body,
+     )
+     if prompt is None:
+         return True
+@@ -1183,7 +1170,6 @@ async def validate_chunk_activity(input: ValidateChunkInput) -> ValidateChunkRes
+     validated = len(done)
+     final_attempt = activity.info().attempt >= VALIDATION_MAX_ATTEMPTS
+     validator = validation_arm_for_mode(input.review_mode)
+-    skill_body = await _inline_skill_body(input.review_mode, input.team_id, input.skill_name, input.skill_version)
+     session: MultiTurnSession | None = None
+     chunk_ok = False
+     try:
+@@ -1204,7 +1190,6 @@ async def validate_chunk_activity(input: ValidateChunkInput) -> ValidateChunkRes
+                                 skill_version=input.skill_version,
+                                 pr_metadata=pr_metadata,
+                                 pr_files=issue_files,
+-                                skill_body=skill_body,
+                             ),
+                             system_prompt=VALIDATION_SYSTEM_PROMPT,
+                             model_to_validate=IssueValidation,
+diff --git a/products/review_hog/backend/tests/test_issues_review.py b/products/review_hog/backend/tests/test_issues_review.py
+index fb7ec207640..3c71b4a65c9 100644
+--- a/products/review_hog/backend/tests/test_issues_review.py
++++ b/products/review_hog/backend/tests/test_issues_review.py
+@@ -4,7 +4,6 @@ from products.review_hog.backend.reviewer.artefact_content import ReviewIssueFin
+ from products.review_hog.backend.reviewer.models.github_meta import PRMetadata
+ from products.review_hog.backend.reviewer.models.issues_review import Issue, IssuePriority, LineRange
+ from products.review_hog.backend.reviewer.models.split_pr_into_chunks import Chunk, FileInfo
+-from products.review_hog.backend.reviewer.tools.issue_validation import build_validation_prompt
+ from products.review_hog.backend.reviewer.tools.issues_review import _covered_findings_for_chunk, build_review_prompt
+ 
+ 
+@@ -178,28 +177,3 @@ def test_review_prompt_gives_regular_perspectives_no_cross_perspective_context()
+     assert "ALREADY reviewed this exact chunk" not in prompt
+     assert "go DEEPER" not in prompt
+     assert "without worrying about what the other perspectives might report" in prompt
+-
+-
+-def test_inline_skill_body_replaces_the_mcp_pull_in_both_prompts() -> None:
+-    # A flash turn's model cannot reach `skill-get`, so its prompts carry the pinned body instead.
+-    # Keeping the pull instruction next to the body would send GLM hunting for a tool it cannot find
+-    # (the exact blind-review failure the inline path exists to fix), and a full turn must never
+-    # embed a body it did not ask for.
+-    review = _render_prompt(skill_body="INLINE PERSPECTIVE BODY")
+-    assert "INLINE PERSPECTIVE BODY" in review
+-    assert "skill-get(" not in review
+-    assert "review-hog-perspective-logic-correctness v2" in review
+-    assert "skill-get(" in _render_prompt()
+-
+-    validation_kwargs: dict = {
+-        "issue": _issue("a.py", "problem"),
+-        "chunk": _chunk("a.py"),
+-        "skill_name": "review-hog-validation-criteria",
+-        "skill_version": 4,
+-        "pr_metadata": _pr_metadata(),
+-        "pr_files": [],
+-    }
+-    validation = build_validation_prompt(**validation_kwargs, skill_body="INLINE CRITERIA BODY")
+-    assert "INLINE CRITERIA BODY" in validation
+-    assert "skill-get(" not in validation
+-    assert "skill-get(" in build_validation_prompt(**validation_kwargs)
+diff --git a/products/review_hog/backend/tests/test_review_activity.py b/products/review_hog/backend/tests/test_review_activity.py
+index fd161741a69..7de07bd4f35 100644
+--- a/products/review_hog/backend/tests/test_review_activity.py
++++ b/products/review_hog/backend/tests/test_review_activity.py
+@@ -149,13 +149,11 @@ async def test_review_chunk_activity_flash_turn_runs_on_the_flash_arm_and_stamps
+     mock_review = AsyncMock(return_value=IssuesReview(issues=[]))
+     mock_persist = MagicMock()
+     mock_prepare = MagicMock(return_value="review-prompt")
+-    mock_skill_body = MagicMock(return_value="INLINE SKILL BODY")
+     env = ActivityEnvironment()
+     with (
+         patch(f"{_MODULE}.Heartbeater"),
+         patch(f"{_MODULE}._prepare_review_prompt", mock_prepare),
+         patch(f"{_MODULE}.load_review_arm", return_value=DEFAULT_REVIEW_ARM),
+-        patch(f"{_MODULE}.load_skill_body", mock_skill_body),
+         patch(f"{_MODULE}.persist_perspective_results", mock_persist),
+         patch(f"{_MODULE}.run_sandbox_review", mock_review),
+     ):
+@@ -173,8 +171,7 @@ async def test_review_chunk_activity_flash_turn_runs_on_the_flash_arm_and_stamps
+         FLASH_ARM.reasoning_effort,
+         FLASH_ARM.initial_permission_mode,
+     )
+-    assert mock_prepare.call_args.args[-2:] == (FLASH_ARM.model, "INLINE SKILL BODY")
+-    mock_skill_body.assert_called_once_with(1, "s-logic", 1)
++    assert mock_prepare.call_args.args[-1] == FLASH_ARM.model
+     assert mock_persist.call_args.kwargs["review_model"] == FLASH_ARM.model
+ 
+ 
+@@ -194,21 +191,17 @@ async def test_review_chunk_activity_runs_on_the_reports_persisted_arm() -> None
+     )
+     mock_review = AsyncMock(return_value=IssuesReview(issues=[]))
+     mock_prepare = MagicMock(return_value="review-prompt")
+-    mock_skill_body = MagicMock(return_value="INLINE SKILL BODY")
+     env = ActivityEnvironment()
+     with (
+         patch(f"{_MODULE}.Heartbeater"),
+         patch(f"{_MODULE}._prepare_review_prompt", mock_prepare),
+         patch(f"{_MODULE}.load_review_arm", return_value=arm),
+-        patch(f"{_MODULE}.load_skill_body", mock_skill_body),
+         patch(f"{_MODULE}.persist_perspective_results"),
+         patch(f"{_MODULE}.run_sandbox_review", mock_review),
+     ):
+         assert await env.run(review_chunk_activity, _review_input()) is True
+ 
+-    # A full turn keeps the MCP pull: no body is loaded or embedded.
+-    mock_skill_body.assert_not_called()
+-    assert mock_prepare.call_args.args[-1] is None
++    assert mock_prepare.call_args.args[-1] == arm.model
+ 
+     kwargs = mock_review.call_args.kwargs
+     assert (
+diff --git a/products/review_hog/backend/tests/test_validate_activity.py b/products/review_hog/backend/tests/test_validate_activity.py
+index ac84bcf6356..fea34335bc5 100644
+--- a/products/review_hog/backend/tests/test_validate_activity.py
++++ b/products/review_hog/backend/tests/test_validate_activity.py
+@@ -201,12 +201,9 @@ async def test_validation_session_opens_on_the_modes_arm(review_mode: str, expec
+     # kwarg would silently run the agent server's default with every other assertion green.
+     issue = _issue(1)
+     mock_start = AsyncMock(return_value=(object(), _verdict()))
+-    mock_prompt = MagicMock(return_value="validation-prompt")
+     with (
+         _chunk_context(issues=[issue], done={}),
+         patch(f"{_MODULE}.persist_verdict", MagicMock(return_value=True)),
+-        patch(f"{_MODULE}.load_skill_body", return_value="INLINE CRITERIA"),
+-        patch(f"{_MODULE}.build_validation_prompt", mock_prompt),
+         patch(f"{_MODULE}.start_sandbox_session", mock_start),
+         patch(f"{_MODULE}.end_sandbox_session", AsyncMock()),
+     ):
+@@ -220,6 +217,4 @@ async def test_validation_session_opens_on_the_modes_arm(review_mode: str, expec
+         kwargs["reasoning_effort"],
+         kwargs["initial_permission_mode"],
+     ) == (expected.runtime_adapter, expected.model, expected.reasoning_effort, expected.initial_permission_mode)
+-    # The criteria ride inline only for flash (its model cannot reach `skill-get`); full keeps the pull.
+-    expected_body = "INLINE CRITERIA" if review_mode == REVIEW_MODE_FLASH else None
+-    assert mock_prompt.call_args.kwargs["skill_body"] == expected_body
++    assert 'skill-get(skill_name="s-val", version=1)' in kwargs["prompt"]
+diff --git a/products/review_hog/backend/tests/test_validation_skill.py b/products/review_hog/backend/tests/test_validation_skill.py
+index afe0944800c..3b1c6e3369b 100644
+--- a/products/review_hog/backend/tests/test_validation_skill.py
++++ b/products/review_hog/backend/tests/test_validation_skill.py
+@@ -1,8 +1,6 @@
+ import pytest
+ from posthog.test.base import BaseTest
+ 
+-from parameterized import parameterized
+-
+ from posthog.models import User
+ 
+ from products.review_hog.backend.models import ReviewSkillConfig
+@@ -15,15 +13,13 @@ from products.review_hog.backend.reviewer.skill_loader import (
+     CANONICAL_VALIDATION_SKILL_NAMES,
+     REVIEW_HOG_VALIDATION_PREFIX,
+     REVIEW_HOG_VALIDATION_SKILL_NAME,
+-    SkillBodyNotFoundError,
+     ValidationSkillNotFoundError,
+-    load_skill_body,
+     load_validation_skill_for_run,
+     register_missing_validation_config,
+ )
+ from products.review_hog.backend.temporal.activities import _sync_review_skills
+ from products.skills.backend.api.skill_services import publish_skill_version
+-from products.skills.backend.models.skills import LLMSkill, LLMSkillFile
++from products.skills.backend.models.skills import LLMSkill
+ 
+ _CUSTOM_VALIDATOR = f"{REVIEW_HOG_VALIDATION_PREFIX}strict"
+ 
+@@ -209,56 +205,3 @@ class TestColdStartSyncSeedsValidation(BaseTest):
+         # Guards that the run path's syncer list includes validation, not only perspectives.
+         _sync_review_skills(self.team.id)
+         assert LLMSkill.objects.filter(team=self.team, name=REVIEW_HOG_VALIDATION_SKILL_NAME, is_latest=True).exists()
+-
+-
+-class TestLoadSkillBody(BaseTest):
+-    @parameterized.expand([("body_only", False), ("bundled_files", True)])
+-    def test_returns_the_pinned_version_not_the_latest(self, _name: str, with_files: bool) -> None:
+-        # A flash prompt embeds the version the turn was planned against; returning the latest body
+-        # would let a mid-run publish change a turn's criteria, the race the version pin exists for.
+-        if with_files:
+-            skill_name = _CUSTOM_VALIDATOR
+-            v1 = _author_validator_skill(self.team, skill_name, created_by=self.user)
+-            LLMSkillFile.objects.bulk_create(
+-                [
+-                    LLMSkillFile(skill=v1, path="references/z-last.md", content="old bundled criteria"),
+-                    LLMSkillFile(skill=v1, path="references/a-first.md", content="other old bundled criteria"),
+-                ]
+-            )
+-        else:
+-            skill_name = REVIEW_HOG_VALIDATION_SKILL_NAME
+-            sync_canonical_validation(self.team)
+-            v1 = LLMSkill.objects.get(team=self.team, name=skill_name, is_latest=True)
+-        publish_skill_version(
+-            self.team,
+-            user=self.user,
+-            skill_name=skill_name,
+-            body="v2 criteria body",
+-            base_version=1,
+-            files=[{"path": "references/new-only.md", "content": "new bundled criteria"}] if with_files else None,
+-        )
+-
+-        old_body = load_skill_body(self.team.id, skill_name, 1)
+-        new_body = load_skill_body(self.team.id, skill_name, 2)
+-        if with_files:
+-            assert old_body.startswith(v1.body + "\n\n")
+-            assert new_body.startswith("v2 criteria body\n\n")
+-            first_call = f'call skill-file-get {{"skill_name": "{skill_name}", "file_path": "references/a-first.md", "version": 1}}'
+-            last_call = f'call skill-file-get {{"skill_name": "{skill_name}", "file_path": "references/z-last.md", "version": 1}}'
+-            assert first_call in old_body
+-            assert last_call in old_body
+-            assert old_body.index(first_call) < old_body.index(last_call)
+-            assert (
+-                f'call skill-file-get {{"skill_name": "{skill_name}", "file_path": "references/new-only.md", "version": 2}}'
+-                in new_body
+-            )
+-            assert "references/new-only.md" not in old_body
+-            assert "references/a-first.md" not in new_body
+-            assert "references/z-last.md" not in new_body
+-            assert "old bundled criteria" not in old_body
+-            assert "new bundled criteria" not in new_body
+-        else:
+-            assert old_body == v1.body
+-            assert new_body == "v2 criteria body"
+-        with pytest.raises(SkillBodyNotFoundError):
+-            load_skill_body(self.team.id, skill_name, 3)

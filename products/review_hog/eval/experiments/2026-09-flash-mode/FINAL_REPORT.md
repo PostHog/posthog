@@ -284,6 +284,55 @@ It is a coverage upgrade, with a validator that still passes most junk.
 **Xhigh is worth considering when eight serious issues rather than 1.5 justifies $3.32 and 36 minutes:** it is the strongest coverage option here, but its cost no longer stays near Luna low.
 Use medium as the budget default and xhigh as the coverage option, then check both on the planned broader PR sample before treating this one-PR result as general.
 
+## Luna medium without inlined skills (2026-09-18)
+
+Removing inlined skill bodies leaves Luna medium near its earlier cost on this frozen PR: **$0.60 and 11 minutes 40 seconds**, with nine findings retained by the validator.
+This is one operational follow-up, not a new quality benchmark.
+Its findings have not received the independent matching, verification, and adjudication used above, so they do not change the ten-run quality averages or the model recommendation.
+
+| Skill delivery                           | Runs | Mean gateway cost | Mean minutes | Mean gateway calls | Mean findings retained |
+| ---------------------------------------- | ---: | ----------------: | -----------: | -----------------: | ---------------------: |
+| Inlined bodies, earlier Luna medium runs |    2 |       $0.59062807 |        10.54 |                153 |                    9.5 |
+| No inlined bodies, Luna medium follow-up |    1 |       $0.60319142 |        11.67 |                190 |                      9 |
+
+The follow-up costs 2.1% more and takes 10.7% longer than the earlier medium mean.
+One run cannot establish a cost or speed effect from removing inlining.
+The earlier runs used runtime commit `c0e58940541edeb01ec55e410338750a6368308c`; this follow-up used `ff0cbba9bd79decca7fa21e52d3d4582c9010a9b` with the [recorded removal patch](runs/luna-medium-mcp-1.source.patch).
+Shared runtime changes and run-to-run variation limit the comparison.
+
+### Run and accounting checks
+
+The [run dump](runs/luna-medium-mcp-1.md) records four pinned chunks covering 22 files, eight perspective reviews, and four blind-spot sweeps.
+The funnel is **16 raw findings → 12 deduplicated findings → nine retained and three dropped**, with a validator verdict for all 12 candidates.
+All 16 sandbox sessions completed, including the four validators.
+The CLI used `--review-mode flash` without `--publish`, against frozen PR 75215 at `a7fb363bef6947e4e7fc30a0fe8a0a4cc4deaa82`.
+The run used a fresh report, empty PR comments, and concurrency four; it published nothing.
+The [provenance](runs/luna-medium-mcp-1.provenance.json), [summary](runs/luna-medium-mcp-1.summary.json), and [parsed findings](findings/MC.json) record the inputs and output.
+
+The [gateway ledger](runs/luna-medium-mcp-1.usage.md) contains 190 priced requests totaling **$0.60319142**.
+Every reviewer, blind-spot, and validator generation used `gpt-5.6-luna` at `medium`; selection and dedup remained Sonnet one-shots.
+Ten Luna requests costing $0.02285444 lacked stage labels, so the driver's strict accounting check rejected the completed run.
+Their exact session ID occurs in the owned `validation-c4` transcript, including its session-creation and run-start notifications.
+The [attribution record](runs/luna-medium-mcp-1.stage_attribution.json) maps those requests to that validator and binds both ledgers by SHA-256.
+The [raw capture](runs/luna-medium-mcp-1.ai_usage.raw.json) preserves the missing labels; the [normalized ledger](runs/luna-medium-mcp-1.ai_usage.json) changes only those ten labels.
+No requests or prices are discarded, and no price is missing.
+The dump's stored Sol configuration and empty ClickHouse cost section are not the run configuration or its cost source; the captured gateway rows supply both.
+
+### Skill delivery audit
+
+Both prompts require a version-pinned `skill-get` call, and neither contains an inlined skill body.
+The [delivery audit](runs/luna-medium-mcp-1.skill_audit.json) shows that ten sessions fetched their full pinned bodies through MCP: five perspective reviews, one blind-spot sweep, and all four validators.
+The other six sessions read installed `SKILL.md` files.
+Five of those logged bodies match the pinned database version exactly after trimming outer whitespace.
+The remaining performance/reliability review completed a command that read the installed skill, but its retained output omits the skill text; that body's contents cannot be byte-verified from the log.
+This run demonstrates successful review and validation without inlining, but does not establish that every Luna session obeys the requested MCP route.
+
+An initial attempt stopped when local MCP skill retrieval failed.
+Its [82 captured calls cost $0.28056140](runs/luna-medium-mcp-aborted.usage.md) and remain separate from the successful review.
+Local MCP configuration and cached identity data were repaired before a small sandbox confirmed a successful pinned skill fetch.
+The smoke check, failed attempt, sandbox infrastructure, and judging are excluded from the comparison table, which uses the same model-generation cost scope as the earlier runs.
+The dedicated worker stopped, the temporary chunk/comment/concurrency edits were restored, and all 16 measured-run sandboxes were confirmed stopped after completion.
+
 ## Original six runs compared with August
 
 The truth rules differ (August judged clusters 39 and 57 mostly not real), so read these side by side loosely.

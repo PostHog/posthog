@@ -5,6 +5,22 @@ sandbox seats, worth running on every PR the way Greptile and CodeRabbit are, wi
 for the PRs that matter? The 2026-08 experiment (`../2026-08-model-glm53-flash/`) measured GLM against the prod
 pins on one frozen PR; this one ships Flash as a run mode and measures it on ~100 real PRs by hand.
 
+## Luna medium skill-delivery follow-up (2026-09-18)
+
+Completed one database-only review after removing Flash's inlined skill bodies from the implementation.
+The original ten measured runs and their adjudicated scores remain unchanged.
+
+- `luna-medium-mcp-1` ran from 14:29:03 to 14:40:43 UTC: 700 seconds, 190 priced gateway requests, and $0.60319142.
+- The CLI used `--review-mode flash` without `--publish`; the run kept the frozen head, four pinned chunks, 22 files, empty comments, and concurrency four.
+- Eight perspective reviews and four blind-spot sweeps produced 16 raw findings and 12 deduplicated candidates. Four validator sessions supplied all 12 verdicts, retaining nine findings.
+- All sandbox generations used Luna medium. Sonnet handled perspective selection and deduplication. A fresh report prevented reuse of prior reviewer results.
+- The strict driver check rejected ten missing stage labels after the review completed. A separate session audit proves all ten belong to `validation-c4`; their $0.02285444 is included in the total. Raw and normalized ledgers remain separate and hash-bound.
+- Ten sessions fetched their full pinned skill body through MCP. Six read installed skills; five of those logged bodies match the pinned database body. One completed local read omits the skill text from the retained output, so its body cannot be byte-verified.
+- Findings are parsed as set `MC`, but are not independently matched, verified, or adjudicated. They are excluded from quality means and sensitivity calculations.
+- Runtime base was `ff0cbba9bd79decca7fa21e52d3d4582c9010a9b`, with the removal patch retained in the run artifacts. Earlier medium runs used `c0e58940541edeb01ec55e410338750a6368308c`; this and one-run sampling limit causal claims.
+- The initial attempt failed to retrieve skills and was stopped. Its 82 priced requests cost $0.28056140, retained separately as `luna-medium-mcp-aborted`. Local MCP configuration and one malformed identity-cache entry were repaired before a pinned-skill smoke check and the measured rerun.
+- Cleanup stopped the dedicated worker and all 16 measured-run sandboxes, then restored the temporary chunk/comment/concurrency edits. No review comments were published.
+
 ## Luna reasoning-effort follow-up (2026-09-17)
 
 Completed `luna-medium-1` / `luna-medium-2` (MA / MB) and `luna-xhigh-1` / `luna-xhigh-2` (XA / XB), with all 66 findings judged by three independent verifiers and compared against the six baseline runs.

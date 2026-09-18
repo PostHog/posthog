@@ -1,0 +1,435 @@
+{
+    "summary": {
+        "completed_sessions": 16,
+        "pinned_mcp_fetches": 10,
+        "local_skill_reads": 6,
+        "complete_pinned_bodies_verified": 15
+    },
+    "limitation": "issues-review-p3-c2 completed a shell command that read the installed performance-reliability SKILL.md, but the retained tool output omits that portion. Its body cannot be byte-verified from the log.",
+    "sessions": [
+        {
+            "run_id": "61dffd18-c416-4ae1-883f-68baaed5f104",
+            "stage": "issues-review-p2-c1",
+            "status": "completed",
+            "log_lines": 553,
+            "requested_skills": [
+                {
+                    "name": "review-hog-perspective-logic-correctness",
+                    "version": 1
+                }
+            ],
+            "fetches": [],
+            "local_reads": [
+                {
+                    "skill_name": "review-hog-perspective-logic-correctness",
+                    "version": 1,
+                    "status": "completed",
+                    "full_pinned_body_present": true,
+                    "pinned_body_sha256": "00aa3d06aeb678d7ce2631ac99e2479ee73bbb16b820f2a8b7157a9e76d877ae"
+                }
+            ],
+            "pinned_skills_fetched": false,
+            "pinned_content_read": true
+        },
+        {
+            "run_id": "463dd343-7ccd-45d3-82b9-4977ea7b5eb8",
+            "stage": "issues-review-p1-c2",
+            "status": "completed",
+            "log_lines": 534,
+            "requested_skills": [
+                {
+                    "name": "review-hog-perspective-contracts-security",
+                    "version": 1
+                }
+            ],
+            "fetches": [
+                {
+                    "tool": "skill-get",
+                    "skill_name": "review-hog-perspective-contracts-security",
+                    "version": 1,
+                    "status": "completed",
+                    "response_has_skill": true,
+                    "body_total_length": 3578,
+                    "body_next_offset": null,
+                    "full_pinned_body_present": true,
+                    "pinned_body_sha256": "5ba7a1786e1ff9889808dc2381cf71a8894a065ff665cbbe1c3aeaee9b2d42e0"
+                }
+            ],
+            "local_reads": [],
+            "pinned_skills_fetched": true,
+            "pinned_content_read": true
+        },
+        {
+            "run_id": "41da6a4b-921e-4935-ba4c-a933f3fe395f",
+            "stage": "issues-review-p1-c1",
+            "status": "completed",
+            "log_lines": 1200,
+            "requested_skills": [
+                {
+                    "name": "review-hog-perspective-contracts-security",
+                    "version": 1
+                }
+            ],
+            "fetches": [
+                {
+                    "tool": "skill-get",
+                    "skill_name": "review-hog-perspective-contracts-security",
+                    "version": 1,
+                    "status": "completed",
+                    "response_has_skill": true,
+                    "body_total_length": 3578,
+                    "body_next_offset": null,
+                    "full_pinned_body_present": true,
+                    "pinned_body_sha256": "5ba7a1786e1ff9889808dc2381cf71a8894a065ff665cbbe1c3aeaee9b2d42e0"
+                }
+            ],
+            "local_reads": [],
+            "pinned_skills_fetched": true,
+            "pinned_content_read": true
+        },
+        {
+            "run_id": "710c88ff-a883-4761-b4ab-2eaeb56409ef",
+            "stage": "issues-review-p1-c3",
+            "status": "completed",
+            "log_lines": 731,
+            "requested_skills": [
+                {
+                    "name": "review-hog-perspective-contracts-security",
+                    "version": 1
+                }
+            ],
+            "fetches": [
+                {
+                    "tool": "skill-get",
+                    "skill_name": "review-hog-perspective-contracts-security",
+                    "version": 1,
+                    "status": "completed",
+                    "response_has_skill": true,
+                    "body_total_length": 3578,
+                    "body_next_offset": null,
+                    "full_pinned_body_present": true,
+                    "pinned_body_sha256": "5ba7a1786e1ff9889808dc2381cf71a8894a065ff665cbbe1c3aeaee9b2d42e0"
+                }
+            ],
+            "local_reads": [],
+            "pinned_skills_fetched": true,
+            "pinned_content_read": true
+        },
+        {
+            "run_id": "ec914ead-b946-46c2-9a7c-88b6a3c98621",
+            "stage": "issues-review-p2-c2",
+            "status": "completed",
+            "log_lines": 1065,
+            "requested_skills": [
+                {
+                    "name": "review-hog-perspective-logic-correctness",
+                    "version": 1
+                }
+            ],
+            "fetches": [
+                {
+                    "tool": "skill-get",
+                    "skill_name": "review-hog-perspective-logic-correctness",
+                    "version": 1,
+                    "status": "completed",
+                    "response_has_skill": true,
+                    "body_total_length": 3511,
+                    "body_next_offset": null,
+                    "full_pinned_body_present": true,
+                    "pinned_body_sha256": "00aa3d06aeb678d7ce2631ac99e2479ee73bbb16b820f2a8b7157a9e76d877ae"
+                }
+            ],
+            "local_reads": [],
+            "pinned_skills_fetched": true,
+            "pinned_content_read": true
+        },
+        {
+            "run_id": "bbf3d23f-403e-4bed-b1f5-4006545ef908",
+            "stage": "issues-review-p2-c3",
+            "status": "completed",
+            "log_lines": 980,
+            "requested_skills": [
+                {
+                    "name": "review-hog-perspective-logic-correctness",
+                    "version": 1
+                }
+            ],
+            "fetches": [],
+            "local_reads": [
+                {
+                    "skill_name": "review-hog-perspective-logic-correctness",
+                    "version": 1,
+                    "status": "completed",
+                    "full_pinned_body_present": true,
+                    "pinned_body_sha256": "00aa3d06aeb678d7ce2631ac99e2479ee73bbb16b820f2a8b7157a9e76d877ae"
+                }
+            ],
+            "pinned_skills_fetched": false,
+            "pinned_content_read": true
+        },
+        {
+            "run_id": "33787261-0088-45d5-98dd-aab37e65ac5b",
+            "stage": "issues-review-p3-c1",
+            "status": "completed",
+            "log_lines": 1373,
+            "requested_skills": [
+                {
+                    "name": "review-hog-perspective-performance-reliability",
+                    "version": 1
+                }
+            ],
+            "fetches": [
+                {
+                    "tool": "skill-get",
+                    "skill_name": "review-hog-perspective-performance-reliability",
+                    "version": 1,
+                    "status": "completed",
+                    "response_has_skill": true,
+                    "body_total_length": 3638,
+                    "body_next_offset": null,
+                    "full_pinned_body_present": true,
+                    "pinned_body_sha256": "a734d0ed1f6069b5ab5b9b043affc50975bdc6b412e873bca0ea800df9a9a71d"
+                }
+            ],
+            "local_reads": [],
+            "pinned_skills_fetched": true,
+            "pinned_content_read": true
+        },
+        {
+            "run_id": "24c9979c-7f77-4b00-b846-98d307b358e6",
+            "stage": "issues-review-p3-c2",
+            "status": "completed",
+            "log_lines": 1154,
+            "requested_skills": [
+                {
+                    "name": "review-hog-perspective-performance-reliability",
+                    "version": 1
+                }
+            ],
+            "fetches": [],
+            "local_reads": [
+                {
+                    "skill_name": "review-hog-perspective-performance-reliability",
+                    "version": 1,
+                    "status": "completed",
+                    "full_pinned_body_present": false,
+                    "pinned_body_sha256": "a734d0ed1f6069b5ab5b9b043affc50975bdc6b412e873bca0ea800df9a9a71d"
+                }
+            ],
+            "pinned_skills_fetched": false,
+            "pinned_content_read": false
+        },
+        {
+            "run_id": "c08e369a-8dda-4a1e-a0bd-d3226071c853",
+            "stage": "blind-spots-c4",
+            "status": "completed",
+            "log_lines": 178,
+            "requested_skills": [
+                {
+                    "name": "review-hog-blind-spots-general",
+                    "version": 1
+                }
+            ],
+            "fetches": [
+                {
+                    "tool": "skill-get",
+                    "skill_name": "review-hog-blind-spots-general",
+                    "version": 1,
+                    "status": "completed",
+                    "response_has_skill": true,
+                    "body_total_length": 1485,
+                    "body_next_offset": null,
+                    "full_pinned_body_present": true,
+                    "pinned_body_sha256": "7ae2f679557eaa5c49326d40b8f993045b4f7f57f584632eaba0b6b7b65064cb"
+                }
+            ],
+            "local_reads": [],
+            "pinned_skills_fetched": true,
+            "pinned_content_read": true
+        },
+        {
+            "run_id": "e8209bcd-fabd-4ab3-9f6b-b20d93cafbef",
+            "stage": "blind-spots-c1",
+            "status": "completed",
+            "log_lines": 182,
+            "requested_skills": [
+                {
+                    "name": "review-hog-blind-spots-general",
+                    "version": 1
+                }
+            ],
+            "fetches": [],
+            "local_reads": [
+                {
+                    "skill_name": "review-hog-blind-spots-general",
+                    "version": 1,
+                    "status": "completed",
+                    "full_pinned_body_present": true,
+                    "pinned_body_sha256": "7ae2f679557eaa5c49326d40b8f993045b4f7f57f584632eaba0b6b7b65064cb"
+                }
+            ],
+            "pinned_skills_fetched": false,
+            "pinned_content_read": true
+        },
+        {
+            "run_id": "9863d69b-2a3b-4e95-92ef-9018c684d01e",
+            "stage": "blind-spots-c3",
+            "status": "completed",
+            "log_lines": 184,
+            "requested_skills": [
+                {
+                    "name": "review-hog-blind-spots-general",
+                    "version": 1
+                }
+            ],
+            "fetches": [],
+            "local_reads": [
+                {
+                    "skill_name": "review-hog-blind-spots-general",
+                    "version": 1,
+                    "status": "completed",
+                    "full_pinned_body_present": true,
+                    "pinned_body_sha256": "7ae2f679557eaa5c49326d40b8f993045b4f7f57f584632eaba0b6b7b65064cb"
+                }
+            ],
+            "pinned_skills_fetched": false,
+            "pinned_content_read": true
+        },
+        {
+            "run_id": "6c1e8327-4196-4652-94fd-8382d111f1ac",
+            "stage": "blind-spots-c2",
+            "status": "completed",
+            "log_lines": 681,
+            "requested_skills": [
+                {
+                    "name": "review-hog-blind-spots-general",
+                    "version": 1
+                }
+            ],
+            "fetches": [],
+            "local_reads": [
+                {
+                    "skill_name": "review-hog-blind-spots-general",
+                    "version": 1,
+                    "status": "completed",
+                    "full_pinned_body_present": true,
+                    "pinned_body_sha256": "7ae2f679557eaa5c49326d40b8f993045b4f7f57f584632eaba0b6b7b65064cb"
+                }
+            ],
+            "pinned_skills_fetched": false,
+            "pinned_content_read": true
+        },
+        {
+            "run_id": "2215d69b-18f3-40f6-9921-d4bff92e46cb",
+            "stage": "validation-c1",
+            "status": "completed",
+            "log_lines": 937,
+            "requested_skills": [
+                {
+                    "name": "review-hog-validation-criteria",
+                    "version": 1
+                }
+            ],
+            "fetches": [
+                {
+                    "tool": "skill-get",
+                    "skill_name": "review-hog-validation-criteria",
+                    "version": 1,
+                    "status": "completed",
+                    "response_has_skill": true,
+                    "body_total_length": 3812,
+                    "body_next_offset": null,
+                    "full_pinned_body_present": true,
+                    "pinned_body_sha256": "71f5ed69a1567071cb319b2570bea13e2df75a422eab923cde57452bebd2f494"
+                }
+            ],
+            "local_reads": [],
+            "pinned_skills_fetched": true,
+            "pinned_content_read": true
+        },
+        {
+            "run_id": "0d97b085-3dca-4e31-9b02-60a8fd820d12",
+            "stage": "validation-c3",
+            "status": "completed",
+            "log_lines": 663,
+            "requested_skills": [
+                {
+                    "name": "review-hog-validation-criteria",
+                    "version": 1
+                }
+            ],
+            "fetches": [
+                {
+                    "tool": "skill-get",
+                    "skill_name": "review-hog-validation-criteria",
+                    "version": 1,
+                    "status": "completed",
+                    "response_has_skill": true,
+                    "body_total_length": 3812,
+                    "body_next_offset": null,
+                    "full_pinned_body_present": true,
+                    "pinned_body_sha256": "71f5ed69a1567071cb319b2570bea13e2df75a422eab923cde57452bebd2f494"
+                }
+            ],
+            "local_reads": [],
+            "pinned_skills_fetched": true,
+            "pinned_content_read": true
+        },
+        {
+            "run_id": "95240cd5-e7fc-488e-94e7-47dd4c409513",
+            "stage": "validation-c4",
+            "status": "completed",
+            "log_lines": 188,
+            "requested_skills": [
+                {
+                    "name": "review-hog-validation-criteria",
+                    "version": 1
+                }
+            ],
+            "fetches": [
+                {
+                    "tool": "skill-get",
+                    "skill_name": "review-hog-validation-criteria",
+                    "version": 1,
+                    "status": "completed",
+                    "response_has_skill": true,
+                    "body_total_length": 3812,
+                    "body_next_offset": null,
+                    "full_pinned_body_present": true,
+                    "pinned_body_sha256": "71f5ed69a1567071cb319b2570bea13e2df75a422eab923cde57452bebd2f494"
+                }
+            ],
+            "local_reads": [],
+            "pinned_skills_fetched": true,
+            "pinned_content_read": true
+        },
+        {
+            "run_id": "5d4b3277-e47c-4bbd-ab6e-db904a8142e8",
+            "stage": "validation-c2",
+            "status": "completed",
+            "log_lines": 1340,
+            "requested_skills": [
+                {
+                    "name": "review-hog-validation-criteria",
+                    "version": 1
+                }
+            ],
+            "fetches": [
+                {
+                    "tool": "skill-get",
+                    "skill_name": "review-hog-validation-criteria",
+                    "version": 1,
+                    "status": "completed",
+                    "response_has_skill": true,
+                    "body_total_length": 3812,
+                    "body_next_offset": null,
+                    "full_pinned_body_present": true,
+                    "pinned_body_sha256": "71f5ed69a1567071cb319b2570bea13e2df75a422eab923cde57452bebd2f494"
+                }
+            ],
+            "local_reads": [],
+            "pinned_skills_fetched": true,
+            "pinned_content_read": true
+        }
+    ]
+}
