@@ -49,6 +49,7 @@ For example, `WITH t AS (SELECT properties AS props FROM events) SELECT t.props.
 Computed or ambiguous property origins remain unknown; the service does not guess a namespace from a projected name.
 Validation reports `duplicate_table` for repeated table names or explicit aliases in one query scope and asks for distinct aliases.
 Table names, table aliases, and CTE names resolve by exact case; catalogs can contain distinct `events` and `Events` tables.
+Multi-part names also retain distinct identities when their parser-safe forms coincide, such as `a.b.c_d` and `a.b_c.d`.
 Autocomplete prefix matching remains case-insensitive and preserves the selected identifier's case.
 Duplicate qualifiers do not supply property provenance, even when raw ClickHouse accepts the corresponding unaliased self-join.
 
@@ -123,6 +124,10 @@ Catalogs expire `CATALOG_TTL` (default `30m`) after publication so active projec
 When `MAX_CATALOGS` (default `1024`) or `CATALOG_CACHE_MAX_BYTES` (default `8 GiB`) is reached, the least recently used
 catalog is evicted. A catalog request is limited to `64 MiB`. Publishing a new revision replaces the old immutable
 catalog atomically.
+
+The generated scale fixture verifies publication, completion, pagination, and validation with 4,096 canonical tables, 25 fields per table, and 120,000 event properties for one user catalog.
+Table fields and event properties are separate catalog entries.
+This is a tested profile, not a count limit: admission still depends on the serialized request size and the prepared catalog's share of the cache byte budget.
 
 Authentication is required unless `HOGQL_LANGUAGE_SERVICE_ALLOW_INSECURE=1` explicitly disables it on a loopback
 listener for local development. Insecure mode logs a startup warning and is rejected on non-loopback listeners.

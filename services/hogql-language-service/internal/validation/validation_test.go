@@ -190,6 +190,77 @@ func TestValidateAcceptsHogQLQualifiedTable(t *testing.T) {
 	}
 }
 
+func TestValidatePreservesCollidingNormalizedTableReferences(t *testing.T) {
+	fieldTable := func(name, field string) catalog.Table {
+		return catalog.Table{Name: name, Type: "data_warehouse", Fields: map[string]catalog.Field{field: {Name: field, Type: "string"}}}
+	}
+	for _, test := range []struct {
+		name       string
+		catalog    *catalog.Catalog
+		query      string
+		tableNames string
+	}{
+		{
+			name: "distinct canonical tables across statements and Unicode bytes",
+			catalog: &catalog.Catalog{Tables: map[string]catalog.Table{
+				"a.b.c_d": fieldTable("a.b.c_d", "left_field"),
+				"a.b_c.d": fieldTable("a.b_c.d", "right_field"),
+			}},
+			query:      "SELECT 'café'; SELECT l.left_field, r.right_field FROM a.b.c_d AS l JOIN a.b_c.d AS r ON 1 = 1",
+			tableNames: "a.b.c_d,a.b_c.d",
+		},
+		{
+			name: "alias and canonical table",
+			catalog: &catalog.Catalog{
+				Tables: map[string]catalog.Table{
+					"left_target": fieldTable("left_target", "left_field"),
+					"a.b_c.d":     fieldTable("a.b_c.d", "right_field"),
+				},
+				TableAliases: map[string]string{"a.b.c_d": "left_target"},
+			},
+			query:      "SELECT l.left_field, r.right_field FROM a.b.c_d AS l JOIN a.b_c.d AS r ON 1 = 1",
+			tableNames: "a.b.c_d,a.b_c.d",
+		},
+		{
+			name: "same target aliases keep implicit qualifiers",
+			catalog: &catalog.Catalog{
+				Tables: map[string]catalog.Table{"target": fieldTable("target", "shared_field")},
+				TableAliases: map[string]string{
+					"a.b.c_d": "target",
+					"a.b_c.d": "target",
+				},
+			},
+			query:      "SELECT a__b__c_d.shared_field, a__b_c__d.shared_field FROM a.b.c_d JOIN a.b_c.d ON 1 = 1",
+			tableNames: "a.b.c_d,a.b_c.d",
+		},
+		{
+			name: "normalized and unchanged names",
+			catalog: &catalog.Catalog{Tables: map[string]catalog.Table{
+				"a.b.c_d": fieldTable("a.b.c_d", "left_field"),
+				"a.b_c_d": fieldTable("a.b_c_d", "right_field"),
+			}},
+			query:      "SELECT l.left_field, r.right_field FROM a.b.c_d AS l JOIN a.b_c_d AS r ON 1 = 1",
+			tableNames: "a.b.c_d,a.b_c_d",
+		},
+		{
+			name: "quoted normalized spelling CTE does not shadow",
+			catalog: &catalog.Catalog{Tables: map[string]catalog.Table{
+				"a.b.c_d": fieldTable("a.b.c_d", "left_field"),
+			}},
+			query:      "WITH `a.b_c_d` AS (SELECT 1 AS cte_field) SELECT a__b__c_d.left_field FROM a.b.c_d",
+			tableNames: "a.b.c_d",
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			test.catalog.Properties = map[string][]catalog.Property{}
+			result := Validate(catalog.Prepare(test.catalog), test.query)
+			if !result.Valid || strings.Join(result.TableNames, ",") != test.tableNames {
+				t.Fatalf("result = %#v", result)
+			}
+		})
+	}
+}
+
 func TestValidateCatalogTableAliasesPreserveQuerySpellingAndOccurrences(t *testing.T) {
 	value := &catalog.Catalog{
 		Tables: map[string]catalog.Table{

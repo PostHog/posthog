@@ -22,7 +22,7 @@ type Document struct {
 type Statement struct {
 	expr               clickhouse.Expr
 	schema             *catalog.PreparedCatalog
-	originalTableNames map[string]string
+	originalTableNames map[int]string
 	budget             *projectionBudget
 	scopes             []*queryScope
 	tables             []TableReference
@@ -105,13 +105,13 @@ func (s *Statement) analyze() {
 		if scope == nil {
 			return true
 		}
+		if original, exists := s.originalTableNames[start]; exists {
+			name = original
+			implicitAlias = strings.ReplaceAll(original, ".", "__")
+		}
 		if cte := resolveCTE(scope, name, start); cte != nil {
 			addBinding(scope, name, alias, Relation{name: cte.name, cte: cte}, start, end)
 			return true
-		}
-		if original, exists := s.originalTableNames[name]; exists {
-			name = original
-			implicitAlias = strings.ReplaceAll(original, ".", "__")
 		}
 		table, exists := s.schema.Table(name)
 		s.tables = append(s.tables, TableReference{Name: name, Start: start, End: end, Known: exists})

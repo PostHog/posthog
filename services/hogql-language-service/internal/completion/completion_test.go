@@ -157,6 +157,49 @@ func TestCompletesFieldsForHogQLQualifiedTable(t *testing.T) {
 	}
 }
 
+func TestCompletesFieldsForCollidingNormalizedTableReferences(t *testing.T) {
+	fieldTable := func(name, field string) catalog.Table {
+		return catalog.Table{Name: name, Type: "data_warehouse", Fields: map[string]catalog.Field{field: {Name: field, Type: "string"}}}
+	}
+	for _, test := range []struct {
+		name    string
+		catalog *catalog.Catalog
+	}{
+		{
+			name: "canonical tables",
+			catalog: &catalog.Catalog{Tables: map[string]catalog.Table{
+				"a.b.c_d": fieldTable("a.b.c_d", "left_field"),
+				"a.b_c.d": fieldTable("a.b_c.d", "right_field"),
+			}},
+		},
+		{
+			name: "alias and canonical table",
+			catalog: &catalog.Catalog{
+				Tables: map[string]catalog.Table{
+					"left_target": fieldTable("left_target", "left_field"),
+					"a.b_c.d":     fieldTable("a.b_c.d", "right_field"),
+				},
+				TableAliases: map[string]string{"a.b.c_d": "left_target"},
+			},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			test.catalog.Properties = map[string][]catalog.Property{}
+			prepared := catalog.Prepare(test.catalog)
+			query := "SELECT l. FROM a.b.c_d AS l JOIN a.b_c.d AS r ON 1 = 1"
+			left, err := Complete(prepared, query, len("SELECT l."), PositionEncodingUTF8, "")
+			if err != nil || len(left.Suggestions) != 1 || left.Suggestions[0].Label != "left_field" {
+				t.Fatalf("left completion = %#v, error = %v", left, err)
+			}
+			query = "SELECT r. FROM a.b.c_d AS l JOIN a.b_c.d AS r ON 1 = 1"
+			right, err := Complete(prepared, query, len("SELECT r."), PositionEncodingUTF8, "")
+			if err != nil || len(right.Suggestions) != 1 || right.Suggestions[0].Label != "right_field" {
+				t.Fatalf("right completion = %#v, error = %v", right, err)
+			}
+		})
+	}
+}
+
 func TestCompletesTablesAfterFrom(t *testing.T) {
 	for _, test := range []struct {
 		name, query string
