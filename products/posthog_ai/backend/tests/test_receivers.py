@@ -138,3 +138,8 @@ class TestCopiedChatsHiddenWithoutSandboxMode(ConversationTaskTestMixin):
     def test_a_user_with_sandbox_mode_sees_the_copies(self) -> None:
         copied, continued, plain = self._tasks()
         assert self._visible_ids() == {copied.id, continued.id, plain.id}
+
+    def test_a_build_without_ee_hides_nothing_and_still_serves_task_reads(self) -> None:
+        copied, continued, plain = self._tasks()
+        with patch("products.posthog_ai.backend.receivers._feature_flags", return_value=None):
+            assert self._visible_ids() == {copied.id, continued.id, plain.id}
