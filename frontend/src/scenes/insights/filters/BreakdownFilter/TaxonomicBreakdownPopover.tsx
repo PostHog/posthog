@@ -52,16 +52,17 @@ export const TaxonomicBreakdownPopover = ({
     // A SQL expression breakdown is parsed once per series, in that series' own scope, so one
     // expression can only resolve when every series reads the same warehouse table. Mixing an events
     // series in, or using two warehouse tables, fails on whichever series the expression does not
-    // fit, and one failing series fails the whole insight.
-    const allSeriesShareOneWarehouseTable = hasOnlyDataWarehouseSeries && dataWarehouseSeriesTableNames.length === 1
+    // fit, and one failing series fails the whole insight. Funnels are excluded outright, because
+    // they evaluate the expression on their events steps only, so a warehouse step gets an empty
+    // breakdown value instead of a result.
+    const offerWarehouseSqlExpression =
+        isTrends && hasOnlyDataWarehouseSeries && dataWarehouseSeriesTableNames.length === 1
 
     let taxonomicGroupTypes: TaxonomicFilterGroupType[]
     if (hasDataWarehouseSeries) {
         taxonomicGroupTypes = [
             TaxonomicFilterGroupType.DataWarehouseProperties,
-            // Funnels evaluate the expression on their events steps only, so a warehouse step gets
-            // an empty breakdown value instead of a result.
-            ...(isTrends && allSeriesShareOneWarehouseTable ? [TaxonomicFilterGroupType.HogQLExpression] : []),
+            ...(offerWarehouseSqlExpression ? [TaxonomicFilterGroupType.HogQLExpression] : []),
         ]
     } else if (taxonomicBreakdownType === TaxonomicFilterGroupType.CohortsWithAllUsers) {
         taxonomicGroupTypes = [TaxonomicFilterGroupType.CohortsWithAllUsers]
@@ -125,7 +126,7 @@ export const TaxonomicBreakdownPopover = ({
                     metadataSource={
                         // Without this the SQL expression editor validates against the events table
                         // and marks every warehouse column as unknown.
-                        allSeriesShareOneWarehouseTable
+                        offerWarehouseSqlExpression
                             ? {
                                   kind: NodeKind.HogQLQuery,
                                   query: hogql`SELECT * FROM ${hogql.identifier(dataWarehouseSeriesTableNames[0])}`,
