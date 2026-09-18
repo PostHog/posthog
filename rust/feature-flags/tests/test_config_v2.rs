@@ -30,6 +30,13 @@ fn read(filters: Value) -> FeatureFlag {
     .unwrap()
 }
 
+fn read_raw(document: &str) -> FeatureFlag {
+    serde_json::from_str(&format!(
+        r#"{{"id":1,"team_id":1,"key":"example","active":true,"filters":{document}}}"#
+    ))
+    .unwrap()
+}
+
 fn result(flag: &FeatureFlag) -> &Result<Config, ParseError> {
     flag.filters
         .non_v1
@@ -51,8 +58,7 @@ fn original_numeric_tokens_control_precision_and_survive_cache_round_trips() {
             },
         ] {
             let document = config().to_string().replace("33.33", &number);
-            let encoded = format!(r#"{{"id":1,"team_id":1,"key":"example","filters":{document}}}"#);
-            let flag: FeatureFlag = serde_json::from_str(&encoded).unwrap();
+            let flag = read_raw(&document);
             let parsed = result(&flag)
                 .as_ref()
                 .unwrap_or_else(|error| panic!("{number}: {error:?}"));
@@ -79,15 +85,17 @@ fn original_numeric_tokens_control_precision_and_survive_cache_round_trips() {
         ("1e400", false),
     ] {
         let document = config().to_string().replace("33.33", number);
-        let encoded =
-            format!(r#"{{"id":1,"team_id":1,"key":"example","active":true,"filters":{document}}}"#);
-        let flag: FeatureFlag = serde_json::from_str(&encoded).unwrap();
+        let flag = read_raw(&document);
         assert_eq!(result(&flag).is_ok(), accepted, "{number}");
         let round_trip = serde_json::to_string(&flag).unwrap();
         assert!(round_trip.contains(number), "{number}");
         let decoded: FeatureFlag = serde_json::from_str(&round_trip).unwrap();
         assert_eq!(result(&decoded).is_ok(), accepted, "{number}");
     }
+}
+
+#[test]
+fn version_discriminator_rounds_to_binary64() {
     for digits in 15..=80 {
         for number in [
             format!("0.{}", "9".repeat(digits)),
@@ -122,13 +130,6 @@ fn original_numeric_tokens_control_precision_and_survive_cache_round_trips() {
             assert!(serde_json::to_string(&flag).unwrap().contains(number));
         }
     }
-}
-
-fn read_raw(document: &str) -> FeatureFlag {
-    serde_json::from_str(&format!(
-        r#"{{"id":1,"team_id":1,"key":"example","active":true,"filters":{document}}}"#
-    ))
-    .unwrap()
 }
 
 #[test]
@@ -361,9 +362,17 @@ fn semantic_limits_and_duplicate_ids_are_enforced() {
         &ParseError::LimitExceeded("rules")
     );
     let mut document = config();
-    document["rules"][0]["targeting"]["properties"] =
-        json!(vec![json!({"key": "tier", "type": "person"}); 100]);
-    assert!(result(&read(document.clone())).is_ok());
+    document["rules"][0]["targeting"]["properties"] = Value::Array(
+        (0..100)
+            .map(|n| json!({"key": format!("tier-{n}"), "type": "person"}))
+            .collect(),
+    );
+    let flag = read(document.clone());
+    let predicates = &result(&flag).as_ref().unwrap().rules[0].targeting;
+    assert_eq!(predicates.len(), 100);
+    for (n, predicate) in predicates.iter().enumerate() {
+        assert_eq!(predicate.key, format!("tier-{n}"));
+    }
     document["rules"][0]["targeting"]["properties"]
         .as_array_mut()
         .unwrap()
@@ -373,7 +382,7 @@ fn semantic_limits_and_duplicate_ids_are_enforced() {
         &ParseError::LimitExceeded("properties")
     );
     let mut document = config();
-    document["rules"][0]["metadata"] = json!({"display": "x".repeat(MAX_CONFIG_BYTES)});
+    document["rules"][0]["metadata"] = json!({"display": "x".repeat(*MAX_CONFIG_BYTES)});
     let flag = read(document.clone());
     assert_eq!(
         result(&flag).as_ref().unwrap_err(),
@@ -383,7 +392,7 @@ fn semantic_limits_and_duplicate_ids_are_enforced() {
 
     let mut document = config();
     document["rules"][0]["metadata"] = json!({"display": ""});
-    let padding = MAX_CONFIG_BYTES - document.to_string().len();
+    let padding = *MAX_CONFIG_BYTES - document.to_string().len();
     document["rules"][0]["metadata"]["display"] = json!("x".repeat(padding));
     let raw = serde_json::to_string_pretty(&document).unwrap();
     let encoded = format!(r#"{{"id":1,"team_id":1,"key":"example","filters":{raw}}}"#);
@@ -396,9 +405,8 @@ fn semantic_limits_and_duplicate_ids_are_enforced() {
     );
 }
 
-#[test]
-fn person_properties_are_closed_before_reusing_operator_types() {
-    for (operator, value) in [
+fn person_property_cases() -> Vec<(&'static str, Value)> {
+    vec![
         ("exact", json!(["preview"])),
         ("is_not", json!(false)),
         ("is_set", Value::Null),
@@ -430,7 +438,12 @@ fn person_properties_are_closed_before_reusing_operator_types() {
         ("semver_tilde", json!("1.2")),
         ("semver_caret", json!("1.2.3")),
         ("semver_wildcard", json!("1.2.*")),
-    ] {
+    ]
+}
+
+#[test]
+fn person_properties_are_closed_before_reusing_operator_types() {
+    for (operator, value) in person_property_cases() {
         let mut document = config();
         document["rules"][0]["targeting"]["properties"] = json!([{
             "key": "example", "type": "person", "operator": operator, "value": value,
@@ -442,6 +455,7 @@ fn person_properties_are_closed_before_reusing_operator_types() {
             .as_ref()
             .unwrap_or_else(|error| panic!("{operator}: {error:?}"));
         let property = &parsed.rules[0].targeting[0];
+        assert_eq!(property.key, "example");
         assert_eq!(serde_json::to_value(property.operator).unwrap(), operator);
         assert!(property.negation);
         assert_eq!(
@@ -451,15 +465,14 @@ fn person_properties_are_closed_before_reusing_operator_types() {
     }
     for property in [
         json!({"key": "tier", "type": "person"}),
-        json!({"key": "tier", "type": "person", "operator": null, "value": null}),
+        json!({"key": "tier", "type": "person", "operator": null, "value": null, "negation": null}),
     ] {
         let mut document = config();
         document["rules"][0]["targeting"]["properties"] = json!([property]);
         let flag = read(document);
-        assert_eq!(
-            result(&flag).as_ref().unwrap().rules[0].targeting[0].operator,
-            OperatorType::Exact
-        );
+        let predicate = &result(&flag).as_ref().unwrap().rules[0].targeting[0];
+        assert_eq!(predicate.operator, OperatorType::Exact);
+        assert!(!predicate.negation);
     }
     for (field, value) in [
         ("key", json!(42)),

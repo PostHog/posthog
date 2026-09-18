@@ -4,12 +4,15 @@ use std::path::PathBuf;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 
-use super::{read, result};
-use feature_flags::flags::config_v2::ParseError;
+use super::{config, person_property_cases, read, result};
+use feature_flags::flags::config_v2::{
+    ParseError, CONFIG_FIELDS, MAX_PREDICATES, MAX_RULES, MAX_SEED_LENGTH,
+    PERCENTAGE_ROLLOUT_FIELDS, PROPERTY_FIELDS, TARGETED_RELEASE_FIELDS, TARGETING_FIELDS,
+};
 use feature_flags::flags::flag_models::FeatureFlag;
 
 fn root() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/rules_v2_parser/1.6.0")
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/rules_v2_parser/2.1.0")
 }
 
 fn load(path: &str) -> Value {
@@ -26,7 +29,7 @@ fn released_parser_artifacts_are_intact() {
     let index = std::fs::read(root().join("SHA256SUMS")).unwrap();
     assert_eq!(
         hex::encode(Sha256::digest(&index)),
-        source["upstream_index_sha256"]
+        source["source_sha256sums_digest"]
     );
     let text = std::str::from_utf8(&index).unwrap();
     let digests: BTreeMap<_, _> = text
@@ -48,14 +51,22 @@ fn released_parser_artifacts_are_intact() {
         assert_eq!(hex::encode(Sha256::digest(bytes)), digests[path], "{path}");
     }
     let manifest = load("manifest.json");
-    assert_eq!(manifest["contract"]["version"], "2.1.0");
+    assert_eq!(manifest["contract"]["version"], source["contract_version"]);
     assert_eq!(manifest["corpus"]["version"], "1.1.0");
 }
 
 #[test]
 fn released_config_cases_distinguish_schema_expectations_from_supported_families() {
     let manifest = load("manifest.json");
-    let mut totals = [0; 5];
+    #[derive(Default, Debug, PartialEq)]
+    struct Totals {
+        supported: usize,
+        valid_but_unsupported: usize,
+        malformed: usize,
+        unsupported: usize,
+        rejected_before_parsing: usize,
+    }
+    let mut totals = Totals::default();
     for fixture in manifest["artifacts"].as_array().unwrap() {
         let path = fixture["path"].as_str().unwrap();
         if !path.starts_with("fixtures/config/") {
@@ -69,14 +80,13 @@ fn released_config_cases_distinguish_schema_expectations_from_supported_families
                 || path.ends_with("boolean_targeted_and_percentage_rollout.json")
             {
                 assert!(parsed.unwrap().is_ok(), "{path}: {parsed:?}");
-                assert!(result(&read(document.clone())).is_ok());
-                totals[0] += 1;
+                totals.supported += 1;
             } else {
                 assert!(
                     matches!(parsed, Some(Err(ParseError::Unsupported(_)))),
                     "{path}: {parsed:?}"
                 );
-                totals[1] += 1;
+                totals.valid_but_unsupported += 1;
             }
         } else {
             let name = PathBuf::from(path)
@@ -93,15 +103,15 @@ fn released_config_cases_distinguish_schema_expectations_from_supported_families
             );
             match expected {
                 Some(ParseError::Malformed(_)) => {
-                    totals[2] += 1;
+                    totals.malformed += 1;
                     let repaired = repair_supported_fixture(&name, document.clone());
                     assert!(
                         result(&read(repaired)).is_ok(),
                         "repair must make {path} supported"
                     );
                 }
-                Some(ParseError::Unsupported(_)) => totals[3] += 1,
-                None => totals[4] += 1,
+                Some(ParseError::Unsupported(_)) => totals.unsupported += 1,
+                None => totals.rejected_before_parsing += 1,
                 other => panic!("unexpected fixture classification: {other:?}"),
             }
         }
@@ -111,7 +121,16 @@ fn released_config_cases_distinguish_schema_expectations_from_supported_families
             "{path}"
         );
     }
-    assert_eq!(totals, [2, 6, 18, 11, 3]);
+    assert_eq!(
+        totals,
+        Totals {
+            supported: 2,
+            valid_but_unsupported: 6,
+            malformed: 18,
+            unsupported: 11,
+            rejected_before_parsing: 3,
+        }
+    );
 }
 
 fn invalid_fixture_error(name: &str) -> Option<ParseError> {
@@ -209,7 +228,7 @@ fn repair_supported_fixture(name: &str, mut document: Value) -> Value {
 #[test]
 fn definitions_filters_use_the_same_parser_without_replacing_the_service_envelope() {
     let fixtures = load("fixtures/wire/definitions.json");
-    let mut exercised = 0;
+    let mut exercised = BTreeSet::new();
     for case in fixtures["cases"].as_array().unwrap() {
         let mut entry = fixtures["templates"][case["template"].as_str().unwrap()].clone();
         for path in case["remove"].as_array().into_iter().flatten() {
@@ -254,21 +273,59 @@ fn definitions_filters_use_the_same_parser_without_replacing_the_service_envelop
         } else if case["expected_failure"]["instance_path"]
             .as_str()
             .unwrap()
-            .starts_with("/filters/")
+            .starts_with("/filters")
         {
             let flag = decoded.unwrap();
-            assert!(flag
-                .filters
-                .non_v1
-                .as_deref()
-                .unwrap()
-                .parsed_v2
-                .as_ref()
-                .is_none_or(Result::is_err));
+            let expected = match case["id"].as_str().unwrap() {
+                "definitions.unknown_semantic_field" => Some(ParseError::Malformed("filters")),
+                "definitions.unknown_rule_field" => Some(ParseError::Malformed("rule")),
+                "definitions.unsupported_rule_type" => Some(ParseError::Malformed("rule_type")),
+                "definitions.missing_assignment_seed" => Some(ParseError::Malformed("seed")),
+                "definitions.unsupported_version_future"
+                | "definitions.unsupported_version_string"
+                | "definitions.unsupported_version_boolean"
+                | "definitions.unsupported_version_null" => None,
+                other => panic!("unclassified definitions defect: {other}"),
+            };
+            let parsed = flag.filters.non_v1.as_deref().unwrap().parsed_v2.as_ref();
+            assert_eq!(
+                parsed.map(|r| *r.as_ref().unwrap_err()),
+                expected,
+                "{}",
+                case["id"]
+            );
+        } else {
+            match case["id"].as_str().unwrap() {
+                // Service rows default active and allow additional row fields;
+                // the canonical definitions schema is stricter at this boundary.
+                "definitions.missing_active" => assert!(!decoded.unwrap().active),
+                "definitions.unknown_field" => {
+                    decoded.unwrap();
+                }
+                "definitions.v1_wrong_type_version"
+                | "definitions.v1_wrong_type_ensure_experience_continuity"
+                | "definitions.missing_id"
+                | "definitions.missing_key"
+                | "definitions.missing_filters" => assert!(decoded.is_err(), "{}", case["id"]),
+                other => panic!("unclassified definitions row defect: {other}"),
+            }
         }
-        exercised += 1;
+        assert!(exercised.insert(case["id"].as_str().unwrap()));
     }
-    assert_eq!(exercised, 23);
+    let manifest = load("manifest.json");
+    let artifact = manifest["artifacts"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|artifact| artifact["path"] == "fixtures/wire/definitions.json")
+        .unwrap();
+    let expected: BTreeSet<_> = artifact["case_ids"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|id| id.as_str().unwrap())
+        .collect();
+    assert_eq!(exercised, expected);
     let mut entry = fixtures["templates"]["v2"].clone();
     entry["filters"] = load("fixtures/config/valid/boolean_targeted_and_percentage_rollout.json");
     entry["team_id"] = json!(1);
@@ -278,4 +335,155 @@ fn definitions_filters_use_the_same_parser_without_replacing_the_service_envelop
         serde_json::to_value(flag).unwrap()["filters"],
         entry["filters"]
     );
+}
+
+#[test]
+fn released_schema_and_registry_match_the_parser_contract() {
+    let schema = load("schemas/config.schema.json");
+    let registry = load("registries/literals.json");
+    assert_eq!(
+        registry["registry_version"],
+        load("SOURCE.json")["registry_version"]
+    );
+    for (pointer, fields) in [
+        ("/properties", CONFIG_FIELDS),
+        (
+            "/$defs/targetedReleaseRule/properties",
+            TARGETED_RELEASE_FIELDS,
+        ),
+        (
+            "/$defs/percentageRolloutRule/properties",
+            PERCENTAGE_ROLLOUT_FIELDS,
+        ),
+        ("/$defs/targeting/properties", TARGETING_FIELDS),
+        ("/$defs/propertyFilter/properties", PROPERTY_FIELDS),
+    ] {
+        let expected: BTreeSet<_> = schema
+            .pointer(pointer)
+            .unwrap()
+            .as_object()
+            .unwrap()
+            .keys()
+            .map(String::as_str)
+            .collect();
+        assert_eq!(
+            fields.iter().copied().collect::<BTreeSet<_>>(),
+            expected,
+            "{pointer}"
+        );
+    }
+    assert_eq!(
+        MAX_RULES,
+        schema["properties"]["rules"]["maxItems"].as_u64().unwrap() as usize
+    );
+    assert_eq!(
+        MAX_PREDICATES,
+        schema["$defs"]["targeting"]["properties"]["properties"]["maxItems"]
+            .as_u64()
+            .unwrap() as usize
+    );
+    assert_eq!(
+        MAX_SEED_LENGTH,
+        schema["$defs"]["seed"]["maxLength"].as_u64().unwrap() as usize
+    );
+
+    let entries = load("schemas/definitions_entry.schema.json");
+    assert_eq!(
+        entries["properties"]["filters"]["oneOf"][0]["properties"]["version"]["const"],
+        registry["config_versions"]["v1"]
+    );
+    assert_eq!(
+        entries["properties"]["filters"]["oneOf"][1]["$ref"],
+        schema["$id"]
+    );
+    for version in ["v1", "v2"] {
+        let mut document = config();
+        document["version"] = registry["config_versions"][version].clone();
+        let flag = read(document);
+        assert_eq!(flag.filters.non_v1.is_none(), version == "v1");
+        if version == "v2" {
+            assert!(result(&flag).is_ok());
+        }
+    }
+    for entry in registry["return_types"].as_array().unwrap() {
+        let mut document = config();
+        document["return_type"] = entry["value"].clone();
+        let flag = read(document);
+        if entry["value"] == "boolean" {
+            assert!(result(&flag).is_ok());
+        } else {
+            assert_eq!(
+                result(&flag).as_ref().unwrap_err(),
+                &ParseError::Unsupported("return_type")
+            );
+        }
+    }
+    for entry in registry["rule_types"].as_array().unwrap() {
+        let mut document = config();
+        document["rules"][0]["rule_type"] = entry["value"].clone();
+        if entry["value"] == "targeted_release" {
+            document["rules"][0]
+                .as_object_mut()
+                .unwrap()
+                .retain(|key, _| TARGETED_RELEASE_FIELDS.contains(&key.as_str()));
+        }
+        let flag = read(document);
+        match entry["value"].as_str().unwrap() {
+            "targeted_release" | "percentage_rollout" => assert!(result(&flag).is_ok()),
+            _ => assert_eq!(
+                result(&flag).as_ref().unwrap_err(),
+                &ParseError::Unsupported("rule_type")
+            ),
+        }
+    }
+    for (registry_field, rule_field) in [
+        ("assignment_algorithms", "assignment_algorithm"),
+        ("assignment_targets", "assign_by"),
+        ("rollout_miss_policies", "on_rollout_miss"),
+    ] {
+        for literal in registry[registry_field].as_array().unwrap() {
+            let mut document = config();
+            document["rules"][0][rule_field] = literal.clone();
+            assert!(
+                result(&read(document)).is_ok(),
+                "{registry_field}: {literal}"
+            );
+        }
+    }
+    for prop_type in registry["property_types"].as_array().unwrap() {
+        let mut document = config();
+        document["rules"][0]["targeting"]["properties"] =
+            json!([{"key": "example", "type": prop_type}]);
+        let flag = read(document);
+        if prop_type == "person" {
+            assert!(result(&flag).is_ok());
+        } else {
+            assert_eq!(
+                result(&flag).as_ref().unwrap_err(),
+                &ParseError::Unsupported("property.type")
+            );
+        }
+    }
+    let operators = person_property_cases();
+    let tested: BTreeSet<_> = operators
+        .iter()
+        .map(|(operator, _)| *operator)
+        .chain(["in", "not_in", "flag_evaluates_to"])
+        .collect();
+    let released: BTreeSet<_> = registry["property_operators"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|operator| operator.as_str().unwrap())
+        .collect();
+    assert_eq!(tested, released);
+    for operator in ["in", "not_in", "flag_evaluates_to"] {
+        let mut document = config();
+        document["rules"][0]["targeting"]["properties"] =
+            json!([{"key": "example", "type": "person", "operator": operator}]);
+        assert_eq!(
+            result(&read(document)).as_ref().unwrap_err(),
+            &ParseError::Malformed("property.operator")
+        );
+    }
 }

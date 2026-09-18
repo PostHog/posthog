@@ -27,20 +27,24 @@ One unsupported predicate or rule rejects the whole flag's configuration.
 Parser diagnostics and debug output omit raw configuration values.
 
 The reader enforces 100 rules, 100 predicates per rule, 1–400 character percentage-rule seeds, and finite percentages in [0, 100] with at most two decimal places.
-Its compact UTF-8 document ceiling is 512 KiB, matching the default `MAX_FEATURE_FLAG_FILTER_SIZE_BYTES` writer limit; the reader counts stored token bytes, excluding whitespace outside strings.
+Its compact UTF-8 document ceiling reads `MAX_FEATURE_FLAG_FILTER_SIZE_BYTES` once per process, with the same 512 KiB default as the writer; the reader counts stored token bytes, excluding whitespace outside strings.
 Writers must also enforce their deployment-specific document limit and explicit metadata limit; the parser adds no separate metadata-size policy.
-Reader and writer byte limits must agree before admitting stored v2 data if a deployment overrides the default.
+Set `MAX_FEATURE_FLAG_FILTER_SIZE_BYTES` to the same value on the reader and writer deployments before admitting stored v2 data.
 Presentation metadata stays in the original JSON and does not enter typed targeting.
 
 The service-cache envelope remains separate from the canonical definitions-entry envelope, where team identity can be omitted.
 Parser tests adapt canonical definition filters to service records without adding a definitions-v2 route or allowing the legacy definitions endpoint to publish v2.
-Released harness 1.6.0 parser fixtures live separately from the unchanged v1 corpus pin.
+Parser fixtures from harness release 1.6.0 are pinned under contract version 2.1.0, separately from the unchanged v1 corpus pin.
+The Rust suite checks parser field sets, limits, and literals against the released schema and registry.
+Definitions-feed artifacts belong to the future definitions route and are not part of this parser pin.
 
 The evaluator classifies them once per request, next to `filtered_out_flag_ids`, rather than failing per flag inside `get_match`: an eligible non-v1 flag gets a `flag_data_parsing_error` response entry, is skipped by regex, cohort, dependency, and property preparation, and is pre-seeded false like any other skipped flag, so a dependent's `flag_evaluates_to: false` condition still resolves.
 Detailed responses mark them failed.
 The legacy `/flags` map and `/decide?v=3` retain false entries with `errorsWhileComputingFlags=true`; older `/decide` formats omit them.
 Healthy siblings still evaluate, and request eligibility remains unchanged.
 Malformed v1 documents retain the existing ingress error behavior.
+Each recognized v2 ingress increments `flags_v2_config_parse_total` with a fixed `outcome` label: `success`, `malformed`, `unsupported`, or `limit_exceeded`.
+These outcomes cover cache and PostgreSQL reads and contain no configuration values.
 
 The internal batch evaluation endpoint rejects a non-v1 target with HTTP 400 and `unsupported_config_format` before it pages the team, so cohort generation treats the failure as permanent.
 The Rust cache builder fails a team's rebuild on an evaluable non-v1 document, the way Python does.

@@ -1,12 +1,9 @@
 {
-  "repository": "https://github.com/PostHog/posthog-sdk-test-harness",
-  "release": "1.6.0",
   "source_revision": "c32f4959240967f1ee89e58490fc9d3beaa1401f",
   "contract_version": "2.1.0",
   "registry_version": "2.0.0",
   "config_schema_version": "1.0.0",
   "definitions_schema_version": "1.0.0",
-  "upstream_index_sha256": "b8488174e76feb8a83907ee723c8609cf3fd1a1063fdeb90df2228991a01e1a0",
   "files": [
     "README.md",
     "fixtures/config/invalid/assign_by_not_person.json",
@@ -50,11 +47,12 @@
     "fixtures/config/valid/string_group_assignment.json",
     "fixtures/config/valid/version_float_literal.json",
     "fixtures/wire/definitions.json",
-    "fixtures/wire/definitions_feed.json",
     "manifest.json",
     "registries/literals.json",
     "schemas/config.schema.json",
-    "schemas/definitions_entry.schema.json",
-    "schemas/definitions_v2.schema.json"
-  ]
+    "schemas/definitions_entry.schema.json"
+  ],
+  "source_repository": "https://github.com/PostHog/posthog-sdk-test-harness",
+  "source_release": "1.6.0",
+  "source_sha256sums_digest": "b8488174e76feb8a83907ee723c8609cf3fd1a1063fdeb90df2228991a01e1a0"
 }

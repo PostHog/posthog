@@ -2,10 +2,13 @@ use std::fmt;
 
 use serde_json::Value;
 
-use super::{closed, object, required, string, ParseError, MAX_PREDICATES};
+use super::{
+    closed, object, required, string, ParseError, MAX_PREDICATES, PROPERTY_FIELDS, TARGETING_FIELDS,
+};
 use crate::properties::property_matching::to_semver_representation;
 use crate::properties::property_models::OperatorType;
 use crate::properties::relative_date::parse_relative_date_parts;
+use crate::utils::json_size::estimate_json_heap_size;
 
 #[derive(Clone)]
 pub struct PersonPredicate {
@@ -25,7 +28,7 @@ impl fmt::Debug for PersonPredicate {
 
 pub(super) fn parse_targeting(value: &Value) -> Result<Vec<PersonPredicate>, ParseError> {
     let targeting = object(value, "targeting")?;
-    closed(targeting, &["properties"], "targeting")?;
+    closed(targeting, TARGETING_FIELDS, "targeting")?;
     let properties = required(targeting, "properties")?
         .as_array()
         .ok_or(ParseError::Malformed("properties"))?;
@@ -38,21 +41,7 @@ pub(super) fn parse_targeting(value: &Value) -> Result<Vec<PersonPredicate>, Par
 impl PersonPredicate {
     fn parse(value: &Value) -> Result<Self, ParseError> {
         let property = object(value, "property")?;
-        closed(
-            property,
-            &[
-                "key",
-                "type",
-                "value",
-                "operator",
-                "negation",
-                "group_type_index",
-                "cohort_name",
-                "group_key_names",
-                "label",
-            ],
-            "property",
-        )?;
+        closed(property, PROPERTY_FIELDS, "property")?;
         match string(property, "type")? {
             "person" => {}
             "cohort" | "group" | "flag" => return Err(ParseError::Unsupported("property.type")),
@@ -121,7 +110,7 @@ impl PersonPredicate {
     }
 
     pub(super) fn estimated_heap_bytes(&self) -> usize {
-        self.key.capacity() + self.value.as_ref().map_or(0, value_heap_bytes)
+        self.key.capacity() + self.value.as_ref().map_or(0, estimate_json_heap_size)
     }
 }
 
@@ -169,28 +158,5 @@ fn validate_value(operator: OperatorType, value: Option<&Value>) -> Result<(), P
         Ok(())
     } else {
         Err(ParseError::Malformed("property.value"))
-    }
-}
-
-fn value_heap_bytes(value: &Value) -> usize {
-    match value {
-        Value::Null | Value::Bool(_) | Value::Number(_) => 0,
-        Value::String(value) => value.capacity(),
-        Value::Array(values) => {
-            values.capacity() * std::mem::size_of::<Value>()
-                + values.iter().map(value_heap_bytes).sum::<usize>()
-        }
-        Value::Object(values) => {
-            // BTreeMap exposes no allocation capacity. Budget a root node and
-            // spare entry/child slots conservatively instead of weighing JSON text.
-            let entries = values.len()
-                * (3 * std::mem::size_of::<(String, Value)>() + 4 * std::mem::size_of::<usize>());
-            let root = if values.is_empty() { 0 } else { 1024 };
-            root + entries
-                + values
-                    .iter()
-                    .map(|(key, value)| key.capacity() + value_heap_bytes(value))
-                    .sum::<usize>()
-        }
     }
 }

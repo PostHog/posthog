@@ -36,16 +36,17 @@ enum Container {
         keys: HashSet<String>,
         key: String,
         expects_key: bool,
-        rule: bool,
+        is_rule: bool,
     },
     Array {
-        rules: bool,
+        is_rule_list: bool,
     },
 }
 
 pub(crate) fn validate_raw_document(document: &RawValue) -> Result<(), ParseError> {
     // RawValue already checked JSON syntax. Inspect tokens before Value loses
     // duplicate keys or rounds nonzero numbers to zero.
+    let max_config_bytes = *MAX_CONFIG_BYTES;
     let text = document.get();
     let bytes = text.as_bytes();
     let mut containers = Vec::new();
@@ -85,19 +86,22 @@ pub(crate) fn validate_raw_document(document: &RawValue) -> Result<(), ParseErro
                 }
             }
             b'{' => {
-                let rule = matches!(containers.last(), Some(Container::Array { rules: true }));
+                let is_rule = matches!(
+                    containers.last(),
+                    Some(Container::Array { is_rule_list: true })
+                );
                 containers.push(Container::Object {
                     keys: HashSet::new(),
                     key: String::new(),
                     expects_key: true,
-                    rule,
+                    is_rule,
                 });
                 index += 1;
             }
             b'[' => {
-                let rules = containers.len() == 1
+                let is_rule_list = containers.len() == 1
                     && matches!(containers.last(), Some(Container::Object { key, .. }) if key == "rules");
-                containers.push(Container::Array { rules });
+                containers.push(Container::Array { is_rule_list });
                 index += 1;
             }
             b'}' | b']' => {
@@ -126,7 +130,7 @@ pub(crate) fn validate_raw_document(document: &RawValue) -> Result<(), ParseErro
                 {
                     return Err(ParseError::Malformed("number_is_binary64"));
                 }
-                if matches!(containers.last(), Some(Container::Object { key, rule: true, .. }) if key == "rollout_percentage")
+                if matches!(containers.last(), Some(Container::Object { key, is_rule: true, .. }) if key == "rollout_percentage")
                     && !decimal_places_at_most(token, 2)
                 {
                     return Err(ParseError::Malformed("rollout_percentage"));
@@ -135,7 +139,7 @@ pub(crate) fn validate_raw_document(document: &RawValue) -> Result<(), ParseErro
             _ => index += 1,
         }
         compact_bytes += index - start;
-        if compact_bytes > MAX_CONFIG_BYTES {
+        if compact_bytes > max_config_bytes {
             return Err(ParseError::LimitExceeded("filters"));
         }
     }

@@ -1,6 +1,7 @@
 use std::collections::HashSet;
 use std::fmt;
 
+use once_cell::sync::Lazy;
 use serde_json::value::RawValue;
 use serde_json::{Map, Value};
 use uuid::Uuid;
@@ -10,9 +11,58 @@ mod raw;
 pub use properties::PersonPredicate;
 pub(crate) use raw::validate_raw_document;
 
-pub const MAX_CONFIG_BYTES: usize = 512 * 1024;
-const MAX_RULES: usize = 100;
-const MAX_PREDICATES: usize = 100;
+pub static MAX_CONFIG_BYTES: Lazy<usize> = Lazy::new(|| {
+    std::env::var("MAX_FEATURE_FLAG_FILTER_SIZE_BYTES")
+        .map(|value| {
+            value
+                .parse()
+                .expect("MAX_FEATURE_FLAG_FILTER_SIZE_BYTES must be a nonnegative integer")
+        })
+        .unwrap_or(512 * 1024)
+});
+pub const MAX_RULES: usize = 100;
+pub const MAX_PREDICATES: usize = 100;
+pub const MAX_SEED_LENGTH: usize = 400;
+pub const CONFIG_FIELDS: &[&str] = &[
+    "version",
+    "return_type",
+    "default_value",
+    "rules",
+    "aggregation_group_type_index",
+];
+pub const TARGETED_RELEASE_FIELDS: &[&str] = &[
+    "id",
+    "rule_type",
+    "targeting",
+    "description",
+    "metadata",
+    "value",
+];
+pub const PERCENTAGE_ROLLOUT_FIELDS: &[&str] = &[
+    "id",
+    "rule_type",
+    "targeting",
+    "description",
+    "metadata",
+    "value",
+    "rollout_percentage",
+    "on_rollout_miss",
+    "assignment_algorithm",
+    "seed",
+    "assign_by",
+];
+pub const TARGETING_FIELDS: &[&str] = &["properties"];
+pub const PROPERTY_FIELDS: &[&str] = &[
+    "key",
+    "type",
+    "value",
+    "operator",
+    "negation",
+    "group_type_index",
+    "cohort_name",
+    "group_key_names",
+    "label",
+];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ParseError {
@@ -108,17 +158,7 @@ impl fmt::Debug for Outcome {
 
 impl Config {
     pub(super) fn parse(document: &Map<String, Value>) -> Result<Self, ParseError> {
-        closed(
-            document,
-            &[
-                "version",
-                "return_type",
-                "default_value",
-                "rules",
-                "aggregation_group_type_index",
-            ],
-            "filters",
-        )?;
+        closed(document, CONFIG_FIELDS, "filters")?;
         match string(document, "return_type")? {
             "boolean" => {}
             "string" | "number" | "object" => {
@@ -178,27 +218,8 @@ impl Rule {
         let rule = object(value, "rule")?;
         let rule_type = string(rule, "rule_type")?;
         let fields: &[&str] = match rule_type {
-            "targeted_release" => &[
-                "id",
-                "rule_type",
-                "targeting",
-                "description",
-                "metadata",
-                "value",
-            ],
-            "percentage_rollout" => &[
-                "id",
-                "rule_type",
-                "targeting",
-                "description",
-                "metadata",
-                "value",
-                "rollout_percentage",
-                "on_rollout_miss",
-                "assignment_algorithm",
-                "seed",
-                "assign_by",
-            ],
+            "targeted_release" => TARGETED_RELEASE_FIELDS,
+            "percentage_rollout" => PERCENTAGE_ROLLOUT_FIELDS,
             "experiment" => return Err(ParseError::Unsupported("rule_type")),
             _ => return Err(ParseError::Malformed("rule_type")),
         };
@@ -232,7 +253,7 @@ impl Rule {
                 return Err(ParseError::Malformed("assign_by"));
             }
             let seed = string(rule, "seed")?;
-            if !(1..=400).contains(&seed.chars().count()) {
+            if !(1..=MAX_SEED_LENGTH).contains(&seed.chars().count()) {
                 return Err(ParseError::Malformed("seed"));
             }
             let on_rollout_miss = match string(rule, "on_rollout_miss")? {
