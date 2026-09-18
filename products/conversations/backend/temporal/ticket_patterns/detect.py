@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any
+
 from temporalio import activity, workflow
 from temporalio.exceptions import ApplicationError
 
@@ -146,6 +148,22 @@ def _load_candidates(team_id: int, settings: DetectionSettings) -> tuple[list[Ti
     return candidates, requesters
 
 
+def _detection_text(message: Any) -> str:
+    """The response text, refusing one the output cap cut short.
+
+    Truncated JSON is still JSON-shaped, so it would reach the parser as "was not JSON" and send
+    an operator looking at the model rather than at the budget. Retrying sends the same oversized
+    request, so this failure is final for the tick.
+    """
+    if getattr(message, "stop_reason", None) == "max_tokens":
+        raise ApplicationError(
+            "Ticket pattern response hit the output token cap",
+            type="InvalidLLMResponse",
+            non_retryable=True,
+        )
+    return anthropic_text(message)
+
+
 def _parse_clusters(content: str) -> list[dict]:
     try:
         parsed = json.loads(strip_json_fence(content))
@@ -248,7 +266,7 @@ async def _detect(team: EligibleTeam, *, report: bool = True, check_flag: bool =
         **tracing_kwargs(trace_id, ""),
     )
 
-    raw_clusters = _parse_clusters(anthropic_text(message))
+    raw_clusters = _parse_clusters(_detection_text(message))
     # Redis and capture both block; keep them off the event loop so the heartbeater stays live.
     clusters = await database_sync_to_async(_qualifying_clusters, thread_sensitive=False)(
         raw_clusters, requesters, team.settings, team.team_id

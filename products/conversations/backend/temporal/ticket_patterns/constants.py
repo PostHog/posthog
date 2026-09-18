@@ -26,7 +26,11 @@ MAX_CLUSTERS_PER_RUN = 5
 # Not haiku: it splits one outage into separate clusters when customers word it differently
 # ("recording down" vs "replays will not load"), which drops each part below the threshold.
 DETECTION_MODEL = "claude-sonnet-4-6"
-DETECTION_MAX_TOKENS = 2_000
+# Enough for the widest answer the input cap allows. The model echoes back a ticket id per
+# grouped ticket, and a UUID is around 25 output tokens, so MAX_TICKETS_PER_TEAM in one cluster
+# is already past 2,000 on ids alone. A response cut off mid-JSON fails to parse, and every
+# retry sends the same oversized request, so a team in a real incident would get nothing.
+DETECTION_MAX_TOKENS = 8_000
 
 # Twice the widest lookback, so a ticket cannot leave the dedupe set while detection can still
 # see it.

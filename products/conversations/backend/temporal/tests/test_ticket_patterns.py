@@ -11,13 +11,18 @@ from django.test import SimpleTestCase
 from django.utils import timezone
 
 from parameterized import parameterized
+from temporalio.exceptions import ApplicationError
 
 from posthog.models.comment import Comment
 
 from products.conversations.backend.models.ticket import Status, Ticket
 from products.conversations.backend.temporal.ticket_patterns.constants import COORDINATOR_INTERVAL_MINUTES
 from products.conversations.backend.temporal.ticket_patterns.coordinator import _collect_eligible_teams
-from products.conversations.backend.temporal.ticket_patterns.detect import _load_candidates, _qualifying_clusters
+from products.conversations.backend.temporal.ticket_patterns.detect import (
+    _detection_text,
+    _load_candidates,
+    _qualifying_clusters,
+)
 from products.conversations.backend.temporal.ticket_patterns.schemas import DetectionSettings
 
 COORD_MODULE = "products.conversations.backend.temporal.ticket_patterns.coordinator"
@@ -231,6 +236,30 @@ class TestRecentSpikes(SimpleTestCase):
         topics = [s["topic"] for s in recent_spikes(7)]
         assert ("older" in topics) is expected
         assert "newer" in topics
+
+
+class TestDetectionText(SimpleTestCase):
+    @staticmethod
+    def _message(stop_reason: str):
+        block = MagicMock()
+        block.type = "text"
+        block.text = '{"clusters": [{"topic": "checkout", "ticket_ids": ["a"'
+        message = MagicMock()
+        message.stop_reason = stop_reason
+        message.content = [block]
+        return message
+
+    def test_a_response_cut_off_by_the_cap_is_refused_and_not_retried(self):
+        # Truncated JSON is still JSON-shaped, so without this it reaches the parser as
+        # "was not JSON" and two more identical requests are sent.
+        with self.assertRaises(ApplicationError) as caught:
+            _detection_text(self._message("max_tokens"))
+
+        assert caught.exception.non_retryable
+        assert "token cap" in str(caught.exception)
+
+    def test_a_complete_response_is_returned(self):
+        assert _detection_text(self._message("end_turn")).startswith('{"clusters"')
 
 
 class TestLoadCandidates(BaseTest):
