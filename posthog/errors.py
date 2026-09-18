@@ -226,6 +226,11 @@ def look_up_clickhouse_error_code_meta(error: ServerException) -> ErrorCodeMeta:
 
 def classify_query_error(e: Exception) -> QueryErrorCategory:
     """Classify a query execution exception into a high-level category for observability."""
+    # A decode failure carries no ClickHouse code, so the lookup below would read it as an unknown
+    # server exception and count a query we answer with a 400 against the error budget.
+    if isinstance(e, ClickHouseColumnDecodeError | CHQueryErrorColumnDecodeFailed):
+        return QueryErrorCategory.USER_ERROR
+
     if isinstance(e, ServerException):
         return look_up_clickhouse_error_code_meta(e).get_category()
 

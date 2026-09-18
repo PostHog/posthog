@@ -7,6 +7,7 @@ from posthog.errors import (
     ExposedCHQueryError,
     InternalCHQueryError,
     QueryErrorCategory,
+    classify_query_error,
     look_up_clickhouse_error_code_meta,
     wrap_clickhouse_query_error,
 )
@@ -94,3 +95,12 @@ class TestWrapClickhouseQueryError:
         assert isinstance(wrapped, CHQueryErrorColumnDecodeFailed)
         assert "Map(String, Map(String, Array(UInt64)))" in str(wrapped)
         assert wrapped.code_name == "column_decode_failed"
+
+    @parameterized.expand(
+        [
+            ("raw", ClickHouseColumnDecodeError("Map(String, String, String)", ValueError("boom"))),
+            ("wrapped", wrap_clickhouse_query_error(ClickHouseColumnDecodeError("Map(A, B, C)", ValueError("boom")))),
+        ]
+    )
+    def test_column_decode_failure_is_a_user_error(self, _name: str, err: Exception) -> None:
+        assert classify_query_error(err) == QueryErrorCategory.USER_ERROR
