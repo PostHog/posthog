@@ -55,6 +55,9 @@ export interface NotificationDescriptor {
     description?: string;
     duration?: number;
   };
+  // Replaces the target-derived action ("View canvas" / "View task") when the
+  // notification has a better next step, such as retrying the work that failed.
+  action?: { label: string; onClick: () => void };
   silent?: boolean;
   // How long the task took, in ms. When the user enables sound scaling, this
   // drives the completion sound's playback rate (fast task -> faster/higher).
@@ -245,6 +248,7 @@ export class NotificationBus {
   private deriveAction(
     descriptor: NotificationDescriptor,
   ): { label: string; onClick: () => void } | undefined {
+    if (descriptor.action) return descriptor.action;
     const target = descriptor.target;
     if (!target) return undefined;
     // Route through the shared open-target handler so the toast click lands on

@@ -50,6 +50,36 @@ function makeParams() {
 }
 
 describe("buildSessionOptions", () => {
+  it.each([
+    { mode: "cloud", cloudMode: true, expected: ["posthog-local"] },
+    { mode: "desktop", cloudMode: false, expected: undefined },
+  ])(
+    "disables loopback .mcp.json servers in $mode runs",
+    ({ cloudMode, expected }) => {
+      const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "options-mcp-test-"));
+      fs.writeFileSync(
+        path.join(cwd, ".mcp.json"),
+        JSON.stringify({
+          mcpServers: {
+            "posthog-local": { type: "http", url: "http://localhost:8787/mcp" },
+            trunk: { type: "http", url: "https://mcp.trunk.io/mcp" },
+          },
+        }),
+      );
+
+      buildSessionOptions({ ...makeParams(), cwd, cloudMode });
+
+      const settings = JSON.parse(
+        fs.readFileSync(
+          path.join(cwd, ".claude", "settings.local.json"),
+          "utf8",
+        ),
+      );
+      expect(settings.disabledMcpjsonServers).toEqual(expected);
+      fs.rmSync(cwd, { recursive: true, force: true });
+    },
+  );
+
   it("replaces unprocessable Read images before model delivery", async () => {
     const options = buildSessionOptions(makeParams());
     const hooks = (options.hooks?.PostToolUse ?? []).flatMap(

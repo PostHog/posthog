@@ -141,6 +141,7 @@ export function useGenerateFreeformCanvas(args: {
             dashboardId,
             channelId,
             name,
+            instruction,
           });
         }
         // Refresh the workspace cache so the new cloud workspace row appears and

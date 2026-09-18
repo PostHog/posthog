@@ -10,6 +10,9 @@ interface TrackedCanvasGeneration {
   dashboardId: string;
   channelId: string;
   name: string;
+  // What the user asked for, so a failed run can be retried from its toast.
+  // Absent for a generation started before the retry affordance existed.
+  instruction?: string;
 }
 
 interface CanvasGenerationTrackerState {

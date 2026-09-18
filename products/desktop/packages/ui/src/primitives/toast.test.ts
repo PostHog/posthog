@@ -143,18 +143,18 @@ describe("toast wrapper", () => {
     );
   });
 
-  it("replaces a caller action so error toasts always offer View larger", () => {
+  it("keeps a caller action on an error toast in place of View larger", () => {
     const callerAction = vi.fn();
-    toast.error("Failed request", {
+    toast.error("Couldn't start the agent run", {
       action: { label: "Retry", onClick: callerAction },
     });
 
     const options = quill.error.mock.calls[0]?.[0] as {
       action: { label: string; onClick: () => void };
     };
-    expect(options.action.label).toBe("View larger");
+    expect(options.action.label).toBe("Retry");
     options.action.onClick();
-    expect(callerAction).not.toHaveBeenCalled();
+    expect(callerAction).toHaveBeenCalled();
   });
 
   it("opens the latest payload after a stable error toast is updated", () => {

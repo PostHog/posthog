@@ -19,9 +19,10 @@ export interface ToastOptions {
   // pick an id at create time, so the wrapper maps it (see idRegistry).
   id?: string;
   action?: ToastAction;
-  // The complete error payload to show in the global details dialog. Error
-  // toasts always replace `action` with a "View larger" action; when this is
-  // omitted, the dialog falls back to the description and then the title.
+  // The complete error payload to show in the global details dialog. An error
+  // toast with no `action` of its own gets a "View larger" action onto that
+  // dialog; when this is omitted, the dialog falls back to the description and
+  // then the title.
   error?: unknown;
   // Auto-dismiss delay in ms. Maps to quill's `timeout`. Omit for the provider
   // default; loading toasts never auto-dismiss regardless.
@@ -69,10 +70,12 @@ function emit(
     timeout,
     action:
       level === "error"
-        ? {
+        ? // An error toast defaults to the details dialog, but a caller that
+          // offers a way out of the error (a retry) has the better next step.
+          (o.action ?? {
             label: "View larger",
             onClick: () => showErrorDetails(title, errorPayload),
-          }
+          })
         : o.action,
   };
 

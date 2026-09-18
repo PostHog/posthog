@@ -228,3 +228,67 @@ export function parseMcpServers(
 
   return mcpServers;
 }
+
+const LOOPBACK_HOSTNAMES = new Set([
+  "localhost",
+  "127.0.0.1",
+  "0.0.0.0",
+  "[::1]",
+]);
+
+function isLoopbackUrl(url: string): boolean {
+  try {
+    return LOOPBACK_HOSTNAMES.has(new URL(url).hostname.toLowerCase());
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Names of the repo's checked-in `.mcp.json` HTTP/SSE servers that address the
+ * loopback interface — a developer's own machine.
+ *
+ * A cloud sandbox has no such process, so every one of these servers fails to
+ * connect there, and the failure is reported on tool searches that have nothing
+ * to do with the server (see the ToolSearch note in the MCP Tool Access
+ * instructions). Cloud sessions disable them by name instead, so a dev-only
+ * entry in a shared `.mcp.json` costs a cloud run nothing.
+ */
+export function loopbackMcpjsonServerNames(
+  cwd: string,
+  logger?: Logger,
+): string[] {
+  let raw: string;
+  try {
+    raw = fs.readFileSync(path.join(cwd, ".mcp.json"), "utf8");
+  } catch {
+    return [];
+  }
+
+  let cfg: { mcpServers?: unknown };
+  try {
+    cfg = JSON.parse(raw);
+  } catch (err) {
+    logger?.warn("Failed to parse .mcp.json", {
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return [];
+  }
+
+  const servers = cfg.mcpServers;
+  if (!servers || typeof servers !== "object") return [];
+
+  const names: string[] = [];
+  for (const [name, config] of Object.entries(
+    servers as Record<string, McpServerConfig>,
+  )) {
+    const transport = parseClaudeJsonTransport(config);
+    if (
+      (transport.kind === "http" || transport.kind === "sse") &&
+      isLoopbackUrl(transport.url)
+    ) {
+      names.push(name);
+    }
+  }
+  return names;
+}
