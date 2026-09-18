@@ -25,9 +25,7 @@ def _load_llm_inputs(observation_id: UUID) -> ScannerLlmInputs | None:
     return async_to_sync(load_scanner_llm_inputs)(str(observation_id))
 
 
-@activity.defn
-@track_activity(side_effect="signal")
-def emit_observation_signal_activity(inputs: EmitObservationSignalInputs) -> list[str]:
+def _emit_observation_signals(inputs: EmitObservationSignalInputs) -> list[str]:
     """Emit the observation's side-mission findings as PostHog Signals; fails soft, returns the problem type
     of each signal it actually emitted, in emission order. Findings below the confidence floor and findings
     whose emission fails are left out, so the caller's count and types stay in step."""
@@ -119,3 +117,19 @@ def emit_observation_signal_activity(inputs: EmitObservationSignalInputs) -> lis
         record_side_effect_failure("signal")
         logger.exception("replay_vision.signal_emission_failed", observation_id=str(inputs.observation_id))
         return []
+
+
+@activity.defn
+@track_activity(side_effect="signal")
+def emit_observation_signal_activity(inputs: EmitObservationSignalInputs) -> int:
+    """Legacy count-returning entry point. Kept so in-flight workflow histories that scheduled it before the
+    problem-types patch still decode an int on replay; new executions use emit_observation_signals_activity."""
+    return len(_emit_observation_signals(inputs))
+
+
+@activity.defn
+@track_activity(side_effect="signal")
+def emit_observation_signals_activity(inputs: EmitObservationSignalInputs) -> list[str]:
+    """Emit the observation's side-mission findings and return each emitted signal's problem type, in emission
+    order — the watch feed counts them to name the kinds of issue a session raised."""
+    return _emit_observation_signals(inputs)

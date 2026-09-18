@@ -35,6 +35,8 @@ from products.replay_vision.backend.temporal.activities import (
     embed_observation_activity,
     emit_classifier_tags_activity,
     emit_observation_event_activity,
+    emit_observation_signal_activity,
+    emit_observation_signals_activity,
     ensure_session_asset_activity,
     fetch_session_events_activity,
     fetch_session_network_activity,
@@ -354,28 +356,30 @@ class ApplyScannerWorkflow(PostHogWorkflow):
                     exported_asset_id=asset_result.asset_id,
                     signals=call_output.signals,
                 )
-                # 30s truncated the tail on a slow facade and recorded nothing emitted; retries are safe
-                # because each finding carries a deterministic idempotency key.
-                emit_kwargs: dict[str, Any] = {
-                    "start_to_close_timeout": dt.timedelta(minutes=2),
-                    "heartbeat_timeout": dt.timedelta(seconds=30),
-                    "retry_policy": common.RetryPolicy(maximum_attempts=3),
-                }
-                # Scheduled by name so `result_type` can decode each branch: the activity now returns the
-                # problem type of each signal it actually emitted, and the count derives from that list.
-                # Pre-patch histories recorded a bare int count, so the else branch keeps decoding an int
-                # and in-flight scans replay cleanly. The activity fails soft (returns [] on any error), so
-                # there is nothing to retry; the local catch covers Temporal-level failures (timeout, worker
-                # loss) — emission is advisory and must never demote an otherwise-successful observation.
+                # The signals-returning activity reports the problem type of each signal it actually emitted,
+                # so the count derives from that list. A pre-patch history scheduled the count-returning
+                # activity, so the else branch keeps calling it and in-flight scans replay cleanly. Both fail
+                # soft (emit nothing extra on error), so there is nothing to retry; the local catch covers
+                # Temporal-level failures (timeout, worker loss) — emission is advisory and must never demote
+                # an otherwise-successful observation. 30s once truncated the tail on a slow facade, so give
+                # it 2 minutes; retries are safe because each finding carries a deterministic idempotency key.
                 try:
                     if wf.patched("replay-vision-emitted-signal-problem-types"):
                         signal_problem_types = await wf.execute_activity(
-                            "emit_observation_signal_activity", emit_inputs, result_type=list, **emit_kwargs
+                            emit_observation_signals_activity,
+                            emit_inputs,
+                            start_to_close_timeout=dt.timedelta(minutes=2),
+                            heartbeat_timeout=dt.timedelta(seconds=30),
+                            retry_policy=common.RetryPolicy(maximum_attempts=3),
                         )
                         signals_count = len(signal_problem_types)
                     else:
                         signals_count = await wf.execute_activity(
-                            "emit_observation_signal_activity", emit_inputs, result_type=int, **emit_kwargs
+                            emit_observation_signal_activity,
+                            emit_inputs,
+                            start_to_close_timeout=dt.timedelta(minutes=2),
+                            heartbeat_timeout=dt.timedelta(seconds=30),
+                            retry_policy=common.RetryPolicy(maximum_attempts=3),
                         )
                 except Exception:
                     wf.logger.exception("Signal emission activity failed for observation %s", observation_id)
