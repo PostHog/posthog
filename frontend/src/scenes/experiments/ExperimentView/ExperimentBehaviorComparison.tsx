@@ -4,9 +4,11 @@ import { IconChevronDown, IconInfo, IconPlay } from '@posthog/icons'
 import { LemonBanner } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
+import { lemonBannerLogic } from 'lib/lemon-ui/LemonBanner/lemonBannerLogic'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonCard } from 'lib/lemon-ui/LemonCard'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
+import { Link } from 'lib/lemon-ui/Link'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { cn } from 'lib/utils/css-classes'
@@ -45,7 +47,7 @@ import { VariantTag } from './VariantTag'
  * Where the shelf sends a reader who wants a scanner, and what to fire when they go. Null in every
  * state but the one the offer belongs in, which `shelfVisionCrossSellShown` decides.
  */
-interface ShelfVisionCrossSell {
+export interface ShelfVisionCrossSell {
     url: string
     onClick: () => void
 }
@@ -592,24 +594,31 @@ function EmptyShelf({
                 'no_session_linked_exposures' there is nothing for a scanner to watch either, so the
                 offer promises something that cannot work. Do not widen this to a second state on a
                 conversion number. */}
-            {visionCrossSell && (
-                <LemonBanner
-                    type="ai"
-                    dismissKey={SCANNER_CROSS_SELL_DISMISS_KEY}
-                    action={{
-                        // Worded exactly as the tab's own banner words it, because they are the
-                        // same offer and a reader can see both across one visit.
-                        children: 'Set up scanner for this experiment',
-                        to: visionCrossSell.url,
-                        onClick: visionCrossSell.onClick,
-                        'data-attr': 'experiment-watch-shelf-scanner-cross-sell',
-                    }}
-                >
-                    Replay vision can watch these sessions for things events don't record, like hesitation or a dead
-                    end. It scores each session and tells you which ones to open.
-                </LemonBanner>
-            )}
+            {visionCrossSell && <ShelfVisionOffer crossSell={visionCrossSell} />}
         </>
+    )
+}
+
+/**
+ * A caption under the empty state rather than a banner of its own, because it answers the question
+ * the reader is left holding: it is the same weight as the rest of the shelf's explanatory text, and
+ * a second boxed pitch under the first box reads as an ad.
+ */
+export function ShelfVisionOffer({ crossSell }: { crossSell: ShelfVisionCrossSell }): JSX.Element | null {
+    // The tab's own banner carries the only close button this offer has, and the shelf takes that
+    // banner away. Reading its key keeps one dismissal turning off both, which is what the shared
+    // key is for.
+    const { isDismissed } = useValues(lemonBannerLogic({ dismissKey: SCANNER_CROSS_SELL_DISMISS_KEY }))
+    if (isDismissed) {
+        return null
+    }
+    return (
+        <div className="text-xs text-secondary">
+            <Link to={crossSell.url} onClick={crossSell.onClick} data-attr="experiment-watch-shelf-scanner-cross-sell">
+                Replay vision
+            </Link>{' '}
+            can watch these sessions for things events don't capture, like hesitation or a dead end.
+        </div>
     )
 }
 
