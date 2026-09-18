@@ -114,6 +114,7 @@ from products.signals.backend.models import (
     SignalReportArtefact,
     SignalReportCheck,
     SignalReportRefund,
+    SignalScoutConfig,
     SignalSourceConfig,
     SignalTeamConfig,
     SignalUserAutonomyConfig,
@@ -137,12 +138,14 @@ from products.signals.backend.report_claims import (
 from products.signals.backend.report_generation.research import ActionabilityChoice
 from products.signals.backend.report_generation.resolve_reviewers import (
     ReviewerPayloadIndex,
+    bounded_reviewer_reason,
     get_org_member_github_logins_by_user_uuid,
     get_org_member_users_by_uuid,
     normalized_github_logins_from_suggested_reviewer_artefacts,
     normalized_user_uuids_from_suggested_reviewer_artefacts,
     resolve_org_github_login_to_users,
     resolve_org_users_by_uuid,
+    source_skills_from_suggested_reviewer_artefacts,
 )
 from products.signals.backend.report_generation.reviewer_telemetry import capture_suggested_reviewers_resolved
 from products.signals.backend.report_metric_access import ReportMetricAccessPolicy
@@ -4104,16 +4107,28 @@ def append_suggested_reviewers(
             # Same rule for reason. Only fall back to the manual-add note when the field was
             # omitted for a brand-new reviewer — an explicit null clears the reason, as for kept ones.
             effective_name = resolved.github_name if resolved.explicit_name else prior_name
-            effective_reason = resolved.reason if resolved.explicit_reason else prior_reason
+            effective_reason = resolved.reason if resolved.explicit_reason else bounded_reviewer_reason(prior_reason)
             if not resolved.explicit_reason and prior is None:
                 effective_reason = manual_add_reason
+            safe_commits = (
+                [
+                    {**commit, "reason": bounded_reviewer_reason(commit.get("reason")) or ""}
+                    if isinstance(commit, dict)
+                    else commit
+                    for commit in prior_commits
+                ]
+                if isinstance(prior_commits, list)
+                else []
+            )
             new_content.append(
                 {
                     "github_login": resolved.github_login,
                     "user_uuid": resolved.user_uuid,
                     "github_name": effective_name if isinstance(effective_name, str) else None,
-                    "relevant_commits": prior_commits if isinstance(prior_commits, list) else [],
+                    "relevant_commits": safe_commits,
                     "reason": effective_reason or None,
+                    "source_skill": prior.get("source_skill") if prior else None,
+                    "is_skill_owner": bool(prior.get("is_skill_owner")) if prior else False,
                 }
             )
 
@@ -4531,6 +4546,16 @@ class SignalReportArtefactViewSet(
         login_map = resolve_org_github_login_to_users(self.team.id, logins_union) if logins_union else {}
         uuids_union = normalized_user_uuids_from_suggested_reviewer_artefacts(artefacts)
         uuid_map = resolve_org_users_by_uuid(self.team.id, uuids_union) if uuids_union else {}
+        skills_union = source_skills_from_suggested_reviewer_artefacts(artefacts)
+        scout_display_names = (
+            dict(
+                SignalScoutConfig.objects.for_team(self.team.id)
+                .filter(skill_name__in=skills_union)
+                .values_list("skill_name", "display_name")
+            )
+            if skills_union
+            else {}
+        )
         serializer = SignalReportArtefactSerializer(
             artefacts,
             many=True,
@@ -4538,6 +4563,7 @@ class SignalReportArtefactViewSet(
                 **self.get_serializer_context(),
                 "signals_github_login_to_user_map": login_map,
                 "signals_reviewer_user_uuid_map": uuid_map,
+                "signals_scout_display_names": scout_display_names,
             },
         )
         if page is not None:

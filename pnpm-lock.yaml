@@ -633,8 +633,8 @@ importers:
         specifier: ^0.0.57
         version: 0.0.57(prop-types@15.8.1)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@posthog/hogql-parser':
-        specifier: 1.3.84
-        version: 1.3.84
+        specifier: 1.3.88
+        version: 1.3.88
       '@posthog/hogvm':
         specifier: workspace:*
         version: link:../common/hogvm/typescript
@@ -3958,6 +3958,9 @@ importers:
       kea-router:
         specifier: 'catalog:'
         version: 3.4.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+      posthog-js:
+        specifier: 'catalog:'
+        version: 1.433.9(@types/react@18.3.27)(react@18.3.1)
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -4567,6 +4570,9 @@ importers:
       '@posthog/quill':
         specifier: workspace:*
         version: link:../../packages/quill/packages/quill
+      '@posthog/quill-charts':
+        specifier: workspace:*
+        version: link:../../packages/quill/packages/charts
       '@storybook/react':
         specifier: 'catalog:'
         version: 10.4.6(@types/react-dom@18.3.7(@types/react@18.3.27))(@types/react@18.3.27)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(storybook@10.4.6(@testing-library/dom@10.4.0)(@types/react@18.3.27)(prettier@3.8.2)(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(typescript@6.0.3)
@@ -10685,8 +10691,8 @@ packages:
       react: 18.3.1
       react-dom: 18.3.1
 
-  '@posthog/hogql-parser@1.3.84':
-    resolution: {integrity: sha512-dDBrHb5TcyM+APFAb+1VhdIVg1LHHF+f2SlogX7ZcWwCvBg2shPwUsdFQyNBr/vfxZzzR9Tvet57JOhgn0eTnA==}
+  '@posthog/hogql-parser@1.3.88':
+    resolution: {integrity: sha512-zygPFNMJVxeiOdO1zW2mPK4A2fBS2qCaNvGK9B7Fan1mrW5C6cK2ESc22qf/+aiGS+8IMe6xvkmGwCjzoU2GQw==}
 
   '@posthog/icons@0.38.0':
     resolution: {integrity: sha512-Y458v7A9ipKvHCo77rAc2/ELUDvfNjFpn9AwV8aVYUl5/wvLH9CwEfq1IxgQDj33OaML4IE2w5LQ0TbKbo63XA==}
@@ -30341,7 +30347,7 @@ snapshots:
     transitivePeerDependencies:
       - prop-types
 
-  '@posthog/hogql-parser@1.3.84': {}
+  '@posthog/hogql-parser@1.3.88': {}
 
   '@posthog/icons@0.38.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)':
     dependencies:

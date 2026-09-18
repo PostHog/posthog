@@ -46,6 +46,10 @@
 #   elements; the shadow has no uploader CLI to pin. Canonical also builds a CODEOWNERS
 #   projection of the owners.yaml map before each upload, so Trunk can attribute a test to
 #   a team; with no upload here, that step has nothing to mirror either)
+# - dynamic-ci-filter: canonical asks Trunk which jobs a diff needs and records the verdict
+#   in that job's log. Nothing there reads its outputs, and the shadow posts to Trunk from
+#   nowhere (above), so the job and its action pin are depot-exempt. Its fail-open step and
+#   its `no-ci` draft guard belong to that job, so they need no depot bump either.
 # - Per-test failure rollup: canonical's django_tests gate uploads product JUnit and, when a
 #   test job fails, downloads that shard's JUnit to list the actual failing tests. The shadow
 #   strips artifact uploads (above), so it has nothing to download and keeps the plain
