@@ -230,7 +230,9 @@ function BrowserTabStripImpl() {
   const previewOrder = useTabReorderStore((s) => s.previewOrder);
   const tileGroups = useTileLayoutStore((s) => s.groups);
   const activeByGroup = useTileLayoutStore((s) => s.activeByGroup);
+  const groupNames = useTileLayoutStore((s) => s.names);
   const separateGroup = useTileLayoutStore((s) => s.separate);
+  const renameGroup = useTileLayoutStore((s) => s.renameGroup);
   // Drop pins for tabs that no longer exist (closed here or in another
   // window). Skip the pre-seed empty snapshot so a slow boot doesn't wipe pins.
   useEffect(() => {
@@ -689,6 +691,7 @@ function BrowserTabStripImpl() {
               icon: m.icon,
             })),
             activeId: face.id,
+            name: groupNames[group.id],
           },
         },
       ];
@@ -700,6 +703,7 @@ function BrowserTabStripImpl() {
     previewOrder,
     tileGroups,
     activeByGroup,
+    groupNames,
     channelName,
     dashboards,
     activeRecord,
@@ -872,6 +876,11 @@ function BrowserTabStripImpl() {
     );
   };
 
+  const handleRenameSplit = (tabId: string, name: string) => {
+    const group = groupForTab(tileGroups, tabId);
+    if (group) renameGroup(group.id, name);
+  };
+
   const handleSeparate = (tabId: string) => {
     const group = groupForTab(tileGroups, tabId);
     if (!group) return;
@@ -949,6 +958,7 @@ function BrowserTabStripImpl() {
       onCloseToRight={handleCloseToRight}
       onCloseToLeft={handleCloseToLeft}
       onSeparate={handleSeparate}
+      onRenameSplit={handleRenameSplit}
       onNewTab={handleNewTab}
     />
   );

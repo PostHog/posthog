@@ -22,6 +22,7 @@ function setup(overrides?: Partial<Parameters<typeof TabStrip>[0]>) {
     onCloseToRight: vi.fn(),
     onCloseToLeft: vi.fn(),
     onSeparate: vi.fn(),
+    onRenameSplit: vi.fn(),
     ...overrides,
   };
   // Pills call useSortable, which needs an ancestor DnD provider (the app

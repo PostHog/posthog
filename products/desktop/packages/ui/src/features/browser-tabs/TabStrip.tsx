@@ -1,6 +1,7 @@
 import { useDroppable } from "@dnd-kit/react";
 import { useSortable } from "@dnd-kit/react/sortable";
 import {
+  PencilSimpleIcon,
   PlusIcon,
   PushPinIcon,
   SplitHorizontalIcon,
@@ -20,7 +21,7 @@ import {
   TooltipTrigger,
 } from "@posthog/quill";
 import { Flex } from "@radix-ui/themes";
-import type { ReactNode } from "react";
+import { type ReactNode, useState } from "react";
 import { STRIP_DROP_TYPE, type StripDropData } from "./stripDrop";
 import { DetachFromStrip } from "./tabDetach";
 import { useTabReorderStore } from "./tabReorderStore";
@@ -43,6 +44,7 @@ export interface TabView {
 export interface SplitView {
   members: SplitMember[];
   activeId: string;
+  name?: string;
 }
 
 export interface SplitMember {
@@ -73,6 +75,7 @@ export interface TabStripProps {
   onCloseToRight: (tabId: string) => void;
   onCloseToLeft: (tabId: string) => void;
   onSeparate: (tabId: string) => void;
+  onRenameSplit: (tabId: string, name: string) => void;
 }
 
 /**
@@ -94,6 +97,7 @@ export function TabStrip({
   onCloseToRight,
   onCloseToLeft,
   onSeparate,
+  onRenameSplit,
 }: TabStripProps) {
   // Which bulk closes are live per pill, in a single pass over the strip
   // (each closes only *unpinned* tabs in its range).
@@ -150,6 +154,7 @@ export function TabStrip({
             onCloseToRight={onCloseToRight}
             onCloseToLeft={onCloseToLeft}
             onSeparate={onSeparate}
+            onRenameSplit={onRenameSplit}
           />
         ))}
         {onNewTab && (
@@ -178,28 +183,49 @@ function SplitPill({
   tab,
   split,
   isActive,
+  renaming,
   onSelectMember,
+  onRename,
 }: {
   tab: TabView;
   split: SplitView;
   isActive: boolean;
+  renaming: boolean;
   onSelectMember: (tabId: string) => void;
+  onRename: (name: string | null) => void;
 }) {
-  const labelEvery = split.members.length <= 2;
   return (
     <div
       role="tab"
       tabIndex={-1}
       aria-selected={isActive}
-      aria-label={`${tab.label} (split, ${split.members.length} tabs)`}
+      aria-label={`${split.name ?? tab.label} (split, ${split.members.length} tabs)`}
       className={cn(
-        "flex h-6 w-full items-stretch overflow-hidden rounded-md bg-muted ring-1 ring-border ring-inset transition-[padding] group-hover:pr-5",
+        "flex h-6 max-w-[280px] items-stretch overflow-hidden rounded-md bg-muted ring-1 ring-border ring-inset",
         !isActive && "opacity-60 hover:opacity-100",
       )}
     >
+      {renaming ? (
+        <input
+          // biome-ignore lint/a11y/noAutofocus: the field opens from an explicit menu action
+          autoFocus
+          defaultValue={split.name ?? ""}
+          placeholder="Name this split"
+          aria-label="Split name"
+          className="h-full w-36 min-w-0 bg-background px-1.5 text-xs outline-none"
+          onKeyDown={(event) => {
+            if (event.key === "Enter") onRename(event.currentTarget.value);
+            if (event.key === "Escape") onRename(null);
+          }}
+          onBlur={(event) => onRename(event.currentTarget.value)}
+        />
+      ) : split.name ? (
+        <span className="flex min-w-0 items-center truncate px-1.5 font-medium text-xs">
+          {split.name}
+        </span>
+      ) : null}
       {split.members.map((member, index) => {
         const shown = member.id === split.activeId;
-        const labelled = labelEvery || shown;
         return (
           <button
             key={member.id}
@@ -208,22 +234,20 @@ function SplitPill({
             aria-current={shown && isActive ? "true" : undefined}
             onClick={() => onSelectMember(member.id)}
             className={cn(
-              "flex min-w-0 items-center gap-1 text-xs transition-colors",
-              index > 0 && "border-border border-l",
-              labelled ? "flex-1 justify-start px-1.5" : "w-7 justify-center",
+              "flex w-7 shrink-0 items-center justify-center transition-colors",
+              (index > 0 || split.name || renaming) && "border-border border-l",
               shown
-                ? "bg-background font-medium shadow-xs"
+                ? "bg-background shadow-xs"
                 : "text-muted-foreground hover:bg-background/60 hover:text-foreground",
             )}
           >
             <span className="flex shrink-0 items-center [&>svg]:size-3">
-              {member.icon ?? <SplitHorizontalIcon size={12} />}
+              {member.icon ?? (
+                <span className="flex size-3.5 items-center justify-center rounded-xs bg-foreground/10 font-medium text-[9px] uppercase leading-none">
+                  {member.label.trim().charAt(0) || "?"}
+                </span>
+              )}
             </span>
-            {labelled && (
-              <span className="min-w-0 flex-1 overflow-hidden whitespace-nowrap text-left [-webkit-mask-image:linear-gradient(to_right,#000,#000_calc(100%-0.75rem),#0000)] [mask-image:linear-gradient(to_right,#000,#000_calc(100%-0.75rem),#0000)]">
-                {member.label}
-              </span>
-            )}
           </button>
         );
       })}
@@ -244,6 +268,7 @@ function SortableTabPill({
   onCloseToRight,
   onCloseToLeft,
   onSeparate,
+  onRenameSplit,
 }: {
   tab: TabView;
   index: number;
@@ -259,6 +284,7 @@ function SortableTabPill({
   | "onCloseToRight"
   | "onCloseToLeft"
   | "onSeparate"
+  | "onRenameSplit"
 >) {
   // Pinned and unpinned pills sort in separate groups so a drag can't preview
   // an insertion across the pin boundary (the drop handler rejects it too).
@@ -271,6 +297,7 @@ function SortableTabPill({
     data: { type: "browser-tab", tabId: tab.id },
   });
   const detached = useTabReorderStore((s) => isDragSource && s.detached);
+  const [renaming, setRenaming] = useState(false);
 
   const split = tab.split;
   const closeLabel = split
@@ -292,7 +319,7 @@ function SortableTabPill({
         tab.pinned
           ? "no-drag flex shrink-0 items-center"
           : split
-            ? "no-drag group relative flex min-w-0 max-w-[340px] flex-1 basis-[340px] items-center overflow-hidden"
+            ? "no-drag group relative flex shrink-0 items-center overflow-hidden"
             : "no-drag group relative flex min-w-0 max-w-[200px] flex-1 basis-[200px] items-center overflow-hidden",
         detached && "rounded-md bg-background shadow-lg ring-1 ring-border",
       )}
@@ -302,7 +329,12 @@ function SortableTabPill({
           tab={tab}
           split={split}
           isActive={isActive}
+          renaming={renaming}
           onSelectMember={onSelectMember}
+          onRename={(name) => {
+            setRenaming(false);
+            if (name !== null) onRenameSplit(tab.id, name);
+          }}
         />
       ) : (
         <Button
@@ -394,10 +426,16 @@ function SortableTabPill({
           overlapping them — even a portalled popup on top. */}
       <ContextMenuContent className="no-drag">
         {split ? (
-          <ContextMenuItem onClick={() => onSeparate(tab.id)}>
-            <SplitHorizontalIcon size={14} />
-            Separate all tabs
-          </ContextMenuItem>
+          <>
+            <ContextMenuItem onClick={() => setRenaming(true)}>
+              <PencilSimpleIcon size={14} />
+              Rename split
+            </ContextMenuItem>
+            <ContextMenuItem onClick={() => onSeparate(tab.id)}>
+              <SplitHorizontalIcon size={14} />
+              Separate all tabs
+            </ContextMenuItem>
+          </>
         ) : (
           <ContextMenuItem onClick={() => onTogglePin(tab.id)}>
             <PushPinIcon size={14} />
