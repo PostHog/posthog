@@ -12,6 +12,7 @@ from posthog.event_usage import EventSource
 from posthog.tasks.alerts.detector import _compute_min_samples_for_detector
 
 from products.alerts.backend.evaluation.contract import (
+    AlertDataUnavailableError,
     AlertExtractionError,
     ComparableSeries,
     ExtractionResult,
@@ -44,7 +45,12 @@ def hogql_config_or_default(raw: dict | None) -> HogQLAlertConfig:
 
 
 def _calculate_rows_and_columns(
-    insight: Insight, team: Any, *, user: Any, execution_mode: ExecutionMode
+    insight: Insight,
+    team: Any,
+    *,
+    user: Any,
+    execution_mode: ExecutionMode,
+    require_complete_result: bool = False,
 ) -> tuple[list, list[str] | None]:
     """Run a SQL insight and return (rows, column_names) — the fetch-and-validate prologue shared by
     the threshold and detector extractors. A ``None`` result means the query layer swallowed an error
@@ -57,6 +63,11 @@ def _calculate_rows_and_columns(
         user=user,
         analytics_props={"source": EventSource.ALERT},
     )
+    if require_complete_result and calculation_result.has_more is True:
+        raise AlertDataUnavailableError(
+            "The SQL anomaly alert result is paginated, so its last row is not the latest point. "
+            "Use an explicit SQL LIMIT that includes the full history, or order newest first and use first-row evaluation."
+        )
     rows = calculation_result.result
     if rows is None:
         raise RuntimeError(f"No results found for insight with id = {insight.id}")
@@ -211,7 +222,7 @@ def extract_hogql_detector_series(
     self-contained — its rows *are* the history, so there's no wider lookback window to refetch; the
     query must return enough rows for the detector's window. Only ``last_row``/``first_row`` apply:
     ``any_row`` rows are unrelated entities, not a time axis, so scoring change across them is
-    meaningless. Too few rows to fill the window yields an empty series (uncomputed); an empty result
+    meaningless. Too few rows to fill the window reports unavailable data; an empty result
     yields an empty series flagged ``empty_query_result`` (the metric is genuinely 0).
     """
     if config.evaluation == HogQLAlertEvaluation.ANY_ROW:
@@ -220,7 +231,13 @@ def extract_hogql_detector_series(
             "entities, not a time series. Use last-row or first-row evaluation."
         )
 
-    rows, column_names = _calculate_rows_and_columns(insight, team, user=user, execution_mode=execution_mode)
+    rows, column_names = _calculate_rows_and_columns(
+        insight,
+        team,
+        user=user,
+        execution_mode=execution_mode,
+        require_complete_result=config.evaluation == HogQLAlertEvaluation.LAST_ROW,
+    )
     if len(rows) == 0:
         return ExtractionResult(
             series=[], is_breakdown=False, subject=_HOGQL_SUBJECT, framed=False, empty_query_result=True
@@ -241,13 +258,14 @@ def extract_hogql_detector_series(
         for i, row in enumerate(ordered)
     ]
 
-    # Too few points to score → report uncomputed (None). SQL rows are the series verbatim — unlike
-    # trends, there's no incomplete-interval drop to offset — so the detector's own minimum is the
-    # exact cutoff. (Trends adds +1 to compensate for the dropped interval; SQL must not, or a query
-    # returning exactly the detector's minimum would be wrongly rejected as "not enough data".)
+    # SQL rows are the series verbatim, so the detector's minimum is the exact cutoff.
+    # A short series cannot establish that the alert is not firing.
     min_samples = _compute_min_samples_for_detector(detector_config)
     if len(values) < min_samples:
-        return ExtractionResult(series=[], is_breakdown=False, subject=_HOGQL_SUBJECT, framed=False)
+        raise AlertDataUnavailableError(
+            f"The SQL anomaly alert needs at least {min_samples} rows, but the query returned {len(values)}. "
+            "Expand the query history or reduce the detector window, and check the SQL LIMIT."
+        )
 
     # Score only the most recent window the detector needs (current stays last). A SQL query can
     # return a large result, and detectors like KNN/LOF/OCSVM train on every point handed in — so

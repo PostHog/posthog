@@ -6,7 +6,7 @@ from posthog.schema import HogQLAlertConfig
 from posthog.api.services.query import ExecutionMode
 from posthog.tasks.alerts.detector import _compute_min_samples_for_detector
 
-from products.alerts.backend.evaluation.contract import AlertExtractionError
+from products.alerts.backend.evaluation.contract import AlertDataUnavailableError, AlertExtractionError
 from products.alerts.backend.evaluation.detector import evaluate_with_detector
 from products.alerts.backend.evaluation.hogql import (
     LAST_ROW_MAX_ROWS,
@@ -93,13 +93,10 @@ def test_exactly_the_detector_minimum_is_scored():
     assert evaluation.breaches and "Anomaly detected" in evaluation.breaches[0]
 
 
-def test_one_row_below_the_detector_minimum_is_uncomputed():
+def test_one_row_below_the_detector_minimum_reports_insufficient_history():
     minimum = _compute_min_samples_for_detector(ZSCORE)
-    result = _extract(STABLE_HISTORY[: minimum - 1])  # one short of the minimum → uncomputed
-    assert result.series == []
-    evaluation = evaluate_with_detector(result, ZSCORE)
-    assert evaluation.value is None
-    assert evaluation.breaches == []
+    with pytest.raises(AlertDataUnavailableError, match=f"at least {minimum} rows"):
+        _extract(STABLE_HISTORY[: minimum - 1])
 
 
 def test_threshold_detector_scores_a_single_row():

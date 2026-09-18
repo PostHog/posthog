@@ -1,9 +1,16 @@
 import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseDestroyTablesMixin, _create_event, flush_persons_and_events
 
-from posthog.api.services.query import ExecutionMode
+from parameterized import parameterized
 
-from products.alerts.backend.evaluation.hogql import HogQLExtractor
+from posthog.schema import HogQLAlertConfig
+
+from posthog.api.services.query import ExecutionMode
+from posthog.caching.calculate_results import calculate_for_query_based_insight
+
+from products.alerts.backend.evaluation.contract import AlertDataUnavailableError
+from products.alerts.backend.evaluation.detector import evaluate_with_detector
+from products.alerts.backend.evaluation.hogql import HogQLExtractor, extract_hogql_detector_series
 from products.alerts.backend.models.alert import AlertConfiguration
 from products.product_analytics.backend.facade.models import Insight
 
@@ -65,3 +72,42 @@ class TestHogQLExtractorFiltersPlaceholder(APIBaseTest, ClickhouseDestroyTablesM
                 )
                 == 5.0
             )
+
+
+class TestHogQLDetectorPagination(APIBaseTest):
+    @parameterized.expand(
+        [
+            ("last_row", 5, "", "paginated"),
+            ("last_row", 120, "", "paginated"),
+            ("first_row", 120, "", "at least 121 rows"),
+            ("first_row", 5, "", None),
+            ("last_row", 120, " LIMIT 180", None),
+            ("first_row", 120, " LIMIT 180", None),
+        ]
+    )
+    def test_detector_checks_paginated_history(self, evaluation, window, sql_limit, expected_error):
+        direction = "DESC" if evaluation == "first_row" else "ASC"
+        insight = Insight.objects.create(
+            team=self.team,
+            query={
+                "kind": "DataVisualizationNode",
+                "source": {
+                    "kind": "HogQLQuery",
+                    "query": f"SELECT arrayJoin(range(180)) AS value ORDER BY value {direction}{sql_limit}",
+                },
+            },
+        )
+        mode = ExecutionMode.CALCULATE_BLOCKING_ALWAYS
+        calculation = calculate_for_query_based_insight(insight, team=self.team, user=self.user, execution_mode=mode)
+        assert len(calculation.result) == (180 if sql_limit else 100)
+        assert calculation.has_more is (None if sql_limit else True)
+        config = HogQLAlertConfig(type="HogQLAlertConfig", evaluation=evaluation, column="value")
+        detector = {"type": "mad", "threshold": 0.95, "window": window}
+        if expected_error:
+            with self.assertRaisesRegex(AlertDataUnavailableError, expected_error):
+                extract_hogql_detector_series(insight, self.team, config, detector, user=self.user, execution_mode=mode)
+        else:
+            result = extract_hogql_detector_series(
+                insight, self.team, config, detector, user=self.user, execution_mode=mode
+            )
+            assert evaluate_with_detector(result, detector).value == 179
