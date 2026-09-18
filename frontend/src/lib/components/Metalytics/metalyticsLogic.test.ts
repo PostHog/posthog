@@ -82,4 +82,72 @@ describe('metalyticsLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
         expect(api.queryHogQL).toHaveBeenCalledTimes(2)
     })
+
+    it('clears loaded statistics when the panel closes before navigating', async () => {
+        jest.mocked(api.queryHogQL)
+            .mockResolvedValueOnce({ results: [[10, 2]] })
+            .mockResolvedValueOnce({ results: [['previous-user']] })
+        sceneLayoutLogic.actions.setScenePanelOpen(true)
+        const logic = metalyticsLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.viewCount).toEqual({ views: 10, users: 2 })
+        expect(logic.values.recentUsers).toEqual(['previous-user'])
+
+        await expectLogic(logic, () => {
+            sceneLayoutLogic.actions.setScenePanelOpen(false)
+        }).toFinishAllListeners()
+        await expectLogic(logic, () => {
+            jest.mocked(sidePanelContextLogic.selectors.sceneSidePanelContext).mockReturnValue({
+                activity_scope: ActivityScope.INSIGHT,
+                activity_item_id: 'insight2',
+            })
+            sceneLayoutLogic.actions.setScenePanelIsPresent(true)
+        })
+            .toFinishAllListeners()
+            .toMatchValues({ viewCount: null, recentUsers: [], viewCountLoading: false, recentUsersLoading: false })
+        expect(api.queryHogQL).toHaveBeenCalledTimes(2)
+    })
+
+    it.each([true, false])('discards older responses after navigation with panel open=%s', async (panelOpen) => {
+        let resolveOldCount!: () => void
+        let resolveOldUsers!: () => void
+        jest.mocked(api.queryHogQL)
+            .mockImplementationOnce(
+                () => new Promise((resolve) => (resolveOldCount = () => resolve({ results: [[100, 10]] })))
+            )
+            .mockImplementationOnce(
+                () => new Promise((resolve) => (resolveOldUsers = () => resolve({ results: [['previous-user']] })))
+            )
+            .mockResolvedValueOnce({ results: [[20, 3]] })
+            .mockResolvedValueOnce({ results: [['current-user']] })
+        sceneLayoutLogic.actions.setScenePanelOpen(true)
+        const logic = metalyticsLogic()
+        logic.mount()
+        expect(api.queryHogQL).toHaveBeenCalledTimes(2)
+
+        await expectLogic(logic, () => {
+            if (!panelOpen) {
+                sceneLayoutLogic.actions.setScenePanelOpen(false)
+            }
+            jest.mocked(sidePanelContextLogic.selectors.sceneSidePanelContext).mockReturnValue({
+                activity_scope: ActivityScope.INSIGHT,
+                activity_item_id: 'insight2',
+            })
+            sceneLayoutLogic.actions.setScenePanelIsPresent(true)
+        }).toDispatchActions(['loadViewCountSuccess', 'loadUsersLast30daysSuccess'])
+
+        await expectLogic(logic, () => {
+            resolveOldCount()
+            resolveOldUsers()
+        })
+            .toFinishAllListeners()
+            .toMatchValues({
+                viewCount: panelOpen ? { views: 20, users: 3 } : null,
+                recentUsers: panelOpen ? ['current-user'] : [],
+                viewCountLoading: false,
+                recentUsersLoading: false,
+            })
+        expect(api.queryHogQL).toHaveBeenCalledTimes(panelOpen ? 4 : 2)
+    })
 })

@@ -121,7 +121,10 @@ export const metalyticsLogic = kea<metalyticsLogicType>([
         viewCount: [
             null as { views: number; users: number } | null,
             {
-                loadViewCount: async () => {
+                loadViewCount: async (_, breakpoint) => {
+                    if (!values.statsInstanceId) {
+                        return null
+                    }
                     const query = hogql`
                         SELECT SUM(count) AS count, COUNT(DISTINCT app_source_id) AS unique_users
                         FROM app_metrics
@@ -134,6 +137,7 @@ export const metalyticsLogic = kea<metalyticsLogicType>([
                         { scene: currentScene, productKey: 'platform_and_support' },
                         { refresh: 'async' }
                     )
+                    breakpoint()
                     const result = response.results as number[][] | undefined
                     return {
                         views: result?.[0]?.[0] ?? 0,
@@ -145,7 +149,10 @@ export const metalyticsLogic = kea<metalyticsLogicType>([
         recentUsers: [
             [] as string[],
             {
-                loadUsersLast30days: async () => {
+                loadUsersLast30days: async (_, breakpoint) => {
+                    if (!values.statsInstanceId) {
+                        return []
+                    }
                     const query = hogql`
                         SELECT DISTINCT app_source_id
                         FROM app_metrics
@@ -160,6 +167,7 @@ export const metalyticsLogic = kea<metalyticsLogicType>([
                         { scene: currentScene, productKey: 'platform_and_support' },
                         { refresh: 'async' }
                     )
+                    breakpoint()
                     return (response.results?.map((result) => result[0]) ?? []) as string[]
                 },
             },
@@ -208,11 +216,9 @@ export const metalyticsLogic = kea<metalyticsLogicType>([
     }),
 
     subscriptions(({ actions, values }) => ({
-        statsInstanceId: (instanceId) => {
-            if (instanceId) {
-                actions.loadViewCount()
-                actions.loadUsersLast30days()
-            }
+        statsInstanceId: () => {
+            actions.loadViewCount()
+            actions.loadUsersLast30days()
         },
         instanceId: async (instanceId) => {
             if (instanceId) {

@@ -40,7 +40,6 @@ import {
     calculateMovePath,
     joinPath,
     matchesRefType,
-    refTypeParams,
     sortFilesAndFolders,
     splitPath,
     splitProtocolPath,
@@ -1624,19 +1623,11 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 if (treeItem) {
                     path = treeItem.path
                 } else if (projectTreeRef.ref !== null) {
-                    const resp = await api.fileSystem.list({
-                        ref: projectTreeRef.ref,
-                        ...refTypeParams(projectTreeRef.type),
-                    })
+                    await projectTreeDataLogic.asyncActions.syncTypeAndRef(projectTreeRef.type, projectTreeRef.ref)
                     breakpoint() // bail if we opened some other item in the meanwhile
-                    if (resp.users?.length > 0) {
-                        actions.addLoadedUsers(resp.users)
-                    }
-                    if (resp.results && resp.results.length > 0) {
-                        const result = resp.results[0]
-                        path = result.path
-                        actions.createSavedItem(result)
-                    }
+                    path = values.viableItems.find(
+                        (item) => matchesRefType(item.type, projectTreeRef.type) && item.ref === projectTreeRef.ref
+                    )?.path
                 }
 
                 if (path && (expandIfHidden || isProjectTreeActive(props, values))) {

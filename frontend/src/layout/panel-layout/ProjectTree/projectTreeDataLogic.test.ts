@@ -111,6 +111,49 @@ describe('projectTreeDataLogic', () => {
         projectTree.unmount()
     })
 
+    it('shares pending item lookups across tree mounts and navigation callbacks', async () => {
+        jest.spyOn(breadcrumbsLogic.selectors, 'projectTreeRef').mockReturnValue({ type: 'insight', ref: 'insight1' })
+        let resolveItem!: () => void
+        jest.mocked(api.fileSystem.list).mockImplementation((params) =>
+            params?.ref
+                ? new Promise((resolve) => {
+                      resolveItem = () =>
+                          resolve({
+                              count: 1,
+                              users: [],
+                              results: [{ id: 'file1', ref: 'insight1', type: 'insight', path: 'Reports/Insight' }],
+                          })
+                  })
+                : Promise.resolve({ count: 0, results: [], users: [] })
+        )
+        const projectTree = projectTreeLogic({ key: 'project-tree', root: 'project://', isActiveInPanel: false })
+        const pickerTree = projectTreeLogic({ key: 'folder-select', root: 'project://' })
+        projectTree.mount()
+        pickerTree.mount()
+        projectTree.actions.assureVisibility({ type: 'insight', ref: 'insight1' }, false)
+        expect(
+            jest.mocked(api.fileSystem.list).mock.calls.filter(([params]) => params?.ref === 'insight1')
+        ).toHaveLength(1)
+
+        resolveItem()
+        await expectLogic(projectTree).toFinishAllListeners()
+        expect(logic.values.viableItems).toEqual(expect.arrayContaining([expect.objectContaining({ ref: 'insight1' })]))
+        await expectLogic(projectTree, () => {
+            projectTree.actions.assureVisibility({ type: 'insight', ref: 'insight1' }, false)
+        }).toFinishAllListeners()
+        expect(
+            jest.mocked(api.fileSystem.list).mock.calls.filter(([params]) => params?.ref === 'insight1')
+        ).toHaveLength(1)
+
+        jest.mocked(api.fileSystem.list).mockResolvedValue({ count: 0, results: [], users: [] })
+        await expectLogic(logic, () => logic.actions.syncTypeAndRef('insight', 'insight1')).toFinishAllListeners()
+        expect(
+            jest.mocked(api.fileSystem.list).mock.calls.filter(([params]) => params?.ref === 'insight1')
+        ).toHaveLength(2)
+        pickerTree.unmount()
+        projectTree.unmount()
+    })
+
     it('defers ancestor folder loading until Files opens and follows the latest insight', async () => {
         const currentItem = jest.spyOn(breadcrumbsLogic.selectors, 'projectTreeRef').mockReturnValue({
             type: 'insight',
