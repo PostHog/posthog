@@ -68,6 +68,7 @@ Content generation does not schedule or send email; delivery is controlled separ
 
 In **Settings > Customer analytics > Notifications**, each user can enable task digest emails and choose a send time and a cadence of **Weekdays** or **Every day**.
 The time uses the project timezone shown beside the control.
+The time dropdown offers half-hour choices and preserves any previously saved custom time.
 Preferences are disabled by default and apply only to the current user in the project.
 Use **Save** to persist changes; a failed save keeps the draft available to retry.
 The same Notifications section contains the existing event stream settings, and existing event stream settings links still open it.

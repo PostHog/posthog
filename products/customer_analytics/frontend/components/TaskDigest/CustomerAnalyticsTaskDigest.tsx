@@ -9,21 +9,35 @@ const CADENCE_OPTIONS = [
     { value: 'every_day' as const, label: 'Every day' },
 ]
 
-const HOUR_OPTIONS = Array.from({ length: 24 }, (_, hour) => {
-    const value = String(hour).padStart(2, '0')
-    return { value, label: value }
-})
+function formatTimeLabel(hour: number, minute: number): string {
+    return `${hour % 12 || 12}:${String(minute).padStart(2, '0')} ${hour < 12 ? 'AM' : 'PM'}`
+}
 
-const MINUTE_OPTIONS = Array.from({ length: 60 }, (_, minute) => {
-    const value = String(minute).padStart(2, '0')
-    return { value, label: value }
+const TIME_OPTIONS = Array.from({ length: 48 }, (_, index) => {
+    const hour = Math.floor(index / 2)
+    const minute = (index % 2) * 30
+    return {
+        value: `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`,
+        label: formatTimeLabel(hour, minute),
+    }
 })
 
 export function CustomerAnalyticsTaskDigest(): JSX.Element {
     const { draft, hasChanges, configLoading, isInitialLoading, configLoadFailed, timezone, validSendTime } =
         useValues(taskDigestLogic)
     const { setDraft, resetDraft, saveTaskDigest, loadConfig } = useActions(taskDigestLogic)
-    const [hour, minute] = draft.send_time.split(':')
+    const [hour, minute] = draft.send_time.split(':').map(Number)
+    const timeOptions =
+        validSendTime && !TIME_OPTIONS.some(({ value }) => value === draft.send_time)
+            ? [
+                  {
+                      value: draft.send_time,
+                      label: `${formatTimeLabel(hour, minute)} (current)`,
+                      hidden: true,
+                  },
+                  ...TIME_OPTIONS,
+              ]
+            : TIME_OPTIONS
 
     if (isInitialLoading) {
         return <LemonSkeleton className="h-20 w-full" />
@@ -47,24 +61,15 @@ export function CustomerAnalyticsTaskDigest(): JSX.Element {
                 <div className="flex flex-col gap-2">
                     <LemonLabel htmlFor="task-digest-send-time">Send at</LemonLabel>
                     <div className="flex flex-row flex-wrap items-center gap-2">
-                        <div className="flex items-center gap-1" data-attr="task-digest-send-time">
-                            <LemonSelect
-                                id="task-digest-send-time"
-                                aria-label="Send hour"
-                                disabled={configLoading}
-                                value={hour}
-                                options={HOUR_OPTIONS}
-                                onChange={(hour) => setDraft({ send_time: `${hour}:${minute}` })}
-                            />
-                            <span aria-hidden="true">:</span>
-                            <LemonSelect
-                                aria-label="Send minute"
-                                disabled={configLoading}
-                                value={minute}
-                                options={MINUTE_OPTIONS}
-                                onChange={(minute) => setDraft({ send_time: `${hour}:${minute}` })}
-                            />
-                        </div>
+                        <LemonSelect
+                            id="task-digest-send-time"
+                            aria-label="Send time"
+                            disabled={configLoading}
+                            value={draft.send_time}
+                            options={timeOptions}
+                            onChange={(send_time) => setDraft({ send_time })}
+                            data-attr="task-digest-send-time"
+                        />
                         <span className="text-secondary">{timezone}</span>
                     </div>
                 </div>
