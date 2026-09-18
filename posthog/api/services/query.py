@@ -1,6 +1,10 @@
+from __future__ import annotations
+
 import time
 from dataclasses import dataclass
-from typing import Literal, Optional, overload
+from typing import TYPE_CHECKING, Literal, Optional, overload
+
+from django.conf import settings
 
 import structlog
 import pydantic_core
@@ -44,6 +48,7 @@ from posthog.hogql.modifiers import create_default_modifiers_for_team
 
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.cloud_utils import is_cloud
+from posthog.dataclasses import frozen
 from posthog.event_usage import AnalyticsProps
 from posthog.exceptions import DatabaseSchemaUnavailable
 from posthog.exceptions_capture import capture_exception
@@ -62,7 +67,27 @@ from products.data_tools.backend.models.join import DataWarehouseJoin
 
 from common.hogvm.python.debugger import color_bytecode
 
+if TYPE_CHECKING:
+    from posthog.hogql.database.database import Database
+
 logger = structlog.get_logger(__name__)
+
+_LEGACY_CATALOG_REVISION_PREFIX = "legacy-v1:"
+_WAREHOUSE_ALIAS_CATALOG_REVISION_PREFIX = "warehouse-aliases-v1:"
+
+
+@frozen
+class _DatabaseSchemaCatalog:
+    response: DatabaseSchemaQueryResponse
+    database: Database
+
+
+def _catalog_revision_matches_rollout(revision: object, *, publish_aliases: bool) -> bool:
+    if not isinstance(revision, str):
+        return False
+    if publish_aliases:
+        return revision.startswith(_WAREHOUSE_ALIAS_CATALOG_REVISION_PREFIX)
+    return revision.isdigit() or revision.startswith(_LEGACY_CATALOG_REVISION_PREFIX)
 
 
 def _language_service_eligible(query: HogQLAutocomplete | HogQLMetadata) -> bool:
@@ -94,15 +119,38 @@ def _language_service_call(
 
         result = call()
     except CatalogMissing:
-        try:
-            schema = process_database_schema_query(team, DatabaseSchemaQuery(), user=user)
-            client.publish(team.pk, user.pk, str(time.time_ns()), build_catalog(team, user, schema))
-            result = call()
-        except LanguageServiceError:
-            return None
+        result = None
     except LanguageServiceError:
         return None
-    return result
+
+    publish_aliases = settings.HOGQL_LANGUAGE_SERVICE_PUBLISH_WAREHOUSE_ALIASES
+    revision_prefix = _WAREHOUSE_ALIAS_CATALOG_REVISION_PREFIX if publish_aliases else _LEGACY_CATALOG_REVISION_PREFIX
+    if result is not None and _catalog_revision_matches_rollout(
+        result.body.get("catalogRevision"), publish_aliases=publish_aliases
+    ):
+        return result
+
+    try:
+        schema_catalog = _build_database_schema_query(team, DatabaseSchemaQuery(), user=user)
+        revision = f"{revision_prefix}{time.time_ns()}"
+        client.publish(
+            team.pk,
+            user.pk,
+            revision,
+            build_catalog(
+                team,
+                user,
+                schema_catalog.response,
+                database=schema_catalog.database,
+                publish_warehouse_aliases=publish_aliases,
+            ),
+        )
+        result = call()
+        if result.body.get("catalogRevision") != revision:
+            raise LanguageServiceError("language service did not return the published catalog revision")
+        return result
+    except LanguageServiceError:
+        return None
 
 
 @dataclass(frozen=True)
@@ -242,6 +290,12 @@ def process_query_dict(
 def process_database_schema_query(
     team: Team, query: DatabaseSchemaQuery, *, user: Optional[User] = None
 ) -> DatabaseSchemaQueryResponse:
+    return _build_database_schema_query(team, query, user=user).response
+
+
+def _build_database_schema_query(
+    team: Team, query: DatabaseSchemaQuery, *, user: Optional[User] = None
+) -> _DatabaseSchemaCatalog:
     try:
         _, database = resolve_database_for_connection(
             team,
@@ -290,7 +344,9 @@ def process_database_schema_query(
             )
         )
 
-    return DatabaseSchemaQueryResponse(tables=serialized_tables, joins=join_models)
+    return _DatabaseSchemaCatalog(
+        response=DatabaseSchemaQueryResponse(tables=serialized_tables, joins=join_models), database=database
+    )
 
 
 @overload

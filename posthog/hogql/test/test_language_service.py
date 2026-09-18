@@ -4,10 +4,16 @@ from django.test import SimpleTestCase, override_settings
 
 import requests
 
+from posthog.schema import DatabaseSchemaDataWarehouseTable, DatabaseSchemaPostHogTable, DatabaseSchemaQueryResponse
+
+from posthog.hogql.database.database import Database
+from posthog.hogql.database.models import TableNode
+from posthog.hogql.database.s3_table import S3Table
 from posthog.hogql.language_service import (
     CatalogMissing,
     LanguageServiceClient,
     LanguageServiceError,
+    build_catalog,
     is_language_service_enabled,
 )
 
@@ -110,3 +116,139 @@ class TestLanguageServiceFeatureFlag(SimpleTestCase):
             only_evaluate_locally=True,
             send_feature_flag_events=False,
         )
+
+
+class TestLanguageServiceCatalog(SimpleTestCase):
+    def _database(self, paths: dict[str, S3Table], *, hidden: set[str] | None = None) -> Database:
+        database = Database(include_posthog_tables=False)
+        for path, table in paths.items():
+            node = TableNode.create_nested_for_chain(path.split("."), table)
+            if hidden and path in hidden:
+                node.hidden = True
+            database.tables.add_child(node)
+        return database
+
+    def _warehouse_schema(self, tables: dict[str, tuple[str, list[str] | None]]) -> DatabaseSchemaQueryResponse:
+        return DatabaseSchemaQueryResponse(
+            tables={
+                name: DatabaseSchemaDataWarehouseTable(fields={}, id=table_id, name=name, search_aliases=aliases)
+                for name, (table_id, aliases) in tables.items()
+            },
+            joins=[],
+        )
+
+    @patch("posthog.hogql.language_service._properties_for_namespace", return_value=[])
+    def test_publishes_only_resolver_confirmed_aliases(self, _properties: MagicMock) -> None:
+        orders = S3Table(name="orders", fields={}, url="", table_id="orders-id")
+        database = self._database(
+            {
+                "postgres.demo.orders": orders,
+                "demo_postgres_orders": orders,
+                "DEMO_POSTGRES_ORDERS": orders,
+            }
+        )
+        schema = self._warehouse_schema(
+            {"postgres.demo.orders": ("orders-id", ["demo_postgres_orders", "DEMO_POSTGRES_ORDERS"])}
+        )
+
+        catalog = build_catalog(MagicMock(), MagicMock(), schema, database=database, publish_warehouse_aliases=True)
+
+        assert catalog["tableAliases"] == {
+            "demo_postgres_orders": "postgres.demo.orders",
+            "DEMO_POSTGRES_ORDERS": "postgres.demo.orders",
+        }
+
+    @patch("posthog.hogql.language_service._properties_for_namespace", return_value=[])
+    def test_uses_the_resolver_winner_for_colliding_alias_candidates(self, _properties: MagicMock) -> None:
+        orders = S3Table(name="orders", fields={}, url="", table_id="orders-id")
+        customers = S3Table(name="customers", fields={}, url="", table_id="customers-id")
+        database = self._database(
+            {
+                "postgres.demo.orders": orders,
+                "postgres.demo.customers": customers,
+                "demo_shared": customers,
+            }
+        )
+        schema = self._warehouse_schema(
+            {
+                "postgres.demo.orders": ("orders-id", ["demo_shared"]),
+                "postgres.demo.customers": ("customers-id", None),
+            }
+        )
+
+        catalog = build_catalog(MagicMock(), MagicMock(), schema, database=database, publish_warehouse_aliases=True)
+
+        assert catalog["tableAliases"] == {"demo_shared": "postgres.demo.customers"}
+
+    @patch("posthog.hogql.language_service._properties_for_namespace", return_value=[])
+    def test_rejects_mismatched_canonical_and_alias_identities(self, _properties: MagicMock) -> None:
+        canonical = S3Table(name="orders", fields={}, url="", table_id="resolver-id")
+        schema = self._warehouse_schema({"postgres.demo.orders": ("serialized-id", None)})
+
+        with self.assertRaisesRegex(LanguageServiceError, "does not match the HogQL resolver"):
+            build_catalog(
+                MagicMock(),
+                MagicMock(),
+                schema,
+                database=self._database({"postgres.demo.orders": canonical}),
+                publish_warehouse_aliases=True,
+            )
+
+        alias = S3Table(name="orders_alias", fields={}, url="", table_id="resolver-id")
+        schema = self._warehouse_schema({"postgres.demo.orders": ("resolver-id", ["demo_postgres_orders"])})
+        with self.assertRaisesRegex(LanguageServiceError, "has no unique visible target"):
+            build_catalog(
+                MagicMock(),
+                MagicMock(),
+                schema,
+                database=self._database({"postgres.demo.orders": canonical, "demo_postgres_orders": alias}),
+                publish_warehouse_aliases=True,
+            )
+
+    @patch("posthog.hogql.language_service._properties_for_namespace", return_value=[])
+    def test_rejects_hidden_or_ambiguous_alias_targets(self, _properties: MagicMock) -> None:
+        orders = S3Table(name="orders", fields={}, url="", table_id="orders-id")
+        hidden_database = self._database(
+            {"postgres.demo.orders": orders, "demo_postgres_orders": orders}, hidden={"demo_postgres_orders"}
+        )
+        schema = self._warehouse_schema({"postgres.demo.orders": ("orders-id", ["demo_postgres_orders"])})
+
+        with self.assertRaisesRegex(LanguageServiceError, "is not visible"):
+            build_catalog(MagicMock(), MagicMock(), schema, database=hidden_database, publish_warehouse_aliases=True)
+
+        ambiguous_schema = self._warehouse_schema(
+            {
+                "postgres.demo.orders": ("orders-id", ["demo_postgres_orders"]),
+                "postgres.archive.orders": ("orders-id", None),
+            }
+        )
+        ambiguous_database = self._database(
+            {
+                "postgres.demo.orders": orders,
+                "postgres.archive.orders": orders,
+                "demo_postgres_orders": orders,
+            }
+        )
+        with self.assertRaisesRegex(LanguageServiceError, "has no unique visible target"):
+            build_catalog(
+                MagicMock(), MagicMock(), ambiguous_schema, database=ambiguous_database, publish_warehouse_aliases=True
+            )
+
+    @patch("posthog.hogql.language_service._properties_for_namespace", return_value=[])
+    def test_ignores_builtin_search_metadata_and_identity_aliases(self, _properties: MagicMock) -> None:
+        orders = S3Table(name="orders", fields={}, url="", table_id="orders-id")
+        database = self._database({"postgres.demo.orders": orders})
+        schema = self._warehouse_schema({"postgres.demo.orders": ("orders-id", ["postgres.demo.orders"])})
+        schema.tables["events"] = DatabaseSchemaPostHogTable(fields={}, id="events", name="events")
+
+        catalog = build_catalog(MagicMock(), MagicMock(), schema, database=database, publish_warehouse_aliases=True)
+
+        assert catalog["tableAliases"] == {}
+
+    @patch("posthog.hogql.language_service._properties_for_namespace", return_value=[])
+    def test_omits_alias_contract_when_publication_is_disabled(self, _properties: MagicMock) -> None:
+        schema = self._warehouse_schema({"postgres.demo.orders": ("orders-id", ["demo_postgres_orders"])})
+
+        catalog = build_catalog(MagicMock(), MagicMock(), schema)
+
+        assert "tableAliases" not in catalog
