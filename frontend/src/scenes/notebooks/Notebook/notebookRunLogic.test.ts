@@ -77,6 +77,9 @@ describe('notebookRunLogic', () => {
         await expectLogic(logic, () => logic!.actions.startRun())
             .toDispatchActions(['pollRun', 'setRun'])
             .toMatchValues({ progressLabel: 'Running cell 1 of 2' })
+        // The started run's id is the only thing linking the poll to the run just created;
+        // polling with undefined would 404 and silently abandon it.
+        expect(notebooksRunsRetrieve).toHaveBeenCalledWith(expect.any(String), SHORT_ID, 'nbrun-1')
         await expectLogic(staleness).toDispatchActions([
             staleness.actionCreators.adoptChainRun('s1', 'cell-1'),
             staleness.actionCreators.adoptChainRun('p1', 'cell-2'),
