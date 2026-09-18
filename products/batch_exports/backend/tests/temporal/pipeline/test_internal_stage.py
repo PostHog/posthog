@@ -316,11 +316,6 @@ async def test_insert_into_stage_activity_for_events_model(
     exclude_events,
     truncate_clickhouse_tables,
 ):
-    """Test that the insert_into_internal_stage_activity produces expected data in the internal stage.
-
-    For now we just check that the number of records exported is correct, not the content of the records.
-    """
-
     records_exported = await _run_activity(
         activity_environment=activity_environment,
         object_storage_client=object_storage_client,
@@ -334,6 +329,9 @@ async def test_insert_into_stage_activity_for_events_model(
     events_to_export_created = generate_test_data[0]
 
     assert len(records_exported) == len(events_to_export_created)
+    assert {record["uuid"]: record["person_id"] for record in records_exported} == {
+        event["uuid"]: event["person_id"] for event in events_to_export_created
+    }
 
 
 @pytest.mark.parametrize("interval", ["day"], indirect=True)
