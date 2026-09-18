@@ -18,6 +18,7 @@ from posthog.clickhouse.preaggregation.web_overview_preaggregated_sql import (
     DISTRIBUTED_WEB_OVERVIEW_PREAGGREGATED_TABLE,
 )
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
+from posthog.dataclasses import frozen
 
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
     LazyComputationResult,
@@ -497,26 +498,35 @@ _CHANNEL_STATE_COLUMNS = (
 )
 
 
-def channel_precompute_windows(
-    start: datetime, end: datetime
-) -> tuple[datetime, datetime, list[tuple[datetime, datetime]]]:
+@frozen
+class ChannelPrecomputeWindows:
+    """How a channel-filtered period splits into cached interior days and live boundaries."""
+
+    interior_start: datetime
+    interior_end: datetime
+    boundaries: list[tuple[datetime, datetime]]
+
+
+def channel_precompute_windows(start: datetime, end: datetime) -> ChannelPrecomputeWindows:
     interior_start = ceil_utc_day(start)
     interior_end = floor_utc_day(end - timedelta(minutes=SESSION_FORWARD_PAD_MINUTES))
     exclusive_end = end + timedelta(microseconds=1)
     if interior_start >= interior_end:
-        return interior_start, interior_start, [(start, exclusive_end)]
+        return ChannelPrecomputeWindows(
+            interior_start=interior_start, interior_end=interior_start, boundaries=[(start, exclusive_end)]
+        )
     boundaries = [(interior_end, exclusive_end)]
     if start < interior_start:
         boundaries.insert(0, (start, interior_start))
-    return interior_start, interior_end, boundaries
+    return ChannelPrecomputeWindows(interior_start=interior_start, interior_end=interior_end, boundaries=boundaries)
 
 
 def execute_channel_period_read(runner: "WebOverviewQueryRunner", start: datetime, end: datetime) -> Optional[list]:
-    interior_start, interior_end, boundaries = channel_precompute_windows(start, end)
+    windows = channel_precompute_windows(start, end)
     sources: list[str] = []
     params: dict[str, object] = {}
-    if interior_start < interior_end:
-        result = ensure_web_overview_precomputed(runner, interior_start, interior_end)
+    if windows.interior_start < windows.interior_end:
+        result = ensure_web_overview_precomputed(runner, windows.interior_start, windows.interior_end)
         if not result.ready or not result.job_ids:
             WEB_ANALYTICS_LAZY_PRECOMPUTE_FALLBACK.labels(family=_FAMILY, reason="current_not_ready").inc()
             return None
@@ -530,14 +540,14 @@ def execute_channel_period_read(runner: "WebOverviewQueryRunner", start: datetim
         params.update(
             team_id=runner.team.pk,
             job_ids=tuple(str(job_id) for job_id in result.job_ids),
-            interior_start=interior_start,
-            interior_end=interior_end,
+            interior_start=windows.interior_start,
+            interior_end=windows.interior_end,
         )
 
     context = HogQLContext(
         team=runner.team, team_id=runner.team.pk, modifiers=runner.modifiers, enable_select_queries=True
     )
-    for boundary_start, boundary_end in boundaries:
+    for boundary_start, boundary_end in windows.boundaries:
         placeholders = channel_insert_placeholders(runner)
         placeholders.update(
             time_window_min=ast.Constant(value=boundary_start),
