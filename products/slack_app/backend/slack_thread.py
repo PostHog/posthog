@@ -6,6 +6,7 @@ import structlog
 from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
 
+from posthog.comment.formatting import escape_slack_mrkdwn
 from posthog.helpers.slack_markdown import SLACK_MARKDOWN_TEXT_MAX_LEN, slack_markdown_block
 from posthog.models.integration import Integration, SlackIntegration
 
@@ -477,8 +478,15 @@ class SlackThreadHandler:
             {"type": "section", "text": {"type": "mrkdwn", "text": text}},
         ]
 
+        # Same segments as the reply footer, so a reader sees the project a task is
+        # running against while it works rather than only once it answers.
+        context_segments: list[str] = []
+        if self.run_footer.project:
+            context_segments.append(f"Project: *{escape_slack_mrkdwn(self.run_footer.project)}*")
         if self.run_footer.model:
-            blocks.append(context_block(describe_run_model(self.run_footer.model, self.run_footer.reasoning_effort)))
+            context_segments.append(describe_run_model(self.run_footer.model, self.run_footer.reasoning_effort))
+        if context_segments:
+            blocks.append(context_block(" · ".join(context_segments)))
 
         if task_url:
             blocks.append(

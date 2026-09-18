@@ -691,15 +691,32 @@ class RunFooter:
         return any((self.task_url, self.desktop_url, self.model, self.project))
 
 
-def _project_name(team_id: int) -> str | None:
-    """The project a run answered from, named for the footer.
+def _project_name(team_id: int, *, integration_id: int | None, created_by_id: int | None) -> str | None:
+    """The project a run answered from, named for the footer, when the reader had
+    another project it could have been.
 
-    The run's own team is the project, so this needs no join through the thread mapping:
-    a task, its mapping and every run on it belong to one project.
+    The run's own team is the project, so the name needs no join through the thread
+    mapping: a task, its mapping and every run on it belong to one project.
+
+    Naming it only earns a segment where it disambiguates. A workspace wired to one
+    project, or a reader who can open only one of the several it carries, has nothing to
+    tell apart, and the name would then repeat on every reply while never changing.
+    Without the workspace or the person to judge that against, the footer says nothing.
     """
     from posthog.models.team.team import Team  # noqa: PLC0415 — keeps the model off this module's import path
+    from posthog.models.user import User  # noqa: PLC0415
 
+    from products.slack_app.backend.services.integration_resolver import accessible_projects  # noqa: PLC0415
+
+    if integration_id is None or created_by_id is None:
+        return None
     try:
+        integration = Integration.objects.filter(pk=integration_id).only("integration_id").first()
+        user = User.objects.filter(pk=created_by_id).first()
+        if integration is None or user is None:
+            return None
+        if len(accessible_projects(slack_team_id=integration.integration_id, user=user)) < 2:
+            return None
         team = Team.objects.filter(pk=team_id).only("name").first()
     except Exception:
         # Its own guard, not the caller's: a failed lookup must cost the reader one
@@ -709,7 +726,7 @@ def _project_name(team_id: int) -> str | None:
     return team.name if team else None
 
 
-def load_run_footer(run_id: str | UUID | None) -> RunFooter:
+def load_run_footer(run_id: str | UUID | None, *, integration_id: int | None = None) -> RunFooter:
     """Describe a run for the footer.
 
     Never raises: the footer is the last thing added to an answer that is already
@@ -718,6 +735,10 @@ def load_run_footer(run_id: str | UUID | None) -> RunFooter:
     Describes the run in full, links included. Whether the reader gets the desktop link
     is ``viewer_has_code_access``'s question, asked where the reader is known; the web
     link is for everyone, since the task page enforces access itself.
+
+    ``integration_id`` is the install the reply is posted through. It names the project
+    only when the workspace behind it offers more than one, so a caller that omits it
+    gets a footer without a project rather than one that names it unconditionally.
     """
     # Deferred so the tasks product stays off this module's import path, matching
     # `model_catalogue`.
@@ -742,7 +763,11 @@ def load_run_footer(run_id: str | UUID | None) -> RunFooter:
             desktop_url=_desktop_bridge_url(run.task_id),
             model=state.model,
             reasoning_effort=state.reasoning_effort,
-            project=_project_name(run.team_id),
+            project=_project_name(
+                run.team_id,
+                integration_id=integration_id,
+                created_by_id=run.created_by_id,
+            ),
         )
     except Exception:
         logger.exception("slack_app_run_footer_load_failed", run_id=str(run_id))
