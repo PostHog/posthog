@@ -43,6 +43,7 @@ from posthog.llm.semantic_enrichment import (
 )
 from posthog.models import Team
 from posthog.temporal.common.client import sync_connect
+from posthog.temporal.common.utils import retry_on_db_connection_drop
 
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.data_modeling.backend.models.datawarehouse_saved_query_column_annotation import (
@@ -360,8 +361,10 @@ class _BatchRun:
 def _resolve_enrichment_target(team_id: int, saved_query_id: str) -> _EnrichmentTarget | _EnrichmentSkip:
     """Load the view and apply every eligibility gate. The gates are the source of truth for the dispatch
     pre-checks (`enrichment_dispatch_pending`), which only filter cheaply."""
-    team = (
-        Team.objects.select_related("organization")
+    # First read of the activity, so it is the one that meets a pooled connection the pooler recycled
+    # while the worker was idle. Retry once on a fresh connection instead of failing the attempt.
+    team = retry_on_db_connection_drop(
+        lambda: Team.objects.select_related("organization")
         .only("id", "uuid", "organization_id", "organization__is_ai_data_processing_approved")
         .get(id=team_id)
     )
