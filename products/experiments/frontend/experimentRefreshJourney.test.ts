@@ -104,6 +104,21 @@ describe('experiment refresh journey', () => {
         expect(handle.finish).toHaveBeenCalledWith('failed', expect.objectContaining({ error_type: 'query_error' }))
     })
 
+    it.each([
+        [{ code: 'clickhouse_memory_limit_exceeded', statusCode: 400 }, 'failed', 'out_of_memory'],
+        [{ statusCode: 504 }, 'timed_out', 'timeout'],
+        [{ statusCode: 512 }, 'failed', 'query_rejected'],
+        [{ statusCode: 500 }, 'failed', 'query_error'],
+    ])('preserves structured per-metric failure %j without error text', (failure, outcome, errorType) => {
+        const controller = new ExperimentRefreshJourneyController(jest.fn())
+        controller.observe(true)
+        controller.start(12, 'refresh-a', groups, 'per_metric')
+        controller.group('refresh-a', 'primary', [], [{ ...failure, detail: 'synthetic-secret' }])
+        controller.committed('refresh-a')
+        expect(handle.finish).toHaveBeenCalledTimes(1)
+        expect(handle.finish).toHaveBeenCalledWith(outcome, { total_count: 3, error_type: errorType })
+    })
+
     it('accepts empty required groups, ignores replaced callbacks and closes on surface removal', () => {
         const ready = jest.fn()
         const controller = new ExperimentRefreshJourneyController(ready)

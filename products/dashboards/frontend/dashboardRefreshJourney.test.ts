@@ -279,56 +279,59 @@ describe('DashboardRefreshJourneyController', () => {
         )
     })
 
-    it('finishes failed without shrinking the fixed denominator', () => {
-        const journey = handle()
-        startCustomerJourney.mockReturnValue(journey)
-        const controller = new DashboardRefreshJourneyController()
-        controller.setTileVisibility({ tileId: 1, insightShortId: 'one', insightType: 'FUNNELS' }, true)
-        controller.setTileVisibility({ tileId: 2, insightShortId: 'two', insightType: 'RETENTION' }, true)
-        controller.setTileVisibility({ tileId: 3, insightShortId: 'three', insightType: 'PATHS' }, true)
-        controller.start(99, 'refresh-id', [
-            { tileId: 1, insightShortId: 'one' },
-            { tileId: 2, insightShortId: 'two' },
-            { tileId: 3, insightShortId: 'three' },
-        ])
-        controller.setTileVisibility({ tileId: 2, insightShortId: 'two', insightType: 'RETENTION' }, false)
+    it.each(['query_error', 'out_of_memory', 'query_rejected', 'timeout'] as const)(
+        'finishes %s without shrinking the fixed denominator',
+        (errorType) => {
+            const journey = handle()
+            startCustomerJourney.mockReturnValue(journey)
+            const controller = new DashboardRefreshJourneyController()
+            controller.setTileVisibility({ tileId: 1, insightShortId: 'one', insightType: 'FUNNELS' }, true)
+            controller.setTileVisibility({ tileId: 2, insightShortId: 'two', insightType: 'RETENTION' }, true)
+            controller.setTileVisibility({ tileId: 3, insightShortId: 'three', insightType: 'PATHS' }, true)
+            controller.start(99, 'refresh-id', [
+                { tileId: 1, insightShortId: 'one' },
+                { tileId: 2, insightShortId: 'two' },
+                { tileId: 3, insightShortId: 'three' },
+            ])
+            controller.setTileVisibility({ tileId: 2, insightShortId: 'two', insightType: 'RETENTION' }, false)
 
-        controller.renderCommitted('attempt-1', 2)
-        controller.failed('attempt-1', 1, 'query_error')
+            controller.renderCommitted('attempt-1', 2)
+            controller.failed('attempt-1', 1, errorType)
 
-        expect(journey.finish).toHaveBeenCalledWith(
-            'failed',
-            expect.objectContaining({
-                total_count: 3,
-                ready_count: 1,
-                failed_count: 1,
-                pending_count: 1,
-                error_type: 'query_error',
-                tile_results_truncated: false,
-                tile_results: [
-                    {
-                        tile_id: 1,
-                        insight_short_id: 'one',
-                        insight_type: 'FUNNELS',
-                        state: 'failed',
-                    },
-                    {
-                        tile_id: 2,
-                        insight_short_id: 'two',
-                        insight_type: 'RETENTION',
-                        state: 'ready',
-                        duration_ms: expect.any(Number),
-                    },
-                    {
-                        tile_id: 3,
-                        insight_short_id: 'three',
-                        insight_type: 'PATHS',
-                        state: 'pending',
-                    },
-                ],
-            })
-        )
-    })
+            expect(journey.finish).toHaveBeenCalledWith(
+                errorType === 'timeout' ? 'timed_out' : 'failed',
+                expect.objectContaining({
+                    total_count: 3,
+                    ready_count: 1,
+                    failed_count: 1,
+                    pending_count: 1,
+                    error_type: errorType,
+                    tile_results_truncated: false,
+                    tile_results: [
+                        {
+                            tile_id: 1,
+                            insight_short_id: 'one',
+                            insight_type: 'FUNNELS',
+                            state: 'failed',
+                        },
+                        {
+                            tile_id: 2,
+                            insight_short_id: 'two',
+                            insight_type: 'RETENTION',
+                            state: 'ready',
+                            duration_ms: expect.any(Number),
+                        },
+                        {
+                            tile_id: 3,
+                            insight_short_id: 'three',
+                            insight_type: 'PATHS',
+                            state: 'pending',
+                        },
+                    ],
+                })
+            )
+        }
+    )
 
     it('freezes the initial visible set only after the complete manifest has a real observation for every insight', () => {
         const journey = handle()

@@ -3626,11 +3626,16 @@ describe('dashboardLogic', () => {
                         logic.actions.triggerDashboardRefresh('manual')
                         await poll(() => requestIndex === 2, 'manual generation A did not start both tile requests')
 
-                        requests[0].reject(new Error('generation A failed'))
+                        requests[0].reject(Object.assign(new Error('generation A failed'), { status: 504 }))
                         await poll(() => journey.finish.mock.calls.length === 1, 'generation A did not finish failed')
                         expect(journey.finish).toHaveBeenCalledWith(
-                            'failed',
-                            expect.objectContaining({ total_count: 2, failed_count: 1, pending_count: 1 })
+                            'timed_out',
+                            expect.objectContaining({
+                                total_count: 2,
+                                failed_count: 1,
+                                pending_count: 1,
+                                error_type: 'timeout',
+                            })
                         )
 
                         logic.actions.refreshDashboardItems({
@@ -3683,6 +3688,19 @@ describe('dashboardLogic', () => {
                 const dashboard = dashboards[5]
                 const insight1 = dashboard.tiles[0].insight!
                 const insight2 = dashboard.tiles[1].insight!
+                const journey = {
+                    attemptId: 'oom-attempt',
+                    firstUseful: jest.fn(),
+                    finish: jest.fn(),
+                    dispose: jest.fn(),
+                }
+                mockStartCustomerJourney.mockReturnValue(journey)
+                for (const tile of logic.values.insightTiles) {
+                    logic.actions.setDashboardTileJourneyVisibility(
+                        { tileId: tile.id, insightShortId: tile.insight!.short_id, insightType: 'RETENTION' },
+                        true
+                    )
+                }
                 const getInsightWithRetrySpy = jest.spyOn(dashboardUtils, 'getInsightWithRetry').mockResolvedValue({
                     ...insight1,
                     query_status: {
@@ -3692,7 +3710,7 @@ describe('dashboardLogic', () => {
                         error: true,
                         complete: true,
                         error_message: 'This query ran out of memory before it could finish',
-                        error_code: 'query_memory_limit',
+                        error_code: 'clickhouse_memory_limit_exceeded',
                     },
                 })
 
@@ -3705,11 +3723,15 @@ describe('dashboardLogic', () => {
                         errored: true,
                         error: expect.objectContaining({
                             detail: 'This query ran out of memory before it could finish',
-                            code: 'query_memory_limit',
+                            code: 'clickhouse_memory_limit_exceeded',
                         }),
                     })
                 }
 
+                expect(journey.finish).toHaveBeenCalledWith(
+                    'failed',
+                    expect.objectContaining({ error_type: 'out_of_memory' })
+                )
                 getInsightWithRetrySpy.mockRestore()
             })
 
