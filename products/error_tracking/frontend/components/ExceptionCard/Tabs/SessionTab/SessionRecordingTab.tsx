@@ -3,6 +3,8 @@ import { useValues } from 'kea'
 import { IconExternal } from '@posthog/icons'
 import { LemonBanner } from '@posthog/lemon-ui'
 
+import { errorPropertiesLogic } from 'lib/components/Errors/errorPropertiesLogic'
+import { recordingDisabledReason } from 'lib/components/ViewRecordingButton/ViewRecordingButton'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { Button, TabsContent } from 'lib/ui/quill'
 import { SessionRecordingPlayer } from 'scenes/session-recordings/player/SessionRecordingPlayer'
@@ -21,7 +23,24 @@ export function SessionRecordingTab(): JSX.Element {
 }
 
 export function SessionRecordingContent(): JSX.Element {
+    const { properties, recordingStatus } = useValues(errorPropertiesLogic)
     const { recordingProps, recordingTimestamp, isTimestampOutsideRecording, sessionId } = useValues(sessionTabLogic)
+
+    // The event already carries why replay was not running when it was captured. Say that, rather
+    // than mounting a player that can only 404 and then explain the miss in project-wide terms.
+    // A recorder that reports itself off can still sit in a session recorded earlier, so a known
+    // recording always wins and the player stays.
+    const hasRecording = properties?.$has_recording as boolean | undefined
+    const noRecordingReason =
+        hasRecording === true ? null : recordingDisabledReason(sessionId, recordingStatus, hasRecording)
+
+    if (noRecordingReason) {
+        return (
+            <div className="flex h-full w-full items-center justify-center p-4">
+                <p className="max-w-md text-center text-secondary">{noRecordingReason}</p>
+            </div>
+        )
+    }
 
     const replayUrl = urls.replaySingle(
         sessionId,
