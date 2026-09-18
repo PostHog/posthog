@@ -8,6 +8,7 @@ here so both `web_overview_lazy_precompute.py` and `web_stats_lazy_precompute.py
 share one implementation.
 """
 
+import json
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from typing import Optional, Protocol, Union
@@ -72,6 +73,19 @@ SUPPORTED_USER_FILTER_KEYS: set[str] = {"$host"}
 # enough daily jobs that the first request burns INSERT slots for minutes.
 MAX_PRECOMPUTE_DAYS = 90
 
+# Channel-filtered shapes accept a full year (+leap): the whole point of admitting
+# the `$channel_type` filter is the long-range dashboards it appears on, and the
+# per-day jobs bound each insert regardless of span. Cold spans build behind the
+# live fallback, so the first request never burns the slots itself.
+CHANNEL_MAX_PRECOMPUTE_DAYS = 366
+
+# TTL schedule for channel-filtered shapes: same graded bands as LAZY_TTL_SECONDS
+# for recent days, but old immutable days are held for 90 days instead of 21.
+# Without the longer hold, a year-long shape re-scans a year of events every three
+# weeks per shape; day buckets past the settling window never change, so holding
+# them longer costs storage only (the dimensional tables use the same policy).
+CHANNEL_TTL_SECONDS: dict[str, int] = {**LAZY_TTL_SECONDS, "default": 90 * 24 * 60 * 60}
+
 # Forward pad on the per-job event-scan window. The lazy_computation framework
 # chunks the precompute span into daily UTC jobs; each job covers
 # `[time_window_min, time_window_max)`. A session starting at 23:50 with events
@@ -109,6 +123,9 @@ class LazyPrecomputeRunner(Protocol):
 
     @property
     def events_session_property(self) -> ast.Expr: ...
+
+    @property
+    def modifiers(self) -> object: ...
 
 
 class LazyPrecomputeIneligible(Exception):
@@ -352,6 +369,32 @@ def is_constant_true(expr: ast.Expr) -> bool:
     """True when a substituted filter placeholder is the trivial `Constant(True)` —
     i.e. the cache key carries no user or test-account filter."""
     return isinstance(expr, ast.Constant) and expr.value is True
+
+
+def has_channel_type_filter(runner: LazyPrecomputeRunner) -> bool:
+    """True when the query carries the one admitted session filter, `$channel_type`."""
+    return any(
+        get_property_type(prop) == "session" and get_property_key(prop) == "$channel_type"
+        for prop in runner.query.properties or []
+    )
+
+
+def channel_rules_shape_key(runner: LazyPrecomputeRunner) -> str:
+    """The team's custom channel rules, serialized deterministically.
+
+    `session.$channel_type` inside the INSERT resolves through these rules, but
+    modifiers are absent from the lazy job hash — so every channel-filtered
+    ensure folds this string into both the job identity (via
+    `with_channel_rules_key`) and the shape-cap key (via `shape_key_extra`),
+    and a rules edit rotates the buckets instead of serving stale classes."""
+    return json.dumps(runner.modifiers.model_dump(mode="json")["customChannelTypeRules"], sort_keys=True)
+
+
+def with_channel_rules_key(user_filter: ast.Expr, runner: LazyPrecomputeRunner) -> ast.Expr:
+    """AND a no-op `rules = rules` predicate onto the insert's user filter so the
+    channel rules join the executor's query hash without changing what it scans."""
+    rules = ast.Constant(value=channel_rules_shape_key(runner))
+    return ast.And(exprs=[user_filter, ast.CompareOperation(op=ast.CompareOperationOp.Eq, left=rules, right=rules)])
 
 
 # The line every no-join insert template's sessions-side WHERE ends with; the

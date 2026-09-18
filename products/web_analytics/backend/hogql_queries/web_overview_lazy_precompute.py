@@ -1,4 +1,3 @@
-import json
 import time
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Optional
@@ -13,7 +12,6 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_and_print_ast
-from posthog.hogql.property import get_property_key, get_property_type
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.preaggregation.web_overview_preaggregated_sql import (
@@ -26,6 +24,8 @@ from products.analytics_platform.backend.lazy_computation.lazy_computation_execu
     LazyComputationTable,
 )
 from products.web_analytics.backend.hogql_queries.web_analytics_lazy_precompute import (
+    CHANNEL_MAX_PRECOMPUTE_DAYS,
+    CHANNEL_TTL_SECONDS,
     LAZY_TTL_SECONDS,
     MAX_PRECOMPUTE_DAYS,
     SESSION_FORWARD_PAD_MINUTES,
@@ -33,9 +33,11 @@ from products.web_analytics.backend.hogql_queries.web_analytics_lazy_precompute 
     WEB_ANALYTICS_LAZY_PRECOMPUTE_SUCCESS,
     can_use_lazy_precompute as _can_use_lazy_precompute_shared,
     ceil_utc_day,
+    channel_rules_shape_key,
     check_common_eligible,
     events_session_id_expr,
     floor_utc_day,
+    has_channel_type_filter,
     is_constant_true,
     test_account_filter_expr,
     user_filter_expr,
@@ -47,7 +49,6 @@ from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common imp
 )
 
 _FAMILY = "web_overview"
-CHANNEL_MAX_PRECOMPUTE_DAYS = 366
 
 if TYPE_CHECKING:
     from products.web_analytics.backend.hogql_queries.web_overview import WebOverviewQueryRunner
@@ -60,13 +61,6 @@ WEB_OVERVIEW_LAZY_FAILED = Counter(
     "Lazy precompute path failures, by error class",
     ["error_type"],
 )
-
-
-def has_channel_type_filter(runner: "WebOverviewQueryRunner") -> bool:
-    return any(
-        get_property_type(prop) == "session" and get_property_key(prop) == "$channel_type"
-        for prop in runner.query.properties or []
-    )
 
 
 def can_use_lazy_precompute(runner: "WebOverviewQueryRunner") -> bool:
@@ -211,9 +205,7 @@ def channel_insert_placeholders(runner: "WebOverviewQueryRunner") -> dict[str, a
         "pad_minutes": ast.Constant(value=SESSION_FORWARD_PAD_MINUTES),
         "event_period_filter": ast.Constant(value=True),
         # Modifiers are absent from the lazy job hash, but channel rules change its population.
-        "channel_rules_key": ast.Constant(
-            value=json.dumps(runner.modifiers.model_dump(mode="json")["customChannelTypeRules"], sort_keys=True)
-        ),
+        "channel_rules_key": ast.Constant(value=channel_rules_shape_key(runner)),
     }
 
 
@@ -256,14 +248,12 @@ def ensure_web_overview_precomputed(
         insert_query=insert_query,
         time_range_start=time_range_start,
         time_range_end=time_range_end,
-        ttl_seconds=LAZY_TTL_SECONDS,
+        ttl_seconds=CHANNEL_TTL_SECONDS if has_channel_type_filter(runner) else LAZY_TTL_SECONDS,
         table=LazyComputationTable.WEB_OVERVIEW_PREAGGREGATED,
         placeholders=placeholders,
         query_type="web_overview_lazy_insert",
         modifiers=modifiers,
-        shape_key_extra=json.dumps(runner.modifiers.model_dump(mode="json")["customChannelTypeRules"], sort_keys=True)
-        if has_channel_type_filter(runner)
-        else None,
+        shape_key_extra=channel_rules_shape_key(runner) if has_channel_type_filter(runner) else None,
     )
 
 

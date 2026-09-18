@@ -295,6 +295,21 @@ class TestWebStatsPathsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
 
     @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_session_property_filter_falls_through(self):
+        # `$channel_type` is the ONE admitted session filter; every other session
+        # property must keep falling through to the live path.
+        with self._enable_lazy():
+            self._run(
+                self._build_query(
+                    properties=[
+                        SessionPropertyFilter(key="$session_duration", value=10, operator=PropertyOperator.GT),
+                    ]
+                )
+            )
+        assert PreaggregationJob.objects.filter(team_id=self.team.pk).count() == 0
+
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
+    def test_channel_type_filter_creates_precompute_job(self):
+        self._seed_two_sessions()
         with self._enable_lazy():
             self._run(
                 self._build_query(
@@ -303,7 +318,47 @@ class TestWebStatsPathsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
                     ]
                 )
             )
-        assert PreaggregationJob.objects.filter(team_id=self.team.pk).count() == 0
+        assert PreaggregationJob.objects.filter(team_id=self.team.pk).count() > 0
+
+    def test_channel_rules_rotate_the_job_hash(self):
+        # A custom-channel-rules edit reclassifies sessions, so the buckets built
+        # under the old rules must not be reused — the rules join the job hash.
+        # Driven through the warmer's ensure (inline inserts allowed) so job
+        # creation is deterministic; the user path defers builds to a debounced
+        # background enqueue that this test must not depend on.
+        from datetime import UTC, datetime
+
+        from posthog.clickhouse.query_tagging import tags_context
+
+        from products.web_analytics.backend.hogql_queries.web_stats_paths_lazy_precompute import (
+            ensure_web_stats_paths_precomputed,
+        )
+
+        props = [SessionPropertyFilter(key="$channel_type", value="Direct", operator=PropertyOperator.EXACT)]
+        start, end = datetime(2024, 1, 1, tzinfo=UTC), datetime(2024, 1, 8, tzinfo=UTC)
+        self._seed_two_sessions()
+        with self._enable_lazy(), tags_context(trigger="webAnalyticsQueryWarming"):
+            runner = WebStatsTableQueryRunner(team=self.team, query=self._build_query(properties=props))
+            ensure_web_stats_paths_precomputed(runner=runner, time_range_start=start, time_range_end=end)
+            hashes_before = {str(j.query_hash) for j in PreaggregationJob.objects.filter(team_id=self.team.pk)}
+            assert hashes_before, "channel-filtered ensure should create precompute jobs"
+
+            self.team.modifiers = {
+                "customChannelTypeRules": [
+                    {
+                        "channel_type": "Partners",
+                        "combiner": "OR",
+                        "id": "partner-rule",
+                        "items": [{"id": "c1", "key": "utm_source", "op": "exact", "value": ["partner"]}],
+                    }
+                ]
+            }
+            self.team.save()
+            runner_after = WebStatsTableQueryRunner(team=self.team, query=self._build_query(properties=props))
+            ensure_web_stats_paths_precomputed(runner=runner_after, time_range_start=start, time_range_end=end)
+            hashes_after = {str(j.query_hash) for j in PreaggregationJob.objects.filter(team_id=self.team.pk)}
+
+        assert hashes_after - hashes_before, "a rules edit must mint new job hashes, not reuse the old buckets"
 
     @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_sampling_falls_through(self):

@@ -28,7 +28,7 @@ from prometheus_client import Counter
 from posthog.schema import SessionsV2JoinMode, WebAnalyticsPreComputeStrategy
 
 from posthog.hogql import ast
-from posthog.hogql.property import get_property_type, property_to_expr
+from posthog.hogql.property import get_property_key, get_property_type, property_to_expr
 from posthog.hogql.transforms.preaggregated_table_transformation import is_integer_timezone
 
 from posthog import redis
@@ -697,9 +697,9 @@ class MissingDateRange(LazyPrecomputeIneligible):
 
 
 class DateRangeOverMax(LazyPrecomputeIneligible):
-    def __init__(self, days: int):
+    def __init__(self, days: int, max_days: int = MAX_PRECOMPUTE_DAYS):
         self.days = days
-        super().__init__(f"days={days} max={MAX_PRECOMPUTE_DAYS}")
+        super().__init__(f"days={days} max={max_days}")
 
 
 def is_org_feature_flag_enabled(team: Team) -> bool:
@@ -753,6 +753,8 @@ def check_common_eligibility(
     modifiers: Any,
     properties: list,
     resolve_date_range: Callable[[], tuple[Optional[datetime], Optional[datetime]]],
+    allow_channel_type_filter: bool = False,
+    max_days: int = MAX_PRECOMPUTE_DAYS,
 ) -> None:
     """Run the gate checks shared by all web-analytics lazy precompute paths.
 
@@ -801,6 +803,12 @@ def check_common_eligibility(
     # population than the live fallback. Those queries fall through to the live path,
     # which applies them correctly.
     for prop in properties:
+        if (
+            allow_channel_type_filter
+            and get_property_type(prop) == "session"
+            and get_property_key(prop) == "$channel_type"
+        ):
+            continue
         if get_property_type(prop) not in ("event", "person"):
             raise UnsupportedFilterType(get_property_type(prop))
 
@@ -816,8 +824,8 @@ def check_common_eligibility(
         raise MissingDateRange()
 
     days = (date_to - date_from).days
-    if days > MAX_PRECOMPUTE_DAYS:
-        raise DateRangeOverMax(days)
+    if days > max_days:
+        raise DateRangeOverMax(days, max_days)
 
 
 def log_eligibility_outcome(*, log_prefix: str, team_id: int, error: Optional[LazyPrecomputeIneligible]) -> None:
