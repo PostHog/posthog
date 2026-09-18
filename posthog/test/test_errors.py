@@ -3,6 +3,7 @@ from parameterized import parameterized
 
 from posthog.clickhouse.driver_patches import ClickHouseColumnDecodeError
 from posthog.errors import (
+    CHQueryErrorColumnDecodeFailed,
     ExposedCHQueryError,
     InternalCHQueryError,
     QueryErrorCategory,
@@ -90,6 +91,6 @@ class TestWrapClickhouseQueryError:
 
         wrapped = wrap_clickhouse_query_error(err)
 
-        assert isinstance(wrapped, ExposedCHQueryError)
+        assert isinstance(wrapped, CHQueryErrorColumnDecodeFailed)
         assert "Map(String, Map(String, Array(UInt64)))" in str(wrapped)
         assert wrapped.code_name == "column_decode_failed"

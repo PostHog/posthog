@@ -84,6 +84,7 @@ def install_clickhouse_driver_patches() -> None:
         return
     _installed = True
 
-    mapcolumn.create_map_column = _create_map_column
-    column_service.create_map_column = _create_map_column
-    native_stream.read_column = _naming_read_column(native_stream.read_column)
+    # ty rejects every assignment to a third-party module attribute, which is what a patch is.
+    mapcolumn.create_map_column = _create_map_column  # ty: ignore[invalid-assignment]
+    column_service.create_map_column = _create_map_column  # ty: ignore[invalid-assignment]
+    native_stream.read_column = _naming_read_column(native_stream.read_column)  # ty: ignore[invalid-assignment]
