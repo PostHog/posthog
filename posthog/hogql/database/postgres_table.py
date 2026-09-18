@@ -74,28 +74,39 @@ def build_function_call(postgres_table_name: str, context: Optional[HogQLContext
             user = add_param(database["USER"])
             password = add_param(database["PASSWORD"])
     else:
-        credentials = {
-            "host": settings.CLICKHOUSE_HOGQL_RDSPROXY_READ_HOST,
-            "port": settings.CLICKHOUSE_HOGQL_RDSPROXY_READ_PORT,
-            "database": settings.CLICKHOUSE_HOGQL_RDSPROXY_READ_DATABASE,
-            "user": settings.CLICKHOUSE_HOGQL_RDSPROXY_READ_USER,
-            "password": settings.CLICKHOUSE_HOGQL_RDSPROXY_READ_PASSWORD,
-        }
-        if not all(credentials.values()):
+        host_var = settings.CLICKHOUSE_HOGQL_RDSPROXY_READ_HOST
+        port_var = settings.CLICKHOUSE_HOGQL_RDSPROXY_READ_PORT
+        database_var = settings.CLICKHOUSE_HOGQL_RDSPROXY_READ_DATABASE
+        user_var = settings.CLICKHOUSE_HOGQL_RDSPROXY_READ_USER
+        password_var = settings.CLICKHOUSE_HOGQL_RDSPROXY_READ_PASSWORD
+
+        # A chain of `or` rather than a loop over a mapping, so mypy narrows each value to `str`
+        # for the `add_param` calls below.
+        if not host_var or not port_var or not database_var or not user_var or not password_var:
             # An exposed HogQL error reads as a user error, so nothing captures it. This log is
             # the only record that the process runs without its CLICKHOUSE_HOGQL_RDSPROXY_READ_*
             # deploy config.
             logger.warning(
                 "hogql_postgres_link_credentials_missing",
                 postgres_table_name=postgres_table_name,
-                missing=[name for name, value in credentials.items() if not value],
+                unset=[
+                    name
+                    for name, value in (
+                        ("HOST", host_var),
+                        ("PORT", port_var),
+                        ("DATABASE", database_var),
+                        ("USER", user_var),
+                        ("PASSWORD", password_var),
+                    )
+                    if not value
+                ],
             )
             raise PostgresLinkUnavailableError()
 
-        address = add_param(f"{credentials['host']}:{credentials['port']}")
-        db = add_param(credentials["database"])
-        user = add_param(credentials["user"])
-        password = add_param(credentials["password"])
+        address = add_param(f"{host_var}:{port_var}")
+        db = add_param(database_var)
+        user = add_param(user_var)
+        password = add_param(password_var)
 
     return f"postgresql({address}, {db}, {table}, {user}, {password})"
 
