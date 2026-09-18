@@ -382,6 +382,20 @@ class TestEventPropertyNames(APIBaseTest):
 
         assert _event_property_names(self.team, ["export created"], per_event_limit=15) == {"export created": ["mine"]}
 
+    def test_includes_sibling_environment_properties(self) -> None:
+        # Rows are unique per project, so whichever environment ingested the event first owns its property
+        # rows. The event list this lookup is given is project-wide, so a team-scoped lookup would hand the
+        # planner a selected event with an empty schema, and it invents property names from there.
+        sibling = Team.objects.create(organization=self.organization, project=self.team.project, name="staging env")
+        EventProperty.objects.create(
+            team=sibling, project=self.team.project, event="export created", property="from_sibling"
+        )
+        EventProperty.objects.create(team=self.team, event="export created", property="mine")
+
+        by_event = _event_property_names(self.team, ["export created"], per_event_limit=15)
+
+        assert by_event == {"export created": ["from_sibling", "mine"]}
+
 
 class TestAIWindowConfigProperties:
     """The ai_prompt_config readers feed compute_report_window on every delivery run, and the column
