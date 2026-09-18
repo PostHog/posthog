@@ -4,6 +4,7 @@ import asyncio
 import dataclasses
 
 from django.conf import settings
+from django.db import transaction
 
 import pyarrow as pa
 import deltalake
@@ -928,6 +929,37 @@ async def _stage_person_property_batch(
         capture_exception(e)
 
 
+FAILED_UPDATE_REASON_PREFIX = "incremental update failed: "
+
+
+def _failed_update_reason(error: Exception) -> str:
+    """Why a rebuild is happening, short enough for ``DataModelingJob.full_refresh_reason``."""
+    limit = DataModelingJob._meta.get_field("full_refresh_reason").max_length
+    assert limit is not None
+    return f"{FAILED_UPDATE_REASON_PREFIX}{error}"[:limit]
+
+
+@database_sync_to_async_pool
+def _drop_watermark_and_say_why(saved_query: DataWarehouseSavedQuery, job: DataModelingJob, reason: str) -> None:
+    """Clear the watermark and record the reason together, so a retry cannot find one without it."""
+    with transaction.atomic():
+        clear_incremental_state(saved_query)
+        job.full_refresh_reason = reason
+        job.save()
+
+
+def _reason_to_record(job: DataModelingJob, plan: WritePlan) -> str | None:
+    """The reason this run rebuilt, keeping the one a failed attempt of the same job wrote."""
+    if plan.incremental:
+        return None
+
+    recorded = job.full_refresh_reason
+    if recorded is not None and recorded.startswith(FAILED_UPDATE_REASON_PREFIX):
+        return recorded
+
+    return plan.reason
+
+
 async def _materialize_fully(
     objects: MatviewInputObjects,
     plan: WritePlan,
@@ -1100,7 +1132,7 @@ async def _materialize_incrementally(
         # Every one of these means the table and the query have diverged in a way an upsert can't
         # reconcile. Dropping the watermark makes the retry rebuild instead of writing rows that
         # would be wrong, so the failure costs a full refresh rather than silent corruption.
-        await database_sync_to_async_pool(clear_incremental_state)(objects.saved_query)
+        await _drop_watermark_and_say_why(objects.saved_query, objects.job, _failed_update_reason(err))
         if isinstance(err, SchemaDriftError):
             await logger.awarning(f"Rebuilding after schema drift: {err}")
         raise
@@ -1204,7 +1236,7 @@ async def materialize_view_activity(inputs: MaterializeViewInputs) -> Materializ
     objects.job.run_mode = (
         DataModelingJob.RunMode.INCREMENTAL if plan.incremental else DataModelingJob.RunMode.FULL_REFRESH
     )
-    objects.job.full_refresh_reason = None if plan.incremental else plan.reason
+    objects.job.full_refresh_reason = _reason_to_record(objects.job, plan)
     await database_sync_to_async_pool(objects.job.save)()
 
     person_property_sink = await _build_person_property_sink(
