@@ -27,7 +27,9 @@ from products.replay_vision.backend.scanner_draft import (
     DraftError,
     ScannerDraft,
     _build_user_content,
+    _build_user_content_v2,
     _business_context,
+    _CandidateEvent,
     _events_for_goal,
     _existing_scanners,
     _ExistingScanner,
@@ -44,6 +46,7 @@ from products.replay_vision.backend.scanner_draft import (
     _MatchedCohort,
     _MatchedExperiment,
     _MatchedSurvey,
+    _measured_events,
     _solve_budget,
     _v2_query,
     draft_scanner_from_goal,
@@ -144,6 +147,22 @@ class TestBuildUserContent:
         # Both grounding blocks must reach the model; losing one silently makes drafts generic again.
         assert "Acme sells anvils to coyotes." in content
         assert "Checkout drop-off (monitor): Flags abandoned checkouts." in content
+
+
+class TestBuildUserContentV2:
+    def test_events_carry_their_session_counts(self):
+        # The counts are what let the model tell a busy event from a name that stopped firing, the
+        # same way the pages list already does. An unmeasured event shows no count rather than a
+        # zero, which would read as dead.
+        content = _build_user_content_v2(
+            "watch people who create a scanner",
+            [_CandidateEvent(name="scanner_created", sessions=42), _CandidateEvent(name="scanner_edited")],
+            [VisitedPath(pathname="/replay-vision", sessions=10)],
+        )
+
+        fenced = content.split("<product-data>")[-1].split("</product-data>")[0]
+        assert "scanner_created (42)" in fenced
+        assert "scanner_edited\n" in fenced
 
 
 class TestFinalize:
@@ -944,6 +963,27 @@ class TestLiveActions(_VisionAPITestCase):
             assert _live_actions(self.team, actions) == actions
 
 
+class TestMeasuredEvents(_VisionAPITestCase):
+    def test_every_candidate_carries_its_session_count(self):
+        # A definition lookup ranks a name that fired twice yesterday with one that fires in every
+        # session. Without the counts the model picks the dead name and the scanner never runs.
+        with patch(f"{_MODULE}.recent_event_sessions", return_value={"scanner_created": 42}):
+            measured = _measured_events(self.team, ["scanner_created", "old_flow_started"])
+
+        assert measured == [
+            _CandidateEvent(name="scanner_created", sessions=42),
+            _CandidateEvent(name="old_flow_started", sessions=0),
+        ]
+
+    def test_a_failed_measurement_keeps_every_candidate_uncounted(self):
+        # Losing the counts must cost the ranking hint, not the grounding: a briefing with no
+        # events sends the model back to drafting filters it invents.
+        with patch(f"{_MODULE}.recent_event_sessions", side_effect=Exception("clickhouse down")):
+            measured = _measured_events(self.team, ["scanner_created"])
+
+        assert measured == [_CandidateEvent(name="scanner_created", sessions=None)]
+
+
 class TestV2Query:
     def test_pages_become_one_multi_value_property(self):
         # Separate properties would AND and match almost nothing: measured 68 sessions where the
@@ -1001,6 +1041,20 @@ class TestV2Query:
 
         assert query is not None
         assert {"type": "cohort", "key": "id", "value": 7, "operator": "in"} in query["properties"]
+
+    @pytest.mark.parametrize(
+        "events_match,expected_operand",
+        [("all", None), ("any", "OR")],
+    )
+    def test_the_events_match_decides_the_operand(self, events_match, expected_operand):
+        # "created or edited" is one goal over several events, and ANDing them keeps only the
+        # person who did all of them in one session, which is almost nobody. The default has to
+        # stay AND: flipping it would silently widen every filter already drafted.
+        query = _v2_query([], ["scanner_created", "scanner_edited"], events_match=events_match)
+
+        assert query is not None
+        assert query.get("operand") == expected_operand
+        assert [e["id"] for e in query["events"]] == ["scanner_created", "scanner_edited"]
 
     def test_no_pages_and_no_events_is_no_query(self):
         assert _v2_query([], []) is None
@@ -1219,6 +1273,40 @@ class TestFinalizeV2:
         assert draft.query is not None
         assert draft.query["filter_test_accounts"] is True
         assert draft.query["properties"][0]["value"] == ["/billing"]
+
+    @pytest.mark.parametrize(
+        "filter_pages,expected_operand",
+        [([], "OR"), (["/billing"], None)],
+    )
+    def test_any_match_survives_only_when_the_events_are_the_whole_filter(self, filter_pages, expected_operand):
+        # The operand covers the whole recordings query, so keeping "any" next to a page filter
+        # would OR the page in too and scan every session that merely visited it.
+        draft = _finalize_v2(
+            _draft_v2(
+                filter_pages=filter_pages,
+                filter_events=["scanner_created", "scanner_edited"],
+                filter_events_match="any",
+            ),
+            allowed_pages=["/billing"],
+            allowed_events=["scanner_created", "scanner_edited"],
+            team_id=1,
+        )
+
+        assert draft.query is not None
+        assert draft.query.get("operand") == expected_operand
+
+    def test_event_count_suffix_is_stripped_before_grounding(self):
+        # The briefing shows "checkout_started (312)" now, and a model that copies it verbatim
+        # would fail the exact membership check, dropping the filter and widening the scan.
+        draft = _finalize_v2(
+            _draft_v2(filter_events=["checkout_started (312)"]),
+            allowed_pages=[],
+            allowed_events=["checkout_started"],
+            team_id=1,
+        )
+
+        assert draft.query is not None
+        assert [e["id"] for e in draft.query["events"]] == ["checkout_started"]
 
     def test_page_count_suffix_is_stripped_before_grounding(self):
         # The briefing shows "/billing (10)"; a model that copies it verbatim would fail the exact
