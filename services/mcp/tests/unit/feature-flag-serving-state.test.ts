@@ -32,6 +32,18 @@ describe('feature flag serving state', () => {
                     name: 'New checkout',
                     active: false,
                     archived: false,
+                    is_remote_configuration: false,
+                    status: 'ACTIVE',
+                    tags: [],
+                    filters: { groups: [] },
+                },
+                {
+                    id: 8,
+                    key: 'pricing-config',
+                    name: 'Pricing config',
+                    active: false,
+                    archived: false,
+                    is_remote_configuration: true,
                     status: 'ACTIVE',
                     tags: [],
                     filters: { groups: [] },
@@ -45,12 +57,22 @@ describe('feature flag serving state', () => {
 
         expect(result.results[0]).toMatchObject({ key: 'new-checkout', active: false, status: 'ACTIVE' })
         expect(result.results[0]).not.toHaveProperty('filters')
+        // `active: false` does not stop the remote config payload endpoint, so the row has to say
+        // which of the two disabled flags is still serving something.
+        expect(result.results[1]).toMatchObject({ key: 'pricing-config', is_remote_configuration: true })
     })
 
     it.each(['feature-flag-get-all', 'feature-flag-get-definition', 'feature-flags-status-retrieve'])(
         '%s tells the agent to read serving state from active',
         (name) => {
             expect(getToolDefinition(name).description).toContain('serving state')
+        }
+    )
+
+    it.each(['feature-flag-get-all', 'feature-flag-get-definition'])(
+        '%s names the remote config exception to active',
+        (name) => {
+            expect(getToolDefinition(name).description).toContain('is_remote_configuration')
         }
     )
 

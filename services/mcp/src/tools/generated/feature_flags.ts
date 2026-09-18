@@ -246,7 +246,17 @@ const featureFlagGetAll = (): ToolBase<
         const filtered = {
             ...result,
             results: (result.results ?? []).map((item: any) =>
-                pickResponseFields(item, ['id', 'key', 'name', 'updated_at', 'active', 'archived', 'status', 'tags'])
+                pickResponseFields(item, [
+                    'id',
+                    'key',
+                    'name',
+                    'updated_at',
+                    'active',
+                    'archived',
+                    'is_remote_configuration',
+                    'status',
+                    'tags',
+                ])
             ),
         } as typeof result
         return await withPostHogUrl(

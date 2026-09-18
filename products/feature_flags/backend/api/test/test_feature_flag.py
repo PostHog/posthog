@@ -12835,6 +12835,11 @@ class TestFeatureFlagStatus(APIBaseTest, ClickhouseTestMixin):
 class TestFeatureFlagServingStateContract(APIBaseTest):
     def setUp(self):
         super().setUp()
+        # Temporary: keep the remote_config Rust shadow (phase 2) inert so this test makes no real
+        # outbound call. Delete with remote_config_shadow.py at the phase-3 cutover.
+        shadow_patcher = patch("products.feature_flags.backend.api.feature_flag.shadow_compare_remote_config")
+        shadow_patcher.start()
+        self.addCleanup(shadow_patcher.stop)
         FeatureFlag.objects.all().delete()
         self.disabled_flag = FeatureFlag.objects.create(
             team=self.team,
@@ -12870,6 +12875,37 @@ class TestFeatureFlagServingStateContract(APIBaseTest):
         assert list_row["status"] == definition["status"] == "ACTIVE"
         assert staleness["status"] == "active"
         assert staleness["reason"] == "Flag is disabled (not evaluated for staleness)"
+
+    # The remote config payload endpoint does not read `active`, so a disabled remote config flag
+    # still serves its payload. The MCP tool descriptions state that exception, which means a change
+    # to this endpoint has to change those descriptions too.
+    def test_disabled_remote_config_flag_still_serves_its_payload(self):
+        self.team.rotate_secret_token_and_save(user=self.user, is_impersonated_session=False)
+        FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="disabled-remote-config",
+            name="Disabled remote config",
+            active=False,
+            is_remote_configuration=True,
+            filters={
+                "groups": [{"properties": [], "rollout_percentage": 100}],
+                "payloads": {"true": '{"test": true}'},
+            },
+        )
+
+        rows = self.client.get(f"/api/projects/{self.team.id}/feature_flags?active=false").json()["results"]
+        list_row = next(row for row in rows if row["key"] == "disabled-remote-config")
+        assert list_row["active"] is False
+        assert list_row["is_remote_configuration"] is True
+
+        self.client.logout()
+        payload = self.client.get(
+            f"/api/projects/{self.team.id}/feature_flags/disabled-remote-config/remote_config",
+            headers={"authorization": f"Bearer {self.team.secret_api_token}"},
+        )
+        assert payload.status_code == status.HTTP_200_OK
+        assert payload.json() == '{"test": true}'
 
 
 class TestFeatureFlagMatchingIds(APIBaseTest):

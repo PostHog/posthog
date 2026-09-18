@@ -267,11 +267,16 @@ tools:
 
 
             Each row carries two separate states, and they answer different questions. `active` is the serving state:
-            true means the flag evaluates, false means it is turned off and every caller falls back to its own default.
-            `status` is the staleness classification — `ACTIVE`, `STALE`, `ARCHIVED`, `DELETED` or `UNKNOWN`. A disabled
-            flag reports `status: ACTIVE`, because disabled flags are not evaluated for staleness. So `status: ACTIVE`
-            with `active: false` is expected, not a contradiction. Report serving state from `active` only, and never
-            from `status`.
+            true means the flag evaluates, false means it is turned off and flag evaluation falls back to the caller's
+            own default. `status` is the staleness classification — `ACTIVE`, `STALE`, `ARCHIVED`, `DELETED` or
+            `UNKNOWN`. A disabled flag reports `status: ACTIVE`, because disabled flags are not evaluated for
+            staleness. So `status: ACTIVE` with `active: false` is expected, not a contradiction. Report serving state
+            from `active` only, and never from `status`.
+
+
+            `active` covers flag evaluation only. A row with `is_remote_configuration: true` is a remote config flag,
+            and its payload endpoint keeps serving the payload to SDKs while `active` is false. Report such a flag as
+            off for evaluation, and add that its payload is still served.
 
 
             `feature-flag-get-definition` returns the same `active` field for one flag. `feature-flags-status-retrieve`
@@ -298,6 +303,7 @@ tools:
                 - updated_at
                 - active
                 - archived
+                - is_remote_configuration
                 - status
                 - tags
     feature-flag-get-definition:
@@ -319,7 +325,9 @@ tools:
 
             `active` is the serving state: true means the flag evaluates, false means it is turned off. The `status`
             field in the same response is the staleness classification, not the serving state, and a disabled flag
-            reports `status: ACTIVE`. Report serving state from `active` only.
+            reports `status: ACTIVE`. Report serving state from `active` only. `active` covers flag evaluation only:
+            when `is_remote_configuration` is true, the payload endpoint keeps serving the payload to SDKs while
+            `active` is false.
         param_overrides:
             id:
                 cast: string-int
