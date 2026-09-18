@@ -91,7 +91,7 @@ class TestResolveAIRunDefaults(APIBaseTest):
             "off",
         )
 
-    def test_thinking_level_pi_does_not_offer_is_dropped(self):
+    def test_a_stored_effort_pi_cannot_use_is_dropped(self):
         self._set_user({**PI_PREFS_WITH_PI_ONLY_EFFORT, "reasoning_effort": "ultracode"})
         with pi_harness_enabled():
             resolved = resolve_ai_run_defaults(self.team.id, self.user.id)

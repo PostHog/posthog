@@ -50,11 +50,11 @@ from products.tasks.backend.facade.run_config import (
     CODEX_INITIAL_PERMISSION_MODE_CHOICES,
     CONTEXT_WINDOW_CHOICES,
     INITIAL_PERMISSION_MODE_CHOICES,
-    PI_THINKING_LEVEL_CHOICES,
     PUBLIC_REASONING_EFFORTS,
     WARMABLE_ORIGIN_PRODUCTS,
     LLMProvider,
     PrAuthorshipMode,
+    ReasoningEffort,
     RunSource,
     RuntimeAdapter,
     TaskArtifactAdapter,
@@ -67,11 +67,7 @@ from products.tasks.backend.facade.run_config import (
 
 logger = logging.getLogger(__name__)
 
-TASK_RUN_REASONING_EFFORT_CHOICES = [
-    "off",
-    "minimal",
-    *(effort.value for effort in PUBLIC_REASONING_EFFORTS),
-]
+TASK_RUN_REASONING_EFFORT_CHOICES = [effort.value for effort in ReasoningEffort]
 
 
 def _is_pi_task_run_request(context: dict[str, Any]) -> bool:
@@ -3475,9 +3471,8 @@ class TaskRunBootstrapCreateRequestSerializer(
                 if attrs.get(field) is not None:
                     errors[field] = "This field cannot be used with a Pi task."
 
-            reasoning_effort = attrs.get("reasoning_effort")
-            if reasoning_effort is not None and reasoning_effort not in PI_THINKING_LEVEL_CHOICES:
-                errors["reasoning_effort"] = "This thinking level is not supported by Pi."
+            if attrs.get("reasoning_effort") == ReasoningEffort.ULTRACODE:
+                errors["reasoning_effort"] = "This reasoning effort cannot be used with a Pi task."
 
             if errors:
                 raise serializers.ValidationError(errors)
@@ -4597,27 +4592,6 @@ class TasksAIRunPreferencesSerializer(serializers.Serializer):
             "stores a Pi thinking level here, which also allows 'off' and 'minimal'."
         ),
     )
-
-    def validate(self, attrs):
-        """Reject a depth the chosen harness does not offer.
-
-        The field lists every depth either harness offers, because one `ChoiceField` cannot
-        depend on another field's value. The harness owns the subset, so the pairing is
-        checked here. The storage rules themselves live in the run-defaults service, which
-        every write path goes through.
-        """
-        reasoning_effort = attrs.get("reasoning_effort")
-        if reasoning_effort is None:
-            return attrs
-
-        is_pi = attrs.get("runtime") == tasks_facade.TaskRuntime.PI
-        allowed = PI_THINKING_LEVEL_CHOICES if is_pi else [effort.value for effort in PUBLIC_REASONING_EFFORTS]
-        if reasoning_effort not in allowed:
-            label = "thinking level" if is_pi else "reasoning effort"
-            raise serializers.ValidationError(
-                {"reasoning_effort": f"This {label} is not supported by the '{attrs.get('runtime') or 'acp'}' harness."}
-            )
-        return attrs
 
 
 class TasksResolvedAIRunDefaultsSerializer(serializers.Serializer):

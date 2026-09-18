@@ -36,7 +36,6 @@ from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
-from products.tasks.backend.constants import PI_THINKING_LEVEL_CHOICES
 from products.tasks.backend.feature_flags import (
     get_model_access_error,
     get_required_model_flag,
@@ -46,9 +45,12 @@ from products.tasks.backend.logic.services.model_catalogue import filter_unsuppo
 from products.tasks.backend.models import Task, TeamTasksConfig, UserTasksConfig
 from products.tasks.backend.temporal.process_task.utils import (
     PUBLIC_REASONING_EFFORTS,
+    ReasoningEffort,
     RuntimeAdapter,
     validate_model_selection,
 )
+
+PI_REASONING_EFFORTS = frozenset(ReasoningEffort) - {ReasoningEffort.ULTRACODE}
 
 ACP = Task.Runtime.ACP.value
 PI = Task.Runtime.PI.value
@@ -209,7 +211,7 @@ def _resolve_from_preferences(
     if runtime == PI:
         if not model:
             return None
-        if reasoning_effort not in PI_THINKING_LEVEL_CHOICES:
+        if reasoning_effort not in PI_REASONING_EFFORTS:
             reasoning_effort = None
         return ResolvedAIRunConfig(
             runtime=PI,
@@ -257,9 +259,9 @@ def validate_ai_run_preferences(
             raise ValidationError("model must be set to configure a Pi default.")
         if runtime_adapter is not None:
             raise ValidationError("runtime_adapter cannot be set with runtime 'pi' — Pi has no ACP adapter.")
-        if reasoning_effort is not None and reasoning_effort not in PI_THINKING_LEVEL_CHOICES:
+        if reasoning_effort is not None and reasoning_effort not in PI_REASONING_EFFORTS:
             raise ValidationError(
-                f"Unknown thinking level '{reasoning_effort}'. Valid: {', '.join(sorted(PI_THINKING_LEVEL_CHOICES))}."
+                f"Unknown reasoning_effort '{reasoning_effort}'. Valid: {', '.join(sorted(PI_REASONING_EFFORTS))}."
             )
         return
 
