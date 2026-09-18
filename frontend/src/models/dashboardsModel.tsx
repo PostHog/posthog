@@ -1,4 +1,4 @@
-import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { MakeLogicType, actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 
@@ -159,6 +159,9 @@ export interface dashboardsModelActions {
     ) => {
         error: string
         errorObject?: any
+    }
+    loadDashboardsIfNeeded: () => {
+        value: true
     }
     loadDashboardsSuccess: (
         pagedDashboards:
@@ -357,6 +360,7 @@ export const dashboardsModel = kea<dashboardsModelType>([
         actions: [tagsModel, ['loadTags']],
     })),
     actions(() => ({
+        loadDashboardsIfNeeded: true,
         // we page through the dashboards and need to manually track when that is finished
         dashboardsFullyLoaded: true,
         delayedDeleteDashboard: (id: number) => ({ id }),
@@ -699,6 +703,11 @@ export const dashboardsModel = kea<dashboardsModelType>([
         ],
     })),
     listeners(({ actions, values }) => ({
+        loadDashboardsIfNeeded: () => {
+            if (!values.pagingDashboardsCompleted && !values.pagedDashboardsLoading) {
+                actions.loadDashboards()
+            }
+        },
         loadDashboardsSuccess: ({ pagedDashboards }) => {
             if (pagedDashboards?.next) {
                 actions.loadDashboards(pagedDashboards.next)
@@ -763,9 +772,6 @@ export const dashboardsModel = kea<dashboardsModelType>([
             )
         },
     })),
-    afterMount(({ actions }) => {
-        actions.loadDashboards()
-    }),
     permanentlyMount(),
 ])
 

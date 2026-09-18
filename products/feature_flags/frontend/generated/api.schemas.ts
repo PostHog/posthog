@@ -560,7 +560,7 @@ export interface FeatureFlagApi {
     /** Whether the flag is archived. Archived flags are hidden from the flag list by default and must be disabled (`active: false`). */
     archived?: boolean
     readonly created_by: UserBasicApi
-    created_at?: string
+    readonly created_at: string
     /** @nullable */
     readonly updated_at: string | null
     version?: number
@@ -616,7 +616,7 @@ export interface FeatureFlagApi {
      * Last time this feature flag was called (from $feature_flag_called events)
      * @nullable
      */
-    last_called_at?: string | null
+    readonly last_called_at: string | null
     _create_in_folder?: string
     /** Check if any team gates session recording on this flag, by linked flag or trigger group. */
     readonly is_used_in_replay_settings: boolean

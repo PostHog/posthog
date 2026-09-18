@@ -80,7 +80,8 @@ def _context_with_trino_table() -> HogQLContext:
     )
 
 
-def test_star_projection_preserves_logical_name_for_physical_column_alias() -> None:
+@pytest.mark.parametrize("expose_physical_names", [True, False])
+def test_star_projection_preserves_logical_name_for_physical_column_alias(expose_physical_names: bool) -> None:
     database = Database(include_posthog_tables=False)
     database.tables.add_child(
         TableNode(
@@ -88,10 +89,13 @@ def test_star_projection_preserves_logical_name_for_physical_column_alias() -> N
             table=DirectTrinoTable(
                 name="subscriptions",
                 fields={
-                    "customer": StringDatabaseField(name="customer"),
+                    **({"customer": StringDatabaseField(name="customer")} if expose_physical_names else {}),
                     "customer_id": StringDatabaseField(name="customer"),
-                    "created": IntegerDatabaseField(name="created"),
-                    "created_at": ExpressionField(name="created_at", expr=parse_expr("toDateTime(created)")),
+                    "__created": IntegerDatabaseField(name="created", hidden=True),
+                    **({"created": IntegerDatabaseField(name="created")} if expose_physical_names else {}),
+                    "created_at": ExpressionField(
+                        name="created_at", expr=parse_expr("toDateTime(__created)"), isolate_scope=True
+                    ),
                 },
                 external_data_source_id="source-id",
                 trino_catalog="ducklake",
@@ -115,7 +119,7 @@ def test_star_projection_preserves_logical_name_for_physical_column_alias() -> N
         "trino",
     )
 
-    assert sql.startswith('SELECT "customer_id" FROM (SELECT "subscriptions"."customer", ')
+    assert sql.startswith('SELECT "customer_id" FROM (SELECT "subscriptions"."customer"')
     assert '"subscriptions"."customer" AS "customer_id"' in sql
     assert 'AS "created_at" FROM "ducklake"."billing"."subscriptions"' in sql
 
@@ -128,6 +132,16 @@ def test_star_projection_preserves_logical_name_for_physical_column_alias() -> N
         "trino",
     )
     assert 'PARTITION BY "subscriptions"."customer" ORDER BY "subscriptions"."customer" ASC' in window_sql
+
+    join_sql, _ = prepare_and_print_ast(
+        parse_select(
+            "SELECT s.customer_id, other.created_at FROM subscriptions AS s "
+            "LEFT ANY JOIN subscriptions AS other ON s.customer_id = other.customer_id"
+        ),
+        context,
+        "trino",
+    )
+    assert '"__hogql_any_source_0"."customer"' in join_sql
 
 
 def test_prints_resolved_query_with_explicit_trino_locator_and_bound_value() -> None:
