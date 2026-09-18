@@ -3,6 +3,8 @@ from collections.abc import Iterator
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, Optional
 
+from posthog.dataclasses import frozen
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.clockodo.settings import (
     ENTRIES_TIME_SINCE,
     USER_REPORTS_FIRST_YEAR,
@@ -35,6 +37,10 @@ CLOCKODO_BASE_URL = "https://my.clockodo.com/api"
 # Clockodo identifies the calling application via a mandatory header formatted
 # "[application name];[email address]". We send our app name plus the connecting user's email.
 EXTERNAL_APPLICATION_NAME = "PostHog"
+
+# Bounds every request the swept endpoints issue, as (connect, read) seconds. Without it a
+# stalled response holds the import worker for as long as the activity deadline allows.
+REQUEST_TIMEOUT_SECONDS = (10.0, 120.0)
 
 # Endpoints that no single request can cover: work times take one co-worker and one date range
 # at a time, co-worker reports take one year at a time. Both are swept in the transport instead
@@ -92,6 +98,7 @@ def _rest_client(api_user: str, api_key: str) -> RESTClient:
         # The key travels via the framework auth config so its value is redacted from logs.
         auth=APIKeyAuth(api_key=api_key, name="X-ClockodoApiKey", location="header"),
         paginator=SinglePagePaginator(),
+        request_timeout=REQUEST_TIMEOUT_SECONDS,
     )
 
 
@@ -107,11 +114,17 @@ def _rows_for(
         yield from page
 
 
-def _work_time_windows(today: date) -> Iterator[tuple[date, date]]:
+@frozen
+class _WorkTimeWindow:
+    date_since: date
+    date_until: date
+
+
+def _work_time_windows(today: date) -> Iterator[_WorkTimeWindow]:
     start = WORK_TIMES_FIRST_DATE
     while start <= today:
         end = min(start + timedelta(days=WORK_TIMES_WINDOW_DAYS - 1), today)
-        yield start, end
+        yield _WorkTimeWindow(date_since=start, date_until=end)
         start = end + timedelta(days=1)
 
 
@@ -129,13 +142,13 @@ def _work_time_pages(
         users_id = user.get("id")
         if users_id is None:
             continue
-        for date_since, date_until in windows:
+        for window in windows:
             for page in client.paginate(
                 path=config.path,
                 params={
                     "users_id": users_id,
-                    "date_since": date_since.isoformat(),
-                    "date_until": date_until.isoformat(),
+                    "date_since": window.date_since.isoformat(),
+                    "date_until": window.date_until.isoformat(),
                 },
                 paginator=SinglePagePaginator(),
                 data_selector=config.data_key,

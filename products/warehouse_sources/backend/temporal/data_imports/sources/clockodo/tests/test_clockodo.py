@@ -328,13 +328,13 @@ class TestWorkTimeWindows:
 
         # A gap between windows silently drops the attendance days inside it, an overlap
         # re-fetches them, and a window longer than the API's page would truncate one.
-        assert windows[0][0] == WORK_TIMES_FIRST_DATE
-        assert windows[-1][1] == date(2026, 6, 29)
-        for (_since, until), (next_since, _next_until) in zip(windows, windows[1:]):
-            assert next_since == until + timedelta(days=1)
-        for since, until in windows:
-            assert since <= until
-            assert (until - since).days < WORK_TIMES_WINDOW_DAYS
+        assert windows[0].date_since == WORK_TIMES_FIRST_DATE
+        assert windows[-1].date_until == date(2026, 6, 29)
+        for window, next_window in zip(windows, windows[1:]):
+            assert next_window.date_since == window.date_until + timedelta(days=1)
+        for window in windows:
+            assert window.date_since <= window.date_until
+            assert (window.date_until - window.date_since).days < WORK_TIMES_WINDOW_DAYS
 
 
 class TestWorkTimesSweep:
