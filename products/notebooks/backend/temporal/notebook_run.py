@@ -17,6 +17,7 @@ from temporalio import activity, common, workflow
 from temporalio.exceptions import ApplicationError, WorkflowAlreadyStartedError
 
 from posthog.dataclasses import frozen
+from posthog.models.scoping import team_scope
 from posthog.models.user import User
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.client import sync_connect
@@ -46,6 +47,7 @@ NOTEBOOK_RUN_TIMEOUT = timedelta(hours=1)
 
 _CELL_STOPPED_ERROR = "A cell did not finish, so the run stopped there."
 _RUN_TIMEOUT_ERROR = "The run took longer than an hour, so it stopped."
+_RUN_ABANDONED_ERROR = "The run stopped because of an internal error."
 _DISPATCH_FAILED_ERROR = "The run could not start a cell."
 _RETRYABLE_DISPATCH = "NotebookRunDispatchRetryable"
 _UNRECOVERABLE = "NotebookRunUnrecoverable"
@@ -100,22 +102,37 @@ def read_notebook_run_status_activity(input: NotebookRunInput) -> str:
     return notebook_run.status if notebook_run is not None else NotebookRun.Status.INTERRUPTED
 
 
+@activity.defn(name="notebook-run-advance")
+def advance_notebook_run_activity(input: NotebookRunCellInput) -> None:
+    """Move the run's cursor to `index` without dispatching anything."""
+    NotebookRun.objects.for_team(input.team_id).filter(id=input.notebook_run_id).update(current_index=input.index)
+
+
 @activity.defn(name="notebook-run-dispatch-cell")
 def dispatch_notebook_cell_activity(input: NotebookRunCellInput) -> str:
     """Start the cell at `index` and return its node run id."""
     notebook_run = _load_run(input.team_id, input.notebook_run_id)
     if notebook_run is None:
         raise ApplicationError("The run record is gone.", type=_UNRECOVERABLE, non_retryable=True)
+    # The workflow checked this before scheduling the activity, but an interrupt can land in
+    # between. Without this re-check the endpoint would find no cell to stop, report success,
+    # and then this dispatch would start one anyway — burning compute and holding the
+    # notebook's slot under a run already recorded as interrupted.
+    if notebook_run.status != NotebookRun.Status.RUNNING:
+        raise ApplicationError("The run is no longer running.", type=_UNRECOVERABLE, non_retryable=True)
 
     NotebookRun.objects.for_team(input.team_id).filter(id=notebook_run.id).update(current_index=input.index)
     user = notebook_run.user if isinstance(notebook_run.user, User) else None
     try:
-        dispatch = dispatch_node_run(
-            notebook_run.notebook,
-            user,
-            notebook_run.notebook.team,
-            node_run_request_for(notebook_run, input.index),
-        )
+        # A Temporal activity has none of the request middleware's team scope, and the
+        # dispatch writes a fail-closed NotebookNodeRun row.
+        with team_scope(notebook_run.team_id, canonical=True):
+            dispatch = dispatch_node_run(
+                notebook_run.notebook,
+                user,
+                notebook_run.notebook.team,
+                node_run_request_for(notebook_run, input.index),
+            )
     except (NotebookRunBusy, TeamRunCapacityFull) as e:
         # Someone else holds the notebook's slot, or the project is at its ceiling. Both clear
         # on their own, so retry inside the activity's budget rather than failing the run.
@@ -167,6 +184,10 @@ class NotebookRunWorkflow(PostHogWorkflow):
 
     @workflow.run
     async def run(self, input: NotebookRunInput) -> None:
+        # Every exit writes a terminal state. A RUNNING record left behind is not just an
+        # untidy row: the partial unique constraint would refuse every later run of that
+        # notebook until somebody cleared it by hand. So an exhausted activity retry or any
+        # other escaping error has to land here, not propagate.
         try:
             async with asyncio.timeout(NOTEBOOK_RUN_TIMEOUT.total_seconds()):
                 await self._walk(input)
@@ -175,6 +196,10 @@ class NotebookRunWorkflow(PostHogWorkflow):
             # release the cell that is still holding the notebook's slot.
             await self._finish(input, NotebookRun.Status.FAILED, error=_RUN_TIMEOUT_ERROR, outcome=OUTCOME_TIMED_OUT)
             await self._stop_cell(input)
+        except Exception:
+            await self._finish(input, NotebookRun.Status.FAILED, error=_RUN_ABANDONED_ERROR)
+            await self._stop_cell(input)
+            raise
 
     async def _walk(self, input: NotebookRunInput) -> None:
         for index, node_id in enumerate(input.node_ids):
@@ -190,7 +215,18 @@ class NotebookRunWorkflow(PostHogWorkflow):
                 return
             await self._finish(input, NotebookRun.Status.FAILED, failed_node_id=node_id, error=_CELL_STOPPED_ERROR)
             return
+        # Past the last cell, so `current_index` has to leave the plan: the status endpoint
+        # reads it to name the cell in flight, and the completion event counts by it.
+        await self._advance(input, len(input.node_ids))
         await self._finish(input, NotebookRun.Status.DONE)
+
+    async def _advance(self, input: NotebookRunInput, index: int) -> None:
+        await workflow.execute_activity(
+            advance_notebook_run_activity,
+            NotebookRunCellInput(notebook_run_id=input.notebook_run_id, team_id=input.team_id, index=index),
+            start_to_close_timeout=timedelta(seconds=30),
+            retry_policy=common.RetryPolicy(maximum_attempts=3),
+        )
 
     async def _run_status(self, input: NotebookRunInput) -> str:
         return await workflow.execute_activity(

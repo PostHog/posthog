@@ -13,6 +13,7 @@ from products.notebooks.backend.temporal.frame_materialize import (
 )
 from products.notebooks.backend.temporal.notebook_run import (
     NotebookRunWorkflow,
+    advance_notebook_run_activity,
     check_notebook_cell_activity,
     dispatch_notebook_cell_activity,
     finish_notebook_run_activity,
@@ -40,6 +41,7 @@ WORKFLOWS = [
 ]
 
 ACTIVITIES = [
+    advance_notebook_run_activity,
     check_notebook_cell_activity,
     dispatch_notebook_cell_activity,
     finish_notebook_run_activity,

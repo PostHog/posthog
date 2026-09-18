@@ -10,10 +10,10 @@ Document order is dependency order: a cell can only read exports of earlier cell
 the rule the editor's staleness chain already relies on. So the plan needs no sorting.
 """
 
-from typing import Any
+from typing import Any, TypedDict
 from uuid import UUID
 
-from django.db import IntegrityError
+from django.db import IntegrityError, transaction
 from django.utils import timezone
 
 import structlog
@@ -46,6 +46,17 @@ _NOTHING_TO_RUN = (
 _ALREADY_RUNNING = "This notebook is already running. Wait for it to finish, or stop it first."
 
 
+class PlannedCell(TypedDict):
+    """One entry of `NotebookRun.cell_plan`, as it is stored in JSON."""
+
+    node_id: str
+    cell_type: str
+    dataframe_name: str
+    code: str
+    connection_id: str | None
+    send_raw_query: bool
+
+
 class NotebookRunNothingToRun(Exception):
     """The notebook holds no cell this run could execute."""
 
@@ -64,14 +75,26 @@ class NotebookRunStart:
     sandbox_hourly_price: float | None
 
 
-def plan_notebook_cells(notebook: Notebook) -> list[dict[str, str]]:
+def plan_notebook_cells(notebook: Notebook) -> list[PlannedCell]:
     """The cells this run will execute, in document order, as the plan is stored.
 
-    Frozen at start: a cell added while the run works does not join it, and a cell deleted
-    while it works still runs, because the plan no longer reads the document.
+    The whole cell is frozen here, code included, not just which cells run. Two reasons, and
+    the security one decides it: notebook write access and query access are separate grants,
+    so an editor who cannot run queries could otherwise swap a later cell's code after
+    somebody else starts the run, and the workflow would execute it under the initiator's
+    access. Reading the code once, at the moment the starting request passes the query-access
+    check, closes that. It also makes the run reproducible — a cell edited or deleted
+    mid-run still executes what the plan captured, which is what the record claims it ran.
     """
     return [
-        {"node_id": cell.node_id, "cell_type": cell.cell_type, "dataframe_name": cell.dataframe_name}
+        PlannedCell(
+            node_id=cell.node_id,
+            cell_type=cell.cell_type,
+            dataframe_name=cell.dataframe_name,
+            code=cell.code,
+            connection_id=cell.connection_id,
+            send_raw_query=cell.send_raw_query,
+        )
         for cell in extract_cells(notebook.content)
         if cell.cell_type in RUNNABLE_CELL_TYPES and cell.code.strip()
     ]
@@ -95,14 +118,18 @@ def start_notebook_run(
         raise NotebookRunNothingToRun(_NOTHING_TO_RUN)
 
     try:
-        notebook_run = NotebookRun.objects.create(
-            team_id=team.id,
-            notebook=notebook,
-            user=user,
-            trigger=trigger,
-            variables=notebook.variables or [],
-            cell_plan=cell_plan,
-        )
+        # The savepoint keeps the IntegrityError from poisoning a caller's transaction: the
+        # start endpoint wraps this together with its variable save, so a refused run has to
+        # leave that transaction usable enough to roll back cleanly.
+        with transaction.atomic():
+            notebook_run = NotebookRun.objects.create(
+                team_id=team.id,
+                notebook=notebook,
+                user=user,
+                trigger=trigger,
+                variables=notebook.variables or [],
+                cell_plan=cell_plan,
+            )
     except IntegrityError as e:
         # The partial unique constraint, not a lock: one running row per notebook.
         raise NotebookRunAlreadyRunning(_ALREADY_RUNNING) from e
@@ -127,7 +154,7 @@ def node_run_request_for(notebook_run: NotebookRun, index: int) -> NodeRunReques
     dataframe name is a `hogql` ref, every earlier Python cell is a `local` ref, and SQL wins
     a name collision. `dispatch_node_run` then keeps only the names the code reads.
     """
-    plan: list[dict[str, str]] = notebook_run.cell_plan
+    plan: list[PlannedCell] = notebook_run.cell_plan
     cell = plan[index]
     refs: dict[str, RefSpec] = {}
     for earlier in plan[:index]:
@@ -137,28 +164,21 @@ def node_run_request_for(notebook_run: NotebookRun, index: int) -> NodeRunReques
         if earlier["cell_type"] == "python" and earlier["dataframe_name"]:
             refs.setdefault(earlier["dataframe_name"], RefSpec(node_id=earlier["node_id"], kind="local"))
 
-    code = _cell_code(notebook_run, cell["node_id"])
+    # Only a SQL cell carries a connection; python always runs in the kernel against PostHog,
+    # which is the same rule the single-cell endpoint applies.
+    is_python = cell["cell_type"] == "python"
+    connection_id = cell.get("connection_id") if not is_python else None
     return NodeRunRequest(
         node_id=cell["node_id"],
-        node_type="python" if cell["cell_type"] == "python" else "hogql",
-        code=code,
+        node_type="python" if is_python else "hogql",
+        code=cell["code"],
         output_name=cell["dataframe_name"],
         refs=refs,
         variables=build_notebook_variables(notebook_run.variables or []),
+        connection_id=UUID(connection_id) if connection_id else None,
+        send_raw_query=bool(cell.get("send_raw_query")) and connection_id is not None,
         notebook_run_id=notebook_run.id,
     )
-
-
-def _cell_code(notebook_run: NotebookRun, node_id: str) -> str:
-    """The cell's code as the document holds it now.
-
-    The plan freezes which cells run, not what they contain: a person editing a later cell
-    while the run works expects the run to execute what they can see.
-    """
-    for cell in extract_cells(notebook_run.notebook.content):
-        if cell.node_id == node_id:
-            return cell.code
-    return ""
 
 
 def notebook_run_status(notebook_run: NotebookRun) -> dict[str, Any]:
@@ -167,7 +187,7 @@ def notebook_run_status(notebook_run: NotebookRun) -> dict[str, Any]:
     Cheap by design. It carries no result envelopes — a client fetches the one cell it wants
     to show from the existing run-result endpoint.
     """
-    plan: list[dict[str, str]] = notebook_run.cell_plan or []
+    plan: list[PlannedCell] = notebook_run.cell_plan or []
     latest_by_node: dict[str, NotebookNodeRun] = {}
     for node_run in (
         NotebookNodeRun.objects.for_team(notebook_run.team_id)
