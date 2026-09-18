@@ -29,10 +29,8 @@ MALFORMED_WIKILINK_RE = re.compile(r"\[\[|\]\]")
 H1_RE = re.compile(r"^#\s+(.+?)\s*$", re.MULTILINE)
 DISAGREEMENT_RE = re.compile(r"^.*\*\*Disagreement:\*\*.*$", re.MULTILINE)
 FRONTMATTER_DELIMITER = "---"
-FRONTMATTER_KEY_RE = re.compile(r"^([A-Za-z_][\w-]*):")
 KEY_VALUE_RE = re.compile(r"([A-Za-z_][\w-]*):(?: +(.*?))? *")
 NUMBER_RE = re.compile(r"[-+]?(?:\.\d+|\d+(?:\.\d*)?)(?:[eE][-+]?\d+)?|0x[0-9a-fA-F]+|0o[0-7]+")
-LITERAL_BLOCK_RE = re.compile(r"\|([+-]?)(\d?)([+-]?)")
 SINGLE_QUOTED_RE = re.compile(r"'((?:[^']|'')*)'")
 ALLOWED_STATUSES = {"active", "superseded", "historical"}
 REQUIRED_AGENTS_FRAGMENTS = (
@@ -197,6 +195,9 @@ class BlockParser:
         self.pos = 0
 
     def parse(self) -> dict[str, object]:
+        for number, text in self.lines:
+            if text.strip() and "\t" in text[: len(text) - len(text.lstrip())]:
+                raise BlockSyntaxError(number, "indent with spaces, not tabs")
         value = self._mapping(0)
         if (line := self._peek()) is not None:
             raise BlockSyntaxError(line[0], "unexpected content")
@@ -211,34 +212,31 @@ class BlockParser:
         return None
 
     @staticmethod
-    def _indent(line: Line) -> int:
-        number, text = line
-        if text.lstrip(" ").startswith("\t"):
-            raise BlockSyntaxError(number, "indent with spaces, not tabs")
+    def _indent(text: str) -> int:
         return len(text) - len(text.lstrip(" "))
 
     @staticmethod
     def _is_item(text: str, indent: int) -> bool:
-        rest = text[indent:]
-        return rest == "-" or rest.startswith("- ")
+        return text[indent:].startswith("- ")
 
     def _node(self, indent: int) -> object:
         line = self._peek()
         if line is None:
             return None
-        found = self._indent(line)
-        if found != indent:
-            raise BlockSyntaxError(line[0], f"expected an indent of {indent} spaces, found {found}")
-        if self._is_item(line[1], indent):
+        number, text = line
+        if self._indent(text) != indent:
+            raise BlockSyntaxError(number, f"expected an indent of {indent} spaces, found {self._indent(text)}")
+        if self._is_item(text, indent):
             return self._sequence(indent)
-        return self._mapping(indent)
+        if KEY_VALUE_RE.fullmatch(text[indent:]):
+            return self._mapping(indent)
+        self.pos += 1
+        return self._scalar(text[indent:], indent, number)
 
     def _mapping(self, indent: int) -> dict[str, object]:
         result: dict[str, object] = {}
-        while (line := self._peek()) is not None and self._indent(line) == indent:
+        while (line := self._peek()) is not None and self._indent(line[1]) == indent:
             number, text = line
-            if self._is_item(text, indent):
-                break
             match = KEY_VALUE_RE.fullmatch(text[indent:])
             if match is None:
                 raise BlockSyntaxError(number, "expected `key: value`")
@@ -251,84 +249,60 @@ class BlockParser:
 
     def _sequence(self, indent: int) -> list[object]:
         items: list[object] = []
-        while (line := self._peek()) is not None and self._indent(line) == indent and self._is_item(line[1], indent):
+        while (line := self._peek()) is not None and self._indent(line[1]) == indent and self._is_item(line[1], indent):
             number, text = line
-            content = text[indent + 1 :]
-            if not content.strip():
-                self.pos += 1
-                items.append(self._deeper(indent))
-                continue
-            content_indent = indent + 1 + len(content) - len(content.lstrip(" "))
+            content = text[indent + 2 :]
+            content_indent = indent + 2 + self._indent(content)
             self.lines[self.pos] = (number, " " * content_indent + content.lstrip(" "))
-            items.append(self._item(content_indent, number))
+            items.append(self._node(content_indent))
         return items
-
-    def _item(self, indent: int, number: int) -> object:
-        _, text = self.lines[self.pos]
-        if self._is_item(text, indent) or KEY_VALUE_RE.fullmatch(text[indent:]):
-            return self._node(indent)
-        self.pos += 1
-        return self._scalar(text[indent:], indent, number)
 
     def _value(self, rest: str | None, indent: int, number: int) -> object:
         if not rest:
             return self._nested(indent)
-        match = LITERAL_BLOCK_RE.fullmatch(rest)
-        if match is not None:
-            return self._literal(match.group(1) or match.group(3), match.group(2), indent)
+        if rest in ("|", "|-"):
+            return self._literal(indent, keep_newline=rest == "|")
         return self._scalar(rest, indent, number)
 
     def _nested(self, indent: int) -> object:
         line = self._peek()
-        if line is not None and self._indent(line) == indent and self._is_item(line[1], indent):
-            return self._sequence(indent)
-        return self._deeper(indent)
-
-    def _deeper(self, indent: int) -> object:
-        line = self._peek()
-        if line is None or self._indent(line) <= indent:
+        if line is None or self._indent(line[1]) < indent:
             return None
-        return self._node(self._indent(line))
+        if self._indent(line[1]) == indent:
+            return self._sequence(indent) if self._is_item(line[1], indent) else None
+        return self._node(self._indent(line[1]))
 
-    def _literal(self, chomp: str, explicit: str, indent: int) -> str:
-        block_indent = indent + int(explicit) if explicit else None
+    def _literal(self, indent: int, *, keep_newline: bool) -> str:
         body: list[str] = []
+        block_indent = 0
         while self.pos < len(self.lines):
             number, text = self.lines[self.pos]
-            if not text.strip():
-                body.append("")
-                self.pos += 1
-                continue
-            found = self._indent((number, text))
-            if block_indent is None and found > indent:
-                block_indent = found
-            if block_indent is None or found < block_indent:
-                if found > indent:
+            if text.strip():
+                found = self._indent(text)
+                if found <= indent:
+                    break
+                block_indent = block_indent or found
+                if found < block_indent:
                     raise BlockSyntaxError(number, "literal block lines must be indented at least as far as the first")
-                break
-            body.append(text[block_indent:])
+            body.append(text[block_indent:] if text.strip() else "")
             self.pos += 1
-        trailing = 0
         while body and body[-1] == "":
             body.pop()
-            trailing += 1
         content = "\n".join(body)
-        if not content or chomp == "-":
-            return content
-        return content + "\n" * (trailing + 1 if chomp == "+" else 1)
+        return content + "\n" if content and keep_newline else content
 
     def _scalar(self, text: str, indent: int, number: int) -> object:
-        if text[0] == ">":
-            raise BlockSyntaxError(number, "folded blocks (>) are not supported; use a literal block (|)")
+        if text[0] in "|>":
+            raise BlockSyntaxError(number, "multi-line text must be a literal block written as | or |-")
         following = self._peek()
-        if following is not None and self._indent(following) > indent:
+        if following is not None and self._indent(following[1]) > indent:
             raise BlockSyntaxError(following[0], "text that spans lines must use a literal block (|)")
-        if text.startswith('"'):
+        if text[0] == '"':
             try:
                 return str(json.loads(text))
             except ValueError:
                 raise BlockSyntaxError(number, "malformed double-quoted text") from None
-        if text.startswith("'"):
+        if text[0] == "'":
             match = SINGLE_QUOTED_RE.fullmatch(text)
             if match is None:
                 raise BlockSyntaxError(number, "malformed single-quoted text")
@@ -356,9 +330,7 @@ def _typed(text: str) -> object:
         return float(text.replace(".", "", 1))
     if not NUMBER_RE.fullmatch(text):
         return text
-    if text.startswith(("0x", "0o")):
-        return int(text, 16 if text[1] == "x" else 8)
-    return float(text) if any(char in text for char in ".eE") else int(text)
+    return int(text, 0) if text.startswith(("0x", "0o")) else float(text)
 
 
 def _text(value: object, path: str) -> list[str]:
@@ -480,27 +452,16 @@ FRONTMATTER_LISTS: dict[str, Check] = {
 }
 
 
-def _frontmatter_blocks(lines: list[str]) -> tuple[dict[str, list[Line]], list[str]]:
+def _lint_frontmatter_lists(lines: list[str]) -> list[str]:
     blocks: dict[str, list[Line]] = {}
-    repeated: list[str] = []
     current: list[Line] | None = None
     for number, text in enumerate(lines, start=2):
-        match = FRONTMATTER_KEY_RE.match(text)
+        match = KEY_VALUE_RE.match(text)
         if match is not None:
-            key = match.group(1)
-            if key in blocks:
-                repeated.append(key)
-                current = None
-            else:
-                current = blocks.setdefault(key, []) if key in FRONTMATTER_LISTS else None
+            current = blocks.setdefault(match.group(1), []) if match.group(1) in FRONTMATTER_LISTS else None
         if current is not None:
             current.append((number, text))
-    return blocks, repeated
-
-
-def _lint_frontmatter_lists(lines: list[str]) -> list[str]:
-    blocks, repeated = _frontmatter_blocks(lines)
-    errors = [f"{key}: appears twice in the frontmatter" for key in repeated]
+    errors: list[str] = []
     for key, block in blocks.items():
         try:
             parsed = BlockParser(block).parse()
