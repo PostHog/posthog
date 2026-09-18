@@ -902,7 +902,7 @@ describe('the feature flag release conditions logic', () => {
             )
 
             expect(logic.values.propertySelectErrors[0].properties?.[0]?.value).toBe(
-                'Enter a valid semver value (e.g. 1.2.3)'
+                'Enter a version like 1.2.3. To match other text, use "contains" or "matches regex" instead.'
             )
         })
 

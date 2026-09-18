@@ -22,18 +22,22 @@ const makePropertyDefinition = (name: string, propertyType: PropertyType | undef
 
 const props = (overrides: {
     type?: PropertyType | undefined
+    propertyKey?: string
     editable?: boolean
     startVisible?: boolean
     operatorAllowlist?: PropertyOperator[]
-}): OperatorValueSelectProps => ({
-    type: undefined,
-    propertyKey: 'the_property',
-    onChange: () => {},
-    propertyDefinitions: [makePropertyDefinition('the_property', overrides.type)],
-    editable: overrides.editable ?? false,
-    startVisible: overrides.startVisible,
-    operatorAllowlist: overrides.operatorAllowlist,
-})
+}): OperatorValueSelectProps => {
+    const propertyKey = overrides.propertyKey ?? 'the_property'
+    return {
+        type: undefined,
+        propertyKey,
+        onChange: () => {},
+        propertyDefinitions: [makePropertyDefinition(propertyKey, overrides.type)],
+        editable: overrides.editable ?? false,
+        startVisible: overrides.startVisible,
+        operatorAllowlist: overrides.operatorAllowlist,
+    }
+}
 
 export function OperatorValueWithStringProperty(): JSX.Element {
     return (
@@ -117,6 +121,38 @@ export function OperatorValueMenuWithAllowlist(): JSX.Element {
                         PropertyOperator.Exact,
                         PropertyOperator.NotIContains,
                     ],
+                })}
+            />
+        </>
+    )
+}
+
+export function OperatorValueMenuOpenForTextProperty(): JSX.Element {
+    return (
+        <>
+            <h1>Text property, so no semver operators</h1>
+            <OperatorValueSelect
+                {...props({
+                    type: PropertyType.String,
+                    propertyKey: '$geoip_city_name',
+                    editable: true,
+                    startVisible: true,
+                })}
+            />
+        </>
+    )
+}
+
+export function OperatorValueMenuOpenForVersionProperty(): JSX.Element {
+    return (
+        <>
+            <h1>Version property, so semver operators too</h1>
+            <OperatorValueSelect
+                {...props({
+                    type: PropertyType.String,
+                    propertyKey: '$app_version',
+                    editable: true,
+                    startVisible: true,
                 })}
             />
         </>

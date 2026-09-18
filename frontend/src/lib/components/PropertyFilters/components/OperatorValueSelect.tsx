@@ -263,7 +263,7 @@ export function OperatorValueSelect({
             propertyType = getCoreFilterDefinition(propertyKey, TaxonomicFilterGroupType.Replay)?.type ?? propertyType
         }
 
-        const operatorMapping: Record<string, string> = chooseOperatorMap(propertyType)
+        const operatorMapping: Record<string, string> = chooseOperatorMap(propertyType, propertyKey, operator)
 
         let operators = (Object.keys(operatorMapping) as Array<PropertyOperator>).filter(
             (op) => !operatorAllowlist || operatorAllowlist.includes(op)

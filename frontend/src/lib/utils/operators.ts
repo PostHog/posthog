@@ -32,15 +32,6 @@ export const stringOperatorMap: Record<string, string> = {
     not_regex: "≁ doesn't match regex",
     is_set: '✓ is set',
     is_not_set: '✕ is not set',
-    semver_eq: '= equals (semver)',
-    semver_neq: '≠ not equal (semver)',
-    semver_gt: '> greater than (semver)',
-    semver_gte: '≥ greater than or equal (semver)',
-    semver_lt: '< less than (semver)',
-    semver_lte: '≤ less than or equal (semver)',
-    semver_tilde: '~ tilde range (semver)',
-    semver_caret: '^ caret range (semver)',
-    semver_wildcard: '* wildcard (semver)',
 }
 
 export const stringArrayOperatorMap: Record<string, string> = {
@@ -164,10 +155,37 @@ const operatorMappingChoice: Record<keyof typeof PropertyType, Record<string, st
     Semver: semverOperatorMap,
 }
 
-export function chooseOperatorMap(propertyType: PropertyType | undefined): Record<string, string> {
+// A version segment at the end of the key, as a whole word ('version', 'app_version', 'sdk.version')
+// or as the camel-case tail of one ('appVersion'). The word boundary keeps ordinary text keys such
+// as 'conversion' out.
+const VERSION_KEY_WORD_REGEX = /(?:^|[._\- ])versions?$/i
+const VERSION_KEY_CAMEL_REGEX = /[a-z0-9]Versions?$/
+
+function isVersionPropertyKey(propertyKey: string | null | undefined): boolean {
+    const key = propertyKey?.replace(/^\$/, '') ?? ''
+    return VERSION_KEY_WORD_REGEX.test(key) || VERSION_KEY_CAMEL_REGEX.test(key)
+}
+
+/**
+ * The operators to offer for a property.
+ *
+ * Semver operators resolve only against version strings, so a semver filter on any other text
+ * property matches no rows. They are offered on a version property, and on a filter that already
+ * holds a semver operator, so an existing filter keeps the operator it was saved with.
+ */
+export function chooseOperatorMap(
+    propertyType: PropertyType | undefined,
+    propertyKey?: string | null,
+    currentOperator?: PropertyOperator | null
+): Record<string, string> {
     let choice = genericOperatorMap
     if (propertyType) {
         choice = operatorMappingChoice[propertyType] || genericOperatorMap
+    }
+    const textProperty = !propertyType || propertyType === PropertyType.String
+    const semverApplies = isVersionPropertyKey(propertyKey) || (!!currentOperator && isOperatorSemver(currentOperator))
+    if (textProperty && semverApplies) {
+        return { ...choice, ...semverOperatorMap }
     }
     return choice
 }
