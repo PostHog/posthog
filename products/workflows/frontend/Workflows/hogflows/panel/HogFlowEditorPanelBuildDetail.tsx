@@ -89,7 +89,10 @@ export function HogFlowEditorPanelBuildDetail(): JSX.Element | null {
             <ScrollableShadows
                 direction="vertical"
                 className="flex-1 min-h-0"
-                innerClassName="flex flex-col gap-2 p-3"
+                innerClassName="p-3"
+                // The content is at least as tall as the panel, so a step config that grows (the
+                // email preview) fills it instead of leaving the space below it blank
+                contentClassName="flex min-h-full flex-col gap-2"
                 styledScrollbars
             >
                 <ErrorBoundary exceptionProps={{ feature: 'workflow-step-config' }}>
