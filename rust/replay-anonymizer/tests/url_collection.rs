@@ -292,7 +292,7 @@ fn a_remote_src_keeps_its_placeholder_and_stashes_the_ref() {
 }
 
 #[test]
-fn a_hidden_pixel_or_a_beacon_keeps_its_placeholder_and_is_declined() {
+fn a_src_the_policy_refuses_keeps_its_placeholder_and_is_declined() {
     let src = "https://cdn.example.com/spacer.gif";
     for (attrs, reason) in [
         (
@@ -332,6 +332,10 @@ fn a_hidden_pixel_or_a_beacon_keeps_its_placeholder_and_is_declined() {
             json!({ "src": "https://analytics.twitter.com/i/adsct?txn_id=abc&p_id=Twitter" }),
             "tracking_beacon",
         ),
+        (
+            json!({ "src": "https://shop.example.com/cart/chrome-extension://abcdefghijklmnop/icon.png" }),
+            "browser_local_scheme",
+        ),
     ] {
         for (engine, result) in run(attrs.clone(), true) {
             let (line, meta) = (&result[0], &result[1]);
@@ -363,6 +367,7 @@ fn a_hidden_pixel_or_a_beacon_keeps_its_placeholder_and_is_declined() {
         json!({ "src": src, "width": "1", "height": "1", "style": "width: 100%" }),
         json!({ "src": src, "width": "-1", "height": "-1" }),
         json!({ "src": "https://analytics.twitter.com/transparency/logo.png" }),
+        json!({ "src": "https://imgproxy.example.com/c2lnbmF0dXJl/w:800/plain/s3://bucket/1.jpg@jpg" }),
     ] {
         for (engine, result) in run(attrs.clone(), true) {
             let meta = &result[1];

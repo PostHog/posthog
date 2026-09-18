@@ -230,6 +230,7 @@ export type UrlPolicyDecline =
     | 'credential'
     | 'invalid_query'
     | 'tracking_beacon'
+    | 'browser_local_scheme'
 
 /**
  * The canonical forms of a URL the policy accepts, or the rule that refused it. `unwanted` is true
