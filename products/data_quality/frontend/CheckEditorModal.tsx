@@ -55,6 +55,7 @@ export function CheckEditorModal(): JSX.Element {
     const formShapeLoading = checkTypesLoading && !checkTypes.length
     const awaitingSubject = openedWithoutSubject && !subject
     const checkTypesFailedEmpty = checkTypesError && !checkTypesLoading && !checkTypes.length
+    const catalogFailed = !!checkSubjectsError && !checkSubjectsLoading
     const { loadCheckTypes, loadCheckSubjects, requestClose, setCheckFormValues, setSubject, submitCheckForm } =
         useActions(dataQualityCheckEditorLogic)
 
@@ -84,7 +85,9 @@ export function CheckEditorModal(): JSX.Element {
                                         ? 'Loading the check types'
                                         : checkTypesFailedEmpty
                                           ? 'Load the check types to continue'
-                                          : undefined
+                                          : catalogFailed && !openedWithoutSubject
+                                            ? 'Load the columns to continue'
+                                            : undefined
                             }
                             data-attr="data-quality-check-save"
                         >
@@ -136,7 +139,7 @@ export function CheckEditorModal(): JSX.Element {
                             data-attr="data-quality-check-subject"
                         />
                     </LemonField.Pure>
-                    {checkSubjectsError && !checkSubjectsLoading ? (
+                    {catalogFailed ? (
                         <div className="flex items-center gap-2 text-secondary text-sm">
                             <span>Couldn't load what you can check.</span>
                             <LemonButton size="small" type="secondary" onClick={loadCheckSubjects}>
@@ -150,6 +153,14 @@ export function CheckEditorModal(): JSX.Element {
                             <Link to={urls.metrics()}>create a HogQL metric</Link> first.
                         </p>
                     ) : null}
+                </div>
+            )}
+            {catalogFailed && !openedWithoutSubject && (
+                <div className="flex items-center gap-2 mb-3 text-secondary text-sm">
+                    <span>Couldn't load the columns for this subject.</span>
+                    <LemonButton size="small" type="secondary" onClick={loadCheckSubjects}>
+                        Retry
+                    </LemonButton>
                 </div>
             )}
             {checkTypesFailedEmpty && (
