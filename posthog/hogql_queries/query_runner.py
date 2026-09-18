@@ -123,7 +123,11 @@ from posthog.hogql.database.database import Database
 from posthog.hogql.modifiers import create_default_modifiers_for_user
 from posthog.hogql.printer import prepare_and_print_ast, to_printed_hogql
 from posthog.hogql.query import create_default_modifiers_for_team
-from posthog.hogql.query_stats import QueryStats, query_stats_scope
+from posthog.hogql.query_stats import (
+    QueryStats,
+    get_active as get_active_query_stats,
+    query_stats_scope,
+)
 from posthog.hogql.timings import HogQLTimings
 from posthog.hogql.warehouse_warnings import accumulator_scope
 
@@ -288,7 +292,7 @@ class RunPhase:
     """Where a run is, for the failure event a raise sends: the phase the raise lands in, the
     ClickHouse totals recorded so far, and the calculation time once there is one."""
 
-    name: Literal["prepare", "flight_wait", "calculate", "finish"]
+    name: Literal["prepare", "flight_wait", "rate_limiters", "calculate", "finish"]
     stats: Optional[QueryStats] = None
     query_duration_ms: Optional[float] = None
 
@@ -2219,6 +2223,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                         is_api=is_api_key_access,
                     )
                 )
+            self._phase = RunPhase(name="calculate", stats=get_active_query_stats())
             query_start_time = perf_counter()
             query_result = self.calculate()
             query_duration_ms = round((perf_counter() - query_start_time) * 1000, 2)
@@ -2767,7 +2772,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             query_type = getattr(self.query, "kind", "Other")
             survey_query_metric_labels = get_survey_query_metric_labels(self.query)
             query_start = perf_counter()
-            self._phase = RunPhase(name="calculate", stats=query_stats)
+            self._phase = RunPhase(name="rate_limiters", stats=query_stats)
             try:
                 query_result, query_duration_ms = self._call_with_rate_limits(dashboard_id=dashboard_id)
                 QUERY_EXECUTION_TOTAL.labels(

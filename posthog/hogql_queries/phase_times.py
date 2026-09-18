@@ -5,7 +5,7 @@ FLIGHT_WAIT_KEY = "./flight_wait"
 
 def _node_ms(runner_timings: dict[str, float], before: dict[str, float], key: str) -> float | None:
     seconds = runner_timings.get(key)
-    if seconds is None:
+    if seconds is None or seconds == before.get(key):
         return None
     return round((seconds - before.get(key, 0.0)) * 1000, 2)
 

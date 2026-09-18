@@ -13,4 +13,4 @@ class TestComputePhaseTimes(SimpleTestCase):
         result = compute_phase_times(
             {"./rate_limiters": 0.020, "./cache_write": 0.003, "./flight_wait": 0.1}, before=first_run
         )
-        self.assertEqual(result, {"rate_limiters_ms": 8.0, "cache_write_ms": 0.0, "flight_wait_ms": 100.0})
+        self.assertEqual(result, {"rate_limiters_ms": 8.0, "cache_write_ms": None, "flight_wait_ms": 100.0})

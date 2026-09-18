@@ -879,6 +879,7 @@ class TestQueryRunner(BaseTest):
         [
             ("in the calculation", "calculate", "calculate", ClickHouseQueryTimeOut, "query_performance_error"),
             ("with a validation error", "calculate", "calculate", ValidationError, "user_error"),
+            ("turned away by a limiter", "limiter", "rate_limiters", ConcurrencyLimitExceeded, "rate_limited"),
             ("in the cache write", "store", "finish", RuntimeError, "error"),
             ("while serving the scan", "serve", "finish", RuntimeError, "error"),
         ]
@@ -896,6 +897,10 @@ class TestQueryRunner(BaseTest):
         if where == "calculate":
             failing = mock.patch.object(
                 TestQueryRunner, "_calculate", autospec=True, side_effect=calculate_until_clickhouse_gives_up
+            )
+        elif where == "limiter":
+            failing = mock.patch(
+                "posthog.hogql_queries.query_runner.get_app_org_rate_limiter", side_effect=error_class("over the limit")
             )
         elif where == "store":
             failing = mock.patch.object(QueryCache, "store_result", side_effect=error_class("cache store failed"))
@@ -916,6 +921,8 @@ class TestQueryRunner(BaseTest):
         if failed_in == "calculate":
             assert (props["clickhouse_rows_read"], props["clickhouse_workload"]) == (90, "ONLINE")
             assert props["query_duration_ms"] is None
+        elif failed_in == "rate_limiters":
+            assert (props["clickhouse_query_count"], props["query_duration_ms"]) == (0, None)
         else:
             assert isinstance(props["query_duration_ms"], float)
 
