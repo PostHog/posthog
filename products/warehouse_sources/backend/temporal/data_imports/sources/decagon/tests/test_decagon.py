@@ -530,6 +530,20 @@ class TestAgentAssistActions:
         saved = [call.args[0] for call in manager.save_state.call_args_list]
         assert saved == [DecagonResumeConfig(cursor="cur-1", min_timestamp=int(epoch))]
 
+    def test_a_wrapped_envelope_pages_on_the_cursor_beside_its_rows(self) -> None:
+        # Rows one object down take has_more and next_cursor with them. Reading those from
+        # the top level alone ends the walk after page one and reports the truncated table
+        # as synced, which is worse than the empty table the renamed key used to leave.
+        manager = _fresh_manager()
+        responses = [
+            _make_response({"result": {"events": [{"agent_name": "a"}], "has_more": True, "next_cursor": "cur-1"}}),
+            _make_response({"result": {"events": [{"agent_name": "b"}], "has_more": False, "next_cursor": None}}),
+        ]
+        sent_params, batches = _drive_rows(manager, responses, endpoint="agent_assist_actions")
+
+        assert sent_params == [{"include_details": "true"}, {"include_details": "true", "cursor": "cur-1"}]
+        assert [len(b) for b in batches] == [1, 1]
+
     def test_a_refused_details_add_on_retries_the_walk_without_it(self) -> None:
         # Detail export is entitled separately from the actions export, and a team without
         # it is refused the whole request, so the table only syncs if the walk drops the
@@ -768,6 +782,24 @@ class TestArticleTables:
         # raises. An unclassified message repeats this identical request for the whole attempt
         # budget, reports it every time, and leaves the schema enabled for the next schedule.
         assert error_message_matches(str(excinfo.value), DecagonSource().get_non_retryable_errors())
+
+    @parameterized.expand(
+        [
+            ("beside_the_nested_rows", {"result": {"articles": [{"id": 1}, {"id": 2}], "total": 2}}),
+            ("left_at_the_top_level", {"result": {"articles": [{"id": 1}, {"id": 2}]}, "total": 2}),
+        ]
+    )
+    def test_a_wrapped_envelope_bounds_the_page_walk_on_its_total(self, _name: str, body: dict[str, Any]) -> None:
+        # A wrapper can take the total down with the rows or leave it outside, so the walk
+        # reads it from the object that held the rows and falls back to the response. With
+        # neither read finding it, a full page keeps requesting pages the export has ended.
+        cfg = dataclasses.replace(DECAGON_ENDPOINTS["articles"], page_size=2)
+        with patch.dict(DECAGON_ENDPOINTS, {"articles": cfg}):
+            manager = _fresh_manager()
+            sent_params, batches = _drive_rows(manager, [_make_response(body)], endpoint="articles")
+
+        assert len(sent_params) == 1
+        assert [[r["id"] for r in b] for b in batches] == [[1, 2]]
 
     def test_an_empty_knowledge_base_still_completes(self) -> None:
         manager = _fresh_manager()

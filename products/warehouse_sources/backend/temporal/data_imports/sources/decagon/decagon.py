@@ -106,10 +106,23 @@ class _IncrementalWindow:
 
 
 @dataclasses.dataclass(frozen=True)
+class _ListCandidate:
+    """A list found in a response envelope, with the object that held it."""
+
+    path: str
+    items: list[Any]
+    parent: dict[str, Any]
+
+
+@dataclasses.dataclass(frozen=True)
 class _Batch:
     """One page of a walk: the response envelope, the rows it carried, and the rows to emit."""
 
     data: dict[str, Any]
+    # Where the walk reads its cursor, has_more and total. Rows found one object down take
+    # their pagination fields with them, so reading only the top level ends the walk after
+    # one page; the response itself stays the fallback for fields the wrapper leaves outside.
+    pagination: dict[str, Any]
     items: list[Any]
     fresh: list[dict[str, Any]]
 
@@ -158,14 +171,18 @@ def _incremental_window_value(config: DecagonEndpointConfig, value: Any) -> int 
     return _to_epoch_seconds(value)
 
 
-def _list_candidates(data: dict[str, Any]) -> list[tuple[str, list[Any]]]:
+def _list_candidates(data: dict[str, Any]) -> list[_ListCandidate]:
     """Every list in the envelope, at the top level or one object below it."""
-    candidates: list[tuple[str, list[Any]]] = []
+    candidates: list[_ListCandidate] = []
     for key, value in data.items():
         if isinstance(value, list):
-            candidates.append((key, value))
+            candidates.append(_ListCandidate(path=key, items=value, parent=data))
         elif isinstance(value, dict):
-            candidates.extend((f"{key}.{nested}", item) for nested, item in value.items() if isinstance(item, list))
+            candidates.extend(
+                _ListCandidate(path=f"{key}.{nested}", items=item, parent=value)
+                for nested, item in value.items()
+                if isinstance(item, list)
+            )
     return candidates
 
 
@@ -194,10 +211,10 @@ def _describe_shape(data: dict[str, Any]) -> str:
     return ", ".join(parts)
 
 
-def _resolve_items(
+def _resolve_rows(
     data: dict[str, Any], config: DecagonEndpointConfig, endpoint: str, logger: FilteringBoundLogger
-) -> list[Any]:
-    """Read the row list out of a response envelope.
+) -> _ListCandidate:
+    """Read the row list out of a response envelope, with the object that held it.
 
     Decagon renames and re-nests envelope fields between doc revisions (the conversations
     export alone documents three names for one cursor field), and a lookup that misses
@@ -207,29 +224,29 @@ def _resolve_items(
     """
     items = data.get(config.data_key)
     if isinstance(items, list):
-        return items
+        return _ListCandidate(path=config.data_key, items=items, parent=data)
 
     candidates = _list_candidates(data)
-    same_key = [found for found in candidates if found[0].rsplit(".", 1)[-1] == config.data_key]
-    row_like = [found for found in candidates if _looks_like_rows(config, found[1])]
+    same_key = [found for found in candidates if found.path.rsplit(".", 1)[-1] == config.data_key]
+    row_like = [found for found in candidates if _looks_like_rows(config, found.items)]
     # A list qualifies on its name or on the endpoint's primary keys. Being the envelope's
     # only list is not evidence: "the only list" also describes a list of warnings, and
     # reading that one imports metadata as rows. Anything that leaves more than one
     # candidate is a guess, so it fails instead.
     for shortlist in (same_key, row_like):
         if len(shortlist) == 1:
-            path, found_items = shortlist[0]
+            found = shortlist[0]
             logger.warning(
                 f"Decagon: {endpoint} response carries no '{config.data_key}' list; reading rows from "
-                f"'{path}' instead (response shape: {_describe_shape(data)})"
+                f"'{found.path}' instead (response shape: {_describe_shape(data)})"
             )
-            return found_items
+            return found
 
     logger.warning(
         f"Decagon: {endpoint} response carries no readable '{config.data_key}' list "
         f"(response shape: {_describe_shape(data)})"
     )
-    return []
+    return _ListCandidate(path=config.data_key, items=[], parent=data)
 
 
 def _next_cursor(data: dict[str, Any], cursor_keys: tuple[str, ...]) -> Optional[str]:
@@ -464,13 +481,14 @@ class _RowWalk:
         params: dict[str, str] = {**self._config.extra_params, **position_params, **self._window_params}
         data = self._fetcher.fetch(params)
         self._envelope_shape = _describe_shape(data)
+        rows = _resolve_rows(data, self._config, self._endpoint, self._logger)
+        fresh = self._deduplicator.fresh(rows.items)
+        self._saw_rows = self._saw_rows or bool(fresh)
+        pagination = data if rows.parent is data else {**data, **rows.parent}
         # Recorded here rather than in the walk, so the contract check sees the reported
         # total whichever mode read the response.
-        self._reported_total = data.get(self._config.total_key) if self._config.total_key else None
-        items = _resolve_items(data, self._config, self._endpoint, self._logger)
-        fresh = self._deduplicator.fresh(items)
-        self._saw_rows = self._saw_rows or bool(fresh)
-        return _Batch(data=data, items=items, fresh=fresh)
+        self._reported_total = pagination.get(self._config.total_key) if self._config.total_key else None
+        return _Batch(data=data, pagination=pagination, items=rows.items, fresh=fresh)
 
     def _short_page(self, batch: _Batch) -> bool:
         """Termination signal left when the response carries no usable total."""
@@ -517,8 +535,8 @@ class _RowWalk:
         while True:
             # An omitted cursor starts the stream at the oldest rows.
             batch = self._read({"cursor": cursor} if cursor else {})
-            next_cursor = _next_cursor(batch.data, config.next_cursor_keys or ())
-            more = batch.data.get(config.has_more_key) if config.has_more_key else None
+            next_cursor = _next_cursor(batch.pagination, config.next_cursor_keys or ())
+            more = batch.pagination.get(config.has_more_key) if config.has_more_key else None
 
             if batch.fresh:
                 yield batch.fresh
