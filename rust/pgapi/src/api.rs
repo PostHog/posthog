@@ -12,6 +12,7 @@ use axum::{
     routing::get,
     Router,
 };
+use chrono::{DateTime, Utc};
 use serde::Deserialize;
 use std::sync::Arc;
 
@@ -54,6 +55,8 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/servers/:server/queries/:queryid", get(query_detail))
         .route("/servers/:server/tags", get(tags))
         .route("/servers/:server/waits", get(waits))
+        .route("/servers/:server/locks", get(locks))
+        .route("/servers/:server/sessions/:pid", get(session_history))
         .route("/servers/:server/activity", get(activity))
         .route("/servers/:server/tables", get(tables))
         .route("/servers/:server/indexes", get(indexes))
@@ -181,6 +184,57 @@ async fn load(State(s): S, Path(server): Path<String>, Query(p): Query<BucketQ>)
 async fn waits(State(s): S, Path(server): Path<String>, Query(p): Query<BucketQ>) -> R {
     let (f, t) = p.range.resolve()?;
     Ok(Json(q::wait_events(&s.db, &server, f, t, &p.bucket).await?))
+}
+#[derive(Deserialize)]
+struct LocksQ {
+    #[serde(flatten)]
+    range: Range,
+    #[serde(default = "d_bucket")]
+    bucket: String,
+    #[serde(default = "d_limit")]
+    limit: i64,
+}
+async fn locks(State(s): S, Path(server): Path<String>, Query(p): Query<LocksQ>) -> R {
+    let (f, t) = p.range.resolve()?;
+    Ok(Json(
+        q::lock_waits(&s.db, &server, f, t, &p.bucket, p.limit.clamp(1, 500)).await?,
+    ))
+}
+#[derive(Deserialize)]
+struct SessionQ {
+    #[serde(flatten)]
+    range: Range,
+    #[serde(default = "d_instance")]
+    instance: String,
+    /// The backend's start time, which tells a reused pid apart from the one asked about.
+    backend_start: Option<DateTime<Utc>>,
+    /// Without `backend_start`, the backend sampled nearest to this time is the one returned.
+    at: Option<DateTime<Utc>>,
+}
+fn d_instance() -> String {
+    "writer".into()
+}
+async fn session_history(
+    State(s): S,
+    Path((server, pid)): Path<(String, i64)>,
+    Query(p): Query<SessionQ>,
+) -> R {
+    let (f, t) = p.range.resolve()?;
+    Ok(Json(
+        q::session_history(
+            &s.db,
+            &server,
+            &p.instance,
+            pid,
+            q::SessionWindow {
+                from: f,
+                to: t,
+                backend_start: p.backend_start,
+                at: p.at,
+            },
+        )
+        .await?,
+    ))
 }
 async fn activity(State(s): S, Path(server): Path<String>) -> R {
     Ok(Json(q::current_activity(&s.db, &server).await?))

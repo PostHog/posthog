@@ -40,7 +40,8 @@
   td.num, th.num { text-align: right; font-family: var(--mono); white-space: nowrap; }
   td.mono { font-family: var(--mono); } .muted { color: var(--muted); } .ok { color: var(--ok); } .warn { color: var(--warn); } .err { color: var(--error); }
   .q { font-family: var(--mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 520px; display: block; }
-  .grid.two .q { max-width: 300px; }
+  .grid.two .q { max-width: 300px; } .panel.tight { overflow-x: auto; } .panel.tight .q { max-width: 240px; }
+  .nowrap { white-space: nowrap; } .small { font-size: 11px; }
   pre { background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 10px; font-family: var(--mono); font-size: 11.5px; overflow: auto; white-space: pre-wrap; word-break: break-word; margin: 0; max-height: 420px; }
   .error-box { padding: 10px 14px; color: var(--error); font-family: var(--mono); font-size: 12px; white-space: pre-wrap; border: 1px solid var(--error); border-radius: 6px; }
   .empty { color: var(--muted); padding: 8px 0; }
@@ -86,7 +87,7 @@
 (() => {
   // ---------- state & routing ----------
   const PAGES = [
-    ['overview', 'Overview'], ['queries', 'Queries'], ['activity', 'Activity'], ['waits', 'Wait events'],
+    ['overview', 'Overview'], ['queries', 'Queries'], ['activity', 'Activity'], ['waits', 'Wait events'], ['locks', 'Locks'],
     ['tables', 'Tables'], ['indexes', 'Indexes'], ['vacuum', 'Vacuum'], ['events', 'Events'], ['logs', 'Logs'],
     ['system', 'System'], ['schema', 'Schema'], ['settings', 'Settings'], ['collector', 'Collector health'],
   ];
@@ -437,6 +438,68 @@
       el('h1', {}, 'Wait events', el('span', { class: 'sub' }, 'average active sessions by wait event (10s samples)')),
       panel('Top wait events over time', chart(top.map(([k, , pts], i) => ({ name: k, color: COLORS[i % COLORS.length], points: pts })), { yfmt: v => fmt.dec(v, 1) })),
       d.measured_aurora.length ? el('div', { style: 'margin-top:12px' }, panel('Measured wait time (Aurora, exact)', table(d.measured_aurora, [{ key: 'instance', label: 'instance' }, { key: 'type_name', label: 'type' }, { key: 'event_name', label: 'event' }, { key: 'waits', label: 'waits', num: true, fmt: fmt.num }, { key: 'wait_time_us', label: 'time', num: true, fmt: v => fmt.ms(v / 1000) }]))) : null,
+    ];
+  };
+
+  const secs = v => v == null ? '–' : v >= 3600 ? (v / 3600).toFixed(1) + ' h' : v >= 90 ? Math.round(v / 60) + ' min' : Math.round(v) + ' s';
+  const pidCell = (pid, user, app) => el('span', { class: 'nowrap' }, el('span', { class: 'mono' }, pid), user || app ? [el('br'), el('span', { class: 'muted small' }, [user, app].filter(Boolean).join(' · '))] : null);
+  const lockCell = r => el('span', { class: 'nowrap' }, r.locktype || '–', el('br'), el('span', { class: 'muted small' }, r.wanted_mode || ''), r.relation ? [el('br'), el('span', { class: 'mono small' }, r.relation)] : null);
+  // Consecutive 10 s samples with the same state, statement, wait and blocker collapse into one span, so a
+  // blocker's history reads as "ran X for 8 s, then sat idle in transaction for 15 min". A gap over 30 s or a
+  // different backend_start (the pid was reused) starts a new span rather than bridging what was not sampled.
+  function sessionSpans(rows) {
+    const out = [];
+    const same = (a, b) => a.state === b.state && a.query === b.query && a.wait_event_type === b.wait_event_type && a.wait_event === b.wait_event && a.blocked_by === b.blocked_by && a.backend_start === b.backend_start && new Date(b.collected_at) - new Date(a.last) <= 30e3;
+    for (const r of rows) {
+      const last = out[out.length - 1];
+      if (last && same(last, r)) { last.last = r.collected_at; last.xact_age_s = r.xact_age_s; last.samples++; last.trace_id = r.trace_id || last.trace_id; }
+      else out.push({ ...r, first: r.collected_at, last: r.collected_at, samples: 1 });
+    }
+    return out;
+  }
+
+  pages.locks = async () => {
+    const bucket = bucketFor();
+    const d = await api(`/servers/${state.server}/locks`, { ...rangeQuery(), bucket, limit: 100 });
+    const byType = {};
+    for (const r of d.series) (byType[r.locktype] ||= []).push([new Date(r.bucket), r.avg_waiting_sessions]);
+    const series = Object.entries(byType).sort(([a], [b]) => a.localeCompare(b)).map(([k, pts], i) => ({ name: k, color: COLORS[(i + 3) % COLORS.length], points: pts }));
+    const per = BUCKET_LABEL[bucket] || bucket;
+    // A selected episode (instance:pid:from:to:backend_start:at) shows what the blocker was doing across its transaction.
+    const sel = state.params.session ? state.params.session.split(':').map(decodeURIComponent) : null;
+    // The history is a drill-down, so a failed fetch shows in its own panel instead of replacing the page.
+    const history = sel ? await api(`/servers/${state.server}/sessions/${sel[1]}`, { instance: sel[0], from: sel[2], to: sel[3], backend_start: sel[4] || null, at: sel[5] || null }).catch(e => ({ error: String(e.message || e) })) : null;
+    const clearSel = () => { const p = { ...state.params }; delete p.session; go('locks', p); };
+    return [
+      el('h1', {}, 'Locks', el('span', { class: 'sub' }, 'who waited for whom, from 10 s samples of blocked sessions')),
+      panel(`Sessions waiting on locks per ${per}, by lock type`, chart(series, { stacked: true, yfmt: v => fmt.dec(v, 2) })),
+      history ? el('div', { style: 'margin-top:12px' }, panel(null,
+        el('div', { class: 'toolbar' }, el('h2', { style: 'margin:0' }, `Blocker pid ${sel[1]} on ${sel[0]}`), el('span', { class: 'muted' }, `${fmt.ts(sel[2])} to ${fmt.ts(sel[3])}`), el('button', { onclick: clearSel }, '✕ close')),
+        history.error ? el('div', { class: 'error-box' }, `Couldn't load the session history: ${history.error}. Try again, and if it keeps happening check the API logs.`) : table(sessionSpans(history), [
+          { key: 'first', label: 'from', fmt: fmt.time }, { key: 'last', label: 'to', fmt: fmt.time },
+          { key: 'state', label: 'state', render: r => el('span', { class: r.state === 'idle in transaction' ? 'warn' : '' }, r.state) },
+          { key: 'wait_event_type', label: 'wait', fmt: (v, r) => v ? `${v}:${r.wait_event}` : 'CPU' },
+          { key: 'xact_age_s', label: 'txn age at end', num: true, fmt: secs }, { key: 'blocked_by', label: 'blocked by' },
+          { key: 'query', label: 'last statement', render: r => r.query_id ? el('a', { href: hashFor('query', { queryid: r.query_id, datname: r.datname }) }, queryLabel(r)) : queryLabel(r) },
+          { key: 'trace_id', label: 'trace', cls: 'mono', render: r => r.trace_id ? el('span', { title: r.trace_id }, r.trace_id.slice(0, 12) + '…') : null },
+        ], { empty: 'No samples for this backend in the window. Backends are only sampled once active for 5 s or idle in transaction for 60 s, so a short transaction leaves no history.' }))) : null,
+      el('div', { style: 'margin-top:12px' }, Object.assign(panel('Who blocked whom', table(d.pairs, [
+        { key: 'blocker_query', label: 'blocker was running', render: r => el('span', {}, queryCell(r.blocker_query), el('div', { class: 'muted', style: 'font-size:11px' }, [r.blocker_usename, r.blocker_application_name].filter(Boolean).join(' · '), r.blocker_idle_pct ? el('span', { class: r.blocker_idle_pct >= 50 ? 'warn' : '' }, ` · idle in transaction ${fmt.pct(r.blocker_idle_pct)} of the time`) : null)) },
+        { key: 'waiter_query', label: 'waiter', render: r => el('span', {}, queryCell(r.waiter_query), el('div', { class: 'muted', style: 'font-size:11px' }, [r.usename, r.application_name].filter(Boolean).join(' · '))) },
+        { key: 'locktype', label: 'lock', render: lockCell },
+        { key: 'waited_s', label: 'waited', num: true, fmt: secs }, { key: 'waiters', label: 'waiters', num: true, fmt: fmt.num }, { key: 'blockers', label: 'blockers', num: true, fmt: fmt.num },
+        { key: 'max_waiting_s', label: 'longest wait', num: true, fmt: secs }, { key: 'max_blocker_xact_age_s', label: 'blocker txn age', num: true, fmt: secs },
+        { key: 'last_seen', label: 'last seen', fmt: fmt.ago },
+      ], { sortKey: 'waited_s', empty: 'no blocked sessions sampled in this range' })), { className: 'panel tight' })),
+      el('div', { style: 'margin-top:12px' }, Object.assign(panel('Episodes (one waiter blocked by one backend; click for the blocker\'s history)', table(d.episodes, [
+        { key: 'first_seen', label: 'start', cls: 'nowrap', fmt: fmt.ts }, { key: 'waited_s', label: 'duration', num: true, fmt: secs },
+        { key: 'waiter_pid', label: 'waiter', render: r => pidCell(r.waiter_pid, r.usename, r.application_name) },
+        { key: 'waiter_query', label: 'waiting on', render: r => queryCell(r.waiter_query) },
+        { key: 'locktype', label: 'lock', render: lockCell },
+        { key: 'blocker_pid', label: 'blocker', render: r => el('span', { class: 'nowrap' }, pidCell(r.blocker_pid, r.blocker_usename, r.blocker_application_name), el('br'), el('span', { class: (r.blocker_state === 'idle in transaction' ? 'warn' : '') + ' small' }, r.blocker_state), el('span', { class: 'muted small' }, ` · txn ${secs(r.blocker_xact_age_s)}`)) },
+        { key: 'blocker_query', label: 'blocker last ran', render: r => queryCell(r.blocker_query) },
+      ], { onRow: r => { const from = new Date(+new Date(r.first_seen) - (r.blocker_xact_age_at_start_s || 0) * 1000 - 60e3).toISOString(), to = new Date(+new Date(r.last_seen) + 60e3).toISOString(); go('locks', { ...state.params, session: [r.instance, r.blocker_pid, from, to, r.blocker_backend_start || '', r.last_seen].map(encodeURIComponent).join(':') }); }, empty: 'no blocked sessions sampled in this range' })), { className: 'panel tight' })),
+      el('div', { style: 'margin-top:12px' }, panel('Deadlocks (from the log)', d.deadlocks.length ? d.deadlocks.map(e => el('details', { open: '' }, el('summary', {}, `${fmt.ts(e.at)} · ${e.datname || ''} · ${e.subject || ''}`), el('pre', {}, (e.after && (e.after.detail || e.after.message)) || JSON.stringify(e.after, null, 2)))) : el('div', { class: 'empty' }, 'none in range (needs log_lock_waits or deadlock logging and the logs collector)'))),
     ];
   };
 
