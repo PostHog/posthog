@@ -12,21 +12,18 @@ import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
 import { StepView } from '../steps/components/StepView'
 import { useHogFlowStep } from '../steps/HogFlowSteps'
 import type { HogFlowAction, HogFlowActionNode } from '../types'
-import { HogFlowTreeBranchIndicator } from './HogFlowTreeBranchIndicator'
 import { isBranchingAction } from './workflowTree'
 
 export function HogFlowTreeStep({
     action,
     onDragEnd,
     onDragStart,
-    branchColor,
     collapseControl,
     canDrag = !['trigger', 'exit'].includes(action.type) && !isBranchingAction(action),
 }: {
     action: HogFlowAction
     onDragEnd: () => void
     onDragStart: (event: DragEvent<HTMLDivElement>, actionId: string, dragPreviewElement: HTMLDivElement | null) => void
-    branchColor?: string
     collapseControl?: ReactNode
     canDrag?: boolean
 }): JSX.Element {
@@ -58,7 +55,16 @@ export function HogFlowTreeStep({
     const hasValidationIssue =
         validationResult?.valid === false || Object.keys(validationResult?.warnings ?? {}).length > 0
     const isAnimationTarget = animatingEdgePair?.endsWith(`->${action.id}`) ?? false
-    const hasFooterContent = !!action.description || !!step?.previews.length
+    const previews = (step?.previews ?? []).filter(
+        (preview) =>
+            action.type !== 'delay' ||
+            preview.label.toLowerCase().replace(/^wait for /, 'wait ') !==
+                action.name
+                    .trim()
+                    .toLowerCase()
+                    .replace(/^wait for /, 'wait ')
+    )
+    const hasFooterContent = !!action.description || previews.length > 0
 
     return (
         <Item
@@ -73,7 +79,6 @@ export function HogFlowTreeStep({
             data-attr="workflow-tree-step"
             id={`workflow-tree-step-${action.id}`}
         >
-            {branchColor && <HogFlowTreeBranchIndicator color={branchColor} className="inset-y-1" />}
             <Button
                 type="button"
                 variant="link"
@@ -163,9 +168,9 @@ export function HogFlowTreeStep({
                                 {action.description}
                             </ItemDescription>
                         )}
-                        {!!step?.previews.length && (
+                        {previews.length > 0 && (
                             <div className="pointer-events-none ms-auto flex min-w-0 max-w-full flex-wrap items-center justify-end gap-1">
-                                {step.previews.slice(0, 3).map((preview, index) => (
+                                {previews.slice(0, 3).map((preview, index) => (
                                     <Badge
                                         key={`${preview.label}-${index}`}
                                         variant="default"

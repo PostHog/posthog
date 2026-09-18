@@ -4,7 +4,8 @@ import type { DragEvent } from 'react'
 
 import { IconPlus } from '@posthog/icons'
 
-import { Button, cn, Popover, PopoverContent, PopoverTrigger } from 'lib/ui/quill'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { cn, Popover, PopoverContent, PopoverTrigger } from 'lib/ui/quill'
 
 import { type CreateActionType, hogFlowEditorLogic } from '../hogFlowEditorLogic'
 import { HogFlowEditorPanelBuild } from '../panel/HogFlowEditorPanelBuild'
@@ -22,6 +23,7 @@ export function HogFlowTreeDropzone({
     showConnector = true,
     compact = false,
     insertionLabel,
+    alwaysVisible = false,
 }: {
     active: boolean
     draggedActionId: string | null
@@ -33,6 +35,7 @@ export function HogFlowTreeDropzone({
     showConnector?: boolean
     compact?: boolean
     insertionLabel?: string
+    alwaysVisible?: boolean
 }): JSX.Element {
     const { workflow } = useValues(hogFlowEditorLogic)
     const {
@@ -96,7 +99,7 @@ export function HogFlowTreeDropzone({
         <div
             className={cn(
                 'group relative flex w-full items-center justify-center',
-                insertionLabel ? 'min-h-8' : compact ? 'h-2' : 'h-4'
+                alwaysVisible ? 'min-h-8' : compact ? 'h-2' : 'h-4'
             )}
             data-workflow-tree-dropzone-candidate
             data-workflow-tree-dropzone-disabled={isAdjacentToDraggedAction || undefined}
@@ -111,28 +114,29 @@ export function HogFlowTreeDropzone({
                     aria-hidden="true"
                     className={cn(
                         'absolute inset-x-0 top-1/2 h-px -translate-y-1/2 bg-muted-foreground/50 opacity-0 transition-opacity',
-                        !insertionLabel && (pickerOpen || !showConnector) && 'opacity-100',
-                        !insertionLabel && showConnector && 'group-hover:opacity-100'
+                        pickerOpen && 'opacity-100',
+                        (showConnector || insertionLabel) && 'group-hover:opacity-100 group-focus-within:opacity-100'
                     )}
                 />
                 <Popover open={pickerOpen} onOpenChange={setPickerOpen}>
                     <PopoverTrigger
                         render={
-                            <Button
-                                type="button"
-                                variant="outline"
-                                size={insertionLabel ? 'xs' : 'icon-sm'}
+                            <LemonButton
+                                htmlType="button"
+                                type="tertiary"
+                                size="xsmall"
+                                tooltip={insertionLabel ?? 'Insert step here'}
                                 className={cn(
-                                    insertionLabel
-                                        ? 'relative z-10 w-full justify-start border-dashed bg-transparent text-muted-foreground'
-                                        : 'absolute -right-2 top-1/2 z-10 !size-4 -translate-y-1/2 border-0 bg-transparent p-0 hover:bg-transparent'
+                                    alwaysVisible
+                                        ? 'relative z-10 me-auto bg-transparent text-muted-foreground'
+                                        : 'absolute -right-2 top-1/2 z-10 !size-4 -translate-y-1/2 border-0 !bg-transparent !p-0'
                                 )}
                                 aria-label={insertionLabel ?? 'Insert step here'}
                                 data-attr="workflow-tree-insert-action"
                             />
                         }
                     >
-                        {insertionLabel ? (
+                        {alwaysVisible ? (
                             <>
                                 <IconPlus className="size-3 shrink-0" />
                                 <span className="truncate">{insertionLabel}</span>
