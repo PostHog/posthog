@@ -926,6 +926,11 @@ BOT_DEFINITIONS: dict[str, BotDefinition] = {
     "SpiderLing": BotDefinition(
         "SpiderLing", "search_crawler", "Bot", "Sketch Engine", documentation_url="https://www.sketchengine.eu/crawler/"
     ),
+    # The operator documents "SpiderLing" and "SketchEngine" as two identifiers of one crawler, so
+    # both tokens carry the same name and group under one row in the crawler breakdown.
+    "SketchEngine": BotDefinition(
+        "SpiderLing", "search_crawler", "Bot", "Sketch Engine", documentation_url="https://www.sketchengine.eu/crawler/"
+    ),
     "theWebIQBot": BotDefinition(
         "theWebIQ", "search_crawler", "Bot", "theWebIQ", documentation_url="https://thewebiq.com"
     ),

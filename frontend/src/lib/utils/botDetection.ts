@@ -751,6 +751,11 @@ export const BOT_DEFINITIONS: { pattern: string; definition: BotDefinition }[] =
         pattern: 'SpiderLing',
         definition: { name: 'SpiderLing', category: 'search_crawler', trafficType: 'Bot', operator: 'Sketch Engine' },
     },
+    // Two identifiers of one crawler, so both tokens carry the same name.
+    {
+        pattern: 'SketchEngine',
+        definition: { name: 'SpiderLing', category: 'search_crawler', trafficType: 'Bot', operator: 'Sketch Engine' },
+    },
     {
         pattern: 'theWebIQBot',
         definition: { name: 'theWebIQ', category: 'search_crawler', trafficType: 'Bot', operator: 'theWebIQ' },

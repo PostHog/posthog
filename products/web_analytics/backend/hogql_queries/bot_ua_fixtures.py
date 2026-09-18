@@ -204,6 +204,9 @@ BOT_USER_AGENTS: dict[str, list[str]] = {
         "SalesOS-CompanyGraphGate/1.0",
         "SSI-Nutch/1.23 (SSI broad web crawler; https://ssi.inc/; adi@ssi.inc)",
         "Mozilla/5.0 (compatible; SpiderLing; +https://www.sketchengine.eu/crawler/)",
+        # This one is not observed traffic. The token comes from the operator's crawler page, and the
+        # wrapper copies the SpiderLing line above.
+        "Mozilla/5.0 (compatible; SketchEngine; +https://www.sketchengine.eu/crawler/)",
         "theWebIQBot/0.1 (+https://thewebiq.com)",
         "mycel/0.4.0 (+https://github.com/splch/mycel)",
     ],

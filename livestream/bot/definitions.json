@@ -1866,6 +1866,12 @@
     "traffic_type": "Bot"
   },
   {
+    "pattern": "SketchEngine",
+    "name": "SpiderLing",
+    "category": "search_crawler",
+    "traffic_type": "Bot"
+  },
+  {
     "pattern": "theWebIQBot",
     "name": "theWebIQ",
     "category": "search_crawler",
