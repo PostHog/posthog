@@ -2786,6 +2786,15 @@ class TaskRun(models.Model):
                     error=str(e),
                 )
 
+    @property
+    def has_pending_followup_messages(self) -> bool:
+        """The persisted view of the workflow's in-memory follow-up queue.
+
+        A caller outside the workflow reads this to tell that a user queued more work which
+        the agent has not picked up yet.
+        """
+        return bool(_read_pending_followup_messages(self.state))
+
     def record_pending_followup_message(self, message_id: str, content: str, *, accepted_at: datetime) -> None:
         record = {
             "id": message_id[:MAX_PENDING_FOLLOWUP_MESSAGE_ID_CHARS],

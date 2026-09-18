@@ -24,6 +24,15 @@ class MarkPrReadyInput:
     snapshot: PRSnapshot
 
 
+def _run_still_wants_review(run: TaskRun, pr_url: str) -> bool:
+    return (
+        run.status == TaskRun.Status.IN_PROGRESS
+        and (run.output or {}).get("pr_url") == pr_url
+        and (run.state or {}).get("keep_draft") is not True
+        and not run.has_pending_followup_messages
+    )
+
+
 @activity.defn
 @close_db_connections
 def mark_pr_ready(input: MarkPrReadyInput) -> bool:
@@ -34,12 +43,7 @@ def mark_pr_ready(input: MarkPrReadyInput) -> bool:
                 return False
 
             run = TaskRun.objects.filter(id=context.run_id, team_id=context.team_id).first()
-            if (
-                run is None
-                or run.status != TaskRun.Status.IN_PROGRESS
-                or (run.output or {}).get("pr_url") != input.snapshot.pr_url
-                or (run.state or {}).get("keep_draft") is True
-            ):
+            if run is None or not _run_still_wants_review(run, input.snapshot.pr_url):
                 return False
 
             parsed = GitHubIntegration.parse_pull_request_url(input.snapshot.pr_url)
@@ -74,6 +78,17 @@ def mark_pr_ready(input: MarkPrReadyInput) -> bool:
             ):
                 activity.logger.info(
                     "task_pr_auto_ready_skipped", extra={"reason": "pr_changed", "run_id": context.run_id}
+                )
+                return False
+
+            # The workflow checked its follow-up queue before it started this activity, and a
+            # message the user sent since then only reached the run row. Read that row again here,
+            # next to the mutation, so new work queued while the GitHub calls above were in flight
+            # keeps the pull request in draft.
+            fresh = TaskRun.objects.filter(id=context.run_id, team_id=context.team_id).first()
+            if fresh is None or not _run_still_wants_review(fresh, input.snapshot.pr_url):
+                activity.logger.info(
+                    "task_pr_auto_ready_skipped", extra={"reason": "run_changed", "run_id": context.run_id}
                 )
                 return False
 
