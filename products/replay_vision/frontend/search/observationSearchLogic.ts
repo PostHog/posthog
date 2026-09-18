@@ -38,7 +38,7 @@ export const SEARCH_PAGE_SIZE = 9
 const TOP_MATCH_MARGIN = 0.05
 // The server's error code when the organization has not allowed AI data processing.
 const AI_CONSENT_REQUIRED_CODE = 'ai_data_processing_not_approved'
-const RECENT_QUERIES_LIMIT = 4
+const RECENT_QUERIES_LIMIT = 3
 
 export type ResultsView = 'grid' | 'list'
 

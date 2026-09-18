@@ -246,7 +246,7 @@ describe('observationSearchLogic', () => {
             logic.actions.searchSuccess(searchResults([0.2]), query, false)
         }
         logic.actions.searchSuccess([], 'nothing', false)
-        expect(logic.values.recentQueries).toEqual(['two', 'six', 'five', 'four'])
+        expect(logic.values.recentQueries).toEqual(['two', 'six', 'five'])
         logic.unmount()
     })
 
