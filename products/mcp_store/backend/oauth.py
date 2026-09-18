@@ -5,6 +5,7 @@ import secrets
 import dataclasses
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
+from http import HTTPStatus
 from urllib.parse import urlparse
 
 from django.db import transaction
@@ -42,12 +43,27 @@ class OAuthAuthorizeURLError(Exception):
 class DCRRegistrationRejectedError(Exception):
     """The authorization server rejected the Dynamic Client Registration request.
 
-    Carries a short, provider-supplied message that is safe to show the user.
+    ``provider_message`` is a short description of the rejection for the logs.
+    ``status_code`` separates a refusal (4xx, e.g. a server that only accepts
+    allowlisted clients) from a server-side fault that is worth a retry.
     """
 
-    def __init__(self, provider_message: str) -> None:
+    def __init__(self, provider_message: str, status_code: int) -> None:
         super().__init__(provider_message)
         self.provider_message = provider_message
+        self.status_code = status_code
+
+
+def dcr_status_is_refusal(status_code: int | None) -> bool:
+    """Whether a registration status proves the provider will not register our client.
+
+    A 4xx is the provider's decision about this client, so the same request gets the same
+    answer tomorrow. A 429 is a throttle and a 5xx is a fault, and both are worth a retry.
+    No status at all means the request never got an answer, which proves nothing.
+    """
+    if status_code is None:
+        return False
+    return 400 <= status_code < 500 and status_code != HTTPStatus.TOO_MANY_REQUESTS
 
 
 def _validate_url(url: str) -> None:
@@ -339,7 +355,7 @@ class DcrClientRegistration:
 
 
 def _describe_dcr_rejection(resp: requests.Response) -> str:
-    """Build a short, user-safe message from an RFC 7591 error response."""
+    """Build a short description of an RFC 7591 error response for the logs."""
     try:
         body = resp.json()
     except ValueError:
@@ -394,7 +410,7 @@ def register_dcr_client(
             body=resp.text[:500],
             registration_endpoint=registration_endpoint,
         )
-        raise DCRRegistrationRejectedError(_describe_dcr_rejection(resp))
+        raise DCRRegistrationRejectedError(_describe_dcr_rejection(resp), resp.status_code)
     data = resp.json()
 
     client_id = data.get("client_id")

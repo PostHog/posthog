@@ -1,13 +1,15 @@
 from collections.abc import Sequence
+from datetime import timedelta
 
 from unittest.mock import patch
 
 from django.test import SimpleTestCase, TestCase
+from django.utils import timezone
 
 from parameterized import parameterized
 
 from products.mcp_store.backend.catalog import MCP_SERVER_CATALOG, CatalogEntry
-from products.mcp_store.backend.catalog_sync import sync_mcp_catalog
+from products.mcp_store.backend.catalog_sync import DCR_REPROBE_INTERVAL, sync_mcp_catalog
 from products.mcp_store.backend.models import (
     AUTH_TYPE_CHOICES,
     CATEGORY_CHOICES,
@@ -45,6 +47,42 @@ def _entry(
         oauth_scope_allowlist=oauth_scope_allowlist,
         oauth_credentials_source=oauth_credentials_source,
         disabled=disabled,
+    )
+
+
+def _existing_template(entry: CatalogEntry, *, is_active: bool) -> MCPServerTemplate:
+    return MCPServerTemplate.objects.create(
+        name=entry.name,
+        url=entry.url,
+        description=entry.description,
+        auth_type=entry.auth_type,
+        category=entry.category,
+        icon_domain=entry.icon_domain,
+        is_active=is_active,
+    )
+
+
+def _dcr_refused_probe() -> ProbeResult:
+    """The server answers and serves OAuth metadata, but will not register a client for us."""
+    return ProbeResult(
+        reachable=True,
+        speaks_mcp=True,
+        auth_flavor="oauth_shared",
+        oauth_metadata={"issuer": "https://auth.linear.app"},
+        dcr_rejection_status=403,
+        errors=["Dynamic Client Registration was rejected"],
+    )
+
+
+def _dcr_faulted_probe(status_code: int | None) -> ProbeResult:
+    """Discovery worked, and then the registration request faulted or never answered."""
+    return ProbeResult(
+        reachable=True,
+        speaks_mcp=True,
+        auth_flavor="oauth_shared",
+        oauth_metadata={"issuer": "https://auth.linear.app"},
+        dcr_rejection_status=status_code,
+        errors=["Dynamic Client Registration failed"],
     )
 
 
@@ -206,6 +244,8 @@ class TestSyncMCPCatalog(TestCase):
     def test_update_touches_content_fields_but_never_operational_state(self):
         # Clobbering is_active/credentials/metadata on an operator-configured row would break
         # every existing install of that server the moment a catalog PR edits its copy.
+        # last_probed_at stays null, which is what every row carries after the migration: a
+        # hand-provisioned shared client must not be re-probed as if it were a DCR entry.
         template = MCPServerTemplate.objects.create(
             name="Linear",
             url="https://mcp.linear.app/mcp",
@@ -217,7 +257,9 @@ class TestSyncMCPCatalog(TestCase):
             oauth_credentials={"client_id": "shared-client", "client_secret": "shhh"},
         )
 
-        with patch("products.mcp_store.backend.catalog_sync.probe_mcp_server") as probe_mock:
+        with patch(
+            "products.mcp_store.backend.catalog_sync.probe_mcp_server", return_value=_dcr_refused_probe()
+        ) as probe_mock:
             counts = sync_mcp_catalog(
                 entries=[
                     _entry(
@@ -261,6 +303,51 @@ class TestSyncMCPCatalog(TestCase):
         assert template.auth_type == "oauth"
         assert template.is_active is False
         assert template.oauth_credentials == {"client_id": "shared-client", "client_secret": "shhh"}
+
+    @parameterized.expand(
+        [
+            # Nothing re-probed a DCR entry before, so a server that stops registering our
+            # client kept its tile installable and every install failed before authorization.
+            ("never_probed_and_refused", None, _dcr_refused_probe(), False),
+            ("interval_elapsed_and_refused", DCR_REPROBE_INTERVAL + timedelta(minutes=1), _dcr_refused_probe(), False),
+            # An unreachable server says nothing about whether it would register a client,
+            # so a timeout or a provider fault must not take a working tile down.
+            ("unreachable", None, ProbeResult(reachable=False), True),
+            # Discovery can work while the registration request alone fails. That reaches the
+            # refusal branch with no refusal behind it, and the entry never recovers on its
+            # own, because an inactive row is not re-probed.
+            ("registration_faulted", None, _dcr_faulted_probe(503), True),
+            ("registration_throttled", None, _dcr_faulted_probe(429), True),
+            ("registration_never_answered", None, _dcr_faulted_probe(None), True),
+            ("still_registers", None, _dcr_pass_probe(), True),
+        ]
+    )
+    def test_active_dcr_entry_is_reprobed_on_the_interval(self, _name, probed_ago, probe_result, expect_active):
+        entry = _entry()
+        template = _existing_template(entry, is_active=True)
+        if probed_ago is not None:
+            template.last_probed_at = timezone.now() - probed_ago
+            template.save(update_fields=["last_probed_at"])
+
+        with patch("products.mcp_store.backend.catalog_sync.probe_mcp_server", return_value=probe_result) as probe_mock:
+            sync_mcp_catalog(entries=[entry])
+
+        probe_mock.assert_called_once()
+        template.refresh_from_db()
+        assert template.is_active is expect_active
+        assert template.last_probed_at is not None
+
+    def test_inactive_dcr_entry_is_not_reprobed(self):
+        # A row an operator deactivated in admin stays deactivated, and no probe means no
+        # throwaway client registered with the provider.
+        entry = _entry()
+        _existing_template(entry, is_active=False)
+
+        with patch("products.mcp_store.backend.catalog_sync.probe_mcp_server") as probe_mock:
+            sync_mcp_catalog(entries=[entry])
+
+        probe_mock.assert_not_called()
+        assert MCPServerTemplate.objects.get(url=entry.url).is_active is False
 
     def test_identical_entry_is_a_noop_without_probing(self):
         entry = _entry()
