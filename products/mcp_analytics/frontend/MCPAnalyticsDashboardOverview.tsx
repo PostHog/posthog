@@ -18,6 +18,8 @@ import { ModelBarChart } from './dashboard/ModelBarChart'
 import { NotableSessionsTable } from './dashboard/NotableSessionsTable'
 import { ToolErrorRateChart } from './dashboard/ToolErrorRateChart'
 import { ToolUsageChart } from './dashboard/ToolUsageChart'
+import { MCP_ANALYTICS_DASHBOARD_FEEDBACK_PROMPT } from './feedback/constants'
+import { MCPAnalyticsFeedbackPrompt } from './feedback/MCPAnalyticsFeedbackPrompt'
 import { MCPAnalyticsFirstLook } from './firstLook/MCPAnalyticsFirstLook'
 import { mcpDashboardOverviewLogic } from './mcpDashboardOverviewLogic'
 
@@ -47,8 +49,11 @@ export function MCPAnalyticsDashboardOverview(): JSX.Element {
         filterTestAccounts,
         propertyFilters,
         queryFilters,
+        canShowFeedback,
+        feedbackContextKey,
     } = useValues(mcpDashboardOverviewLogic)
-    const { setDateFilter, setFilterTestAccounts, setPropertyFilters } = useActions(mcpDashboardOverviewLogic)
+    const { setDateFilter, setFilterTestAccounts, setPropertyFilters, markFilterInteraction } =
+        useActions(mcpDashboardOverviewLogic)
     const { timezone } = useValues(teamLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
@@ -62,14 +67,20 @@ export function MCPAnalyticsDashboardOverview(): JSX.Element {
                         <McpDateFilter
                             dateFrom={dateFilter.dateFrom}
                             dateTo={dateFilter.dateTo}
-                            onChange={(dateFrom, dateTo) => setDateFilter(dateFrom, dateTo)}
+                            onChange={(dateFrom, dateTo) => {
+                                setDateFilter(dateFrom, dateTo)
+                                markFilterInteraction()
+                            }}
                             dataAttr="mcp-dashboard-date-filter"
                         />
                         <div data-attr="mcp-dashboard-property-filter">
                             <PropertyFilters
                                 pageKey="mcp-dashboard-overview"
                                 propertyFilters={propertyFilters}
-                                onChange={setPropertyFilters}
+                                onChange={(filters) => {
+                                    setPropertyFilters(filters)
+                                    markFilterInteraction()
+                                }}
                                 taxonomicGroupTypes={[
                                     TaxonomicFilterGroupType.MCPProperties,
                                     TaxonomicFilterGroupType.EventProperties,
@@ -84,11 +95,20 @@ export function MCPAnalyticsDashboardOverview(): JSX.Element {
                 right={
                     <TestAccountFilterSwitch
                         checked={filterTestAccounts}
-                        onChange={setFilterTestAccounts}
+                        onChange={(enabled) => {
+                            setFilterTestAccounts(enabled)
+                            markFilterInteraction()
+                        }}
                         data-attr="mcp-dashboard-test-account-filter"
                     />
                 }
             />
+            {canShowFeedback && (
+                <MCPAnalyticsFeedbackPrompt
+                    contextKey={feedbackContextKey}
+                    prompt={MCP_ANALYTICS_DASHBOARD_FEEDBACK_PROMPT}
+                />
+            )}
             <MCPAnalyticsFirstLook />
             <section className="flex min-w-0 flex-col gap-4" data-quill>
                 <h2 className="mb-4 text-xl font-semibold text-primary">Key metrics</h2>

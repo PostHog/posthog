@@ -239,6 +239,26 @@ describe('mcpAnalyticsFeedbackLogic', () => {
         expect(logic.values.visible).toBe(true)
     })
 
+    it('shows only one prompt when dashboard and session placements are pending together', () => {
+        loadSurvey()
+        const dashboard = mcpAnalyticsFeedbackLogic({
+            userId: 'example-user',
+            contextKey: 'example-dashboard',
+            isImpersonated: false,
+            prompt: {
+                ...MCP_ANALYTICS_SESSION_FEEDBACK_PROMPT,
+                entryPoint: 'dashboard_review_prompt',
+                tab: 'dashboard',
+            },
+        })
+        const unmountDashboard = dashboard.mount()
+        loadSurvey()
+        jest.advanceTimersByTime(FEEDBACK_PROMPT_DELAY_MS)
+        expect([logic.values.visible, dashboard.values.visible].filter(Boolean)).toHaveLength(1)
+        expect(jest.mocked(posthog.capture).mock.calls.filter(([name]) => name === 'survey shown')).toHaveLength(1)
+        unmountDashboard()
+    })
+
     it('cancels a pending invitation when leaving the session detail', () => {
         loadSurvey()
         unmount()

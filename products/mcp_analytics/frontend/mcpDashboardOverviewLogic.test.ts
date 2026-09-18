@@ -571,6 +571,47 @@ describe('mcpDashboardOverviewLogic', () => {
             expect(router.values.searchParams.properties).toBeUndefined()
         })
 
+        it('offers feedback only after an interaction and a successful nonempty refresh', async () => {
+            const populatedResponse = async (node: any): Promise<any> => ({
+                results:
+                    typeof node?.query === 'string' && node.query.includes('AS bucket')
+                        ? [[dayjs().format('YYYY-MM-DD'), 2, 10, 0, 100]]
+                        : [],
+            })
+            mockApi.query.mockImplementation(populatedResponse)
+            router.actions.push(urls.mcpAnalyticsDashboard(), { date_from: '-14d' })
+            const logic = mcpDashboardOverviewLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.kpis.toolCalls.value).toBe(10)
+            expect(logic.values.canShowFeedback).toBe(false)
+
+            logic.actions.setDateFilter('-30d', null)
+            logic.actions.markFilterInteraction()
+            expect(logic.values.canShowFeedback).toBe(false)
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.canShowFeedback).toBe(true)
+            const previousContext = logic.values.feedbackContextKey
+
+            mockApi.query.mockImplementation(async (node: any) => {
+                if (node.kind === 'MCPHarnessBreakdownQuery') {
+                    throw new Error('Example query failure')
+                }
+                return populatedResponse(node)
+            })
+            await expectLogic(logic, () => logic.actions.setDateFilter('-7d', null)).toFinishAllListeners()
+            expect(logic.values.feedbackContextKey).not.toBe(previousContext)
+            expect(logic.values.canShowFeedback).toBe(false)
+
+            mockApi.query.mockResolvedValue({ results: [] } as any)
+            await expectLogic(logic, () => logic.actions.reloadAll()).toFinishAllListeners()
+            expect(logic.values.canShowFeedback).toBe(false)
+
+            mockApi.query.mockImplementation(populatedResponse)
+            await expectLogic(logic, () => logic.actions.reloadAll()).toFinishAllListeners()
+            expect(logic.values.canShowFeedback).toBe(true)
+        })
+
         it('hydrates property filters from the URL on mount', async () => {
             router.actions.push(urls.mcpAnalyticsDashboard(), { properties: [EVENT_FILTER] })
             const logic = mcpDashboardOverviewLogic()
