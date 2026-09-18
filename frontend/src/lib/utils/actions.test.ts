@@ -53,6 +53,24 @@ describe('elementToSelector', () => {
         expect(elementToSelector(element, ['data-id'])).toEqual('div')
     })
 
+    it('continues to a later configured data attribute when the first is unstable', () => {
+        const element = {
+            tag_name: 'div',
+            attributes: { 'attr__data-id': 'base-ui-:rg:-viewport', 'attr__data-testid': 'save-button' },
+        } as unknown as ElementType
+
+        expect(elementToSelector(element, ['data-id', 'data-testid'])).toEqual('[data-testid="save-button"]')
+    })
+
+    it('continues to a later matching attribute key when a wildcard value is unstable', () => {
+        const element = {
+            tag_name: 'div',
+            attributes: { 'attr__data-id-generated': 'radix-:rr:', 'attr__data-id-name': 'save-button' },
+        } as unknown as ElementType
+
+        expect(elementToSelector(element, ['data-id-*'])).toEqual('[data-id-name="save-button"]')
+    })
+
     const dataAttributeValueCases = [
         {
             name: 'keeps dots unescaped so backend literal matching still works',
