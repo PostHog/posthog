@@ -29,6 +29,8 @@ export type SpanErrorTier = 'span' | 'trace' | 'session'
 export interface SpanErrorBadge {
     tier: SpanErrorTier
     count: number
+    /** The session's total, when the row matched on a narrower tier and that total is higher. */
+    alsoInSession?: number
 }
 
 export interface SpanErrorCounts {
@@ -222,23 +224,18 @@ async function lookUpExactCounts(rows: Span[], known: SpanErrorCounts, teamId: n
 }
 
 /**
- * Counts for the sessions of rows the exact lookup left blank. An exception an SDK stamped with a
- * trace id is already counted there, so re-counting its session would say the same thing less
- * precisely, over a window twelve times as wide.
+ * Every row's session, not only the rows the exact lookup left blank. One exception carrying a
+ * trace id is enough to answer a row, which would hide the rest of its session from an SDK that
+ * stamps none. Only `posthog-python` stamps them today, so mixed traces are the normal case.
  */
 async function lookUpSessionCounts(
     rows: Span[],
-    exact: ExactCounts,
     known: SpanErrorCounts,
     sessionIdByRow: Map<string, string>,
     teamId: number
 ): Promise<Record<string, number>> {
-    const unexplained = rows.filter((span) => {
-        const { spanCount, traceCount } = exactCountsFor(span, exact)
-        return spanCount === 0 && traceCount === 0
-    })
     const askSessionIds = unanswered(
-        unexplained.map((span) => sessionIdByRow.get(span.uuid) ?? null),
+        rows.map((span) => sessionIdByRow.get(span.uuid) ?? null),
         known.session
     )
     if (askSessionIds.length === 0) {
@@ -246,7 +243,7 @@ async function lookUpSessionCounts(
     }
     const asked = new Set(askSessionIds)
     const range = sessionErrorsWindow(
-        unexplained
+        rows
             .filter((span) => {
                 const sessionId = sessionIdByRow.get(span.uuid)
                 return !!sessionId && asked.has(sessionId)
@@ -331,13 +328,16 @@ export const spanErrorsLogic = kea<spanErrorsLogicType>([
                     }
                     const rows = values.listRows
 
-                    const exact = await lookUpExactCounts(rows, known, teamId)
-                    breakpoint()
-
-                    // A failure in either phase is swallowed because the badge is decoration on a
-                    // list that stays useful without it, and a toast would repeat on every page.
-                    // The ids stay unanswered, so the next page asks again.
-                    const session = await lookUpSessionCounts(rows, exact, known, values.sessionIdByRow, teamId)
+                    // Both lookups read the same snapshot and neither needs the other's answer, so
+                    // they go out together rather than one after the other.
+                    //
+                    // A failure in either is swallowed because the badge is decoration on a list
+                    // that stays useful without it, and a toast would repeat on every page. The ids
+                    // stay unanswered, so the next page asks again.
+                    const [exact, session] = await Promise.all([
+                        lookUpExactCounts(rows, known, teamId),
+                        lookUpSessionCounts(rows, known, values.sessionIdByRow, teamId),
+                    ])
                     breakpoint()
 
                     return { ...known, ...exact, session: { ...known.session, ...session } }
@@ -396,13 +396,18 @@ export const spanErrorsLogic = kea<spanErrorsLogicType>([
                     const { spanCount, traceCount } = exactCountsFor(span, errorCounts)
                     const sessionId = sessionIdByRow.get(span.uuid)
                     const sessionCount = sessionId ? (errorCounts.session[sessionId] ?? 0) : 0
-                    if (spanCount > 0) {
-                        byRow.set(span.uuid, { tier: 'span', count: spanCount })
-                    } else if (traceCount > 0) {
-                        byRow.set(span.uuid, { tier: 'trace', count: traceCount })
-                    } else if (sessionCount > 0) {
-                        byRow.set(span.uuid, { tier: 'session', count: sessionCount })
+                    const tier: SpanErrorTier | null =
+                        spanCount > 0 ? 'span' : traceCount > 0 ? 'trace' : sessionCount > 0 ? 'session' : null
+                    if (!tier) {
+                        continue
                     }
+                    const count = tier === 'span' ? spanCount : tier === 'trace' ? traceCount : sessionCount
+                    byRow.set(span.uuid, {
+                        tier,
+                        count,
+                        // The narrower tier stays the label, because it names what threw.
+                        ...(tier !== 'session' && sessionCount > count ? { alsoInSession: sessionCount } : {}),
+                    })
                 }
                 return byRow
             },

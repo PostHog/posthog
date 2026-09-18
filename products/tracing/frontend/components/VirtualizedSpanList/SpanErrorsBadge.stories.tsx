@@ -33,3 +33,8 @@ export const SessionTier: Story = {
 export const OneError: Story = {
     args: { errorCount: 1 },
 }
+
+// A trace where one SDK stamped a trace id and another did not.
+export const TraceTierWithMoreInSession: Story = {
+    args: { tier: 'trace', errorCount: 1, alsoInSession: 3 },
+}

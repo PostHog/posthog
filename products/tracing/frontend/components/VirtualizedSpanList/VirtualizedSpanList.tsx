@@ -234,6 +234,7 @@ function SpanRow({
                         <SpanErrorsBadge
                             tier={errorBadge.tier}
                             errorCount={errorBadge.count}
+                            alsoInSession={errorBadge.alsoInSession}
                             onClick={() => spanErrors.onShow(span)}
                         />
                     )}

@@ -139,20 +139,36 @@ describe('spanErrorsLogic', () => {
         expect(asked('sessionIds')).toEqual([['session-a']])
     })
 
-    // Re-asking the session of a row the exact join answered would say the same thing less
-    // precisely, over a window twelve times as wide.
-    it('only falls back to the session for rows the exact join left blank', async () => {
-        mockCountsCreate.mockResolvedValue({
-            ...NO_COUNTS,
-            traceResults: [{ trace_id: 'trace-a', exceptions: 2 }],
+    // Asking only about rows the exact join left blank would hide the other SDK's exceptions
+    // behind the one that did carry a trace id.
+    it('keeps the session count for a row the exact join already answered', async () => {
+        mockCountsCreate.mockImplementation(async (_teamId, body) =>
+            body.traceIds?.length
+                ? { ...NO_COUNTS, traceResults: [{ trace_id: 'trace-a', exceptions: 1 }] }
+                : { ...NO_COUNTS, sessionResults: [{ session_id: 'session-a', exceptions: 3 }] }
+        )
+
+        await loadFirstPage([spanWithIds('row-1', 'trace-a', 'span-1', 'session-a')])
+
+        expect(asked('sessionIds')).toEqual([['session-a']])
+        expect(logic.values.errorBadgeByRow.get('row-1')).toEqual({
+            tier: 'trace',
+            count: 1,
+            alsoInSession: 3,
         })
+    })
 
-        await loadFirstPage([
-            spanWithIds('row-1', 'trace-a', 'span-1', 'session-a'),
-            spanWithIds('row-2', 'trace-b', 'span-2', 'session-b'),
-        ])
+    // A session total repeating the narrower tier's count would read as twice the errors.
+    it('leaves the session total off when it adds nothing', async () => {
+        mockCountsCreate.mockImplementation(async (_teamId, body) =>
+            body.traceIds?.length
+                ? { ...NO_COUNTS, traceResults: [{ trace_id: 'trace-a', exceptions: 2 }] }
+                : { ...NO_COUNTS, sessionResults: [{ session_id: 'session-a', exceptions: 2 }] }
+        )
 
-        expect(asked('sessionIds')).toEqual([['session-b']])
+        await loadFirstPage([spanWithIds('row-1', 'trace-a', 'span-1', 'session-a')])
+
+        expect(logic.values.errorBadgeByRow.get('row-1')).toEqual({ tier: 'trace', count: 2 })
     })
 
     // A later page brings more spans of a trace already counted, and those spans drag their trace

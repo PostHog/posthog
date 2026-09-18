@@ -8,6 +8,8 @@ import type { SpanErrorTier } from '../../spanErrorsLogic'
 export interface SpanErrorsBadgeProps {
     tier: SpanErrorTier
     errorCount: number
+    /** The session's total, when it is higher than the tier's own count. */
+    alsoInSession?: number
     onClick: () => void
 }
 
@@ -19,15 +21,16 @@ const TIERS: Record<SpanErrorTier, { iconClass: string; noun: string; where: str
     session: { iconClass: 'text-warning', noun: 'error occurrence', where: 'in this session' },
 }
 
-export function SpanErrorsBadge({ tier, errorCount, onClick }: SpanErrorsBadgeProps): JSX.Element {
+export function SpanErrorsBadge({ tier, errorCount, alsoInSession, onClick }: SpanErrorsBadgeProps): JSX.Element {
     const { iconClass, noun, where } = TIERS[tier]
     const label = `${pluralize(errorCount, noun)} ${where}`
+    const sessionLine = alsoInSession ? ` ${pluralize(alsoInSession, 'error occurrence')} in this session.` : ''
 
     return (
         <LemonButton
             size="xsmall"
             icon={<IconWarning className={iconClass} />}
-            tooltip={`${label}. Click to see them.`}
+            tooltip={`${label}.${sessionLine} Click to see them.`}
             aria-label={label}
             data-attr="tracing-row-errors"
             onMouseDown={(e) => e.stopPropagation()}
