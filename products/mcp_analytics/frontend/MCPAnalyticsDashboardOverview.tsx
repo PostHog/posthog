@@ -1,7 +1,6 @@
 import { useActions, useValues } from 'kea'
 
 import { useChartTheme } from 'lib/charts/hooks'
-import { FilterBar } from 'lib/components/FilterBar'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { cn } from 'lib/utils/css-classes'
@@ -31,6 +30,7 @@ export function MCPAnalyticsDashboardOverview(): JSX.Element {
         harnessRows,
         harnessRowsLoading,
         modelRows,
+        modelRowsLoading,
         hasModelData,
         dailyActivity,
         activityRowsLoading,
@@ -44,7 +44,7 @@ export function MCPAnalyticsDashboardOverview(): JSX.Element {
         interval,
         queryFilters,
     } = useValues(mcpDashboardOverviewLogic)
-    const { setDateFilter } = useActions(mcpDashboardOverviewLogic)
+    const { setDateFilter, reloadAll } = useActions(mcpDashboardOverviewLogic)
     const { timezone } = useValues(teamLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
@@ -52,19 +52,28 @@ export function MCPAnalyticsDashboardOverview(): JSX.Element {
 
     return (
         <div className="@container/mcp-overview flex min-w-0 flex-col gap-6">
-            <FilterBar
-                left={
-                    <>
-                        <McpDateFilter
-                            dateFrom={dateFilter.dateFrom}
-                            dateTo={dateFilter.dateTo}
-                            onChange={(dateFrom, dateTo) => setDateFilter(dateFrom, dateTo)}
-                            dataAttr="mcp-dashboard-date-filter"
-                        />
-                        <McpSharedFilters pageKey="mcp-dashboard-overview" dataAttrPrefix="mcp-dashboard" />
-                    </>
+            <McpSharedFilters
+                pageKey="mcp-dashboard-overview"
+                dataAttrPrefix="mcp-dashboard"
+                onRefresh={reloadAll}
+                refreshing={
+                    kpisLoading ||
+                    usersLoading ||
+                    sessionRowsLoading ||
+                    harnessRowsLoading ||
+                    modelRowsLoading ||
+                    activityRowsLoading ||
+                    toolDailyRowsLoading ||
+                    toolRowsLoading
                 }
-            />
+            >
+                <McpDateFilter
+                    dateFrom={dateFilter.dateFrom}
+                    dateTo={dateFilter.dateTo}
+                    onChange={(dateFrom, dateTo) => setDateFilter(dateFrom, dateTo)}
+                    dataAttr="mcp-dashboard-date-filter"
+                />
+            </McpSharedFilters>
             <MCPAnalyticsFirstLook />
             <section className="flex min-w-0 flex-col gap-4" data-quill>
                 <h2 className="mb-4 text-xl font-semibold text-primary">Key metrics</h2>

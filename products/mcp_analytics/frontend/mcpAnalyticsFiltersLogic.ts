@@ -12,6 +12,22 @@ import type { TeamPublicType } from '../../../frontend/src/types'
 
 export type MCPSharedQueryFilters = Required<Pick<HogQLFilters, 'filterTestAccounts' | 'properties'>>
 
+export interface MCPSharedFilterParams {
+    properties?: string
+    filter_test_accounts?: boolean
+}
+
+export function isSharedFilterActive(filters: MCPSharedQueryFilters): boolean {
+    return filters.properties.length > 0 || filters.filterTestAccounts
+}
+
+export function sharedFilterParams(filters: MCPSharedQueryFilters): MCPSharedFilterParams {
+    return {
+        properties: filters.properties.length > 0 ? JSON.stringify(filters.properties) : undefined,
+        filter_test_accounts: filters.filterTestAccounts || undefined,
+    }
+}
+
 export const MCP_ANALYTICS_FILTER_ROUTES = [
     urls.mcpAnalyticsActivity(),
     urls.mcpAnalyticsDashboard(),
