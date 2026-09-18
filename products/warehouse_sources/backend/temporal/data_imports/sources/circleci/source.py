@@ -55,7 +55,7 @@ class CircleCISource(ResumableSource[CircleCISourceConfig, CircleCIResumeConfig]
             name=ExternalDataSourceType.CIRCLECI,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="CircleCI",
-            caption="""Enter your CircleCI personal API token to pull your CircleCI pipelines, workflows, jobs, and projects into the PostHog Data warehouse.
+            caption="""Enter your CircleCI personal API token to pull your CircleCI pipelines, workflows, jobs, projects, deploy components, and users into the PostHog Data warehouse.
 
 You can create a personal API token in your [CircleCI user settings](https://app.circleci.com/settings/user/tokens). The token has the same access to organizations and projects as your user.""",
             iconPath="/static/services/circleci.png",

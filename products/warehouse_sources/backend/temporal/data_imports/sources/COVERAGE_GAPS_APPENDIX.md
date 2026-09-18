@@ -1490,14 +1490,16 @@ Diffed against: <https://circleci.com/api/v2/openapi.json>
 
 - [ ] `organizations/{org_id}/usage_export_job` — credit/usage export per project and job - CircleCI's headline cost metric, absent today (high)
 - [ ] `deploy/environments` — deploy environment registry that resolves environment IDs on deploy markers (medium)
-- [ ] `deploy/components` — deployed component inventory, the join key for deploy tracking (medium)
-- [ ] `deploy/components/{component_id}/versions` — version history per component - deploy frequency and lead-time analysis (medium)
-- [ ] `user/{id}` — lookup resolving the actor/trigger user IDs carried on pipelines and workflows (medium)
+- [x] `deploy/components` — deployed component inventory, the join key for deploy tracking (medium) — added as `components`; the org UUID it requires is resolved from the configured org slug via `/me/collaborations`
+- [x] `deploy/components/{component_id}/versions` — version history per component - deploy frequency and lead-time analysis (medium) — added as `component_versions`, fanned out per component
+- [x] `user/{id}` — lookup resolving the actor/trigger user IDs carried on pipelines and workflows (medium) — added as `users`, resolved from the `started_by`/`canceled_by`/`errored_by` ids on workflows (pipeline trigger actors carry only a login, no id)
 - [ ] `organizations/{org_id}/groups` — org user groups for grouping build activity by team (low)
 - [ ] `me/collaborations` — org/slug lookup that enumerates the orgs a token can see (low)
 - [ ] `projects/{project_id}/pipeline-definitions` — resolves the pipeline definition IDs attached to synced pipelines (low)
 
-Note: The current v2 spec has no artifacts or test-metadata endpoints (those lived in v1.1), so no gap there. Insights paths exist in the same spec but belong to the separate CircleciInsights source. Source is fully static (CIRCLECI_ENDPOINTS), no dynamic discovery.
+Note: `organizations/{org_id}/usage_export_job` is POST-only job creation plus a separate polling GET that
+returns presigned CSV URLs, not a readable list endpoint, so it is not a warehouse table in this source's shape.
+The current v2 spec has no artifacts or test-metadata endpoints (those lived in v1.1), so no gap there. Insights paths exist in the same spec but belong to the separate CircleciInsights source. Source is fully static (CIRCLECI_ENDPOINTS), no dynamic discovery.
 
 ## CircleciInsights — gaps
 
