@@ -12,6 +12,8 @@ showTitle: true
 Open `/project/<project-id>/terminal` and select **Start Linux** to boot a Linux VM in your browser.
 The terminal uses xterm.js and v86, with a 9P filesystem that connects Linux file operations to the existing authenticated PostHog APIs.
 The first start downloads a checksum-verified Linux image from `i.copy.sh` and pinned firmware from the v86 GitHub repository.
+PostHog serves the bundled jq 1.8.2 Linux i386 binary itself because GitHub release downloads do not support browser CORS.
+The binary in `frontend/public/terminal/` comes from [the official release](https://github.com/jqlang/jq/releases/download/jq-1.8.2/jq-linux-i386), with SHA-256 `ba996e8ce436973e2f39e2639405a37e8c81ba8c722b71c83996278ad0af16dd` and upstream license notices alongside it.
 The VM receives no session cookies or API keys and has no network connection.
 
 Your project tree appears under `/posthog/files`.
@@ -27,12 +29,20 @@ find . -name '*.md'
 grep -r 'revenue' .
 cat '/posthog/files/Research/Notes.md'
 vi '/posthog/files/Research/Notes.md'
+jq '.title' /posthog/api/notebook/<short-id>.json
 ```
 
-The guest includes BusyBox tools, `vi`, `joe`, `less`, `tree`, and Lua.
+The guest includes BusyBox tools, `jq`, `vi`, `joe`, `less`, `tree`, and Lua.
 Pipes, redirection, completion, terminal colors, Ctrl+C, and scrollback use the real shell and terminal.
+The terminal uses a black background in both app themes.
+Select text and use **Copy selection**, or use **Paste** to paste clipboard text into the terminal.
+Keyboard shortcuts are ⌘C/⌘V on macOS and Ctrl+Shift+C/V on Linux and Windows; Ctrl+C still interrupts the running command.
+If the browser denies clipboard access, focus the terminal and use its native paste shortcut or context menu.
 Midnight Commander is not included in this image.
 Directories are a snapshot from startup; restart the terminal to discover newly created or renamed objects.
+Startup uses the filesystem index and the filtered notebook index without downloading notebook bodies.
+Directory listings, including `ls -l` and `find`, use local metadata without fetching object contents.
+Unopened files show a size of zero; after opening a file, listings show its last known byte size.
 Contents are fetched when a file opens, with a 4 MiB limit per file.
 
 Notebook writes commit on `fsync` or close.

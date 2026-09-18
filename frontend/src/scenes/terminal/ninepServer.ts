@@ -159,10 +159,7 @@ export class NinePServer {
             case 24: {
                 const fid = this.fid(reader.number(4))
                 const node = fid.node
-                // Linux uses st_size before read, so metadata must reflect the current API content.
-                if (!node.children && !fid.file) {
-                    node.size = (await node.open!()).bytes.length
-                }
+                // Like procfs, unopened API files report zero bytes without fetching their contents.
                 result.number(0x7ff, 8)
                 qid(result, node)
                 result.number(node.children ? 0o40555 : node.writable ? 0o100644 : 0o100444, 4)
