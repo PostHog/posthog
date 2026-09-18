@@ -200,6 +200,16 @@ function isResumableCloudSendError(error: unknown): boolean {
   );
 }
 
+function isExpectedPiInterruption(error: unknown): boolean {
+  if (!(error instanceof Error)) {
+    return false;
+  }
+  return (
+    error.name === "AbortError" ||
+    error.message === "This operation was aborted"
+  );
+}
+
 @injectable()
 export class PiSessionController {
   readonly store: PiSessionStore = createPiSessionStore();
@@ -1875,13 +1885,19 @@ export class PiSessionController {
     this.flushText(taskId);
     const failure = normalizeSessionError(error);
     const classified = classifyPromptFailure(error);
-    this.log.error("Pi session transport failed", {
+    const expectedInterruption = isExpectedPiInterruption(error);
+    const logDetails = {
       taskId,
       scope: "connection",
       kind: classified.kind,
       retryable: failure.retryable,
       errorName: error instanceof Error ? error.name : typeof error,
-    });
+    };
+    if (expectedInterruption) {
+      this.log.info("Pi session interrupted", logDetails);
+      return;
+    }
+    this.log.error("Pi session transport failed", logDetails);
     this.updateSession(taskId, {
       connectionState: failure.retryable ? "disconnected" : "error",
       error: {

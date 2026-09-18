@@ -593,6 +593,45 @@ describe("PiSessionController", () => {
     );
   });
 
+  it("logs expected transport interruptions without changing session state", async () => {
+    let onError: (error: unknown) => void = () => {};
+    const session = createSession();
+    vi.mocked(session.onConversationEvent).mockImplementation(
+      (_onEvent, handler) => {
+        onError = handler;
+        return () => {};
+      },
+    );
+    const logger = createLogger();
+    const controller = createController(
+      session,
+      undefined,
+      undefined,
+      undefined,
+      logger.logger,
+    );
+
+    await controller.connect("task-1");
+    const interruptionError = new DOMException(
+      "This operation was aborted",
+      "AbortError",
+    );
+    onError(interruptionError);
+
+    expect(controller.store.getState().sessions["task-1"]).toMatchObject({
+      connectionState: "connected",
+      error: undefined,
+    });
+    expect(logger.scoped.info).toHaveBeenCalledWith(
+      "Pi session interrupted",
+      expect.objectContaining({
+        taskId: "task-1",
+        scope: "connection",
+        errorName: "AbortError",
+      }),
+    );
+  });
+
   it("keeps fatal runtime errors in a retryable disconnected state", async () => {
     let onEvent: (event: AgentConversationEvent) => void = () => {};
     const session = createSession();

@@ -20,7 +20,15 @@ import {
 import type { PiControllerSessionState } from "@posthog/core/pi-runtime/piSessionStore";
 import { toPiContextUsage } from "@posthog/core/pi-runtime/piSessionUsage";
 import { useService } from "@posthog/di/react";
-import { Skeleton } from "@posthog/quill";
+import {
+  Button,
+  Empty,
+  EmptyContent,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyTitle,
+  Skeleton,
+} from "@posthog/quill";
 import { MCP_TOOL_PERMISSION_OPTIONS } from "@posthog/shared";
 import type { Task } from "@posthog/shared/domain-types";
 import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
@@ -33,6 +41,7 @@ import {
 import { PromptInput } from "@posthog/ui/features/message-editor/components/PromptInput";
 import { useDraftStore } from "@posthog/ui/features/message-editor/draftStore";
 import { PermissionSelector } from "@posthog/ui/features/permissions/PermissionSelector";
+import { CloudStreamDisconnectedBanner } from "@posthog/ui/features/sessions/components/CloudSessionLifecycle";
 import { ContextUsageIndicator } from "@posthog/ui/features/sessions/components/ContextUsageIndicator";
 import { ChatThread } from "@posthog/ui/features/sessions/components/chat-thread/ChatThread";
 import type { PromptRecallHandler } from "@posthog/ui/features/sessions/components/chat-thread/composerPromptRecall";
@@ -381,6 +390,30 @@ function usePiCancel(
   }, [controller, isBashRunning, taskId]);
 }
 
+function usePiRetry(
+  controller: PiSessionController,
+  taskId: string,
+): () => void {
+  return useCallback(() => {
+    void controller
+      .retry(taskId)
+      .catch((error) =>
+        handleControllerError(error, "Failed to reconnect to Pi"),
+      );
+  }, [controller, taskId]);
+}
+
+function usePiRestart(
+  controller: PiSessionController,
+  taskId: string,
+): () => void {
+  return useCallback(() => {
+    void controller
+      .restart(taskId)
+      .catch((error) => handleControllerError(error, "Failed to restart Pi"));
+  }, [controller, taskId]);
+}
+
 function usePiEditQueue(
   controller: PiSessionController,
   taskId: string,
@@ -492,6 +525,8 @@ export function PiSessionView({ task, isCloud }: PiSessionViewProps) {
   );
   const runBashCommand = usePiBash(piSessionController, taskId);
   const cancelPrompt = usePiCancel(piSessionController, taskId, isBashRunning);
+  const retry = usePiRetry(piSessionController, taskId);
+  const restart = usePiRestart(piSessionController, taskId);
   const handleQueueForEditing = useCallback(
     (queue: PiQueueSnapshot) => applyQueueToDraft(queue, draftActions, taskId),
     [draftActions, taskId],
@@ -542,12 +577,34 @@ export function PiSessionView({ task, isCloud }: PiSessionViewProps) {
 
   const isConnecting = session.connectionState === "connecting";
   const isAuthRestoring = session.authRestoring;
+  const connectionError =
+    session.error?.scope === "connection" ? session.error : undefined;
   const contextUsage = toPiContextUsage(session.stats);
   const hasTranscript = session.events.some(
     (event) => event.type !== "progress",
   );
   const sessionAvailable =
     session.connectionState === "connected" || hasTranscript;
+  if (connectionError && !hasTranscript) {
+    return (
+      <Empty className="h-full">
+        <EmptyHeader>
+          <EmptyTitle>{connectionError.title}</EmptyTitle>
+          <EmptyDescription>{connectionError.message}</EmptyDescription>
+        </EmptyHeader>
+        <EmptyContent>
+          {connectionError.retryable && (
+            <Button variant="primary" onClick={retry}>
+              Retry
+            </Button>
+          )}
+          <Button variant="outline" onClick={restart}>
+            Restart
+          </Button>
+        </EmptyContent>
+      </Empty>
+    );
+  }
 
   if (!status && !hasTranscript && (!isConnecting || !isCloud)) {
     return <TaskDetailSkeleton />;
@@ -589,6 +646,14 @@ export function PiSessionView({ task, isCloud }: PiSessionViewProps) {
           onCancel={() =>
             piExtensionController.cancelExtensionUI(taskId, extensionDialog.id)
           }
+        />
+      )}
+      {connectionError && hasTranscript && (
+        <CloudStreamDisconnectedBanner
+          errorTitle={connectionError.title}
+          errorMessage={connectionError.message}
+          onRetry={connectionError.retryable ? retry : undefined}
+          onRestart={restart}
         />
       )}
       <div className="min-h-0 flex-1">
