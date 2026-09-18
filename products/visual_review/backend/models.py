@@ -45,6 +45,9 @@ class Repo(ProductTeamModel):
     # auto-approve rollout phases where comments would be noise.
     enable_pr_comments = models.BooleanField(default=False)
 
+    # Off by default: the digest posts into other teams' Slack channels, so a repo opts in.
+    debt_digest_enabled = models.BooleanField(default=False, db_default=False)
+
     # HMAC signing keys for baseline hash verification: {kid: secret_hex}
     # Supports key rotation — new signatures use the latest key, verification
     # accepts any valid kid. Auto-generated on first use.

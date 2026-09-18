@@ -76,7 +76,17 @@ _DUCKGRES_CANCEL_MARGIN = dt.timedelta(minutes=1)
 _DUCKGRES_CANCEL_MAX_ATTEMPTS = 10
 _DUCKGRES_CANCEL_RETRY_SECONDS = 0.5
 _DUCKGRES_CANCEL_TIMEOUT_SECONDS = 5.0
-_DUCKGRES_REGISTER_WORKER_OPTIONS = "-c duckgres.worker_cpu=4 -c duckgres.worker_memory=16Gi"
+# Registration materializes a whole import generation through
+# `CREATE TABLE ... AS SELECT * FROM read_parquet(<glob>)`, so peak memory
+# tracks the generation's parquet size, not the batch size. A duckgres worker
+# is also reused across the sequential sessions one registration run opens, and
+# DuckDB does not release buffer-pool pages back to the OS between them, so the
+# pod's RSS ratchets toward its DuckDB memory_limit plus the allocations that
+# limit does not govern (Arrow batches, libpq buffers, the Go runtime). At 16Gi
+# that left too little margin and the worker was OOM-killed mid-registration,
+# which surfaces to the client as a lost connection. Keep CPU low -- this is an
+# IO-bound scan -- but leave memory room to absorb a large generation.
+_DUCKGRES_REGISTER_WORKER_OPTIONS = "-c duckgres.worker_cpu=4 -c duckgres.worker_memory=32Gi"
 # Duckgres cancel fires one minute before this deadline. One attempt: a
 # StartToClose timeout has an unknown catalog outcome, so a retry could race
 # the original CALL.

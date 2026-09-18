@@ -12,22 +12,18 @@ table), ``query_merge_queue_trunk_outcomes`` reads the real verdicts instead.
 """
 
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime
 
 from posthog.hogql import ast
 
-from products.engineering_analytics.backend.logic.merge_queue import gate_attempt_expr
+from products.engineering_analytics.backend.logic.merge_queue import GATE_RUN_LOOKBACK, gate_attempt_expr
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource, opt_float
 from products.engineering_analytics.backend.logic.queries._workflow_filters import (
+    DECISIVE_FAILURE_CONCLUSIONS_SQL,
     date_to_filter_clause,
     run_started_floor_constant,
     window_pair_predicates,
 )
-
-# Gate runs start minutes-to-hours before their merge; reach this far behind the previous window so
-# a PR merged just inside it keeps its first attempt. Dwell beyond this truncates honestly: the
-# first observed gate run anchors the measure.
-_GATE_LOOKBACK = timedelta(days=7)
 
 # Three layers so no SELECT reads an alias it defines: the inner select groups gate runs per source
 # PR, the middle names the per-PR measure, the outer splits the current and previous windows on
@@ -65,7 +61,7 @@ _MERGE_QUEUE_SELECT = """
                 any(pr.merged_at) AS merged_at,
                 min(r.run_started_at) AS first_gate_started_at,
                 count(DISTINCT __GATE_ATTEMPT__) AS attempts,
-                max(r.status = 'completed' AND r.conclusion IN ('failure', 'timed_out')) AS had_failed_gate
+                max(r.status = 'completed' AND r.conclusion IN (__DECISIVE_FAILURES__)) AS had_failed_gate
             FROM __RUNS_SOURCE__ AS r
             INNER JOIN __PR_SOURCE__ AS pr ON pr.number = r.pr_number
             WHERE r.is_merge_queue
@@ -213,10 +209,10 @@ def query_merge_queue_overview(
     """Merge-queue landing stats for [date_from, date_to] and [prev_from, date_from], one scan.
 
     The population keys on ``merged_at`` like every merge median; gate runs are scanned from
-    ``prev_from - _GATE_LOOKBACK`` so a merge near the previous window's start keeps its early
+    ``prev_from - GATE_RUN_LOOKBACK`` so a merge near the previous window's start keeps its early
     attempts.
     """
-    gate_from = prev_from - _GATE_LOOKBACK
+    gate_from = prev_from - GATE_RUN_LOOKBACK
     windows = window_pair_predicates("merged_at", date_to=date_to)
     placeholders: dict[str, ast.Expr] = {
         "date_from": ast.Constant(value=date_from),
@@ -232,6 +228,7 @@ def query_merge_queue_overview(
         .replace("__PR_SOURCE__", curated.pr_source())
         .replace("__GATE_ATTEMPT__", gate_attempt_expr("r.head_branch"))
         .replace("__DATE_TO_MERGED__", date_to_merged_clause)
+        .replace("__DECISIVE_FAILURES__", DECISIVE_FAILURE_CONCLUSIONS_SQL)
     )
     response = curated.run(sql, query_type="engineering_analytics.merge_queue_overview", placeholders=placeholders)
     if not response.results:

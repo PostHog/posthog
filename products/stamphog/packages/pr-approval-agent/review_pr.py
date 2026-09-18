@@ -672,7 +672,6 @@ class Pipeline:
 
     def _check_size(self) -> tuple[bool, str]:
         lines, files = substantive_size(self.pr.files)
-        max_lines = self.effective_policy.max_lines if self.effective_policy else MAX_LINES
         binary_count = sum(1 for f in self.pr.files if f.get("binary"))
         exempt_files = len(self.pr.files) - files
         suffix_parts = []
@@ -681,31 +680,57 @@ class Pipeline:
         if exempt_files:
             suffix_parts.append(f"{self.pr.lines_total}L/{len(self.pr.files)}F incl. docs/generated/snapshots")
         suffix = (", " + "; ".join(suffix_parts)) if suffix_parts else ""
-        if lines > max_lines:
-            return (
-                False,
-                f"too large for auto-review ({lines}L, {files}F substantive{suffix} — ceiling is {max_lines}L)",
-            )
         # Mixed PRs get mixed leniency: each file counts against the budget of
-        # the scope governing it (a folder override or the global pool), so a
-        # folder's higher ceiling covers its own files and nothing else.
-        for scope in self._size_scopes():
-            in_scope = set(scope.files)
-            _, scope_files = substantive_size([f for f in self.pr.files if f["filename"] in in_scope])
-            if scope_files > scope.max_files:
-                where = scope.path or "global"
+        # the scope governing it for a given ceiling (a folder override or the
+        # global pool), so a folder's higher ceiling covers its own files and
+        # nothing else. Lines and files partition independently, so a folder
+        # that raises one ceiling keeps the global one for the other. Each
+        # ceiling then has a roof over the PR total, so scope budgets cannot sum
+        # without bound as more folders grant.
+        budgets = self._size_budgets()
+        for scope in budgets.line_scopes:
+            scope_lines, _ = substantive_size(self._files_in(scope))
+            if scope_lines > scope.ceiling:
                 return (
                     False,
-                    f"too large for auto-review ({scope_files}F substantive in {where} — "
-                    f"ceiling is {scope.max_files}F; {lines}L, {files}F total{suffix})",
+                    f"too large for auto-review ({scope_lines}L substantive in {scope.path or 'global'} — "
+                    f"ceiling is {scope.ceiling}L; {lines}L, {files}F total{suffix})",
                 )
+        for scope in budgets.file_scopes:
+            _, scope_files = substantive_size(self._files_in(scope))
+            if scope_files > scope.ceiling:
+                return (
+                    False,
+                    f"too large for auto-review ({scope_files}F substantive in {scope.path or 'global'} — "
+                    f"ceiling is {scope.ceiling}F; {lines}L, {files}F total{suffix})",
+                )
+        if lines > budgets.line_roof:
+            return (
+                False,
+                f"too large for auto-review ({lines}L, {files}F substantive across the whole PR — "
+                f"roof is {budgets.line_roof}L{suffix})",
+            )
+        if files > budgets.file_roof:
+            return (
+                False,
+                f"too large for auto-review ({lines}L, {files}F substantive across the whole PR — "
+                f"roof is {budgets.file_roof}F{suffix})",
+            )
         return True, f"{lines}L, {files}F substantive{suffix} — within ceiling"
 
-    def _size_scopes(self) -> tuple[ScopeBudget, ...]:
+    def _files_in(self, scope: ScopeBudget) -> list[dict]:
+        in_scope = set(scope.files)
+        return [f for f in self.pr.files if f["filename"] in in_scope]
+
+    def _size_budgets(self) -> EffectivePolicy:
+        """The PR's resolved size budgets, or global-only ones when resolution did not run."""
         if self.effective_policy is not None:
-            return self.effective_policy.scopes
+            return self.effective_policy
         all_files = tuple(f["filename"] for f in self.pr.files)
-        return (ScopeBudget(path=None, max_files=MAX_FILES, files=all_files),)
+        return EffectivePolicy(
+            file_scopes=(ScopeBudget(path=None, ceiling=MAX_FILES, files=all_files),),
+            line_scopes=(ScopeBudget(path=None, ceiling=MAX_LINES, files=all_files),),
+        )
 
     def _check_tier(self) -> tuple[bool, str]:
         cl = self.classification
@@ -1022,11 +1047,8 @@ class Pipeline:
         elif thumbs:
             bullets.append(f"👍 on the PR from {', '.join(thumbs)}.")
         if self.effective_policy is not None:
-            for scope in self.effective_policy.scopes:
-                if scope.path and scope.files:
-                    bullets.append(
-                        f"{len(scope.files)} of the {len(self.pr.files)} changed files are governed by `{scope.path}`."
-                    )
+            for path, governed in self.effective_policy.governed_file_counts():
+                bullets.append(f"{governed} of the {len(self.pr.files)} changed files are governed by `{path}`.")
         bullets.extend(str(issue) for issue in (self.reviewer_output.get("issues") or [])[:3])
 
         rows = [f"| {g.gate} | {'✓' if g.passed else '✗'} | {g.message} |" for g in self.gate_results if g]
@@ -1081,8 +1103,12 @@ class Pipeline:
                 "policy_file": ".stamphog/policy.yml",
                 "scopes": (
                     [
-                        {"path": s.path, "max_files": s.max_files, "files": len(s.files)}
-                        for s in self.effective_policy.scopes
+                        {"path": s.path, "key": key, "ceiling": s.ceiling, "files": len(s.files)}
+                        for key, scopes in (
+                            ("max_lines", self.effective_policy.line_scopes),
+                            ("max_files", self.effective_policy.file_scopes),
+                        )
+                        for s in scopes
                     ]
                     if self.effective_policy
                     else []

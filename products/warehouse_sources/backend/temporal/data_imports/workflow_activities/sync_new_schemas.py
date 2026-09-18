@@ -6,7 +6,10 @@ from django.db import close_old_connections
 from structlog.contextvars import bind_contextvars
 from temporalio import activity
 
+from posthog.exceptions_capture import capture_exception
+from posthog.integration_secrets.errors import IntegrationSecretsFailure
 from posthog.models.integration import UndecryptedIntegrationSecretError
+from posthog.temporal.common.errors import NonReportableError
 from posthog.temporal.common.logger import get_logger
 
 from products.data_warehouse.backend.facade.api import delete_discover_schemas_schedule
@@ -15,8 +18,12 @@ from products.warehouse_sources.backend.models.external_data_schema import (
     sync_old_schemas_with_new_schemas,
 )
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.temporal.data_imports.external_data_job import Any_Source_Errors
 from products.warehouse_sources.backend.temporal.data_imports.sources import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.errors import (
+    is_transient_egress_proxy_error,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 LOGGER = get_logger(__name__)
@@ -92,14 +99,67 @@ def sync_new_schemas_activity(inputs: SyncNewSchemasActivityInputs) -> None:
             if isinstance(e, UndecryptedIntegrationSecretError):
                 logger.warning(f"Skipping schema discovery due to non-retryable source error: {e}")
                 return
+
             error_msg = str(e)
-            non_retryable_errors = new_source.get_non_retryable_errors()
+            # Every credential the integration service holds is PostHog's own (OAuth app secrets,
+            # API keys), never the customer's, and none of its failure states are permanent — a
+            # burned key gets re-provisioned, an unreachable service comes back. Unlike the skips
+            # above, this isn't ours to give up on: re-raise wrapped in NonReportableError so the
+            # workflow's own retry policy (discover_schemas_workflow.py) retries the activity, the
+            # same recovery import_data_sync.py's _handle_import_error already gives the per-schema
+            # sync path, without minting an error tracking issue per credential read for a platform
+            # blip the service's own availability alerting already covers.
+            if isinstance(e, IntegrationSecretsFailure):
+                if e.reportable:
+                    capture_exception(e)
+                    logger.exception(error_msg)
+                else:
+                    logger.warning(error_msg)
+                raise NonReportableError(error_msg) from e
+
+            # PostHog's own egress proxy throttled or refused the connection. Raise rather than
+            # skip so Temporal still retries this discovery run, and classify here rather than per
+            # source so every connector gets the same treatment.
+            if is_transient_egress_proxy_error(error_msg):
+                logger.warning(f"Transient egress-proxy error during schema discovery: {error_msg}")
+                raise NonReportableError(error_msg) from e
+            # Cross-source non-retryable errors (an unresolvable/private database host, bad SSH
+            # tunnel auth, a widened column type) are raised from shared connection/pipeline code,
+            # not any one source, so they never make it into a source's own get_non_retryable_errors.
+            # Without merging this in, discovery retries the activity's whole budget and reports on
+            # every attempt for a failure that will never recover on its own.
+            non_retryable_errors = {**Any_Source_Errors, **new_source.get_non_retryable_errors()}
             if error_message_matches(error_msg, non_retryable_errors):
                 logger.warning(f"Skipping schema discovery due to non-retryable source error: {error_msg}")
                 return
+            # Retryable source errors (a transient connect blip, a self-recovering HTTP status) reach
+            # us only after the source exhausted its own retries. Re-raise as NonReportableError so the
+            # activity interceptor suppresses the error-tracking report while Temporal still retries the
+            # activity, opening a fresh connection that usually succeeds. This mirrors import_data_sync's
+            # handling of the same get_retryable_errors set. Returning here instead would skip the whole
+            # discovery pass until the next ~6h run and waste the workflow's remaining retry attempts.
+            retryable_errors = new_source.get_retryable_errors()
+            if error_message_matches(error_msg, retryable_errors):
+                logger.warning(f"Retrying schema discovery after retryable source error: {error_msg}")
+                raise NonReportableError(error_msg) from e
             raise
 
         schemas_to_sync = {s.name: s.label for s in schemas}
+
+        try:
+            server_metadata = new_source.get_server_metadata(config, inputs.team_id)
+            if isinstance(server_metadata, dict) and server_metadata:
+                # `source` was read before schema discovery, which is a network call of its own, so
+                # the merge re-reads the row under a lock rather than trusting that snapshot.
+                source.merge_connection_metadata(server_metadata)
+        except Exception:
+            # Recording the version is incidental to schema discovery, and both steps here can fail
+            # on their own: the probe opens a connection to the customer's server, and the merge
+            # waits on a row lock that the backfill command can hold. Neither says anything about
+            # the schemas already discovered above, so a pass that otherwise succeeded stays
+            # successful. A real connection fault still reaches the user through the per-schema sync
+            # path, which has its own reporting.
+            logger.warning("Could not record source server metadata", exc_info=True)
     else:
         raise ValueError(f"Source type missing from SourceRegistry: {source.source_type}")
 

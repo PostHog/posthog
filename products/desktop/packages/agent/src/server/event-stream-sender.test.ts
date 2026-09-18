@@ -129,50 +129,58 @@ describe("TaskRunEventStreamSender", () => {
     vi.unstubAllGlobals();
   });
 
-  it("streams ordered NDJSON events with the run-scoped token", async () => {
-    const requestBodies: string[] = [];
-    const fetchMock = vi.fn(
-      async (_url: string | URL | Request, init?: RequestInit) => {
-        const body = await readRequestBody(init);
-        requestBodies.push(body);
-        return responseForBody(body);
-      },
-    );
-    vi.stubGlobal("fetch", fetchMock);
+  it.each([true, false])(
+    "streams ordered NDJSON events with complete=%s",
+    async (complete) => {
+      const requestBodies: string[] = [];
+      const fetchMock = vi.fn(
+        async (_url: string | URL | Request, init?: RequestInit) => {
+          const body = await readRequestBody(init);
+          requestBodies.push(body);
+          return responseForBody(body);
+        },
+      );
+      vi.stubGlobal("fetch", fetchMock);
 
-    const sender = createSender();
+      const sender = createSender();
 
-    sender.enqueue({ type: "notification", notification: { method: "first" } });
-    sender.enqueue({
-      type: "notification",
-      notification: { method: "second" },
-    });
-    await sender.stop();
+      sender.enqueue({
+        type: "notification",
+        notification: { method: "first" },
+      });
+      sender.enqueue({
+        type: "notification",
+        notification: { method: "second" },
+      });
+      await sender.stop({ complete });
 
-    expect(fetchMock).toHaveBeenCalledTimes(2);
-    expect(fetchMock.mock.calls[1][0]).toBe(
-      "http://localhost:8000/api/projects/1/tasks/task-1/runs/run-1/event_stream/",
-    );
-    expect(fetchMock.mock.calls[1][1]?.headers).toEqual({
-      Authorization: "Bearer ingest-token",
-      "Content-Type": "application/x-ndjson",
-    });
-    expect(fetchMock.mock.calls[1][1]?.headers).not.toHaveProperty(
-      "X-PostHog-Event-Stream-Complete",
-    );
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect(fetchMock.mock.calls[1][0]).toBe(
+        "http://localhost:8000/api/projects/1/tasks/task-1/runs/run-1/event_stream/",
+      );
+      expect(fetchMock.mock.calls[1][1]?.headers).toEqual({
+        Authorization: "Bearer ingest-token",
+        "Content-Type": "application/x-ndjson",
+      });
+      expect(fetchMock.mock.calls[1][1]?.headers).not.toHaveProperty(
+        "X-PostHog-Event-Stream-Complete",
+      );
 
-    expect(parseLines(requestBodies[1])).toEqual([
-      {
-        seq: 1,
-        event: { type: "notification", notification: { method: "first" } },
-      },
-      {
-        seq: 2,
-        event: { type: "notification", notification: { method: "second" } },
-      },
-      { type: STREAM_COMPLETE_CONTROL_TYPE, final_seq: 2 },
-    ]);
-  });
+      expect(parseLines(requestBodies[1])).toEqual([
+        {
+          seq: 1,
+          event: { type: "notification", notification: { method: "first" } },
+        },
+        {
+          seq: 2,
+          event: { type: "notification", notification: { method: "second" } },
+        },
+        ...(complete
+          ? [{ type: STREAM_COMPLETE_CONTROL_TYPE, final_seq: 2 }]
+          : []),
+      ]);
+    },
+  );
 
   it("routes the ingest POST to the agent-proxy run-scoped path when eventIngestBaseUrl is set", async () => {
     const fetchMock = vi.fn(
@@ -195,43 +203,50 @@ describe("TaskRunEventStreamSender", () => {
     expect(lastCall[0]).not.toContain("/api/projects/");
   });
 
-  it("closes the ingest upload per drained batch on the proxy path by default", async () => {
-    const requestBodies: string[] = [];
-    let contentUploads = 0;
-    const fetchMock = vi.fn(
-      async (_url: string | URL | Request, init?: RequestInit) => {
-        if (!init?.body || typeof init.body === "string") {
-          return responseForBody(await readRequestBody(init));
-        }
+  it.each([undefined, "http://agent-proxy:8003/"])(
+    "closes each drained batch with ingest base %s",
+    async (eventIngestBaseUrl) => {
+      const requestBodies: string[] = [];
+      let contentUploads = 0;
+      const fetchMock = vi.fn(
+        async (_url: string | URL | Request, init?: RequestInit) => {
+          if (!init?.body || typeof init.body === "string") {
+            return responseForBody(await readRequestBody(init));
+          }
 
-        // Resolves only once the sender closes the upload body.
-        const body = await readRequestBody(init);
-        contentUploads += 1;
-        requestBodies.push(body);
-        return responseForBody(body);
-      },
-    );
-    vi.stubGlobal("fetch", fetchMock);
+          // Resolves only once the sender closes the upload body.
+          const body = await readRequestBody(init);
+          contentUploads += 1;
+          requestBodies.push(body);
+          return responseForBody(body);
+        },
+      );
+      vi.stubGlobal("fetch", fetchMock);
 
-    const sender = createSender({
-      flushDelayMs: 0,
-      eventIngestBaseUrl: "http://agent-proxy:8003/",
-    });
+      const sender = createSender({
+        flushDelayMs: 0,
+        eventIngestBaseUrl,
+        keepProxyStreamOpen: false,
+      });
 
-    sender.enqueue({ type: "notification", notification: { method: "first" } });
-    await vi.waitFor(() => expect(contentUploads).toBe(1));
+      sender.enqueue({
+        type: "notification",
+        notification: { method: "first" },
+      });
+      await vi.waitFor(() => expect(contentUploads).toBe(1));
 
-    sender.enqueue({
-      type: "notification",
-      notification: { method: "second" },
-    });
-    await vi.waitFor(() => expect(contentUploads).toBe(2));
+      sender.enqueue({
+        type: "notification",
+        notification: { method: "second" },
+      });
+      await vi.waitFor(() => expect(contentUploads).toBe(2));
 
-    await sender.stop();
+      await sender.stop();
 
-    expect(eventSequences(requestBodies[0] ?? "")).toEqual([1]);
-    expect(eventSequences(requestBodies[1] ?? "")).toEqual([2]);
-  });
+      expect(eventSequences(requestBodies[0] ?? "")).toEqual([1]);
+      expect(eventSequences(requestBodies[1] ?? "")).toEqual([2]);
+    },
+  );
 
   it("holds one long-lived upload across batches when keepProxyStreamOpen is set", async () => {
     const requestBodies: string[] = [];
@@ -405,6 +420,31 @@ describe("TaskRunEventStreamSender", () => {
       ],
       acceptedMethod: "small",
     },
+    {
+      name: "when text still exceeds the limit after removing widget metadata",
+      senderOptions: { maxEventBytes: 600 },
+      events: [
+        {
+          type: "notification",
+          notification: {
+            method: "session/update",
+            params: {
+              update: {
+                sessionUpdate: "tool_call_update",
+                rawOutput: {
+                  content: [{ type: "text", text: "x".repeat(1000) }],
+                  _meta: {
+                    "com.posthog.mcp/app_data": { rows: "y".repeat(1000) },
+                  },
+                },
+              },
+            },
+          },
+        },
+        { type: "notification", notification: { method: "small" } },
+      ],
+      acceptedMethod: "small",
+    },
   ])(
     "drops events before assigning sequence $name",
     async ({ senderOptions, events, acceptedMethod }) => {
@@ -435,6 +475,77 @@ describe("TaskRunEventStreamSender", () => {
         },
         { type: STREAM_COMPLETE_CONTROL_TYPE, final_seq: 1 },
       ]);
+    },
+  );
+
+  it.each<[string, number]>([
+    ["tool_call", 10],
+    ["tool_call_update", 10],
+    ["tool_call", 1000],
+    ["tool_call_update", 1000],
+  ])(
+    "preserves %s with %s bytes of optional widget data",
+    async (sessionUpdate, dataBytes) => {
+      const requestBodies: string[] = [];
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
+          const body = await readRequestBody(init);
+          requestBodies.push(body);
+          return responseForBody(body);
+        }),
+      );
+      const appData = { rows: "x".repeat(dataBytes) };
+      const event = {
+        type: "notification",
+        notification: {
+          method: "session/update",
+          params: {
+            update: {
+              sessionUpdate,
+              toolCallId: "query-1",
+              status: "completed",
+              _meta: { posthog: { toolName: "mcp__posthog__exec" } },
+              rawOutput: {
+                content: [{ type: "text", text: "Query completed" }],
+                _meta: {
+                  "com.posthog.mcp/app_data": appData,
+                  resourceUri: "ui://query",
+                },
+              },
+            },
+          },
+        },
+      };
+      const sender = createSender({ maxEventBytes: 600 });
+      sender.enqueue(event);
+      sender.enqueue({
+        type: "notification",
+        notification: { method: "next" },
+      });
+      await sender.stop();
+
+      const sent = parseLines(requestBodies[1]);
+      const expected = structuredClone(event);
+      if (dataBytes > 600) {
+        Reflect.deleteProperty(
+          expected.notification.params.update.rawOutput._meta,
+          "com.posthog.mcp/app_data",
+        );
+      }
+      expect(sent).toEqual([
+        { seq: 1, event: expected },
+        {
+          seq: 2,
+          event: { type: "notification", notification: { method: "next" } },
+        },
+        { type: STREAM_COMPLETE_CONTROL_TYPE, final_seq: 2 },
+      ]);
+      expect(
+        event.notification.params.update.rawOutput._meta[
+          "com.posthog.mcp/app_data"
+        ],
+      ).toBe(appData);
     },
   );
 

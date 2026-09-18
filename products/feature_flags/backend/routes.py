@@ -9,6 +9,7 @@ from products.feature_flags.backend.api import (
     staff_team_config,
     staff_teams,
 )
+from products.feature_flags.backend.presentation import request_usage
 
 
 def register_routes(routers: RouterRegistry) -> None:
@@ -33,6 +34,12 @@ def register_routes(routers: RouterRegistry) -> None:
     )
     routers.projects.register(
         r"feature_flags", feature_flag.FeatureFlagViewSet, "project_feature_flags", ["project_id"]
+    )
+    routers.projects.register(
+        r"feature_flag_request_usage",
+        request_usage.FeatureFlagRequestUsageViewSet,
+        "project_feature_flag_request_usage",
+        ["project_id"],
     )
     routers.projects.register(
         r"scheduled_changes", scheduled_change.ScheduledChangeViewSet, "project_scheduled_changes", ["project_id"]

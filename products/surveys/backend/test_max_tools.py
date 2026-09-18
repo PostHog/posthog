@@ -11,11 +11,19 @@ from asgiref.sync import sync_to_async
 from langchain_core.runnables import RunnableConfig
 from parameterized import parameterized
 
+from posthog.models import Organization, Project, Team
+
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.product_analytics.backend.facade.models import Insight
 from products.surveys.backend.models import Survey
 
 from .max_tools import CreateSurveyTool, EditSurveyTool, SimpleSurveyQuestion, SurveyAnalysisTool
+
+
+async def create_test_team(organization: Organization, name: str) -> Team:
+    project_id = await sync_to_async(Team.objects.increment_id_sequence)()
+    project = await Project.objects.acreate(id=project_id, organization=organization)
+    return await Team.objects.acreate(id=project.id, project=project, organization=organization, name=name)
 
 
 class TestSurveyCreatorTool(BaseTest):
@@ -145,6 +153,28 @@ class TestSurveyCreatorTool(BaseTest):
         survey = await sync_to_async(Survey.objects.select_related("linked_flag").get)(id=artifact["survey_id"])
         assert survey.name == "Feature Flag Survey"
         assert survey.linked_flag_id == flag.id
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_create_survey_rejects_linked_flag_from_another_organization(self):
+        other_organization = await Organization.objects.acreate(name="Other Organization")
+        other_team = await create_test_team(other_organization, "Other Team")
+        other_flag = await FeatureFlag.objects.acreate(
+            team=other_team,
+            key="other-organization-feature",
+            created_by=self.user,
+        )
+
+        result = await self._setup_tool().ainvoke(
+            {
+                "name": "Cross-organization survey",
+                "questions": [{"type": "open", "question": "How is it going?"}],
+                "linked_flag_id": other_flag.id,
+            }
+        )
+
+        assert "Survey validation failed" in result
+        assert not await Survey.objects.filter(team=self.team, name="Cross-organization survey").aexists()
 
     @pytest.mark.django_db
     @pytest.mark.asyncio
@@ -885,6 +915,29 @@ class TestEditSurveyTool(BaseTest):
 
     @pytest.mark.django_db
     @pytest.mark.asyncio
+    async def test_edit_survey_rejects_linked_flag_from_another_organization(self):
+        other_organization = await Organization.objects.acreate(name="Other Organization")
+        other_team = await create_test_team(other_organization, "Other Team")
+        other_flag = await FeatureFlag.objects.acreate(
+            team=other_team,
+            key="other-organization-feature",
+            created_by=self.user,
+        )
+        survey = await self._create_test_survey()
+
+        result = await self._setup_tool().ainvoke(
+            {
+                "survey_id": str(survey.id),
+                "linked_flag_id": other_flag.id,
+            }
+        )
+
+        assert "Survey validation failed" in result
+        await survey.arefresh_from_db()
+        assert survey.linked_flag_id is None
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
     async def test_edit_survey_can_explicitly_remove_targeting(self):
         tool = self._setup_tool()
         flag = await sync_to_async(FeatureFlag.objects.create)(
@@ -989,8 +1042,6 @@ class TestEditSurveyTool(BaseTest):
     @pytest.mark.django_db
     @pytest.mark.asyncio
     async def test_edit_survey_wrong_team(self):
-        from posthog.models import Organization, Team
-
         other_org = await sync_to_async(Organization.objects.create)(name="Other Org")
         other_team = await sync_to_async(Team.objects.create)(organization=other_org, name="Other Team")
         other_survey = await sync_to_async(Survey.objects.create)(

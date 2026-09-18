@@ -1,101 +1,72 @@
 import { useActions, useValues } from 'kea'
-import { MouseEvent as ReactMouseEvent, ReactNode, useEffect, useMemo, useRef, useState } from 'react'
 
-import { Spinner } from '@posthog/lemon-ui'
+import { LemonBanner, LemonSkeleton, LemonTable } from '@posthog/lemon-ui'
 
-import { SQLEditor } from 'scenes/data-warehouse/editor/SQLEditor'
-import { sqlEditorLogic } from 'scenes/data-warehouse/editor/sqlEditorLogic'
-import { SQLEditorMode } from 'scenes/data-warehouse/editor/sqlEditorModes'
+import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 
-import { NodeKind } from '~/queries/schema/schema-general'
-import { ChartDisplayType } from '~/types'
+import { DatabaseSchemaField } from '~/queries/schema/schema-general'
 
 import { nodeDetailSceneLogic } from '../nodeDetailSceneLogic'
 
-const DEFAULT_EDITOR_HEIGHT = 500
-const MIN_EDITOR_HEIGHT = 300
-
 export function NodeDetailQuery({ id }: { id: string }): JSX.Element {
-    const { savedQuery, savedQueryLoading } = useValues(nodeDetailSceneLogic({ id }))
-    const queryString = savedQuery?.query?.query ?? ''
+    const { savedQuery, savedQueryLoading, savedQueryError } = useValues(nodeDetailSceneLogic({ id }))
+    const { loadSavedQuery } = useActions(nodeDetailSceneLogic({ id }))
 
-    const sqlEditorTabId = useMemo(() => `node-detail-query-${id}`, [id])
-    const { setQueryInput, setSourceQuery, runQuery } = useActions(
-        sqlEditorLogic({ tabId: sqlEditorTabId, mode: SQLEditorMode.Embedded })
-    )
+    if (savedQueryLoading && !savedQuery) {
+        return <LemonSkeleton className="h-64 w-full" />
+    }
 
-    useEffect(() => {
-        if (queryString) {
-            setQueryInput(queryString)
-            setSourceQuery({
-                kind: NodeKind.DataVisualizationNode,
-                source: {
-                    kind: NodeKind.HogQLQuery,
-                    query: queryString,
-                },
-                display: ChartDisplayType.ActionsLineGraph,
-            })
-            runQuery(queryString)
-        }
-    }, [queryString]) // eslint-disable-line react-hooks/exhaustive-deps
-
-    if (savedQueryLoading) {
+    if (savedQueryError) {
         return (
-            <ResizableSQLEditorContainer>
-                <div className="flex items-center justify-center h-full">
-                    <Spinner />
-                </div>
-            </ResizableSQLEditorContainer>
+            <LemonBanner type="error" action={{ children: 'Retry', onClick: loadSavedQuery }}>
+                Couldn't load this model's query.
+            </LemonBanner>
         )
     }
 
-    if (!savedQuery) {
-        return <div className="text-muted">No query available</div>
-    }
+    const queryString = savedQuery?.query?.query
+    const columns = savedQuery?.columns ?? []
 
     return (
-        <ResizableSQLEditorContainer>
-            <SQLEditor tabId={sqlEditorTabId} mode={SQLEditorMode.Embedded} />
-        </ResizableSQLEditorContainer>
-    )
-}
+        <div className="flex flex-col gap-4">
+            <div className="flex flex-col gap-2">
+                {queryString ? (
+                    <CodeSnippet
+                        language={Language.SQL}
+                        className="[&_pre]:max-h-96 [&_pre]:overflow-auto"
+                        thing="query"
+                    >
+                        {queryString}
+                    </CodeSnippet>
+                ) : (
+                    <p className="mb-0 text-secondary">This model has no query.</p>
+                )}
+            </div>
 
-function ResizableSQLEditorContainer({ children }: { children: ReactNode }): JSX.Element {
-    const [height, setHeight] = useState(DEFAULT_EDITOR_HEIGHT)
-    const containerRef = useRef<HTMLDivElement | null>(null)
-
-    const startResizing = (event: ReactMouseEvent, startHeight: number): void => {
-        event.preventDefault()
-        const startY = event.clientY
-
-        const onMouseMove = (moveEvent: MouseEvent): void => {
-            setHeight(Math.max(MIN_EDITOR_HEIGHT, startHeight + (moveEvent.clientY - startY)))
-        }
-
-        const onMouseUp = (): void => {
-            window.removeEventListener('mousemove', onMouseMove)
-            window.removeEventListener('mouseup', onMouseUp)
-        }
-
-        window.addEventListener('mousemove', onMouseMove)
-        window.addEventListener('mouseup', onMouseUp)
-    }
-
-    return (
-        <div ref={containerRef} className="relative border rounded overflow-hidden" style={{ height }}>
-            {children}
-            <div
-                className="absolute bottom-0 left-0 h-2 w-full cursor-s-resize"
-                onMouseDown={(event) => {
-                    startResizing(event, containerRef.current?.clientHeight ?? height)
-                }}
-            />
-            <div
-                className="absolute bottom-0 right-0 z-10 h-5 w-5 cursor-se-resize"
-                onMouseDown={(event) => {
-                    startResizing(event, containerRef.current?.clientHeight ?? height)
-                }}
-            />
+            <div className="flex flex-col gap-2">
+                <h3 className="mb-0">Columns</h3>
+                <LemonTable
+                    size="small"
+                    dataSource={columns}
+                    rowKey="name"
+                    nouns={['column', 'columns']}
+                    emptyState="Columns appear after the view runs."
+                    columns={[
+                        {
+                            title: 'Name',
+                            key: 'name',
+                            render: (_, column: DatabaseSchemaField) => (
+                                <span className="font-mono">{column.name}</span>
+                            ),
+                        },
+                        {
+                            title: 'Type',
+                            key: 'type',
+                            render: (_, column: DatabaseSchemaField) => column.type,
+                        },
+                    ]}
+                />
+            </div>
         </div>
     )
 }

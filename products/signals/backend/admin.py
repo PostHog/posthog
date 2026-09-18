@@ -5,8 +5,6 @@ from django.contrib import admin
 from django.urls import reverse
 from django.utils.html import format_html
 
-from products.skills.backend.models.skills import LLMSkill
-
 from .models import (
     SignalReport,
     SignalReportArtefact,
@@ -16,14 +14,14 @@ from .models import (
     SignalScratchpad,
     SignalTeamConfig,
 )
-from .scout_harness.skill_loader import SIGNALS_SCOUT_SKILL_PREFIX
+from .scout_harness.note_targets import InvalidNoteError, validate_note_target
 
 
 class SignalReportArtefactInline(admin.TabularInline):
     model = SignalReportArtefact
     extra = 0
     fields = ("id", "type", "content_preview", "created_at")
-    readonly_fields = fields
+    readonly_fields = (*fields, "claim", "pull_request")
     can_delete = False
 
     @admin.display(description="Content preview")
@@ -191,20 +189,19 @@ class SignalScoutNoteAdminForm(forms.ModelForm):
         fields = "__all__"
 
     def clean(self) -> dict:
-        # Mirror the API write path (`scout_harness/tools/notes.py`): the run-time list matches
-        # `skill_name` exactly, so a typo'd target saved here would silently steer no one.
+        # Share the API write path's target rule (`scout_harness/tools/notes.py`): the run-time
+        # list matches `skill_name` exactly, so a typo'd target saved here would steer no one.
         cleaned = super().clean() or {}
         skill_name = (cleaned.get("skill_name") or "").strip()
         cleaned["skill_name"] = skill_name
-        if not skill_name:
-            return cleaned
-        if not skill_name.startswith(SIGNALS_SCOUT_SKILL_PREFIX):
-            raise forms.ValidationError(
-                {"skill_name": f"Must be blank (a note for every scout) or start with '{SIGNALS_SCOUT_SKILL_PREFIX}'."}
-            )
         team = cleaned.get("team")
-        if team is not None and not LLMSkill.objects.filter(team=team, name=skill_name, deleted=False).exists():
-            raise forms.ValidationError({"skill_name": "No scout skill with this name exists on the selected team."})
+        if team is None:
+            # The scout-skill lookup needs a team. Django already reports the missing field.
+            return cleaned
+        try:
+            validate_note_target(team_id=team.pk, skill_name=skill_name)
+        except InvalidNoteError as exc:
+            raise forms.ValidationError({"skill_name": str(exc)})
         return cleaned
 
 
@@ -267,10 +264,11 @@ class SignalTeamConfigAdmin(admin.ModelAdmin):
     )
     list_display_links = ("id",)
     search_fields = ("id", "team__name", "team__organization__name", "default_slack_notification_channel")
-    raw_id_fields = ("team",)
+    raw_id_fields = ("team", "issue_tracking_integration")
     # autostart_base_branches is free-form JSON with no form-level shape check; a non-dict value would
     # crash the autostart worker (it calls .get() on it). It's owned by the API, so keep it read-only here.
-    readonly_fields = ("id", "autostart_base_branches", "created_at", "updated_at")
+    # issue_tracking_config is the same: the API validates it against the chosen provider.
+    readonly_fields = ("id", "autostart_base_branches", "issue_tracking_config", "created_at", "updated_at")
     list_select_related = ("team", "team__organization")
     show_full_result_count = False
 

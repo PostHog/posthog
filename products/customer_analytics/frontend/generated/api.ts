@@ -12,6 +12,7 @@ import type {
     AccountApi,
     AccountNotebookApi,
     AccountNotesListParams,
+    AccountPresenceViewerApi,
     AccountRelationshipApi,
     AccountRelationshipDefinitionApi,
     AccountRelationshipDefinitionsListParams,
@@ -21,6 +22,7 @@ import type {
     AccountTrackRuleRunViewApi,
     AccountTrackRulesConfigApi,
     AccountTrackRulesRunsListParams,
+    AccountsByExternalIdRetrieveParams,
     AccountsEmailThreadMessagesListParams,
     AccountsEmailThreadsListParams,
     AccountsListParams,
@@ -29,9 +31,12 @@ import type {
     AccountsRelationshipsListParams,
     AccountsSummariesListParams,
     AccountsSupportTicketMessagesListParams,
+    AccountsTableQueryRequestApi,
+    AccountsTableQueryResponseApi,
     AnnouncementApi,
     AnnouncementChannelApi,
     AnnouncementsListParams,
+    CalendarSyncBackfillApi,
     CalendarSyncStatusApi,
     CalendarSyncTriggerApi,
     CalendarSyncTriggerResponseApi,
@@ -46,14 +51,23 @@ import type {
     CustomPropertyValueApi,
     CustomPropertyValueSuggestionsResponseApi,
     CustomPropertyValueWriteApi,
+    CustomerAnalyticsExternalAccountRetrieveParams,
     CustomerAnalyticsExternalAccountsRetrieveParams,
     CustomerJourneyApi,
     CustomerJourneysListParams,
     CustomerProfileConfigApi,
     CustomerProfileConfigsListParams,
+    CustomerTaskActivityPageApi,
+    CustomerTaskApi,
+    CustomerTaskCreateApi,
+    CustomerTaskPageApi,
+    CustomerTaskUpdateApi,
+    CustomerTasksActivitiesListParams,
+    CustomerTasksListParams,
     EventStreamApi,
     EventStreamMemberWriteApi,
     EventStreamTestMessageApi,
+    ExternalAccountApi,
     ExternalAccountListPageApi,
     FeatureRequestAddAccountApi,
     FeatureRequestApi,
@@ -61,6 +75,7 @@ import type {
     FeatureRequestEvidenceCreateApi,
     FeatureRequestEvidenceDeleteApi,
     FeatureRequestEvidenceUpdateApi,
+    FeatureRequestGitHubLinkSerializerInputApi,
     FeatureRequestHistoryApi,
     FeatureRequestProductAreaApi,
     FeatureRequestProductAreasListParams,
@@ -94,11 +109,15 @@ import type {
     PatchedCustomPropertySourceUpdateApi,
     PatchedCustomerJourneyApi,
     PatchedCustomerProfileConfigApi,
+    PatchedCustomerTaskUpdateApi,
     PatchedEventStreamApi,
     PatchedFeatureRequestProductAreaApi,
     PatchedFeatureRequestUpdateApi,
     PatchedGroupUsageMetricApi,
+    PatchedUserCustomerAnalyticsConfigUpdateApi,
+    QueryStatusResponseApi,
     SupportTicketApi,
+    UserCustomerAnalyticsConfigApi,
 } from './api.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
@@ -117,6 +136,38 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
           [P in keyof Writable<T>]: T[P] extends object ? NonReadonly<NonNullable<T[P]>> : T[P]
       }
     : DistributeReadOnlyOverUnions<T>
+
+export const getCustomerAnalyticsExternalAccountRetrieveUrl = (
+    params: CustomerAnalyticsExternalAccountRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/customer_analytics/external/account?${stringifiedParams}`
+        : `/api/customer_analytics/external/account`
+}
+
+/**
+ * Fetch one account by external ID with its properties, controlled relationship ownership, tags, active relationship assignments and custom property values. Accepts the team secret API token or a project secret API key with the `account:read` scope.
+ * @summary Get an external customer analytics account
+ */
+export const customerAnalyticsExternalAccountRetrieve = async (
+    params: CustomerAnalyticsExternalAccountRetrieveParams,
+    options?: RequestInit
+): Promise<ExternalAccountApi> => {
+    return apiMutator<ExternalAccountApi>(getCustomerAnalyticsExternalAccountRetrieveUrl(params), {
+        ...options,
+        method: 'GET',
+    })
+}
 
 export const getCustomerAnalyticsExternalAccountsRetrieveUrl = (
     params?: CustomerAnalyticsExternalAccountsRetrieveParams
@@ -137,7 +188,7 @@ export const getCustomerAnalyticsExternalAccountsRetrieveUrl = (
 }
 
 /**
- * List tracked accounts with external IDs, lifecycle timestamps, and active relationship assignments. Set `include_ignored=true` to include ignored accounts. Requires a project secret API key with the `account:read` scope.
+ * List tracked accounts with external IDs, lifecycle timestamps, controlled relationship ownership, and active relationship assignments. Set `include_ignored=true` to include ignored accounts and `managed_only=true` to read only the accounts customer analytics holds ownership authority for. Requires a project secret API key or personal API key with the `account:read` scope. Personal API keys also require `project_id` and return only accounts the key owner can access.
  * @summary List external customer analytics accounts
  */
 export const customerAnalyticsExternalAccountsRetrieve = async (
@@ -456,8 +507,8 @@ export const accountsCustomPropertyValuesCreate = async (
     accountId: string,
     customPropertyValueWriteApi: CustomPropertyValueWriteApi,
     options?: RequestInit
-): Promise<CustomPropertyValueApi> => {
-    return apiMutator<CustomPropertyValueApi>(getAccountsCustomPropertyValuesCreateUrl(projectId, accountId), {
+): Promise<CustomPropertyValueApi | void> => {
+    return apiMutator<CustomPropertyValueApi | void>(getAccountsCustomPropertyValuesCreateUrl(projectId, accountId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -594,6 +645,22 @@ export const accountsRelationshipsCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(accountRelationshipWriteApi),
+    })
+}
+
+export const getAccountsRelationshipsDestroyUrl = (projectId: string, accountId: string, id: string) => {
+    return `/api/projects/${projectId}/accounts/${accountId}/relationships/${id}/`
+}
+
+export const accountsRelationshipsDestroy = async (
+    projectId: string,
+    accountId: string,
+    id: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getAccountsRelationshipsDestroyUrl(projectId, accountId, id), {
+        ...options,
+        method: 'DELETE',
     })
 }
 
@@ -768,6 +835,21 @@ export const accountsMeetingsList = async (
     })
 }
 
+export const getAccountsPresenceCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/accounts/${id}/presence/`
+}
+
+export const accountsPresenceCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<AccountPresenceViewerApi[]> => {
+    return apiMutator<AccountPresenceViewerApi[]>(getAccountsPresenceCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
 export const getAccountsSummariesListUrl = (projectId: string, id: string, params?: AccountsSummariesListParams) => {
     const normalizedParams = new URLSearchParams()
 
@@ -844,6 +926,56 @@ export const accountsSupportTicketMessagesList = async (
         {
             ...options,
             method: 'GET',
+        }
+    )
+}
+
+export const getAccountsByExternalIdRetrieveUrl = (projectId: string, params: AccountsByExternalIdRetrieveParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/accounts/by_external_id/?${stringifiedParams}`
+        : `/api/projects/${projectId}/accounts/by_external_id/`
+}
+
+export const accountsByExternalIdRetrieve = async (
+    projectId: string,
+    params: AccountsByExternalIdRetrieveParams,
+    options?: RequestInit
+): Promise<AccountApi> => {
+    return apiMutator<AccountApi>(getAccountsByExternalIdRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getCustomerAnalyticsAccountsTableQueryCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/accounts_table_query/`
+}
+
+/**
+ * Run a Customer Analytics accounts table query.
+ */
+export const customerAnalyticsAccountsTableQueryCreate = async (
+    projectId: string,
+    accountsTableQueryRequestApi: AccountsTableQueryRequestApi,
+    options?: RequestInit
+): Promise<AccountsTableQueryResponseApi | QueryStatusResponseApi> => {
+    return apiMutator<AccountsTableQueryResponseApi | QueryStatusResponseApi>(
+        getCustomerAnalyticsAccountsTableQueryCreateUrl(projectId),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(accountsTableQueryRequestApi),
         }
     )
 }
@@ -936,6 +1068,27 @@ export const calendarSyncList = async (projectId: string, options?: RequestInit)
     return apiMutator<CalendarSyncStatusApi[]>(getCalendarSyncListUrl(projectId), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getCalendarSyncBackfillCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/calendar_sync/backfill/`
+}
+
+/**
+ * Start an admin-only Gmail and Google Calendar backfill for an inclusive UTC date range.
+ * @summary Backfill a connected Google account
+ */
+export const calendarSyncBackfillCreate = async (
+    projectId: string,
+    calendarSyncBackfillApi: CalendarSyncBackfillApi,
+    options?: RequestInit
+): Promise<CalendarSyncTriggerResponseApi> => {
+    return apiMutator<CalendarSyncTriggerResponseApi>(getCalendarSyncBackfillCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(calendarSyncBackfillApi),
     })
 }
 
@@ -1260,9 +1413,8 @@ export const getCustomPropertySourcesRunsListUrl = (
 }
 
 /**
- * Person and group sources only: the source's sync/backfill run history, newest first. Gated
- * on the caller's warehouse-source viewer access, since the runs expose its row counts and sync
- * errors.
+ * The source's sync history, newest first. Person and group runs require viewer access to
+ * their warehouse source because the response includes row counts and sync errors.
  */
 export const customPropertySourcesRunsList = async (
     projectId: string,
@@ -1512,6 +1664,163 @@ export const customerProfileConfigsDestroy = async (
     return apiMutator<void>(getCustomerProfileConfigsDestroyUrl(projectId, id), {
         ...options,
         method: 'DELETE',
+    })
+}
+
+export const getCustomerTasksListUrl = (projectId: string, params?: CustomerTasksListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/customer_tasks/?${stringifiedParams}`
+        : `/api/projects/${projectId}/customer_tasks/`
+}
+
+export const customerTasksList = async (
+    projectId: string,
+    params?: CustomerTasksListParams,
+    options?: RequestInit
+): Promise<CustomerTaskPageApi> => {
+    return apiMutator<CustomerTaskPageApi>(getCustomerTasksListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getCustomerTasksCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/customer_tasks/`
+}
+
+export const customerTasksCreate = async (
+    projectId: string,
+    customerTaskCreateApi: CustomerTaskCreateApi,
+    options?: RequestInit
+): Promise<CustomerTaskApi> => {
+    return apiMutator<CustomerTaskApi>(getCustomerTasksCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(customerTaskCreateApi),
+    })
+}
+
+export const getCustomerTasksRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/customer_tasks/${id}/`
+}
+
+export const customerTasksRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<CustomerTaskApi> => {
+    return apiMutator<CustomerTaskApi>(getCustomerTasksRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getCustomerTasksUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/customer_tasks/${id}/`
+}
+
+export const customerTasksUpdate = async (
+    projectId: string,
+    id: string,
+    customerTaskUpdateApi: CustomerTaskUpdateApi,
+    options?: RequestInit
+): Promise<CustomerTaskApi> => {
+    return apiMutator<CustomerTaskApi>(getCustomerTasksUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(customerTaskUpdateApi),
+    })
+}
+
+export const getCustomerTasksPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/customer_tasks/${id}/`
+}
+
+export const customerTasksPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedCustomerTaskUpdateApi?: PatchedCustomerTaskUpdateApi,
+    options?: RequestInit
+): Promise<CustomerTaskApi> => {
+    return apiMutator<CustomerTaskApi>(getCustomerTasksPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedCustomerTaskUpdateApi),
+    })
+}
+
+export const getCustomerTasksActivitiesListUrl = (
+    projectId: string,
+    id: string,
+    params?: CustomerTasksActivitiesListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/customer_tasks/${id}/activities/?${stringifiedParams}`
+        : `/api/projects/${projectId}/customer_tasks/${id}/activities/`
+}
+
+export const customerTasksActivitiesList = async (
+    projectId: string,
+    id: string,
+    params?: CustomerTasksActivitiesListParams,
+    options?: RequestInit
+): Promise<CustomerTaskActivityPageApi> => {
+    return apiMutator<CustomerTaskActivityPageApi>(getCustomerTasksActivitiesListUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getCustomerTasksArchiveCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/customer_tasks/${id}/archive/`
+}
+
+export const customerTasksArchiveCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<CustomerTaskApi> => {
+    return apiMutator<CustomerTaskApi>(getCustomerTasksArchiveCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+export const getCustomerTasksRestoreCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/customer_tasks/${id}/restore/`
+}
+
+export const customerTasksRestoreCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<CustomerTaskApi> => {
+    return apiMutator<CustomerTaskApi>(getCustomerTasksRestoreCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
     })
 }
 
@@ -1944,6 +2253,42 @@ export const featureRequestsHistoryList = async (
     })
 }
 
+export const getFeatureRequestsLinkGithubCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/feature_requests/${id}/link_github/`
+}
+
+export const featureRequestsLinkGithubCreate = async (
+    projectId: string,
+    id: string,
+    featureRequestGitHubLinkSerializerInputApi: FeatureRequestGitHubLinkSerializerInputApi,
+    options?: RequestInit
+): Promise<FeatureRequestApi> => {
+    return apiMutator<FeatureRequestApi>(getFeatureRequestsLinkGithubCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(featureRequestGitHubLinkSerializerInputApi),
+    })
+}
+
+export const getFeatureRequestsPauseGithubCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/feature_requests/${id}/pause_github/`
+}
+
+export const featureRequestsPauseGithubCreate = async (
+    projectId: string,
+    id: string,
+    featureRequestVersionApi: FeatureRequestVersionApi,
+    options?: RequestInit
+): Promise<FeatureRequestApi> => {
+    return apiMutator<FeatureRequestApi>(getFeatureRequestsPauseGithubCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(featureRequestVersionApi),
+    })
+}
+
 export const getFeatureRequestsRemoveEvidenceCreateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/feature_requests/${id}/remove_evidence/`
 }
@@ -1980,6 +2325,24 @@ export const featureRequestsRestoreCreate = async (
     })
 }
 
+export const getFeatureRequestsResumeGithubCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/feature_requests/${id}/resume_github/`
+}
+
+export const featureRequestsResumeGithubCreate = async (
+    projectId: string,
+    id: string,
+    featureRequestVersionApi: FeatureRequestVersionApi,
+    options?: RequestInit
+): Promise<FeatureRequestApi> => {
+    return apiMutator<FeatureRequestApi>(getFeatureRequestsResumeGithubCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(featureRequestVersionApi),
+    })
+}
+
 export const getFeatureRequestsStatusHistoryListUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/feature_requests/${id}/status_history/`
 }
@@ -1992,6 +2355,24 @@ export const featureRequestsStatusHistoryList = async (
     return apiMutator<FeatureRequestStatusHistoryApi[]>(getFeatureRequestsStatusHistoryListUrl(projectId, id), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getFeatureRequestsUnlinkGithubCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/feature_requests/${id}/unlink_github/`
+}
+
+export const featureRequestsUnlinkGithubCreate = async (
+    projectId: string,
+    id: string,
+    featureRequestVersionApi: FeatureRequestVersionApi,
+    options?: RequestInit
+): Promise<FeatureRequestApi> => {
+    return apiMutator<FeatureRequestApi>(getFeatureRequestsUnlinkGithubCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(featureRequestVersionApi),
     })
 }
 
@@ -2133,5 +2514,46 @@ export const groupsTypesMetricsDestroy = async (
     return apiMutator<void>(getGroupsTypesMetricsDestroyUrl(projectId, groupTypeIndex, id), {
         ...options,
         method: 'DELETE',
+    })
+}
+
+export const getUserCustomerAnalyticsConfigRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/user_customer_analytics_config/${id}/`
+}
+
+/**
+ * Get the requesting user's account sidebar configuration for this project. The first read creates an empty configuration row.
+ * @summary Get account sidebar configuration
+ */
+export const userCustomerAnalyticsConfigRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<UserCustomerAnalyticsConfigApi> => {
+    return apiMutator<UserCustomerAnalyticsConfigApi>(getUserCustomerAnalyticsConfigRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getUserCustomerAnalyticsConfigPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/user_customer_analytics_config/${id}/`
+}
+
+/**
+ * Replace the requesting user's ordered account sidebar properties when pinned_properties is provided. Omitting pinned_properties leaves the configuration unchanged. At most 50 account custom properties and relationships can be pinned.
+ * @summary Update account sidebar configuration
+ */
+export const userCustomerAnalyticsConfigPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedUserCustomerAnalyticsConfigUpdateApi?: PatchedUserCustomerAnalyticsConfigUpdateApi,
+    options?: RequestInit
+): Promise<UserCustomerAnalyticsConfigApi> => {
+    return apiMutator<UserCustomerAnalyticsConfigApi>(getUserCustomerAnalyticsConfigPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedUserCustomerAnalyticsConfigUpdateApi),
     })
 }

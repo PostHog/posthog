@@ -32,7 +32,6 @@ const meta: Meta = {
                 [`/api/environments/:team_id/batch_exports/${EXISTING_EXPORT.id}/runs/`]: { results: [] },
                 [`/api/environments/:team_id/batch_exports/${EXISTING_EXPORT.id}/backfills/`]: { results: [] },
                 // Integration-backed destinations (Databricks, AzureBlob, BigQuery) render IntegrationChoice.
-                '/api/environments/:team_id/integrations': { results: [] },
                 '/api/projects/:team_id/integrations': { results: [] },
             },
         }),
@@ -44,8 +43,8 @@ type Story = StoryObj<{}>
 
 // One new-export story per destination so visual regression covers each destination's
 // edit form (the per-destination `Fields` components in destinations/). The default
-// configuration drives any conditional UI: Redshift defaults to COPY (shows the S3
-// staging section), Snowflake to password auth.
+// configuration drives any conditional UI: Redshift defaults to COPY, which shows the
+// S3 staging section.
 export const NewAwsS3Export: Story = {
     parameters: {
         pageUrl: urls.batchExportNew('awss3'),
@@ -232,9 +231,12 @@ export const RunsWithData: Story = {
                 '/api/environments/:team_id/batch_exports/': batchExports,
                 [`/api/environments/:team_id/batch_exports/${EXISTING_EXPORT.id}/`]: EXISTING_EXPORT,
                 '/api/environments/:team_id/batch_exports/test/': { steps: [] },
-                [`/api/environments/:team_id/batch_exports/${EXISTING_EXPORT.id}/runs/`]: {
-                    results: MOCK_RUNS,
-                    next: null,
+                [`/api/environments/:team_id/batch_exports/${EXISTING_EXPORT.id}/runs/`]: ({ request }) => {
+                    const statuses = new URL(request.url).searchParams.getAll('status')
+                    const results = statuses.length
+                        ? MOCK_RUNS.filter((run) => statuses.includes(run.status))
+                        : MOCK_RUNS
+                    return { results, next: null }
                 },
                 [`/api/environments/:team_id/batch_exports/${EXISTING_EXPORT.id}/backfills/`]: { results: [] },
             },

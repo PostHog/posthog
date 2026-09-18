@@ -61,6 +61,9 @@ export function useGatewayServers() {
 
   const invalidateServers = useCallback(() => {
     queryClient.invalidateQueries({ queryKey: gatewayKeys.servers });
+    // Connecting grants the built-in agents automatically and disconnecting
+    // unbinds those grants, so the agents' server lists change too.
+    queryClient.invalidateQueries({ queryKey: gatewayKeys.accounts });
     // Connections are installation rows, so the legacy surfaces change too.
     queryClient.invalidateQueries({ queryKey: mcpKeys.installations });
   }, [queryClient]);

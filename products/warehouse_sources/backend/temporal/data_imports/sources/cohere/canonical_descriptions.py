@@ -26,7 +26,11 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         },
     },
     "connectors": {
-        "description": "A connector that lets Cohere's chat models retrieve documents from an external data source.",
+        "description": (
+            "A connector that lets Cohere's chat models retrieve documents from an external data source. "
+            "Cohere deprecated connectors on September 15, 2025 and closed them to new accounts, so only "
+            "accounts that already used connectors can sync this table."
+        ),
         "docs_url": "https://docs.cohere.com/reference/list-connectors",
         "columns": {
             "id": "Unique identifier for the connector.",

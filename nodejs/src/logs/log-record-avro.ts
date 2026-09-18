@@ -1,6 +1,6 @@
 import { compress, decompress } from '@mongodb-js/zstd'
 import avro from 'avsc'
-import { Histogram } from 'prom-client'
+import { Counter, Histogram } from 'prom-client'
 import { Readable } from 'stream'
 
 import { instrumented } from '~/common/tracing/tracing-utils'
@@ -34,6 +34,27 @@ const logProcessingDurationHistogram = new Histogram({
     buckets: [0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1],
 })
 
+export const logsJsonAttributeSniffCounter = new Counter({
+    name: 'logs_ingestion_json_attribute_sniff_total',
+    help: 'Log records inspected for a configured JSON attribute prefix, without parsing or extracting fields',
+    labelNames: ['team_id', 'outcome'],
+})
+
+export function sniffJsonLogAttributes(
+    records: readonly Pick<LogRecord, 'attributes'>[],
+    attributeKey: string,
+    teamId: number
+): void {
+    for (const record of records) {
+        let outcome: 'missing_key' | 'looks_like_json' | 'other' = 'missing_key'
+        if (record.attributes && Object.hasOwn(record.attributes, attributeKey)) {
+            const value = record.attributes[attributeKey]
+            outcome = /^[ \t\r\n]*"?(?:[ \t\r\n]|\\[nrt])*[{\[]/.test(value.slice(0, 64)) ? 'looks_like_json' : 'other'
+        }
+        logsJsonAttributeSniffCounter.inc({ team_id: String(teamId), outcome })
+    }
+}
+
 export interface LogRecord {
     uuid: string | null
     trace_id: Buffer | null
@@ -53,6 +74,12 @@ export interface LogRecord {
     /** Per-row retention in days, stamped by the retention stage from team retention rules. Null/undefined
      * leaves ClickHouse to fall back to the batch `retention-days` header (the team default). */
     retention_days?: number | null
+    /** Masked body, stamped by the pattern masking stage. Identifiers become placeholders, so two
+     * lines differing only by a request id share one pattern. */
+    pattern?: string | null
+    /** Masking rule set that produced `pattern`. Null reads as 0 in ClickHouse, marking a row
+     * written before masking. */
+    pattern_version?: number | null
 }
 
 export async function decodeLogRecords(buffer: Buffer): Promise<[avro.Type | undefined, string, LogRecord[]]> {

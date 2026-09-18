@@ -5,7 +5,6 @@ import {
 import { invalidateGitBranchQueries } from "../gitCacheKeys";
 
 export {
-  type BranchNameInputState,
   type CreateBranchResult,
   getBranchNameInputState,
 } from "@posthog/core/git-interaction/branchCreation";

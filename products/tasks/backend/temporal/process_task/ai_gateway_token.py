@@ -12,12 +12,17 @@ import json
 import time
 import random
 import logging
+from decimal import Decimal, InvalidOperation
 from typing import Any
 
 from django.conf import settings
 
 import requests
 from prometheus_client import Counter
+
+from products.tasks.backend.logic.services.gateway_model_pin import PRODUCT_ALLOWED_MODELS, model_allowed_by_product_pin
+from products.tasks.backend.logic.services.run_actor import is_slack_interaction_state
+from products.tasks.backend.logic.services.sandbox_config import MAX_SANDBOX_TTL_SECONDS
 
 logger = logging.getLogger(__name__)
 
@@ -32,30 +37,60 @@ _ORIGIN_TO_GATEWAY_PRODUCT: dict[str, str] = {
     "loop": "posthog_code",
     "onboarding": "onboarding",
     "posthog_ai": "posthog_ai",
+    "review_hog": "review_hog",
+    "scout_suggestions": "signals",
     "signal_report": "signals",
+    "signals_chat": "signals",
     "signals_scout": "signals",
     "slack": "slack_app",
     "support_reply": "conversations",
+    "workflow": "workflows",
 }
 
 # Mirrors SIGNALS_STAGE_PRODUCTS + SCOUT_STAGE_PREFIX in gateway.ts.
-_SIGNALS_STAGE_PRODUCTS = frozenset({"scout", "research", "implementation", "repo_selection", "custom_agent"})
+_SIGNALS_STAGE_PRODUCTS = frozenset(
+    {"scout", "research", "implementation", "repo_selection", "custom_agent", "inbox", "chat", "scout_suggestions"}
+)
 _SCOUT_STAGE_PREFIX = "scout:"
+
+_MAX_CAP_USD = Decimal("10000")
+_MAX_CAP_DECIMAL_PLACES = 6
 
 # Products whose runs may mint an internally funded token. Mint scope needs
 # server-side provenance: `internal` and some origin_product values are
 # API-settable, so an unmapped origin marked internal resolves to
 # background_agents and must never mint. Signals products qualify because their
-# stages are set only by server flows and the signals_scout origin is reserved.
+# stages are set only by server flows: pipeline stages by the flows that start
+# them, `inbox` / `chat` by `Task.create_run`. A caller owning a report can reach
+# `signals_inbox`, so the per-run cap and the product's daily budget bound those two.
+# review_hog qualifies because validate_origin_product reserves the origin and
+# the resolver requires the server-stamped `internal` flag; rows predating the
+# reservation resolve to posthog_code and cannot mint. slack_app also needs the
+# PATCH-protected `interaction_origin` stamp (mint_refusal), older rows included.
 MINTABLE_PRODUCTS = frozenset(
     {
+        "review_hog",
+        "slack_app",
         "signals_scout",
         "signals_research",
         "signals_implementation",
         "signals_repo_selection",
         "signals_custom_agent",
+        "workflows",
+        "signals_inbox",
+        "signals_chat",
+        "signals_scout_suggestions",
     }
 )
+
+# Exempt from the background run-duration cap, so their tokens need the longer interactive
+# ceiling. Mirrors the stages `Task.create_run` stamps.
+INTERACTIVE_MINTABLE_PRODUCTS = frozenset({"signals_inbox", "signals_chat"})
+
+# Interactive runs with no wall-clock cap; their tokens last the sandbox lifetime.
+SANDBOX_BOUND_MINTABLE_PRODUCTS = frozenset({"slack_app"})
+
+_PRODUCT_ALLOWED_MODELS = PRODUCT_ALLOWED_MODELS
 
 # Minting is optional (no token = Python-gateway fallback), so the total budget
 # stays a few seconds: 2 attempts x 3s + one short backoff, not a 30s provisioning stall.
@@ -66,6 +101,11 @@ _MINT_TIMEOUT_SECONDS = 3
 def resolve_sandbox_ai_product(origin_product: str | None, ai_stage: str | None, *, internal: bool = False) -> str:
     """The `ai_product` the agent server will resolve for this run."""
     gateway_product = _ORIGIN_TO_GATEWAY_PRODUCT.get(origin_product or "")
+    # Stored rows may carry a caller-set review_hog origin predating its
+    # reservation; only the server-stamped `internal` flag admits the mintable product.
+    if gateway_product == "review_hog" and not internal:
+        logger.warning("review_hog origin without server-stamped internal flag; resolving posthog_code")
+        return "posthog_code"
     if gateway_product is None:
         gateway_product = "background_agents" if internal else "posthog_code"
     if gateway_product == "signals" and ai_stage:
@@ -90,35 +130,114 @@ def sandbox_product_routed(ai_product: str, ai_stage: str | None, products_csv: 
     return False
 
 
-def _token_ttl_seconds() -> int:
-    """Token lifetime: the explicit setting, else the run-duration cap plus a settle
-    buffer, so a capped run cannot outlive its token (expiry under a live run fails
-    every remaining LLM call with no fallback). A disabled run cap derives the 24h
-    mint maximum; interactive sessions are cap-exempt and could still outlive it,
-    but only capped background products are routed. Clamped to mint bounds (60s..24h).
+def mint_refusal(
+    ai_product: str, *, team_id: int, state: dict[str, Any] | None, model: str | None, runtime: str | None
+) -> str | None:
+    """Why a routed run must not mint; a run without a token stays on the Python gateway."""
+    if ai_product != "slack_app":
+        return None
+    if not is_slack_interaction_state(state):
+        return "no_slack_provenance"
+    # The Pi harness reads only LLM_GATEWAY_URL.
+    if runtime == "pi":
+        return "pi_runtime"
+    # The gateway denies an off-pin model with no fallback.
+    if not model_allowed_by_product_pin(ai_product, model):
+        return "model_outside_pin"
+    # The Python gateway refuses every call once AI credits run out; the Go gateway has no such check.
+    # An unknown balance is no licence to spend.
+    try:
+        over_budget = _team_over_ai_credit_budget(team_id)
+    except Exception:
+        logger.warning(
+            "ai_gateway_token: ai credit lookup failed, run stays on the Python gateway",
+            extra={"team_id": team_id},
+            exc_info=True,
+        )
+        return "ai_credits_unknown"
+    if over_budget:
+        return "ai_credits_exhausted"
+    return None
+
+
+def _team_over_ai_credit_budget(team_id: int) -> bool:
+    from posthog.models import Team  # noqa: PLC0415
+
+    from ee.billing.quota_limiting import is_team_over_ai_credit_budget  # noqa: PLC0415
+
+    api_token = Team.objects.filter(id=team_id).values_list("api_token", flat=True).first()
+    if not api_token:
+        return False
+    return is_team_over_ai_credit_budget(api_token)
+
+
+def _token_ttl_seconds(ai_product: str) -> int:
+    """Token lifetime: the explicit setting, else this product's own run-duration cap plus a
+    settle buffer, so a capped run cannot outlive its token (expiry under a live run fails
+    every remaining LLM call with no fallback). Only interactive products are exempt from
+    the background cap, so only they derive a longer ceiling; giving every token the longest
+    one would widen the window on a leaked background token for no run that could use it.
+    A disabled cap derives the 24h mint maximum. Clamped to mint bounds (60s..24h).
     """
     configured = int(settings.SANDBOX_AI_GATEWAY_TOKEN_TTL_SECONDS or 0)
     if configured <= 0:
-        run_cap = int(getattr(settings, "TASKS_MAX_RUN_DURATION_SECONDS", 0) or 0)
+        if ai_product in SANDBOX_BOUND_MINTABLE_PRODUCTS:
+            run_cap = MAX_SANDBOX_TTL_SECONDS
+        elif ai_product in INTERACTIVE_MINTABLE_PRODUCTS:
+            # These runs are exempt from the background cap, so their own ceiling is the only
+            # one that bounds them; zero means unbounded and derives the mint maximum.
+            run_cap = int(getattr(settings, "TASKS_INTERACTIVE_SIGNALS_MAX_RUN_DURATION_SECONDS", 0) or 0)
+        else:
+            run_cap = int(getattr(settings, "TASKS_MAX_RUN_DURATION_SECONDS", 0) or 0)
         configured = run_cap + 3600 if run_cap > 0 else 86400
     return max(60, min(configured, 86400))
 
 
-def _token_cap_usd(team_id: int) -> str:
-    """Per-run cap, with per-team overrides (JSON map of team id to dollars).
+def _cap_override(raw: str, key: str, setting_name: str) -> str | None:
+    if not raw:
+        return None
+    try:
+        override = json.loads(raw).get(key)
+    except (ValueError, AttributeError):
+        logger.warning("Ignoring invalid JSON object for %s", setting_name)
+        return None
+    if override is None:
+        return None
+    try:
+        cap = Decimal(str(override))
+    except (InvalidOperation, ValueError):
+        logger.warning("Ignoring invalid cap for %s", setting_name)
+        return None
+    if not cap.is_finite():
+        logger.warning("Ignoring invalid cap for %s", setting_name)
+        return None
+    exponent = cap.as_tuple().exponent
+    if not isinstance(exponent, int):
+        logger.warning("Ignoring invalid cap for %s", setting_name)
+        return None
+    decimal_places = max(0, -exponent)
+    if cap <= 0 or cap > _MAX_CAP_USD or decimal_places > _MAX_CAP_DECIMAL_PLACES:
+        logger.warning("Ignoring invalid cap for %s", setting_name)
+        return None
+    return f"{cap:f}"
 
-    Team 2's custom scouts run hotter than the external fleet, so it carries a
-    higher cap than the default without raising everyone's ceiling.
+
+def _token_cap_usd(team_id: int, ai_product: str) -> str:
+    """Per-run cap: the product override, else the team override, else the default.
+
+    The product override wins because run cost tracks the kind of work, not who
+    it runs for — implementation runs regularly outspend every other stage. The
+    team override raises a single team (team 2's custom scouts run hotter than
+    the external fleet) without raising everyone's ceiling.
     """
-    raw = settings.SANDBOX_AI_GATEWAY_TOKEN_CAP_USD_OVERRIDES
-    if raw:
-        try:
-            override = json.loads(raw).get(str(team_id))
-        except (ValueError, AttributeError):
-            override = None
-            logger.warning("ai_gateway_token: cap overrides setting is not a JSON object; using the default cap")
-        if override is not None:
-            return str(override)
+    product_cap = _cap_override(
+        settings.SANDBOX_AI_GATEWAY_TOKEN_CAP_USD_PRODUCT_OVERRIDES, ai_product, "product cap overrides"
+    )
+    if product_cap is not None:
+        return product_cap
+    team_cap = _cap_override(settings.SANDBOX_AI_GATEWAY_TOKEN_CAP_USD_OVERRIDES, str(team_id), "cap overrides")
+    if team_cap is not None:
+        return team_cap
     return str(settings.SANDBOX_AI_GATEWAY_TOKEN_CAP_USD)
 
 
@@ -136,13 +255,16 @@ def mint_scoped_token(*, ai_product: str, team_id: int, user: str | None = None)
         return None
 
     body: dict[str, Any] = {
-        "cap_usd": _token_cap_usd(team_id),
-        "ttl_seconds": _token_ttl_seconds(),
+        "cap_usd": _token_cap_usd(team_id, ai_product),
+        "ttl_seconds": _token_ttl_seconds(ai_product),
         "product": ai_product,
         "obo": str(team_id),
     }
     if user:
         body["user"] = user
+    allowed_models = _PRODUCT_ALLOWED_MODELS.get(ai_product)
+    if allowed_models:
+        body["allowed_models"] = allowed_models
     last_error: str = ""
     for attempt in range(_MINT_ATTEMPTS):
         try:

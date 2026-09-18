@@ -5,7 +5,7 @@ Companion to [`sql_v2_frame_store.md`](./sql_v2_frame_store.md) — that doc dec
 
 Artifacts:
 
-- [`observability/notebooks-rollout.grafana.json`](../observability/notebooks-rollout.grafana.json) — importable Grafana dashboard (Prometheus/VictoriaMetrics). Its "Transport A/B" row is the flag-on vs flag-off comparison.
+- [`observability/notebooks-rollout.grafana.json`](../observability/notebooks-rollout.grafana.json) — export of the live Grafana dashboard `notebooks-sqlv2-rollout` (Prometheus/VictoriaMetrics). Its "Transport A/B" row is the flag-on vs flag-off comparison. Its "Temporal queue" row shows the health of the worker queue that every notebook workflow shares with other products. Its "Notebook sandboxes" row counts kernel sandboxes and shows their lifetime from Modal's own metrics.
 - [`observability/notebooks-query-log.sql`](../observability/notebooks-query-log.sql) — `query_log_archive` query pack (ClickHouse per-query cost). SQL 9 is the same comparison on the ClickHouse side.
 - Notebook `Vs0Gjpqb` in project 2 ("SQLV2 transport benchmark") — the graduated workload to run under each arm.
 
@@ -18,10 +18,11 @@ It cannot hold per-query ClickHouse cost — scanned bytes per query is unbounde
 
 **ClickHouse `query_log_archive`** holds the per-query cost: `read_bytes`, `result_bytes`, `result_rows`, `query_duration_ms`, `memory_usage`, `peak_threads_usage`, exception codes.
 It is not in Grafana — production ClickHouse holds customer data and there is deliberately no ClickHouse datasource there.
-The sanctioned path is the internal Metabase under your own SSO session (the `query-clickhouse-via-metabase` skill).
+The sanctioned path is the internal Metabase under your own SSO session (the `querying-production-databases-via-metabase` skill).
 
 Grafana dashboards are **not code-managed** in this repo — they are edited in the UI, reachable over Tailscale at `grafana-prod-us` / `grafana-prod-eu` (see `tools/infra-scripts/mcp/README.md`).
-The JSON here is an import artifact, not a provisioned source of truth. Import it, then own it in the UI.
+The JSON here is an export of the live dashboard, not a provisioned source of truth.
+Edit the dashboard in the UI, then export its JSON back here in the same change, so that the copy stays current.
 
 ### Attribution is already wired
 
@@ -59,6 +60,27 @@ The dashboard uses the `_total` names; the source code does not have them.
 the streaming path returns a result set (`result_bytes`, `result_rows`), while the CH-writes path is an `INSERT` whose result set is empty and whose delivered bytes show up as `ProfileEvents['WriteBufferFromS3Bytes']` and `written_rows`.
 `query_kind` (`Select` vs `Insert`) is what separates them.
 The Prometheus `posthog_notebooks_frame_object_bytes` histogram is the mode-independent view of the same thing, but only on the success path.
+
+## Kernel sandbox usage events
+
+Modal's own metrics count notebook sandboxes, but they carry no team, no size, and no price.
+Two events from `kernel_sandbox_usage.py` carry those, so product analytics can show sandbox starts, sandbox-hours, and an estimated price per team.
+
+| Event                             | Fires when                                                                                           | Main properties                                                                                                |
+| --------------------------------- | ---------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| `notebook kernel sandbox started` | The provider returns a new sandbox, before the kernel starts inside it                               | `backend`, `cpu_cores`, `memory_gb`, `compute_preset`, `hourly_price_usd`, `ttl_seconds`, `provision_seconds`  |
+| `notebook kernel sandbox ended`   | PostHog stops tracking the sandbox: a stop, a failure, a discard, or the status poll finding it gone | `ended_reason`, `sandbox_still_running`, `tracked_seconds`, `estimated_runtime_seconds`, `estimated_price_usd` |
+
+`KernelRuntime` stores `ttl_expires_at`, the time the provider kills the sandbox at the latest, and `ended_at`.
+Several paths can notice the same end, and a conditional update on `ended_at` lets only the first one report it.
+
+Read the estimates with these rules:
+
+- **The price is the rate card, not Modal's charge.** `hourly_price_usd` and `estimated_price_usd` use the rates in `compute_pricing.py`, which set the price shown to users. Docker sandboxes have no price.
+- **A sandbox that nothing destroyed costs its full lifetime.** A discard, a kernel that does not answer, or a failed destroy leaves the sandbox running. The event then sets `sandbox_still_running` and runs the estimate to `ttl_expires_at`.
+- **A sandbox found gone ends when PostHog finds it, but never after its TTL.** A sandbox that crashed early and was found late counts longer than it ran.
+- **A sandbox that dies while nobody watches has no end event** until a later stop, reuse, or status poll notices it.
+- **Rows from before these columns existed** have no `ttl_expires_at`, so they report no end event.
 
 ## Node-run instrumentation (closes gap 1)
 
@@ -98,6 +120,54 @@ Two caveats when reading a comparison:
 One deliberate hole: the callback is best-effort, so a kernel-lane run whose sandbox dies without delivering stays RUNNING and contributes **no** sample — the row remains visible in Postgres and the node can be re-run. A periodic reaper that would fail such rows (and record them as `timed_out`) was built and dropped as more complexity than the case warrants; revisit if stranded rows become common.
 
 Still open from the original gap: lost-callback kernel runs (above), the frontend's own poll-to-render latency, and the kernel's presigned _download failure_ modes, which remain observable only as an `input_wait`-heavy failed run (see gap 5).
+
+## Temporal queue health
+
+Every notebook workflow runs on `general-purpose-task-queue`: `notebook-sandbox-cmd-run`, `notebook-frame-materialize`, and `notebook-widget-generate` (`temporal/client.py`).
+Other products share that queue and its workers, so their load can delay notebook runs while the notebooks code is healthy.
+The dashboard's "Temporal queue" row, under "Node runs", shows that shared health.
+
+| Panel                                        | Metric                                                                                            | Scope       |
+| -------------------------------------------- | ------------------------------------------------------------------------------------------------- | ----------- |
+| Queue backlog by task type                   | `temporal_cloud_v1_approximate_backlog_count`                                                     | Whole queue |
+| Tasks that wait over 1s and 10s for a worker | `temporal_activity_schedule_to_start_latency`, `temporal_workflow_task_schedule_to_start_latency` | Whole queue |
+| Sync match ratio                             | `temporal_cloud_v1_poll_success_sync_count` / `temporal_cloud_v1_poll_success_count`              | Whole queue |
+| Worker slot usage                            | `temporal_worker_task_slots_used`, `temporal_worker_task_slots_available`                         | Whole queue |
+| Notebook activity attempt failures           | `temporal_activity_execution_failed{activity_type=~"notebook-.*"}`                                | Notebooks   |
+| Notebook workflow outcomes                   | `temporal_workflow_completed`, `temporal_workflow_failed`                                         | Notebooks   |
+| Workflow task failures on the queue          | `temporal_workflow_task_execution_failed`                                                         | Whole queue |
+
+The queue wait matters most for materializations.
+`notebook-frame-materialize` has a 10-minute `schedule_to_close_timeout` that includes the wait (`temporal/frame_materialize.py`), so a backlog uses up the materialize deadline.
+The worker fleet has a fixed pod count, so a backlog does not add workers.
+
+Three traps when you read or extend the row:
+
+- **Temporal Cloud series are not counters.** Temporal Cloud samples each `temporal_cloud_v1_*` series once a minute as a per-second rate or a gauge. Sum or divide the series directly. `rate()` over them returns wrong values.
+- **SDK histograms use milliseconds and coarse buckets.** The worker sets `durations_as_seconds=False` (`posthog/temporal/common/worker.py`). The schedule-to-start buckets are 100, 500, 1000, 5000, 10000, and 100000 ms, so a percentile over them is a guess. The panel shows the share of tasks over a bucket edge instead.
+- **No metric measures the queue wait for notebooks only.** The schedule-to-start and workflow task failure series carry `task_queue` but no workflow or activity label. Temporal Cloud has series labeled `temporal_workflow_type`, but it emits them only in minutes with events and has no activity latency per type. Its workflow latency for `notebook-sandbox-cmd-run` also includes the result grace sleep.
+
+## Notebook sandboxes from Modal
+
+Modal exports metrics for each sandbox it runs, and notebook kernels appear there as `app_name="posthog-sandbox-notebook"`, one `container_id` per sandbox.
+The dashboard's "Notebook sandboxes" row, under "Temporal queue", reads those series.
+They include every notebook sandbox, whatever code path started it, because Modal reports them and not the notebooks code.
+
+| Panel                       | Query                                                                  | Shows                               |
+| --------------------------- | ---------------------------------------------------------------------- | ----------------------------------- |
+| Notebook sandboxes alive    | `count(modal_container_running_ratio{...})`                            | Sandboxes that run now              |
+| Sandboxes in time range     | `count(count_over_time(modal_container_running_ratio{...}[$__range]))` | Distinct sandboxes in the range     |
+| Sandbox-hours in time range | `sum(lifetime(modal_container_running_ratio{...}[$__range])) / 3600`   | Total sandbox run time in the range |
+| Sandbox lifetime            | `quantile(0.5, lifetime(...))`, `max(lifetime(...))`                   | Median and longest lifetime         |
+| Sandbox CPU use             | `modal_cpu_utilization_ratio`                                          | Average and busiest sandbox         |
+| Sandbox memory use          | `modal_memory_usage_bytes`                                             | Average and busiest sandbox         |
+
+Four limits when you read or extend the row:
+
+- **`lifetime()` is a MetricsQL function.** It returns the seconds between the first and the last sample of a series, and plain Prometheus does not have it. Modal is scraped once a minute, so each lifetime is up to a minute short.
+- **A kernel has a fixed lifetime.** `NOTEBOOK_KERNEL_TTL_SECONDS`, or the notebook's `kernel_idle_timeout_seconds`, becomes the Modal sandbox `timeout`, and use of the kernel does not extend it. Lifetimes that cluster at that limit mean that idle sandboxes wait for the limit.
+- **No team, size, or price.** The Modal labels name the app and the container only. The price of a sandbox is its size multiplied by the rates in `compute_pricing.py`.
+- **No memory limit.** Memory use divided by `modal_memory_utilization_ratio` does not give a usable limit, so the row does not chart that series.
 
 ## Gaps — suggested follow-ups
 
@@ -162,4 +232,4 @@ Not a rollout blocker, but it is why gap 1 is awkward to close cleanly.
 
 - **Verify the `view` label values** on the two HTTP panels with `list_prometheus_label_values`. The data-plane paths have no `name=` in `urls.py`, so Django derives the view name and the regex in the panel is a guess.
 - **Confirm the notebooks metrics are being scraped at all.** They are defined in the Temporal worker process (`frame_materialize.py`); the general-purpose worker fleet's `/metrics` endpoint must be scraped by vmagent for any of the frame panels to have data.
-- The dashboard is import-only. Grafana here is not provisioned from git, so re-importing overwrites UI edits.
+- The dashboard is import-only. Grafana here is not provisioned from git, so re-importing overwrites UI edits. Export the live dashboard and compare it with the JSON here before you import.

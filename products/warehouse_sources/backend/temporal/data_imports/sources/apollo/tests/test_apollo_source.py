@@ -34,12 +34,19 @@ class TestApolloSource:
         non_retryable_errors = self.source.get_non_retryable_errors()
         assert not any(key in other_vendor_error for key in non_retryable_errors)
 
+    def test_retryable_errors_match_rate_limit_raise(self):
+        # The string fetch_page re-raises after exhausting its Retry-After backoff.
+        observed_error = "Apollo API error (retryable): status=429, url=https://api.apollo.io/api/v1/contacts/search"
+        retryable_errors = self.source.get_retryable_errors()
+        assert any(key in observed_error for key in retryable_errors)
+
     def test_get_schemas(self):
         schemas = self.source.get_schemas(self.config, self.team_id)
 
         assert {schema.name for schema in schemas} == set(ENDPOINTS)
         incremental = {schema.name for schema in schemas if schema.supports_incremental}
-        # Contacts and accounts support sort-based CDC; opportunities don't.
+        # Contacts and accounts support sort-based CDC. Nothing else does: the remaining
+        # endpoints have no server-side timestamp filter to window a sync with.
         assert incremental == {"contacts", "accounts"}
 
     @pytest.mark.parametrize(

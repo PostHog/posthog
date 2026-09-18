@@ -1,6 +1,5 @@
 import {
   Check,
-  CircleNotch,
   Clock,
   GitBranch,
   type Icon,
@@ -16,6 +15,7 @@ import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import { StopCloudRunDialog } from "@posthog/ui/features/sessions/components/StopCloudRunDialog";
 import { Badge } from "@posthog/ui/primitives/Badge";
 import { Button } from "@posthog/ui/primitives/Button";
+import { Spinner } from "@posthog/ui/primitives/Spinner";
 import { toast } from "@posthog/ui/primitives/toast";
 import { navigateToTaskDetail } from "@posthog/ui/router/navigationBridge";
 import { track } from "@posthog/ui/shell/analytics";
@@ -46,8 +46,6 @@ function statusIcon(status: LoopSchemas.LoopRunStatusEnum): Icon {
     case "failed":
     case "cancelled":
       return X;
-    case "in_progress":
-      return CircleNotch;
     default:
       return Clock;
   }
@@ -145,11 +143,11 @@ export function LoopRunRow({
       <Flex direction="column" className="min-w-0 gap-1.5">
         <Flex align="center" gap="2" wrap="wrap">
           <Badge color={statusColor(run.status)}>
-            <StatusIcon
-              size={10}
-              weight="bold"
-              className={cn(run.status === "in_progress" && "animate-spin")}
-            />
+            {run.status === "in_progress" ? (
+              <Spinner size="xs" />
+            ) : (
+              <StatusIcon size={10} weight="bold" />
+            )}
             {run.status.replaceAll("_", " ")}
           </Badge>
           <Text

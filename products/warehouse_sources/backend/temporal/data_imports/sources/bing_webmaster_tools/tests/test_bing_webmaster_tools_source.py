@@ -2,8 +2,7 @@ import pytest
 
 import structlog
 
-from posthog.schema import ReleaseStatus
-
+from products.warehouse_sources.backend.facade.source_config import ReleaseStatus
 from products.warehouse_sources.backend.temporal.data_imports.sources.bing_webmaster_tools.settings import (
     ENDPOINT_CONFIGS,
     ENDPOINTS,
@@ -48,7 +47,7 @@ class TestBingWebmasterToolsSource:
 
         assert config.name.value == "BingWebmasterTools"
         assert config.label == "Bing Webmaster Tools"
-        assert config.releaseStatus == ReleaseStatus.ALPHA
+        assert config.releaseStatus == ReleaseStatus.BETA
         # `unreleasedSource` hides the connector from users entirely; a finished source must not
         # carry it.
         assert not config.unreleasedSource

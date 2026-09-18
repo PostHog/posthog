@@ -12,7 +12,6 @@ import { PropertyFilterInternalProps } from 'lib/components/PropertyFilters/type
 import {
     PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE,
     isGroupPropertyFilter,
-    isPropertyFilterWithOperator,
     propertyFilterTypeToTaxonomicFilterType,
     sanitizePropertyFilter,
 } from 'lib/components/PropertyFilters/utils'
@@ -36,17 +35,13 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { cohortsModel } from '~/models/cohortsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
-import {
-    AnyPropertyFilter,
-    FilterLogicalOperator,
-    GroupTypeIndex,
-    PropertyDefinitionType,
-    PropertyFilterType,
-} from '~/types'
+import { AnyPropertyFilter, GroupTypeIndex, PropertyDefinitionType, PropertyFilterType } from '~/types'
 
+import { CohortRealtimeTag } from 'products/cohorts/frontend/realtime/CohortRealtimeTag'
 import { joinsLogic } from 'products/data_warehouse/frontend/shared/logics/joinsLogic'
 
-import { OperandTag } from './OperandTag'
+import { FILTER_ROW_FRAME_CLASSES } from './filterRowFrame'
+import { PropertyFilterRowOperator } from './PropertyFilterRowOperator'
 import { taxonomicPropertyFilterLogic } from './taxonomicPropertyFilterLogic'
 
 export const DEFAULT_TAXONOMIC_GROUP_TYPES = [
@@ -85,6 +80,7 @@ export function TaxonomicPropertyFilter({
     excludedOperators,
     selectingKeyOnly,
     hideBehavioralCohorts,
+    showCohortFlagTargeting,
     addFilterDocLink,
     editable = true,
     operatorAllowlist,
@@ -92,9 +88,11 @@ export function TaxonomicPropertyFilter({
     hogQLGlobals,
     triggerVariant = 'button',
     staticValueOptions,
+    renderOperatorValueSelect,
     propertyDefinitionsOverride,
     propertyKeyEditable = true,
     singleLine,
+    framedRows,
 }: PropertyFilterInternalProps): JSX.Element {
     const generatedKey = useId()
     const pageKey = pageKeyInput || `filter-${generatedKey}`
@@ -169,13 +167,9 @@ export function TaxonomicPropertyFilter({
     // Look up cohort name, if not already provided in filter
     const cohortValue =
         filter?.type === PropertyFilterType.Cohort && !Array.isArray(filter?.value) ? filter.value : undefined
-    const cohortName =
-        filter?.type === PropertyFilterType.Cohort
-            ? filter.cohort_name ||
-              (cohortValue !== undefined
-                  ? cohortsById[cohortValue]?.name || cohortsById[String(cohortValue)]?.name
-                  : undefined)
-            : undefined
+    const cohort =
+        cohortValue !== undefined ? (cohortsById[cohortValue] ?? cohortsById[String(cohortValue)]) : undefined
+    const cohortName = filter?.type === PropertyFilterType.Cohort ? filter.cohort_name || cohort?.name : undefined
 
     const taxonomicFilter = (
         <TaxonomicFilter
@@ -190,6 +184,7 @@ export function TaxonomicPropertyFilter({
             excludedProperties={excludedProperties}
             optionsFromProp={taxonomicFilterOptionsFromProp}
             hideBehavioralCohorts={hideBehavioralCohorts}
+            showCohortFlagTargeting={showCohortFlagTargeting}
             selectFirstItem={!cohortOrOtherValue}
             endpointFilters={endpointFilters}
             hogQLGlobals={hogQLGlobals}
@@ -200,14 +195,14 @@ export function TaxonomicPropertyFilter({
         />
     )
 
-    const operatorValueSelect = (
+    const defaultOperatorValueSelect = (
         <OperatorValueSelect
             propertyDefinitions={propertyDefinitions}
             size={size}
             editable={editable}
             type={filter?.type}
             propertyKey={filter?.key}
-            operator={isPropertyFilterWithOperator(filter) ? filter.operator : null}
+            operator={filter && 'operator' in filter ? filter.operator : null}
             value={filter?.value}
             placeholder="Enter value..."
             endpoint={
@@ -254,23 +249,49 @@ export function TaxonomicPropertyFilter({
         />
     )
 
+    const operatorValueSelect =
+        filter && renderOperatorValueSelect
+            ? renderOperatorValueSelect(filter, (operator, value) => {
+                  setFilter(index, {
+                      ...filter,
+                      operator,
+                      value,
+                  } as AnyPropertyFilter)
+              })
+            : null
+
+    const filterType = filter?.type as PropertyFilterType | undefined
+
+    // The button truncates its label, so its tooltip is how a long cohort name is read in full. The
+    // wrapper below cannot do that job: it clips rather than wraps, and it would nest the tag's own
+    // tooltip inside the button's. So the tooltip gets the plain string.
+    const cohortLabel = filter?.type === 'cohort' ? cohortName || `Cohort #${filter?.value}` : undefined
+
     const filterContent =
-        filter?.type === 'cohort'
-            ? cohortName || `Cohort #${filter?.value}`
-            : filter?.type === PropertyFilterType.EventMetadata && filter?.key?.startsWith('$group_')
-              ? filter.label || `Group ${filter?.value}`
-              : (filter?.type === PropertyFilterType.Flag ||
-                      filter?.type === PropertyFilterType.AccountCustomProperty) &&
-                  filter?.label
-                ? filter.label
-                : filter?.key && (
-                      <PropertyKeyInfo
-                          value={filter.key}
-                          disablePopover
-                          ellipsis
-                          type={PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE[filter.type]}
-                      />
-                  )
+        filter?.type === 'cohort' ? (
+            <span className="flex items-center gap-2 min-w-0">
+                <span className="truncate">{cohortLabel}</span>
+                {showCohortFlagTargeting && <CohortRealtimeTag realtime={cohort?.realtime} />}
+            </span>
+        ) : filter?.type === PropertyFilterType.EventMetadata && filter?.key?.startsWith('$group_') ? (
+            filter.label || `Group ${filter?.value}`
+        ) : (filter?.type === PropertyFilterType.Flag ||
+              filterType === PropertyFilterType.AccountRelationship ||
+              filter?.type === PropertyFilterType.AccountCustomProperty) &&
+          filter &&
+          'label' in filter &&
+          filter.label ? (
+            filter.label
+        ) : (
+            filter?.key && (
+                <PropertyKeyInfo
+                    value={filter.key}
+                    disablePopover
+                    ellipsis
+                    type={PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE[filter.type]}
+                />
+            )
+        )
 
     const legacyDropdown = (
         <LemonDropdown
@@ -289,7 +310,7 @@ export function TaxonomicPropertyFilter({
                 truncate={true}
                 tooltip={
                     <>
-                        {filterContent ?? (addText || 'Add filter')}
+                        {cohortLabel ?? filterContent ?? (addText || 'Add filter')}
                         {addFilterDocLink && (
                             <>
                                 <br />
@@ -335,6 +356,7 @@ export function TaxonomicPropertyFilter({
             propertyAllowList={propertyAllowList}
             optionsFromProp={taxonomicFilterOptionsFromProp}
             hideBehavioralCohorts={hideBehavioralCohorts}
+            showCohortFlagTargeting={showCohortFlagTargeting}
             endpointFilters={endpointFilters}
             hogQLGlobals={hogQLGlobals}
             enableKeywordShortcuts
@@ -372,41 +394,27 @@ export function TaxonomicPropertyFilter({
                     })}
                 >
                     {hasRowOperator && (
-                        <div className="TaxonomicPropertyFilter__row-operator">
-                            {orFiltering ? (
-                                <>
-                                    {propertyGroupType && index !== 0 && filter?.key && (
-                                        <div className="flex items-center">
-                                            {propertyGroupType === FilterLogicalOperator.And ? (
-                                                <OperandTag operand="and" />
-                                            ) : (
-                                                <OperandTag operand="or" />
-                                            )}
-                                        </div>
-                                    )}
-                                </>
-                            ) : (
-                                <div className="flex items-center gap-1">
-                                    {index === 0 ? (
-                                        <>
-                                            <span className="TaxonomicPropertyFilter__row-arrow">&#8627;</span>
-                                            <span>where</span>
-                                        </>
-                                    ) : (
-                                        <OperandTag operand="and" />
-                                    )}
-                                </div>
-                            )}
-                        </div>
+                        <PropertyFilterRowOperator
+                            index={index}
+                            orFiltering={orFiltering}
+                            propertyGroupType={propertyGroupType}
+                            hasKey={!!filter?.key}
+                        />
                     )}
                     <div
-                        className={clsx('TaxonomicPropertyFilter__row-items', {
-                            'TaxonomicPropertyFilter__row-items--single-line': singleLine,
-                        })}
+                        className={clsx(
+                            'TaxonomicPropertyFilter__row-items',
+                            { 'TaxonomicPropertyFilter__row-items--single-line': singleLine },
+                            framedRows && filter?.key && FILTER_ROW_FRAME_CLASSES
+                        )}
                     >
-                        {showOperatorValueSelect && placeOperatorValueSelectOnLeft && operatorValueSelect}
+                        {showOperatorValueSelect &&
+                            placeOperatorValueSelectOnLeft &&
+                            (operatorValueSelect ?? defaultOperatorValueSelect)}
                         {editable && propertyKeyEditable ? editablePicker : filterContent}
-                        {showOperatorValueSelect && !placeOperatorValueSelectOnLeft && operatorValueSelect}
+                        {showOperatorValueSelect &&
+                            !placeOperatorValueSelectOnLeft &&
+                            (operatorValueSelect ?? defaultOperatorValueSelect)}
                     </div>
                 </div>
             )}

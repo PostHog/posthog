@@ -1,0 +1,37 @@
+{
+    "KC1": {
+        "cluster": 3,
+        "confidence": "high",
+        "reason": "Identical to cluster 3 (KA3 precedent): review_local.py:321 reads self_driving_review with bool() truthiness instead of a strict `is True` check, so a JSON string like \"false\" enables the carve-out; runner-up cluster 5 (trusted provenance rendered solely off the flag) is a different claim about what the flag unlocks, not how it is parsed."
+    },
+    "KC2": {
+        "cluster": 39,
+        "confidence": "high",
+        "reason": "Same claim as cluster 39 (KB1/KA5 precedent): find_task_run selects one row unscoped and the facade's post-hoc team_id/signal_report/internal recheck returns None even when the requested team has a valid run, the false-negative shadowing mode W8 already evaluated including the unordered branch .first(); runner-up cluster 73 is the opposite direction (branch fallback mis-binds an unrelated run to the PR), and cluster 21 (cancelled/failed runs still match) is a different filter gap."
+    },
+    "KC3": {
+        "cluster": 58,
+        "confidence": "high",
+        "reason": "Identical to cluster 58 (KB3/KA13 precedent): the receiver's on_commit callback is the only initial-review dispatch, catches the final broker publish error, and stores no durable pending record, so a broker outage silently drops the review; runner-up cluster 54 is the unguarded .delay raising into the caller, which KC3 does not claim."
+    },
+    "KC4": {
+        "cluster": 58,
+        "confidence": "high",
+        "reason": "Same claim as cluster 58 stated at the facade publish site (facade/api.py:149 is already a cluster 58 file): fire-and-forget .delay() with no outbox or reconciliation, so a broker failure after commit loses the initial review permanently; runner-up cluster 54 (facade does not guard .delay) shares the line but claims an exception escaping into the save path, whereas KC4 says the caller catches it."
+    },
+    "KC5": {
+        "cluster": 35,
+        "confidence": "high",
+        "reason": "Identical to cluster 35 (KB2/KA7 precedent): _format_self_driving hard-codes the 'draft on purpose' sentence, so a synchronize-triggered re-review after the PR is marked ready feeds the model false trusted draft state; runner-up cluster 5 is the broader trusted-provenance-off-the-flag framing."
+    },
+    "KC6": {
+        "cluster": 2,
+        "confidence": "high",
+        "reason": "Identical to cluster 2 (KB6/KA10 precedent): process_inbox_pr_review trusts the queued team/run/report/user/pr_url from user-writable output.pr_url and skips the bot-author, repo-native-head, task-linkage checks the webhook leg performs, so it can stamp an unrelated open PR as a privileged self-driving review; the trailing 'toggle can change before the worker starts' sentence belongs to runner-up cluster 31 (queue-time toggle trust), which KB10 covers separately."
+    },
+    "KC7": {
+        "cluster": 57,
+        "confidence": "high",
+        "reason": "Identical to cluster 57 (KB8/KA4 precedent): both the initial trigger and resolve_stamphog_acting_reviewer check only the single canonical acting reviewer's stamphog_review_inbox_prs toggle, so an opted-in secondary assigned reviewer is ignored on both legs; runner-up cluster 11 (resolver identity drift between legs) is a different claim."
+    }
+}

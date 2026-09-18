@@ -1,6 +1,6 @@
 import json
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
@@ -142,7 +142,7 @@ class TestCspReport(BaseTest):
     def test_crash_report_becomes_backdated_event(self, mock_batch_capture):
         mock_batch_capture.return_value = MagicMock(raise_for_status=MagicMock())
 
-        with freeze_time("2026-08-12T10:00:00Z"):
+        with time_machine.travel("2026-08-12T10:00:00Z", tick=False):
             response = self.client.post(
                 f"/report/?token={self.team.api_token}&distinct_id=user-distinct-id",
                 data=json.dumps([CRASH_REPORT]),

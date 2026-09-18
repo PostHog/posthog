@@ -37,7 +37,7 @@ export const useAutoresearchDraftStore = create<AutoresearchDraftState>(
   }),
 );
 
-export type PendingAutoresearchRun = AutoresearchDraftConfig & {
+type PendingAutoresearchRun = AutoresearchDraftConfig & {
   instructions: string;
 };
 

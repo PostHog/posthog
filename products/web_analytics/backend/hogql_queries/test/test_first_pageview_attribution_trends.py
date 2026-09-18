@@ -1,4 +1,4 @@
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 
 from django.test import override_settings
@@ -19,9 +19,9 @@ from posthog.schema import (
     TrendsQuery,
 )
 
-from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
 from posthog.hogql_queries.query_runner import get_query_runner
 
+from products.product_analytics.backend.facade.queries import TrendsQueryRunner
 from products.web_analytics.backend.hogql_queries.test.first_pageview_attribution_test_base import (
     FirstPageviewAttributionTestMixin,
 )
@@ -39,7 +39,7 @@ class TestFirstPageviewAttributionTrends(FirstPageviewAttributionTestMixin, Clic
             tags=QueryLogTags(productKey="web_analytics") if tagged else None,
             modifiers=HogQLQueryModifiers(sessionTableVersion=SessionTableVersion.V2),
         )
-        with self._patch_first_pageview_flag(flag_on), freeze_time(self.QUERY_TIMESTAMP):
+        with self._patch_first_pageview_flag(flag_on), time_machine.travel(self.QUERY_TIMESTAMP, tick=False):
             response = TrendsQueryRunner(team=self.team, query=query).calculate()
         return response.results[0]["count"]
 
@@ -88,7 +88,7 @@ class TestFirstPageviewAttributionTrends(FirstPageviewAttributionTestMixin, Clic
             tags=QueryLogTags(productKey="web_analytics"),
             modifiers=HogQLQueryModifiers(sessionTableVersion=SessionTableVersion.V2),
         )
-        with self._patch_first_pageview_flag(flag_on), freeze_time(self.QUERY_TIMESTAMP):
+        with self._patch_first_pageview_flag(flag_on), time_machine.travel(self.QUERY_TIMESTAMP, tick=False):
             results = get_query_runner(query, team=self.team).calculate().results
 
         assert results[0]["count"] == expected

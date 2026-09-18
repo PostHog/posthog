@@ -39,8 +39,10 @@ Notes:
 - Only `lead` and `contact` are documented as searchable object types, and they are also the only
   two that need this — everything else already filters server-side.
 - Search returns bare IDs unless each field is named in `_fields`, so `settings.py` carries an
-  explicit field list per object type. Custom fields are appended at runtime from
-  `/custom_field/<object_type>/` (best-effort — a key without access still syncs standard columns).
+  explicit field list per object type. A single `custom` selector is added at request time to
+  return every custom field as a flat `custom.cf_*` key. Naming each custom field instead grows
+  `_fields` one entry per field, which Close rejects with 400 "List is too long." once an org has
+  enough of them.
 - The `moment_range` condition (`on_or_after` / `before` with `{"type": "fixed_utc"}` moments) is
   what the Close app itself emits; the public docs describe date-range filtering without naming
   the condition type.

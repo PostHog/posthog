@@ -378,6 +378,14 @@ export class KafkaConsumer {
         return [offsets.lowOffset, offsets.highOffset]
     }
 
+    public async committedOffsets(timeout = 10000): Promise<TopicPartitionOffset[]> {
+        if (!this.rdKafkaConsumer.isConnected()) {
+            return []
+        }
+
+        return await promisifyCallback<TopicPartitionOffset[]>((cb) => this.rdKafkaConsumer.committed(timeout, cb))
+    }
+
     public async getPartitionsForTopic(topic: string): Promise<PartitionMetadata[]> {
         if (!this.rdKafkaConsumer.isConnected()) {
             throw new Error('Not connected')
@@ -512,9 +520,16 @@ export class KafkaConsumer {
     }
 
     private createConsumer(): RdKafkaConsumer {
+        // auto.offset.reset is a topic-level property, and librdkafka ignores the global-config
+        // form on our version (see node-rdkafka #984), so the resolved value, including any
+        // caller override, must be mirrored into the explicit topic config. v2 does the same.
+        const autoOffsetReset =
+            (this.consumerConfig['auto.offset.reset' as keyof ConsumerGlobalConfig] as
+                | 'earliest'
+                | 'latest'
+                | undefined) ?? 'earliest'
         const consumer = new RdKafkaConsumer(this.consumerConfig, {
-            // Default settings
-            'auto.offset.reset': 'earliest',
+            'auto.offset.reset': autoOffsetReset,
         })
 
         consumer.on('event.log', (log) => {
@@ -925,6 +940,8 @@ export const parseEventHeaders = (headers?: MessageHeader[]): EventHeaders => {
                 result.historical_migration = value === 'true'
             } else if (key === 'skip_heatmap_processing') {
                 result.skip_heatmap_processing = value === 'true'
+            } else if (key === 'redirect-original-key') {
+                result.redirect_original_key = value
             }
         })
     })

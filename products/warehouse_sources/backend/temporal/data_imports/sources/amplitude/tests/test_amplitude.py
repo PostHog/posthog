@@ -7,7 +7,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from unittest import mock
 
 import requests
@@ -18,6 +18,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.amplitude.
     _auth_headers,
     _coerce_datetime,
     _get_events_rows,
+    _get_fanout_rows,
     _get_list_rows,
     _iter_export_window,
     _normalize_event,
@@ -29,6 +30,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.amplitude.
     AMPLITUDE_ENDPOINTS,
     ANNOTATIONS_ENDPOINT,
     COHORTS_ENDPOINT,
+    EVENT_PROPERTIES_ENDPOINT,
     EVENTS_ENDPOINT,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
@@ -221,7 +223,7 @@ class TestIterExportWindow:
 
 
 class TestEventsWindowing:
-    @freeze_time("2026-06-04 12:00:00")
+    @time_machine.travel("2026-06-04 12:00:00", tick=False)
     def test_windows_advance_and_state_is_saved_per_window(self) -> None:
         manager = mock.MagicMock(spec=ResumableSourceManager)
         manager.can_resume.return_value = False
@@ -260,7 +262,7 @@ class TestEventsWindowing:
             datetime(2026, 6, 4, 11, tzinfo=UTC).isoformat(),
         ]
 
-    @freeze_time("2026-06-04 12:00:00")
+    @time_machine.travel("2026-06-04 12:00:00", tick=False)
     def test_resume_state_takes_precedence_over_incremental_value(self) -> None:
         manager = mock.MagicMock(spec=ResumableSourceManager)
         manager.can_resume.return_value = True
@@ -288,7 +290,7 @@ class TestEventsWindowing:
         manager.load_state.assert_called_once()
         assert windows == [("20260604T09", "20260604T10")]
 
-    @freeze_time("2026-06-04 12:00:00")
+    @time_machine.travel("2026-06-04 12:00:00", tick=False)
     def test_full_refresh_starts_from_lookback_window(self) -> None:
         manager = mock.MagicMock(spec=ResumableSourceManager)
         manager.can_resume.return_value = False
@@ -340,6 +342,71 @@ class TestListRows:
             rows = list(_get_list_rows("key", "secret", "us", config, mock.MagicMock()))
 
         assert [row["id"] for row in rows] == [7]
+
+
+class TestFanoutRows:
+    config = AMPLITUDE_ENDPOINTS[EVENT_PROPERTIES_ENDPOINT]
+
+    def _run(self, responses: list[mock.MagicMock]) -> tuple[list[dict[str, Any]], list[str]]:
+        urls: list[str] = []
+
+        def get(url: str, **kwargs: Any) -> mock.MagicMock:
+            urls.append(url)
+            return responses[len(urls) - 1]
+
+        with mock.patch(f"{MODULE}.make_tracked_session") as make_session:
+            make_session.return_value.get.side_effect = get
+            rows = list(_get_fanout_rows("key", "secret", "us", self.config, mock.MagicMock()))
+
+        return rows, urls
+
+    def test_queries_each_event_type_and_stamps_it_onto_child_rows(self) -> None:
+        parents = _response(
+            status=200,
+            json_body={
+                "success": True,
+                "data": [
+                    {"event_type": "Play Song"},
+                    {"event_type": "Onboard Start"},
+                    # A parent with no usable name must not be queried.
+                    {"category": {"name": "Attribution"}},
+                ],
+            },
+        )
+        # Amplitude omits `event_type` on shared properties, so the fan-out has to supply it.
+        song_props = _response(status=200, json_body={"success": True, "data": [{"event_property": "genre"}]})
+        onboard_props = _response(status=200, json_body={"success": True, "data": [{"event_property": "step"}]})
+
+        rows, urls = self._run([parents, song_props, onboard_props])
+
+        assert [(row["event_type"], row["event_property"]) for row in rows] == [
+            ("Play Song", "genre"),
+            ("Onboard Start", "step"),
+        ]
+        assert len(urls) == 3
+        assert urls[0].endswith("/api/2/taxonomy/event")
+        assert "/api/2/taxonomy/event-property?event_type=Play+Song" in urls[1]
+        assert "/api/2/taxonomy/event-property?event_type=Onboard+Start" in urls[2]
+
+    def test_400_on_one_event_type_skips_it_and_keeps_going(self) -> None:
+        parents = _response(
+            status=200, json_body={"data": [{"event_type": "Deleted Event"}, {"event_type": "Play Song"}]}
+        )
+        not_found = _response(status=400, text='{"success": false, "errors": [{"message": "Not found"}]}')
+        not_found.raise_for_status.side_effect = requests.HTTPError(response=not_found)
+        song_props = _response(status=200, json_body={"data": [{"event_property": "genre"}]})
+
+        rows, _urls = self._run([parents, not_found, song_props])
+
+        assert [row["event_type"] for row in rows] == ["Play Song"]
+
+    def test_other_http_errors_propagate(self) -> None:
+        parents = _response(status=200, json_body={"data": [{"event_type": "Play Song"}]})
+        forbidden = _response(status=403, text="Forbidden")
+        forbidden.raise_for_status.side_effect = requests.HTTPError(response=forbidden)
+
+        with pytest.raises(requests.HTTPError):
+            self._run([parents, forbidden])
 
 
 class TestAmplitudeSourceResponse:

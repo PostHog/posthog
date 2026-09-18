@@ -1,0 +1,21 @@
+---
+title: MCP model share
+sidebar: Docs
+showTitle: true
+---
+
+The **Share of calls by model** card on the MCP analytics dashboard compares tool call volume across captured model names.
+It appears when at least one tool call in the selected date range and filters has an identified model.
+
+Horizontal bars rank models by call count. Each bar shows its percentage of all tool calls and its call count.
+Hover over a bar to see the full model name.
+
+Recognized model families use consistent colors, with related shades for individual models.
+Colors stay the same when call counts or rankings change. Provider prefixes do not change a recognized model's color.
+Other named models receive a stable palette color; **Unknown** and **Other** remain neutral gray.
+
+- **Unknown** includes calls without an identified model. Its gray bar remains in the percentage denominator.
+- **Other** combines identified models outside the six most-used model names.
+- **Identified** shows the percentage of all tool calls with an identified model, including those grouped into **Other**.
+
+The card uses the model metadata captured with each call. Calls without model metadata remain **Unknown**.

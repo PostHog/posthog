@@ -7,6 +7,7 @@ import { initKeaTests } from '~/test/init'
 import { expectLogic } from '~/test/keaTestUtils'
 
 import {
+    dataCatalogMetricsChecksDestroy,
     dataQualityChecksHealthList,
     dataQualityChecksList,
     dataQualityRunsCreate,
@@ -20,6 +21,7 @@ import type {
 } from 'products/data_quality/frontend/generated/api.schemas'
 
 import {
+    NEW_CHECK_ACTION_ID,
     dataQualityOverviewLogic,
     focusCandidatesAfterDelete,
     rowActionsId,
@@ -39,6 +41,7 @@ jest.mock('lib/lemon-ui/LemonToast/LemonToast', () => ({
 }))
 
 jest.mock('products/data_quality/frontend/generated/api', () => ({
+    dataCatalogMetricsChecksDestroy: jest.fn(),
     dataQualityChecksList: jest.fn(),
     dataQualityChecksHealthList: jest.fn(),
     dataQualityRunsCreate: jest.fn(),
@@ -280,7 +283,7 @@ describe('dataQualityOverviewLogic', () => {
     it('summarises a project that has failing checks', async () => {
         await mountLogic()
 
-        expect(logic.values.overviewSummary).toEqual('1 of 3 checks failing, across 1 tables and views.')
+        expect(logic.values.overviewSummary).toEqual('1 of 3 checks failing, across 1 tables, views, and metrics.')
     })
 
     it('counts a subject whose only failure is warning-only among the failing subjects', async () => {
@@ -297,7 +300,7 @@ describe('dataQualityOverviewLogic', () => {
 
         expect(logic.values.failingCheckCount).toEqual(1)
         expect(logic.values.failingSubjectCount).toEqual(1)
-        expect(logic.values.overviewSummary).toEqual('1 of 1 checks failing, across 1 tables and views.')
+        expect(logic.values.overviewSummary).toEqual('1 of 1 checks failing, across 1 tables, views, and metrics.')
     })
 
     it.each<[string, (string | null)[], string]>([
@@ -382,6 +385,19 @@ describe('dataQualityOverviewLogic', () => {
 
         expect(warehouseSavedQueriesChecksDestroy).toHaveBeenCalledWith('1', 'uuid-orders', 'check-1')
         expect((dataQualityChecksList as jest.Mock).mock.calls.length).toBeGreaterThan(loadsBeforeDelete)
+        expect(lemonToast.success).toHaveBeenCalledWith('Check deleted')
+    })
+
+    it('deletes a metric check through its catalog route', async () => {
+        ;(dataCatalogMetricsChecksDestroy as jest.Mock).mockResolvedValue(undefined)
+        await mountLogic()
+
+        logic.actions.deleteCheck(
+            buildCheck('check-1', 'signups', 'failed', { subject_type: 'metric', subject_uuid: 'uuid-signups' })
+        )
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(dataCatalogMetricsChecksDestroy).toHaveBeenCalledWith('1', 'uuid-signups', 'check-1')
         expect(lemonToast.success).toHaveBeenCalledWith('Check deleted')
     })
 
@@ -499,8 +515,14 @@ describe('dataQualityOverviewLogic', () => {
     })
 
     it.each<[string, Partial<DataQualityOverviewCheckApi>, string | null]>([
-        ['a view on a DAG node', { subject_type: 'view', subject_node_id: 'node-1' }, '/models/node-1'],
+        ['a view on a DAG node', { subject_type: 'view', subject_node_id: 'node-1' }, '/models/node-1/tests'],
         ['a view on no DAG', { subject_type: 'view', subject_node_id: null }, null],
+        [
+            'a metric',
+            { subject_type: 'metric', subject_metric_name: 'weekly_signups' },
+            '/data-catalog/metrics/weekly_signups?tab=tests',
+        ],
+        ['a deleted metric', { subject_type: 'metric', subject_metric_name: null }, null],
         [
             'a synced table',
             { subject_type: 'table', subject_source_id: 'source-1', subject_schema_id: 'schema-1' },
@@ -510,6 +532,16 @@ describe('dataQualityOverviewLogic', () => {
             'a table linked by hand rather than synced',
             { subject_type: 'table', subject_uuid: 'uuid-table', subject_source_id: null },
             '/data-management/sources/self-managed-uuid-table/schemas',
+        ],
+        [
+            'a metric on its catalog page',
+            { subject_type: 'metric', subject_uuid: 'uuid-metric', subject_metric_name: 'signups' },
+            '/data-catalog/metrics/signups?tab=tests',
+        ],
+        [
+            'a metric whose name did not come through',
+            { subject_type: 'metric', subject_uuid: 'uuid-metric', subject_metric_name: null },
+            null,
         ],
     ])('links %s', (_case, overrides, expected) => {
         expect(subjectDetailUrl(buildCheck('check-1', 'orders', null, overrides))).toEqual(expected)
@@ -531,7 +563,7 @@ describe('dataQualityOverviewLogic', () => {
 
         const candidates = focusCandidatesAfterDelete(logic.values.subjectGroups, 'view:uuid-customers', 'check-3')
 
-        expect(candidates).toEqual([subjectDisclosureId('view:uuid-orders'), 'data-quality-browse-subjects'])
+        expect(candidates).toEqual([subjectDisclosureId('view:uuid-orders'), NEW_CHECK_ACTION_ID])
     })
 
     async function drainListeners(): Promise<void> {

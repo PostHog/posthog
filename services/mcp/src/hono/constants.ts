@@ -1,5 +1,7 @@
 import type { Env } from '@/tools/types'
 
+export const MCP_EXEC_SKILLS_FEATURE_FLAG = 'mcp-exec-skills'
+
 export {
     USER_AGENT,
     type GetUserAgentOptions,
@@ -28,6 +30,7 @@ export function getEnv(): Env {
         POSTHOG_UI_APPS_TOKEN: process.env.POSTHOG_UI_APPS_TOKEN || undefined,
         POSTHOG_ANALYTICS_API_KEY: process.env.POSTHOG_ANALYTICS_API_KEY || undefined,
         POSTHOG_ANALYTICS_HOST: process.env.POSTHOG_ANALYTICS_HOST || undefined,
+        POSTHOG_MCP_SKILLS_URL: process.env.POSTHOG_MCP_SKILLS_URL || undefined,
         ...extras,
     }
 }

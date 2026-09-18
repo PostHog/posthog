@@ -2,6 +2,7 @@ import time
 import inspect
 import threading
 from collections.abc import Callable, Coroutine
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from functools import wraps
 from typing import Any, ParamSpec, TypeVar, cast
@@ -14,6 +15,47 @@ from temporalio import activity, workflow
 
 P = ParamSpec("P")
 T = TypeVar("T")
+
+ASYNCIFY_SLOW_THRESHOLD_SECONDS = 1.0
+
+_asyncify_executor: ThreadPoolExecutor | None = None
+
+
+def configure_asyncify_executor(max_workers: int) -> ThreadPoolExecutor:
+    """Give `@asyncify` activities a thread pool sized to the worker's activity slots.
+
+    Without an explicit executor, ``sync_to_async(thread_sensitive=False)`` runs on the event
+    loop's default executor, which CPython caps at ``min(32, os.cpu_count() + 4)`` threads. That
+    cap is independent of, and usually below, the worker's ``max_concurrent_activities``, so
+    asyncified activities queue for a thread while their slots sit idle. One family of activities
+    blocking on a slow dependency then starves every other activity in the process.
+
+    Call this once at worker startup. Processes that never call it keep the previous behaviour.
+    """
+    global _asyncify_executor
+
+    # Non-daemon threads, so a replaced pool would keep the process alive with nothing to run.
+    if _asyncify_executor is not None:
+        _asyncify_executor.shutdown(wait=False)
+
+    _asyncify_executor = ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="asyncify")
+    return _asyncify_executor
+
+
+def shutdown_asyncify_executor() -> None:
+    """Release the pool created by `configure_asyncify_executor`, and fall back to the loop default."""
+    global _asyncify_executor
+
+    if _asyncify_executor is None:
+        return
+
+    _asyncify_executor.shutdown(wait=False)
+    _asyncify_executor = None
+
+
+def get_asyncify_executor() -> ThreadPoolExecutor | None:
+    """Return the pool `@asyncify` submits to, or `None` to fall back to the loop's default."""
+    return _asyncify_executor
 
 
 def close_stale_db_connections() -> None:
@@ -87,19 +129,17 @@ def asyncify(fn: Callable[P, T]) -> Callable[P, Coroutine[Any, Any, T]]:
                 now = time.monotonic()
                 thread_wait = start_time - submit_time
                 execution_time = now - start_time
-                if activity.in_activity():
+                if activity.in_activity() and max(thread_wait, execution_time) >= ASYNCIFY_SLOW_THRESHOLD_SECONDS:
+                    # The structlog chain has no ExtraAdder, so stdlib `extra=` fields never reach the log.
                     activity.logger.warning(
-                        "asyncify_slow",
-                        extra={
-                            "function": fn.__name__,
-                            "thread_wait_seconds": round(thread_wait, 3),
-                            "execution_seconds": round(execution_time, 3),
-                            "thread_name": threading.current_thread().name,
-                            "activity_id": activity.info().activity_id,
-                        },
+                        f"asyncify_slow function={fn.__name__} "
+                        f"thread_wait_seconds={thread_wait:.3f} execution_seconds={execution_time:.3f} "
+                        f"thread_name={threading.current_thread().name}"
                     )
 
-        return await sync_to_async(thread_sensitive=False)(close_db_connections(instrumented))()
+        return await sync_to_async(thread_sensitive=False, executor=get_asyncify_executor())(
+            close_db_connections(instrumented)
+        )()
 
     return wrapper
 
@@ -157,7 +197,14 @@ def close_db_connections(fn: Callable[P, T]) -> Callable[P, T]:
     return sync_wrapper
 
 
-def _is_stale_connection_read_only_error(error: Exception) -> bool:
+# The wording Postgres uses for SQLSTATE 25006, and the class name Django reports it under. Temporal
+# renders a wrapped activity failure as ``<ExceptionClass>: <message>``, so the prefix is how this
+# error identifies itself to code that only sees the flattened string across a workflow boundary.
+READ_ONLY_TRANSACTION_PHRASE = "read-only transaction"
+APP_DB_ERROR_PREFIX = f"{django.db.InternalError.__name__}:".lower()
+
+
+def is_stale_connection_read_only_error(error: Exception) -> bool:
     """Whether `error` is a write rejected because the connection outlived a primary failover.
 
     A connection held open across a Postgres failover/switchover keeps talking to what is now a
@@ -167,7 +214,7 @@ def _is_stale_connection_read_only_error(error: Exception) -> bool:
     ``OperationalError``/``InterfaceError`` already cover, just a different DB-API exception class —
     closing the connection and retrying reconnects to the current primary.
     """
-    return isinstance(error, django.db.InternalError) and "read-only transaction" in str(error).lower()
+    return isinstance(error, django.db.InternalError) and READ_ONLY_TRANSACTION_PHRASE in str(error).lower()
 
 
 async def aretry_on_db_connection_drop(operation: Callable[[], Coroutine[Any, Any, T]]) -> T:
@@ -177,7 +224,7 @@ async def aretry_on_db_connection_drop(operation: Callable[[], Coroutine[Any, An
     recycle, failover, or deploy can leave a stale pooled connection that raises
     ``OperationalError`` / ``InterfaceError`` the first time it's used — or, for a write,
     ``InternalError`` if the stale connection now points at a demoted standby (see
-    ``_is_stale_connection_read_only_error``). Evict the dead connection and retry once, so a
+    ``is_stale_connection_read_only_error``). Evict the dead connection and retry once, so a
     transient blip at an activity's early connect-time reads succeeds on a fresh connection
     instead of escaping as error-tracking noise. A second failure propagates — that's a
     genuinely degraded DB, left to the caller's retry posture.
@@ -190,7 +237,7 @@ async def aretry_on_db_connection_drop(operation: Callable[[], Coroutine[Any, An
     try:
         return await operation()
     except django.db.InternalError as e:
-        if not _is_stale_connection_read_only_error(e):
+        if not is_stale_connection_read_only_error(e):
             raise
         await sync_to_async(_close_db_connections)()
         return await operation()
@@ -207,7 +254,7 @@ def retry_on_db_connection_drop(operation: Callable[[], T]) -> T:
     a long-lived worker pools connections through pgbouncer, so a pool recycle / failover
     / deploy can leave a stale pooled connection that raises ``OperationalError`` /
     ``InterfaceError`` on first use — or, for a write, ``InternalError`` if the stale
-    connection now points at a demoted standby (see ``_is_stale_connection_read_only_error``).
+    connection now points at a demoted standby (see ``is_stale_connection_read_only_error``).
     Evict the dead connection and retry once; a second failure propagates, left to the
     caller's retry posture.
 
@@ -223,7 +270,7 @@ def retry_on_db_connection_drop(operation: Callable[[], T]) -> T:
     try:
         return operation()
     except django.db.InternalError as e:
-        if not _is_stale_connection_read_only_error(e):
+        if not is_stale_connection_read_only_error(e):
             raise
         _close_db_connections()
         return operation()

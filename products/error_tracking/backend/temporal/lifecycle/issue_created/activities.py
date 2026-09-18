@@ -15,6 +15,7 @@ from posthog.api.embedding_worker import generate_embedding
 from posthog.kafka_client.routing import producer_scope
 from posthog.kafka_client.topics import KAFKA_DOCUMENT_EMBEDDINGS_TOPIC
 from posthog.models import Team
+from posthog.temporal.common.posthog_client import is_expected_activity_failure
 from posthog.temporal.common.scoped import scoped_temporal
 from posthog.temporal.common.utils import close_db_connections
 
@@ -33,6 +34,7 @@ from products.error_tracking.backend.temporal.lifecycle.issue_created.types impo
 from products.error_tracking.backend.temporal.lifecycle.rendering import render_stacktrace
 from products.error_tracking.backend.temporal.lifecycle.side_effects import (
     KAFKA_DELIVERY_TIMEOUT_SECONDS,
+    dispatch_issue_lifecycle_alert,
     emit_issue_lifecycle_signal,
     produce_issue_lifecycle_internal_event,
 )
@@ -145,17 +147,16 @@ def generate_issue_created_embedding_activity(
     # short blip into a burst of noisy error-tracking issues. Real bugs are still surfaced.
     try:
         return _prepare_issue_created_embedding(inputs)
-    except ApplicationError as error:
-        if error.type != EMBEDDING_SERVICE_UNAVAILABLE_ERROR_TYPE:
+    except Exception as error:
+        if not is_expected_activity_failure(error):
             posthoganalytics.capture_exception(error)
         raise
-    except Exception as error:
-        posthoganalytics.capture_exception(error)
-        raise
 
 
+# The three activities below add no properties of their own, so the shared activity interceptor
+# is the better reporter: it knows which failures are expected.
 @activity.defn
-@posthoganalytics.scoped()
+@posthoganalytics.scoped(capture_exceptions=False)
 @close_db_connections
 def persist_issue_created_embedding_activity(inputs: GeneratedIssueEmbedding) -> None:
     merge_inputs = inputs.merge_inputs
@@ -186,7 +187,7 @@ def persist_issue_created_embedding_activity(inputs: GeneratedIssueEmbedding) ->
 
 
 @activity.defn
-@posthoganalytics.scoped()
+@posthoganalytics.scoped(capture_exceptions=False)
 @close_db_connections
 def merge_issue_created_fingerprint_activity(
     inputs: FingerprintEmbeddingResultInputs,
@@ -196,6 +197,13 @@ def merge_issue_created_fingerprint_activity(
         activity_name="merge_issue_created_fingerprint_activity",
         workflow_name="error-tracking-issue-created",
     )
+
+
+@activity.defn
+@posthoganalytics.scoped(capture_exceptions=False)
+@close_db_connections
+def dispatch_issue_created_alert_activity(inputs: IssueCreatedWorkflowInputs) -> None:
+    dispatch_issue_lifecycle_alert(inputs, event="$error_tracking_issue_created", humanize_status=False)
 
 
 @activity.defn
@@ -222,6 +230,7 @@ async def emit_issue_created_signal_activity(inputs: IssueCreatedWorkflowInputs)
 
 
 ACTIVITIES = [
+    dispatch_issue_created_alert_activity,
     generate_issue_created_embedding_activity,
     persist_issue_created_embedding_activity,
     merge_issue_created_fingerprint_activity,

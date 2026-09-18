@@ -15,7 +15,7 @@ from posthog.synthetic_user import SyntheticUser
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSource
-from products.warehouse_sources.backend.facade.types import ManagedWarehouseSQLMode
+from products.warehouse_sources.backend.facade.types import ExternalDataSourceAccessMethod, ManagedWarehouseSQLMode
 
 if TYPE_CHECKING:
     from posthog.models import Team, User
@@ -116,7 +116,7 @@ def get_direct_connection_source(
     # boundary and reads any upstream table, so raw queries are pure-direct only. Pure-direct
     # sources have no restricted catalog to bypass; the whole external database is the intended
     # surface.
-    if require_pure_direct and source.access_method != ExternalDataSource.AccessMethod.DIRECT:
+    if require_pure_direct and source.access_method != ExternalDataSourceAccessMethod.DIRECT:
         return None
 
     if (
@@ -151,6 +151,7 @@ def resolve_database_for_connection(
     modifiers: HogQLQueryModifiers | None = None,
     timings: HogQLTimings | None = None,
     error_factory: Callable[[str], Exception],
+    use_cached_sources: bool = False,
 ) -> tuple[ExternalDataSource | None, Database]:
     source = get_direct_connection_source_none_or_raise(team, connection_id, user=user, error_factory=error_factory)
     database = Database.create_for(
@@ -159,5 +160,6 @@ def resolve_database_for_connection(
         modifiers=modifiers,
         timings=timings,
         connection_id=str(source.id) if source else None,
+        use_cached_sources=use_cached_sources,
     )
     return source, database

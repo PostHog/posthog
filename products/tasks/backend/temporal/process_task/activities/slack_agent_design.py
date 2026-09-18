@@ -11,6 +11,8 @@ from typing import Any, Optional
 
 from temporalio import activity
 
+from posthog.dataclasses import frozen
+from posthog.object_tags.slack import rewrite_object_tags_for_slack
 from posthog.temporal.common.logger import get_logger
 from posthog.temporal.common.utils import close_db_connections
 
@@ -45,7 +47,7 @@ class AppendSlackAgentDesignStepsInput:
     markdown_text: Optional[str] = None
 
 
-@dataclass
+@frozen
 class StopSlackAgentDesignStreamInput:
     slack_thread_context: dict[str, Any]
     ts: str
@@ -57,6 +59,21 @@ class StopSlackAgentDesignStreamInput:
     # Sources the provenance footer. Optional so a relay started before this field
     # existed replays cleanly — it just closes without one.
     run_id: Optional[str] = None
+    # Gateway trace id of the turn being closed, so the thumbs appended to the reply
+    # report against that turn.
+    trace_id: Optional[str] = None
+
+
+def _rewrite_object_tags(text: Optional[str], project_url: str) -> Optional[str]:
+    """Turn the agent's object tags into the markdown links Slack can render.
+
+    Slack renders none of the tags itself, so they have to become markdown before the text is
+    posted. Rewriting rather than dropping them keeps the label the agent wrote, so a bullet
+    whose only content is a citation still carries text.
+    """
+    if not text:
+        return text
+    return rewrite_object_tags_for_slack(text, project_url=project_url)
 
 
 @activity.defn
@@ -68,11 +85,12 @@ def start_slack_agent_design_stream(input: StartSlackAgentDesignStreamInput) -> 
 
     try:
         context = SlackThreadContext.from_dict(input.slack_thread_context)
-        return SlackThreadHandler(context).start_status_stream(
+        handler = SlackThreadHandler(context)
+        return handler.start_status_stream(
             first_task_id=input.first_task_id,
             first_task_title=input.first_task_title,
             first_task_details=input.first_task_details,
-            first_markdown_text=input.first_markdown_text,
+            first_markdown_text=_rewrite_object_tags(input.first_markdown_text, handler.project_url),
         )
     except Exception as e:
         logger.warning("slack_app_start_agent_design_stream_failed", error=str(e))
@@ -87,12 +105,13 @@ def append_slack_agent_design_steps(input: AppendSlackAgentDesignStepsInput) -> 
 
     try:
         context = SlackThreadContext.from_dict(input.slack_thread_context)
-        SlackThreadHandler(context).append_status_chunks(
+        handler = SlackThreadHandler(context)
+        handler.append_status_chunks(
             ts=input.ts,
             task_updates=[
                 {"id": t.id, "title": t.title, "status": t.status, "details": t.details} for t in input.task_updates
             ],
-            markdown_text=input.markdown_text,
+            markdown_text=_rewrite_object_tags(input.markdown_text, handler.project_url),
         )
     except Exception as e:
         logger.warning("slack_app_append_agent_design_steps_failed", error=str(e))
@@ -107,17 +126,14 @@ def stop_slack_agent_design_stream(input: StopSlackAgentDesignStreamInput) -> No
 
     try:
         context = SlackThreadContext.from_dict(input.slack_thread_context)
-        handler = SlackThreadHandler(context)
-        # Describing the run costs a query and a flag call, so only do it for a
-        # workspace that will actually be shown the result.
-        if handler.footer_enabled():
-            handler.run_footer = load_run_footer(input.run_id)
+        handler = SlackThreadHandler(context, turn_trace_id=input.trace_id)
+        handler.run_footer = load_run_footer(input.run_id)
         handler.stop_status_stream(
             ts=input.ts,
             complete_task_id=input.complete_task_id,
             complete_task_title=input.complete_task_title,
             complete_task_details=input.complete_task_details,
-            final_markdown=input.final_markdown,
+            final_markdown=_rewrite_object_tags(input.final_markdown, handler.project_url),
         )
     except Exception as e:
         logger.warning("slack_app_stop_agent_design_stream_failed", error=str(e))
