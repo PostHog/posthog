@@ -74223,9 +74223,35 @@ export namespace Schemas {
       id: string;
     }
 
+    /**
+     * * `weekdays` - Weekdays
+     * * `every_day` - Every day
+     */
+    export type TaskDigestCadenceEnum = typeof TaskDigestCadenceEnum[keyof typeof TaskDigestCadenceEnum];
+
+
+    export const TaskDigestCadenceEnum = {
+      Weekdays: 'weekdays',
+      EveryDay: 'every_day',
+    } as const;
+
+    export interface TaskDigestPreferencesUpdate {
+      /** Whether the task digest email is sent to this user. */
+      enabled?: boolean;
+      /** Time of day to send the digest, as HH:MM in the project timezone. */
+      send_time?: string;
+      /** How often the digest is sent.
+       *
+       * * `weekdays` - Weekdays
+       * * `every_day` - Every day */
+      cadence?: TaskDigestCadenceEnum;
+    }
+
     export interface PatchedUserCustomerAnalyticsConfigUpdate {
       /** Complete ordered list of account properties to pin. Omit to keep the current pins; pass an empty list to clear them. */
       pinned_properties?: PinnedAccountProperty[];
+      /** Task digest email preferences to change. Omit the object to keep them all; omit a field inside it to keep that one. */
+      task_digest?: TaskDigestPreferencesUpdate;
     }
 
     /**
@@ -75028,6 +75054,135 @@ export namespace Schemas {
     export const PostgresDestinationRequestTypeEnum = {
       Postgres: 'Postgres',
     } as const;
+
+    /**
+     * * `pending` - Pending
+     * * `ready` - Ready
+     * * `stale` - Stale
+     * * `failed` - Failed
+     */
+    export type PreaggregationJobStatusEnum = typeof PreaggregationJobStatusEnum[keyof typeof PreaggregationJobStatusEnum];
+
+
+    export const PreaggregationJobStatusEnum = {
+      Pending: 'pending',
+      Ready: 'ready',
+      Stale: 'stale',
+      Failed: 'failed',
+    } as const;
+
+    export interface PrecomputeDebugBucket {
+      /** Start of the bucket's time window (inclusive). */
+      time_range_start: string;
+      /** End of the bucket's time window (exclusive). */
+      time_range_end: string;
+      /** Lifecycle state of this bucket's job.
+       *
+       * * `pending` - Pending
+       * * `ready` - Ready
+       * * `stale` - Stale
+       * * `failed` - Failed */
+      status: PreaggregationJobStatusEnum;
+      /**
+         * When the bucket's data was last computed; null if never computed.
+         * @nullable
+         */
+      computed_at: string | null;
+      /**
+         * When the bucket's data expires in ClickHouse; null if no TTL recorded.
+         * @nullable
+         */
+      expires_at: string | null;
+      /**
+         * Seconds until the bucket expires; negative when already expired, null if no TTL recorded.
+         * @nullable
+         */
+      ttl_seconds_remaining: number | null;
+    }
+
+    /**
+     * Job count per lifecycle status for this hash.
+     */
+    export type PrecomputeDebugGroupStatusCounts = {[key: string]: number};
+
+    export interface PrecomputeDebugSample {
+      /**
+         * query_type tag of the insert that built this hash (identifies the query family).
+         * @nullable
+         */
+      query_type: string | null;
+      /**
+         * Trigger tag of the insert: a warmer trigger name, or empty for a user-initiated read.
+         * @nullable
+         */
+      trigger: string | null;
+      /**
+         * Originating query as JSON (from the insert's log_comment) including date range and property filters — shows which dashboard queries this hash serves.
+         * @nullable
+         */
+      query_json: string | null;
+      /**
+         * When the sampled insert for this hash finished.
+         * @nullable
+         */
+      last_insert_at: string | null;
+    }
+
+    export interface PrecomputeDebugGroup {
+      /** SHA-256 of the normalized insert query this group covers. */
+      query_hash: string;
+      /** Number of bucket jobs stored for this hash (within caps). */
+      job_count: number;
+      /** Job count per lifecycle status for this hash. */
+      status_counts: PrecomputeDebugGroupStatusCounts;
+      /** Start of the earliest bucket stored for this hash. */
+      earliest_start: string;
+      /** End of the latest bucket stored for this hash. */
+      latest_end: string;
+      /**
+         * Most recent computed_at across the hash's buckets.
+         * @nullable
+         */
+      last_computed_at: string | null;
+      /** Originating-query sample recovered from query_log; null when no recent insert was found. */
+      sample: PrecomputeDebugSample | null;
+      /** Most recent buckets for this hash (capped at 70). */
+      buckets: PrecomputeDebugBucket[];
+    }
+
+    export interface PrecomputeDebugResponse {
+      /** When this snapshot was generated. */
+      generated_at: string;
+      /** Expired/failed jobs older than this many days are omitted; unexpired jobs are always shown. */
+      job_lookback_days: number;
+      /** How far back query_log was searched to label hashes with their originating query. */
+      query_log_lookback_days: number;
+      /** Distinct hashes stored for the team within the job lookback. */
+      total_hashes: number;
+      /** Per-hash groups, most recently computed first. */
+      groups: PrecomputeDebugGroup[];
+    }
+
+    export interface PrecomputeInvalidateRequest {
+      /**
+         * Only invalidate jobs for this query hash. Omit to invalidate every hash stored for the team.
+         * @maxLength 64
+         * @nullable
+         */
+      query_hash?: string | null;
+    }
+
+    export interface PrecomputeInvalidateResponse {
+      /** Number of READY jobs marked stale. */
+      updated_count: number;
+      /** In-flight PENDING jobs left untouched. A job that started before a source resync can still finish READY with pre-resync data; invalidate again once these settle to catch it. */
+      pending_count: number;
+      /**
+         * The hash that was invalidated, or null when all hashes were targeted.
+         * @nullable
+         */
+      query_hash: string | null;
+    }
 
     export interface PreferencesLink {
       /** Token-gated URL where the recipient can manage their preferences. */
@@ -91789,6 +91944,18 @@ export namespace Schemas {
       run_error?: string;
     }
 
+    export interface TaskDigestPreferences {
+      /** Whether the task digest email is sent to this user. */
+      enabled: boolean;
+      /** Time of day to send the digest, as HH:MM in the project timezone. */
+      send_time: string;
+      /** How often the digest is sent.
+       *
+       * * `weekdays` - Weekdays
+       * * `every_day` - Every day */
+      cadence: TaskDigestCadenceEnum;
+    }
+
     /**
      * Request body for handing a task off to a colleague: they become its owner.
      */
@@ -94271,6 +94438,8 @@ export namespace Schemas {
     export interface UserCustomerAnalyticsConfig {
       /** Account properties pinned in sidebar display order. */
       readonly pinned_properties: readonly PinnedAccountProperty[];
+      /** Task digest email preferences. Disabled until the user turns the digest on. */
+      readonly task_digest: TaskDigestPreferences;
     }
 
     export interface UserFacetSettings {
@@ -107708,6 +107877,13 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    };
+
+    export type PrecomputeDebugStateParams = {
+    /**
+     * Maximum number of hash groups to return (1–200).
+     */
+    limit?: number;
     };
 
     export type ProductToursListParams = {
