@@ -2,7 +2,7 @@ from rest_framework.exceptions import ValidationError
 
 from posthog.schema import LifecycleQuery
 
-from posthog.hogql_queries.insights.utils.entities import has_data_warehouse_node
+from posthog.hogql_queries.utils.entities import has_data_warehouse_node
 from posthog.hogql_queries.validation.validation import QueryValidationContext
 
 

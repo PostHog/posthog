@@ -3,10 +3,8 @@ import { combineUrl } from 'kea-router'
 
 import { LemonSkeleton, Link } from '@posthog/lemon-ui'
 
-import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { LemonCard } from 'lib/lemon-ui/LemonCard'
 import { Lettermark } from 'lib/lemon-ui/Lettermark'
-import { dateMapping } from 'lib/utils/dateFilters'
 import { pluralize } from 'lib/utils/strings'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -14,23 +12,19 @@ import { urls } from 'scenes/urls'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
+import { CIAnalyticsLoadError } from '../components/CIAnalyticsLoadError'
 import { EntityHeader, VerdictPill } from '../components/EntityHeader'
-import { MetricTile } from '../components/MetricTile'
-import { PullRequestTable } from '../components/PullRequestTable'
+import { PullRequestDayView } from '../components/PullRequestDayView'
+import { RedTimeByCauseCard } from '../components/RedTimeByCauseCard'
 import { formatCost, formatMinutes } from '../components/runTables'
-import { RepoScopeChip, ScopeBar } from '../components/ScopeBar'
+import { DELIVERY_DATE_OPTIONS, RepoScopeChip, ScopeBar, ScopeDateFilter } from '../components/ScopeBar'
+import { ScopePanel } from '../components/ScopePanel'
 import { Section } from '../components/Section'
 import { ShareRow } from '../components/ShareRow'
 import { AuthorLogicProps, authorLogic } from './authorLogic'
-import { SHARED_DEFAULT_DATE_FROM, engineeringAnalyticsFiltersLogic } from './engineeringAnalyticsFiltersLogic'
-
-// date_from only (the list floors on it); "all time" / week+month snaps and Custom are out. Every option
-// here stays within the list's 365d load window (max preset is 180d / YTD), so the client-side cost tiles
-// are always a subset of the loaded PRs — a Custom range could reach past the load and desync the tiles
-// from the server-windowed workflow breakdown.
-const AUTHOR_DATE_OPTIONS = dateMapping.filter(({ key }) =>
-    ['Last 7 days', 'Last 14 days', 'Last 30 days', 'Last 90 days', 'Last 180 days', 'This year'].includes(key)
-)
+import { DeliverySections } from './DeliverySections'
+import { deliverySummaryLogic } from './deliverySummaryLogic'
+import { pullRequestTimelinesLogic } from './pullRequestTimelinesLogic'
 
 export const scene: SceneExport<AuthorLogicProps> = {
     component: EngineeringAnalyticsAuthorScene,
@@ -42,32 +36,28 @@ export const scene: SceneExport<AuthorLogicProps> = {
 }
 
 export function EngineeringAnalyticsAuthorScene(): JSX.Element {
+    const { handle, sourceId, deliveryScope, workflowCosts, workflowCostsLoading } = useValues(authorLogic)
+    const { summary, summaryLoading } = useValues(deliverySummaryLogic({ scope: deliveryScope, sourceId }))
+    const timelinesLogic = pullRequestTimelinesLogic({ scope: deliveryScope, sourceId })
     const {
-        handle,
-        prs,
-        prsLoading,
-        windowedRows,
-        totalCostUsd,
-        totalBillableMinutes,
-        totalLoops,
-        openPrCount,
-        workflowCosts,
-        workflowCostsLoading,
-        sourceId,
-    } = useValues(authorLogic)
-    const { dateFrom, dateTo } = useValues(engineeringAnalyticsFiltersLogic)
-    const { setDateRange } = useActions(engineeringAnalyticsFiltersLogic)
+        timelines,
+        timelinesLoading,
+        timelinesFailed,
+        repoSlugs,
+        dayViewAlignment,
+        dayViewGroups,
+        dayViewAxisDays,
+        redTime,
+    } = useValues(timelinesLogic)
+    const { loadTimelines, setDayViewAlignment } = useActions(timelinesLogic)
 
     const hubUrl = combineUrl(urls.engineeringAnalytics(), sourceId ? { source: sourceId } : {}).url
-    const avatarUrl = prs[0]?.authorAvatarUrl
-    const costPerLoop = totalCostUsd != null && totalLoops > 0 ? totalCostUsd / totalLoops : null
+    const avatarUrl = timelines?.items[0]?.author.avatar_url
     const workflowCostsTotal = workflowCosts.reduce((sum, c) => sum + (c.estimated_cost_usd ?? 0), 0)
     // Ranked, biggest spend first; the bar length is each workflow's share of the window's total.
     const rankedCosts = [...workflowCosts].sort((a, b) => (b.estimated_cost_usd ?? 0) - (a.estimated_cost_usd ?? 0))
-    // A source can hold several repos, so the author's PRs may span repos. Only claim one repo (and link
-    // per-workflow into it) when they all agree; otherwise the page is genuinely cross-repo.
-    const repoSlugs = Array.from(new Set(prs.map((pr) => `${pr.repoOwner}/${pr.repoName}`)))
-    const singleRepo = repoSlugs.length === 1 ? prs[0] : null
+    // Only claim one repo (and link per-workflow into it) when every listed pull request agrees.
+    const singleRepo = repoSlugs.length === 1 ? timelines?.items[0]?.repo : null
 
     return (
         <SceneContent className="pb-16">
@@ -83,15 +73,6 @@ export function EngineeringAnalyticsAuthorScene(): JSX.Element {
                 }
                 lensFilter={{ label: `author: ${handle}`, to: hubUrl }}
                 showDate={false}
-                extra={
-                    <DateFilter
-                        dateFrom={dateFrom}
-                        dateTo={dateTo}
-                        onChange={(from, to) => setDateRange(from ?? SHARED_DEFAULT_DATE_FROM, to ?? null)}
-                        dateOptions={AUTHOR_DATE_OPTIONS}
-                        size="small"
-                    />
-                }
             />
             <EntityHeader
                 icon={
@@ -108,58 +89,40 @@ export function EngineeringAnalyticsAuthorScene(): JSX.Element {
                     </Link>
                 }
                 right={
-                    prsLoading ? undefined : <VerdictPill kind="muted">{pluralize(openPrCount, 'open PR')}</VerdictPill>
+                    summary ? (
+                        <VerdictPill kind="muted">{pluralize(summary.open_pr_count, 'open PR')}</VerdictPill>
+                    ) : undefined
                 }
             />
-            {/* The author page is a way to find and explain one's own work — it lists this author's PRs and
-                their CI cost. It carries no per-developer performance/ranking metric (no cycle time, no flaky
-                score): the cost figures are transparent spend, not a scoreboard (SPEC §2). */}
-            <div className="flex flex-col gap-4">
-                {/* The scope-bar date picker scopes everything below it: these tiles, the PR list, and the
-                    breakdown. Tiles and list re-filter the already-loaded PRs client-side, so a date change
-                    updates them instantly (no skeleton); the skeleton is only for the initial PR fetch, so
-                    the tiles don't flash a zero before the list lands. */}
-                <div className="flex flex-wrap gap-2.5">
-                    <MetricTile
-                        label="Pull requests opened"
-                        value={windowedRows.length.toLocaleString()}
-                        sub="in the selected window"
-                        loading={prsLoading}
-                    />
-                    <MetricTile
-                        label="CI cost"
-                        tooltip="Full CI cost of the PRs opened in the selected window, across each PR's whole history — not only runs inside the window. The 'Where their CI minutes go' breakdown below counts CI runs started in the window instead, so the two won't reconcile exactly."
-                        value={formatCost(totalCostUsd)}
-                        sub={
-                            totalCostUsd != null
-                                ? `${formatMinutes(totalBillableMinutes)} billable`
-                                : 'no cost data yet'
-                        }
-                        loading={prsLoading}
-                    />
-                    <MetricTile
-                        label="Cost per loop"
-                        tooltip="A loop is one push and the CI it triggered. Cost per loop = total CI cost ÷ total pushes across the PRs opened in the window — the spend of one iteration, not a running total."
-                        value={formatCost(costPerLoop)}
-                        sub={
-                            costPerLoop != null
-                                ? `${totalLoops.toLocaleString()} loops in the window`
-                                : 'no cost data yet'
-                        }
-                        loading={prsLoading}
-                    />
-                </div>
+            {/* The page explains one author's own friction against the repository. It never compares
+                authors with each other (SPEC §2). */}
+            <ScopePanel
+                busy={summaryLoading || timelinesLoading || workflowCostsLoading}
+                controls={<ScopeDateFilter dateOptions={DELIVERY_DATE_OPTIONS} />}
+            >
+                <DeliverySections scope={deliveryScope} scopeLabel="This author" sourceId={sourceId} />
 
-                <Section id="author-prs" title="Pull requests">
-                    <PullRequestTable
-                        rows={windowedRows}
-                        loading={prsLoading}
-                        sourceId={sourceId}
-                        showAuthor={false}
-                        showCreated
-                        dataAttr="engineering-analytics-author-pr-table"
-                        emptyState={`No pull requests for ${handle} in the selected window.`}
-                    />
+                <Section id="delivery-pull-requests" title="Pull requests">
+                    {timelinesFailed ? (
+                        <CIAnalyticsLoadError onRetry={loadTimelines} />
+                    ) : (
+                        <div className="flex flex-col gap-2">
+                            <RedTimeByCauseCard
+                                redTime={redTime}
+                                loading={timelinesLoading && !timelines}
+                                jobsAvailable={!!timelines?.jobs_available}
+                            />
+                            <PullRequestDayView
+                                timelines={timelines}
+                                groups={dayViewGroups}
+                                days={dayViewAxisDays}
+                                alignment={dayViewAlignment}
+                                onAlignmentChange={setDayViewAlignment}
+                                loading={timelinesLoading}
+                                sourceId={sourceId}
+                            />
+                        </div>
+                    )}
                 </Section>
 
                 <Section id="author-cost" title="Where their CI minutes go">
@@ -205,8 +168,8 @@ export function EngineeringAnalyticsAuthorScene(): JSX.Element {
                                             singleRepo
                                                 ? combineUrl(
                                                       urls.engineeringAnalyticsWorkflowRuns(
-                                                          singleRepo.repoOwner,
-                                                          singleRepo.repoName,
+                                                          singleRepo.owner,
+                                                          singleRepo.name,
                                                           cost.workflow_name
                                                       ),
                                                       sourceId ? { source: sourceId } : {}
@@ -229,7 +192,7 @@ export function EngineeringAnalyticsAuthorScene(): JSX.Element {
                         </span>
                     )}
                 </Section>
-            </div>
+            </ScopePanel>
         </SceneContent>
     )
 }

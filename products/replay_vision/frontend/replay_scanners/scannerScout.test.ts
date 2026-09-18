@@ -57,6 +57,10 @@ describe('scannerScout', () => {
         for (const template of templates) {
             expect(template.body).toContain(scannerId)
             expect(template.cron).toMatch(/^\d+ \d+ \* \* \*$/)
+            // vision-scanners-get takes `id`; only the sibling vision-scanners-observations-* tools
+            // take `scanner_id`. Pairing the get call with scanner_id fails validation on the first
+            // move of every scheduled run.
+            expect(template.body).toContain(`\`vision-scanners-get\` with id \`${scannerId}\``)
         }
         for (const template of templates) {
             expect(template.defaultName.trim()).not.toBe('')

@@ -6,9 +6,8 @@ deterministic — the first implementation `TaskRun` with a `pr_url` set — so 
 billed exactly once, in the period that PR first appeared, regardless of any later status
 changes, re-judgements, or additional runs.
 
-The PR↔report link lives on the `SignalReportTask` bridge (relationship="implementation"); the
-PR URL itself is written to `TaskRun.output['pr_url']`. There is no artefact that records the
-implementation task or its PR, so the query is rooted on that bridge, not on artefacts.
+Billing eligibility uses the `SignalReportTask` implementation bridge and the first task-run
+PR URL. PR-link artefacts also include external work, so their presence cannot authorize a charge.
 
 Because this is a billing source it fails closed: a run only bills when its PR URL is a GitHub
 URL and the run, task, bridge, and report teams all agree, so malformed bridge rows never
@@ -38,10 +37,11 @@ would otherwise be repeatable free work.
 
 import uuid
 from collections import defaultdict
+from collections.abc import Sequence
 from datetime import datetime
 from typing import TYPE_CHECKING, NamedTuple
 
-from django.db.models import F, OuterRef, QuerySet, Subquery, Sum
+from django.db.models import F, Min, OuterRef, QuerySet, Subquery, Sum
 from django.utils import timezone
 
 from dateutil.relativedelta import relativedelta
@@ -51,7 +51,7 @@ from posthog.models.organization import BillingPeriod
 from products.signals.backend.artefact_schemas import TASK_RUN_TYPE_IMPLEMENTATION
 from products.signals.backend.enums import SignalSourceProduct
 from products.signals.backend.models import SignalReport, SignalReportRefund, SignalReportTask, SignalScoutRun
-from products.signals.backend.scout_harness.lazy_seed import scout_skill_row_origin
+from products.signals.backend.scout_harness.lazy_seed import scout_skill_row_is_proven_canonical
 from products.skills.backend.models.skills import LLMSkill
 
 if TYPE_CHECKING:
@@ -126,11 +126,11 @@ def _scout_skill_is_canonical(team_id: int, skill_name: str) -> bool:
 
     `skill_name` alone doesn't attest PostHog-system origin: a team can edit a seeded scout in
     place and the diverged row keeps its canonical name, which would let a repurposed fork mint
-    permanent exemptions. `scout_skill_row_origin` settles it by content hash against the
-    fingerprint stamped at seed time. Fails closed — no row, no proof → billable.
+    permanent exemptions. `scout_skill_row_is_proven_canonical` settles it by content hash against
+    the fingerprint stamped at seed time. Fails closed — no row, no hash, no match → billable.
     """
     skill = LLMSkill.objects.filter(team_id=team_id, name=skill_name, deleted=False, is_latest=True).first()
-    return skill is not None and scout_skill_row_origin(skill) == "canonical"
+    return skill is not None and scout_skill_row_is_proven_canonical(skill)
 
 
 def system_billing_exempt_reason(team_id: int, report_id: str | uuid.UUID) -> str | None:
@@ -210,21 +210,13 @@ def first_billable_pr_run_at(report_id: str | uuid.UUID) -> datetime | None:
     return run.created_at if run else None
 
 
-def report_pr_is_merged(report_id: str | uuid.UUID, pr_url: str) -> bool:
-    """Whether *this* PR of the report merged, per the tasks GitHub webhook.
+def report_pr_is_merged(report_id: str | uuid.UUID, pr_url: str, *, team_id: int) -> bool:
+    from products.signals.backend.implementation_pr import fetch_implementation_prs_for_reports
 
-    Reads `output.pr_merged`, the flag the webhook persists when a PR merges — the factual record of
-    a merge, independent of report status. A report can now reach RESOLVED without a merged PR (a
-    user or agent can resolve it directly), so status alone no longer attests a merge.
+    for pr in fetch_implementation_prs_for_reports([str(report_id)], team_id=team_id).get(str(report_id), []):
+        if pr.url == pr_url and pr.attached_at is not None:
+            return pr.merged
 
-    Scoped to one `pr_url` rather than the whole report, because the caller is deciding about a
-    specific PR: the refund reverses the charge for the billable run's PR, and it's that PR which
-    must be closed if it never merged. A report-level check would let an unrelated later PR that did
-    merge vouch for the refunded one, leaving the refunded PR open.
-
-    Fail closed like `_bridges_with_pr_run`: the PR URL, the merge flag, and the four team checks all
-    sit in one `filter()` so they resolve against the same `TaskRun` row.
-    """
     return SignalReportTask.objects.filter(
         relationship=_IMPLEMENTATION,
         report_id=report_id,
@@ -248,6 +240,22 @@ def annotate_first_billable_pr_run_at(queryset: QuerySet[SignalReport]) -> Query
         .values("task__runs__created_at")[:1]
     )
     return queryset.annotate(first_billable_pr_run_at=Subquery(earliest))
+
+
+def first_billable_pr_run_at_by_report(report_ids: Sequence[str | uuid.UUID]) -> dict[str, datetime]:
+    """`annotate_first_billable_pr_run_at` for a known set of reports, in one grouped query.
+
+    The annotation is a correlated subquery, so it costs one bridge-and-run walk per row the
+    query returns. A list that already knows its page asks for the whole page at once instead.
+    Reports with no billable PR run are absent from the map, matching the annotation's NULL.
+    """
+    rows = (
+        _bridges_with_pr_run()
+        .filter(report_id__in=report_ids)
+        .values("report_id")
+        .annotate(first_run_at=Min("task__runs__created_at"))
+    )
+    return {str(row["report_id"]): row["first_run_at"] for row in rows}
 
 
 # Why a report can't be refunded right now (`refund_ineligibility_reason`); None = refundable.

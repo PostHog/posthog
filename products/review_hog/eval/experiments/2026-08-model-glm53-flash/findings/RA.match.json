@@ -1,0 +1,72 @@
+{
+    "RA1": {
+        "cluster": null,
+        "confidence": "high",
+        "reason": "No cluster praises the keyword-only Pipeline kwarg or proposes an enum over stacked booleans; cluster 6 concerns gate coupling to author_is_bot, a different claim."
+    },
+    "RA2": {
+        "cluster": null,
+        "confidence": "high",
+        "reason": "No cluster asks for an extra anti-injection sentence in the carve-out prompt block; cluster 5 attacks unverified TRUSTED provenance rendering, not injection hardening."
+    },
+    "RA3": {
+        "cluster": null,
+        "confidence": "high",
+        "reason": "No cluster comments on STAMPHOG_VERSION bump or policy-sha discipline; this is a no-defect confirmation with no registry counterpart."
+    },
+    "RA4": {
+        "cluster": null,
+        "confidence": "medium",
+        "reason": "Claims a dead existing_run_id alias in tasks.py; cluster 38's redundant-alias claim is about stamphog_pr_url in receivers.py, a different variable, file, and code path."
+    },
+    "RA5": {
+        "cluster": null,
+        "confidence": "high",
+        "reason": "No cluster covers the cast(Any, task).retry idiom or asks to document it; comment-wording request with no registry counterpart."
+    },
+    "RA6": {
+        "cluster": null,
+        "confidence": "medium",
+        "reason": "Registration-order/timing enforcement claim differs from cluster 62 (resolver never registered, false) and cluster 66 (no duplicate-registration guard); no cluster makes the ordering claim."
+    },
+    "RA7": {
+        "cluster": null,
+        "confidence": "medium",
+        "reason": "Late-binding wrong-URL dispatch claim; cluster 38 anchors the same stamphog_pr_url alias but claims harmless redundancy, the opposite defect. No cluster claims a late-binding bug."
+    },
+    "RA8": {
+        "cluster": 7,
+        "confidence": "high",
+        "reason": "Same claim as cluster 7: the stamphog_connected probe runs an uncached cross-product-DB read on every settings serialization; RA8 adds only a self-negating TTL-cache suggestion."
+    },
+    "RA9": {
+        "cluster": 51,
+        "confidence": "high",
+        "reason": "Same claim as cluster 51: the broad except in get_stamphog_connected collapses transient DB failures and genuine bugs into one indistinguishable error path; narrowing is the shared fix."
+    },
+    "RA10": {
+        "cluster": null,
+        "confidence": "high",
+        "reason": "No cluster claims default=False plus db_default=False redundancy on the 0019 AddField; cluster 61 is the migration-numbering conflict, a different defect."
+    },
+    "RA11": {
+        "cluster": 24,
+        "confidence": "high",
+        "reason": "Same claim as cluster 24: waived gates leave no trace in gate rows, review body, or posted comment; cluster 24's files include the identical review_pr.py:590 anchor."
+    },
+    "RA12": {
+        "cluster": 5,
+        "confidence": "medium",
+        "reason": "Same mechanism as cluster 5: engine acts solely off the unverified self_driving flag from context (same review_local.py:321 anchor); RA12 stresses gate-disabling, runner-up cluster 6 covers the gate-coupling angle."
+    },
+    "RA13": {
+        "cluster": null,
+        "confidence": "high",
+        "reason": "No cluster claims upsert/staleness-recheck duplication between webhook and inbox paths; cluster 14's duplication claim is about the provenance dict shape, not the upsert routine."
+    },
+    "RA14": {
+        "cluster": null,
+        "confidence": "high",
+        "reason": "Comment-wording claim about the writer-pin rationale; cluster 15 claims a missing writer pin on a different read, not confusing comments about an existing pin."
+    }
+}

@@ -573,6 +573,28 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
             validate_inputs(inputs_schema, {"email": {"value": value}})
         assert "At most 10 email senders are allowed." in str(ctx.value.detail)
 
+    @parameterized.expand(
+        [
+            ("single_slack", "integration", "slack"),
+            ("multi_slack", "integration_multi", "slack"),
+            ("single_posthog_connection", "integration", "posthog"),
+            ("multi_posthog_connection", "integration_multi", "posthog"),
+        ]
+    )
+    def test_integration_input_rejects_a_posthog_connection(self, _name, item_type, kind):
+        integration = Integration.objects.create(team=self.team, kind=kind, created_by=self.user)
+        value = integration.id if item_type == "integration" else [integration.id]
+        inputs_schema = [{"key": "connection", "type": item_type, "integration": "slack", "required": True}]
+        inputs = {"connection": {"value": value}}
+        context_extra = {"get_team": lambda: self.team}
+
+        if kind == "slack":
+            assert validate_inputs(inputs_schema, inputs, context_extra=context_extra)["connection"]["value"] == value
+        else:
+            with pytest.raises(ValidationError) as ctx:
+                validate_inputs(inputs_schema, inputs, context_extra=context_extra)
+            assert "PostHog connection" in str(ctx.value.detail)
+
     def _create_email_integration(self, domain="posthog.com"):
         return Integration.objects.create(
             team=self.team,
@@ -768,15 +790,20 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
         inputs_schema = [
             {"key": "ts", "type": "string", "required": True},
             {"key": "geo", "type": "string", "required": True},
+            {"key": "ua", "type": "string", "required": True},
         ]
         inputs = {
             "ts": {"value": "{now()}"},
             "geo": {"value": "{geoipLookup(event.properties.$ip)}"},
+            # A bare reference is the only form that reaches the runtime-helper list; an
+            # inline call resolves as a function and never hits the global check.
+            "ua": {"value": "{parseUserAgent}"},
         }
 
         validated = validate_inputs(inputs_schema, inputs, function_type="transformation")
         assert validated["ts"]["bytecode"] is not None
         assert validated["geo"]["bytecode"] is not None
+        assert validated["ua"]["bytecode"] is not None
 
     def test_validate_inputs_with_secret_values(self):
         inputs_schema = [
@@ -944,6 +971,44 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
             "properties": [{"key": "email", "value": ["test@posthog.com"], "operator": "exact", "type": "person"}],
             "bytecode": ["_H", 1, 32, "test@posthog.com", 32, "email", 32, "properties", 32, "person", 1, 3, 11],
         }
+
+    def test_internal_destination_filters_are_normalized_to_internal_events(self):
+        serializer = HogFunctionFiltersSerializer(
+            data={"events": [{"id": "$internal_event", "type": "events"}]},
+            context={**self.filters_context, "function_type": "internal_destination"},
+        )
+
+        serializer.is_valid(raise_exception=True)
+
+        assert serializer.validated_data["source"] == "internal-events"
+
+    @parameterized.expand(
+        [
+            ("no_events", {"source": "internal-events"}),
+            ("empty_event_id", {"source": "internal-events", "events": [{"id": "", "type": "events"}]}),
+            (
+                "actions",
+                {
+                    "source": "internal-events",
+                    "events": [{"id": "$internal_event", "type": "events"}],
+                    "actions": [{"id": "1", "type": "actions"}],
+                },
+            ),
+            (
+                "data_warehouse",
+                {
+                    "source": "internal-events",
+                    "events": [{"id": "$internal_event", "type": "events"}],
+                    "data_warehouse": [{"id": "1"}],
+                },
+            ),
+        ]
+    )
+    def test_internal_event_filters_require_explicit_events(self, _name, filters):
+        serializer = HogFunctionFiltersSerializer(data=filters, context=self.filters_context)
+
+        with self.assertRaises(ValidationError):
+            serializer.is_valid(raise_exception=True)
 
     @parameterized.expand(
         [
@@ -1141,12 +1206,23 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
     def test_customer_analytics_account_properties_compiles_dict_values_to_bytecode(self):
         # Without the opt-in into transpilation, the dict values ship without bytecode and the
         # Node runtime sets the literal placeholder string instead of the interpolated value.
+        clear_marker = {"__posthog_clear_property": True}
         inputs_schema = [{"key": "properties", "type": "customer_analytics_account_properties", "required": True}]
-        inputs = {"properties": {"value": {"Plan tier": "{event.properties.plan}", "MRR": "5000"}}}
+        inputs = {
+            "properties": {
+                "value": {
+                    "Plan tier": "{event.properties.plan}",
+                    "MRR": "5000",
+                    "Property to clear": clear_marker,
+                }
+            }
+        }
 
         validated = validate_inputs(inputs_schema, inputs)
 
         assert validated["properties"].get("bytecode") is not None
+        assert validated["properties"]["value"]["Property to clear"] == clear_marker
+        assert validated["properties"]["bytecode"]["Property to clear"] == clear_marker
 
     def test_customer_analytics_account_relationships_validates_assignment_dict(self):
         # Guards the type's registration in InputsSchemaItemSerializer's ChoiceField —
@@ -1209,6 +1285,11 @@ class TestTaskInputTypeValidation(SimpleTestCase):
             ("installations_string_list", "task_mcp_installations", ["id-1", "id-2"], True),
             ("installations_not_list", "task_mcp_installations", "id-1", False),
             ("installations_not_strings", "task_mcp_installations", [1, 2], False),
+            ("signals_scout_string", "signals_scout", "signals-scout-error-tracking", True),
+            ("signals_scout_not_string", "signals_scout", 123, False),
+            ("skills_string_list", "task_skills", ["error-triage", "db-runbook"], True),
+            ("skills_not_list", "task_skills", "error-triage", False),
+            ("skills_not_strings", "task_skills", [{"name": "error-triage"}], False),
         ]
     )
     def test_task_input_value_shapes(self, _name, schema_type, value, expect_valid):

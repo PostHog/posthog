@@ -10,7 +10,7 @@ const mocks = vi.hoisted(() => ({
   channels: [] as {
     id: string;
     name: string;
-    channelType: "public" | "personal";
+    channelType: "public" | "personal" | "private";
     starred: boolean;
   }[],
   channelsLoading: false,
@@ -98,13 +98,14 @@ vi.mock("@tanstack/react-router", () => ({
   }: {
     select: (s: {
       matches: { fullPath: string }[];
-      location: { pathname: string; state: { tabId?: string } };
+      location: { pathname: string; href: string; state: { tabId?: string } };
     }) => unknown;
   }) =>
     select({
       matches: [{ fullPath: mocks.fullPath }],
       location: {
         pathname: mocks.fullPath,
+        href: mocks.fullPath,
         state: { tabId: mocks.historyTabId },
       },
     }),

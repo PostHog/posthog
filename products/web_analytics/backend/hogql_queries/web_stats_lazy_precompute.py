@@ -40,6 +40,7 @@ from products.web_analytics.backend.hogql_queries.web_analytics_lazy_precompute 
 )
 from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import (
     handle_stale_served,
+    set_lazy_precompute_ineligible_reason,
     web_ensure_precomputed,
 )
 
@@ -197,6 +198,13 @@ def can_use_lazy_precompute(runner: "WebStatsTableQueryRunner") -> bool:
     """Return True iff the lazy precompute path is eligible for this web stats
     table query — the shared web analytics gate plus stats-specific checks."""
     if runner._effective_breakdown() != runner.query.breakdownBy:
+        # First-pageview attribution rewrites the breakdown, and no family precomputes the rewritten
+        # shape. This returns before the shared gate that would otherwise log and record, so do both
+        # here. Left silent, the read reports no reason at all, which is how a read the owning family
+        # admitted but had no data for reports. Recorded as a bare name rather than an exception
+        # because nothing raises it, and the two families' exceptions come from different hierarchies.
+        set_lazy_precompute_ineligible_reason("BreakdownRemapped")
+        logger.info(f"{_FAMILY}_lazy_precompute_rejected", team_id=runner.team.pk, reason="BreakdownRemapped")
         return False
     return _can_use_lazy_precompute_shared(runner, log_prefix="web_stats", extra_check=_check_stats_eligible)
 
@@ -409,10 +417,10 @@ def _resolve_sort_metric(query: WebStatsTableQuery) -> tuple[str, bool]:
     descending = True
     if query.orderBy:
         field = query.orderBy[0]
-        direction = query.orderBy[1]
         if field == WebAnalyticsOrderByFields.VIEWS:
             sort_metric = "views"
-        descending = direction != WebAnalyticsOrderByDirection.ASC
+        if len(query.orderBy) > 1:
+            descending = query.orderBy[1] != WebAnalyticsOrderByDirection.ASC
     return sort_metric, descending
 
 

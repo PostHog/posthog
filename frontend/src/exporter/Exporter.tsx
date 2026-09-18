@@ -18,8 +18,7 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { ExporterLogin } from '~/exporter/ExporterLogin'
 import { ExportType, ExportedData } from '~/exporter/types'
-import { isInsightVizNode, isTrendsQuery } from '~/queries/utils'
-import { ChartDisplayType } from '~/types'
+import { isMetricInsightQuery } from '~/queries/utils'
 
 import { exporterViewLogic } from './exporterViewLogic'
 
@@ -98,13 +97,7 @@ export function Exporter(props: ExportedData): JSX.Element {
     // Applies to both saved insights and ad-hoc query exports — the image exporter narrows
     // the screenshot viewport for both.
     const metricQuery = insight?.query ?? query
-    const metric =
-        metricQuery &&
-        isInsightVizNode(metricQuery) &&
-        isTrendsQuery(metricQuery.source) &&
-        metricQuery.source.trendsFilter?.display === ChartDisplayType.Metric
-            ? metricQuery
-            : undefined
+    const metric = isMetricInsightQuery(metricQuery)
 
     const { currentTeam } = useValues(teamLogic)
     const { ref: elementRef, height, width } = useResizeObserver()

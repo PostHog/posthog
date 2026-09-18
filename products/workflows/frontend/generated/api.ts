@@ -28,6 +28,7 @@ import type {
     HogFlowTemplateApi,
     HogFlowTemplatesListParams,
     HogFlowTemplatesLogsRetrieveParams,
+    HogFlowUpdateApi,
     HogFlowsAssetContentRetrieveParams,
     HogFlowsAssetsRetrieveParams,
     HogFlowsInvocationResultsCountRetrieveParams,
@@ -51,11 +52,12 @@ import type {
     PaginatedHogFlowRevisionBasicListApi,
     PaginatedHogFlowTemplateListApi,
     PatchedHogFlowActionEmailUpdateApi,
-    PatchedHogFlowApi,
     PatchedHogFlowGraphUpdateApi,
     PatchedHogFlowScheduleApi,
     PatchedHogFlowTemplateApi,
+    PatchedHogFlowUpdateApi,
     TeamEmailReputationResponseApi,
+    WorkflowEmailPauseStatusApi,
     WorkflowStatsRowApi,
 } from './api.schemas'
 
@@ -298,14 +300,14 @@ export const getHogFlowsUpdateUrl = (projectId: string, id: string) => {
 export const hogFlowsUpdate = async (
     projectId: string,
     id: string,
-    hogFlowApi: NonReadonly<HogFlowApi>,
+    hogFlowUpdateApi: NonReadonly<HogFlowUpdateApi>,
     options?: RequestInit
-): Promise<HogFlowApi> => {
-    return apiMutator<HogFlowApi>(getHogFlowsUpdateUrl(projectId, id), {
+): Promise<HogFlowUpdateApi> => {
+    return apiMutator<HogFlowUpdateApi>(getHogFlowsUpdateUrl(projectId, id), {
         ...options,
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(hogFlowApi),
+        body: JSON.stringify(hogFlowUpdateApi),
     })
 }
 
@@ -316,14 +318,14 @@ export const getHogFlowsPartialUpdateUrl = (projectId: string, id: string) => {
 export const hogFlowsPartialUpdate = async (
     projectId: string,
     id: string,
-    patchedHogFlowApi?: NonReadonly<PatchedHogFlowApi>,
+    patchedHogFlowUpdateApi?: NonReadonly<PatchedHogFlowUpdateApi>,
     options?: RequestInit
-): Promise<HogFlowApi> => {
-    return apiMutator<HogFlowApi>(getHogFlowsPartialUpdateUrl(projectId, id), {
+): Promise<HogFlowUpdateApi> => {
+    return apiMutator<HogFlowUpdateApi>(getHogFlowsPartialUpdateUrl(projectId, id), {
         ...options,
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(patchedHogFlowApi),
+        body: JSON.stringify(patchedHogFlowUpdateApi),
     })
 }
 
@@ -780,6 +782,28 @@ export const hogFlowsRerunCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(hogInvocationRerunRequestApi),
+    })
+}
+
+export const getHogFlowsResumeEmailSendingUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/hog_flows/${id}/resume_email_sending/`
+}
+
+/**
+ * Resume email sending for a workflow PostHog paused automatically.
+ *
+ * Self-serve on purpose. Resuming re-arms the detector rather than exempting the workflow, so
+ * a workflow that is still generating complaints or hard bounces pauses again within minutes,
+ * while a customer who has cleaned up their audience does not have to wait on support.
+ */
+export const hogFlowsResumeEmailSending = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<WorkflowEmailPauseStatusApi> => {
+    return apiMutator<WorkflowEmailPauseStatusApi>(getHogFlowsResumeEmailSendingUrl(projectId, id), {
+        ...options,
+        method: 'POST',
     })
 }
 

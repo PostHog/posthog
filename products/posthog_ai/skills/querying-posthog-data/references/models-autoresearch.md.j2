@@ -1,0 +1,15 @@
+# Autoresearch
+
+## AutoresearchPipeline (`system.autoresearch_pipelines`)
+
+A standing prediction question: a target event, a population, and a horizon ("who will download a file in the next 30 days?").
+An agent searches for a model that answers it, and the product scores the population on a cadence.
+
+### Columns
+
+{{ schema_columns('system.autoresearch_pipelines') }}
+
+### Key Relationships
+
+- Pipelines belong to a **Team** (`team_id`)
+- A pipeline owns its training runs, iterations, trained models, operational runs, and suggestions. None of those are exposed as system tables, and there is no read path for them yet.

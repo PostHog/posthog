@@ -6,7 +6,7 @@ from unittest import mock
 from django.db import OperationalError
 
 import requests
-from google.auth.exceptions import RefreshError
+from google.auth.exceptions import RefreshError, TransportError
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.googlesearchconsole import (
     GoogleSearchConsoleSourceConfig,
@@ -945,6 +945,39 @@ def test_query_permanent_token_refresh_error_bubbles_without_retry(monkeypatch):
         _query_search_analytics(session, "sc-domain:example.com", "2026-04-15", "2026-04-15", ["date"], 0)
 
     assert session.post.call_count == 1
+
+
+def test_query_retries_token_refresh_transport_error_then_succeeds(monkeypatch):
+    monkeypatch.setattr(gsc.time, "sleep", lambda _s: None)
+    monkeypatch.setattr(gsc, "_throttle", lambda _site: None)
+
+    session = mock.MagicMock()
+    session.post.side_effect = [
+        # AuthorizedSession wraps a network-layer failure (e.g. a proxy error) hit while
+        # refreshing the access token in this class, not RefreshError.
+        TransportError("Cannot connect to proxy."),
+        _fake_response(200, {"rows": [{"keys": ["2026-04-15"], "clicks": 1}]}),
+    ]
+
+    rows = _query_search_analytics(session, "sc-domain:example.com", "2026-04-15", "2026-04-15", ["date"], 0)
+
+    assert rows == [{"keys": ["2026-04-15"], "clicks": 1}]
+    assert session.post.call_count == 2
+
+
+def test_query_token_refresh_transport_error_bubbles_after_max_retries(monkeypatch):
+    monkeypatch.setattr(gsc.time, "sleep", lambda _s: None)
+    monkeypatch.setattr(gsc, "_throttle", lambda _site: None)
+
+    session = mock.MagicMock()
+    session.post.side_effect = TransportError("Cannot connect to proxy.")
+
+    # A persistent token-refresh transport failure exhausts the inline budget and surfaces the
+    # real TransportError (retryable at the activity level).
+    with pytest.raises(TransportError):
+        _query_search_analytics(session, "sc-domain:example.com", "2026-04-15", "2026-04-15", ["date"], 0)
+
+    assert session.post.call_count == QUOTA_MAX_RETRIES + 1
 
 
 def test_throttle_spaces_requests_per_site(monkeypatch):

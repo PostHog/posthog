@@ -1,16 +1,23 @@
+from contextlib import nullcontext
+from datetime import timedelta
 from uuid import uuid4
 
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
 from django.core.cache import cache
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
 
 from parameterized import parameterized
+
+from posthog.hogql.database.database import Database
 
 from posthog.constants import AvailableFeature
 from posthog.models import OrganizationMembership, User
 
 from products.access_control.backend.models.access_control import AccessControl
+from products.data_catalog.backend.facade.models import Metric
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.data_quality.backend.facade.enums import (
     CheckRunStatus,
@@ -22,12 +29,16 @@ from products.data_quality.backend.facade.enums import (
 from products.data_quality.backend.logic.notifications import (
     _blocking_referenced_names,
     _WarehouseSubjectResolver,
+    notify_check_started_failing,
     notify_materialization_blocked,
 )
 from products.data_quality.backend.logic.runner import run_check
 from products.data_quality.backend.logic.subject_access import referenced_subject_names
 from products.data_quality.backend.models import DataQualityCheck, DataQualityCheckRun, DataQualitySuiteRun
+from products.data_quality.backend.temporal.activities.notify_failing_checks import _notify_failing_checks
+from products.data_quality.backend.temporal.contracts import NotifyFailingChecksInputs
 from products.notifications.backend.facade.enums import TargetType
+from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSource
 
 RUNNER_QUERY = "products.data_quality.backend.logic.runner.execute_hogql_query"
 CREATE_NOTIFICATION = "products.data_quality.backend.logic.notifications.create_notification"
@@ -67,6 +78,10 @@ class TestDataQualityNotifications(BaseTest):
         }
         return DataQualityCheck.objects.for_team(self.team.id).create(**{**defaults, **kwargs})
 
+    def _run_and_notify(self, check: DataQualityCheck) -> None:
+        run_check(check, self.suite_run, self.team)
+        _notify_failing_checks(NotifyFailingChecksInputs(team_id=self.team.id, suite_run_id=str(self.suite_run.id)))
+
     def _resolver_for(self, check: DataQualityCheck) -> _WarehouseSubjectResolver:
         return _WarehouseSubjectResolver(
             self.team,
@@ -77,22 +92,159 @@ class TestDataQualityNotifications(BaseTest):
 
     @parameterized.expand(
         [
-            ("first_failure", "", CheckSeverity.ERROR, 3, 1),
-            ("still_failing", CheckRunStatus.FAILED, CheckSeverity.ERROR, 3, 0),
-            ("recovered_then_failed_again", CheckRunStatus.PASSED, CheckSeverity.ERROR, 3, 1),
-            ("warn_severity_failure", "", CheckSeverity.WARN, 3, 0),
-            ("passing", "", CheckSeverity.ERROR, 0, 0),
-            ("recovery", CheckRunStatus.FAILED, CheckSeverity.ERROR, 0, 0),
+            ("metric_source",),
+            ("additional_table",),
+            ("catalog",),
+            ("changed_source",),
+            ("unknown_source",),
+            ("nested_cte_source",),
+        ]
+    )
+    def test_metric_notification_filters_recipients_and_links_to_tests(self, denied_resource: str) -> None:
+        additional = DataWarehouseSavedQuery.objects.create(
+            team=self.team, name="customers", query={"kind": "HogQLQuery", "query": "SELECT 1 AS id"}
+        )
+        metric = Metric.objects.for_team(self.team.id).create(
+            team=self.team,
+            name="signups",
+            definition={"kind": "HogQLQuery", "query": "SELECT * FROM orders"},
+            referenced_table_names=["orders"],
+        )
+        check = self._check(
+            subject_type=SubjectType.METRIC,
+            saved_query_id=None,
+            metric_id=metric.id,
+            subject_name="old_name",
+            column_name="",
+            check_type=CheckType.CUSTOM_SQL,
+            config={
+                "query": "SELECT * FROM {metric}"
+                if denied_resource == "unknown_source"
+                else "SELECT * FROM {metric} JOIN customers ON 1 = 1"
+            },
+        )
+        if denied_resource == "nested_cte_source":
+            metric.definition = {
+                "kind": "HogQLQuery",
+                "query": "SELECT * FROM orders UNION ALL "
+                "SELECT * FROM (WITH orders AS (SELECT 123 AS total) SELECT * FROM orders)",
+            }
+            metric.save(update_fields=["definition"])
+            check.config = {"query": "SELECT * FROM {metric}"}
+            DataQualityCheck.objects.for_team(self.team.id).filter(id=check.id).update(config=check.config)
+        blocked = User.objects.create_and_join(self.organization, "blocked-metric@example.com", "password")
+        if denied_resource == "unknown_source":
+            OrganizationMembership.objects.filter(organization=self.organization, user=self.user).update(
+                level=OrganizationMembership.Level.ADMIN
+            )
+        if denied_resource == "catalog":
+            self.organization.available_product_features = [{"key": AvailableFeature.ACCESS_CONTROL}]
+            self.organization.save(update_fields=["available_product_features"])
+            AccessControl.objects.create(
+                team=self.team,
+                resource="data_catalog",
+                organization_member=OrganizationMembership.objects.get(organization=self.organization, user=blocked),
+                access_level="none",
+            )
+            cache.clear()
+        else:
+            self._deny_view_for_member(additional if denied_resource == "additional_table" else self.view, blocked)
+        with patch(CREATE_NOTIFICATION) as notifications:
+            if denied_resource in ("changed_source", "unknown_source", "nested_cte_source"):
+                check.created_by = self.user
+                DataQualityCheck.objects.for_team(self.team.id).filter(id=check.id).update(created_by=self.user)
+                self.suite_run.trigger = SuiteRunTrigger.SCHEDULED
+                self.suite_run.save(update_fields=["trigger"])
+
+                def change_metric(*args: object, **kwargs: object) -> _Response:
+                    metric.definition = {"kind": "HogQLQuery", "query": "SELECT 1 AS id"}
+                    metric.referenced_table_names = []
+                    metric.save(update_fields=["definition", "referenced_table_names"])
+                    return _Response(3)
+
+                pinning = (
+                    patch("products.data_quality.backend.logic.runner.pin_referenced_subjects", return_value=None)
+                    if denied_resource == "unknown_source"
+                    else nullcontext()
+                )
+                with patch(RUNNER_QUERY, side_effect=change_metric), pinning:
+                    outcome = run_check(check, self.suite_run, self.team)
+                assert outcome.status == CheckRunStatus.FAILED
+                _notify_failing_checks(
+                    NotifyFailingChecksInputs(team_id=self.team.id, suite_run_id=str(self.suite_run.id))
+                )
+            else:
+                notify_check_started_failing(check, 3)
+        assert notifications.call_count == 1
+        notification = notifications.call_args.args[0]
+        assert notification.resource_type == "data_catalog"
+        assert notification.resource_id == str(metric.id)
+        assert notification.source_url == f"/project/{self.team.id}/data-catalog/metrics/signups?tab=tests"
+        assert notification.title == "Data quality check failed on signups"
+        with CaptureQueriesContext(connection) as queries:
+            recipients = notification.resolver.resolve(TargetType.TEAM, str(self.team.id), self.team.id)
+        metric_reads = [
+            query for query in queries.captured_queries if f'FROM "{Metric._meta.db_table}"' in query["sql"]
+        ]
+        assert len(metric_reads) <= 1
+        assert self.user.id in recipients
+        assert blocked.id not in recipients
+
+    @parameterized.expand([("metric",), ("view",)])
+    def test_a_subject_deleted_before_the_notice_sends_nothing(self, subject_type: str) -> None:
+        if subject_type == "metric":
+            metric = Metric.objects.for_team(self.team.id).create(
+                team=self.team, name="signups", definition={"kind": "HogQLQuery", "query": "SELECT 1 AS id"}
+            )
+            check = self._check(
+                subject_type=SubjectType.METRIC,
+                saved_query_id=None,
+                metric_id=metric.id,
+                subject_name="signups",
+                column_name="",
+                check_type=CheckType.CUSTOM_SQL,
+                config={"query": "SELECT * FROM {metric}"},
+            )
+            metric.deleted = True
+            metric.save(update_fields=["deleted"])
+        else:
+            check = self._check()
+            self.view.deleted = True
+            self.view.save(update_fields=["deleted"])
+
+        with patch(CREATE_NOTIFICATION) as notifications:
+            notify_check_started_failing(check, 3)
+
+        notifications.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("first_failure", "", None, CheckSeverity.ERROR, 3, 1),
+            ("still_failing", CheckRunStatus.FAILED, "before_the_suite", CheckSeverity.ERROR, 3, 0),
+            ("recovered_then_failed_again", CheckRunStatus.PASSED, None, CheckSeverity.ERROR, 3, 1),
+            ("warn_severity_failure", "", None, CheckSeverity.WARN, 3, 0),
+            ("passing", "", None, CheckSeverity.ERROR, 0, 0),
+            ("recovery", CheckRunStatus.FAILED, "before_the_suite", CheckSeverity.ERROR, 0, 0),
         ]
     )
     def test_only_a_pass_to_fail_edge_on_an_error_check_notifies(
-        self, _name, previous_status: str, severity: CheckSeverity, failure_count: int, expected_calls: int
+        self,
+        _name,
+        previous_status: str,
+        streak_start: str | None,
+        severity: CheckSeverity,
+        failure_count: int,
+        expected_calls: int,
     ) -> None:
-        check = self._check(last_status=previous_status, severity=severity)
+        check = self._check(
+            last_status=previous_status,
+            severity=severity,
+            failing_since=self.suite_run.created_at - timedelta(minutes=5) if streak_start else None,
+        )
 
         with patch(CREATE_NOTIFICATION) as create_notification:
             with patch(RUNNER_QUERY, return_value=_Response(failure_count)):
-                run_check(check, self.suite_run, self.team)
+                self._run_and_notify(check)
 
         assert create_notification.call_count == expected_calls
 
@@ -101,7 +253,7 @@ class TestDataQualityNotifications(BaseTest):
 
         with patch(CREATE_NOTIFICATION) as create_notification:
             with patch(RUNNER_QUERY, return_value=_Response(4)):
-                run_check(check, self.suite_run, self.team)
+                self._run_and_notify(check)
 
         payload = create_notification.call_args.args[0]
         assert payload.title == "Data quality check failed on orders"
@@ -115,33 +267,19 @@ class TestDataQualityNotifications(BaseTest):
 
         with patch(CREATE_NOTIFICATION) as create_notification:
             with patch(RUNNER_QUERY, return_value=_Response(4)):
-                run_check(check, self.suite_run, self.team)
+                self._run_and_notify(check)
 
         assert create_notification.call_args.args[0].resource_type == "warehouse_objects"
 
-    @patch("products.notifications.backend.resolvers.UserAccessControl")
-    def test_members_without_query_access_do_not_get_the_failing_row_count(self, mock_uac_cls) -> None:
+    @parameterized.expand([("view_subject", SubjectType.VIEW), ("metric_subject", SubjectType.METRIC)])
+    def test_members_without_query_access_do_not_get_the_failing_row_count(self, _name, subject_type: str) -> None:
         # The body's failing-row count is a count oracle over warehouse rows the run-history API gates
         # behind query access, so a member with warehouse access but no query access must be dropped.
-        self.organization.available_product_features = [{"key": AvailableFeature.ACCESS_CONTROL}]
-        self.organization.save()
+        self._enable_access_controls()
         denied = User.objects.create_and_join(self.organization, "no-query@test.com", "password")
+        self._deny_resource("query", denied)
+        check = self._check(**self._metric_subject() if subject_type == SubjectType.METRIC else {})
 
-        class FakeUAC:
-            def __init__(self, user, team) -> None:
-                self._user_id = user.id
-
-            @property
-            def access_controls_supported(self) -> bool:
-                return True
-
-            def check_access_level_for_resource(self, resource, level) -> bool:
-                # Everyone can see warehouse objects; only the denied user lacks query access.
-                return resource != "query" or self._user_id != denied.id
-
-        mock_uac_cls.side_effect = FakeUAC
-
-        check = self._check()
         resolved = self._resolver_for(check).resolve(TargetType.TEAM, str(self.team.id), self.team.id)
 
         assert self.user.id in resolved
@@ -169,20 +307,43 @@ class TestDataQualityNotifications(BaseTest):
         assert allowed.id in resolved
         assert blocked.id not in resolved
 
-    def _deny_view_for_member(self, view, member: User) -> None:
-        # Deny one member object-level access to a view the way the HogQL database sees it, so
-        # denied_subject_names() picks it up -- the same setup the REST run-history tests use.
+    @parameterized.expand([("table",), ("source",)])
+    def test_table_notifications_preserve_object_and_source_grants(self, granted_resource: str) -> None:
+        self.organization.available_product_features = [{"key": AvailableFeature.ACCESS_CONTROL}]
+        self.organization.save(update_fields=["available_product_features"])
+        allowed = self._create_user("allowed@example.com")
+        blocked = self._create_user("blocked@example.com")
+        source = ExternalDataSource.objects.create(team=self.team, source_type="Stripe")
+        table = DataWarehouseTable.objects.create(
+            team=self.team,
+            name="orders_table",
+            format="Parquet",
+            url_pattern="s3://bucket/orders",
+            external_data_source=source,
+            created_by=self.user,
+        )
+        AccessControl.objects.create(team=self.team, resource="warehouse_objects", access_level="none")
+        AccessControl.objects.create(
+            team=self.team,
+            resource="external_data_source" if granted_resource == "source" else "warehouse_table",
+            resource_id=str(source.id if granted_resource == "source" else table.id),
+            organization_member=OrganizationMembership.objects.get(organization=self.organization, user=allowed),
+            access_level="viewer",
+        )
+        check = self._check(
+            subject_type=SubjectType.TABLE, saved_query_id=None, table_id=table.id, subject_name=table.name
+        )
+        resolved = self._resolver_for(check).resolve(TargetType.TEAM, str(self.team.id), self.team.id)
+
+        assert allowed.id in resolved
+        assert self.user.id in resolved
+        assert blocked.id not in resolved
+
+    def _enable_access_controls(self) -> None:
         self.organization.available_product_features = [
             {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
         ]
         self.organization.save(update_fields=["available_product_features"])
-        AccessControl.objects.create(
-            team=self.team,
-            resource="warehouse_view",
-            resource_id=str(view.id),
-            organization_member=OrganizationMembership.objects.get(organization=self.organization, user=member),
-            access_level="none",
-        )
         flag = patch(
             "posthog.hogql.database.database.feature_enabled_or_false",
             side_effect=lambda name, *a, **k: name == "hogql-warehouse-access-control",
@@ -191,14 +352,28 @@ class TestDataQualityNotifications(BaseTest):
         self.addCleanup(flag.stop)
         cache.clear()
 
+    def _deny_view_for_member(self, view, member: User) -> None:
+        # Deny one member object-level access to a view the way the HogQL database sees it, so
+        # denied_subject_names() picks it up -- the same setup the REST run-history tests use.
+        self._enable_access_controls()
+        AccessControl.objects.create(
+            team=self.team,
+            resource="warehouse_view",
+            resource_id=str(view.id),
+            organization_member=OrganizationMembership.objects.get(organization=self.organization, user=member),
+            access_level="none",
+        )
+
     @parameterized.expand(
         [
-            ("custom_sql", CheckType.CUSTOM_SQL, "", {"query": "SELECT 1 FROM orders"}),
-            ("relationships", CheckType.RELATIONSHIPS, "customer_id", None),
+            ("custom_sql", CheckType.CUSTOM_SQL, "", {"query": "SELECT 1 FROM orders"}, True),
+            ("relationships", CheckType.RELATIONSHIPS, "customer_id", None, True),
+            ("custom_sql_without_enforcement", CheckType.CUSTOM_SQL, "", {"query": "SELECT 1 FROM orders"}, False),
+            ("relationships_without_enforcement", CheckType.RELATIONSHIPS, "customer_id", None, False),
         ]
     )
     def test_members_denied_a_referenced_subject_do_not_get_the_notification(
-        self, _name, check_type, column_name, config
+        self, _name, check_type, column_name, config, enforce_warehouse_access: bool
     ) -> None:
         # A relationships check reads a target subject and a custom_sql check reads arbitrary tables,
         # so the failing-row count is a count oracle over those too. A member allowed the declared
@@ -219,10 +394,193 @@ class TestDataQualityNotifications(BaseTest):
             config=config,
         )
 
+        with patch(
+            "posthog.hogql.database.database.feature_enabled_or_false",
+            side_effect=lambda name, *args, **kwargs: (
+                enforce_warehouse_access and name == "hogql-warehouse-access-control"
+            ),
+        ):
+            resolved = self._resolver_for(check).resolve(TargetType.TEAM, str(self.team.id), self.team.id)
+
+        assert self.user.id in resolved
+        assert blocked.id not in resolved
+
+    def _deny_resource(self, resource: str, member: User, resource_id: str | None = None) -> None:
+        AccessControl.objects.create(
+            team=self.team,
+            resource=resource,
+            resource_id=resource_id,
+            organization_member=OrganizationMembership.objects.get(organization=self.organization, user=member),
+            access_level="none",
+        )
+        cache.clear()
+
+    def _metric_subject(self) -> dict:
+        metric = Metric.objects.for_team(self.team.id).create(
+            team=self.team, name="signups", definition={"kind": "HogQLQuery", "query": "SELECT 1 AS id"}
+        )
+        return {
+            "subject_type": SubjectType.METRIC,
+            "saved_query_id": None,
+            "metric_id": metric.id,
+            "subject_name": "signups",
+            "check_type": CheckType.ROW_COUNT,
+            "column_name": "",
+            "config": {"min": 1},
+        }
+
+    def _check_reading(self, denied_kind: str, blocked: User) -> DataQualityCheck:
+        customers = DataWarehouseSavedQuery.objects.create(
+            team=self.team, name="customers", query={"kind": "HogQLQuery", "query": "SELECT 1 AS id"}
+        )
+        if denied_kind == "stripe_table":
+            source = ExternalDataSource.objects.create(team=self.team, source_type="Stripe")
+            charges = DataWarehouseTable.objects.create(
+                team=self.team,
+                name="stripe_charges",
+                format=DataWarehouseTable.TableFormat.Parquet,
+                url_pattern="s3://bucket/charges",
+                external_data_source=source,
+            )
+            self._deny_resource("warehouse_table", blocked, str(charges.id))
+            reads = "stripe.charges"
+        elif denied_kind == "backing_table":
+            matview = DataWarehouseSavedQuery.objects.create(
+                team=self.team, name="daily_orders", query={"kind": "HogQLQuery", "query": "SELECT 1 AS id"}
+            )
+            backing_table = DataWarehouseTable.objects.create(
+                team=self.team,
+                name=matview.name,
+                format=DataWarehouseTable.TableFormat.Parquet,
+                url_pattern=f"s3://bucket/{matview.folder_path}/{matview.normalized_name}",
+            )
+            matview.table = backing_table
+            matview.is_materialized = True
+            matview.save(update_fields=["table", "is_materialized"])
+            self._deny_resource("warehouse_view", blocked, str(matview.id))
+            reads = backing_table.name
+        elif denied_kind == "direct_table_shadowing_a_view":
+            DataWarehouseTable.objects.create(
+                team=self.team,
+                name=self.view.name,
+                format=DataWarehouseTable.TableFormat.Parquet,
+                url_pattern="s3://bucket/orders",
+                external_data_source=ExternalDataSource.objects.create(
+                    team=self.team, source_type="Postgres", access_method=ExternalDataSource.AccessMethod.DIRECT
+                ),
+            )
+            self._deny_resource("warehouse_view", blocked, str(self.view.id))
+            reads = self.view.name
+        else:
+            if denied_kind == "warehouse_table_shadowing_a_system_table":
+                DataWarehouseTable.objects.create(
+                    team=self.team,
+                    name="system_annotations",
+                    format=DataWarehouseTable.TableFormat.Parquet,
+                    url_pattern="s3://bucket/system_annotations",
+                )
+            self._deny_resource("annotation", blocked)
+            reads = "system.annotations"
+        return self._check(
+            saved_query_id=customers.id,
+            subject_name="customers",
+            check_type=CheckType.CUSTOM_SQL,
+            column_name="",
+            config={"query": f"SELECT 1 FROM {reads}"},
+        )
+
+    def test_a_reference_that_does_not_parse_withholds_the_notification(self) -> None:
+        # referenced_subjects is an unrestricted JSON column, so a run can pin an entry that is not a
+        # uuid. That must drop the recipient, never abort the notice for everyone.
+        self._enable_access_controls()
+        member = User.objects.create_and_join(self.organization, "unparseable-ref@test.com", "password")
+        check = self._custom_sql_check_reading_orders()
+        resolver = _WarehouseSubjectResolver(
+            self.team,
+            check.subject_type,
+            str(check.subject_uuid),
+            executed_references=[{"subject_type": str(SubjectType.VIEW), "subject_uuid": "not-a-uuid"}],
+        )
+
+        resolved = resolver.resolve(TargetType.TEAM, str(self.team.id), self.team.id)
+
+        assert member.id not in resolved
+        assert self.user.id not in resolved
+
+    def _custom_sql_check_reading_orders(self) -> DataQualityCheck:
+        customers = DataWarehouseSavedQuery.objects.create(
+            team=self.team, name="customers", query={"kind": "HogQLQuery", "query": "SELECT 1 AS id"}
+        )
+        return self._check(
+            saved_query_id=customers.id,
+            subject_name="customers",
+            check_type=CheckType.CUSTOM_SQL,
+            column_name="",
+            config={"query": "SELECT 1 FROM orders"},
+        )
+
+    def test_the_gate_costs_what_the_check_reads_not_what_the_team_owns(self) -> None:
+        allowed = User.objects.create_and_join(self.organization, "allowed-cost@test.com", "password")
+        denied = User.objects.create_and_join(self.organization, "denied-cost@test.com", "password")
+        self._deny_view_for_member(self.view, denied)
+        check = self._custom_sql_check_reading_orders()
+
+        with patch.object(Database, "create_for", side_effect=Database.create_for) as build:
+            with CaptureQueriesContext(connection) as small_team:
+                resolved = self._resolver_for(check).resolve(TargetType.TEAM, str(self.team.id), self.team.id)
+
+        build.assert_not_called()
+        assert {allowed.id, self.user.id} <= set(resolved)
+        assert denied.id not in resolved
+
+        for index in range(20):
+            DataWarehouseSavedQuery.objects.create(
+                team=self.team, name=f"unrelated_view_{index}", query={"kind": "HogQLQuery", "query": "SELECT 1 AS id"}
+            )
+            DataWarehouseTable.objects.create(
+                team=self.team,
+                name=f"unrelated_table_{index}",
+                format="Parquet",
+                url_pattern=f"s3://bucket/unrelated_{index}",
+            )
+        cache.clear()
+
+        with CaptureQueriesContext(connection) as large_team:
+            self._resolver_for(check).resolve(TargetType.TEAM, str(self.team.id), self.team.id)
+
+        assert len(large_team.captured_queries) == len(small_team.captured_queries)
+
+    @parameterized.expand(
+        [
+            ("dotted_source_table", "stripe_table"),
+            ("materialized_view_backing_table", "backing_table"),
+            ("denied_system_table", "system_table"),
+            ("warehouse_table_shadowing_a_system_table", "warehouse_table_shadowing_a_system_table"),
+            ("direct_table_shadowing_a_view", "direct_table_shadowing_a_view"),
+        ]
+    )
+    def test_a_reference_the_member_cannot_read_withholds_the_notification(self, _name, denied_kind: str) -> None:
+        self._enable_access_controls()
+        blocked = User.objects.create_and_join(self.organization, f"blocked-{denied_kind}@test.com", "password")
+        check = self._check_reading(denied_kind, blocked)
+
         resolved = self._resolver_for(check).resolve(TargetType.TEAM, str(self.team.id), self.team.id)
 
         assert self.user.id in resolved
         assert blocked.id not in resolved
+
+    def test_a_relationship_target_keeps_its_name_for_notification_filtering(self) -> None:
+        check = self._check(
+            check_type=CheckType.RELATIONSHIPS,
+            column_name="customer_id",
+            config={
+                "to_subject_type": SubjectType.VIEW,
+                "to_subject_uuid": str(self.view.id),
+                "to_column": "id",
+            },
+        )
+
+        assert referenced_subject_names(self.team.id, check.check_type, check.config) == ["orders"]
 
     def test_members_denied_a_referenced_subject_do_not_get_the_blocked_materialization_count(self) -> None:
         # The blocked-materialization body counts the checks that failed, and one of them reads a

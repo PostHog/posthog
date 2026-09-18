@@ -40,7 +40,7 @@ Before scaffolding YAML, verify:
    Missing descriptions = agents guessing at parameters.
    Use `ListField(child=serializers.CharField())` instead of bare `ListField()`,
    and `@extend_schema_field(PydanticModel)` on `JSONField` subclasses to get typed Zod output
-   (see `products/alerts/backend/api/alert.py` for the pattern).
+   (see `products/alerts/backend/presentation/views/alert.py` for the pattern).
 2. **Plain `ViewSet` methods have `@extend_schema(request=...)`** —
    without it, drf-spectacular can't discover the request body
    and the generated tool gets `z.object({})` (zero parameters).
@@ -164,6 +164,10 @@ tools:
       # include and exclude are mutually exclusive
       selectable: true # add optional `fields` param so the agent picks a subset of `include` per call
       # (constrained to the allowlist); omit `fields` to return the full set. Requires `include`.
+      strip_nulls: true # remove keys whose value is `null`, applied after include/exclude
+      # Use it on tools that echo a nested serializer schema, where the unset optional fields
+      # dominate the payload. Rejected with `list: true`, where per-row null removal makes the
+      # TOON table larger. Use `exclude` to drop the fields on a list tool instead.
     feature_flag: my-flag-key # gate this tool behind a PostHog feature flag
     feature_flag_behavior: enable # 'enable' (default) or 'disable'
 ```

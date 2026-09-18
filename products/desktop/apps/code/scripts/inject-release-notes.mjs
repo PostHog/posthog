@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 import { readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { parse, stringify } from "yaml";
+import { parse } from "yaml";
+import { stringifyManifest } from "./merge-mac-manifests.mjs";
 
 export function withReleaseNotes(manifest, notes) {
   return { ...manifest, releaseNotes: notes };
@@ -22,7 +23,7 @@ function main() {
     const manifest = parse(readFileSync(manifestPath, "utf8"));
     writeFileSync(
       manifestPath,
-      stringify(withReleaseNotes(manifest, notes)),
+      stringifyManifest(withReleaseNotes(manifest, notes)),
       "utf8",
     );
     console.log(`Injected release notes -> ${manifestPath}`);

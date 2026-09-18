@@ -15,6 +15,27 @@ env:
     RUNS_ON_INTERNAL_PR: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false }}
 
 jobs:
+    # Learning mode: nothing reads these outputs, so a recommendation cannot change what runs.
+    # Fork and Dependabot runs get no secret; the queue always runs everything anyway.
+    # The step fails open, because this telemetry must not turn a passing workflow red.
+    dynamic-ci-filter:
+        name: Trunk Dynamic CI (Learning Mode)
+        if: >-
+            github.event_name == 'pull_request' &&
+            github.repository == 'PostHog/posthog' &&
+            github.event.pull_request.head.repo.full_name == github.repository &&
+            github.actor != 'dependabot[bot]' &&
+            !startsWith(github.head_ref, 'trunk-merge/')
+        runs-on: ubuntu-24.04
+        timeout-minutes: 5
+        permissions: {}
+        steps:
+            - name: Ask Trunk which jobs this diff needs
+              continue-on-error: true
+              uses: trunk-io/dynamic-ci@7e3af9331e8ebdfe0c71ba7d0ff6b7424dde8c57 # v1
+              with:
+                  token: ${{ secrets.TRUNK_API_TOKEN }}
+
     # Job to decide if we should run rust ci
     # See .github/actions/paths-filter/README.md for filter semantics
     changes:
@@ -53,6 +74,7 @@ jobs:
                         - 'rust/**'
                         - 'proto/**'
                         - '.github/workflows/ci-rust.yml'
+                        - '.github/actions/setup-uv/**'
                         - '.github/workflows/rust.yml'
                         - '.github/workflows/rust-docker-build.yml'
                         - '.github/actions/setup-protoc/**'
@@ -125,6 +147,7 @@ jobs:
                       "capture": 102,
                       "capture-load-gen": 38,
                       "capture-logs": 87,
+                      "capture-apm-metrics": 5,
                       "cohort-core": 22,
                       "cohort-event-shuffler": 25,
                       "cohort-seeder": 77,
@@ -275,20 +298,23 @@ jobs:
                   sparse-checkout-cone-mode: false
                   clean: false
 
-            - parallel:
-                  - name: Install system OpenSSL
-                    run: |
-                        sudo rm -f /etc/apt/sources.list.d/*twingate*
-                        sudo apt-get update
-                        sudo apt-get install -y libssl-dev pkg-config
+            - name: Install system OpenSSL
+              run: |
+                  sudo rm -f /etc/apt/sources.list.d/*twingate*
+                  sudo apt-get update
+                  sudo apt-get install -y libssl-dev pkg-config
 
-                  - name: Install protoc
-                    uses: ./.github/actions/setup-protoc
+            # protoc and rustup both write $GITHUB_PATH, so they stay out of a
+            # `parallel:` block. Concurrent writes crash the GitHub Actions runner
+            # ("Collection was modified" or a missing-key error), and the runner
+            # fails the step even though the tool installed fine.
+            - name: Install protoc
+              uses: ./.github/actions/setup-protoc
 
-                  - name: Install rust
-                    uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
-                    with:
-                        toolchain: 1.91.1
+            - name: Install rust
+              uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
+              with:
+                  toolchain: 1.91.1
 
             - name: Set sccache WebDAV key prefix (Cargo.lock hash)
               run: echo "SCCACHE_WEBDAV_KEY_PREFIX=cargo-${{ hashFiles('rust/Cargo.lock') }}" >> "$GITHUB_ENV"
@@ -314,6 +340,15 @@ jobs:
                   echo "Building shard crates: ${crates[*]}"
                   cargo build "${crates[@]}" --locked --release
                   find target/release/ -maxdepth 1 -executable -type f -exec strip {} +
+
+            - name: Report sccache counters
+              if: always()
+              continue-on-error: true
+              run: |
+                  if command -v sccache >/dev/null; then
+                      # The full report includes the cache endpoint, so allow only numeric counters.
+                      sccache --show-stats 2>/dev/null | awk '/^(Compile requests|Cache hits|Cache misses|Non-cacheable calls)[[:space:]]+[0-9]+$/ { print }'
+                  fi
 
     test:
         name: Test Rust (${{ matrix.packages }})
@@ -345,6 +380,7 @@ jobs:
               continue-on-error: true
 
             - name: Log in to Docker Hub
+              continue-on-error: true
               if: ${{ env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != '' }}
               uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
               with:
@@ -406,12 +442,7 @@ jobs:
 
             - name: Install uv
               id: setup-uv
-              uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
-              with:
-                  version: '0.11.28' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
-                  enable-cache: true
-                  cache-dependency-glob: uv.lock
-                  save-cache: ${{ github.ref == 'refs/heads/master' }}
+              uses: ./.github/actions/setup-uv
 
             - name: Install SAML (python3-saml) dependencies
               if: steps.setup-uv.outputs.cache-hit != 'true'
@@ -496,7 +527,14 @@ jobs:
                           extra_args="--test-threads=4"
                       fi
                       if [ "$pkg" = "cohort-seeder" ] && [ -f cohort-seeder/Cargo.toml ] && grep -q '^pg-test-support[[:space:]]*=' cohort-seeder/Cargo.toml; then
-                          DATABASE_URL='postgres://posthog:posthog@localhost:5432/test_posthog' run_nextest "$pkg" -p "$pkg" --features pg-test-support $extra_args || overall_rc=1
+                          features="pg-test-support"
+                          # ch-test-support arms the live-ClickHouse rebuild corpus against the
+                          # compose stack's clickhouse; the grep keeps branches that predate the
+                          # feature building.
+                          if grep -q '^ch-test-support[[:space:]]*=' cohort-seeder/Cargo.toml; then
+                              features="pg-test-support,ch-test-support"
+                          fi
+                          DATABASE_URL='postgres://posthog:posthog@localhost:5432/test_posthog' run_nextest "$pkg" -p "$pkg" --features "$features" $extra_args || overall_rc=1
                       else
                           run_nextest "$pkg" -p "$pkg" $extra_args || overall_rc=1
                       fi
@@ -562,6 +600,15 @@ jobs:
               shell: bash
               run: exit 1
 
+            - name: Report sccache counters
+              if: always()
+              continue-on-error: true
+              run: |
+                  if command -v sccache >/dev/null; then
+                      # The full report includes the cache endpoint, so allow only numeric counters.
+                      sccache --show-stats 2>/dev/null | awk '/^(Compile requests|Cache hits|Cache misses|Non-cacheable calls)[[:space:]]+[0-9]+$/ { print }'
+                  fi
+
     # Spawns a real personhog stack (replica, writer, leaders, leader-mode
     # routers) against dockerized Postgres/Kafka/etcd and asserts that every
     # write acked by the leader path is visible afterwards — in strong reads
@@ -595,6 +642,7 @@ jobs:
                   clean: false
 
             - name: Log in to Docker Hub
+              continue-on-error: true
               if: ${{ env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != '' }}
               uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
               with:
@@ -671,6 +719,26 @@ jobs:
                     --create-via-identity --pg-target-table posthog_person \
                     --leaders 3 --partitions 8 --persons 100 \
                     --concurrency 10 --duration 15s --kill-after 5s --scale-up-after 8s
+
+            # The merge saga under load and chaos: MergePersons calls against
+            # live persons while blast writes race each source's fence and
+            # each target's fold, through a leader kill and a scale-up. Two
+            # sources per call exercise the fold's request order. The wide
+            # persons make the flip repoint a thousand mappings per source.
+            # The gate asserts the folded survivor document, the merge
+            # event's $set and $set_once, that each source is gone (not-found
+            # reads, a tombstone above every acked version, no mapping left
+            # behind), and that the delete leg answers not_found for merged
+            # sources.
+            - name: Run the e2e gate merging persons under chaos (kill + scale-up)
+              run: |
+                  ./target/debug/personhog-test-harness gate \
+                    --pg-target-table posthog_person \
+                    --leaders 3 --partitions 8 --persons 200 \
+                    --concurrency 10 --duration 15s --merge-concurrency 4 --merge-rate 5 \
+                    --merge-sources 2 \
+                    --merge-wide-persons 3 --merge-wide-distinct-ids 1000 --merge-wide-role source \
+                    --kill-after 5s --scale-up-after 8s
 
             # Regression gate for eviction under writer lag: the cache is
             # sized far below the person count so dirty entries evict while
@@ -784,6 +852,15 @@ jobs:
                   path: rust/target/debug/harness-logs/
                   if-no-files-found: ignore
 
+            - name: Report sccache counters
+              if: always()
+              continue-on-error: true
+              run: |
+                  if command -v sccache >/dev/null; then
+                      # The full report includes the cache endpoint, so allow only numeric counters.
+                      sccache --show-stats 2>/dev/null | awk '/^(Compile requests|Cache hits|Cache misses|Non-cacheable calls)[[:space:]]+[0-9]+$/ { print }'
+                  fi
+
     linting:
         name: Lint Rust services (depot-ubuntu-22.04-4)
         needs: changes
@@ -811,21 +888,24 @@ jobs:
                   sparse-checkout-cone-mode: false
                   clean: false
 
-            - parallel:
-                  - name: Install system OpenSSL
-                    run: |
-                        sudo rm -f /etc/apt/sources.list.d/*twingate*
-                        sudo apt-get update
-                        sudo apt-get install -y libssl-dev pkg-config
+            - name: Install system OpenSSL
+              run: |
+                  sudo rm -f /etc/apt/sources.list.d/*twingate*
+                  sudo apt-get update
+                  sudo apt-get install -y libssl-dev pkg-config
 
-                  - name: Install protoc
-                    uses: ./.github/actions/setup-protoc
+            # protoc and rustup both write $GITHUB_PATH, so they stay out of a
+            # `parallel:` block. Concurrent writes crash the GitHub Actions runner
+            # ("Collection was modified" or a missing-key error), and the runner
+            # fails the step even though the tool installed fine.
+            - name: Install protoc
+              uses: ./.github/actions/setup-protoc
 
-                  - name: Install rust
-                    uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
-                    with:
-                        toolchain: 1.91.1
-                        components: clippy,rustfmt
+            - name: Install rust
+              uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
+              with:
+                  toolchain: 1.91.1
+                  components: clippy,rustfmt
 
             - name: Set sccache WebDAV key prefix (Cargo.lock hash)
               run: echo "SCCACHE_WEBDAV_KEY_PREFIX=cargo-${{ hashFiles('rust/Cargo.lock') }}" >> "$GITHUB_ENV"
@@ -868,6 +948,15 @@ jobs:
             - name: Run cargo shear
               run: cargo shear
 
+            - name: Report sccache counters
+              if: always()
+              continue-on-error: true
+              run: |
+                  if command -v sccache >/dev/null; then
+                      # The full report includes the cache endpoint, so allow only numeric counters.
+                      sccache --show-stats 2>/dev/null | awk '/^(Compile requests|Cache hits|Cache misses|Non-cacheable calls)[[:space:]]+[0-9]+$/ { print }'
+                  fi
+
     # Collate job - single required status check for branch protection.
     # Individual jobs skip entirely when no Rust changes, saving runner time.
     rust_tests:
@@ -875,7 +964,7 @@ jobs:
         name: Rust Tests Pass
         runs-on: ubuntu-latest
         timeout-minutes: 5
-        if: always()
+        if: ${{ !cancelled() }}
         permissions: {}
         steps:
             - name: Check all Rust jobs

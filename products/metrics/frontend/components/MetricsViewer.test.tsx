@@ -1,6 +1,7 @@
 import '@testing-library/jest-dom'
 
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { Provider } from 'kea'
 
 import { insightsApi } from 'scenes/insights/utils/api'
@@ -18,15 +19,16 @@ import {
 import {
     metricsAttributesRetrieve,
     metricsQueryCreate,
-    metricsValuesRetrieve,
+    metricsNamesRetrieve,
 } from 'products/metrics/frontend/generated/api'
 
+import { MetricsGroupByButton } from './MetricsGroupByButton'
 import { MetricsViewer } from './MetricsViewer'
 import { metricsViewerLogic } from './metricsViewerLogic'
 
 jest.mock('products/metrics/frontend/generated/api', () => ({
     ...jest.requireActual('products/metrics/frontend/generated/api'),
-    metricsValuesRetrieve: jest.fn(),
+    metricsNamesRetrieve: jest.fn(),
     metricsQueryCreate: jest.fn(),
     metricsSamplesCreate: jest.fn(),
     metricsAttributesRetrieve: jest.fn(),
@@ -56,7 +58,7 @@ describe('MetricsViewer', () => {
         } as AppContext
         useMocks({ get: { '/api/environments/:team_id/dashboards/': { count: 0, results: [] } } })
         initKeaTests()
-        jest.mocked(metricsValuesRetrieve).mockResolvedValue({ results: [] })
+        jest.mocked(metricsNamesRetrieve).mockResolvedValue({ results: [] })
         jest.mocked(metricsQueryCreate).mockResolvedValue({ results: [] })
         jest.mocked(metricsAttributesRetrieve).mockResolvedValue({ results: [], count: 0 })
         jest.mocked(insightsApi.create).mockResolvedValue(SAVED_INSIGHT as QueryBasedInsightModel)
@@ -67,6 +69,44 @@ describe('MetricsViewer', () => {
     afterEach(() => {
         cleanup()
         logic?.unmount()
+    })
+
+    it('shows series counts in the group-by dropdown and selects the attribute key', async () => {
+        jest.mocked(metricsAttributesRetrieve).mockResolvedValue({
+            results: [
+                { name: 'service_name', series_count: 20 },
+                { name: 'env', series_count: 2 },
+            ],
+            count: 2,
+        })
+        const onChange = jest.fn()
+        render(<MetricsGroupByButton groupByKeys={[]} onChange={onChange} disabledReason={null} />)
+        fireEvent.click(screen.getByText('Group by'))
+        const serviceOption = await screen.findByText('service_name')
+        const envOption = screen.getByText('env')
+        expect(serviceOption.compareDocumentPosition(envOption) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+        await userEvent.hover(screen.getByText('20'))
+        expect(await screen.findByText('Number of series with this attribute')).toBeInTheDocument()
+        fireEvent.change(screen.getByPlaceholderText('Group by attribute…'), { target: { value: 'e' } })
+        expect(serviceOption.compareDocumentPosition(envOption) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+        fireEvent.click(envOption)
+        expect(onChange).toHaveBeenCalledWith(['env'])
+    })
+
+    // The formula input only means something once a second series can feed it; showing it
+    // is what makes the multi-series feature discoverable at all.
+    it('reveals a second clause row and the formula input when a series is added', async () => {
+        render(
+            <Provider>
+                <MetricsViewer />
+            </Provider>
+        )
+        expect(screen.queryByPlaceholderText('Formula, e.g. (a - b) / a')).toBeNull()
+
+        fireEvent.click(screen.getByText('Add series'))
+
+        expect(await screen.findByPlaceholderText('Formula, e.g. (a - b) / a')).toBeInTheDocument()
+        expect(logic.values.viewerClauses).toHaveLength(2)
     })
 
     // "Add to dashboard" saves the query as an insight, then hands off to the shared dashboard

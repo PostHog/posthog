@@ -92,6 +92,13 @@ function renderCard(): void {
     )
 }
 
+// The header is on screen while the first read runs too, so waiting for it says nothing about
+// whether a verdict has landed.
+async function findGradedCard(): Promise<void> {
+    await expectLogic(instrumentationChecklistLogic).toDispatchActions(['loadInstrumentationChecklistSuccess'])
+    expect(await screen.findByText('Instrumentation checklist')).toBeInTheDocument()
+}
+
 describe('InstrumentationChecklistCard', () => {
     beforeEach(() => {
         jest.clearAllMocks()
@@ -118,7 +125,7 @@ describe('InstrumentationChecklistCard', () => {
         mockRetrieve.mockResolvedValue(buildChecklist(...statuses))
         renderCard()
 
-        expect(await screen.findByText('Instrumentation checklist')).toBeInTheDocument()
+        await findGradedCard()
         expect(panel()).toHaveAttribute('aria-expanded', expanded)
     })
 
@@ -126,7 +133,7 @@ describe('InstrumentationChecklistCard', () => {
         mockRetrieve.mockResolvedValue(buildChecklist(Ok, Ok, Ok, Ok))
         renderCard()
 
-        expect(await screen.findByText('Instrumentation checklist')).toBeInTheDocument()
+        await findGradedCard()
         expect(screen.queryByText('A sentence about Sessions.')).not.toBeInTheDocument()
 
         await userEvent.click(toggle() as HTMLElement)
@@ -146,6 +153,15 @@ describe('InstrumentationChecklistCard', () => {
         ['the read failed', () => mockRetrieve.mockRejectedValue({ status: 500 })],
     ]
 
+    it('holds its header while the first read runs, rather than a skeleton', async () => {
+        mockRetrieve.mockReturnValue(new Promise(() => {}))
+        renderCard()
+
+        expect(await screen.findByText('Instrumentation checklist')).toBeInTheDocument()
+        expect(screen.getByText('Checking your events')).toBeInTheDocument()
+        expect(document.querySelector('.LemonSkeleton')).not.toBeInTheDocument()
+    })
+
     it.each(noVerdictCases)('renders nothing, not a skeleton, while %s', async (_, arrange) => {
         arrange()
         renderCard()
@@ -159,7 +175,7 @@ describe('InstrumentationChecklistCard', () => {
     it('offers a retry when a refresh fails under a checklist already on screen', async () => {
         mockRetrieve.mockResolvedValue(buildChecklist(Warning, Ok, Ok, Ok))
         renderCard()
-        await screen.findByText('Instrumentation checklist')
+        await findGradedCard()
 
         mockRetrieve.mockRejectedValue({ status: 500 })
         await userEvent.click(screen.getByText('Refresh'))
@@ -185,7 +201,7 @@ describe('InstrumentationChecklistCard', () => {
         mockDismiss.mockImplementation(() => new Promise(() => {}))
         renderCard()
 
-        await screen.findByText('Instrumentation checklist')
+        await findGradedCard()
         expect(actionButtons()).toHaveLength(4)
         expect(actionButtons().map((button) => button.getAttribute('aria-disabled'))).toEqual([
             'false',

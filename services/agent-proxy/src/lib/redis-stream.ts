@@ -14,19 +14,24 @@ import {
     SEQUENCE_TTL_SECONDS,
     STREAM_COMPLETED_TTL_SECONDS,
     STREAM_MAX_LENGTH,
+    STREAM_THIN_MAX_LENGTH,
     STREAM_PREFIX,
     STREAM_TTL_SECONDS,
+    STREAM_WATCHED_TTL_SECONDS,
     WAIT_DELAY_INCREMENT_MS,
     WAIT_INITIAL_DELAY_MS,
     WAIT_MAX_DELAY_MS,
     WAIT_TIMEOUT_MS,
 } from './constants.js'
-import type { ReadStreamEntriesOptions, ResumeGap, StreamEntryOrKeepalive } from './types.js'
+import type { ReadStreamEntriesOptions, ResumeGap, StreamEntryOrKeepalive, TaskRunStreamWriteResult } from './types.js'
 import {
     TaskRunStreamAlreadyCompleted,
     TaskRunStreamCompletionSequenceMismatch,
+    TaskRunStreamCursorTrimmedError,
     TaskRunStreamError,
     TaskRunStreamSequenceGap,
+    WRITE_RESULT_DUPLICATE,
+    WRITE_RESULT_SKIPPED,
 } from './types.js'
 
 // ---------------------------------------------------------------------------
@@ -59,6 +64,10 @@ export function getFirstCommandKey(streamKey: string): string {
 
 export function getFirstActivityKey(streamKey: string): string {
     return `${streamKey}:ingest-first-agent-activity`
+}
+
+export function getWatchedKey(streamKey: string): string {
+    return `${streamKey}:watched`
 }
 
 // ---------------------------------------------------------------------------
@@ -129,6 +138,8 @@ export class TaskRunRedisStream {
     private readonly sequenceTimeout: number
     private readonly completedTimeout: number
     private readonly maxLength: number
+    private readonly presenceGated: boolean
+    private readonly thinTail: boolean
 
     constructor(
         streamKey: string,
@@ -136,6 +147,8 @@ export class TaskRunRedisStream {
         opts?: {
             timeout?: number
             maxLength?: number
+            presenceGated?: boolean
+            thinTail?: boolean
         }
     ) {
         this.streamKey = streamKey
@@ -145,6 +158,15 @@ export class TaskRunRedisStream {
         this.sequenceTimeout = Math.max(this.timeout, SEQUENCE_TTL_SECONDS)
         this.completedTimeout = Math.min(this.timeout, STREAM_COMPLETED_TTL_SECONDS)
         this.maxLength = opts?.maxLength ?? STREAM_MAX_LENGTH
+        this.presenceGated = opts?.presenceGated ?? false
+        this.thinTail = opts?.thinTail ?? false
+    }
+
+    private maxlenForEvent(event: Record<string, unknown>): number {
+        if (this.thinTail && event['event_id']) {
+            return STREAM_THIN_MAX_LENGTH
+        }
+        return this.maxLength
     }
 
     // SET EXPIRE on the stream key; does not create it.
@@ -217,6 +239,14 @@ export class TaskRunRedisStream {
         return streamIdLessThan(lastEventId, firstId)
     }
 
+    async cursorUnreachable(cursor: string): Promise<boolean> {
+        if (cursor === '' || cursor === '0' || cursor === '0-0') {
+            return false
+        }
+        const firstId = await this.getFirstStreamId()
+        return firstId === null || streamIdLessThan(cursor, firstId)
+    }
+
     // None for startId in ('0','0-0','$',''). None if stream empty.
     // ResumeGap if startId < firstId.
     async detectResumeGap(startId: string): Promise<ResumeGap | null> {
@@ -250,10 +280,23 @@ export class TaskRunRedisStream {
         // one, so that XREAD BLOCK calls don't queue behind ingest XADD writes
         // on the shared client.
         const xreadClient = opts.blockingRedis ?? this.redis
+        const cursorRecheckAfterStallMs = opts.cursorRecheckAfterStallMs ?? null
 
         let currentId = startId
         const startTime = Date.now()
         let lastYieldTime = startTime
+        let recheckCursor = false
+        let stalledMs = 0
+        const noteConsumerStall = (yieldedAt: number): void => {
+            if (cursorRecheckAfterStallMs === null) {
+                return
+            }
+            stalledMs += Date.now() - yieldedAt
+            if (stalledMs >= cursorRecheckAfterStallMs) {
+                stalledMs = 0
+                recheckCursor = true
+            }
+        }
 
         while (true) {
             const now = Date.now()
@@ -290,6 +333,19 @@ export class TaskRunRedisStream {
                 throw new TaskRunStreamError('Stream read error')
             }
 
+            if (recheckCursor) {
+                recheckCursor = false
+                let unreachable: boolean
+                try {
+                    unreachable = await this.cursorUnreachable(currentId)
+                } catch {
+                    throw new TaskRunStreamError('Connection lost to task run stream')
+                }
+                if (unreachable) {
+                    throw new TaskRunStreamCursorTrimmedError(currentId)
+                }
+            }
+
             // TypeScript 6 incorrectly narrows `messages` to `never` inside an
             // async generator when the catch block always throws — false positive.
             // eslint-disable-next-line @typescript-eslint/ban-ts-comment
@@ -299,6 +355,7 @@ export class TaskRunRedisStream {
                 if (keepaliveIntervalMs !== null && idleMs >= keepaliveIntervalMs) {
                     lastYieldTime = Date.now()
                     yield null
+                    noteConsumerStall(lastYieldTime)
                 }
                 continue
             }
@@ -339,6 +396,7 @@ export class TaskRunRedisStream {
                     } else {
                         lastYieldTime = Date.now()
                         yield [normalizedId, data]
+                        noteConsumerStall(lastYieldTime)
                     }
                 }
             }
@@ -349,7 +407,15 @@ export class TaskRunRedisStream {
     // Refreshes TTL on every write (sliding window).
     async writeEvent(event: Record<string, unknown>, ttl?: number): Promise<string> {
         const raw = JSON.stringify(event)
-        const streamId = await this.redis.xadd(this.streamKey, 'MAXLEN', '~', this.maxLength, '*', 'data', raw)
+        const streamId = await this.redis.xadd(
+            this.streamKey,
+            'MAXLEN',
+            '~',
+            this.maxlenForEvent(event),
+            '*',
+            'data',
+            raw
+        )
         await this.redis.expire(this.streamKey, ttl ?? this.timeout)
         return normalizeStreamId(streamId)
     }
@@ -362,6 +428,10 @@ export class TaskRunRedisStream {
             await this.redis.expire(sequenceKey, this.sequenceTimeout)
         }
         return normalizeRedisInt(raw)
+    }
+
+    async markWatched(): Promise<void> {
+        await this.redis.set(getWatchedKey(this.streamKey), '1', 'EX', STREAM_WATCHED_TTL_SECONDS)
     }
 
     // SET agent-active-key ('1'|'0') EX STREAM_TTL_SECONDS
@@ -405,21 +475,25 @@ export class TaskRunRedisStream {
     }
 
     // WATCH/MULTI optimistic retry loop (never the TEST shortcut).
-    // Returns stream ID string on accept, null on duplicate.
     // Throws TaskRunStreamSequenceGap, TaskRunStreamAlreadyCompleted.
     //
     // Sequences start at 1; sequence 0 is the initial sentinel treated as accepted.
     //   seq == last+1 -> accept (XADD, set last-seq, refresh TTLs, return stream ID)
-    //   seq <= last   -> duplicate (return null)
+    //   seq <= last   -> duplicate (accepted false, no stream ID)
     //   seq > last+1  -> TaskRunStreamSequenceGap
     //   completed key present -> TaskRunStreamAlreadyCompleted
-    async writeEventWithSequence(event: Record<string, unknown>, sequence: number): Promise<string | null> {
+    //   presence-gated with no attached reader -> accepted, no stream ID
+    async writeEventWithSequence(event: Record<string, unknown>, sequence: number): Promise<TaskRunStreamWriteResult> {
         const sequenceKey = getSequenceKey(this.streamKey)
         const completedKey = getCompletedKey(this.streamKey)
-        const raw = JSON.stringify(event)
+        const watchedKey = getWatchedKey(this.streamKey)
 
         for (let attempt = 0; attempt < MAX_WATCH_RETRIES; attempt++) {
-            await this.redis.watch(sequenceKey, completedKey)
+            if (this.presenceGated) {
+                await this.redis.watch(sequenceKey, completedKey, watchedKey)
+            } else {
+                await this.redis.watch(sequenceKey, completedKey)
+            }
 
             const lastSeqRaw = await this.redis.get(sequenceKey)
             const lastSequence = normalizeRedisInt(lastSeqRaw)
@@ -432,7 +506,7 @@ export class TaskRunRedisStream {
 
             if (sequence <= lastSequence) {
                 await this.redis.unwatch()
-                return null
+                return WRITE_RESULT_DUPLICATE
             }
 
             if (sequence !== lastSequence + 1) {
@@ -440,9 +514,21 @@ export class TaskRunRedisStream {
                 throw new TaskRunStreamSequenceGap(lastSequence + 1, sequence, lastSequence)
             }
 
+            const mirror = !this.presenceGated || (await this.redis.exists(watchedKey)) > 0
+
             const pipeline = this.redis.multi()
-            pipeline.xadd(this.streamKey, 'MAXLEN', '~', this.maxLength, '*', 'data', raw)
-            pipeline.expire(this.streamKey, this.timeout)
+            if (mirror) {
+                pipeline.xadd(
+                    this.streamKey,
+                    'MAXLEN',
+                    '~',
+                    this.maxlenForEvent(event),
+                    '*',
+                    'data',
+                    JSON.stringify(event)
+                )
+                pipeline.expire(this.streamKey, this.timeout)
+            }
             pipeline.set(sequenceKey, String(sequence), 'EX', this.sequenceTimeout)
 
             const results = await pipeline.exec()
@@ -451,12 +537,16 @@ export class TaskRunRedisStream {
                 continue
             }
 
+            if (!mirror) {
+                return WRITE_RESULT_SKIPPED
+            }
+
             // results[0] is [error, streamId]
             const [xaddErr, streamId] = results[0] ?? [null, null]
             if (xaddErr) {
                 throw new TaskRunStreamError(`XADD failed: ${String(xaddErr)}`)
             }
-            return normalizeStreamId(streamId)
+            return { accepted: true, streamId: normalizeStreamId(streamId) }
         }
 
         throw new TaskRunStreamError('writeEventWithSequence: too many WATCH conflicts')
@@ -559,6 +649,7 @@ export class TaskRunRedisStream {
             const heartbeatKey = getHeartbeatKey(this.streamKey)
             const firstCommandKey = getFirstCommandKey(this.streamKey)
             const firstActivityKey = getFirstActivityKey(this.streamKey)
+            const watchedKey = getWatchedKey(this.streamKey)
             const deleted = await this.redis.del(
                 this.streamKey,
                 sequenceKey,
@@ -566,7 +657,8 @@ export class TaskRunRedisStream {
                 agentActiveKey,
                 heartbeatKey,
                 firstCommandKey,
-                firstActivityKey
+                firstActivityKey,
+                watchedKey
             )
             return deleted > 0
         } catch {

@@ -113,6 +113,7 @@ from products.dashboards.backend.api.dashboard_template_json_schema_parser impor
 from products.dashboards.backend.api.widget_openapi_serializers import (
     WIDGET_BATCH_ADD_OPENAPI_HELP,
     AddDashboardWidgetRequestOpenApi,
+    BreakdownColorConfigSerializer,
     DashboardWidgetConfigField,
     PatchedDashboardOpenApiSerializer,
     UpdateDashboardWidgetRequestOpenApi,
@@ -121,7 +122,7 @@ from products.dashboards.backend.api.widget_openapi_serializers import (
 from products.dashboards.backend.constants import DASHBOARD_GRID_COLUMN_COUNT, MAX_WIDGETS_BATCH_SIZE
 from products.dashboards.backend.facade.api import DashboardTileBasicSerializer
 from products.dashboards.backend.facade.enums import PrivilegeLevel, RestrictionLevel
-from products.dashboards.backend.feature_flags import dashboard_customization_enabled, dashboard_widgets_enabled
+from products.dashboards.backend.feature_flags import dashboard_widgets_enabled
 from products.dashboards.backend.models.dashboard import (
     DASHBOARD_GRID_COMPACTION_MODES,
     DASHBOARD_GRID_SPACING_GAPS,
@@ -444,11 +445,20 @@ def serialize_tile_with_context(tile, order: int, context: dict) -> tuple[int, d
 class ReorderLayout(StrEnum):
     PRESERVE = "preserve"
     TWO_COLUMN = "two_column"
+    THREE_COLUMN = "three_column"
     FULL_WIDTH = "full_width"
 
 
 DEFAULT_REORDER_TILE_WIDTH = 6
 DEFAULT_REORDER_TILE_HEIGHT = 5
+
+# Tiles per row each fixed-grid mode forces. Every count divides DASHBOARD_GRID_COLUMN_COUNT, so all
+# tiles get the same width and none straddles the right edge of the grid.
+REORDER_LAYOUT_TILES_PER_ROW = {
+    ReorderLayout.TWO_COLUMN: 2,
+    ReorderLayout.THREE_COLUMN: 3,
+    ReorderLayout.FULL_WIDTH: 1,
+}
 
 
 @frozen
@@ -478,26 +488,19 @@ def _apply_reorder_layout(
 ) -> None:
     """Repack tiles. ``preserve`` keeps each tile's existing w/h and reuses the lowest-segment
     greedy algorithm from ``frontend/src/scenes/dashboard/tileLayouts.ts``; the other modes overwrite w/h."""
-    if layout_mode == ReorderLayout.TWO_COLUMN:
+    tiles_per_row = REORDER_LAYOUT_TILES_PER_ROW.get(layout_mode)
+    if tiles_per_row is not None:
+        tile_width = DASHBOARD_GRID_COLUMN_COUNT // tiles_per_row
         for index, tile_id in enumerate(tile_order):
-            row, col = divmod(index, 2)
+            row, col = divmod(index, tiles_per_row)
             tile_map[tile_id].layouts = {
                 "sm": {
-                    "x": col * DEFAULT_REORDER_TILE_WIDTH,
+                    "x": col * tile_width,
                     "y": row * DEFAULT_REORDER_TILE_HEIGHT,
-                    "w": DEFAULT_REORDER_TILE_WIDTH,
+                    "w": tile_width,
                     "h": DEFAULT_REORDER_TILE_HEIGHT,
                 },
                 "xs": {"x": 0, "y": index * DEFAULT_REORDER_TILE_HEIGHT, "w": 1, "h": DEFAULT_REORDER_TILE_HEIGHT},
-            }
-        return
-
-    if layout_mode == ReorderLayout.FULL_WIDTH:
-        for index, tile_id in enumerate(tile_order):
-            y = index * DEFAULT_REORDER_TILE_HEIGHT
-            tile_map[tile_id].layouts = {
-                "sm": {"x": 0, "y": y, "w": DASHBOARD_GRID_COLUMN_COUNT, "h": DEFAULT_REORDER_TILE_HEIGHT},
-                "xs": {"x": 0, "y": y, "w": 1, "h": DEFAULT_REORDER_TILE_HEIGHT},
             }
         return
 
@@ -540,8 +543,9 @@ class ReorderTilesRequestSerializer(serializers.Serializer):
         required=False,
         help_text=(
             "How to size tiles when reordering. 'preserve' (default) keeps each tile's existing width and height "
-            "and only repacks positions in the new order. 'two_column' forces a 6-wide × 5-tall grid (two tiles per "
-            "row). 'full_width' forces each tile to span the full 12-column row at height 5."
+            "and only repacks positions in the new order. Use the other modes only when every tile should use the "
+            "same size: 'two_column' makes every tile 6-wide × 5-tall, 'three_column' makes every tile 4-wide × "
+            "5-tall, and 'full_width' makes every tile 12-wide × 5-tall."
         ),
     )
 
@@ -555,7 +559,8 @@ class TileLayoutBoxSerializer(serializers.Serializer):
     x = serializers.IntegerField(required=False, help_text="Column position in the dashboard grid (0-indexed).")
     y = serializers.IntegerField(required=False, help_text="Row position in the dashboard grid (0-indexed).")
     w = serializers.IntegerField(
-        required=False, help_text="Width in grid columns. The desktop grid is 12 columns wide."
+        required=False,
+        help_text="Width in grid columns. The desktop grid is 12 columns wide.",
     )
     h = serializers.IntegerField(required=False, help_text="Height in grid rows.")
 
@@ -571,19 +576,56 @@ class TileLayoutsSerializer(serializers.Serializer):
     )
 
 
+class DashboardPatchTileLayoutBoxSerializer(TileLayoutBoxSerializer):
+    x = serializers.IntegerField(
+        min_value=0,
+        max_value=DASHBOARD_GRID_COLUMN_COUNT - 1,
+        help_text="Column position in the dashboard grid (0-indexed).",
+    )
+    y = serializers.IntegerField(min_value=0, help_text="Row position in the dashboard grid (0-indexed).")
+    w = serializers.IntegerField(
+        min_value=1,
+        max_value=DASHBOARD_GRID_COLUMN_COUNT,
+        help_text="Width in grid columns. The desktop grid is 12 columns wide.",
+    )
+    h = serializers.IntegerField(min_value=1, help_text="Height in grid rows.")
+
+    def validate(self, attrs: dict[str, int]) -> dict[str, int]:
+        if attrs["x"] + attrs["w"] > DASHBOARD_GRID_COLUMN_COUNT:
+            raise serializers.ValidationError("The tile must fit within the 12-column dashboard grid.")
+        return attrs
+
+
+class DashboardPatchTileLayoutsSerializer(serializers.Serializer):
+    sm = DashboardPatchTileLayoutBoxSerializer(
+        required=False,
+        help_text="Layout for the standard desktop breakpoint. The grid is 12 columns wide.",
+    )
+    xs = TileLayoutBoxSerializer(
+        required=False,
+        help_text="Optional layout for the small breakpoint.",
+    )
+
+
 class CreateTextTileRequestSerializer(serializers.Serializer):
+    type = serializers.ChoiceField(
+        choices=["text", "image"],
+        required=False,
+        default="text",
+        help_text="Tile type. Use image for a body with exactly one Markdown image. Defaults to text.",
+    )
     body = serializers.CharField(
         min_length=1,
         max_length=4000,
         required=True,
         allow_blank=False,
         help_text=(
-            "Markdown body for the text tile. Supports headings, lists, and inline formatting. "
-            "Useful as a dashboard section heading, divider, or annotation between insights. Max 4000 characters."
+            "Markdown body for the dashboard tile. Text tiles support headings, lists, and inline formatting. "
+            "Image tiles require exactly one Markdown image. Max 4000 characters."
         ),
         error_messages={
-            "min_length": "Text body cannot be empty",
-            "max_length": "Text body cannot exceed 4000 characters",
+            "min_length": "Tile body cannot be empty",
+            "max_length": "Tile body cannot exceed 4000 characters",
         },
     )
     layouts = TileLayoutsSerializer(
@@ -1205,6 +1247,28 @@ class DashboardCustomizationSerializer(serializers.Serializer):
     )
 
 
+class BreakdownColorsField(serializers.ListField):
+    # The child serializer decides whether an entry is valid, but it does not decide what gets
+    # stored or returned. It rewrites an entry rather than describing it: it drops a key it does not
+    # declare and adds a null for a declared key the entry omits. So both directions validate the
+    # entries and then use them as given.
+    #
+    # This matters in both directions because the dashboard saves the whole color list back. Letting
+    # the child shape a write would drop a key the frontend persists before this serializer learns
+    # about it, and the loss would only surface as colors disappearing after a later save.
+    #
+    # The write validates through an unbound list, not through `self.child`. DRF resolves `required`
+    # against the root serializer's partial flag, and a dashboard PATCH is partial, so a bound child
+    # skips a missing key instead of failing it, and this field would store the entry as given. An
+    # unbound list is its own root, so the required keys hold on a PATCH too.
+    def to_internal_value(self, data: Any) -> Any:
+        serializers.ListField(child=BreakdownColorConfigSerializer()).to_internal_value(data)
+        return data
+
+    def to_representation(self, data: Any) -> Any:
+        return data
+
+
 class DashboardMetadataSerializer(DashboardBasicSerializer):
     filters = serializers.SerializerMethodField()
     variables = serializers.SerializerMethodField()
@@ -1213,7 +1277,15 @@ class DashboardMetadataSerializer(DashboardBasicSerializer):
     effective_restriction_level = serializers.SerializerMethodField()
     access_control_version = serializers.SerializerMethodField()
     is_shared = serializers.BooleanField(source="is_sharing_enabled", read_only=True, required=False)
-    breakdown_colors = serializers.JSONField(required=False, help_text="Custom color mapping for breakdown values.")
+    breakdown_colors = BreakdownColorsField(
+        child=BreakdownColorConfigSerializer(),
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Colors pinned to specific breakdown values across the dashboard's tiles. "
+            "A list of entries, not an object keyed by breakdown value. Send an empty list to clear them."
+        ),
+    )
     data_color_theme_id = serializers.IntegerField(
         required=False, allow_null=True, help_text="ID of the color theme used for chart visualizations."
     )
@@ -1533,10 +1605,6 @@ class DashboardSerializer(DashboardMetadataSerializer):
         team = self.context["get_team"]()
         grid_spacing = validated_data.pop("grid_spacing", None)
         layout_compaction = validated_data.pop("layout_compaction", None)
-        if grid_spacing is not None and not dashboard_customization_enabled(team=team, user=request.user):
-            raise serializers.ValidationError({"grid_spacing": "Tile density isn't available."})
-        if layout_compaction is not None and not dashboard_customization_enabled(team=team, user=request.user):
-            raise serializers.ValidationError({"layout_compaction": "Tile movement settings aren't available."})
         current_count = Dashboard.objects.filter(team_id=team_id, deleted=False).count()
         check_count_limit(
             team=team,
@@ -1673,7 +1741,18 @@ class DashboardSerializer(DashboardMetadataSerializer):
             new_data.pop("dashboards", None)
             new_tags = new_data.pop("tags", None)
             insight_serializer = InsightSerializer(data=new_data, context=self.context)
-            insight_serializer.is_valid()
+            if not insight_serializer.is_valid():
+                # `save()` on an invalid serializer is a 500 that names no tile. The copy fails
+                # whenever it inherits something invalid, such as a name that " (Copy)" pushes
+                # past the column limit, or a definition the insight write rules reject.
+                source = existing_tile.insight
+                reasons = "; ".join(
+                    f"{field}: {' '.join(str(message) for message in messages)}"
+                    for field, messages in insight_serializer.errors.items()
+                )
+                raise exceptions.ValidationError(
+                    f'Can\'t copy the insight "{source.name or source.derived_name or source.short_id}". {reasons}'
+                )
             insight_serializer.save()
             insight = cast(Insight, insight_serializer.instance)
 
@@ -1797,14 +1876,6 @@ class DashboardSerializer(DashboardMetadataSerializer):
         validated_data.pop("use_template", None)  # Remove attribute if present
         grid_spacing = validated_data.pop("grid_spacing", None)
         layout_compaction = validated_data.pop("layout_compaction", None)
-        if grid_spacing is not None and not dashboard_customization_enabled(
-            team=instance.team, user=cast(User, self.context["request"].user)
-        ):
-            raise serializers.ValidationError({"grid_spacing": "Tile density isn't available."})
-        if layout_compaction is not None and not dashboard_customization_enabled(
-            team=instance.team, user=cast(User, self.context["request"].user)
-        ):
-            raise serializers.ValidationError({"layout_compaction": "Tile movement settings aren't available."})
         if grid_spacing is not None or layout_compaction is not None:
             validated_data["customization"] = {
                 **_normalize_dashboard_customization(instance.customization),
@@ -1840,14 +1911,17 @@ class DashboardSerializer(DashboardMetadataSerializer):
             )
 
         request_filters = initial_data.get("filters")
-        if request_filters:
+        if request_filters is not None:
             instance.filters = self._validated_filters(request_filters)
 
         request_variables = initial_data.get("variables")
-        if request_variables:
+        # An empty dict is a real value here: it clears the last remaining variable override.
+        if request_variables is not None:
             if not isinstance(request_variables, dict):
-                raise serializers.ValidationError("Filters must be a dictionary")
+                raise serializers.ValidationError("Variables must be a dictionary")
             instance.variables = request_variables
+
+        self._validate_display_only_tile_ids(instance, initial_data.get("tiles", []))
 
         instance = super().update(instance, validated_data)
 
@@ -1933,8 +2007,15 @@ class DashboardSerializer(DashboardMetadataSerializer):
     }
 
     @staticmethod
-    def _extract_display_defaults(tile_data: dict) -> dict:
+    def _extract_display_defaults(tile_data: dict, existing_layouts: dict | None = None) -> dict:
         defaults = {k: tile_data[k] for k in DashboardSerializer.TILE_DISPLAY_FIELDS if k in tile_data}
+        if "layouts" in defaults:
+            layouts_serializer = DashboardPatchTileLayoutsSerializer(data=defaults["layouts"])
+            if not layouts_serializer.is_valid():
+                raise serializers.ValidationError({"layouts": layouts_serializer.errors})
+            defaults["layouts"] = {**(existing_layouts or {}), **layouts_serializer.validated_data}
+            if layouts_serializer.validated_data and "sm" not in defaults["layouts"]:
+                raise serializers.ValidationError({"layouts": {"sm": ["This field is required."]}})
         # `filters_overrides` is opaque JSON with the same `properties` shape ambiguity as dashboard
         # `filters` — normalize a PropertyGroupFilter dict on `properties` to the flat-list contract so
         # a malformed tile override can't be persisted for the merge/contradiction code to trip on.
@@ -1943,6 +2024,29 @@ class DashboardSerializer(DashboardMetadataSerializer):
             if tile_filters is not None:
                 defaults["filters_overrides"] = DashboardSerializer._validated_filters(tile_filters)
         return defaults
+
+    @staticmethod
+    def _validate_display_only_tile_ids(instance: Dashboard, tiles: list[dict]) -> None:
+        tile_ids = {
+            tile["id"]
+            for tile in tiles
+            if tile.get("id") is not None
+            and not tile.get("text")
+            and not tile.get("button_tile")
+            and not tile.get("widget")
+            and any(field in tile for field in DashboardSerializer.TILE_DISPLAY_FIELDS)
+        }
+        if not tile_ids:
+            return
+
+        found_tile_ids = set(
+            DashboardTile.objects_including_soft_deleted.filter(id__in=tile_ids, dashboard=instance).values_list(
+                "id", flat=True
+            )
+        )
+        missing_tile_ids = sorted(tile_ids - found_tile_ids)
+        if missing_tile_ids:
+            raise serializers.ValidationError({"tiles": f"Tile IDs not found on this dashboard: {missing_tile_ids}."})
 
     @staticmethod
     def _widget_tile_validation_error(exc: serializers.ValidationError) -> serializers.ValidationError:
@@ -2024,12 +2128,11 @@ class DashboardSerializer(DashboardMetadataSerializer):
     def _update_existing_tile_display_fields(
         instance: Dashboard, tile_data: dict, user: User
     ) -> tuple[DashboardTile | None, bool]:
-        """Update display fields on an existing tile, or skip silently if the id is unknown.
+        """Update display fields on an existing tile.
 
         A display-only payload carries no insight/text/button_tile FK, so it cannot satisfy
         the ``dash_tile_exactly_one_related_object`` CHECK constraint if it falls through to
-        an INSERT. ``update_or_create`` here used to 500 whenever the frontend posted a stale
-        tile id (cross-dashboard contamination, hard-deleted tiles, races). Never INSERT here.
+        an INSERT. Never INSERT here.
 
         Returns the updated tile and whether this payload transitioned it to soft-deleted.
         """
@@ -2037,21 +2140,14 @@ class DashboardSerializer(DashboardMetadataSerializer):
         if tile_id is None:
             return None, False
 
-        tile_defaults = DashboardSerializer._extract_display_defaults(tile_data)
-        if not tile_defaults:
-            return None, False
-
         existing = DashboardTile.objects_including_soft_deleted.filter(
             id=tile_id, dashboard=instance, dashboard__team_id=instance.team_id
         ).first()
         if existing is None:
-            logger.warning(
-                "dashboard_layout_patch_unknown_tile_skipped",
-                team_id=instance.team_id,
-                dashboard_id=instance.id,
-                tile_id=tile_id,
-                payload_fields=sorted(tile_defaults.keys()),
-            )
+            raise serializers.ValidationError({"tiles": f"Tile ID {tile_id} is not on this dashboard."})
+
+        tile_defaults = DashboardSerializer._extract_display_defaults(tile_data, existing.layouts)
+        if not tile_defaults:
             return None, False
 
         became_deleted = bool(tile_defaults.get("deleted")) and not existing.deleted
@@ -2420,6 +2516,18 @@ class DashboardSubscribeNudgeResponseSerializer(serializers.Serializer):
                     "sub-folders are not included."
                 ),
             ),
+            OpenApiParameter(
+                "pinned",
+                OpenApiTypes.BOOL,
+                location=OpenApiParameter.QUERY,
+                description="Optional. Return only pinned dashboards.",
+            ),
+            OpenApiParameter(
+                "exclude_generated",
+                OpenApiTypes.BOOL,
+                location=OpenApiParameter.QUERY,
+                description="Optional. Exclude dashboards that PostHog generated.",
+            ),
         ],
     ),
     # Dashboards nest insight payloads via `tiles[].insight`, so the deprecated-`dashboards`-field
@@ -2621,6 +2729,9 @@ class DashboardsViewSet(
         # Filter out generated dashboards if requested (for list action only)
         if self.action == "list" and self.request.query_params.get("exclude_generated") == "true":
             queryset = queryset.exclude(name__startswith=GENERATED_DASHBOARD_PREFIX)
+
+        if self.action == "list" and self.request.query_params.get("pinned") == "true":
+            queryset = queryset.filter(pinned=True).order_by(F("last_viewed_at").desc(nulls_last=True), "name")
 
         # Allow filtering by creation_mode query param
         creation_mode = self.request.query_params.get("creation_mode")

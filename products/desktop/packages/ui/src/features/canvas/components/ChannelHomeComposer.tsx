@@ -2,9 +2,21 @@ import type {
   PiModelSelection,
   PiThinkingLevel,
 } from "@posthog/core/pi-runtime/piSessionController";
-import { isValidConfigValue } from "@posthog/core/task-detail/configOptions";
-import type { AgentRuntime } from "@posthog/shared";
+import {
+  isValidConfigValue,
+  syntheticPiModelSelection,
+} from "@posthog/core/task-detail/configOptions";
+import { preferredRunsOnPi } from "@posthog/core/task-detail/previewConfig";
+import {
+  type AgentRuntime,
+  adapterForModelId,
+  PI_HARNESS_FLAG,
+} from "@posthog/shared";
 import type { Task } from "@posthog/shared/domain-types";
+import {
+  subscriptionModelAccess,
+  useAdapterSubscription,
+} from "@posthog/ui/features/settings/adapterSubscription";
 import {
   forwardRef,
   useCallback,
@@ -40,6 +52,7 @@ import { useCloudTargetSelection } from "../../task-detail/hooks/useCloudTarget"
 import { usePreviewConfig } from "../../task-detail/hooks/usePreviewConfig";
 import { useResolvedWorkspaceMode } from "../../task-detail/hooks/useResolvedWorkspaceMode";
 import { useTaskCreation } from "../../task-detail/hooks/useTaskCreation";
+import { useTaskRunDefaults } from "../../task-detail/hooks/useTaskRunDefaults";
 import { useUpdateTaskChannelRepositories } from "../hooks/useTaskChannels";
 import {
   resolveTaskRepositoryDraft,
@@ -113,9 +126,12 @@ export const ChannelHomeComposer = forwardRef<
     lastUsedInitialTaskMode,
     setLastUsedReasoningEffort,
     setLastUsedModel,
+    _hasHydrated: settingsHydrated,
   } = useSettingsStore();
 
   const adapter = lastUsedAdapter;
+  const claudeSubscription = useAdapterSubscription("claude");
+  const codexSubscription = useAdapterSubscription("codex");
   const [runtime, setRuntime] = useState<AgentRuntime>("acp");
   // Keep the menu open when a harness switch swaps its ACP/Pi control.
   const [modelMenuOpen, setModelMenuOpen] = useState(false);
@@ -125,8 +141,16 @@ export const ChannelHomeComposer = forwardRef<
   );
   const [selectedPiThinkingLevel, setSelectedPiThinkingLevel] =
     useState<PiThinkingLevel | null>(null);
-  const piHarnessEnabled = useFeatureFlag("pi-harness");
+  const piHarnessEnabled = useFeatureFlag(PI_HARNESS_FLAG, import.meta.env.DEV);
   const flagsLoaded = useFeatureFlagsLoaded();
+  const { defaults: runDefaults, isSettled: runDefaultsSettled } =
+    useTaskRunDefaults();
+  const hasLocalModelPick = useSettingsStore(
+    (state) =>
+      state.lastUsedModel != null ||
+      state.lastUsedReasoningEffort != null ||
+      state.lastUsedPiModel != null,
+  );
   const { data: piModelCatalog = [], isPending: isPiConfigLoading } =
     usePiModelCatalog(runtime === "pi");
 
@@ -136,24 +160,46 @@ export const ChannelHomeComposer = forwardRef<
   );
 
   useEffect(() => {
-    if (didResolveRuntimeRef.current || !flagsLoaded) {
+    if (
+      didResolveRuntimeRef.current ||
+      !settingsHydrated ||
+      !flagsLoaded ||
+      !runDefaultsSettled
+    ) {
       return;
     }
 
     didResolveRuntimeRef.current = true;
-    setRuntime(
-      piHarnessEnabled && lastUsedAgentRuntime === "pi" ? "pi" : "acp",
-    );
-  }, [flagsLoaded, lastUsedAgentRuntime, piHarnessEnabled]);
+    const wantsPi =
+      lastUsedAgentRuntime === "pi" ||
+      (!hasLocalModelPick && preferredRunsOnPi(runDefaults));
+    setRuntime(piHarnessEnabled && wantsPi ? "pi" : "acp");
+  }, [
+    flagsLoaded,
+    hasLocalModelPick,
+    lastUsedAgentRuntime,
+    piHarnessEnabled,
+    runDefaults,
+    runDefaultsSettled,
+    settingsHydrated,
+  ]);
 
   const { hasGithubIntegration, isLoadingIntegrations } =
     useUserRepositoryIntegration();
 
-  const { workspaceMode, setWorkspaceMode } = useResolvedWorkspaceMode({
+  const {
+    workspaceMode,
+    isResolved: isWorkspaceModeResolved,
+    setWorkspaceMode,
+  } = useResolvedWorkspaceMode({
     hasGithubIntegration,
     isLoadingIntegrations,
     allowWorktree: false,
   });
+  const cloudGithubUnavailable =
+    workspaceMode === "cloud" &&
+    !isLoadingIntegrations &&
+    !hasGithubIntegration;
   const { cloudTarget, setCloudTarget } = useCloudTargetSelection();
   const cloudIds = workspaceMode === "cloud" ? cloudTargetIds(cloudTarget) : {};
   const [repositoryDialogOpen, setRepositoryDialogOpen] = useState(false);
@@ -180,7 +226,7 @@ export const ChannelHomeComposer = forwardRef<
     fastModeOption,
     isLoading,
     setConfigOption,
-  } = usePreviewConfig(adapter);
+  } = usePreviewConfig(adapter, { allHarnessModels: true });
 
   const currentModel =
     modelOption?.type === "select" ? modelOption.currentValue : undefined;
@@ -206,16 +252,34 @@ export const ChannelHomeComposer = forwardRef<
     fastModeOption?.type === "select"
       ? fastModeOption.currentValue === "on"
       : undefined;
+  const preferredPiModelId =
+    !hasLocalModelPick && preferredRunsOnPi(runDefaults)
+      ? runDefaults.model
+      : null;
   const currentPiModel =
     piModelCatalog.find((model) => model.id === selectedPiModelId) ??
+    // Pi runs any gateway model, so a session pick outside Pi's curated
+    // catalog sticks instead of falling back to Pi's default.
+    (selectedPiModelId
+      ? syntheticPiModelSelection(modelOption, selectedPiModelId)
+      : undefined) ??
+    (preferredPiModelId
+      ? (piModelCatalog.find((model) => model.id === preferredPiModelId) ??
+        syntheticPiModelSelection(modelOption, preferredPiModelId))
+      : undefined) ??
     piModelCatalog.find((model) => model.id === lastUsedPiModel) ??
     piModelCatalog.find((model) => model.isDefault) ??
     piModelCatalog[0];
   const piThinkingLevels = currentPiModel?.thinkingLevels ?? [];
+  const preferredPiThinkingLevel =
+    preferredPiModelId && currentPiModel?.id === preferredPiModelId
+      ? (runDefaults.reasoning_effort as PiThinkingLevel | null)
+      : null;
+  const piThinkingFallback = preferredPiThinkingLevel ?? "high";
   const currentPiThinkingLevel = piThinkingLevels.includes(
-    selectedPiThinkingLevel ?? "high",
+    selectedPiThinkingLevel ?? piThinkingFallback,
   )
-    ? (selectedPiThinkingLevel ?? "high")
+    ? (selectedPiThinkingLevel ?? piThinkingFallback)
     : piThinkingLevels[0];
   const supportsPiThinking = piThinkingLevels.some((level) => level !== "off");
   const taskModel = runtime === "pi" ? currentPiModel?.id : currentModel;
@@ -266,7 +330,7 @@ export const ChannelHomeComposer = forwardRef<
     allowNoRepo: true,
     channelContext: effectiveChannelContext,
     channelContextPath: wiki.path,
-    submissionBlocked: wiki.blocked,
+    submissionBlocked: wiki.blocked || !isWorkspaceModeResolved,
     channelName,
     channelId,
     channelContextId: channelId,
@@ -310,9 +374,12 @@ export const ChannelHomeComposer = forwardRef<
   );
   const handleModelChange = useCallback(
     (value: string) => {
+      // A harness switch clears the options while the new config loads, and
+      // the menu stays open through that window. Recording the pick first
+      // lets the reload restore it instead of dropping it silently.
+      setLastUsedModel(value);
       if (modelOption) {
         setConfigOption(modelOption.id, value);
-        setLastUsedModel(value);
       }
     },
     [modelOption, setConfigOption, setLastUsedModel],
@@ -334,17 +401,52 @@ export const ChannelHomeComposer = forwardRef<
     },
     [setLastUsedAgentRuntime],
   );
+  // A manual harness switch keeps the selected model when the target harness
+  // runs it; otherwise the target falls back to its default.
   const handleHarnessChange = useCallback(
     (harness: AgentHarness) => {
       if (harness === "pi") {
+        if (runtime !== "pi" && currentModel) {
+          // Session-only, so the saved Pi pick is not clobbered.
+          setSelectedPiModelId(currentModel);
+        }
         handleRuntimeChange("pi");
         return;
       }
 
+      if (runtime === "pi") {
+        const carried = currentPiModel?.id;
+        if (carried && adapterForModelId(carried) === harness) {
+          setLastUsedModel(carried);
+          if (harness === adapter && isValidConfigValue(modelOption, carried)) {
+            // Same adapter means no config refetch, so apply the pick directly.
+            setConfigOption(modelOption.id, carried);
+          }
+        }
+      }
       handleRuntimeChange("acp");
       setAdapter(harness);
     },
-    [handleRuntimeChange, setAdapter],
+    [
+      adapter,
+      currentModel,
+      currentPiModel,
+      handleRuntimeChange,
+      modelOption,
+      runtime,
+      setAdapter,
+      setConfigOption,
+      setLastUsedModel,
+    ],
+  );
+  // Saving the model before the switch lets the new harness's config restore
+  // it instead of resetting to that harness's default.
+  const handleHarnessModelChange = useCallback(
+    (harness: AgentAdapter, model: string) => {
+      setLastUsedModel(model);
+      handleHarnessChange(harness);
+    },
+    [handleHarnessChange, setLastUsedModel],
   );
   const handlePiModelChange = useCallback(
     (model: PiModelSelection) => {
@@ -352,6 +454,19 @@ export const ChannelHomeComposer = forwardRef<
       setLastUsedPiModel(model.id);
     },
     [setLastUsedPiModel],
+  );
+  // Pi runs any gateway model, so a pick in the Pi menu never leaves Pi. A
+  // pick outside Pi's curated catalog applies session-only.
+  const handlePiGatewayModelSelect = useCallback(
+    (model: string) => {
+      const entry = piModelCatalog.find((candidate) => candidate.id === model);
+      if (entry) {
+        handlePiModelChange(entry);
+        return;
+      }
+      setSelectedPiModelId(model);
+    },
+    [handlePiModelChange, piModelCatalog],
   );
   const handlePiThinkingLevelChange = useCallback((level: PiThinkingLevel) => {
     setSelectedPiThinkingLevel(level);
@@ -390,6 +505,8 @@ export const ChannelHomeComposer = forwardRef<
           overrideModes={["local", "cloud"]}
           cloudTarget={cloudTarget}
           onCloudTargetChange={setCloudTarget}
+          hasGithubIntegration={hasGithubIntegration}
+          isLoadingGithubIntegration={isLoadingIntegrations}
           size="1"
           disabled={isBusy}
         />
@@ -397,7 +514,7 @@ export const ChannelHomeComposer = forwardRef<
           cloud={workspaceMode === "cloud"}
           repositoryCount={taskRepositories.length}
           hasFolder={!!taskFolder}
-          disabled={isBusy}
+          disabled={isBusy || cloudGithubUnavailable}
           onOpen={() => setRepositoryDialogOpen(true)}
         />
       </div>
@@ -470,6 +587,8 @@ export const ChannelHomeComposer = forwardRef<
               onChange={handlePiModelChange}
               onThinkingLevelChange={handlePiThinkingLevelChange}
               onHarnessChange={handleHarnessChange}
+              modelOption={modelOption}
+              onGatewayModelSelect={handlePiGatewayModelSelect}
               menuOpen={modelMenuOpen}
               onMenuOpenChange={setModelMenuOpen}
             />
@@ -489,10 +608,17 @@ export const ChannelHomeComposer = forwardRef<
               onHarnessChange={
                 piHarnessEnabled ? handleHarnessChange : undefined
               }
+              onHarnessModelChange={handleHarnessModelChange}
               includePiHarness={piHarnessEnabled}
               onConfigOptionChange={setConfigOption}
               menuOpen={modelMenuOpen}
               onMenuOpenChange={setModelMenuOpen}
+              modelAccess={subscriptionModelAccess(
+                adapter === "codex" ? codexSubscription : claudeSubscription,
+                workspaceMode,
+              )}
+              showBillingMenu
+              workspaceMode={workspaceMode}
               disabled={isBusy}
               isLoading={isLoading}
             />

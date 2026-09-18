@@ -16,12 +16,13 @@ import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
 import { pluralize } from 'lib/utils/strings'
 import { shortTimeZone } from 'lib/utils/timezones'
-import { AnnotationModal } from 'scenes/annotations/AnnotationModal'
-import { annotationModalLogic, annotationScopeToName } from 'scenes/annotations/annotationModalLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { annotationsModel } from '~/models/annotationsModel'
 import { AnnotationType, DatedAnnotationType, IntervalType } from '~/types'
+
+import { AnnotationModal } from 'products/annotations/frontend/components/AnnotationModal'
+import { annotationModalLogic, annotationScopeToName } from 'products/annotations/frontend/logics/annotationModalLogic'
 
 import { AnnotationsOverlayLogicProps, annotationsOverlayLogic } from './annotationsOverlayLogic'
 import { AnnotationsChartGeometry, useAnnotationsPositioning } from './useAnnotationsPositioning'

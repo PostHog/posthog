@@ -1,9 +1,13 @@
 //! Observability leaf: the `seeder_*` metric-name constants (the seeder's metric manifest, which
-//! dashboards depend on), the shared RAII duration timer, and the Prometheus recorder installer.
-//! Depends on the metrics crates only.
+//! dashboards depend on), the shared RAII duration timer, the bounded team label every per-team
+//! series draws on, and the Prometheus recorder installer. Depends on the metrics crates plus the
+//! allowlist type the team label reads its bound from; never on another seeder module.
 
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use cohort_core::filters::TeamId;
+use common_types::cohort::TeamAllowlist;
 use metrics::histogram;
 use metrics_exporter_prometheus::{BuildError, Matcher, PrometheusBuilder, PrometheusHandle};
 
@@ -37,6 +41,51 @@ pub const CONDITIONS_CLASSIFIED: &str = "seeder_conditions_classified_total";
 /// fixable compiler template and a program nothing will ever narrow otherwise land in the same
 /// `unsupported_op` bucket.
 pub const CONDITIONS_UNANALYZABLE: &str = "seeder_conditions_unanalyzable_total";
+/// Behavioral chunks by whether their scan narrowed, labelled by `outcome`
+/// (`projected`/`full_columns`) and `team_id` (counter). One increment per scanned chunk.
+///
+/// `full_columns` is the fail-closed arm: at least one condition active on that chunk reads a whole
+/// object or escaped the static analysis, so the scan selects every column. A team sitting at
+/// `full_columns` is the signal to read the run's census for which event names block it.
+pub const CHUNKS_PROJECTED: &str = "seeder_chunks_projected_total";
+/// Shadow-compare verdicts per chunk, labelled by closed `result`
+/// (`match`/`diff`/`error`/`no_rows`/`not_projected`) and `team_id` (counter). Emitted only while
+/// `SEEDER_SCAN_SHADOW_COMPARE` is on, once per chunk that finishes its scan. A chunk cancelled by
+/// shutdown or a lost lease increments nothing and runs again later.
+///
+/// `diff` is the validation failure signal — the paired `warn!` carries the chunk attribution and
+/// exemplars. `error` means the diagnostic wide scan itself failed and the chunk's projected tiles
+/// were emitted unverified.
+///
+/// The last two values are chunks no second query was issued for, because it could only have
+/// agreed: `no_rows` where the authoritative scan read nothing, and `not_projected` where it was
+/// already wide. Neither is evidence about projecting, so read compare coverage as `match` and
+/// `diff` against their sum, not against the chunk count.
+pub const SHADOW_COMPARE: &str = "seeder_shadow_compare_total";
+/// Wall time of one chunk's diagnostic wide re-scan, including its fold and diff (histogram).
+///
+/// The compare arm runs after the authoritative scan on the same task, holding the chunk's worker
+/// slot and lease, and [`CHUNK_SCAN_DURATION_SECONDS`] deliberately closes before it. Without this
+/// series the arm's cost shows up only as slower chunk throughput, with nothing naming the cause —
+/// which is the reading behind the decision to turn the knob off for the rest of a long reseed.
+pub const SHADOW_COMPARE_DURATION_SECONDS: &str = "seeder_shadow_compare_duration_seconds";
+/// Rows only the shadow compare's legacy wide arm refused to build globals for, labelled by
+/// `team_id` (counter). Emitted only while `SEEDER_SCAN_SHADOW_COMPARE` is on, and at zero as well.
+///
+/// The difference between the two arms' skip counts, not the wide arm's total. A blob the
+/// projection keeps whole or rebuilds from keys fails the same parse on both arms and explains no
+/// divergence; only a blob the projection replaced with an empty literal is skipped on one side
+/// and evaluated on the other. That difference is what separates a projection defect from the
+/// over-count `sql::render_blob` documents, which lands in `result="diff"` indistinguishably.
+pub const SHADOW_COMPARE_LEGACY_SKIPPED: &str = "seeder_shadow_compare_legacy_skipped_total";
+/// Top-level JSON keys a narrowed scan rebuilds one blob from, labelled by `blob`
+/// (`properties`/`person_properties`) and `team_id` (histogram). Zero means the blob is not read at
+/// all and the scan selects an empty literal for it.
+///
+/// A blob some condition needs whole takes no sample: there is no key count to report for it, and a
+/// sentinel would be indistinguishable from a real reading. Those show up as decoded bytes that do
+/// not fall — read this against `seeder_scan_decoded_bytes_total{kind="behavioral"}`.
+pub const PROJECTION_KEYS: &str = "seeder_projection_keys";
 pub const CHUNKS_PLANNED: &str = "seeder_chunks_planned_total";
 pub const CHUNKS_CLAIMED: &str = "seeder_chunks_claimed_total";
 pub const CHUNKS_RECLAIMED: &str = "seeder_chunks_reclaimed_total";
@@ -133,6 +182,32 @@ pub const PERSON_PLANNING_DURATION_SECONDS: &str = "seeder_person_planning_durat
 /// delivery separately. One name across both would compare unlike spans.
 pub const PERSON_CHUNK_SCAN_DURATION_SECONDS: &str = "seeder_person_chunk_scan_duration_seconds";
 
+/// How many teams a per-team series names individually before it stops naming any.
+///
+/// Sized well above the shadow rollout's team count, so the collapse is a ceiling rather than a
+/// routine truncation.
+const MAX_LABELLED_TEAMS: usize = 32;
+
+/// The label every team shares once a per-team series stops naming them.
+const UNLABELLED_TEAM: &str = "other";
+
+/// The team a metric belongs to, as a label value.
+///
+/// A team gets its own series only while `REALTIME_COHORT_TEAM_ALLOWLIST` names few enough of them.
+/// The allowlist does not bound this on its own: it accepts `all` (which a set-but-empty variable
+/// also parses to) and ranges of up to 100,000 ids, and the recorder never evicts a series, so a
+/// wide rollout would retain one per team that ever seeded. The label exists because these series
+/// answer questions about one team's catalog and scans, which a blended counter cannot; the paired
+/// log lines carry the exact team either way, so collapsing costs the dashboard, not the answer.
+pub fn team_label(allowlist: &TeamAllowlist, team_id: TeamId) -> Arc<str> {
+    match allowlist {
+        TeamAllowlist::Only(ids) if ids.len() <= MAX_LABELLED_TEAMS => {
+            Arc::from(team_id.0.to_string().as_str())
+        }
+        TeamAllowlist::Only(_) | TeamAllowlist::All => Arc::from(UNLABELLED_TEAM),
+    }
+}
+
 /// Records its lifetime into `metric` on drop, so every exit — early return, halt, cancellation —
 /// is sampled without a recording site per path.
 pub struct MetricTimer {
@@ -213,13 +288,24 @@ const AGGREGATE_ENTRIES_BUCKETS: &[f64] = &[
     10_000_000.0,
 ];
 
+/// Bucket ladder for [`PROJECTION_KEYS`], which counts JSON keys rather than seconds. The floor is
+/// 0 because "this blob is not read at all" is the reading that matters most, and the seconds ladder
+/// has no bucket that separates it from one key. The top is well above any condition set a person
+/// writes by hand, so a run reaching it means the projection has stopped narrowing anything.
+const PROJECTION_KEYS_BUCKETS: &[f64] = &[0.0, 1.0, 2.0, 4.0, 8.0, 16.0, 32.0, 64.0, 128.0, 256.0];
+
 /// Every seeder histogram that overrides the recorder-wide default, paired with its ladder. This is
 /// the single source: [`configured_builder`] installs from it and the test iterates it, so a
 /// histogram cannot be given a ladder in one place and checked against another. A histogram absent
 /// from this table inherits [`DEFAULT_SECONDS_BUCKETS`], which is correct only if it measures a
 /// short span in seconds.
 const HISTOGRAM_LADDERS: &[(&str, &[f64])] = &[
+    (PROJECTION_KEYS, PROJECTION_KEYS_BUCKETS),
     (CHUNK_SCAN_DURATION_SECONDS, SCAN_DURATION_SECONDS_BUCKETS),
+    (
+        SHADOW_COMPARE_DURATION_SECONDS,
+        SCAN_DURATION_SECONDS_BUCKETS,
+    ),
     (
         PERSON_CHUNK_SCAN_DURATION_SECONDS,
         SCAN_DURATION_SECONDS_BUCKETS,
@@ -253,7 +339,7 @@ pub fn install_recorder() -> Result<PrometheusHandle, BuildError> {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
+    use std::collections::{HashMap, HashSet};
 
     use envconfig::Envconfig;
     use metrics::histogram;
@@ -324,6 +410,32 @@ mod tests {
         }
     }
 
+    /// A blob no condition reads is the reading [`PROJECTION_KEYS`] exists to make visible, and it
+    /// is only visible while the ladder has a bucket that holds nothing else. Drop the `0` bound and
+    /// a chunk that read no keys and a chunk that read one both land in the first bucket, so the
+    /// series stops answering "is this team still projecting?" while still rendering.
+    #[test]
+    fn the_projection_key_ladder_separates_zero_keys_from_one() {
+        assert_eq!(
+            PROJECTION_KEYS_BUCKETS.first(),
+            Some(&0.0),
+            "the ladder no longer starts at 0, so an unread blob shares a bucket with a read one"
+        );
+        let recorder = configured_builder()
+            .expect("the configured bucket ladders are non-empty")
+            .build_recorder();
+        let handle = recorder.handle();
+        metrics::with_local_recorder(&recorder, || {
+            histogram!(PROJECTION_KEYS).record(0.0);
+            histogram!(PROJECTION_KEYS).record(1.0);
+        });
+        let rendered = handle.render();
+        assert!(
+            rendered.contains(&format!("{PROJECTION_KEYS}_bucket{{le=\"0\"}} 1")),
+            "the zero-key sample did not land alone in the le=0 bucket:\n{rendered}"
+        );
+    }
+
     /// The person planning timer spans a ClickHouse scan and a Postgres insert, so it must not
     /// share the scan ladder, whose 1.0s floor erases every sub-second planning pass. Two teams
     /// apart in size have to land in different buckets for the metric to say anything.
@@ -360,6 +472,30 @@ mod tests {
                 .expect("the scan ladder is non-empty"),
             config.seeder_ch_max_execution_time_secs as f64,
             "the scan ladder no longer tops out at the ClickHouse execution-time budget"
+        );
+    }
+
+    /// An allowlist that can grow with the customer base must not mint a metric series per team.
+    /// The recorder never evicts one, so a label that tracks team count leaks for the whole process
+    /// lifetime — and `all`, which a set-but-empty variable also parses to, is the configuration
+    /// the boundedness claim used to assume away.
+    #[test]
+    fn only_a_narrow_allowlist_names_teams_in_a_per_team_label() {
+        let narrow = TeamAllowlist::Only(HashSet::from([2, 7]));
+        assert_eq!(&*team_label(&narrow, TeamId(2)), "2");
+
+        let wide = TeamAllowlist::Only((0..=MAX_LABELLED_TEAMS as i32).collect());
+        assert_eq!(&*team_label(&wide, TeamId(2)), UNLABELLED_TEAM);
+        assert_eq!(
+            &*team_label(&TeamAllowlist::All, TeamId(2)),
+            UNLABELLED_TEAM
+        );
+        assert_eq!(
+            &*team_label(
+                &"".parse::<TeamAllowlist>().expect("blank parses"),
+                TeamId(2)
+            ),
+            UNLABELLED_TEAM
         );
     }
 }

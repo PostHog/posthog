@@ -2,7 +2,7 @@ from typing import Any
 from urllib.parse import parse_qs, urlparse
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from unittest.mock import MagicMock, patch
 
 import requests
@@ -115,7 +115,7 @@ class TestGetRows:
         assert rows == []
         assert manager.saved == []
 
-    @freeze_time("2026-07-08T12:00:00Z")
+    @time_machine.travel("2026-07-08T12:00:00Z", tick=False)
     def test_incremental_walks_creation_windows_under_90_days(self, monkeypatch: Any) -> None:
         manager = _FakeResumableManager()
         pages = {f"{SHIPPO_BASE_URL}/shipments/": {"next": None, "results": [{"object_id": "s"}]}}
@@ -147,7 +147,7 @@ class TestGetRows:
             "2026-07-08T12:00:00Z",
         ]
 
-    @freeze_time("2026-07-08T12:00:00Z")
+    @time_machine.travel("2026-07-08T12:00:00Z", tick=False)
     def test_incremental_resumes_mid_window_then_advances(self, monkeypatch: Any) -> None:
         page_2 = f"{SHIPPO_BASE_URL}/shipments/?page=2&object_created_gt=2026-06-01T00:00:00Z"
         manager = _FakeResumableManager(ShippoResumeConfig(next_url=page_2, window_start="2026-06-01T00:00:00Z"))

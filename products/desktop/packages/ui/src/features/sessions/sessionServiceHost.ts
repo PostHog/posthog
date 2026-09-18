@@ -23,6 +23,8 @@ import {
   BEDROCK_GATEWAY_VARIANTS,
   BEDROCK_LLM_GATEWAY_FLAG,
   type BedrockGatewayVariant,
+  CLAUDE_OWN_SUBSCRIPTION_CLOUD_FLAG,
+  CLAUDE_OWN_SUBSCRIPTION_FLAG,
   CODEX_OWN_SUBSCRIPTION_FLAG,
   SPOKEN_NARRATION_FLAG,
 } from "@posthog/shared";
@@ -156,8 +158,14 @@ function buildSessionServiceDeps(): SessionServiceDeps {
       const codexSubscriptionEnabled =
         featureFlags.isEnabled(CODEX_OWN_SUBSCRIPTION_FLAG) ||
         import.meta.env.DEV;
+      const claudeSubscriptionEnabled =
+        featureFlags.isEnabled(CLAUDE_OWN_SUBSCRIPTION_FLAG) ||
+        import.meta.env.DEV;
       return {
         ...state,
+        claudeCloudSubscriptionEnabled: featureFlags.isEnabled(
+          CLAUDE_OWN_SUBSCRIPTION_CLOUD_FLAG,
+        ),
         customInstructions: getEffectiveCustomInstructions(state),
         spokenNarrationEnabled: shouldEnableSpokenNarration(
           state.spokenNotifications,
@@ -169,6 +177,9 @@ function buildSessionServiceDeps(): SessionServiceDeps {
         ),
         codexModelAccess: codexSubscriptionEnabled
           ? state.codexModelAccess
+          : undefined,
+        claudeModelAccess: claudeSubscriptionEnabled
+          ? state.claudeModelAccess
           : undefined,
       };
     },
