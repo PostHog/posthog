@@ -251,8 +251,8 @@ export interface runInteractionLogicActions {
     markPermissionRequestResolved: (requestId: string) => {
         requestId: string
     } // runStreamLogic
-    markTurnComplete: () => {
-        value: true
+    markTurnComplete: (isReplay?: boolean | undefined) => {
+        isReplay: boolean
     } // runStreamLogic
     permissionResponseFailed: (requestId: string) => {
         requestId: string
@@ -1313,8 +1313,10 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
             },
 
             // The agent finished a turn — drain any staged follow-ups.
-            markTurnComplete: () => {
-                actions.flushQueue()
+            markTurnComplete: ({ isReplay }) => {
+                if (!isReplay) {
+                    actions.flushQueue()
+                }
             },
 
             // The new model may not support the current effort — clamp the override so it never holds an

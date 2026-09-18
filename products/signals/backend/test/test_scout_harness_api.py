@@ -38,6 +38,8 @@ from products.signals.backend.daily_limit import DailyReportLimitGate
 from products.signals.backend.models import (
     SignalProjectProfile,
     SignalReport,
+    SignalReportArtefact,
+    SignalReportCheck,
     SignalScoutConfig,
     SignalScoutEmission,
     SignalScoutNote,
@@ -2274,6 +2276,43 @@ class TestAgentHarnessProjectProfileAPI(APIBaseTest):
         # No second row written.
         assert SignalProjectProfile.objects.filter(team=self.team).count() == 1
 
+    @parameterized.expand([(False,), (True,)])
+    def test_scout_read_reports_its_own_dry_run_block_though_the_team_can_emit(self, summary_only: bool) -> None:
+        run = _make_run(self.team)
+        assert run.scout_config is not None
+        SignalScoutConfig.objects.filter(pk=run.scout_config.pk).update(emit=False)
+        self._seed_profile()
+        # The sandbox token is bound to the task that dispatched the run, which is how the endpoint
+        # knows which scout is asking — the scout passes nothing.
+        _authenticate_as_scout(self, sandbox_task_id=run.task_run.task_id)
+
+        response = self.client.get(self._list_url(), {"summary_only": str(summary_only).lower()})
+        assert response.status_code == status.HTTP_200_OK
+        body = response.json()
+        eligibility = body["summary"]["emit_eligibility"]
+        if summary_only:
+            assert "payload" not in body
+        else:
+            assert body["payload"]["inventory"]["emit_eligibility"] == eligibility
+
+        assert eligibility["can_emit"] is False
+        assert eligibility["scout_emit_enabled"] is False
+        assert eligibility["blocking_reason"] == "scout_emit_disabled"
+        assert eligibility["remediation"]
+        # The team-wide gates are untouched, so the block really is this scout's own posture.
+        assert eligibility["ai_processing_approved"] is True
+        assert eligibility["source_enabled"] is True
+        stored = SignalProjectProfile.objects.get(team=self.team).payload["inventory"]["emit_eligibility"]
+        assert stored["can_emit"] is True
+        assert stored["scout_emit_enabled"] is None
+
+    def test_read_outside_a_run_keeps_the_team_wide_eligibility(self) -> None:
+        # No scout to answer for, so there is no per-scout toggle to report and the stored floor stands.
+        self._seed_profile()
+        eligibility = self.client.get(self._list_url()).json()["payload"]["inventory"]["emit_eligibility"]
+        assert eligibility["scout_emit_enabled"] is None
+        assert eligibility["can_emit"] is True
+
     def test_scout_read_inventory_payload_carries_expected_keys(self) -> None:
         _authenticate_as_scout(self)
         response = self.client.get(self._list_url())
@@ -2336,7 +2375,9 @@ class TestAgentHarnessProjectProfileAPI(APIBaseTest):
         assert set(body["summary"]["emit_eligibility"]) == {
             "ai_processing_approved",
             "source_enabled",
+            "scout_emit_enabled",
             "can_emit",
+            "blocking_reason",
             "remediation",
         }
         assert set(body["summary"]["existing_inbox_reports"]) == {"total", "by_status"}
@@ -4513,6 +4554,52 @@ class TestScoutRunDerivedMetadata(APIBaseTest):
             content="pending",
         )
         SignalScratchpad.all_teams.filter(pk=entry.pk).update(created_at=run.created_at - timedelta(hours=2))
+        assert self._stamp(run)["has_self_validation"] is False
+
+    def test_self_validation_counts_a_run_that_wrote_a_report_check(self) -> None:
+        # Writing a check *is* the validation being scheduled, unlike writing a queue entry, which
+        # only asks a future run to do it. Keeping the same field name is deliberate: the flag means
+        # "this run closed a loop", and scouts are moving from the queue onto checks.
+        run = _make_run(self.team)
+        report = SignalReport.objects.create(team=self.team, title="Checkout 500s")
+        SignalReportCheck.objects.for_team(self.team.id).create(
+            team=self.team,
+            report=report,
+            title="Checkout errors stay low",
+            kind=SignalReportCheck.Kind.AGENT,
+            config={"instructions": "Re-read the issue."},
+            next_run_at=timezone.now() + timedelta(days=3),
+            expires_at=timezone.now() + timedelta(days=30),
+            task_id=run.task_run.task_id,
+        )
+        assert self._stamp(run)["has_self_validation"] is True
+
+    def test_self_validation_counts_a_run_that_recorded_a_verdict(self) -> None:
+        run = _make_run(self.team)
+        report = SignalReport.objects.create(team=self.team, title="Checkout 500s")
+        SignalReportArtefact.objects.create(
+            team=self.team,
+            report=report,
+            type=SignalReportArtefact.ArtefactType.CHECK_RESULT,
+            content="{}",
+            task_id=run.task_run.task_id,
+        )
+        assert self._stamp(run)["has_self_validation"] is True
+
+    def test_another_runs_check_does_not_count(self) -> None:
+        run = _make_run(self.team)
+        other_run = _make_run(self.team)
+        report = SignalReport.objects.create(team=self.team, title="Checkout 500s")
+        SignalReportCheck.objects.for_team(self.team.id).create(
+            team=self.team,
+            report=report,
+            title="Checkout errors stay low",
+            kind=SignalReportCheck.Kind.AGENT,
+            config={"instructions": "Re-read the issue."},
+            next_run_at=timezone.now() + timedelta(days=3),
+            expires_at=timezone.now() + timedelta(days=30),
+            task_id=other_run.task_run.task_id,
+        )
         assert self._stamp(run)["has_self_validation"] is False
 
     def test_derived_map_round_trips_as_an_object_not_a_string(self) -> None:

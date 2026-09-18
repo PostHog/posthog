@@ -72,6 +72,39 @@ class TestHmacSha256(SimpleTestCase):
         scheme = HmacSha256(secret_getter=lambda: SECRET, signature_header="X-Signature", prefix="sha256=")
         self.assertEqual(scheme.verify(body=BODY, headers=headers).outcome, expected)
 
+    @parameterized.expand(
+        [
+            ("missing_header", {}, True),
+            ("empty_header", {"X-Signature": ""}, True),
+            ("malformed_header", {"X-Signature": "not-a-digest"}, True),
+            ("missing_timestamp", {"X-Signature": "0" * 64}, True),
+            ("malformed_timestamp", {"X-Signature": "0" * 64, "X-Timestamp": "yesterday"}, True),
+            ("stale_timestamp", {"X-Signature": "0" * 64, "X-Timestamp": "1700000000"}, True),
+            ("well_formed", {"X-Signature": "0" * 64, "X-Timestamp": "now"}, False),
+            ("missing_header_but_no_secret", {}, False),
+        ]
+    )
+    def test_headers_alone_decide_whether_the_body_is_worth_reading(
+        self, _name: str, headers: dict[str, str], expected: bool
+    ) -> None:
+        # An unconfigured endpoint keeps its NOT_CONFIGURED answer, so the operator signal survives.
+        secret = "" if _name == "missing_header_but_no_secret" else SECRET
+        headers = {k: str(int(time.time())) if v == "now" else v for k, v in headers.items()}
+        scheme = HmacSha256(
+            secret_getter=lambda: secret,
+            signature_header="X-Signature",
+            signature_pattern=re.compile(r"^[0-9a-f]{64}$"),
+            signed_input="v0_timestamp_body",
+            timestamp_header="X-Timestamp",
+        )
+        self.assertEqual(scheme.rejects_headers(headers), expected)
+        # Every refusal here is the same verdict the full check would reach on those headers.
+        if expected:
+            self.assertEqual(
+                scheme.verify(body=BODY, headers=headers).outcome,
+                VerificationOutcome.INVALID,
+            )
+
     def test_missing_secret_is_not_configured_rather_than_invalid(self) -> None:
         scheme = HmacSha256(secret_getter=lambda: None, signature_header="X-Signature")
         self.assertEqual(
@@ -243,6 +276,8 @@ class TestBearerJwt(SimpleTestCase):
         headers = {} if template is None else {"Authorization": template.format(token=self._token())}
 
         self.assertEqual(self._verify(self._scheme(), headers).outcome, VerificationOutcome.INVALID)
+        # The same verdict from the headers alone, so the body is never read for it.
+        self.assertTrue(self._scheme().rejects_headers(headers))
 
     @parameterized.expand(
         [

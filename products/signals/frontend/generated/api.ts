@@ -9,7 +9,9 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    CancelReportCheckRequestApi,
     CommitDiffResponseApi,
+    CreateReportCheckRequestApi,
     EditReportRequestApi,
     EditReportResponseApi,
     EmitFindingRequestApi,
@@ -49,6 +51,7 @@ import type {
     ReportSignalsResponseApi,
     ScoutChatTaskApi,
     ScoutChatTaskCreateApi,
+    ScoutCheckSummaryApi,
     ScoutCostsApi,
     ScoutEmissionReportLinkApi,
     ScoutMemberApi,
@@ -68,7 +71,6 @@ import type {
     SignalReportBulkStateRequestApi,
     SignalReportBulkStateResponseApi,
     SignalReportCheckApi,
-    SignalReportCheckWriteApi,
     SignalReportClaimApi,
     SignalReportFeedbackRequestApi,
     SignalReportFeedbackResponseApi,
@@ -107,6 +109,7 @@ import type {
     SignalsScoutMembersListParams,
     SignalsScoutNotesListParams,
     SignalsScoutProjectProfileGetParams,
+    SignalsScoutReportChecksListParams,
     SignalsScoutRunsCostsParams,
     SignalsScoutRunsFindingsSummaryParams,
     SignalsScoutRunsListParams,
@@ -866,40 +869,21 @@ export const signalsReportChecksList = async (
     })
 }
 
-export const getSignalsReportChecksCreateUrl = (projectId: string, reportId: string) => {
-    return `/api/projects/${projectId}/signals/reports/${reportId}/checks/`
-}
-
-/**
- * Schedule a re-measurement of the report's claim. A `metric_threshold` check runs one bounded Trends query and compares the result, so it needs no agent run. An `agent` check runs a scout instead, for a claim no single number settles; it runs on the scout its config names, or on the fleet's follow-up scout when it names none.
- * @summary Create a check on a report
- */
-export const signalsReportChecksCreate = async (
-    projectId: string,
-    reportId: string,
-    signalReportCheckWriteApi: SignalReportCheckWriteApi,
-    options?: RequestInit
-): Promise<SignalReportCheckApi> => {
-    return apiMutator<SignalReportCheckApi>(getSignalsReportChecksCreateUrl(projectId, reportId), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(signalReportCheckWriteApi),
-    })
-}
-
 export const getSignalsReportChecksRetrieveUrl = (projectId: string, reportId: string, id: string) => {
     return `/api/projects/${projectId}/signals/reports/${reportId}/checks/${id}/`
 }
 
 /**
- * Checks attached to a signal report: read, create, and cancel.
+ * Checks attached to a signal report: read and cancel.
+ *
+ * There is no create here. A check is authored by a scout run or by the research pipeline, both
+ * through `report_check_authoring.create_check`. An `agent` check puts its author's prose in front
+ * of a privileged scout run, and `task:write` does not authorize that, so no caller-facing
+ * endpoint accepts one. Anyone who can read the report can read its checks, and a person can
+ * still stop one.
  *
  * There is no update: a check is a claim about the future, and editing its threshold after a
- * result would make the recorded verdict unreadable. Cancel it and write a new one.
- *
- * Writes are attributed the same way artefact writes are — to the task named by the
- * `X-PostHog-Task-Id` header when present, else to the requesting user.
+ * result would make the recorded verdict unreadable. Cancel it and let its author write a new one.
  * @summary Get a single check
  */
 export const signalsReportChecksRetrieve = async (
@@ -919,7 +903,7 @@ export const getSignalsReportChecksDestroyUrl = (projectId: string, reportId: st
 }
 
 /**
- * Stop an active check. Its recorded results stay on the report.
+ * Stop a check that is still open — active, or pending its report resolving. Its recorded results stay on the report.
  * @summary Cancel a check
  */
 export const signalsReportChecksDestroy = async (
@@ -1582,6 +1566,86 @@ export const signalsScoutRecordOutput = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(recordStructuredOutputRequestApi),
+    })
+}
+
+export const getSignalsScoutReportCheckCancelUrl = (projectId: string, runId: string) => {
+    return `/api/projects/${projectId}/signals/scout/runs/${runId}/report-check-cancel/`
+}
+
+/**
+ * Stop a check that is no longer worth running — the claim it re-measures has changed, or a better check replaces it. Results it already recorded stay on the report. A check that has already finished cannot be cancelled.
+ * @summary Cancel a follow-up check
+ */
+export const signalsScoutReportCheckCancel = async (
+    projectId: string,
+    runId: string,
+    cancelReportCheckRequestApi: CancelReportCheckRequestApi,
+    options?: RequestInit
+): Promise<ScoutCheckSummaryApi> => {
+    return apiMutator<ScoutCheckSummaryApi>(getSignalsScoutReportCheckCancelUrl(projectId, runId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(cancelReportCheckRequestApi),
+    })
+}
+
+export const getSignalsScoutReportCheckCreateUrl = (projectId: string, runId: string) => {
+    return `/api/projects/${projectId}/signals/scout/runs/${runId}/report-check-create/`
+}
+
+/**
+ * Schedule a re-measurement of a report's claim, so whether the fix held becomes a stored fact instead of something a future run has to remember to look for. A `metric_threshold` check runs one bounded Trends query and compares the result. An `agent` check runs a scout instead, for a claim no single number settles.
+ * @summary Write a follow-up check on a report
+ */
+export const signalsScoutReportCheckCreate = async (
+    projectId: string,
+    runId: string,
+    createReportCheckRequestApi: CreateReportCheckRequestApi,
+    options?: RequestInit
+): Promise<ScoutCheckSummaryApi> => {
+    return apiMutator<ScoutCheckSummaryApi>(getSignalsScoutReportCheckCreateUrl(projectId, runId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(createReportCheckRequestApi),
+    })
+}
+
+export const getSignalsScoutReportChecksListUrl = (
+    projectId: string,
+    runId: string,
+    params: SignalsScoutReportChecksListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/signals/scout/runs/${runId}/report-checks/?${stringifiedParams}`
+        : `/api/projects/${projectId}/signals/scout/runs/${runId}/report-checks/`
+}
+
+/**
+ * Every check on one report, newest first. Read this before writing one: a report already carrying a check for the same claim needs no second one, and a report holds at most five open checks at a time.
+ * @summary List a report's follow-up checks
+ */
+export const signalsScoutReportChecksList = async (
+    projectId: string,
+    runId: string,
+    params: SignalsScoutReportChecksListParams,
+    options?: RequestInit
+): Promise<ScoutCheckSummaryApi[]> => {
+    return apiMutator<ScoutCheckSummaryApi[]>(getSignalsScoutReportChecksListUrl(projectId, runId, params), {
+        ...options,
+        method: 'GET',
     })
 }
 

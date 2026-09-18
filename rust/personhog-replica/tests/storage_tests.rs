@@ -1,6 +1,7 @@
 mod common;
 
 use common::TestContext;
+use metrics_util::debugging::{DebugValue, DebuggingRecorder, Snapshotter};
 use personhog_replica::storage::postgres::ConsistencyLevel;
 use personhog_replica::storage::{GroupKey, TombstonedDeleteOutcome};
 use rand::Rng;
@@ -3340,6 +3341,55 @@ async fn test_delete_tombstoned_persons_nothing_to_do(#[case] uuids: Vec<Uuid>) 
         .expect("Failed to delete tombstoned persons");
 
     assert_eq!(outcome, TombstonedDeleteOutcome::default());
+    ctx.cleanup().await.ok();
+}
+
+fn recorded_rows(snapshotter: &Snapshotter, operation: &str) -> f64 {
+    snapshotter
+        .snapshot()
+        .into_vec()
+        .iter()
+        .filter(|(key, _, _, _)| {
+            key.key().name() == "personhog_replica_db_rows_returned"
+                && key
+                    .key()
+                    .labels()
+                    .any(|label| label.key() == "operation" && label.value() == operation)
+        })
+        .filter_map(|(_, _, _, value)| match value {
+            DebugValue::Histogram(samples) => {
+                Some(samples.iter().map(|s| s.into_inner()).sum::<f64>())
+            }
+            _ => None,
+        })
+        .sum()
+}
+
+#[tokio::test]
+async fn test_delete_tombstoned_persons_records_skipped_live_when_nothing_is_tombstoned() {
+    let recorder = DebuggingRecorder::new();
+    let snapshotter = recorder.snapshotter();
+    let _guard = metrics::set_default_local_recorder(&recorder);
+
+    let ctx = TestContext::new().await;
+    let live = ctx
+        .insert_person("tomb_metrics_live", None)
+        .await
+        .expect("Failed to insert person");
+
+    let outcome = ctx
+        .storage
+        .delete_tombstoned_persons(ctx.team_id, &[live.uuid], TEST_MAX_ROWS)
+        .await
+        .expect("Failed to delete tombstoned persons");
+
+    assert_eq!(outcome.skipped_live, 1);
+    assert_eq!(outcome.deleted, 0);
+    assert_eq!(
+        recorded_rows(&snapshotter, "delete_tombstoned_persons_skipped_live"),
+        1.0,
+        "a call that finds only live persons must still report them"
+    );
     ctx.cleanup().await.ok();
 }
 

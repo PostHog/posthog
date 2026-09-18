@@ -12,6 +12,30 @@ The channel is granted via the skill's frontmatter `allowed_tools` — **every s
 > like every `scout-*` tool, **both report tools require the current `run_id`** (the run
 > you're executing in) on every call — omitting it fails validation.
 
+## Contents
+
+- [Author vs. edit](#author-vs-edit)
+- [`emit_report` — author a full report](#emit_report--author-a-full-report)
+  - [Measuring impact](#measuring-impact)
+    - [Choosing the kind](#choosing-the-kind)
+    - [Keeping the query live and bounded](#keeping-the-query-live-and-bounded)
+    - [Keeping semantics separate from formatting](#keeping-semantics-separate-from-formatting)
+    - [Titling and captioning](#titling-and-captioning)
+    - [Snapshots are optional cached fallbacks, not estimates](#snapshots-are-optional-cached-fallbacks-not-estimates)
+    - [A reader may see the tile without its data](#a-reader-may-see-the-tile-without-its-data)
+    - [Caps, and what an edit does](#caps-and-what-an-edit-does)
+  - [Attaching charts](#attaching-charts)
+  - [Suggesting follow-up prompts](#suggesting-follow-up-prompts)
+  - [Opening a draft PR (autostart)](#opening-a-draft-pr-autostart)
+- [Choosing `suggested_reviewers` — how a report gets assigned to a human](#choosing-suggested_reviewers--how-a-report-gets-assigned-to-a-human)
+- [`edit_report` — update an existing report](#edit_report--update-an-existing-report)
+  - [Replacing the report's pull request](#replacing-the-reports-pull-request)
+  - [Re-confirming a report you already filed](#re-confirming-a-report-you-already-filed)
+- [Finding "the report I made last time"](#finding-the-report-i-made-last-time)
+- [Dedup: the retry is covered, the near-duplicate is not](#dedup-the-retry-is-covered-the-near-duplicate-is-not)
+- [The pipeline may rewrite what you authored (accepted)](#the-pipeline-may-rewrite-what-you-authored-accepted)
+- [Granting the tools](#granting-the-tools)
+
 ## Author vs. edit
 
 | You have…                                                                                                       | Use                                                                                                             |

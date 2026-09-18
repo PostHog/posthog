@@ -54,14 +54,23 @@ export function MCPAnalyticsActivityDashboard(): JSX.Element {
 
 function SummaryCard(): JSX.Element {
     const { dashboardStage } = useValues(mcpAnalyticsOnboardingLogic)
-    const { summary } = useValues(mcpEarlyDataLogic)
+    const { summary, overview, overviewLoading } = useValues(mcpEarlyDataLogic)
+    // The sentence is derived from the overview, and an absent overview reads as zero calls —
+    // so the first load would claim "No tool calls in the last 30 days" until the numbers
+    // arrive. Only the first load skeletons: the 60s refresh keeps the sentence it already has
+    // rather than flashing back to a placeholder every minute.
+    const awaitingFirstOverview = overviewLoading && !overview
 
     return (
         <LemonBanner type="info" dismissKey="mcp-analytics-activity-summary" hideIcon>
             <div className="flex items-center gap-3 py-1">
                 <HedgehogExplorer className="h-14 w-14 shrink-0 hidden sm:block" />
                 <div className="min-w-0">
-                    <h3 className="text-lg font-semibold m-0">{summary}</h3>
+                    {awaitingFirstOverview ? (
+                        <LemonSkeleton className="h-6 w-80 max-w-full my-1" />
+                    ) : (
+                        <h3 className="text-lg font-semibold m-0">{summary}</h3>
+                    )}
                     <p className="text-muted text-base m-0 mt-1">
                         This view fills in live as agents use your server.
                         {dashboardStage === 'activity' ? (

@@ -10,7 +10,7 @@ import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { filterTestAccountsDefaultsLogic } from 'scenes/settings/environment/filterTestAccountDefaultsLogic'
 import { urls } from 'scenes/urls'
 
-import { actorsOnlyMathTypes, expandGroupNodes } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
+import { actorsOnlyMathTypes, expandGroupNodes } from '~/queries/nodes/InsightQuery/utils/actionsAndEventsToSeries'
 import { nodeKindToInsightType } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
 import { getDefaultQuery } from '~/queries/nodes/InsightViz/utils'
 import {

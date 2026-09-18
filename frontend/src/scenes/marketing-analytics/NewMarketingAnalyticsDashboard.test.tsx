@@ -15,12 +15,14 @@ jest.mock('@posthog/lemon-ui', () => ({
         value,
         onChange,
         options,
+        'aria-label': label,
     }: {
         value: string
         onChange: (value: string) => void
         options: { value: string; label: string }[]
+        'aria-label': string
     }) => (
-        <select aria-label="Traffic breakdown" value={value} onChange={(event) => onChange(event.target.value)}>
+        <select aria-label={label} value={value} onChange={(event) => onChange(event.target.value)}>
             {options.map((option) => (
                 <option key={option.value} value={option.value}>
                     {option.label}
@@ -94,6 +96,8 @@ describe('NewMarketingAnalyticsDashboard', () => {
             setupPlan: {},
             visibleSuggestions: [],
             trafficOrderBy: {},
+            trafficChartMetric: 'visitors',
+            trafficChartSeries: { kind: 'EventsNode', event: null, math: 'dau', custom_name: 'Visitors' },
         })
 
         render(<NewMarketingAnalyticsDashboard />)
@@ -104,7 +108,12 @@ describe('NewMarketingAnalyticsDashboard', () => {
         expect(screen.getByText('Engagement')).not.toBeNull()
         expect(screen.queryByText('Attribution explorer')).toBeNull()
         expect(screen.queryByText('Retention explorer')).toBeNull()
+        expect(screen.getByText('Visitors over time')).not.toBeNull()
+        expect(screen.getByLabelText('Chart metric')).not.toBeNull()
         const trendBeforeBreakdown = screen.getByTestId('trend-query').textContent
+        expect(JSON.parse(trendBeforeBreakdown || '{}').source.series).toEqual([
+            { kind: 'EventsNode', event: null, math: 'dau', custom_name: 'Visitors' },
+        ])
         fireEvent.change(screen.getByLabelText('Traffic breakdown'), { target: { value: 'InitialUTMCampaign' } })
         expect(JSON.parse(screen.getByTestId('traffic-query').textContent || '{}').source).toMatchObject({
             kind: 'WebStatsTableQuery',

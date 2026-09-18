@@ -553,7 +553,9 @@ def build_trace_hog_globals(trace: LLMTrace, trace_id: str, *, bytecode: list[An
 
 @temporalio.activity.defn
 @close_db_connections
-@posthoganalytics.scoped()
+# capture_exceptions=False: the worker interceptor reports judge failures, and its capture carries
+# the team and evaluation ids. A capture inside the activity wins the SDK's dedupe and loses them.
+@posthoganalytics.scoped(capture_exceptions=False)
 def execute_trace_llm_judge_activity(inputs: ExecuteTraceEvaluationInputs) -> EvaluationActivityResult:
     """Fetch the whole trace and run the LLM judge over its transcript.
 
