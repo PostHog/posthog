@@ -38,12 +38,13 @@ class TestCircleciInsightsSource:
         assert {schema.name for schema in schemas} == set(ENDPOINTS)
 
     @parameterized.expand([(endpoint,) for endpoint in ENDPOINTS])
-    def test_only_workflow_runs_advertises_incremental(self, endpoint):
+    def test_only_start_date_endpoints_advertise_incremental(self, endpoint):
         schemas = {schema.name: schema for schema in self.source.get_schemas(self.config, self.team_id)}
-        expected = endpoint == "workflow_runs"
+        expected = endpoint in ("workflow_runs", "job_timeseries")
 
-        # Only the runs endpoint has a server-side timestamp filter (start-date); the
-        # aggregate endpoints are rolling-window snapshots and stay full refresh.
+        # Only the endpoints with a server-side timestamp filter (start-date) can sync
+        # incrementally; the aggregate endpoints are rolling-window snapshots and stay
+        # full refresh.
         assert schemas[endpoint].supports_incremental is expected
         assert bool(INCREMENTAL_FIELDS.get(endpoint)) is expected
 

@@ -1503,28 +1503,28 @@ The current v2 spec has no artifacts or test-metadata endpoints (those lived in 
 
 ## CircleciInsights — gaps
 
-Today (5): `flaky_tests`, `job_metrics`, `org_summary_metrics`, `workflow_metrics`, `workflow_runs`
+Today (9): `branches`, `flaky_tests`, `job_metrics`, `job_timeseries`, `org_summary_metrics`, `workflow_metrics`, `workflow_runs`, `workflow_summary`, `workflow_test_metrics`
 
 Diffed against: <https://circleci.com/api/v2/openapi.json>
 
-- [ ] `insights/{project-slug}/workflows/{workflow-name}/test-metrics` — per-test duration and failure metrics - the main test-health breakdown beyond flaky tests (high)
-- [ ] `insights/time-series/{project-slug}/workflows/{workflow-name}/jobs` — granular job timeseries, the only source of point-in-time job trends rather than window aggregates (high)
-- [ ] `insights/{project-slug}/branches` — branch dimension lookup for slicing every other insights metric (medium)
-- [ ] `insights/{project-slug}/workflows/{workflow-name}/summary` — workflow summary with trend deltas, complements the raw workflow metrics (medium)
+- [x] `insights/{project-slug}/workflows/{workflow-name}/test-metrics` — per-test duration and failure metrics - the main test-health breakdown beyond flaky tests (high)
+- [x] `insights/time-series/{project-slug}/workflows/{workflow-name}/jobs` — granular job timeseries, the only source of point-in-time job trends rather than window aggregates (high)
+- [x] `insights/{project-slug}/branches` — branch dimension lookup for slicing every other insights metric (medium)
+- [x] `insights/{project-slug}/workflows/{workflow-name}/summary` — workflow summary with trend deltas, complements the raw workflow metrics (medium)
 - [ ] `insights/pages/{project-slug}/summary` — project-level workflow rollup used by the Insights UI landing page (low)
 
-Note: All five Insights tables map cleanly onto spec paths; the gaps are the remaining Insights operations in the same spec.
+Note: All nine Insights tables map cleanly onto spec paths; the gap is the remaining Insights operation in the same spec.
 
 ## CiscoDuo — gaps
 
-Today (9): `activity_logs`, `administrator_logs`, `admins`, `authentication_logs`, `groups`, `integrations`, `phones`, `telephony_logs`, `users`
+Today (12): `activity_logs`, `administrator_logs`, `admins`, `authentication_logs`, `endpoints`, `group_users`, `groups`, `integrations`, `phones`, `policies`, `telephony_logs`, `users`
 
 Diffed against: <https://duo.com/docs/adminapi>
 
-- [ ] `/admin/v2/policies` — policy lookup resolving the policy keys referenced by authentication and activity logs (high)
-- [ ] `/admin/v2/groups/{group_id}/users (and /admin/v1/users/{user_id}/groups)` — user-to-group membership join table - we sync users and groups but not the link between them (high)
+- [x] `/admin/v2/policies` — policy lookup resolving the policy keys referenced by authentication and activity logs (high)
+- [x] `/admin/v2/groups/{group_id}/users (and /admin/v1/users/{user_id}/groups)` — user-to-group membership join table - we sync users and groups but not the link between them (high)
 - [ ] `/admin/v1/trust_monitor/events` — Duo Trust Monitor security events, the vendor's flagged-risk feed (high)
-- [ ] `/admin/v1/endpoints` — managed endpoint/device inventory with OS, browser and plugin versions - resolves device IDs in auth logs (high)
+- [x] `/admin/v1/endpoints` — managed endpoint/device inventory with OS, browser and plugin versions - resolves device IDs in auth logs (high)
 - [ ] `/admin/v1/tokens` — hardware token inventory, the second-factor dimension missing next to phones (medium)
 - [ ] `/admin/v1/webauthncredentials` — WebAuthn/security-key enrollment inventory for MFA method coverage reporting (medium)
 - [ ] `/admin/v1/registered_devices` — registered and blocked device records for device-trust analysis (medium)
@@ -1535,6 +1535,13 @@ Diffed against: <https://duo.com/docs/adminapi>
 - [ ] `/admin/v1/administrative_units` — administrative unit scoping that segments admins, groups and integrations (low)
 
 Note: Static endpoint config, no dynamic table discovery. Excluded settings, branding, bulk operations, activation links and directory-sync trigger endpoints as config/plumbing.
+Trust Monitor is deliberately not wired up: Duo removed it from the Admin Panel in July 2026, it is
+unavailable to accounts created after 29 September 2025, and the API endpoint reaches end of support
+on 31 January 2027. Its replacement, Cisco Identity Intelligence, is a separate Graph API and webhook
+surface rather than an Admin API endpoint, so it is not a gap in this source.
+`group_users` fans out over `/admin/v1/groups` rather than over users, which is the cheaper side of
+the same join; `/admin/v1/users/{user_id}/groups` therefore needs no separate table.
+The two `/admin/v2` additions sign with Duo's v5 scheme, since some v2 handlers reject legacy v2 signing.
 
 ## Clari — gaps
 
