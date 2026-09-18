@@ -147,7 +147,11 @@ class MetricThresholdConfig(BaseModel):
         default=None,
         description=(
             "Live InsightVizNode wrapping one TrendsQuery: supplied by the caller, or copied from the named "
-            "metric when the check is created."
+            "metric when the check is created. `dateRange.date_from` must be a relative window such as `-13d`, "
+            "and `date_to` must be empty, so the check measures the days before each run rather than the days "
+            "before it was written. Use one event or action series, no breakdown and no compare mode, so the "
+            "query has exactly one output series. A `trendsFilter.display` of `Metric` has `metricShowChange` "
+            "switched off for you, because that display would otherwise turn compare mode on."
         ),
     )
     comparison: CheckComparison = Field(description="What the measured value must satisfy to pass.")
