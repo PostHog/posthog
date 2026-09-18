@@ -1,3 +1,4 @@
+import json
 from contextlib import AbstractContextManager
 from datetime import UTC, datetime
 
@@ -251,6 +252,52 @@ class TestScoutReportPersistence(BaseTest):
         kwargs = mock_capture.call_args.kwargs
         assert kwargs["source"] == "scout_edit"
         assert kwargs["github_logins"] == ["octocat"]
+
+    def test_set_reviewers_preserves_legacy_commit_with_oversized_reasons(self) -> None:
+        result = create_scout_report(
+            team_id=self.team.id,
+            title="Checkout API latency regressed",
+            summary="The checkout endpoint slowed after a deploy.",
+            signals=[ScoutReportSignal(description="Latency increased", source_id="obs-1", weight=1.0)],
+            attribution=ArtefactAttribution.system(),
+        )
+        SignalReportArtefact.objects.create(
+            team_id=self.team.id,
+            report_id=result.report_id,
+            type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS,
+            content=json.dumps(
+                [
+                    {
+                        "github_login": "octocat",
+                        "reason": "r" * 501,
+                        "relevant_commits": [
+                            {"sha": "abc123f", "url": "https://example.com/c/abc123f", "reason": "c" * 501}
+                        ],
+                    }
+                ]
+            ),
+        )
+
+        set_scout_report_reviewers(
+            team_id=self.team.id,
+            report_id=result.report_id,
+            suggested_reviewers=SuggestedReviewers(root=[SuggestedReviewerEntry(github_login="octocat")]),
+            attribution=ArtefactAttribution.system(),
+        )
+
+        latest = (
+            SignalReportArtefact.objects.filter(
+                report_id=result.report_id, type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS
+            )
+            .order_by("-created_at")
+            .first()
+        )
+        assert latest is not None
+        reviewer = json.loads(latest.content)[0]
+        assert reviewer["reason"] is None
+        assert reviewer["relevant_commits"] == [
+            {"sha": "abc123f", "url": "https://example.com/c/abc123f", "reason": ""}
+        ]
 
     @parameterized.expand(
         [
