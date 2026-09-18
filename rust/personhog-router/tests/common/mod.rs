@@ -444,7 +444,11 @@ impl PersonHogReplica for TestReplicaService {
         &self,
         _request: Request<DeletePersonsRequest>,
     ) -> Result<Response<DeletePersonsResponse>, Status> {
-        Ok(Response::new(DeletePersonsResponse { deleted_count: 0 }))
+        Ok(Response::new(DeletePersonsResponse {
+            deleted_count: 0,
+            tombstoned: false,
+            tombstones: vec![],
+        }))
     }
 
     async fn delete_persons_batch_for_team(
