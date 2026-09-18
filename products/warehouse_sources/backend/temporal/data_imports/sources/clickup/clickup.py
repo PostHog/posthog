@@ -13,16 +13,22 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     rest_api_resource,
     rest_api_resources,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import APIKeyAuth
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.config_setup import (
+    create_response_hooks,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     BasePaginator,
     SinglePagePaginator,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.resource import Resource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import RESTClient
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
     ClientConfig,
     EndpointResource,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.sync_window import SyncWindow
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 
 CLICKUP_BASE_URL = "https://api.clickup.com/api/v2"
@@ -34,11 +40,33 @@ TASKS_PAGE_SIZE = 100
 # ISO 8601 so they land as proper datetime columns and can drive partitioning / incremental sync.
 TASK_DATE_FIELDS = ("date_created", "date_updated", "date_closed", "date_done", "start_date", "due_date")
 
+# Same epoch-millisecond treatment for a time entry's own timestamps.
+TIME_ENTRY_DATE_FIELDS = ("start", "end", "at")
 
-@dataclasses.dataclass
+# The time entries endpoint is not paginated: one request returns the whole window, so the window
+# has to stay small enough that a busy workspace's response is still a sane size.
+TIME_ENTRIES_WINDOW_DAYS = 30
+# Where a full refresh starts walking. The endpoint needs an explicit `start_date` (it otherwise
+# answers with just the last 30 days), and ClickUp itself launched in 2017, so no tracked time can
+# predate this.
+TIME_ENTRIES_HISTORY_FLOOR = datetime(2017, 1, 1, tzinfo=UTC)
+
+# Get Bulk Tasks' Time in Status accepts at most 100 task ids per request.
+TIME_IN_STATUS_BATCH_SIZE = 100
+
+# (connect, read) seconds. Left unset, a host that accepts the connection and then stalls holds
+# an import worker open with no bound. The client raises a timeout as retryable, so a stall
+# costs a few bounded attempts instead.
+REQUEST_TIMEOUT_SECONDS: tuple[float, float] = (10.0, 60.0)
+
+
+@dataclasses.dataclass(frozen=True)
 class ClickUpResumeConfig:
     # Zero-indexed page of the Get Filtered Team Tasks endpoint to resume from.
-    page: int
+    page: int = 0
+    # Epoch-millisecond start of the time entries window to resume from. None means "start from
+    # the beginning of the range this sync covers".
+    window_start: Optional[int] = None
 
 
 def _get_headers(api_key: str) -> dict[str, str]:
@@ -69,6 +97,13 @@ def _normalize_task(task: dict[str, Any]) -> dict[str, Any]:
         if date_field in task:
             task[date_field] = _ms_to_iso(task[date_field])
     return task
+
+
+def _normalize_time_entry(entry: dict[str, Any]) -> dict[str, Any]:
+    for date_field in TIME_ENTRY_DATE_FIELDS:
+        if date_field in entry:
+            entry[date_field] = _ms_to_iso(entry[date_field])
+    return entry
 
 
 def _to_epoch_ms(value: Any) -> Optional[int]:
@@ -158,6 +193,7 @@ def _client_config(api_key: str) -> ClientConfig:
         "auth": {"type": "api_key", "api_key": api_key, "name": "Authorization", "location": "header"},
         # Every endpoint except tasks returns its whole result in one un-paginated response.
         "paginator": SinglePagePaginator(),
+        "request_timeout": REQUEST_TIMEOUT_SECONDS,
     }
 
 
@@ -295,6 +331,202 @@ def _chain_resources(resources: list[Resource]) -> Iterator[list[dict[str, Any]]
         yield from resource
 
 
+def _make_client(api_key: str) -> RESTClient:
+    """Client for the endpoints whose fan-out or windowing the declarative config can't express."""
+    return RESTClient(
+        base_url=CLICKUP_BASE_URL,
+        headers={"Accept": "application/json"},
+        auth=APIKeyAuth(api_key=api_key, name="Authorization", location="header"),
+        request_timeout=REQUEST_TIMEOUT_SECONDS,
+    )
+
+
+def _member_user_ids(client: RESTClient, workspace_id: str) -> list[str]:
+    """User ids of every member of the configured workspace.
+
+    Without `assignee`, the time entries endpoint answers with only the calling user's entries, so
+    a workspace-wide table has to name the members. Passing `assignee` needs an owner/admin token;
+    a token without it gets a 403, which `get_non_retryable_errors` reports as a permission problem
+    rather than retrying.
+
+    Raises when the workspace resolves no members. A workspace always holds at least the calling
+    user, so an empty list means the token lost access or the response shape changed. Carrying on
+    without `assignee` would quietly fill the table with one user's time.
+    """
+    user_ids: list[str] = []
+    for page in client.paginate(path="/team", paginator=SinglePagePaginator(), data_selector="teams"):
+        for team in page:
+            if str(team.get("id")) != str(workspace_id):
+                continue
+            for member in team.get("members") or []:
+                user = member.get("user") if isinstance(member.get("user"), dict) else member
+                user_id = user.get("id")
+                if user_id is not None:
+                    user_ids.append(str(user_id))
+
+    if not user_ids:
+        raise ValueError(
+            f"ClickUp returned no members for workspace {workspace_id}. "
+            "Check that the API token still has access to the workspace, then sync again."
+        )
+    return user_ids
+
+
+def _epoch_ms(value: datetime) -> int:
+    return round(value.timestamp() * 1000)
+
+
+def _time_entries_range_start(should_use_incremental_field: bool, db_incremental_field_last_value: Any) -> datetime:
+    if should_use_incremental_field:
+        millis = _to_epoch_ms(db_incremental_field_last_value)
+        if millis is not None:
+            return datetime.fromtimestamp(millis / 1000, tz=UTC)
+    return TIME_ENTRIES_HISTORY_FLOOR
+
+
+def _time_entry_windows(start: datetime, end: datetime) -> Iterator[SyncWindow[int]]:
+    """Split [start, end] into fixed-length windows, oldest first.
+
+    Consecutive windows share a boundary millisecond, so an entry starting exactly on one is
+    fetched twice; merge on the primary key dedupes it.
+    """
+    cursor = start
+    step = timedelta(days=TIME_ENTRIES_WINDOW_DAYS)
+    while cursor < end:
+        window_end = min(cursor + step, end)
+        yield SyncWindow(start=_epoch_ms(cursor), end=_epoch_ms(window_end))
+        cursor = window_end
+
+
+def _time_entries_rows(
+    api_key: str,
+    workspace_id: str,
+    resumable_source_manager: ResumableSourceManager[ClickUpResumeConfig],
+    should_use_incremental_field: bool,
+    db_incremental_field_last_value: Any,
+) -> Iterator[list[dict[str, Any]]]:
+    client = _make_client(api_key)
+
+    params: dict[str, Any] = {
+        "include_task_tags": "true",
+        "include_location_names": "true",
+        "assignee": ",".join(_member_user_ids(client, workspace_id)),
+    }
+
+    start = _time_entries_range_start(should_use_incremental_field, db_incremental_field_last_value)
+    if resumable_source_manager.can_resume():
+        resume = resumable_source_manager.load_state()
+        if resume is not None and resume.window_start is not None:
+            start = datetime.fromtimestamp(resume.window_start / 1000, tz=UTC)
+
+    for window in _time_entry_windows(start, datetime.now(tz=UTC)):
+        for rows in client.paginate(
+            path=f"/team/{workspace_id}/time_entries",
+            params={**params, "start_date": window.start, "end_date": window.end},
+            paginator=SinglePagePaginator(),
+            data_selector="data",
+        ):
+            if rows:
+                yield [_normalize_time_entry(row) for row in rows]
+        # Checkpoint the window just yielded, not the next one: a crash re-fetches it (merge
+        # dedupes) rather than skipping it.
+        resumable_source_manager.save_state(ClickUpResumeConfig(window_start=window.start))
+
+
+def _all_task_ids(api_key: str, workspace_id: str, team_id: int, job_id: str) -> Iterator[str]:
+    """Every task id in the workspace, for the fan-outs keyed on tasks.
+
+    Deliberately unfiltered by `date_updated_gt`: time in status is a full-refresh table with no
+    timestamp of its own, so bounding the walk would leave older tasks' rows permanently stale.
+    """
+    config: RESTAPIConfig = {
+        "client": _client_config(api_key),
+        "resources": [
+            {
+                "name": "tasks",
+                "endpoint": {
+                    "path": f"/team/{workspace_id}/task",
+                    "params": {"order_by": "created", "include_closed": "true", "subtasks": "true"},
+                    "data_selector": "tasks",
+                    "paginator": ClickUpTaskPaginator(),
+                },
+            }
+        ],
+    }
+    for page in rest_api_resource(config, team_id, job_id, None):
+        for task in page:
+            task_id = task.get("id")
+            if task_id is not None:
+                yield str(task_id)
+
+
+def _time_in_status_rows(client: RESTClient, task_ids: list[str]) -> list[dict[str, Any]]:
+    """One row per task from the bulk time-in-status endpoint.
+
+    It answers with a map of task id -> {current_status, status_history} instead of a wrapped
+    array, so there is no data selector to point at. The whole body arrives as a single item and is
+    flattened here into rows carrying the task id the merge key needs.
+    """
+    rows: list[dict[str, Any]] = []
+    for page in client.paginate(
+        path="/task/bulk_time_in_status/task_ids",
+        # `requests` encodes a list as one repeated param per element, which is the format the
+        # endpoint documents (task_ids=3cuh&task_ids=g4fs).
+        params={"task_ids": task_ids},
+        paginator=SinglePagePaginator(),
+    ):
+        for body in page:
+            if not isinstance(body, dict):
+                continue
+            for task_id, time_in_status in body.items():
+                if isinstance(time_in_status, dict):
+                    rows.append({"task_id": task_id, **time_in_status})
+    return rows
+
+
+def _task_time_in_status_rows(
+    api_key: str, workspace_id: str, team_id: int, job_id: str
+) -> Iterator[list[dict[str, Any]]]:
+    client = _make_client(api_key)
+    batch: list[str] = []
+    for task_id in _all_task_ids(api_key, workspace_id, team_id, job_id):
+        batch.append(task_id)
+        if len(batch) == TIME_IN_STATUS_BATCH_SIZE:
+            yield _time_in_status_rows(client, batch)
+            batch = []
+    if batch:
+        yield _time_in_status_rows(client, batch)
+
+
+def _list_children_rows(
+    api_key: str, workspace_id: str, resource_path: str, data_key: str, team_id: int, job_id: str
+) -> Iterator[list[dict[str, Any]]]:
+    """Fan out over every list in the workspace and yield rows from a per-list resource.
+
+    Three levels deep (space -> folder -> list -> resource), which the declarative fan-out doesn't
+    cover, and the rows carry no list id of their own, so each is stamped with the list it came
+    from for the composite primary key.
+    """
+    client = _make_client(api_key)
+    # An archived or just-deleted list stops serving its sub-resources; skip it rather than fail
+    # the whole table.
+    hooks = create_response_hooks([{"status_code": 404, "action": "ignore"}], resource_name=data_key)
+
+    for page in _chain_resources(_lists_resources(api_key, workspace_id, team_id, job_id)):
+        for list_row in page:
+            list_id = list_row.get("id")
+            if list_id is None:
+                continue
+            for rows in client.paginate(
+                path=f"/list/{list_id}/{resource_path}",
+                paginator=SinglePagePaginator(),
+                data_selector=data_key,
+                hooks=hooks,
+            ):
+                if rows:
+                    yield [{**row, "_list_id": str(list_id)} for row in rows]
+
+
 def clickup_source(
     api_key: str,
     workspace_id: str,
@@ -321,7 +553,10 @@ def clickup_source(
         items = lambda: resource
     elif config.kind == "workspaces":
         resource = rest_api_resource(
-            {"client": _client_config(api_key), "resources": [_flat_resource("workspaces", "/team", config.data_key)]},
+            {
+                "client": _client_config(api_key),
+                "resources": [_flat_resource("workspaces", "/team", config.data_key or "")],
+            },
             team_id,
             job_id,
             None,
@@ -330,7 +565,7 @@ def clickup_source(
     elif config.kind == "team_scoped":
         path = f"/team/{workspace_id}/{config.resource_path}"
         resource = rest_api_resource(
-            {"client": _client_config(api_key), "resources": [_flat_resource(endpoint, path, config.data_key)]},
+            {"client": _client_config(api_key), "resources": [_flat_resource(endpoint, path, config.data_key or "")]},
             team_id,
             job_id,
             None,
@@ -338,12 +573,26 @@ def clickup_source(
         items = lambda: resource
     elif config.kind == "space_children":
         resource = _space_children_resource(
-            api_key, workspace_id, config.resource_path or "", config.data_key, team_id, job_id
+            api_key, workspace_id, config.resource_path or "", config.data_key or "", team_id, job_id
         )
         items = lambda: resource
     elif config.kind == "lists":
         list_resources = _lists_resources(api_key, workspace_id, team_id, job_id)
         items = lambda: _chain_resources(list_resources)
+    elif config.kind == "list_children":
+        items = lambda: _list_children_rows(
+            api_key, workspace_id, config.resource_path or "", config.data_key or "", team_id, job_id
+        )
+    elif config.kind == "time_entries":
+        items = lambda: _time_entries_rows(
+            api_key,
+            workspace_id,
+            resumable_source_manager,
+            should_use_incremental_field,
+            db_incremental_field_last_value,
+        )
+    elif config.kind == "task_time_in_status":
+        items = lambda: _task_time_in_status_rows(api_key, workspace_id, team_id, job_id)
     else:
         raise ValueError(f"Unknown ClickUp endpoint kind: {config.kind}")
 
@@ -351,12 +600,14 @@ def clickup_source(
         name=endpoint,
         items=items,
         primary_keys=config.primary_keys,
-        # Tasks are fetched newest-first (default ClickUp order). With sort_mode="desc" the
-        # pipeline only commits the cursor watermark once a sync fully completes, so a mid-sync
-        # crash never advances the cursor past unfetched rows. The `date_updated_gt` server
-        # filter (not row ordering) is what bounds each incremental fetch. Live ordering
-        # semantics were not verified against the API as no test credentials were available.
-        sort_mode="desc" if config.kind == "tasks" else "asc",
+        # Tasks are fetched newest-first (default ClickUp order). Time entries arrive in whatever
+        # order the endpoint chooses within a window, because it documents no sort and takes no
+        # sort param. With sort_mode="desc" the pipeline only commits the cursor watermark once a sync
+        # fully completes, so a mid-sync crash never advances the cursor past unfetched rows. The
+        # server filters (`date_updated_gt`, `start_date`/`end_date`), not row ordering, are what
+        # bound each incremental fetch. Live ordering semantics were not verified against the API
+        # as no test credentials were available.
+        sort_mode="desc" if config.kind in ("tasks", "time_entries") else "asc",
         partition_count=1,
         partition_size=1,
         partition_mode="datetime" if config.partition_key else None,
