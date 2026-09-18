@@ -3,6 +3,7 @@ import '@testing-library/jest-dom'
 import { cleanup, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { themeLogic } from 'lib/logic/themeLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -216,6 +217,30 @@ describe('SharingModal (insight)', () => {
         expect(modal).toBeTruthy()
 
         expect(within(modal as HTMLElement).queryByText(/Show insight details/i)).toBeNull()
+    })
+
+    it('captures an analytics event when insight sharing is toggled', async () => {
+        initKeaTests()
+        useMocks({
+            get: mockInsightSharingConfiguration({ insightId: defaultInsightId }),
+            patch: mockInsightSharingConfiguration({ insightId: defaultInsightId }),
+        })
+
+        const logic = sharingLogic({ insightShortId })
+        eventUsageLogic.mount()
+        logic.mount()
+        ;(posthog.capture as jest.Mock).mockClear()
+
+        await expectLogic(logic, () => {
+            logic.actions.setIsEnabled(true)
+        }).toDispatchActions(['setIsEnabledSuccess'])
+
+        expect((posthog.capture as jest.Mock).mock.calls).toContainEqual([
+            'insight share toggled',
+            { insight_short_id: insightShortId, is_shared: true },
+        ])
+        logic.unmount()
+        eventUsageLogic.unmount()
     })
 })
 

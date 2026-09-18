@@ -1160,6 +1160,13 @@ export interface eventUsageLogicActions {
         dashboardId: number | undefined
         isShared: boolean
     }
+    reportInsightShareToggled: (
+        insightShortId: InsightShortId | undefined,
+        isShared: boolean
+    ) => {
+        insightShortId: InsightShortId | undefined
+        isShared: boolean
+    }
     reportDashboardTileDensityConfigured: (tileDensity: DashboardTileSpacing) => {
         tileDensity: DashboardTileSpacing
     }
@@ -2737,6 +2744,10 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             dashboardId,
             isShared,
         }),
+        reportInsightShareToggled: (insightShortId: InsightShortId | undefined, isShared: boolean) => ({
+            insightShortId,
+            isShared,
+        }),
         reportDashboardWhitelabelToggled: (dashboardId: number | undefined, isWhiteLabelled: boolean) => ({
             dashboardId,
             isWhiteLabelled,
@@ -3760,6 +3771,9 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         },
         reportDashboardShareToggled: async ({ dashboardId, isShared }) => {
             posthog.capture(`dashboard share toggled`, { dashboard_id: dashboardId, is_shared: isShared })
+        },
+        reportInsightShareToggled: async ({ insightShortId, isShared }) => {
+            posthog.capture('insight share toggled', { insight_short_id: insightShortId, is_shared: isShared })
         },
         reportDashboardWhitelabelToggled: async ({ dashboardId, isWhiteLabelled }) => {
             posthog.capture(`dashboard whitelabel toggled`, {
