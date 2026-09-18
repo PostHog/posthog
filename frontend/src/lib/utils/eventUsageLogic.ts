@@ -1377,15 +1377,6 @@ export interface eventUsageLogicActions {
     reportExperimentAiSummaryRequested: (experiment: Experiment) => {
         experiment: Experiment
     }
-    reportExperimentAutoRefreshToggled: (
-        experiment: Experiment,
-        enabled: boolean,
-        interval: number
-    ) => {
-        enabled: boolean
-        experiment: Experiment
-        interval: number
-    }
     reportExperimentBehaviorComparisonFailed: (
         experimentId: ExperimentIdType,
         context: ExperimentWatchLoadFailedContext
@@ -2954,11 +2945,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             forceRefresh,
             context,
         }),
-        reportExperimentAutoRefreshToggled: (experiment: Experiment, enabled: boolean, interval: number) => ({
-            experiment,
-            enabled,
-            interval,
-        }),
         reportExperimentMetricBreakdownAdded: (
             experiment: Experiment,
             metricUuid: string,
@@ -4116,13 +4102,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 previous_refresh_age_ms: context?.previous_refresh_age_ms ?? null,
                 previous_refresh_state: context?.previous_refresh_state ?? null,
                 previous_refresh_triggered_by: context?.previous_refresh_triggered_by ?? null,
-            })
-        },
-        reportExperimentAutoRefreshToggled: ({ experiment, enabled, interval }) => {
-            posthog.capture('experiment auto refresh toggled', {
-                ...getEventPropertiesForExperiment(experiment),
-                enabled,
-                interval,
             })
         },
         reportExperimentMetricBreakdownAdded: ({ experiment, metricUuid, breakdown, isPrimary }) => {
