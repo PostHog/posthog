@@ -1,5 +1,6 @@
-// These tests check the workflows under .github/workflows, not the planner. A failure here means a
-// job condition in a workflow file changed what runs; the planner itself is covered by plan.test.ts.
+// These tests check the workflows under .github/workflows and the Depot copy of Backend CI, not the
+// planner. A failure here means a job condition in a workflow file changed what runs; the planner
+// itself is covered by plan.test.ts.
 import { readdirSync } from 'node:fs'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
@@ -522,4 +523,28 @@ describe('.github/workflows run plans', () => {
             expect({ id: planned?.id, runs: planned?.runs }).toEqual({ id: step, runs })
         }
     )
+
+    // GitHub Actions sends this telemetry for every event it keeps, so a Depot telemetry job
+    // that also ran for one of those events would report it twice.
+    const depotBackend = loadWorkflow(path.join(REPO_ROOT, '.depot/workflows/ci-backend.yml'))
+    const depotTelemetry = [
+        'test-selection-verdict',
+        'calculate-running-time',
+        'capture-test-selection',
+        'report-test-timings',
+    ]
+    it.each([
+        { handedOff: 'true', runs: depotTelemetry },
+        { handedOff: 'false', runs: [] },
+    ])('Depot Backend CI runs telemetry $runs for a ready PR when handed_off=$handedOff', ({ handedOff, runs }) => {
+        const plan = planWorkflow(depotBackend, {
+            name: `handed_off=${handedOff}`,
+            github: pullRequest(),
+            steps: { ...allFiltersChanged(depotBackend), ...backendSelectors },
+            jobOutputs: { 'wait-for-handoff': { handed_off: handedOff } },
+        })
+        expect(plan.errors).toEqual([])
+        const running = new Set(runningJobs(plan))
+        expect(depotTelemetry.filter((id) => running.has(id))).toEqual(runs)
+    })
 })
