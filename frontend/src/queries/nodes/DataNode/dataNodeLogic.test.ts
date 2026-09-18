@@ -135,7 +135,9 @@ describe('dataNodeLogic', () => {
             }),
         })
         logic.mount()
-        await expectLogic(logic).delay(0).toMatchValues({ response: partial({ results }) })
+        await expectLogic(logic)
+            .delay(0)
+            .toMatchValues({ response: partial({ results }) })
 
         mockedQuery.mockResolvedValueOnce({ results: [[4, 5, 6]] })
         dataNodeLogic({
