@@ -235,6 +235,12 @@ Each returned log row carries three overlapping severity fields. Read and report
 
 When the user asks for "warnings and above", that is `severityLevels: ["warn", "error", "fatal"]` — there is no numeric `>=` operator on the top-level severity filter.
 
+# Redacted credentials in URLs
+
+Log bodies and URL attributes hold request URLs as they were recorded, so a callback line can carry a live token. Credential-shaped query parameter values (`code`, `access_token`, `api_key`, `client_secret`, signatures, and similar names) come back as `[redacted]` in every response served through this server. The host, the path and the parameter names stay intact, so you can still group, count and filter on them.
+
+Never try to work around the redaction. If a person needs the raw value, tell them to open the log record in the PostHog logs scene.
+
 # If the query fails (500 / timeout)
 
 A `query-logs` call that returns a 500 almost always means the query scanned too much data and timed out server-side — it is rarely a bug in your filters. Do not retry the same call. Instead, narrow and re-size:
