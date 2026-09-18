@@ -362,6 +362,49 @@ class DataWarehouseSavedQuerySerializer(
         frequency_changed = bool(sync_frequency)
 
         soft_update = validated_data.pop("soft_update", False)
+        edited_history_id = self.context["request"].data.get("edited_history_id", None)
+        check_conflict = (
+            "query" in validated_data
+            and validated_data["query"] != instance.query
+            and not soft_update
+            and instance.query_revision is not None
+        )
+
+        if check_conflict and _as_uuid(edited_history_id) != instance.query_revision:
+            # Advisory only: rejects a stale edit before it pays for inference. The check under the
+            # row lock below is the one that prevents a lost update.
+            raise serializers.ValidationError("The query was modified by someone else.")
+
+        inferred_columns: dict[str, dict[str, Any]] | None = None
+        inferred_external_tables: list[str] | None = None
+        if "query" in validated_data:
+            # Inference runs the query on ClickHouse, so it happens before the row lock, on a probe
+            # carrying the pending query and name rather than the stored ones, as create() does.
+            probe = DataWarehouseSavedQuery(
+                team=instance.team,
+                name=validated_data.get("name", instance.name),
+                query=validated_data["query"],
+            )
+            try:
+                client_types = self.context["request"].data.get("types", [])
+                if len(client_types) == 0:
+                    inferred_columns = probe.get_columns(user=self.context["request"].user)
+                else:
+                    inferred_columns = {
+                        str(item[0]): {
+                            "hogql": hogql_type_name_for_clickhouse_type(str(item[1])),
+                            "clickhouse": item[1],
+                            "valid": True,
+                        }
+                        for item in client_types
+                    }
+                inferred_external_tables = probe.get_s3_tables(database=self.context["database"])
+            except RecursionError:
+                raise serializers.ValidationError("Model contains a cycle")
+            except Exception as e:
+                capture_exception(e)
+                logger.exception("Failed to retrieve types for view %s", probe.name)
+                raise _view_types_validation_error(e)
 
         with transaction.atomic():
             locked_instance = DataWarehouseSavedQuery.objects.select_for_update().get(pk=instance.pk)
@@ -369,7 +412,6 @@ class DataWarehouseSavedQuerySerializer(
             query_changed = "query" in validated_data and validated_data["query"] != locked_instance.query
 
             if query_changed and not soft_update and locked_instance.query_revision is not None:
-                edited_history_id = self.context["request"].data.get("edited_history_id", None)
                 if _as_uuid(edited_history_id) != locked_instance.query_revision:
                     raise serializers.ValidationError("The query was modified by someone else.")
 
@@ -421,32 +463,9 @@ class DataWarehouseSavedQuerySerializer(
             if has_description:
                 self._write_view_description(view, description)
 
-            # Only update columns and status if the query has changed
-            if "query" in validated_data:
-                try:
-                    # The columns will be inferred from the query
-                    client_types = self.context["request"].data.get("types", [])
-                    if len(client_types) == 0:
-                        view.set_columns(view.get_columns(user=self.context["request"].user))
-                    else:
-                        columns = {
-                            str(item[0]): {
-                                "hogql": hogql_type_name_for_clickhouse_type(str(item[1])),
-                                "clickhouse": item[1],
-                                "valid": True,
-                            }
-                            for item in client_types
-                        }
-                        view.set_columns(columns)
-
-                    view.external_tables = view.get_s3_tables(database=self.context["database"])
-                except RecursionError:
-                    raise serializers.ValidationError("Model contains a cycle")
-                except Exception as e:
-                    capture_exception(e)
-                    logger.exception("Failed to retrieve types for view %s", view.name)
-                    raise _view_types_validation_error(e)
-
+            if inferred_columns is not None:
+                view.set_columns(inferred_columns)
+                view.external_tables = inferred_external_tables
                 view.status = DataWarehouseSavedQuery.Status.MODIFIED
                 view.save()
 
