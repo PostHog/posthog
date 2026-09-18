@@ -405,6 +405,7 @@ func TestCompletesScopedProjections(t *testing.T) {
 		fields      map[string]string
 	}{
 		{"cte", "WITH t AS (SELECT order_id, amount AS total FROM orders) SELECT t.| FROM t", map[string]string{"order_id": "string", "total": "float"}},
+		{"boolean literal type", "WITH t AS (SELECT TRUE AS enabled FROM events) SELECT t.| FROM t", map[string]string{"enabled": "boolean"}},
 		{"closed comment after cursor", "WITH t AS (SELECT uuid FROM events) SELECT t.uu| FROM t /* finished */", map[string]string{"uuid": "string"}},
 		{"line comment at eof after cursor", "WITH t AS (SELECT uuid FROM events) SELECT t.uu| FROM t -- finished", map[string]string{"uuid": "string"}},
 		{"before from", "WITH t AS (SELECT amount AS total FROM orders) SELECT t.|", map[string]string{"total": "float"}},
@@ -463,6 +464,7 @@ func TestCompletesScopedProjections(t *testing.T) {
 		{"inner alias hides outer property source", "SELECT (SELECT properties.$geo| FROM persons AS e) FROM events AS e", map[string]string{"$geo_city": "String"}},
 		{"duplicate projected properties", "WITH t AS (SELECT events.properties, events.properties FROM events) SELECT t.properties.$geo| FROM t", nil},
 		{"scalar property leaf has no provenance", "WITH t AS (SELECT properties.$geo_city AS city FROM events) SELECT t.city.$geo| FROM t", nil},
+		{"boolean literal does not inherit alias provenance", "WITH t AS (SELECT properties AS TRUE, TRUE AS enabled FROM events) SELECT t.enabled.$geo| FROM t", nil},
 		{"derived body isolation", "SELECT * FROM orders AS x JOIN (SELECT x.| FROM events) AS s ON 1 = 1", nil},
 		{"joined derived sources", "WITH t AS (SELECT event FROM events) SELECT s.| FROM t JOIN (SELECT amount AS total FROM orders) AS s ON 1 = 1", map[string]string{"total": "float"}},
 		{"unicode prefix", "WITH t AS (SELECT amount AS `数額` FROM orders) SELECT t.数| FROM t", map[string]string{"数額": "float"}},
@@ -834,6 +836,7 @@ func TestCompletesSQLSyntaxForCursorContext(t *testing.T) {
 		label      string
 		kind       string
 		insertText string
+		required   []string
 		excluded   []string
 		total      int
 	}{
@@ -847,8 +850,36 @@ func TestCompletesSQLSyntaxForCursorContext(t *testing.T) {
 		{name: "function in select", query: "SELECT cou FROM orders", position: len("SELECT cou"), label: "count", kind: "function", insertText: "count()"},
 		{name: "embedded function in select", query: "SELECT geoD FROM orders", position: len("SELECT geoD"), label: "geoDistance", kind: "function", insertText: "geoDistance()"},
 		{name: "function in where", query: "SELECT * FROM orders WHERE coa", position: len("SELECT * FROM orders WHERE coa"), label: "coalesce", kind: "function", insertText: "coalesce()"},
+		{name: "true after operator", query: "SELECT * FROM orders WHERE amount = tr", position: len("SELECT * FROM orders WHERE amount = tr"), label: "TRUE", kind: "keyword"},
+		{name: "false after operator", query: "SELECT * FROM orders WHERE amount = fa", position: len("SELECT * FROM orders WHERE amount = fa"), label: "FALSE", kind: "keyword"},
 		{name: "operator after field", query: "SELECT * FROM orders WHERE amount ", position: len("SELECT * FROM orders WHERE amount "), label: "=", kind: "operator", insertText: "=", excluded: []string{"AND"}},
-		{name: "boolean after predicate", query: "SELECT * FROM orders WHERE amount > 0 ", position: len("SELECT * FROM orders WHERE amount > 0 "), label: "AND", kind: "keyword", insertText: "AND", excluded: []string{"="}},
+		{name: "boolean after predicate", query: "SELECT * FROM orders WHERE amount > 0 ", position: len("SELECT * FROM orders WHERE amount > 0 "), label: "AND", kind: "keyword", insertText: "AND", excluded: []string{"=", "WHERE"}},
+		{name: "where after join predicate", query: "SELECT * FROM events AS e JOIN events AS other ON e.uuid = other.uuid ", position: len("SELECT * FROM events AS e JOIN events AS other ON e.uuid = other.uuid "), label: "WHERE", kind: "keyword", insertText: "WHERE"},
+		{name: "where prefix after join predicate", query: "SELECT * FROM events AS e JOIN events AS other ON e.uuid = other.uuid wh", position: len("SELECT * FROM events AS e JOIN events AS other ON e.uuid = other.uuid wh"), label: "WHERE", kind: "keyword", insertText: "WHERE", total: 1},
+		{name: "where after parenthesized join predicate", query: "SELECT * FROM events AS e JOIN events AS other ON (e.uuid = other.uuid) ", position: len("SELECT * FROM events AS e JOIN events AS other ON (e.uuid = other.uuid) "), label: "WHERE", kind: "keyword", insertText: "WHERE"},
+		{name: "no where inside join parentheses", query: "SELECT * FROM events AS e JOIN events AS other ON (e.uuid = other.uuid ", position: len("SELECT * FROM events AS e JOIN events AS other ON (e.uuid = other.uuid "), label: "AND", kind: "keyword", insertText: "AND", excluded: []string{"WHERE"}},
+		{name: "no where within join between bounds", query: "SELECT * FROM orders AS a JOIN orders AS b ON a.amount BETWEEN 1 ", position: len("SELECT * FROM orders AS a JOIN orders AS b ON a.amount BETWEEN 1 "), label: "AND", kind: "keyword", insertText: "AND", total: 1},
+		{name: "where after joined ctes before order by", query: "WITH a AS (SELECT uuid FROM events WHERE event = 'demo'), b AS (SELECT uuid FROM events) SELECT a.uuid FROM a LEFT JOIN b ON a.uuid = b.uuid\n\nORDER BY a.uuid", position: len("WITH a AS (SELECT uuid FROM events WHERE event = 'demo'), b AS (SELECT uuid FROM events) SELECT a.uuid FROM a LEFT JOIN b ON a.uuid = b.uuid\n"), label: "WHERE", kind: "keyword", insertText: "WHERE"},
+		{name: "only boolean continuations after join predicate before later join", query: "SELECT * FROM events AS e JOIN events AS other ON e.uuid = other.uuid  JOIN persons AS p ON 1 = 1", position: len("SELECT * FROM events AS e JOIN events AS other ON e.uuid = other.uuid "), label: "AND", kind: "keyword", insertText: "AND", required: []string{"OR"}, excluded: []string{"WHERE", "GROUP BY", "ORDER BY", "LIMIT"}, total: 2},
+		{name: "comparison and boolean continuations after join expression before later join", query: "SELECT * FROM events AS e JOIN events AS other ON TRUE  JOIN persons AS p ON 1 = 1", position: len("SELECT * FROM events AS e JOIN events AS other ON TRUE "), label: "=", kind: "operator", insertText: "=", required: []string{"AND", "OR"}, excluded: []string{"WHERE", "GROUP BY", "ORDER BY", "LIMIT"}},
+		{name: "nested later join does not suppress where", query: "SELECT * FROM events AS e JOIN events AS other ON e.uuid = other.uuid  ORDER BY (SELECT 1 FROM events JOIN persons ON 1 = 1)", position: len("SELECT * FROM events AS e JOIN events AS other ON e.uuid = other.uuid "), label: "WHERE", kind: "keyword", insertText: "WHERE"},
+		{name: "join in comment does not suppress where", query: "SELECT * FROM events AS e JOIN events AS other ON e.uuid = other.uuid  /* JOIN persons */ ORDER BY e.uuid", position: len("SELECT * FROM events AS e JOIN events AS other ON e.uuid = other.uuid "), label: "WHERE", kind: "keyword", insertText: "WHERE"},
+		{name: "join in string does not suppress where", query: "SELECT * FROM events AS e JOIN events AS other ON e.uuid = other.uuid  ORDER BY 'JOIN persons'", position: len("SELECT * FROM events AS e JOIN events AS other ON e.uuid = other.uuid "), label: "WHERE", kind: "keyword", insertText: "WHERE"},
+		{name: "join in later statement does not suppress where", query: "SELECT * FROM events AS e JOIN events AS other ON e.uuid = other.uuid ; SELECT * FROM events JOIN persons ON 1 = 1", position: len("SELECT * FROM events AS e JOIN events AS other ON e.uuid = other.uuid "), label: "WHERE", kind: "keyword", insertText: "WHERE"},
+		{name: "join in next union branch does not suppress where", query: "SELECT * FROM events AS e JOIN events AS other ON e.uuid = other.uuid  UNION ALL SELECT * FROM events JOIN persons ON 1 = 1", position: len("SELECT * FROM events AS e JOIN events AS other ON e.uuid = other.uuid "), label: "WHERE", kind: "keyword", insertText: "WHERE"},
+		{name: "no clauses inside unfinished join case", query: "SELECT * FROM orders AS a JOIN orders AS b ON a.amount = CASE WHEN b.amount > 0 ", position: len("SELECT * FROM orders AS a JOIN orders AS b ON a.amount = CASE WHEN b.amount > 0 "), label: "THEN", kind: "keyword", excluded: []string{"WHERE", "GROUP BY", "ORDER BY", "LIMIT"}},
+		{name: "function inside unfinished join case", query: "SELECT * FROM orders AS a JOIN orders AS b ON a.amount = CASE WHEN b.amount > 0 THEN cou", position: len("SELECT * FROM orders AS a JOIN orders AS b ON a.amount = CASE WHEN b.amount > 0 THEN cou"), label: "count", kind: "function", insertText: "count()", excluded: []string{"WHERE"}},
+		{name: "no clauses inside parenthesized join case condition", query: "SELECT * FROM orders AS a JOIN orders AS b ON CASE WHEN (", position: len("SELECT * FROM orders AS a JOIN orders AS b ON CASE WHEN ("), label: "count", kind: "function", insertText: "count()", excluded: []string{"WHERE", "GROUP BY", "ORDER BY", "LIMIT"}},
+		{name: "no clauses inside join case function", query: "SELECT * FROM orders AS a JOIN orders AS b ON a.amount = CASE WHEN b.amount > 0 THEN coalesce(", position: len("SELECT * FROM orders AS a JOIN orders AS b ON a.amount = CASE WHEN b.amount > 0 THEN coalesce("), label: "count", kind: "function", insertText: "count()", excluded: []string{"WHERE", "GROUP BY", "ORDER BY", "LIMIT"}},
+		{name: "inner select keeps its own where", query: "SELECT * FROM orders AS a JOIN orders AS b ON CASE WHEN (SELECT amount FROM orders  )", position: len("SELECT * FROM orders AS a JOIN orders AS b ON CASE WHEN (SELECT amount FROM orders "), label: "WHERE", kind: "keyword"},
+		{name: "else inside unfinished join case", query: "SELECT * FROM orders AS a JOIN orders AS b ON a.amount = CASE WHEN b.amount > 0 THEN 1 el", position: len("SELECT * FROM orders AS a JOIN orders AS b ON a.amount = CASE WHEN b.amount > 0 THEN 1 el"), label: "ELSE", kind: "keyword", excluded: []string{"WHERE"}, total: 1},
+		{name: "end inside nested unfinished join case", query: "SELECT * FROM orders AS a JOIN orders AS b ON a.amount = CASE WHEN b.amount > 0 THEN CASE WHEN a.amount > 0 THEN 1 END ELSE 0 en", position: len("SELECT * FROM orders AS a JOIN orders AS b ON a.amount = CASE WHEN b.amount > 0 THEN CASE WHEN a.amount > 0 THEN 1 END ELSE 0 en"), label: "END", kind: "keyword", excluded: []string{"WHERE"}},
+		{name: "where after closed join case", query: "SELECT * FROM orders AS a JOIN orders AS b ON a.amount = CASE WHEN b.amount > 0 THEN 1 ELSE 0 END ", position: len("SELECT * FROM orders AS a JOIN orders AS b ON a.amount = CASE WHEN b.amount > 0 THEN 1 ELSE 0 END "), label: "WHERE", kind: "keyword", insertText: "WHERE"},
+		{name: "where after standalone closed join case", query: "SELECT * FROM events JOIN persons ON CASE WHEN TRUE THEN 1 ELSE 0 END ", position: len("SELECT * FROM events JOIN persons ON CASE WHEN TRUE THEN 1 ELSE 0 END "), label: "WHERE", kind: "keyword", insertText: "WHERE"},
+		{name: "where after true join predicate", query: "SELECT * FROM events JOIN persons ON TRUE ", position: len("SELECT * FROM events JOIN persons ON TRUE "), label: "WHERE", kind: "keyword", insertText: "WHERE"},
+		{name: "where after lowercase false join predicate", query: "SELECT * FROM events JOIN persons ON false ", position: len("SELECT * FROM events JOIN persons ON false "), label: "WHERE", kind: "keyword", insertText: "WHERE"},
+		{name: "qualified true stays a field", query: "SELECT * FROM events AS e JOIN persons ON e.TRUE ", position: len("SELECT * FROM events AS e JOIN persons ON e.TRUE "), label: "=", kind: "operator", insertText: "=", excluded: []string{"WHERE"}},
+		{name: "quoted true stays an identifier", query: `SELECT * FROM events JOIN persons ON "TRUE" `, position: len(`SELECT * FROM events JOIN persons ON "TRUE" `), label: "=", kind: "operator", insertText: "=", excluded: []string{"WHERE"}},
 		{name: "between separator", query: "SELECT * FROM orders WHERE amount BETWEEN 1 ", position: len("SELECT * FROM orders WHERE amount BETWEEN 1 "), label: "AND", kind: "keyword", insertText: "AND", excluded: []string{"OR", "GROUP BY", "ORDER BY", "LIMIT"}, total: 1},
 		{name: "between unfinished arithmetic expression", query: "SELECT * FROM orders WHERE amount BETWEEN 1 + cou", position: len("SELECT * FROM orders WHERE amount BETWEEN 1 + cou"), label: "count", kind: "function", insertText: "count()", excluded: []string{"AND"}},
 		{name: "between unfinished function call", query: "SELECT * FROM orders WHERE amount BETWEEN toDate(amo", position: len("SELECT * FROM orders WHERE amount BETWEEN toDate(amo"), label: "amount", kind: "field", excluded: []string{"AND"}},
@@ -877,6 +908,11 @@ func TestCompletesSQLSyntaxForCursorContext(t *testing.T) {
 			suggestion, ok := findSuggestion(result.Suggestions, test.label)
 			if !ok || suggestion.Kind != test.kind || suggestion.InsertText != test.insertText {
 				t.Fatalf("suggestion %q = %#v; all suggestions = %#v; parse error = %q", test.label, suggestion, result.Suggestions, result.ParseError)
+			}
+			for _, required := range test.required {
+				if !hasSuggestion(result.Suggestions, required) {
+					t.Fatalf("missing suggestion %q in %#v", required, result.Suggestions)
+				}
 			}
 			for _, excluded := range test.excluded {
 				if hasSuggestion(result.Suggestions, excluded) {

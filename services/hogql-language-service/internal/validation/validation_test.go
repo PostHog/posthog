@@ -169,6 +169,9 @@ func TestValidateAcceptsKnownFieldsAndFunctions(t *testing.T) {
 		{query: "SELECT event AS kind FROM events WHERE uuid IN (SELECT uuid AS kind FROM events WHERE kind != '') ORDER BY kind", tableName: "events"},
 		{query: "SELECT s.subtotal FROM (SELECT amount AS total, total AS subtotal FROM warehouse_orders) AS s", tableName: "warehouse_orders"},
 		{query: "SELECT amount AS amount FROM warehouse_orders ORDER BY amount", tableName: "warehouse_orders"},
+		{query: "SELECT TRUE, false FROM events WHERE TRUE AND false = FALSE", tableName: "events"},
+		{query: "SELECT CASE WHEN TRUE THEN false ELSE FALSE END AS enabled FROM events", tableName: "events"},
+		{query: "WITH flags AS (SELECT TRUE AS enabled FROM events) SELECT enabled FROM flags WHERE enabled = FALSE", tableName: "events"},
 	} {
 		result := Validate(schema(), test.query)
 		if !result.Valid || len(result.Diagnostics) != 0 {
@@ -314,6 +317,8 @@ func TestValidateRejectsUnknownFields(t *testing.T) {
 		"WITH t AS (SELECT total FROM warehouse_orders) SELECT amount AS total FROM warehouse_orders",
 		"SELECT event AS kind FROM events ORDER BY events.kind",
 		"SELECT amount AS Total FROM warehouse_orders ORDER BY total",
+		`SELECT "TRUE" FROM events`,
+		"SELECT events.FALSE FROM events",
 	} {
 		result := Validate(schema(), query)
 		if result.Valid || len(result.Diagnostics) != 1 || result.Diagnostics[0].Code != "unknown_field" {
