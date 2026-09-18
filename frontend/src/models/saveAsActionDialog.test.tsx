@@ -128,6 +128,23 @@ describe('saveAsActionDialog', () => {
             expect(step.selector).not.toContain('radix-:rr:')
         })
 
+        it('anchors on a later configured data attribute when the first is unstable', () => {
+            const step = eventToActionStep(
+                makeAutocaptureEvent({
+                    elements: [
+                        {
+                            tag_name: 'button',
+                            attributes: { 'attr__data-attr': 'radix-:rr:', 'attr__data-testid': 'save-button' },
+                            order: 0,
+                        },
+                    ],
+                }) as any,
+                ['data-attr', 'data-testid']
+            )
+
+            expect(step.selector).toBe('[data-testid="save-button"]')
+        })
+
         it('prefers a stable data attribute over an unstable id on an ancestor', () => {
             const step = eventToActionStep(
                 makeAutocaptureEvent({
