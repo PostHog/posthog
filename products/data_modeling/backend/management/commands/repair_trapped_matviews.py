@@ -25,7 +25,8 @@ Dry-run by default; --apply to mutate; --team-id to scope.
 from datetime import timedelta
 from typing import Any
 
-from django.core.management.base import BaseCommand, CommandParser
+from django.core.management.base import BaseCommand, CommandError, CommandParser
+from django.db import transaction
 from django.db.models import Q
 
 import structlog
@@ -59,8 +60,16 @@ def trapped_saved_queries(team_id: int | None) -> list[DataWarehouseSavedQuery]:
         .filter(
             Q(is_materialized=True),
             Q(table_id__isnull=True),
-            Q(origin=DataWarehouseSavedQuery.Origin.DATA_WAREHOUSE),
+            Q(managed_viewset__isnull=True),
             Q(id__in=trapped_node_ids),
+        )
+        # `origin` is nullable and was never backfilled, so name the origins that own their own
+        # lifecycle and let everything else through: a null-origin row is an ordinary saved query.
+        .exclude(
+            origin__in=[
+                DataWarehouseSavedQuery.Origin.ENDPOINT,
+                DataWarehouseSavedQuery.Origin.MANAGED_VIEWSET,
+            ]
         )
         .select_related("team")
         .order_by("team_id", "id")
@@ -141,12 +150,15 @@ class Command(BaseCommand):
                 continue
 
             try:
-                written = apply_saved_query_frequency_target(saved_query, target, reconcile=False)
-                if written == 0:
-                    self.stdout.write(f"skipped {label}: no DAG node to write a target to")
-                    counts[SKIPPED_NO_NODE] = counts.get(SKIPPED_NO_NODE, 0) + 1
-                    continue
-                update_node_type(saved_query, NodeType.MAT_VIEW)
+                # Both writes or neither: a cadence on a node still typed `view` leaves the query
+                # trapped, and neither call reaches Temporal, so nothing outside the DB to undo.
+                with transaction.atomic():
+                    written = apply_saved_query_frequency_target(saved_query, target, reconcile=False)
+                    if written == 0:
+                        self.stdout.write(f"skipped {label}: no DAG node to write a target to")
+                        counts[SKIPPED_NO_NODE] = counts.get(SKIPPED_NO_NODE, 0) + 1
+                        continue
+                    update_node_type(saved_query, NodeType.MAT_VIEW)
                 repaired_dags.update(
                     node.dag
                     for node in Node.objects.filter(team_id=saved_query.team_id, saved_query=saved_query)
@@ -168,12 +180,14 @@ class Command(BaseCommand):
             self.stdout.write(f"repaired {label} {at}")
             counts[REPAIRED] = counts.get(REPAIRED, 0) + 1
 
+        unreconciled: list[DAG] = []
         for dag in repaired_dags:
             try:
                 reconcile_dag_schedules(dag)
             except Exception as e:
-                # The retype already landed, so report rather than raise: the node is scheduled by
-                # whatever the DAG holds today and a re-run reconciles it.
+                # Re-running this command will not retry it: the retype took the query out of the
+                # candidate set, so the only way back is reconciling the DAG directly.
+                unreconciled.append(dag)
                 self.stdout.write(f"failed to reconcile DAG {dag.id} (team {dag.team_id}): {e}")
                 logger.warning("repair_trapped_matviews_reconcile_failed", dag_id=str(dag.id), error=str(e))
 
@@ -182,3 +196,13 @@ class Command(BaseCommand):
         for outcome in (SKIPPED_NO_NODE, SKIPPED_REFUSED, SKIPPED_ERROR):
             if counts.get(outcome):
                 self.stdout.write(f"  {outcome}: {counts[outcome]}")
+
+        if unreconciled:
+            recovery = "\n".join(
+                f"  python manage.py reconcile_freshness_schedules --team-id {dag.team_id} --dag-id {dag.id}"
+                for dag in unreconciled
+            )
+            raise CommandError(
+                f"{len(unreconciled)} DAG(s) were retyped but not reconciled, and this command cannot "
+                f"retry them. Reconcile each one directly:\n{recovery}"
+            )

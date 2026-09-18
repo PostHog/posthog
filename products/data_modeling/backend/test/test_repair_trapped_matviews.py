@@ -4,6 +4,7 @@ from posthog.test.base import BaseTest
 from unittest import mock
 
 from django.core.management import call_command
+from django.core.management.base import CommandError
 
 from products.data_modeling.backend.logic.node_frequency import (
     get_declared_target,
@@ -17,10 +18,12 @@ from products.data_modeling.backend.management.commands.repair_trapped_matviews 
     trapped_saved_queries,
 )
 from products.data_modeling.backend.models.dag import DAG
+from products.data_modeling.backend.models.datawarehouse_managed_viewset import DataWarehouseManagedViewSet
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.data_modeling.backend.models.edge import Edge
 from products.data_modeling.backend.models.node import Node, NodeType
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable
+from products.warehouse_sources.backend.facade.types import DataWarehouseManagedViewSetKind
 
 COMMAND = "products.data_modeling.backend.management.commands.repair_trapped_matviews"
 
@@ -32,7 +35,8 @@ class TestTrappedSavedQueries(BaseTest):
         *,
         is_materialized: bool = True,
         table: DataWarehouseTable | None = None,
-        origin: str = DataWarehouseSavedQuery.Origin.DATA_WAREHOUSE,
+        origin: str | None = DataWarehouseSavedQuery.Origin.DATA_WAREHOUSE,
+        managed_viewset: DataWarehouseManagedViewSet | None = None,
         sync_frequency_interval: timedelta | None = None,
     ) -> DataWarehouseSavedQuery:
         return DataWarehouseSavedQuery.objects.create(
@@ -42,6 +46,7 @@ class TestTrappedSavedQueries(BaseTest):
             is_materialized=is_materialized,
             table=table,
             origin=origin,
+            managed_viewset=managed_viewset,
             sync_frequency_interval=sync_frequency_interval,
         )
 
@@ -76,6 +81,23 @@ class TestTrappedSavedQueries(BaseTest):
 
     def test_a_deliberately_unmaterialized_view_is_left_alone(self):
         sq = self._saved_query("just_a_view", is_materialized=False)
+        self._node(sq)
+        assert self._found() == set()
+
+    def test_a_query_with_no_origin_is_trapped(self):
+        # `origin` is nullable and was never backfilled, so an ordinary saved query can carry no
+        # origin at all. Reading that as "not a data warehouse query" would skip it forever.
+        sq = self._saved_query("older_than_the_origin_field", origin=None)
+        self._node(sq)
+        assert self._found() == {sq.id}
+
+    def test_a_managed_viewset_with_no_origin_is_still_left_alone(self):
+        # The origin filter alone would let this through once nulls are allowed; the FK is what
+        # actually settles ownership.
+        viewset = DataWarehouseManagedViewSet.objects.create(
+            team=self.team, kind=DataWarehouseManagedViewSetKind.REVENUE_ANALYTICS
+        )
+        sq = self._saved_query("revenue_view", origin=None, managed_viewset=viewset)
         self._node(sq)
         assert self._found() == set()
 
@@ -201,3 +223,14 @@ class TestRepairReconcilesTheDag(BaseTest):
             call_command("repair_trapped_matviews", "--team-id", self.team.id)
         reconcile.assert_not_called()
         assert Node.objects.filter(team=self.team, type=NodeType.VIEW).count() == 1
+
+    def test_a_failed_reconcile_names_the_dag_and_fails_the_run(self):
+        # Re-running the command cannot retry it: the retype took the query out of the candidate
+        # set, so a silent failure would strand the DAG on whatever schedule it already holds.
+        self._trapped("a")
+        dag = DAG.objects.get(team=self.team, name="Default")
+        with mock.patch(f"{COMMAND}.reconcile_dag_schedules", side_effect=RuntimeError("temporal is down")):
+            with self.assertRaises(CommandError) as raised:
+                call_command("repair_trapped_matviews", "--apply", "--team-id", self.team.id)
+        assert f"--dag-id {dag.id}" in str(raised.exception)
+        assert Node.objects.filter(team=self.team, type=NodeType.MAT_VIEW).count() == 1
