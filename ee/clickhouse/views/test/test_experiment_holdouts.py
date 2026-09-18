@@ -437,6 +437,19 @@ class TestExperimentHoldoutApprovals(APILicensedTest):
         assert self.holdout.filters[0]["rollout_percentage"] == 35
         assert response.json().get("status") != "applied"
 
+    def test_update_is_stale_when_an_experiment_joined_the_holdout(self):
+        self._create_policy("experiment_holdout.update")
+        self._patch_exclusion(40)
+        change_request = self._change_request("experiment_holdout.update")
+
+        joined_flag = FeatureFlag.objects.create(team=self.team, key="joined-later", created_by=self.user)
+        Experiment.objects.create(team=self.team, name="Joined later", feature_flag=joined_flag, holdout=self.holdout)
+        response = self._approve(change_request)
+
+        self.holdout.refresh_from_db()
+        assert self.holdout.filters[0]["rollout_percentage"] == 20
+        assert response.json().get("status") != "applied"
+
     def test_gated_delete_keeps_the_holdout_until_approval(self):
         self._create_policy("experiment_holdout.delete")
 
