@@ -19,7 +19,7 @@ export const NotebookRunAllButton = (
 ): JSX.Element | null => {
     const { featureFlags } = useValues(featureFlagLogic)
     const { content, shortId, isShared, sqlV2NodeSummaries } = useValues(notebookLogic)
-    const { isRunning, progressLabel } = useValues(notebookRunLogic({ shortId }))
+    const { isRunning, isStarting, isInterrupting, progressLabel } = useValues(notebookRunLogic({ shortId }))
     const { startRun, interruptRun } = useActions(notebookRunLogic({ shortId }))
 
     // Only a markdown notebook with something to run gets the button at all.
@@ -33,6 +33,8 @@ export const NotebookRunAllButton = (
                 {...props}
                 onClick={() => interruptRun()}
                 icon={<IconStopFilled />}
+                loading={isInterrupting}
+                disabledReason={isInterrupting ? 'Stopping the run' : undefined}
                 tooltip={progressLabel ?? 'Stop the run'}
                 data-attr="notebook-run-all-stop"
             >
@@ -46,7 +48,10 @@ export const NotebookRunAllButton = (
             {...props}
             onClick={() => startRun()}
             icon={<IconPlay />}
-            disabledReason={isShared ? 'You can only run cells in the notebook itself' : undefined}
+            loading={isStarting}
+            disabledReason={
+                isShared ? 'You can only run cells in the notebook itself' : isStarting ? 'Starting the run' : undefined
+            }
             tooltip="Run every SQL and Python cell in order, stopping at the first one that fails"
             data-attr="notebook-run-all"
         >
