@@ -20,12 +20,14 @@ import {
   useArchivedReports,
   useInboxReports,
 } from "@/features/inbox/hooks/useInboxReports";
+import { useReportImplementationStates } from "@/features/inbox/hooks/useReportImplementationStates";
 import {
   decidedIds,
   useDismissedReportsStore,
 } from "@/features/inbox/stores/dismissedReportsStore";
 import { useInboxFilterStore } from "@/features/inbox/stores/inboxFilterStore";
 import { useInboxStore } from "@/features/inbox/stores/inboxStore";
+import { filterReportsForTriage } from "@/features/inbox/triageQueue";
 import { useIntegrations } from "@/features/tasks/hooks/useIntegrations";
 import { ANALYTICS_EVENTS, useAnalytics } from "@/lib/analytics";
 
@@ -112,10 +114,11 @@ export default function InboxScreen() {
     }
   }, [viewMode, reports, setLastVisibleReportIds]);
 
-  // Same data as the list view, excluding already-decided reports.
+  const implementationStates = useReportImplementationStates(reports);
+
   const tinderReports = useMemo(
-    () => reports.filter((r) => !decided.includes(r.id)),
-    [reports, decided],
+    () => filterReportsForTriage(reports, decided, implementationStates),
+    [reports, decided, implementationStates],
   );
 
   // Reset card index when switching to tinder mode

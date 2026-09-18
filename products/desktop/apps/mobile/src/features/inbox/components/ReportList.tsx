@@ -12,6 +12,7 @@ import {
 } from "react-native";
 import { useThemeColors } from "@/lib/theme";
 import { useArchivedReports, useInboxReports } from "../hooks/useInboxReports";
+import { useReportImplementationStates } from "../hooks/useReportImplementationStates";
 import { InboxReportSection } from "./InboxReportSection";
 import { ReportListRow } from "./ReportListRow";
 
@@ -47,12 +48,19 @@ export function ReportList({
     enabled: !isEmpty && resolvedOpen,
   });
 
+  const implementationStates = useReportImplementationStates(reports);
+
   const handlePress = (report: SignalReport) => {
     onReportPress?.(report);
   };
 
   const renderReport = (report: SignalReport) => (
-    <ReportListRow key={report.id} report={report} onPress={handlePress} />
+    <ReportListRow
+      key={report.id}
+      report={report}
+      onPress={handlePress}
+      implementationState={implementationStates.get(report.id) ?? null}
+    />
   );
 
   if (error) {
