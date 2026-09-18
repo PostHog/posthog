@@ -71,6 +71,10 @@ class TypesafeResult(TypedDict):
     category_confidence: float | None
 
 
+class TypesafeDecisionError(RuntimeError):
+    pass
+
+
 T = TypeVar("T")
 
 
@@ -311,7 +315,11 @@ async def run_model_decision(
             properties=properties,
         )
     if decision_error is not None:
+        if mode == "typesafe-only":
+            raise TypesafeDecisionError("TypeSafe decision failed") from decision_error
         raise decision_error
     if decision is None:
+        if mode == "typesafe-only":
+            raise TypesafeDecisionError("TypeSafe decision returned no result")
         raise RuntimeError("Model decision returned no result")
     return decision

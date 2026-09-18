@@ -1,10 +1,12 @@
 import pytest
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.test import override_settings
 
+from products.signals.backend.emission.pipeline import filter_actionable
+from products.signals.backend.emission.registry import SignalEmitterOutput
 from products.signals.backend.temporal.safety_filter import SafetyFilterJudgeResponse, safety_filter
-from products.signals.backend.typesafe_decision import _query, run_model_decision
+from products.signals.backend.typesafe_decision import TypesafeDecisionError, _query, run_model_decision
 
 
 class _CloudflareResponse:
@@ -277,7 +279,7 @@ async def test_typesafe_only_failure_does_not_run_traditional() -> None:
             side_effect=RuntimeError("Cloudflare unavailable"),
         ),
     ):
-        with pytest.raises(RuntimeError, match="Cloudflare unavailable"):
+        with pytest.raises(TypesafeDecisionError, match="TypeSafe decision failed") as exc_info:
             await run_model_decision(
                 team_id=7,
                 stage="actionability",
@@ -292,7 +294,25 @@ async def test_typesafe_only_failure_does_not_run_traditional() -> None:
                 typesafe_result=lambda value, _category: value,
             )
 
+    assert isinstance(exc_info.value.__cause__, RuntimeError)
     traditional.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_typesafe_only_failure_stops_actionability_batch() -> None:
+    output = SignalEmitterOutput("test", "test", "record-1", "description", 1.0, {})
+    with (
+        patch("products.signals.backend.emission.pipeline.build_async_anthropic_client"),
+        patch(
+            "products.signals.backend.emission.pipeline.check_actionability",
+            AsyncMock(side_effect=TypesafeDecisionError("failed")),
+        ),
+        patch("products.signals.backend.emission.pipeline.activity"),
+    ):
+        with pytest.raises(ExceptionGroup) as exc_info:
+            await filter_actionable(MagicMock(id=1), [output], "prompt {description}", extra={})
+
+    assert any(isinstance(error, TypesafeDecisionError) for error in exc_info.value.exceptions)
 
 
 @pytest.mark.asyncio
