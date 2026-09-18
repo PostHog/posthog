@@ -1356,6 +1356,8 @@ export namespace Schemas {
       /** If these are provided, the query will fail if these skip indexes are not used */
       forceClickhouseDataSkippingIndexes?: string[] | null;
       formatCsvAllowDoubleQuotes?: boolean | null;
+      /** Order funnel steps by the capture instant carried in a client-minted UUIDv7 rather than by the stored timestamp, which includes the request's delivery latency. Falls back per row to the stored timestamp when the event carries no usable UUIDv7. */
+      funnelUseClientCaptureOrder?: boolean | null;
       inCohortVia?: InCohortVia | null;
       inlineCohortCalculation?: InlineCohortCalculation | null;
       materializationMode?: MaterializationMode | null;
