@@ -19,6 +19,7 @@ from posthog.temporal.mcp_analytics.intent_clustering.constants import (
 )
 
 from products.mcp_analytics.backend import intent_generation
+from products.mcp_analytics.backend.constants import MAX_SESSION_ID_LENGTH
 from products.mcp_analytics.backend.facade.contracts import MCP_ANALYTICS_INTENT_ROUTING_FEATURE_FLAG
 from products.mcp_analytics.backend.models import MCPAnalyticsSubmission, MCPIntentClusterSnapshot, MCPSession
 from products.mcp_analytics.backend.presentation.serializers import (
@@ -653,8 +654,15 @@ class TestMCPSessionIntentEndpoint(_MCPAnalyticsTeamScopedTestMixin, APIBaseTest
         assert response.status_code == status.HTTP_200_OK
         assert response.json() == {"session_id": session_id, "intent": "A persisted summary."}
 
-    def test_generates_and_persists_when_empty(self) -> None:
-        session_id = "session-fresh"
+    @parameterized.expand(
+        [
+            ("short", "session-fresh"),
+            # MCP clients pick their own $session_id format, and one longer than the column used to
+            # fail the write after the summary had already been generated.
+            ("longer_than_64_chars", "session-" + "x" * 120),
+        ]
+    )
+    def test_generates_and_persists_when_empty(self, _name: str, session_id: str) -> None:
         # Mock the two primitives so the endpoint path runs without ClickHouse or a real LLM call.
         with (
             patch("posthoganalytics.feature_enabled", return_value=True),
@@ -666,6 +674,17 @@ class TestMCPSessionIntentEndpoint(_MCPAnalyticsTeamScopedTestMixin, APIBaseTest
         assert response.status_code == status.HTTP_200_OK
         assert response.json() == {"session_id": session_id, "intent": "Generated summary."}
         assert MCPSession.objects.get(team=self.team, session_id=session_id).intent == "Generated summary."
+
+    def test_rejects_session_id_the_store_cannot_hold(self) -> None:
+        session_id = "x" * (MAX_SESSION_ID_LENGTH + 1)
+        with (
+            patch("posthoganalytics.feature_enabled", return_value=True),
+            patch.object(intent_generation, "summarize_intents") as summarize,
+        ):
+            response = self.client.post(self._url(session_id))
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        summarize.assert_not_called()
 
     def test_returns_503_when_generation_unavailable(self) -> None:
         session_id = "session-unavailable"

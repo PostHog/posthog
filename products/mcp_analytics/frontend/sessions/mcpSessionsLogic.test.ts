@@ -1,10 +1,17 @@
 import { expectLogic } from 'kea-test-utils'
 
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+
 import { initKeaTests } from '~/test/init'
 
-import { mcpAnalyticsSessionsList, mcpAnalyticsSessionsToolCalls } from '../generated/api'
+import {
+    mcpAnalyticsSessionsGenerateIntent,
+    mcpAnalyticsSessionsList,
+    mcpAnalyticsSessionsToolCalls,
+} from '../generated/api'
 import { mcpSessionsLogic } from './mcpSessionsLogic'
 
+jest.mock('lib/lemon-ui/LemonToast/LemonToast')
 jest.mock('../generated/api', () => ({
     mcpAnalyticsSessionsList: jest.fn(),
     mcpAnalyticsSessionsToolCalls: jest.fn(),
@@ -13,6 +20,8 @@ jest.mock('../generated/api', () => ({
 
 const listMock = mcpAnalyticsSessionsList as jest.Mock
 const toolCallsMock = mcpAnalyticsSessionsToolCalls as jest.Mock
+const generateIntentMock = mcpAnalyticsSessionsGenerateIntent as jest.Mock
+const errorToastMock = lemonToast.error as jest.Mock
 
 const toolCall = (eventId: string): any => ({
     event_id: eventId,
@@ -69,5 +78,21 @@ describe('mcpSessionsLogic', () => {
 
         expect(logic.values.selectedSessionToolCalls.loading).toBe(true)
         expect(logic.values.selectedSessionToolCalls.calls.map((c) => c.event_id)).not.toContain('a2')
+    })
+
+    // The global kea-loaders handler used to toast on top of this logic's own listener, so one
+    // failed generation raised two stacked toasts and the message dropped the server's reason.
+    it('raises one toast carrying the server reason when generation is rejected', async () => {
+        generateIntentMock.mockRejectedValueOnce({
+            status: 400,
+            detail: 'session_id must be at most 200 characters.',
+        })
+
+        await expectLogic(logic, () => {
+            logic.actions.generateIntent('too-long')
+        }).toDispatchActions(['generateIntentFailure'])
+
+        expect(errorToastMock).toHaveBeenCalledTimes(1)
+        expect(errorToastMock).toHaveBeenCalledWith('session_id must be at most 200 characters.')
     })
 })

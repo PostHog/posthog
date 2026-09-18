@@ -528,10 +528,12 @@ export const mcpSessionsLogic = kea<mcpSessionsLogicType>([
                 actions.loadToolCalls(sessionId)
             }
         },
-        // The button just resets to its idle state on failure; surface a toast so the user
-        // knows the request failed (e.g. a 503 when intent generation is unavailable).
-        generateIntentFailure: () => {
-            lemonToast.error('Could not generate the session intent. Please try again.')
+        // The button just resets to its idle state on failure; surface a toast so the user knows
+        // the request failed. A 400 or a 503 explains itself and a retry won't change it, so show
+        // that reason; a 500 only carries DRF's generic detail, so keep the friendly message.
+        generateIntentFailure: ({ errorObject }) => {
+            const detail = errorObject?.status === 500 ? null : errorObject?.detail
+            lemonToast.error(detail || 'Could not generate the session intent. Please try again.')
         },
         // Only fires on a reset load (not on loadMore), so appending more pages doesn't
         // steal the user's selection. Auto-selects the first row when the set changes.
