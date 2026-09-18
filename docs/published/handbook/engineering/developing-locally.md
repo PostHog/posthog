@@ -15,7 +15,7 @@ The first start downloads a checksum-verified Linux image from `i.copy.sh` and p
 The image uses Linux 5.6.15, whose uncached 9P driver can read API files before their sizes are known.
 PostHog serves the bundled jq 1.8.2 Linux i386 binary itself because GitHub release downloads do not support browser CORS.
 The binary in `frontend/public/terminal/` comes from [the official release](https://github.com/jqlang/jq/releases/download/jq-1.8.2/jq-linux-i386), with SHA-256 `ba996e8ce436973e2f39e2639405a37e8c81ba8c722b71c83996278ad0af16dd` and upstream license notices alongside it.
-The bundled tools archive adds nano 8.4, tree 2.2.1, and ncdu 1.22 from Alpine Linux's x86 packages, with isolated musl and ncurses libraries.
+The bundled tools archive adds nano 8.4, tree 2.2.1, ncdu 1.22, and Midnight Commander 4.8.33 from Alpine Linux's x86 packages, with isolated libraries.
 `frontend/public/terminal/tools-manifest.json` pins package checksums and links to the corresponding sources and build recipes.
 Run `.codex/with-flox python frontend/bin/build-terminal-tools.py` to rebuild the archive, then update its checksum in `terminalRuntime.ts`.
 The archive includes upstream licenses and the source manifest under `/opt/posthog-tools/licenses`.
@@ -37,7 +37,10 @@ vi '/posthog/files/Research/Notes.md'
 jq '.title' /posthog/api/notebook/<short-id>.json
 ```
 
-The guest includes BusyBox tools, `jq`, `nano`, `tree`, `ncdu`, `vi`, `joe`, `less`, and Lua.
+The guest includes BusyBox tools, `jq`, `nano`, `tree`, `ncdu`, `mc`, `vi`, `joe`, `less`, and Lua.
+Run `mc` for Midnight Commander's two-panel file browser. Tab switches panels, F3 views a file, F4 edits it, and F10 quits.
+Escape followed by a digit works when your browser or keyboard captures function keys; Escape then 0 quits.
+`mcview`, `mcedit`, and `mcdiff` also run directly from the shell. Their wrappers disable the background subshell for compatibility with the guest shell.
 Use `nano '/posthog/files/Research/Notes.md'` to edit an existing notebook with syntax highlighting; Ctrl+S saves and Ctrl+X exits.
 `tree -C -L 3 /posthog/files` shows a colored folder tree, and `ncdu -r /posthog/files` opens a read-only disk usage browser.
 Both use directory metadata without downloading file contents; `ncdu` reports zero bytes for project files that have not been opened.
@@ -51,7 +54,6 @@ If the browser denies clipboard access, focus the terminal and use its native pa
 The toolbar's **Examples** menu contains commands for files, PostHog tools, and JSON filtering.
 Choose a command to insert it without running it; press Enter to run.
 The information button in the toolbar contains help, keyboard shortcuts, and details about saving changes.
-Midnight Commander is not included in this image.
 Directories are a snapshot; run `ph refresh` to discover newly created, renamed, or deleted objects.
 Startup uses the filesystem index and the filtered notebook index without downloading notebook bodies.
 Directory listings, including `ls -l` and `find`, use local metadata without fetching object contents.

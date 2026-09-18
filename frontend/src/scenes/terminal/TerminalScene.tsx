@@ -26,7 +26,14 @@ const examples = [
     },
     {
         title: 'Explore files',
-        commands: ['tree -C -L 3 /posthog/files', 'ncdu -r /posthog/files', 'ls -lh /posthog/api', 'pwd', 'busybox'],
+        commands: [
+            'mc',
+            'tree -C -L 3 /posthog/files',
+            'ncdu -r /posthog/files',
+            'ls -lh /posthog/api',
+            'pwd',
+            'busybox',
+        ],
     },
     { title: 'PostHog tools', commands: ['ph tools', 'ph tools notebook', 'ph help notebooks-retrieve', 'ph refresh'] },
     {
@@ -233,7 +240,7 @@ export function TerminalScene(): JSX.Element {
                             <LemonTag type="warning">Experiment</LemonTag>
                             <p className="mb-0">
                                 Linux in your browser, with your PostHog project mounted at <code>/posthog</code>. The
-                                first start downloads Linux and bundled tools (about 9 MB).
+                                first start downloads Linux and bundled tools (about 15 MB).
                             </p>
                             <p className="mb-0">
                                 Commands and notebook edits can change real data. Local files and unsaved edits

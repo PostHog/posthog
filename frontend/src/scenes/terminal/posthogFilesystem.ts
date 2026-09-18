@@ -87,6 +87,7 @@ This is a Linux virtual machine running in your browser.
 /root and /tmp       Local Linux files. These disappear when the terminal closes.
 
 Try:
+  mc
   ls --color=auto /posthog/files
   find /posthog/files -name '*.md'
   grep -r 'revenue' /posthog/files
@@ -128,6 +129,9 @@ Files are limited to 4 MiB. Use Ctrl+C to interrupt, Tab to complete, and the
 mouse wheel for scrollback. Run busybox to see the installed Unix utilities.
 jq 1.8.2 is installed for JSON queries and formatting.
 nano 8.4 edits text with syntax highlighting. Ctrl+S saves; Ctrl+X exits.
+mc opens Midnight Commander. Tab switches panels; F3 views, F4 edits, F10 quits.
+Use Escape then a digit if your browser or keyboard captures function keys.
+mcview, mcedit, and mcdiff also run directly from the shell.
 tree lists folders and files. ncdu -r browses disk usage without allowing deletion.
 Project file sizes stay zero until opened; ncdu does not download their contents.
 Bundled tool licenses and source links are in /opt/posthog-tools/licenses.
