@@ -65,6 +65,10 @@ Every page needs:
 Some fields are required by directory:
 
 - `projects/<project-id>/spaces/`: `team_id` and `channel_id`, exactly the ids the server assigned.
+  A Space page may also carry `goals`, `reading`, and `watching` lists, which the
+  Desktop Context page renders. Write them as block lists with one key per line,
+  quote text that contains a colon, and put multi-line SQL under `sql: |`. The
+  linter rejects unknown keys and values of the wrong type.
 - `decisions/`: `sources`, and a filename of the form `<YYYY-MM-DD>-<slug>.md`.
 
 Optional fields:
