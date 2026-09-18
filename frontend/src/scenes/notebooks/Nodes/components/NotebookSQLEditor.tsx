@@ -504,6 +504,7 @@ export function NotebookSQLEditorSettings<T extends { query: QuerySchema }>({
                 mode={SQLEditorMode.Embedded}
                 panel={SQLEditorPanel.Query}
                 defaultShowDatabaseTree={false}
+                hostProduct={ProductKey.NOTEBOOKS}
                 queryPaneDefaultHeight={EMBEDDED_SQL_EDITOR_EDIT_DEFAULT_HEIGHT}
                 queryPaneMinHeight={EMBEDDED_SQL_EDITOR_QUERY_PANE_MIN_HEIGHT}
                 autoFocusQueryPane={autoFocusQueryPane}
@@ -571,6 +572,7 @@ export function NotebookCodeSQLEditorSettings<T extends { code: string } & Noteb
                 panel={SQLEditorPanel.Query}
                 defaultShowDatabaseTree={false}
                 extraTreeSections={extraTreeSections}
+                hostProduct={ProductKey.NOTEBOOKS}
                 autoFocusQueryPane={autoFocusQueryPane}
                 // Read the editor's current text and connection imperatively at run time. The
                 // Cmd+Enter keybinding fires a stale closure (and Monaco's keybinding value can come

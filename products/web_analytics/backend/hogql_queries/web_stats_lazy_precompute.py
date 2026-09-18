@@ -440,10 +440,10 @@ def _resolve_sort_metric(query: WebStatsTableQuery) -> tuple[str, bool]:
     descending = True
     if query.orderBy:
         field = query.orderBy[0]
-        direction = query.orderBy[1]
         if field == WebAnalyticsOrderByFields.VIEWS:
             sort_metric = "views"
-        descending = direction != WebAnalyticsOrderByDirection.ASC
+        if len(query.orderBy) > 1:
+            descending = query.orderBy[1] != WebAnalyticsOrderByDirection.ASC
     return sort_metric, descending
 
 

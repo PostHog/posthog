@@ -21,6 +21,7 @@ import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
 import { LemonTableLoader } from 'lib/lemon-ui/LemonTable/LemonTableLoader'
+import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { Spinner } from 'lib/lemon-ui/Spinner'
@@ -44,8 +45,8 @@ import { SURVEY_CREATED_SOURCE } from 'scenes/surveys/constants'
 import { isSurveyableFunnelInsight, SurveyableFunnelInsight } from 'scenes/surveys/utils/opportunityDetection'
 import { urls } from 'scenes/urls'
 
-import { dashboardsModel } from '~/models/dashboardsModel'
 import { insightsModel } from '~/models/insightsModel'
+import { QueryScanTileTooltip } from '~/queries/nodes/DataNode/QueryScanTileTooltip'
 import { useInsightDisplayOptions } from '~/queries/nodes/InsightViz/insightDisplayOptions'
 import { Node, ProductKey } from '~/queries/schema/schema-general'
 import { isDataVisualizationNode, isDataVisualizationNodeWithHogQLQuery } from '~/queries/utils'
@@ -93,6 +94,7 @@ interface InsightMetaProps extends Pick<
     | 'setOverride'
     | 'duplicate'
     | 'dashboardId'
+    | 'canEditDashboard'
     | 'moveToDashboard'
     | 'copyToDashboard'
     | 'showEditingControls'
@@ -121,6 +123,7 @@ export function InsightMeta({
     insight,
     ribbonColor,
     dashboardId,
+    canEditDashboard,
     updateColor,
     toggleShowDescription,
     filtersOverride,
@@ -177,15 +180,13 @@ export function InsightMeta({
     )
     const { samplingFactor, hasDataWarehouseSeries } = useValues(insightVizDataLogic(insightLogicProps))
     const { retentionApplies, retentionMonths, retentionPeriodLabel } = useValues(dataRetentionBannerLogic)
-    const { nameSortedDashboards } = useValues(dashboardsModel)
-    const { copyToDestinations } = useValues(
-        dashboardWidgetMenusLogic({
-            instanceKey: insight.short_id,
-            dashboardId,
-            dashboards: insight.dashboards,
-            dashboard_tiles: insight.dashboard_tiles,
-        })
-    )
+    const dashboardWidgetMenusLogicProps = {
+        instanceKey: insight.short_id,
+        dashboardId,
+        dashboards: insight.dashboards,
+        dashboard_tiles: insight.dashboard_tiles,
+    }
+    const { copyToDestinations } = useValues(dashboardWidgetMenusLogic(dashboardWidgetMenusLogicProps))
     const { copyImage } = useActions(captureImageLogic)
     const { isCapturing: isCapturingImage } = useValues(captureImageLogic)
     const { updateInsightDirect } = useActions(insightsModel)
@@ -244,6 +245,15 @@ export function InsightMeta({
               )
             : true
 
+    // A killed run has no result to carry the scan, so it arrives on the query status instead.
+    const queryScan: QueryBasedInsightModel['query_scan'] = insight.query_scan ?? insight.query_status?.query_scan
+    const scanFindings = queryScan?.analysis?.findings ?? []
+    // Without a finding the tag can only say that PostHog was slow, which leaves the viewer nothing to do.
+    const queryScanTooltip =
+        canEditInsight && queryScan && scanFindings.length > 0 ? (
+            <QueryScanTileTooltip summary={queryScan} findings={scanFindings} />
+        ) : null
+
     const showDashboardAlertsMenuItem = isUsedAsDashboardTile && !!dashboardId && !!insight.id && canViewInsight
     const canCreateAlertForInsight = areAlertsSupportedForInsight(query, {
         metricsAlertsEnabled: !!featureFlags[FEATURE_FLAGS.METRICS],
@@ -276,15 +286,7 @@ export function InsightMeta({
     const canShowCopyToDashboardTile = showCompactTile && !!copyToDashboard && canViewInsight
     const hasDashboardPlacementActions = canShowCopyToDashboardTile || !!moveToDashboard || !!removeFromDashboard
 
-    // For dashboard-specific actions (remove from dashboard, change tile color), check dashboard permissions
-    const currentDashboard = dashboardId ? nameSortedDashboards.find((d) => d.id === dashboardId) : null
-    const canEditDashboard = currentDashboard?.user_access_level
-        ? accessLevelSatisfied(
-              AccessControlResourceType.Dashboard,
-              currentDashboard.user_access_level,
-              AccessControlLevel.Editor
-          )
-        : true
+    const canEditCurrentDashboard = canEditDashboard ?? !dashboardId
 
     // Feedback buttons for Customer Analytics
     const feedbackButtons =
@@ -460,6 +462,7 @@ export function InsightMeta({
                         compact={showCompactTile}
                         showDescription={tile?.show_description !== false}
                         dataRetentionWarning={dataRetentionWarning}
+                        queryScanTooltip={queryScanTooltip}
                         infoPopover={
                             showCompactTile ? (
                                 <CompactInfoPopover
@@ -556,7 +559,7 @@ export function InsightMeta({
                             />
                         )}
 
-                        {canShowCopyToDashboardTile && !canEditDashboard && (
+                        {canShowCopyToDashboardTile && !canEditCurrentDashboard && (
                             <>
                                 <LemonDivider />
                                 <h5 className="mx-2 my-1">Dashboard</h5>
@@ -568,7 +571,7 @@ export function InsightMeta({
                         )}
 
                         {/* Dashboard related */}
-                        {canEditDashboard && (
+                        {canEditCurrentDashboard && (
                             <>
                                 <LemonDivider />
                                 {showCompactTile && toggleShowDescription && !!insight.description && (
@@ -790,6 +793,7 @@ export function InsightMetaContent({
     showDescription,
     infoPopover,
     dataRetentionWarning,
+    queryScanTooltip,
 }: {
     title: string
     fallbackTitle?: string
@@ -802,15 +806,28 @@ export function InsightMetaContent({
     showDescription?: boolean
     infoPopover?: JSX.Element | null
     dataRetentionWarning?: string | null
+    queryScanTooltip?: JSX.Element | null
 }): JSX.Element {
     const dataRetentionIndicator = dataRetentionWarning ? (
         <Tooltip title={dataRetentionWarning}>
             <IconWarning className="ml-1.5 text-base shrink-0 text-warning" />
         </Tooltip>
     ) : null
+    const queryScanIndicator = queryScanTooltip ? (
+        <Tooltip title={queryScanTooltip}>
+            <LemonTag type="warning" size="small" className="ml-1.5 shrink-0" data-attr="insight-card-query-scan">
+                Slow query
+            </LemonTag>
+        </Tooltip>
+    ) : null
     const titleContent = (
         <>
-            <span className={clsx('text-primary', (infoPopover || dataRetentionIndicator) && 'truncate')}>
+            <span
+                className={clsx(
+                    'text-primary',
+                    (infoPopover || dataRetentionIndicator || queryScanIndicator) && 'truncate'
+                )}
+            >
                 {title || <i>{fallbackTitle || 'Untitled'}</i>}
             </span>
             {(loading || loadingQueued) && (
@@ -826,7 +843,10 @@ export function InsightMetaContent({
         <h4
             title={!compact ? title : undefined}
             data-attr="insight-card-title"
-            className={clsx((infoPopover || dataRetentionIndicator) && 'inline-flex items-center overflow-visible')}
+            className={clsx(
+                (infoPopover || dataRetentionIndicator || queryScanIndicator) &&
+                    'inline-flex items-center overflow-visible'
+            )}
         >
             {link ? (
                 <Link to={link} className="max-w-full truncate">
@@ -836,6 +856,7 @@ export function InsightMetaContent({
                 titleContent
             )}
             {dataRetentionIndicator}
+            {queryScanIndicator}
             {infoPopover}
         </h4>
     )

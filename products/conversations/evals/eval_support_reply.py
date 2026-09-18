@@ -39,6 +39,7 @@ CASES = [
             "ticket_type": fixture.ticket_type,
             "blocker": fixture.blocker,
             "expected_outcome": fixture.expected_outcome,
+            "docs_source": fixture.docs_source,
             "live_env_var": LIVE_EVAL_ENV_VAR,
         },
     )

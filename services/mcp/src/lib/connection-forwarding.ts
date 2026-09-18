@@ -90,7 +90,8 @@ export class ForwardingApiClient extends ApiClient {
 
         let forwarded: ForwardResponse
         try {
-            forwarded = await this.local.request<ForwardResponse>({
+            const local = this.config.intent ? this.local.withIntent(this.config.intent) : this.local
+            forwarded = await local.request<ForwardResponse>({
                 method: 'POST',
                 path: `/api/projects/${encodeURIComponent(this.options.localProjectId)}/posthog_connections/${encodeURIComponent(this.options.connectionId)}/forward/`,
                 body,

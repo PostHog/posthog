@@ -1,5 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
+import { useMemo } from 'react'
 
 import { IconInfo } from '@posthog/icons'
 import { LemonButton, LemonInput, Tooltip } from '@posthog/lemon-ui'
@@ -30,12 +31,19 @@ export function ModelsLineageTab(): JSX.Element {
         searchTerm,
         typeFilter,
         legendCollapsed,
+        parsedSearch,
         highlightedNodeIds,
         visibleNodes,
         visibleEdges,
         isFiltered,
     } = useValues(modelsLineageLogic)
     const { setSearchTerm, setTypeFilter, toggleLegendCollapsed, resetFilters } = useActions(modelsLineageLogic)
+    // A fresh Set on every render would restart the graph's fitView animation each keystroke,
+    // so keep the identity stable while the underlying selectors are unchanged.
+    const focusNodeIds = useMemo(
+        () => (parsedSearch.mode === 'search' ? highlightedNodeIds : new Set(visibleNodes.map((node) => node.id))),
+        [parsedSearch.mode, highlightedNodeIds, visibleNodes]
+    )
 
     return (
         <div className="flex flex-col gap-2">
@@ -80,7 +88,7 @@ export function ModelsLineageTab(): JSX.Element {
                 <LineageGraph
                     nodes={visibleNodes}
                     edges={visibleEdges}
-                    focusNodeIds={highlightedNodeIds}
+                    focusNodeIds={focusNodeIds}
                     variant="canvas"
                     interactive
                     showControls

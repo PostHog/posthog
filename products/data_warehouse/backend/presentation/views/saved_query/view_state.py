@@ -100,6 +100,8 @@ class DataWarehouseSavedQuerySerializerMixin:
     def get_columns(self, view: DataWarehouseSavedQuery) -> list[SerializedField]:
         # `hogql_fields` rather than `hogql_definition`, which would read the SQL body the list
         # page defers.
+        if not cast(serializers.BaseSerializer, self).context.get("include_columns", True):
+            return []
         hogql_fields = view.hogql_fields()
         if not hogql_fields:
             return []

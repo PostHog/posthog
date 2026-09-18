@@ -94,6 +94,16 @@ class LogFacetValuesQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQue
         # query.searchTerm which searches log bodies. Lets a dynamic facet search past the LIMIT window.
         self.facet_search = (facet_search or "").strip() or None
 
+    def get_cache_payload(self) -> dict:
+        # Runner arguments, not query fields, so the base payload cannot see them.
+        attribute = self.attribute_facet
+        return {
+            **super().get_cache_payload(),
+            "facet_field": self.facet_field,
+            "facet_attribute": None if attribute is None else [attribute.attribute_type, attribute.key],
+            "facet_search": self.facet_search,
+        }
+
     @cached_property
     def settings(self) -> HogQLGlobalSettings:
         if self.attribute_facet is not None:

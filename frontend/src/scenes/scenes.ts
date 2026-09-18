@@ -10,6 +10,7 @@ import { urls } from 'scenes/urls'
 import { Error404 as Error404Component } from '~/layout/Error404'
 import { ErrorAccessDenied as ErrorAccessDeniedComponent } from '~/layout/ErrorAccessDenied'
 import { ErrorNetwork as ErrorNetworkComponent } from '~/layout/ErrorNetwork'
+import { ErrorProjectAccessDenied as ErrorProjectAccessDeniedComponent } from '~/layout/ErrorProjectAccessDenied'
 import { ErrorProjectUnavailable as ErrorProjectUnavailableComponent } from '~/layout/ErrorProjectUnavailable'
 import { productConfiguration, productRedirects, productRoutes } from '~/products'
 import { EventsQuery } from '~/queries/schema/schema-general'
@@ -28,6 +29,9 @@ export const preloadedScenes: Record<string, SceneExport> = {
     },
     [Scene.ErrorNetwork]: {
         component: ErrorNetworkComponent,
+    },
+    [Scene.ErrorProjectAccessDenied]: {
+        component: ErrorProjectAccessDeniedComponent,
     },
     [Scene.ErrorProjectUnavailable]: {
         component: ErrorProjectUnavailableComponent,
@@ -151,6 +155,7 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     [Scene.Error404]: { name: 'Not found', projectBased: true },
     [Scene.ErrorAccessDenied]: { name: 'Access denied' },
     [Scene.ErrorNetwork]: { name: 'Network error' },
+    [Scene.ErrorProjectAccessDenied]: { name: 'Project access denied' },
     [Scene.ErrorProjectUnavailable]: { name: 'Project unavailable' },
     [Scene.EventDefinitionEdit]: {
         projectBased: true,

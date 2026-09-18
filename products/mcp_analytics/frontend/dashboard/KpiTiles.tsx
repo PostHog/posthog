@@ -163,7 +163,9 @@ export function KpiTiles({
         <div className="@container">
             <div
                 className={`grid gap-3 ${
-                    showIntentClusters ? 'grid-cols-2 @xl:grid-cols-3 @6xl:grid-cols-6' : 'grid-cols-1 @xl:grid-cols-5'
+                    showIntentClusters
+                        ? 'grid-cols-2 @xl:grid-cols-3 @6xl:grid-cols-6'
+                        : 'grid-cols-2 @xl:grid-cols-3 @5xl:grid-cols-5'
                 }`}
             >
                 {tiles.map((tile) => (

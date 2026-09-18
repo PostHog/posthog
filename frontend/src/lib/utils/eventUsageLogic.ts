@@ -19,10 +19,12 @@ import {
     Breakdown,
     ExperimentFunnelsQuery,
     ExperimentMetric,
+    ExperimentExposureNode,
     ExperimentMetricSource,
     ExperimentRetentionMetric,
     ExperimentTrendsQuery,
     InsightQueryNode,
+    isExperimentExposureNode,
     isExperimentFunnelMetric,
     isExperimentMeanMetric,
     isExperimentRatioMetric,
@@ -129,6 +131,18 @@ export enum GraphSeriesAddedSource {
  * empty opens nothing, and empty lists are the outcome the in-session scope most affects.
  */
 export interface ExperimentRecordingsTabContext {
+    /**
+     * What put the tab in the state it opened in, when it was not the viewer: 'results_button' or
+     * 'results_menu' for a results-table link. Null when the viewer opened the tab themselves,
+     * which is the ordinary case, so this is what separates the two populations in a report.
+     */
+    entry_point: string | null
+    /**
+     * Why the results row that opened this visit could not hand its metric to the tab, so the list
+     * shows every recording of the variant instead. Null on every other visit. Kept as a string
+     * rather than the scene's union so telemetry doesn't import from the scene.
+     */
+    metric_unavailable_reason: string | null
     variant_count: number
     metric_count: number
     linkable_metric_count: number
@@ -138,6 +152,10 @@ export interface ExperimentRecordingsTabContext {
     in_session_available: boolean | null
     in_session_unavailable_reason: string | null
     in_session_uses_stamped_fallback: boolean | null
+    /** Whether the "What to watch" toggle was on the tab at all: the denominator for opening it. */
+    behavior_comparison_available: boolean
+    /** Why the toggle was shown disabled, null when it was usable. */
+    behavior_comparison_unavailable_reason: string | null
 }
 
 /** The facets the recordings list was narrowed by when a recording was opened from it. */
@@ -154,6 +172,19 @@ export interface ExperimentRecordingsFilterContext {
      * This is the success metric for the behavior comparison: opens it drove versus opens the
      * plain list drove. */
     watch_card_kind: string | null
+    /**
+     * What set these facets, when it was not the viewer: 'results_button' or 'results_menu' for a
+     * results-table link. Null once the viewer moves a facet themselves, so an empty list that a
+     * results row produced can be told from one somebody narrowed into by hand.
+     */
+    entry_point: string | null
+    /**
+     * Why the results row that opened this visit could not hand its metric to the tab, so the list
+     * shows every recording of the variant instead. Null on every other visit, and null once the
+     * viewer moves a facet themselves, for the same reason `entry_point` is. Kept as a string
+     * rather than the scene's union so telemetry doesn't import from the scene.
+     */
+    metric_unavailable_reason: string | null
 }
 
 /**
@@ -168,6 +199,16 @@ export interface ExperimentRecordingsListRenderedContext extends ExperimentRecor
     result_count: number
     /** Null when the list has rows. One of the tab's `ExperimentReplayListEmptyReason` values. */
     empty_reason: string | null
+    /**
+     * The way out the empty state offered, null when its banner offered none. This follows
+     * `empty_reason` rather than the state of the tab: four reasons carry a way out of a narrowing,
+     * and the rest carry a link or nothing, so a variant that still narrows the list is not
+     * reported here when replay is off or the window expired. Null on a list with rows too, for the
+     * same reason `empty_reason` is. The values match `action` on `experiment recordings empty
+     * state action clicked`, so the two together size how often a viewer takes the way out against
+     * how often it is offered.
+     */
+    narrowing_action: string | null
     /** Null when the experiment has not launched. */
     days_since_start: number | null
     /** Null while the experiment runs. */
@@ -202,6 +243,18 @@ export interface ExperimentRecordingsListRenderedContext extends ExperimentRecor
      * filter as a difference. The three properties above are null when the viewer removed it.
      */
     duration_filter_customized: boolean
+    /**
+     * Whether the viewer narrowed the list past the tab's own scoping through the filter bar. This
+     * is the input that decides `filters_narrowed`, and the only filter-bar signal the rest of this
+     * event lacks.
+     */
+    filters_customized: boolean
+    /**
+     * Whose already-watched recordings the viewer hides, and `off` when the viewer hides none. The
+     * server removes the recordings this setting hides before it answers, so the setting can empty
+     * a list on its own, and no `empty_reason` names it.
+     */
+    hide_viewed_recordings: 'off' | 'current-user' | 'any-user'
     /** Whether the exposure event is ever seen with a session id. Null while the check is out. */
     exposure_linkable: boolean | null
 }
@@ -247,6 +300,10 @@ export interface ExperimentWatchShelfContext {
     sessions_truncated: boolean
     /** The project has more event names than one comparison ranks, so some were never considered. */
     events_truncated: boolean
+    /** Whether the experiment has stopped enrolling, so waiting cannot fill an empty shelf. */
+    experiment_ended: boolean
+    /** Whole days from the launch to this load, null when the experiment has not launched. */
+    days_since_start: number | null
 }
 
 /** The comparison could not be loaded, and how: a request failure or a backend refusal. */
@@ -274,6 +331,12 @@ export interface ExperimentRecordingsEmptyActionContext {
     empty_reason: string | null
     /** One of the tab's `ExperimentRecordingsEmptyAction` values. */
     action: string
+    /**
+     * Whole days from the launch to the click, null when the experiment has not launched. The same
+     * count `experiment recordings list rendered` carries, so an action on a young experiment reads
+     * apart from one on a run that has had time to collect recordings.
+     */
+    days_since_start: number | null
 }
 
 /**
@@ -345,13 +408,22 @@ function retentionWindowDays(metric: ExperimentRetentionMetric): number | undefi
     return multiplier ? (metric.retention_window_end - metric.retention_window_start) * multiplier : undefined
 }
 
-function getSourceProperties(source: ExperimentMetricSource): {
+function getSourceProperties(source: ExperimentMetricSource | ExperimentExposureNode): {
     source_kind: string
     is_data_warehouse: boolean
     property_filter_count: number
     math_type: string | undefined
     has_math_hogql: boolean
 } {
+    if (isExperimentExposureNode(source)) {
+        return {
+            source_kind: source.kind,
+            is_data_warehouse: false,
+            property_filter_count: 0,
+            math_type: undefined,
+            has_math_hogql: false,
+        }
+    }
     return {
         source_kind: source.kind,
         is_data_warehouse: source.kind === NodeKind.ExperimentDataWarehouseNode,

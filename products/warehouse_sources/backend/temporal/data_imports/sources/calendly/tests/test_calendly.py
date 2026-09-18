@@ -132,11 +132,11 @@ class TestValidateCredentials:
         self, _name: str, status_code: int, expected: bool, mock_session: mock.MagicMock
     ) -> None:
         mock_session.return_value.get.return_value = mock.MagicMock(status_code=status_code)
-        assert validate_credentials("token") is expected
+        assert validate_credentials("token") == (expected, status_code)
 
     @mock.patch(CALENDLY_SESSION_PATCH, side_effect=Exception("network down"))
     def test_validate_credentials_swallows_exceptions(self, _mock_session: mock.MagicMock) -> None:
-        assert validate_credentials("token") is False
+        assert validate_credentials("token") == (False, None)
 
 
 class TestGetCurrentOrganization:

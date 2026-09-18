@@ -944,6 +944,8 @@ export const VisionScannersPromptSuggestionsEvaluateCreateBody = /* @__PURE__ */
 /**
  * Create a scout that watches this scanner, recorded as belonging to it.
  */
+export const visionScannersScoutsCreateBodyDisplayNameMax = 200
+
 export const visionScannersScoutsCreateBodyNameMax = 64
 
 export const visionScannersScoutsCreateBodyDescriptionMax = 1024
@@ -977,11 +979,19 @@ export const visionScannersScoutsCreateBodyConfigOneRunCronScheduleMax = 100
 
 export const VisionScannersScoutsCreateBody = /* @__PURE__ */ zod
     .object({
+        display_name: zod
+            .string()
+            .max(visionScannersScoutsCreateBodyDisplayNameMax)
+            .optional()
+            .describe(
+                "Name shown wherever people identify this scout, written however you want it — spaces, capitalization, and acronyms are kept as typed, and two scouts may share one. It does not change the scout's skill name, which stays its identity, so renaming a scout keeps its schedule, run history, notes, memory, and links. At most 200 characters; blank means the scout has no name of its own and is labelled from its skill name instead."
+            ),
         name: zod
             .string()
             .max(visionScannersScoutsCreateBodyNameMax)
+            .optional()
             .describe(
-                'Unique scout name, containing only lowercase letters, numbers, and hyphens. The `signals-scout-` prefix is optional.'
+                'Optional skill name for the scout — its permanent identifier, containing only lowercase letters, numbers, and hyphens. Omit it and one is generated from `display_name` (`My APM scout` becomes `my-apm-scout`), with a numeric suffix when that name is taken. Pass it to pick the identifier yourself, or to keep a client written before display names working unchanged. The `signals-scout-` prefix is optional.'
             ),
         description: zod
             .string()

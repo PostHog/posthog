@@ -18,11 +18,11 @@ import {
     resolveMlAnonymizeMaxConcurrency,
     resolveMlMirrorRedisConnection,
 } from '~/ingestion/pipelines/sessionreplay/ml-mirror/config'
+import { MlKeyManager } from '~/ingestion/pipelines/sessionreplay/ml-mirror/keys/runtime'
 import { MlBlockMetadataSink } from '~/ingestion/pipelines/sessionreplay/ml-mirror/ml-block-metadata-sink'
-import { createMlMirrorReplayPipeline } from '~/ingestion/pipelines/sessionreplay/ml-mirror/ml-mirror-pipeline'
-import { MlPrivacyRuntime } from '~/ingestion/pipelines/sessionreplay/ml-mirror/privacy/runtime'
 import { resolvePseudonymKey } from '~/ingestion/pipelines/sessionreplay/ml-mirror/pseudonym-key'
 import { SessionFormatFileStorage } from '~/ingestion/pipelines/sessionreplay/ml-mirror/session-format-file-storage'
+import { MlMirrorStagedBatchRunner } from '~/ingestion/pipelines/sessionreplay/ml-mirror/staged-batch-runner'
 import { createProducerRegistry } from '~/ingestion/pipelines/sessionreplay/outputs/producer-registry'
 import { createOutputsRegistry } from '~/ingestion/pipelines/sessionreplay/outputs/registry'
 import { BlackholeSessionBatchFileStorage } from '~/ingestion/pipelines/sessionreplay/sessions/blackhole-session-batch-writer'
@@ -56,7 +56,7 @@ async function assertAnonymizerHealthy(anonymizer: typeof import('@posthog/repla
 }
 
 export class IngestionSessionReplayMlMirrorServer extends MlMirrorConsumerServer {
-    private readonly privacy = new MlPrivacyRuntime(this.config)
+    private readonly keyManager = new MlKeyManager(this.config)
     private postgres?: PostgresRouter
     private producerRegistry?: KafkaProducerRegistry<SessionReplayProducerName>
     private crawlHistoryClient?: DynamoDBClient
@@ -109,14 +109,14 @@ export class IngestionSessionReplayMlMirrorServer extends MlMirrorConsumerServer
         logger.info('🦀', 'ml_mirror_rust_anonymizer_initialized')
 
         // Block metadata is produced to Kafka; the dedicated Parquet-sink deployment writes it to the ML bucket.
-        await this.privacy.start()
-        const metadataStore = new MlBlockMetadataSink(outputs, pseudonymSecret, this.privacy.reader)
+        await this.keyManager.start()
+        const metadataStore = new MlBlockMetadataSink(outputs, pseudonymSecret, this.keyManager.reader)
         const urlProducerEnabled =
             this.config.SESSION_RECORDING_ML_URL_COLLECTION_ENABLED &&
             this.config.SESSION_RECORDING_ML_URL_PRODUCER_ENABLED
         const urlCrawlHistory = urlProducerEnabled ? this.buildUrlCrawlHistory() : undefined
 
-        const privacy = this.privacy.controller
+        const keyManager = this.keyManager.controller
         const collaborators: SessionRecordingIngesterCollaborators = {
             fileStorage,
             metadataStore,
@@ -126,43 +126,41 @@ export class IngestionSessionReplayMlMirrorServer extends MlMirrorConsumerServer
                 enabled: false,
             }),
             featureStore: new SessionFeatureStore(outputs, false),
-            keyStore: privacy,
-            encryptor: privacy,
-            createPipeline: (pipelineConfig) =>
-                createMlMirrorReplayPipeline(
-                    pipelineConfig,
-                    {
-                        privacy,
-                        anonymizeMaxConcurrency: resolveMlAnonymizeMaxConcurrency(
-                            this.config.SESSION_RECORDING_ML_ANONYMIZE_MAX_CONCURRENCY
-                        ),
-                    },
-                    this.config.SESSION_RECORDING_ML_IMAGE_SCRUB_PRODUCER_ENABLED
-                        ? {
-                              outputs,
-                              producedRefCacheMax: this.config.SESSION_RECORDING_ML_IMAGE_SCRUB_PRODUCED_REF_CACHE_MAX,
-                          }
-                        : undefined,
-                    {
-                        pseudonymSecret,
-                        // Producing the images is what makes collecting them useful, so the image
-                        // lane follows its producer flag. The URL lane collects on its own flag,
-                        // because collecting alone measures without sending anything anywhere.
-                        collectImages: this.config.SESSION_RECORDING_ML_IMAGE_SCRUB_PRODUCER_ENABLED,
-                        collectUrls: this.config.SESSION_RECORDING_ML_URL_COLLECTION_ENABLED,
-                    },
-                    // Producing needs collection: without it the anonymizer returns no URLs, and
-                    // the step would have nothing to send.
-                    urlProducerEnabled
-                        ? {
-                              outputs,
-                              producedRefCacheMax: this.config.SESSION_RECORDING_ML_URL_PRODUCED_REF_CACHE_MAX,
-                              producedRefCacheWindowMs:
-                                  (this.config.AI_RESEARCH_IMAGE_FETCH_CRAWL_HISTORY_TTL_SECONDS * 1000) / 2,
-                              crawlHistory: urlCrawlHistory,
-                          }
-                        : undefined
-                ),
+            keyStore: keyManager,
+            encryptor: keyManager,
+            runner: new MlMirrorStagedBatchRunner(
+                {
+                    keyManager,
+                    anonymizeMaxConcurrency: resolveMlAnonymizeMaxConcurrency(
+                        this.config.SESSION_RECORDING_ML_ANONYMIZE_MAX_CONCURRENCY
+                    ),
+                },
+                this.config.SESSION_RECORDING_ML_IMAGE_SCRUB_PRODUCER_ENABLED
+                    ? {
+                          outputs,
+                          producedRefCacheMax: this.config.SESSION_RECORDING_ML_IMAGE_SCRUB_PRODUCED_REF_CACHE_MAX,
+                      }
+                    : undefined,
+                {
+                    pseudonymSecret,
+                    // Producing the images is what makes collecting them useful, so the image
+                    // lane follows its producer flag. The URL lane collects on its own flag,
+                    // because collecting alone measures without sending anything anywhere.
+                    collectImages: this.config.SESSION_RECORDING_ML_IMAGE_SCRUB_PRODUCER_ENABLED,
+                    collectUrls: this.config.SESSION_RECORDING_ML_URL_COLLECTION_ENABLED,
+                },
+                // Producing needs collection: without it the anonymizer returns no URLs, and
+                // the step would have nothing to send.
+                urlProducerEnabled
+                    ? {
+                          outputs,
+                          producedRefCacheMax: this.config.SESSION_RECORDING_ML_URL_PRODUCED_REF_CACHE_MAX,
+                          producedRefCacheWindowMs:
+                              (this.config.AI_RESEARCH_IMAGE_FETCH_CRAWL_HISTORY_TTL_SECONDS * 1000) / 2,
+                          crawlHistory: urlCrawlHistory,
+                      }
+                    : undefined
+            ),
             // Isolate the mirror's session tracker/filter keys from the main lane. Sharing them would let
             // the cleartext mirror mark a session seen without the main lane's KMS key, so the main lane
             // would then fetch a missing key and record cleartext.
@@ -218,7 +216,7 @@ export class IngestionSessionReplayMlMirrorServer extends MlMirrorConsumerServer
             redisPools: [this.redisPool, this.restrictionRedisPool].filter(Boolean) as RedisPool[],
             postgres: this.postgres,
             additionalCleanup: async () => {
-                this.privacy.stop()
+                this.keyManager.stop()
                 this.crawlHistoryClient?.destroy()
                 await this.producerRegistry?.disconnectAll()
             },

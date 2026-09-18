@@ -1,3 +1,5 @@
+import type { ReportImplementationState } from "@posthog/core/inbox/reportImplementation";
+import { REPORT_IMPLEMENTATION_LABELS } from "@posthog/core/inbox/reportImplementation";
 import {
   deriveHeadline,
   humanizeReportTitle,
@@ -16,10 +18,12 @@ import type { ReactElement } from "react";
 /** One report in the rail's Self-driving list. */
 export function InboxPaneRow({
   report,
+  implementationState,
   isSelected,
   optionValue,
 }: {
   report: SignalReport;
+  implementationState?: ReportImplementationState | null;
   isSelected: boolean;
   optionValue: string;
 }): ReactElement {
@@ -36,6 +40,17 @@ export function InboxPaneRow({
   const pr = report.implementation_pr_url
     ? parsePrUrl(report.implementation_pr_url)
     : null;
+  // An explicit aria-label replaces the row's descendant text in the
+  // accessible name, so the implementation status the badge below shows has to
+  // be named here too. Without it a screen reader cannot tell a report whose
+  // task is working from one whose task failed.
+  const label = [
+    title,
+    report.priority ? `priority ${report.priority}` : "priority unknown",
+    implementationState && REPORT_IMPLEMENTATION_LABELS[implementationState],
+  ]
+    .filter(Boolean)
+    .join(", ");
 
   return (
     <InboxReportContextMenu report={report}>
@@ -43,11 +58,7 @@ export function InboxPaneRow({
         <AutocompleteItem
           value={optionValue}
           nativeButton
-          aria-label={
-            report.priority
-              ? `${title}, priority ${report.priority}`
-              : `${title}, priority unknown`
-          }
+          aria-label={label}
           className={cn(
             "h-auto w-full items-start py-1.5 pr-8 text-left ring-offset-0 data-highlighted:border-transparent data-highlighted:bg-fill-hover data-highlighted:ring-0 [&>span]:w-full [&>span]:items-start [&>span]:gap-2",
             isSelected && "bg-fill-selected",
@@ -70,6 +81,17 @@ export function InboxPaneRow({
             {headline && (
               <span className="line-clamp-2 whitespace-normal text-[12px] text-muted-foreground leading-snug">
                 {headline}
+              </span>
+            )}
+            {implementationState && (
+              <span
+                className={`mt-1 flex items-center gap-1.5 text-[12px] ${implementationState === "working" ? "text-blue-11" : "text-amber-11"}`}
+              >
+                <span
+                  aria-hidden="true"
+                  className="size-1.5 rounded-full bg-current"
+                />
+                {REPORT_IMPLEMENTATION_LABELS[implementationState]}
               </span>
             )}
             <span className="mt-1 block truncate text-muted-foreground/70 text-xxs">

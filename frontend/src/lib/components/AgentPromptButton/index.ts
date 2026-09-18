@@ -1,2 +1,8 @@
-export type { AgentPromptAction, AgentPromptButtonProps } from './AgentPromptButton'
-export { AgentPromptButton } from './AgentPromptButton'
+export type { AgentPromptAction, AgentPromptButtonProps, AgentPromptDestination } from './AgentPromptButton'
+export {
+    AgentPromptButton,
+    buildClaudeCodeDeepLink,
+    buildCodexDeepLink,
+    buildCursorDeepLink,
+    buildPostHogCodeDeepLink,
+} from './AgentPromptButton'

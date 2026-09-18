@@ -215,6 +215,26 @@ class TestFanOut:
         assert rows == [{"id": "u1", "email": "a@b.co", "account_slug": "acme"}]
 
     @mock.patch(CLIENT_SESSION_PATCH)
+    def test_skips_a_parent_that_does_not_serve_the_child_resource(self, MockSession) -> None:
+        session = MockSession.return_value
+
+        def route(url: str) -> Response:
+            if url == f"{BASE}/sites?filter=all&per_page=100":
+                return _response([{"id": "s1"}, {"id": "s2"}], next_url=None)
+            if url == f"{BASE}/sites/s1/forms":
+                return _response({"message": "Not Found"}, status=404)
+            if url == f"{BASE}/sites/s2/forms":
+                return _response([{"id": "f2"}], next_url=None)
+            raise AssertionError(f"unexpected url: {url}")
+
+        _wire(session, route)
+        rows = _rows(_source("forms", _manager()))
+
+        # A site with form detection off 404s on /forms. That parent holds no rows, so the table
+        # still syncs every other site rather than failing the whole sync.
+        assert rows == [{"id": "f2", "site_id": "s2"}]
+
+    @mock.patch(CLIENT_SESSION_PATCH)
     def test_resumes_fanout_from_saved_state_skipping_completed_parent(self, MockSession) -> None:
         session = MockSession.return_value
 
