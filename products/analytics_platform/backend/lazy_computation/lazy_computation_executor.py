@@ -166,7 +166,7 @@ LAZY_COMPUTATION_JOB_CREATE_CONFLICTS_TOTAL = Counter(
 )
 
 
-def _get_insert_settings(team_id: int, *, spill_to_disk: bool = False) -> dict:
+def _get_insert_settings(team_id: int, *, spill_to_disk: bool = False, read_after_write: bool = True) -> dict:
     """Build ClickHouse settings for preaggregation INSERT queries.
 
     Starts from the same HogQLGlobalSettings defaults that execute_hogql_query
@@ -176,13 +176,20 @@ def _get_insert_settings(team_id: int, *, spill_to_disk: bool = False) -> dict:
     GROUP BY hash table can grow large (high-cardinality breakdowns), and most
     kinds never approach the threshold, so callers enable it deliberately rather
     than paying for it everywhere.
+
+    `read_after_write=False` drops the replica-quorum wait. Quorum's only job is
+    the read-your-own-writes edge case: a SELECT issued right after this INSERT
+    landing on a replica the part hasn't reached yet. A caller whose reads come
+    minutes later (background builders) gets no consistency from it — only the
+    failure mode where a downed or stale-registered replica turns every build
+    into TOO_FEW_LIVE_REPLICAS until the cluster is repaired.
     """
     settings = get_default_hogql_global_settings(team_id=team_id).model_dump(exclude_none=True)
     settings.pop("readonly", None)  # INSERTs need write access
     settings.update(
         {
             "max_execution_time": HOGQL_INCREASED_MAX_EXECUTION_TIME,
-            "insert_quorum": PREAGGREGATION_INSERT_QUORUM,
+            "insert_quorum": PREAGGREGATION_INSERT_QUORUM if read_after_write else 0,
             "insert_quorum_timeout": PREAGGREGATION_INSERT_QUORUM_TIMEOUT_MS,
             # The executor marks a job READY as soon as the INSERT returns, so rows must be on the
             # shards by then — not sitting in the initiator's async distribution queue, where they
@@ -1562,6 +1569,7 @@ def ensure_precomputed(
     empty_result_max_age_seconds: int | None = None,
     end_is_data_horizon: bool = False,
     cache_key_context: dict[str, str] | None = None,
+    read_after_write: bool = True,
 ) -> LazyComputationResult:
     """
     Ensure lazy-computed data exists for the given query and time range.
@@ -1633,6 +1641,12 @@ def ensure_precomputed(
                       into its own filters, so it stores no rows past it. Job claims
                       then clamp to a historical end instead of claiming the full
                       final day. See LazyComputationExecutor.execute.
+        read_after_write: Set False when no caller SELECTs the inserted rows in the
+                      same request that ran this ensure (background builders whose
+                      readers arrive minutes later). Skips the replica-quorum wait on
+                      the INSERT, so builds keep succeeding while a replica is down
+                      or stale-registered; the cost is a sub-second replication
+                      window in which a reader could miss the newest part.
 
     Returns:
         ComputationResult with job_ids that can be used to query the data
@@ -1717,7 +1731,7 @@ def ensure_precomputed(
                 sync_execute(
                     insert_sql,
                     values,
-                    settings=_get_insert_settings(t.id, spill_to_disk=spill_to_disk),
+                    settings=_get_insert_settings(t.id, spill_to_disk=spill_to_disk, read_after_write=read_after_write),
                 )
             )
 
