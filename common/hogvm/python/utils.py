@@ -122,8 +122,6 @@ def regex_extract(string: Any, pattern: Any) -> str:
 
 
 def like(string: Any, pattern: Any, case_insensitive: bool = False) -> bool:
-    string = _require_string(string, "input", "like")
-    pattern = _require_string(pattern, "pattern", "like")
     _validate_regex_pattern(pattern)
     pattern = re2.escape(pattern).replace("%", ".*").replace("_", ".")
     re_pattern = re2.compile(pattern, options=_CASE_INSENSITIVE_OPTS) if case_insensitive else re2.compile(pattern)

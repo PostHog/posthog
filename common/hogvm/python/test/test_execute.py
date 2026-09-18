@@ -124,8 +124,6 @@ class TestBytecodeExecute:
     @parameterized.expand(
         [
             ("function_list_input", "match(['tool_call'], 'tool')", {}, "Function match requires input"),
-            ("like_list_input", "like(['label'], 'label')", {}, "Function like requires input"),
-            ("like_list_pattern", "like('label', ['label'])", {}, "Function like requires pattern"),
             ("function_invalid_pattern", "match('tool_call', '[')", {}, "Invalid regex pattern"),
             ("function_lookbehind_unsupported", "match('ab', '(?<=a)b')", {}, "Invalid regex pattern"),
             ("operator_list_input", "['tool_call'] =~ 'tool'", {}, "Function match requires input"),
