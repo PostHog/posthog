@@ -751,23 +751,57 @@ class TestArticleTables:
 
     @parameterized.expand(
         [
-            ("two_lists_that_both_look_like_rows", {"drafts": [{"id": 1}], "published": [{"id": 2}], "total": 2}),
-            ("a_later_item_without_the_primary_key", {"items": [{"id": 1}, {"slug": "x"}], "tags": [], "total": 2}),
-            ("an_empty_list_beside_a_list_carrying_the_primary_key", {"data": [], "tags": [{"id": 7}], "total": 0}),
-            ("the_only_list_carrying_no_primary_key", {"warnings": [{"message": "partial"}], "total": 2}),
-            ("one_list_one_level_down_carrying_no_primary_key", {"meta": {"warnings": [{"m": 1}]}, "total": 2}),
+            (
+                "two_lists_that_both_look_like_rows",
+                {"drafts": [{"id": 1}], "published": [{"id": 2}], "total": 2},
+                "2 of them carry this endpoint's primary keys ('drafts', 'published')",
+            ),
+            (
+                "two_lists_carrying_the_configured_name",
+                {"result": {"articles": [{"id": 1}]}, "backup": {"articles": [{"id": 2}]}},
+                "2 of them are named 'articles' ('result.articles', 'backup.articles')",
+            ),
+            (
+                "a_later_item_without_the_primary_key",
+                {"items": [{"id": 1}, {"slug": "x"}], "tags": [], "total": 2},
+                "none of them is named 'articles' or carries this endpoint's primary keys",
+            ),
+            (
+                "an_empty_list_beside_a_list_carrying_the_primary_key",
+                {"data": [], "tags": [{"id": 7}], "total": 0},
+                "only 'tags' carries this endpoint's primary keys",
+            ),
+            (
+                "the_only_list_carrying_no_primary_key",
+                {"warnings": [{"message": "partial"}], "total": 2},
+                "none of them is named 'articles' or carries this endpoint's primary keys",
+            ),
+            (
+                "one_list_one_level_down_carrying_no_primary_key",
+                {"meta": {"warnings": [{"m": 1}]}, "total": 2},
+                "none of them is named 'articles' or carries this endpoint's primary keys",
+            ),
         ]
     )
-    def test_an_ambiguous_envelope_fails_rather_than_guessing_a_list(self, _name: str, body: dict[str, Any]) -> None:
+    def test_an_ambiguous_envelope_fails_rather_than_guessing_a_list(
+        self, _name: str, body: dict[str, Any], reason: str
+    ) -> None:
         # Picking one of these would import the wrong table silently, or pick a list whose
         # later rows have no primary key and crash the deduplicator. Being the envelope's
         # only list is not evidence either: a list of warnings fits that description. An
         # empty list is a second reading of its own, because the renamed rows can be the
         # empty one. The walk keeps nothing and the contract guard fails the sync instead.
+        # Support reads this failure without a Decagon credential to check it against, so
+        # two lists matching has to read as two lists matching, not as a response with no
+        # rows in it.
         manager = _fresh_manager()
+        logger = MagicMock()
 
-        with pytest.raises(DecagonContractError):
-            _drive_rows(manager, [_make_response(body)], endpoint="articles")
+        with pytest.raises(DecagonContractError) as excinfo:
+            _drive_rows(manager, [_make_response(body)], endpoint="articles", logger=logger)
+
+        assert reason in str(excinfo.value)
+        assert reason in logger.error.call_args.args[0]
 
     def test_an_unreadable_envelope_fails_a_cursor_walk_too(self) -> None:
         # The contract guard has to hold for every pagination mode. Reading the total only

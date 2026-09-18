@@ -216,6 +216,29 @@ def _describe_shape(data: dict[str, Any]) -> str:
     return ", ".join(parts)
 
 
+def _unreadable_reason(
+    config: DecagonEndpointConfig, same_key: list[_ListCandidate], row_like: list[_ListCandidate]
+) -> str:
+    """Why the walk could not choose a row list, in the words the operator has to act on.
+
+    Two lists matching needs a different repair from none matching, and support reads this
+    text without a Decagon credential to check it against. So name the lists that matched
+    rather than report every failure as a response that carries no rows anywhere.
+    """
+    if len(same_key) > 1:
+        paths = ", ".join(f"'{found.path}'" for found in same_key)
+        return f"{len(same_key)} of them are named '{config.data_key}' ({paths})"
+    if len(row_like) > 1:
+        paths = ", ".join(f"'{found.path}'" for found in row_like)
+        return f"{len(row_like)} of them carry this endpoint's primary keys ({paths})"
+    if row_like:
+        return (
+            f"only '{row_like[0].path}' carries this endpoint's primary keys, but an empty list beside it "
+            f"reads the same as this table's rows returning none"
+        )
+    return f"none of them is named '{config.data_key}' or carries this endpoint's primary keys"
+
+
 def _resolve_rows(
     data: dict[str, Any], config: DecagonEndpointConfig, endpoint: str, logger: FilteringBoundLogger
 ) -> _ListCandidate:
@@ -235,17 +258,16 @@ def _resolve_rows(
     candidates = _list_candidates(data)
     same_key = [found for found in candidates if found.path.rsplit(".", 1)[-1] == config.data_key]
     row_like = [found for found in candidates if _looks_like_rows(config, found.items)]
-    if any(not found.items for found in candidates):
-        # An empty list reads the same as a renamed key that returned no rows, so the primary
-        # keys stop separating the two readings. Most keyed endpoints key on `id`, which any
-        # sibling list of objects carries, and a full refresh would replace the table with
-        # that list. A name match is unaffected: there the response names the rows.
-        row_like = []
+    # An empty list reads the same as a renamed key that returned no rows, so the primary
+    # keys stop separating the two readings. Most keyed endpoints key on `id`, which any
+    # sibling list of objects carries, and a full refresh would replace the table with that
+    # list. A name match is unaffected: there the response names the rows.
+    inferred = [] if any(not found.items for found in candidates) else row_like
     # A list qualifies on its name or on the endpoint's primary keys. Being the envelope's
     # only list is not evidence: "the only list" also describes a list of warnings, and
     # reading that one imports metadata as rows. Anything that leaves more than one
     # candidate is a guess, so it fails instead.
-    for shortlist in (same_key, row_like):
+    for shortlist in (same_key, inferred):
         if len(shortlist) == 1:
             found = shortlist[0]
             logger.warning(
@@ -255,10 +277,11 @@ def _resolve_rows(
             return found
 
     if candidates:
+        reason = _unreadable_reason(config, same_key, row_like)
         # Finalization replaces this message with the fixed operator-facing one, so the
         # shape only reaches whoever has to act on it through the log.
         logger.error(
-            f"Decagon: {endpoint} carries lists none of which reads as rows "
+            f"Decagon: {endpoint} cannot read rows from its response; {reason} "
             f"(response shape: {_describe_shape(data)}, rows read from '{config.data_key}')"
         )
         # Only `articles` and `admin_logs` report a total, so for every other endpoint the
@@ -266,8 +289,7 @@ def _resolve_rows(
         # A full refresh clears the table before extraction, so the populated table would
         # be gone and the job green. The rows are in one of these lists, so fail instead.
         raise DecagonContractError(
-            f"{UNREADABLE_ENVELOPE_ERROR}: {endpoint} carries {len(candidates)} list(s) and none of them is "
-            f"named '{config.data_key}' or carries this endpoint's primary keys "
+            f"{UNREADABLE_ENVELOPE_ERROR}: {endpoint} carries {len(candidates)} list(s) and {reason} "
             f"(response shape: {_describe_shape(data)})."
         )
 

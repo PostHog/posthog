@@ -124,7 +124,7 @@ class TestDecagonSource:
             (
                 "unreadable_envelope_points_at_support_not_the_key",
                 "Decagon sent lists this table's config cannot read as rows: tags carries 2 list(s) and "
-                "none of them is named 'tags' or carries this endpoint's primary keys.",
+                "2 of them carry this endpoint's primary keys ('drafts', 'published').",
                 "Contact support",
             ),
         ]
