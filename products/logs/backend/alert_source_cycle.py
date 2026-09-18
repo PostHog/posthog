@@ -25,6 +25,7 @@ from posthog.models import Team
 
 from products.alerts.backend.facade.contracts import (
     AlertDeliveryPreview,
+    CheckOutcomeReason,
     GroupTransition,
     PlatformAlertCheck,
     PlatformAlertOutcome,
@@ -38,17 +39,20 @@ from products.alerts.backend.facade.lifecycle import (
     AlertState,
     CheckInput,
     NotificationAction,
+    apply_broken_config,
     evaluate_alert_check,
 )
 from products.alerts.backend.facade.platform_alerts import due_checks
 from products.alerts.backend.facade.platform_metrics import (
     increment_checks,
+    increment_checks_skipped,
     increment_deliveries_deferred,
     increment_state_transition,
     record_batch_duration,
     record_scheduler_lag,
     safe_record,
 )
+from products.alerts.backend.facade.scheduling import is_utc_datetime_blocked, parse_blocked_windows_tuples
 from products.logs.backend.alert_check_query import (
     BatchedAlertCheckQuery,
     BucketedCount,
@@ -58,7 +62,10 @@ from products.logs.backend.alert_check_query import (
     rolling_check_lookback_minutes,
 )
 from products.logs.backend.alert_destinations import EVENT_KIND_CONFIG, EventKind
-from products.logs.backend.alert_utils import next_allowed_check_at
+from products.logs.backend.alert_error_classifier import (
+    ClassifiedAlertError,
+    classify as classify_alert_error,
+)
 
 # Private to the production activity. Reimplementing either would let this path drift from
 # what the logs stack evaluates. Promoting them to a shared home is the deeper fix.
@@ -109,10 +116,8 @@ def _is_in_quiet_hours(check: PlatformAlertCheck, team: Team, now: datetime) -> 
     if not check.schedule_restriction:
         return False
     try:
-        return (
-            next_allowed_check_at(now, team_timezone=team.timezone, schedule_restriction=check.schedule_restriction)
-            > now
-        )
+        windows = parse_blocked_windows_tuples(check.schedule_restriction)
+        return windows is not None and is_utc_datetime_blocked(now, team.timezone, windows)
     except Exception as error:
         # A restriction we cannot parse must not decide the alert either way, so the check
         # proceeds and the production stack keeps ownership of the broken configuration.
@@ -135,21 +140,38 @@ def _snapshot(check: PlatformAlertCheck, prior_breached: tuple[bool, ...]) -> Al
     )
 
 
-def _evaluate_one(
-    check: PlatformAlertCheck, buckets: list[BucketedCount], *, window_end: datetime, now: datetime
-) -> tuple[PlatformAlertOutcome, AlertDeliveryPreview | None]:
-    current_breached, *prior_windows_breached = _derive_breaches(
-        buckets, check.threshold_count, check.threshold_operator, check.evaluation_periods
-    ) or (False,)
+Decision = tuple[PlatformAlertOutcome, AlertDeliveryPreview | None]
 
-    # `LOGS_ALERT_POLICY` is how the shared machine expresses this source's semantics, so the
-    # decision is the one the logs stack reaches without routing through the logs product.
-    outcome = evaluate_alert_check(
-        _snapshot(check, tuple(prior_windows_breached)),
-        CheckInput(threshold_breached=current_breached),
-        now,
-        policy=LOGS_ALERT_POLICY,
-    )
+
+def _record_check_metrics(
+    check: PlatformAlertCheck, new_state: str, notification: str, reason: str, now: datetime
+) -> None:
+    safe_record(increment_checks, SourceKind.LOGS.value, notification)
+    if reason != CheckOutcomeReason.EVALUATED:
+        safe_record(increment_checks_skipped, SourceKind.LOGS.value, reason)
+    if check.state != new_state:
+        safe_record(increment_state_transition, SourceKind.LOGS.value, check.state, new_state)
+    if check.next_check_at is not None:
+        lag_ms = int((now - check.next_check_at).total_seconds() * 1000)
+        if lag_ms > 0:
+            safe_record(record_scheduler_lag, SourceKind.LOGS.value, lag_ms)
+
+
+def _decide(
+    check: PlatformAlertCheck,
+    check_input: CheckInput,
+    prior_breached: tuple[bool, ...],
+    *,
+    window_end: datetime,
+    now: datetime,
+    reason: CheckOutcomeReason,
+) -> Decision:
+    """Runs one check through the shared machine and turns its verdict into a delivery.
+
+    `LOGS_ALERT_POLICY` is how the shared machine expresses this source's semantics, so the
+    decision is the one the logs stack reaches without routing through the logs product.
+    """
+    outcome = evaluate_alert_check(_snapshot(check, prior_breached), check_input, now, policy=LOGS_ALERT_POLICY)
     recorded = PlatformAlertOutcome(
         configuration_id=check.id,
         new_state=outcome.new_state.value,
@@ -157,13 +179,7 @@ def _evaluate_one(
         consecutive_failures=outcome.consecutive_failures,
         disable=outcome.disable,
     )
-    safe_record(increment_checks, SourceKind.LOGS.value, outcome.notification.value)
-    if check.state != outcome.new_state.value:
-        safe_record(increment_state_transition, SourceKind.LOGS.value, check.state, outcome.new_state.value)
-    if check.next_check_at is not None:
-        lag_ms = int((now - check.next_check_at).total_seconds() * 1000)
-        if lag_ms > 0:
-            safe_record(record_scheduler_lag, SourceKind.LOGS.value, lag_ms)
+    _record_check_metrics(check, outcome.new_state.value, outcome.notification.value, reason, now)
     if outcome.notification == NotificationAction.NONE:
         return recorded, None
 
@@ -185,9 +201,60 @@ def _evaluate_one(
     )
 
 
+def _evaluate_one(
+    check: PlatformAlertCheck, buckets: list[BucketedCount], *, window_end: datetime, now: datetime
+) -> Decision:
+    current_breached, *prior_windows_breached = _derive_breaches(
+        buckets, check.threshold_count, check.threshold_operator, check.evaluation_periods
+    ) or (False,)
+    return _decide(
+        check,
+        CheckInput(threshold_breached=current_breached),
+        tuple(prior_windows_breached),
+        window_end=window_end,
+        now=now,
+        reason=CheckOutcomeReason.EVALUATED,
+    )
+
+
+def _failed(
+    check: PlatformAlertCheck, classified: ClassifiedAlertError, *, window_end: datetime, now: datetime
+) -> Decision:
+    """A check that could not reach a verdict, as the shared machine's error path sees it.
+
+    The machine raises `consecutive_failures` and escalates to BROKEN, so an alert that fails
+    every check stops being evaluated instead of failing forever. A transient error is classified
+    as one so the policy can hold the counter.
+    """
+    return _decide(
+        check,
+        CheckInput(
+            threshold_breached=False,
+            error_message=classified.user_message,
+            is_transient_error=classified.is_transient,
+        ),
+        (),
+        window_end=window_end,
+        now=now,
+        reason=CheckOutcomeReason.QUERY_FAILED,
+    )
+
+
+def _skipped(check: PlatformAlertCheck, *, new_state: str, reason: CheckOutcomeReason, now: datetime) -> Decision:
+    """A check decided without a query. The outcome is what advances its schedule."""
+    recorded = PlatformAlertOutcome(
+        configuration_id=check.id,
+        new_state=new_state,
+        notified=False,
+        consecutive_failures=check.consecutive_failures,
+    )
+    _record_check_metrics(check, new_state, NotificationAction.NONE.value, reason, now)
+    return recorded, None
+
+
 def _evaluate_cohort(
     team: Team, checks: Sequence[PlatformAlertCheck], key: tuple, *, now: datetime, query_seconds: int
-) -> list[tuple[PlatformAlertOutcome, AlertDeliveryPreview | None]]:
+) -> list[Decision]:
     window_minutes, evaluation_periods, cadence_minutes, projection_eligible, date_to = key
     lookback = rolling_check_lookback_minutes(window_minutes, cadence_minutes, evaluation_periods)
 
@@ -204,20 +271,95 @@ def _evaluate_cohort(
         # One cohort's query must not end the batch, which is how the production cohort runner
         # contains the same failure.
         logger.exception(
-            "Logs alert cohort query failed; skipping the cohort",
+            "Logs alert cohort query failed",
             team_id=team.id,
             cohort_size=len(checks),
             error=str(error),
         )
-        return []
+        return _failures(checks, error, window_end=date_to, now=now)
 
-    decided: list[tuple[PlatformAlertOutcome, AlertDeliveryPreview | None]] = []
+    decided: list[Decision] = []
     for check in checks:
         try:
             decided.append(_evaluate_one(check, result.per_alert.get(str(check.id), []), window_end=date_to, now=now))
         except Exception as error:
-            logger.exception("Failed to evaluate a logs alert; skipping it", check_id=str(check.id), error=str(error))
+            logger.exception("Failed to evaluate a logs alert", check_id=str(check.id), error=str(error))
+            decided.extend(_failures([check], error, window_end=date_to, now=now))
     return decided
+
+
+def _failures(
+    checks: Sequence[PlatformAlertCheck], error: Exception, *, window_end: datetime, now: datetime
+) -> list[Decision]:
+    """Turns a failure into one outcome per check it cost.
+
+    Returning nothing leaves every check in the cohort due, so discovery hands the same failing
+    query back every tick and the failure counter never reaches the escalation that stops it.
+    """
+    classified = classify_alert_error(error)
+    decided: list[Decision] = []
+    for check in checks:
+        try:
+            decided.append(_failed(check, classified, window_end=window_end, now=now))
+        except Exception as failure_error:
+            logger.exception("Failed to record a logs alert failure", check_id=str(check.id), error=str(failure_error))
+    return decided
+
+
+def _triage(
+    checks: Sequence[PlatformAlertCheck], team: Team, cutoff: datetime
+) -> tuple[list[Decision], list[PlatformAlertCheck]]:
+    """Splits a batch into the checks a query can answer and the ones already decided.
+
+    A skip is a decision, not an omission. Dropping one records nothing, so its due time stays
+    where it was and discovery hands the same check back on the next tick, forever.
+    """
+    decided: list[Decision] = []
+    evaluable: list[PlatformAlertCheck] = []
+    for check in checks:
+        broken_reason = _detect_broken_filter_config(check.source_config)
+        if broken_reason is not None:
+            logger.warning(
+                "Marking a logs alert BROKEN for an invalid filter config",
+                check_id=str(check.id),
+                reason=broken_reason,
+            )
+            outcome = apply_broken_config(_snapshot(check, ()))
+            decided.append(
+                _skipped(check, new_state=outcome.new_state.value, reason=CheckOutcomeReason.BROKEN_CONFIG, now=cutoff)
+            )
+            continue
+        if _is_in_quiet_hours(check, team, cutoff):
+            decided.append(_skipped(check, new_state=check.state, reason=CheckOutcomeReason.QUIET_HOURS, now=cutoff))
+            continue
+        evaluable.append(check)
+    return decided, evaluable
+
+
+def _collect(decided: Sequence[Decision], team_id: int, slot: str, started_at: float) -> SourceBatchEvaluation:
+    """Applies the payload bound and reports the batch."""
+    outcomes: list[PlatformAlertOutcome] = []
+    previews: list[AlertDeliveryPreview] = []
+    omitted = 0
+    for outcome, preview in decided:
+        if preview is not None and len(previews) >= MAX_PREVIEWS_PER_CYCLE:
+            omitted += 1
+            continue
+        outcomes.append(outcome)
+        if preview is not None:
+            previews.append(preview)
+
+    if omitted:
+        logger.warning(
+            "Deferred logs alert deliveries over the batch payload bound",
+            team_id=team_id,
+            slot=slot,
+            delivered=len(previews),
+            deferred=omitted,
+        )
+        safe_record(increment_deliveries_deferred, SourceKind.LOGS.value, omitted)
+    safe_record(record_batch_duration, SourceKind.LOGS.value, int((time.monotonic() - started_at) * 1000))
+    return SourceBatchEvaluation(outcomes=tuple(outcomes), previews=tuple(previews), omitted=omitted)
 
 
 def evaluate_logs_batch(team_id: int, slot: str, cutoff: datetime) -> SourceBatchEvaluation:
@@ -232,19 +374,18 @@ def evaluate_logs_batch(team_id: int, slot: str, cutoff: datetime) -> SourceBatc
     """
     started_at = time.monotonic()
     checks = due_checks(team_id, SourceKind.LOGS.value, slot, cutoff)
-    # Production excludes a structurally broken filter before evaluating, so including one
-    # would record a transition production would never record.
-    checks = tuple(c for c in checks if _detect_broken_filter_config(c.source_config) is None)
     if not checks:
         return SourceBatchEvaluation(outcomes=(), previews=())
 
     team = Team.objects.filter(id=team_id).first()
     if team is None:
         return SourceBatchEvaluation(outcomes=(), previews=())
-    checks = tuple(c for c in checks if not _is_in_quiet_hours(c, team, cutoff))
-    if not checks:
-        return SourceBatchEvaluation(outcomes=(), previews=())
 
+    decided, evaluable = _triage(checks, team, cutoff)
+    if not evaluable:
+        return _collect(decided, team_id, slot, started_at)
+
+    checks = tuple(evaluable)
     # One checkpoint for the pass, matching the production discovery activity. A failure falls
     # back to wall-clock rather than ending the batch.
     try:
@@ -264,9 +405,6 @@ def evaluate_logs_batch(team_id: int, slot: str, cutoff: datetime) -> SourceBatc
             evaluated=MAX_COHORTS_PER_CYCLE,
         )
 
-    outcomes: list[PlatformAlertOutcome] = []
-    previews: list[AlertDeliveryPreview] = []
-    omitted = 0
     deadline = started_at + BATCH_QUERY_BUDGET_SECONDS
     unqueried = 0
     # Capped the way the production cohort query requires: one batched query carries one countIf
@@ -279,15 +417,12 @@ def evaluate_logs_batch(team_id: int, slot: str, cutoff: datetime) -> SourceBatc
     for cohort_key, chunk in chunks:
         query_seconds = min(MAX_QUERY_SECONDS, int(deadline - time.monotonic()))
         if query_seconds < MIN_QUERY_SECONDS:
+            # No outcome for these, so their schedule does not advance and the next tick
+            # rediscovers them. That is the same gap this branch closes for quiet hours and a
+            # failed query, and it now applies to a cohort the budget never reached.
             unqueried += len(chunk)
             continue
-        for outcome, preview in _evaluate_cohort(team, chunk, cohort_key, now=cutoff, query_seconds=query_seconds):
-            if preview is not None and len(previews) >= MAX_PREVIEWS_PER_CYCLE:
-                omitted += 1
-                continue
-            outcomes.append(outcome)
-            if preview is not None:
-                previews.append(preview)
+        decided.extend(_evaluate_cohort(team, chunk, cohort_key, now=cutoff, query_seconds=query_seconds))
 
     if unqueried:
         logger.warning(
@@ -297,14 +432,4 @@ def evaluate_logs_batch(team_id: int, slot: str, cutoff: datetime) -> SourceBatc
             unqueried=unqueried,
             budget_seconds=BATCH_QUERY_BUDGET_SECONDS,
         )
-    if omitted:
-        logger.warning(
-            "Deferred logs alert deliveries over the batch payload bound",
-            team_id=team_id,
-            slot=slot,
-            delivered=len(previews),
-            deferred=omitted,
-        )
-        safe_record(increment_deliveries_deferred, SourceKind.LOGS.value, omitted)
-    safe_record(record_batch_duration, SourceKind.LOGS.value, int((time.monotonic() - started_at) * 1000))
-    return SourceBatchEvaluation(outcomes=tuple(outcomes), previews=tuple(previews), omitted=omitted)
+    return _collect(decided, team_id, slot, started_at)

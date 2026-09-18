@@ -137,9 +137,22 @@ class PlatformAlertUpsert:
     next_check_at: datetime | None
 
 
+class CheckOutcomeReason(StrEnum):
+    """Why a check reached the outcome it did. A metric label, not an input to a decision."""
+
+    EVALUATED = "evaluated"
+    QUIET_HOURS = "quiet_hours"
+    BROKEN_CONFIG = "broken_config"
+    QUERY_FAILED = "query_failed"
+
+
 @frozen
 class PlatformAlertOutcome:
-    """What one check decided. The platform turns this into rows."""
+    """What one check decided. The platform turns this into rows.
+
+    Every check produces one, including a check a source skipped. A skip that records nothing
+    leaves its due time where it was, so discovery finds the same work every tick.
+    """
 
     configuration_id: UUID
     new_state: str

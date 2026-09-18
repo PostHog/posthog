@@ -230,6 +230,35 @@ resolves the same windows and derives the same evaluation keys as the attempt it
 The due predicate is applied a second time here, because discovery ran earlier in the tick and a configuration
 can have been disabled, snoozed or broken since.
 
+### Every check produces an outcome
+
+A check the source cannot evaluate still records what it decided, and the three cases decide differently.
+
+| Case                            | State                                   | Schedule                                                   |
+| ------------------------------- | --------------------------------------- | ---------------------------------------------------------- |
+| Inside a blocked window         | Unchanged                               | The next cadence step, pushed past the window              |
+| Filter config no data satisfies | BROKEN                                  | The next cadence step, though discovery stops selecting it |
+| Query failed                    | The shared machine's error path decides | The next cadence step                                      |
+
+A skip that records nothing leaves its due time where it was, so discovery hands the same check back every tick.
+That is the whole reason these exist: the work is not lost, it is repeated, and a permanently broken alert repeats it forever.
+The schedule the platform already computes lands past every blocked window, so a quiet-hours skip needs no time
+of its own. The source reports the skip; the platform stays the only writer of `next_check_at`.
+
+The failure case goes through `evaluate_alert_check` with an errored `CheckInput`, so the shared machine raises
+`consecutive_failures` and escalates to BROKEN at five, and `classify_alert_error` decides whether the error is
+transient. A transient error advances the schedule but holds the counter, because a cluster outage must not
+disable every alert that ran during it.
+
+`suppressed` is the single definition of what holds a configuration back, mirroring the source stacks'
+`due_alerts_q`. Both `discover_demand` and `due_checks` exclude on it. Discovery has to, because a broken alert
+that still mints a batch key spends the manifest bound on work its own evaluation then drops.
+It is one correlated `Exists` rather than a lookup across the relation: Django splits an excluded multi-valued
+lookup into a subquery per leaf, which would let the three conditions match three different alert rows once a
+source writes a real grouping key, and would bury them where Postgres cannot lift them into an anti-join.
+
+`alerts_platform_checks_skipped_total{source,reason}` counts these by reason.
+
 ### Evaluating and writing are separate activities
 
 `evaluate_logs_alerts_activity` reads and decides; it writes nothing.
