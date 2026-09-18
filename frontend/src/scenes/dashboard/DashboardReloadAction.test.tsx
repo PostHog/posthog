@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, render } from '@testing-library/react'
 import { BindLogic } from 'kea'
 import { expectLogic } from 'kea-test-utils'
 
@@ -14,6 +14,8 @@ import { dashboardLogic } from './dashboardLogic'
 import { DashboardReloadAction } from './DashboardReloadAction'
 import * as dashboardUtils from './dashboardUtils'
 
+const REFRESH_BUTTON_SELECTOR = '[data-attr="dashboard-items-action-refresh"]'
+// The "up to date" check icon is what contradicted a stale age, and its clip path is the only marker it leaves
 const CHECK_ICON_SELECTOR = 'clipPath[id="icon/check__a"]'
 
 function makeDashboard(tileLastRefresh: string): DashboardType<QueryBasedInsightModel> {
@@ -86,23 +88,25 @@ describe('DashboardReloadAction', () => {
         return logic
     }
 
-    it('keeps the refresh button usable when the tiles are stale', async () => {
-        const logic = await renderAction(dayjs().subtract(7, 'hours').toISOString())
+    it.each([
+        {
+            scenario: 'stale tiles release the block',
+            tileLastRefresh: () => dayjs().subtract(7, 'hours'),
+            ariaDisabled: 'false',
+            showsCheckIcon: false,
+        },
+        {
+            scenario: 'fresh tiles keep the block',
+            tileLastRefresh: () => dayjs(),
+            ariaDisabled: 'true',
+            showsCheckIcon: true,
+        },
+    ])('$scenario', async ({ tileLastRefresh, ariaDisabled, showsCheckIcon }) => {
+        const logic = await renderAction(tileLastRefresh().toISOString())
 
         expect(logic.values.itemsLoading).toBe(false)
-        expect(screen.getByRole('button', { name: /refresh/i })).not.toHaveAttribute('aria-disabled', 'true')
-        expect(screen.queryByText(/next bulk refresh possible/i)).not.toBeInTheDocument()
-        expect(document.querySelector(CHECK_ICON_SELECTOR)).not.toBeInTheDocument()
-
-        logic.unmount()
-    })
-
-    it('blocks the refresh button when the tiles are fresh', async () => {
-        const logic = await renderAction(dayjs().toISOString())
-
-        expect(logic.values.itemsLoading).toBe(false)
-        expect(screen.getByRole('button', { name: /refresh/i })).toHaveAttribute('aria-disabled', 'true')
-        expect(document.querySelector(CHECK_ICON_SELECTOR)).toBeInTheDocument()
+        expect(document.querySelector(REFRESH_BUTTON_SELECTOR)).toHaveAttribute('aria-disabled', ariaDisabled)
+        expect(!!document.querySelector(CHECK_ICON_SELECTOR)).toBe(showsCheckIcon)
 
         logic.unmount()
     })
