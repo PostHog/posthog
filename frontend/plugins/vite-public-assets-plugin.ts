@@ -113,6 +113,17 @@ function copyPublicAssets(): void {
     } else {
         console.warn('⚠️ Hedgehog-mode assets directory does not exist')
     }
+
+    // EmojiPickerPanel loads frimousse's emoji data from /static/emoji. build.mjs copies the same files for production.
+    const emojibaseSrc = resolve('.', 'node_modules', 'emojibase-data', 'en')
+    if (existsSync(emojibaseSrc)) {
+        for (const file of ['data.json', 'messages.json']) {
+            copyFile(join(emojibaseSrc, file), resolve('.', 'dist', 'emoji', 'en', file))
+        }
+        console.info('✅ Copied emojibase data to dist/emoji/en')
+    } else {
+        console.warn('⚠️ emojibase-data is not installed, so the emoji picker cannot load its data')
+    }
 }
 
 export function publicAssetsPlugin(): Plugin {
