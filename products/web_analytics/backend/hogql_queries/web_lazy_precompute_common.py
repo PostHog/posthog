@@ -368,7 +368,7 @@ REVALIDATION_TEAM_BUDGET_PER_WINDOW = 25
 REVALIDATION_START_DELAY_SECONDS = 20
 
 
-def enqueue_stale_revalidation(*, team: Team, query: Any, family: str) -> None:
+def enqueue_stale_revalidation(*, team: Team, query: Any, family: str, debounce_extra: Optional[str] = None) -> None:
     """Enqueue a background re-run of `query` so a stale-served read gets fresh data next time.
 
     Debounced via Redis per (team, family, query shape). Best-effort: this runs on the
@@ -385,7 +385,10 @@ def enqueue_stale_revalidation(*, team: Team, query: Any, family: str) -> None:
 
     try:
         client = redis.get_client()
-        debounce_key = f"web_swr_reval:{team.id}:{family}:{compute_filters_eligibility_hash(query, team.timezone)[:16]}"
+        shape_part = compute_filters_eligibility_hash(query, team.timezone)[:16]
+        if debounce_extra:
+            shape_part = hashlib.sha256(f"{shape_part}:{debounce_extra}".encode()).hexdigest()[:16]
+        debounce_key = f"web_swr_reval:{team.id}:{family}:{shape_part}"
         if not client.set(debounce_key, "1", ex=REVALIDATION_DEBOUNCE_SECONDS, nx=True):
             return
         budget_key = f"web_swr_reval_budget:{team.id}"
@@ -426,7 +429,16 @@ def handle_stale_served(*, runner: Any, family: str) -> None:
     """
     WEB_ANALYTICS_LAZY_PRECOMPUTE_STALE_SERVED.labels(family=family).inc()
     tag_queries(precompute_stale=True)
-    enqueue_stale_revalidation(team=runner.team, query=runner.query, family=family)
+    # Channel-filtered shapes are distinct per custom-rules set (the rules join the
+    # job hash), so the debounce identity must carry them too — otherwise one rule
+    # set's miss suppresses revalidating another's for the whole debounce window.
+    debounce_extra = None
+    if any(
+        get_property_type(prop) == "session" and get_property_key(prop) == "$channel_type"
+        for prop in getattr(runner.query, "properties", None) or []
+    ):
+        debounce_extra = json.dumps(runner.modifiers.model_dump(mode="json")["customChannelTypeRules"], sort_keys=True)
+    enqueue_stale_revalidation(team=runner.team, query=runner.query, family=family, debounce_extra=debounce_extra)
 
 
 def web_ensure_precomputed(

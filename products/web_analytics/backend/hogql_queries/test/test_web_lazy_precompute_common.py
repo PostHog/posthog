@@ -998,6 +998,31 @@ class TestStaleRevalidationEnqueue(BaseTest):
             handle_stale_served(runner=stats_runner, family="web_stats")
         assert delay.call_count == 2
 
+    def test_channel_rule_variants_get_distinct_debounce_keys(self):
+        # Channel-filtered shapes are distinct per custom-rules set (the rules join
+        # the job hash), so one rule set's stale serve must not debounce-suppress
+        # revalidating another's.
+        query = WebOverviewQuery(
+            dateRange=DateRange(date_from="-7d"),
+            properties=[SessionPropertyFilter(key="$channel_type", value="Direct", operator=PropertyOperator.EXACT)],
+        )
+        rules = [
+            {
+                "channel_type": "Partners",
+                "combiner": "OR",
+                "id": "r1",
+                "items": [{"id": "c1", "key": "utm_source", "op": "exact", "value": ["partner"]}],
+            }
+        ]
+        default_runner = WebOverviewQueryRunner(team=self.team, query=query)
+        self.team.modifiers = {"customChannelTypeRules": rules}
+        self.team.save()
+        rules_runner = WebOverviewQueryRunner(team=self.team, query=query)
+        with self._delay_patch() as delay:
+            handle_stale_served(runner=default_runner, family="web_overview")
+            handle_stale_served(runner=rules_runner, family="web_overview")
+        assert delay.call_count == 2
+
     def test_per_team_budget_bounds_distinct_shape_enqueues(self):
         # Filters/dates are request-controlled, so distinct shapes are unbounded;
         # the per-team budget must cap total enqueues per window regardless.
