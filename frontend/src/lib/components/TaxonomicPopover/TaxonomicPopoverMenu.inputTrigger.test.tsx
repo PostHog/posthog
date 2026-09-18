@@ -65,6 +65,23 @@ describe('TaxonomicPopoverMenu', () => {
         expect(screen.getByLabelText('Open filter menu')).toBeInTheDocument()
     })
 
+    it('calls onOpen when the button trigger arms the rebuilt menu', async () => {
+        const onOpen = jest.fn()
+        render(
+            <Provider>
+                <TaxonomicPopoverMenu
+                    groupType={TaxonomicFilterGroupType.Events}
+                    onChange={jest.fn()}
+                    onOpen={onOpen}
+                />
+            </Provider>
+        )
+
+        await userEvent.click(screen.getByTestId('taxonomic-popover-menu-trigger'))
+
+        expect(onOpen).toHaveBeenCalledTimes(1)
+    })
+
     it('arms to the dropdown menu (not the combobox) when the filter icon is clicked from the resting trigger', async () => {
         renderInputTriggerPopoverMenu()
 

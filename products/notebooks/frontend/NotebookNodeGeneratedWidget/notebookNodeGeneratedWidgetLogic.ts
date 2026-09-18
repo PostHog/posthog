@@ -84,7 +84,7 @@ export type NotebookNodeGeneratedWidgetLogicProps = {
     prompt: string
     model: WidgetModel
     isEditable: boolean
-    prepareInsightDataframes?: () => Promise<void>
+    prepareInsightDataframes?: (names?: string[]) => Promise<void>
     persistNotebook: () => Promise<void>
     getContent: () => JSONContent | null
     reusableWidgetId?: string
@@ -1123,6 +1123,14 @@ export const notebookNodeGeneratedWidgetLogic: LogicWrapper<notebookNodeGenerate
                     const generationId = uuidv4()
                     let aborted = false
                     try {
+                        if (operation === 'improve') {
+                            await props.prepareInsightDataframes?.(
+                                getWidgetSourceFrameNames(
+                                    values.status?.frame_names ?? [],
+                                    values.status?.input_bindings ?? {}
+                                )
+                            )
+                        }
                         await props.prepareInsightDataframes?.()
                         await props.persistNotebook()
                         const requestGeneration = async (): Promise<WidgetStatusApi> =>
@@ -1416,15 +1424,15 @@ export const notebookNodeGeneratedWidgetLogic: LogicWrapper<notebookNodeGenerate
                     actions.setRuntimeError(null)
                     actions.dataRefreshStarted()
                     try {
-                        await props.prepareInsightDataframes?.()
-                        if (props.prepareInsightDataframes) {
-                            await props.persistNotebook()
-                        }
-                        const content = props.getContent()
                         const sourceFrameNames = getWidgetSourceFrameNames(
                             values.activeFrameNames,
                             values.status?.input_bindings ?? {}
                         )
+                        await props.prepareInsightDataframes?.(sourceFrameNames)
+                        if (props.prepareInsightDataframes) {
+                            await props.persistNotebook()
+                        }
+                        const content = props.getContent()
                         const { missingFrameNames, nodeIds } = getWidgetDataDependencies(content, sourceFrameNames)
                         if (missingFrameNames.length) {
                             throw new Error(
