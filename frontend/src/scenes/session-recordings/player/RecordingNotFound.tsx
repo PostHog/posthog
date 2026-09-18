@@ -3,14 +3,46 @@ import { useValues } from 'kea'
 import { NotFound } from 'lib/components/NotFound'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { Link } from 'lib/lemon-ui/Link'
 import { ReplayCaptureDiagnosticsPanel } from 'scenes/session-recordings/components/ReplayCaptureDiagnosticsPanel'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-export function RecordingNotFound({ sessionRecordingId }: { sessionRecordingId?: string }): JSX.Element {
-    const { currentTeam } = useValues(teamLogic)
+function ReplayStatusBanner(): JSX.Element | null {
+    const { currentTeam, currentTeamLoading } = useValues(teamLogic)
 
+    // `session_recording_opt_in` is absent while the team loads, and the public team payload used by
+    // shared pages never carries it at all. Neither means replay is off, so say nothing rather than
+    // tell someone with replay running that they have not set it up.
+    const optIn = currentTeam?.session_recording_opt_in
+
+    if (currentTeamLoading) {
+        return <LemonSkeleton className="mt-4 h-12 max-w-xl mx-auto" />
+    }
+
+    if (optIn === undefined) {
+        return null
+    }
+
+    return (
+        <LemonBanner type={optIn ? 'success' : 'warning'} className="mt-4 max-w-xl mx-auto">
+            <div className="flex justify-between items-center">
+                <div>Session replay is {optIn ? 'enabled' : 'disabled'} for this project</div>
+                <LemonButton
+                    data-attr="recording-404-edit-settings"
+                    type="secondary"
+                    size="small"
+                    to={urls.settings('project-replay')}
+                >
+                    Edit settings
+                </LemonButton>
+            </div>
+        </LemonBanner>
+    )
+}
+
+export function RecordingNotFound({ sessionRecordingId }: { sessionRecordingId?: string }): JSX.Element {
     return (
         <div className="flex flex-col items-center w-full overflow-y-auto">
             <NotFound
@@ -25,35 +57,7 @@ export function RecordingNotFound({ sessionRecordingId }: { sessionRecordingId?:
                             troubleshooting guide
                         </Link>
                         .
-                        {currentTeam?.session_recording_opt_in ? (
-                            <LemonBanner type="success" className="mt-4 max-w-xl mx-auto">
-                                <div className="flex justify-between items-center">
-                                    <div>Session replay is enabled for this project</div>
-                                    <LemonButton
-                                        data-attr="recording-404-edit-settings"
-                                        type="secondary"
-                                        size="small"
-                                        to={urls.settings('project-replay')}
-                                    >
-                                        Edit settings
-                                    </LemonButton>
-                                </div>
-                            </LemonBanner>
-                        ) : (
-                            <LemonBanner type="warning" className="mt-4 max-w-xl mx-auto">
-                                <div className="flex justify-between items-center">
-                                    <div>Session replay is disabled for this project</div>
-                                    <LemonButton
-                                        data-attr="recording-404-edit-settings"
-                                        type="secondary"
-                                        size="small"
-                                        to={urls.settings('project-replay')}
-                                    >
-                                        Edit settings
-                                    </LemonButton>
-                                </div>
-                            </LemonBanner>
-                        )}
+                        <ReplayStatusBanner />
                     </>
                 }
             />
