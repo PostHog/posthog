@@ -15,6 +15,10 @@ The first start downloads a checksum-verified Linux image from `i.copy.sh` and p
 The image uses Linux 5.6.15, whose uncached 9P driver can read API files before their sizes are known.
 PostHog serves the bundled jq 1.8.2 Linux i386 binary itself because GitHub release downloads do not support browser CORS.
 The binary in `frontend/public/terminal/` comes from [the official release](https://github.com/jqlang/jq/releases/download/jq-1.8.2/jq-linux-i386), with SHA-256 `ba996e8ce436973e2f39e2639405a37e8c81ba8c722b71c83996278ad0af16dd` and upstream license notices alongside it.
+The bundled tools archive adds nano 8.4, tree 2.2.1, and ncdu 1.22 from Alpine Linux's x86 packages, with isolated musl and ncurses libraries.
+`frontend/public/terminal/tools-manifest.json` pins package checksums and links to the corresponding sources and build recipes.
+Run `.codex/with-flox python frontend/bin/build-terminal-tools.py` to rebuild the archive, then update its checksum in `terminalRuntime.ts`.
+The archive includes upstream licenses and the source manifest under `/opt/posthog-tools/licenses`.
 The VM receives no session cookies or API keys and has no network connection.
 
 Your project tree appears under `/posthog/files`.
@@ -33,7 +37,10 @@ vi '/posthog/files/Research/Notes.md'
 jq '.title' /posthog/api/notebook/<short-id>.json
 ```
 
-The guest includes BusyBox tools, `jq`, `vi`, `joe`, `less`, and Lua.
+The guest includes BusyBox tools, `jq`, `nano`, `tree`, `ncdu`, `vi`, `joe`, `less`, and Lua.
+Use `nano '/posthog/files/Research/Notes.md'` to edit an existing notebook with syntax highlighting; Ctrl+S saves and Ctrl+X exits.
+`tree -C -L 3 /posthog/files` shows a colored folder tree, and `ncdu -r /posthog/files` opens a read-only disk usage browser.
+Both use directory metadata without downloading file contents; `ncdu` reports zero bytes for project files that have not been opened.
 Pipes, redirection, completion, terminal colors, Ctrl+C, and scrollback use the real shell and terminal.
 The terminal uses a black background in both app themes and fills the available page height.
 Scrolling to the bottom returns to the current prompt without typing.

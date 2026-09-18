@@ -92,6 +92,9 @@ Try:
   grep -r 'revenue' /posthog/files
   cat '/posthog/files/Unfiled/Notebooks/My notebook.md'
   vi '/posthog/files/Unfiled/Notebooks/My notebook.md'
+  nano '/posthog/files/Unfiled/Notebooks/My notebook.md'
+  tree -C -L 3 /posthog/files
+  ncdu -r /posthog/files
   jq '.title' /posthog/api/notebook/<short-id>.json
   ph help
   ph tools notebook
@@ -124,6 +127,10 @@ The browser makes authenticated requests through the existing PostHog APIs.
 Files are limited to 4 MiB. Use Ctrl+C to interrupt, Tab to complete, and the
 mouse wheel for scrollback. Run busybox to see the installed Unix utilities.
 jq 1.8.2 is installed for JSON queries and formatting.
+nano 8.4 edits text with syntax highlighting. Ctrl+S saves; Ctrl+X exits.
+tree lists folders and files. ncdu -r browses disk usage without allowing deletion.
+Project file sizes stay zero until opened; ncdu does not download their contents.
+Bundled tool licenses and source links are in /opt/posthog-tools/licenses.
 ph runs project commands and tools from connected MCP servers with your permissions.
 Run ph help <command> for its arguments. Notebook commands accept IDs or file paths.
 Use --json @file.json or --json - for arguments from a file or stdin.

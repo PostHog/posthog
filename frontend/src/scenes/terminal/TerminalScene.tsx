@@ -24,11 +24,15 @@ const examples = [
         title: 'Get started',
         commands: ['ls --color=auto', "find /posthog/files -name '*.md'", 'cat /posthog/README.txt', 'ph help'],
     },
-    { title: 'Explore files', commands: ['ls -lh /posthog/api', 'du -ah /posthog/files', 'pwd', 'busybox'] },
+    {
+        title: 'Explore files',
+        commands: ['tree -C -L 3 /posthog/files', 'ncdu -r /posthog/files', 'ls -lh /posthog/api', 'pwd', 'busybox'],
+    },
     { title: 'PostHog tools', commands: ['ph tools', 'ph tools notebook', 'ph help notebooks-retrieve', 'ph refresh'] },
     {
         title: 'Edit and organize',
         commands: [
+            'nano Unfiled/Notebooks/Foobar.md',
             'vi Unfiled/Notebooks/Foobar.md',
             'mkdir -p Research/Archive',
             'mv Unfiled/Notebooks/Foobar.md Research/Archive/',
@@ -229,7 +233,7 @@ export function TerminalScene(): JSX.Element {
                             <LemonTag type="warning">Experiment</LemonTag>
                             <p className="mb-0">
                                 Linux in your browser, with your PostHog project mounted at <code>/posthog</code>. The
-                                first start downloads Linux and jq (about 8 MB).
+                                first start downloads Linux and bundled tools (about 9 MB).
                             </p>
                             <p className="mb-0">
                                 Commands and notebook edits can change real data. Local files and unsaved edits
