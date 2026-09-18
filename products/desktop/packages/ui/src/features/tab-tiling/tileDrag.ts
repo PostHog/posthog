@@ -9,6 +9,7 @@ export function isTileTabDragData(data: unknown): data is TileTabDragData {
   return (
     typeof data === "object" &&
     data !== null &&
-    (data as { type?: unknown }).type === TILE_TAB_DRAG_TYPE
+    (data as { type?: unknown }).type === TILE_TAB_DRAG_TYPE &&
+    typeof (data as { tabId?: unknown }).tabId === "string"
   );
 }

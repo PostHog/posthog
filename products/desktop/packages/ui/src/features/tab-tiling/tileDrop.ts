@@ -20,7 +20,12 @@ import {
 import { getCachedTask } from "@posthog/ui/features/tasks/queries";
 import { track } from "@posthog/ui/shell/analytics";
 import { useTileLayoutStore } from "./tileLayoutStore";
-import { groupForTab, type TileEdge, tabIdsIn } from "./tileTree";
+import {
+  groupForTab,
+  MAX_TILES_PER_GROUP,
+  type TileEdge,
+  tabIdsIn,
+} from "./tileTree";
 
 function channelFor(
   targetTabId: string,
@@ -132,6 +137,11 @@ export function dropIntoTile(
 ): void {
   const destinations = destinationsFromDrop(dataTransfer, targetTabId);
   for (const destination of destinations) {
+    const target = groupForTab(
+      useTileLayoutStore.getState().groups,
+      targetTabId,
+    );
+    if (target && tabIdsIn(target.root).length >= MAX_TILES_PER_GROUP) break;
     const tabId =
       existingTabFor(destination) ?? openBackgroundTab(client, destination);
     if (!tabId || tabId === targetTabId) continue;

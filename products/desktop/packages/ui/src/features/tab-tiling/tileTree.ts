@@ -55,6 +55,7 @@ function removeLeaf(node: TileNode, tabId: string): TileNode | null {
   if (unchanged) return node;
   if (children.length === 0) return null;
   if (children.length === 1) return children[0];
+  if (children.length === node.children.length) return { ...node, children };
   return { type: "split", id: node.id, direction: node.direction, children };
 }
 

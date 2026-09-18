@@ -17,7 +17,11 @@ import {
   BROWSER_TABS_CLIENT,
   type BrowserTabsClient,
 } from "./browserTabsClient";
-import { reorderWithinGroup, storedOrderIds } from "./displayOrder";
+import {
+  keepGroupTogether,
+  reorderWithinGroup,
+  storedOrderIds,
+} from "./displayOrder";
 import { usePinnedTabsStore } from "./pinnedTabsStore";
 import { isStripDropData } from "./stripDrop";
 import { exceedsDetachDistance } from "./tabDetach";
@@ -115,6 +119,8 @@ export function BrowserTabsDndProvider({ children }: { children: ReactNode }) {
   };
 
   const dropTileOnStrip = (tabId: string, previewed: string[] | null) => {
+    const before = groupForTab(useTileLayoutStore.getState().groups, tabId);
+    const remaining = before ? tabIdsIn(before.root).length - 1 : 0;
     useTileLayoutStore.getState().untileTab(tabId);
     const snapshot = browserTabsStore.getState().snapshot;
     const win = primaryWindow(snapshot);
@@ -124,7 +130,9 @@ export function BrowserTabsDndProvider({ children }: { children: ReactNode }) {
     }
     const tab = readMirror().tabs.find((t) => t.id === tabId);
     if (tab) goToTab(tab);
-    track(ANALYTICS_EVENTS.BROWSER_TAB_UNTILED, { tile_count: 0 });
+    track(ANALYTICS_EVENTS.BROWSER_TAB_UNTILED, {
+      tile_count: remaining > 1 ? remaining : 0,
+    });
   };
 
   const dropTile = (
@@ -194,7 +202,11 @@ export function BrowserTabsDndProvider({ children }: { children: ReactNode }) {
     const pinnedTabIds = usePinnedTabsStore.getState().pinnedTabIds;
     // Reorder within the dragged tab's pin group only; cross-group drags are
     // rejected (pinned pills can't land among unpinned tabs, or vice versa).
-    const next = reorderWithinGroup(cur, pinnedTabIds, src.tabId, tgt.tabId);
+    const next = keepGroupTogether(
+      reorderWithinGroup(cur, pinnedTabIds, src.tabId, tgt.tabId),
+      useTileLayoutStore.getState().groups,
+      src.tabId,
+    );
     if (!sameOrder(next, cur)) store.setPreviewOrder(next);
   };
 

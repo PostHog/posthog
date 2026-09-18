@@ -265,6 +265,11 @@ function SortableTabPill({
   });
   const detached = useTabReorderStore((s) => isDragSource && s.detached);
   const [renaming, setRenaming] = useState(false);
+  const commitRename = (value: string | null) => {
+    if (!renaming) return;
+    setRenaming(false);
+    if (value !== null) onRenameSplit(tab.id, value);
+  };
 
   const split = tab.split;
   const label = split ? (split.name ?? tab.label) : tab.label;
@@ -300,17 +305,10 @@ function SortableTabPill({
           onFocus={(event) => event.currentTarget.select()}
           className="h-6 w-full min-w-0 rounded-md bg-background px-2 text-xs outline-none ring-1 ring-accent-8"
           onKeyDown={(event) => {
-            if (event.key === "Enter") {
-              onRenameSplit(tab.id, event.currentTarget.value);
-            }
-            if (event.key === "Enter" || event.key === "Escape") {
-              setRenaming(false);
-            }
+            if (event.key === "Enter") commitRename(event.currentTarget.value);
+            if (event.key === "Escape") commitRename(null);
           }}
-          onBlur={(event) => {
-            onRenameSplit(tab.id, event.currentTarget.value);
-            setRenaming(false);
-          }}
+          onBlur={(event) => commitRename(event.currentTarget.value)}
         />
       ) : (
         <Button

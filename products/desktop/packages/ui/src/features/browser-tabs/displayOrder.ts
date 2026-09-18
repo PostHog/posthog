@@ -97,6 +97,20 @@ export function reorderWithinGroup(
   );
 }
 
+export function keepGroupTogether(
+  storedIds: string[],
+  groups: readonly TileGroup[],
+  anchorId: string,
+): string[] {
+  const group = groupForTab(groups, anchorId);
+  if (!group) return storedIds;
+  const members = tabIdsIn(group.root).filter((id) => id !== anchorId);
+  const rest = storedIds.filter((id) => !members.includes(id));
+  const at = rest.indexOf(anchorId);
+  if (at === -1) return storedIds;
+  return [...rest.slice(0, at + 1), ...members, ...rest.slice(at + 1)];
+}
+
 /**
  * Stored order that puts `tabId` just before the first tab still in the
  * unpinned block (i.e. front of the unpinned block once it is unpinned),

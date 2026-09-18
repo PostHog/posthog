@@ -13,11 +13,18 @@ import { useQuery } from "@tanstack/react-query";
 import { memo } from "react";
 import { TileRouter } from "./TileRouter";
 
-function TiledTask({ taskId }: { taskId: string }) {
+function TiledTask({
+  taskId,
+  channelId,
+}: {
+  taskId: string;
+  channelId: string | null;
+}) {
   const cached = getCachedTaskDetail(taskId) ?? getCachedTask(taskId) ?? null;
   const { data: fetched, isError } = useQuery(taskDetailQuery(taskId));
   const task = pickFreshestTask(fetched, cached);
-  if (task) return <TaskDetail task={task} />;
+  if (task)
+    return <TaskDetail task={task} channelId={channelId ?? undefined} />;
   if (isError) {
     return (
       <Notice>Couldn't load this task. Refresh the app to try again.</Notice>
@@ -52,7 +59,9 @@ function TileTabContentView({
   tab: BrowserTab;
   onActivate: (tab: BrowserTab) => void;
 }) {
-  if (tab.taskId) return <TiledTask taskId={tab.taskId} />;
+  if (tab.taskId) {
+    return <TiledTask taskId={tab.taskId} channelId={tab.channelId} />;
+  }
   if (tab.dashboardId)
     return <WebsiteDashboard dashboardId={tab.dashboardId} />;
   if (tab.href) return <TileRouter key={tab.id} tab={tab} href={tab.href} />;
@@ -68,6 +77,7 @@ function sameContent(a: BrowserTab, b: BrowserTab): boolean {
     a.id === b.id &&
     a.href === b.href &&
     a.taskId === b.taskId &&
+    a.channelId === b.channelId &&
     a.dashboardId === b.dashboardId
   );
 }

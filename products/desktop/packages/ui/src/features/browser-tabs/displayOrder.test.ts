@@ -4,6 +4,7 @@ import {
   collapseSplits,
   displayedTabIds,
   frontOfUnpinnedOrder,
+  keepGroupTogether,
   partitionPinnedFirst,
   reorderWithinGroup,
   storedOrderIds,
@@ -115,24 +116,40 @@ describe("frontOfUnpinnedOrder", () => {
 });
 
 describe("collapseSplits", () => {
-  it("keeps one pill per split in the first member's slot", () => {
-    const group = {
+  const group = {
+    id: "g1",
+    root: {
+      type: "split" as const,
       id: "g1",
-      root: {
-        type: "split" as const,
-        id: "g1",
-        direction: "horizontal" as const,
-        children: [
-          { type: "tab" as const, tabId: "c" },
-          { type: "tab" as const, tabId: "a" },
-        ],
-      },
-    };
+      direction: "horizontal" as const,
+      children: [
+        { type: "tab" as const, tabId: "c" },
+        { type: "tab" as const, tabId: "a" },
+      ],
+    },
+  };
+
+  it("keeps one pill per split in the first member's slot", () => {
     const { ids, groupByAnchor } = collapseSplits(
       ["a", "b", "c", "d"],
       [group],
     );
     expect(ids).toEqual(["a", "b", "d"]);
     expect(groupByAnchor.get("a")).toBe(group);
+  });
+
+  it("moves a split's other members along with its dragged anchor", () => {
+    expect(keepGroupTogether(["b", "d", "a", "c"], [group], "a")).toEqual([
+      "b",
+      "d",
+      "a",
+      "c",
+    ]);
+    expect(keepGroupTogether(["c", "b", "d", "a"], [group], "a")).toEqual([
+      "b",
+      "d",
+      "a",
+      "c",
+    ]);
   });
 });
