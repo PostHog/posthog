@@ -1617,10 +1617,10 @@ Today (8): `customers`, `entries`, `lumpsum_services`, `projects`, `services`, `
 
 Diffed against: <https://www.clockodo.com/en/api/>
 
-- [ ] `/v2/absences` — vacation, sick leave and other absences - the main non-billable time dimension (high)
-- [ ] `/v2/worktimes` — clock-in/clock-out attendance records, distinct from the project time entries we sync (high)
-- [ ] `/v2/userreports` — per-user yearly report (target vs actual hours, overtime, holidays) - the vendor's headline utilization metric (high)
-- [ ] `/v2/targethours` — target working hours per user, the denominator for any utilization or overtime calculation (high)
+- [x] `/v2/absences` — vacation, sick leave and other absences - the main non-billable time dimension (high)
+- [x] `/v2/worktimes` — clock-in/clock-out attendance records, distinct from the project time entries we sync (high)
+- [x] `/v2/userreports` — per-user yearly report (target vs actual hours, overtime, holidays) - the vendor's headline utilization metric (high)
+- [x] `/v2/targethours` — target working hours per user, the denominator for any utilization or overtime calculation (high)
 - [ ] `/v2/entrygroups` — grouped/aggregated entry rollups by customer, project or service - the built-in report breakdown (medium)
 - [ ] `/v2/nonbusinessdays (+ /nonbusinessgroups)` — public holiday calendars and their groups, needed for working-day normalization (medium)
 - [ ] `/v2/holidaysquota and /v2/holidayscarry` — leave entitlement and carry-over balances per user and year (medium)
