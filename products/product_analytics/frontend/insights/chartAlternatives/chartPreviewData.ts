@@ -1,7 +1,8 @@
-import type { AnyResponseType, BoxPlotDatum, TrendsQuery } from '~/queries/schema/schema-general'
+import type { AnyResponseType, TrendsQuery } from '~/queries/schema/schema-general'
 import { ChartDisplayType, type TrendResult } from '~/types'
 
 import { breakdownProperties, hasTrendsFormula } from './chartDisplayOptions'
+import { sampleBoxPlotRows, sampleCalendarHeatmapRows, sampleWorldMapRows } from './chartPreviewSamples'
 
 export interface ChartPreviewData {
     response: AnyResponseType
@@ -20,29 +21,10 @@ export const RAW_TIME_SERIES_DISPLAYS = new Set<ChartDisplayType>([
     ChartDisplayType.Metric,
 ])
 
-const TOTAL_VALUE_DISPLAYS = new Set<ChartDisplayType>([
-    ChartDisplayType.BoldNumber,
-    ChartDisplayType.ActionsPie,
-    ChartDisplayType.ActionsDonut,
-    ChartDisplayType.ActionsBarValue,
-])
-
-const SINGLE_SERIES_DISPLAYS = new Set<ChartDisplayType>([ChartDisplayType.BoldNumber, ChartDisplayType.Metric])
-
-const SAMPLE_COUNTRIES: [string, number][] = [
-    ['US', 1840],
-    ['GB', 920],
-    ['DE', 610],
-    ['IN', 540],
-    ['CA', 430],
-    ['FR', 380],
-    ['BR', 310],
-    ['AU', 260],
-    ['JP', 220],
-    ['NL', 170],
-]
-
-const SAMPLE_BOX_PLOT_DAYS = 7
+interface PreviewRows {
+    response: AnyResponseType
+    results: TrendResult[]
+}
 
 type ResultShape = 'timeSeries' | 'totalValue' | 'heatmap' | 'boxPlot' | 'empty'
 
@@ -118,84 +100,6 @@ function isCompleteBreakdown(response: AnyResponseType): boolean {
     return (response as { hasMore?: boolean }).hasMore === false
 }
 
-function sampleAction(result: TrendResult | undefined): Pick<TrendResult, 'action' | 'label'> {
-    return { action: result?.action ?? null, label: result?.label ?? 'Sample' }
-}
-
-function sampleWorldMap(response: AnyResponseType, results: TrendResult[]): AnyResponseType {
-    const base = sampleAction(results[0])
-    return withResults(
-        response,
-        SAMPLE_COUNTRIES.map(([code, value]) => ({
-            ...base,
-            breakdown_value: code,
-            data: [],
-            days: [],
-            labels: [],
-            count: 0,
-            aggregated_value: value,
-        }))
-    )
-}
-
-function sampleCalendarHeatmap(response: AnyResponseType, results: TrendResult[]): AnyResponseType {
-    const data: { row: number; column: number; value: number }[] = []
-    const rows = Array.from({ length: 7 }, () => 0)
-    const columns = Array.from({ length: 24 }, () => 0)
-    let all = 0
-    for (let row = 0; row < 7; row++) {
-        const weekday = row >= 1 && row <= 5
-        for (let column = 0; column < 24; column++) {
-            const working = column >= 8 && column <= 18
-            const value = (weekday ? 40 : 12) + (working ? 60 : 0) + ((row * 7 + column * 3) % 11)
-            data.push({ row, column, value })
-            rows[row] += value
-            columns[column] += value
-            all += value
-        }
-    }
-    return withResults(response, [
-        {
-            ...sampleAction(results[0]),
-            data: [],
-            days: [],
-            labels: [],
-            count: all,
-            aggregated_value: all,
-            calendar_heatmap_data: {
-                data,
-                rowAggregations: rows.map((value, row) => ({ row, value })),
-                columnAggregations: columns.map((value, column) => ({ column, value })),
-                allAggregations: all,
-            },
-        },
-    ])
-}
-
-function sampleBoxPlot(response: AnyResponseType, results: TrendResult[]): AnyResponseType {
-    const first = results[0]
-    const days = first?.days?.length
-        ? first.days
-        : Array.from({ length: SAMPLE_BOX_PLOT_DAYS }, (_, i) => `Day ${i + 1}`)
-    const labels = first?.labels?.length === days.length ? first.labels : days
-    const data: BoxPlotDatum[] = days.map((day, index) => {
-        const median = 40 + ((index * 13) % 17)
-        return {
-            day,
-            label: labels[index],
-            min: median - 25,
-            p25: median - 10,
-            median,
-            p75: median + 12,
-            max: median + 30,
-            mean: median + 2,
-            series_index: 0,
-            series_label: first?.label ?? 'Sample',
-        }
-    })
-    return withResults(response, data)
-}
-
 // The Metric runner adds a previous-period series for its change pill even when the query does not compare,
 // so other displays must not inherit it.
 function stripComparison(results: TrendResult[]): TrendResult[] {
@@ -207,107 +111,111 @@ function stripComparison(results: TrendResult[]): TrendResult[] {
         .map(({ compare_label: _label, compare: _compare, ...rest }) => rest as TrendResult)
 }
 
+function previewRows(response: AnyResponseType, keepComparison: boolean): PreviewRows {
+    const raw = resultsOf(response)
+    const results = keepComparison ? raw : stripComparison(raw)
+    return { response: results === raw ? response : withResults(response, results), results }
+}
+
+// Only standard time-series displays return raw buckets. Cumulative and slope results have already transformed or
+// discarded buckets, so they need the remembered standard time-series response.
+function rawBuckets(source: TrendsQuery, loaded: PreviewRows, remembered: PreviewRows | null): PreviewRows | null {
+    const currentDisplay = source.trendsFilter?.display ?? ChartDisplayType.ActionsLineGraph
+    if (shapeOf(loaded.results) === 'timeSeries' && RAW_TIME_SERIES_DISPLAYS.has(currentDisplay)) {
+        return loaded
+    }
+    return remembered && shapeOf(remembered.results) === 'timeSeries' ? remembered : null
+}
+
+type RowsNeeded = 'buckets' | 'totals' | 'heatmap' | 'boxPlot'
+
+interface PreviewRecipe {
+    needs: RowsNeeded
+    when?: (source: TrendsQuery, rows: PreviewRows) => boolean
+    transform?: (result: TrendResult) => TrendResult
+    sampleRows?: (loaded: TrendResult[]) => unknown[]
+}
+
+const noBreakdown = (source: TrendsQuery): boolean => !hasBreakdown(source)
+const summable = (source: TrendsQuery, rows: PreviewRows): boolean => canSumBuckets(source, rows.results)
+const canSlope = (source: TrendsQuery): boolean =>
+    (source.trendsFilter?.smoothingIntervals ?? 1) <= 1 && !hasBreakdown(source)
+const completeCountries = (source: TrendsQuery, rows: PreviewRows): boolean =>
+    hasCountryCodeBreakdown(source) && isCompleteBreakdown(rows.response)
+
+// A display without a recipe renders the loaded result as it is.
+const RECIPES: Partial<Record<ChartDisplayType, PreviewRecipe>> = {
+    [ChartDisplayType.ActionsLineGraph]: { needs: 'buckets' },
+    [ChartDisplayType.ActionsAreaGraph]: { needs: 'buckets' },
+    [ChartDisplayType.ActionsUnstackedBar]: { needs: 'buckets' },
+    [ChartDisplayType.ActionsBar]: { needs: 'buckets' },
+    [ChartDisplayType.ActionsStackedBar]: { needs: 'buckets' },
+    [ChartDisplayType.Metric]: { needs: 'buckets', when: noBreakdown },
+    [ChartDisplayType.ActionsLineGraphCumulative]: { needs: 'buckets', when: summable, transform: toCumulative },
+    [ChartDisplayType.SlopeGraph]: { needs: 'buckets', when: canSlope, transform: toSlope },
+    [ChartDisplayType.BoldNumber]: { needs: 'totals', when: noBreakdown },
+    [ChartDisplayType.ActionsPie]: { needs: 'totals' },
+    [ChartDisplayType.ActionsDonut]: { needs: 'totals' },
+    [ChartDisplayType.ActionsBarValue]: { needs: 'totals' },
+    [ChartDisplayType.ActionsTable]: { needs: 'totals' },
+    [ChartDisplayType.WorldMap]: { needs: 'totals', when: completeCountries, sampleRows: sampleWorldMapRows },
+    [ChartDisplayType.CalendarHeatmap]: { needs: 'heatmap', sampleRows: sampleCalendarHeatmapRows },
+    [ChartDisplayType.BoxPlot]: { needs: 'boxPlot', sampleRows: sampleBoxPlotRows },
+}
+
+// The rows that can satisfy a need, best first.
+function candidateRows(
+    needs: RowsNeeded,
+    source: TrendsQuery,
+    loaded: PreviewRows,
+    buckets: PreviewRows | null
+): PreviewRows[] {
+    if (needs === 'buckets') {
+        return buckets ? [buckets] : []
+    }
+    const candidates = shapeOf(loaded.results) === (needs === 'totals' ? 'totalValue' : needs) ? [loaded] : []
+    if (needs === 'totals' && buckets && canSumBuckets(source, buckets.results)) {
+        const results = buckets.results.map(toTotalValue)
+        candidates.push({ response: withResults(buckets.response, results), results })
+    }
+    return candidates
+}
+
 // Builds the result a chart type would render, without a query: from the insight's loaded result, or from
 // a raw time series for the same query when the loaded result is a total value. Returns null when neither
 // can produce the display.
 export function deriveChartPreview(
     display: ChartDisplayType,
     source: TrendsQuery,
-    loaded: AnyResponseType,
-    timeSeries: AnyResponseType | null = null
+    loadedResponse: AnyResponseType,
+    timeSeriesResponse: AnyResponseType | null = null
 ): ChartPreviewData | null {
-    const loadedResults = resultsOf(loaded)
     const keepComparison =
         (display !== ChartDisplayType.SlopeGraph && !!source.compareFilter?.compare) ||
         display === ChartDisplayType.Metric
-    const results = keepComparison ? loadedResults : stripComparison(loadedResults)
-    const response = results === loadedResults ? loaded : withResults(loaded, results)
-    const shape = shapeOf(results)
-    const currentDisplay = source.trendsFilter?.display ?? ChartDisplayType.ActionsLineGraph
-    const passthrough: ChartPreviewData = { response, sample: false }
 
-    if (display === currentDisplay) {
-        return passthrough
+    const loaded = previewRows(loadedResponse, keepComparison)
+    const recipe = RECIPES[display]
+
+    if (!recipe || display === (source.trendsFilter?.display ?? ChartDisplayType.ActionsLineGraph)) {
+        return { response: loaded.response, sample: false }
     }
 
-    if (display === ChartDisplayType.CalendarHeatmap) {
-        return shape === 'heatmap' ? passthrough : { response: sampleCalendarHeatmap(response, results), sample: true }
-    }
-    if (display === ChartDisplayType.BoxPlot) {
-        return shape === 'boxPlot' ? passthrough : { response: sampleBoxPlot(response, results), sample: true }
+    const remembered = timeSeriesResponse ? previewRows(timeSeriesResponse, keepComparison) : null
+    const buckets = rawBuckets(source, loaded, remembered)
+    const rows = candidateRows(recipe.needs, source, loaded, buckets).find(
+        (candidate) => recipe.when?.(source, candidate) ?? true
+    )
+
+    if (rows) {
+        const response = recipe.transform
+            ? withResults(rows.response, rows.results.map(recipe.transform))
+            : rows.response
+
+        return { response, sample: false }
     }
 
-    // Only standard time-series displays return raw buckets. Cumulative and slope results have already transformed or
-    // discarded buckets, so they need the remembered standard time-series response.
-    let base: { response: AnyResponseType; results: TrendResult[] } | null = null
-    if (shape === 'timeSeries' && RAW_TIME_SERIES_DISPLAYS.has(currentDisplay)) {
-        base = { response, results }
-    } else if (timeSeries) {
-        const raw = resultsOf(timeSeries)
-        const rows = keepComparison ? raw : stripComparison(raw)
-        if (shapeOf(rows) === 'timeSeries') {
-            base = { response: rows === raw ? timeSeries : withResults(timeSeries, rows), results: rows }
-        }
-    }
-
-    if (display === ChartDisplayType.WorldMap) {
-        if (!hasCountryCodeBreakdown(source)) {
-            return { response: sampleWorldMap(response, results), sample: true }
-        }
-        if (shape === 'totalValue' && isCompleteBreakdown(response)) {
-            return passthrough
-        }
-        if (!base || !isCompleteBreakdown(base.response) || !canSumBuckets(source, base.results)) {
-            return { response: sampleWorldMap(response, results), sample: true }
-        }
-        return { response: withResults(base.response, base.results.map(toTotalValue)), sample: false }
-    }
-
-    if (display === ChartDisplayType.ActionsTable) {
-        if (shape === 'totalValue') {
-            return passthrough
-        }
-        return base && canSumBuckets(source, base.results)
-            ? { response: withResults(base.response, base.results.map(toTotalValue)), sample: false }
-            : null
-    }
-
-    if (SINGLE_SERIES_DISPLAYS.has(display) && hasBreakdown(source)) {
-        return null
-    }
-
-    if (
-        RAW_TIME_SERIES_DISPLAYS.has(display) ||
-        display === ChartDisplayType.ActionsLineGraphCumulative ||
-        display === ChartDisplayType.SlopeGraph
-    ) {
-        if (!base) {
-            return null
-        }
-        let rows = base.results
-        if (display === ChartDisplayType.ActionsLineGraphCumulative) {
-            if (!canSumBuckets(source, rows)) {
-                return null
-            }
-            rows = rows.map(toCumulative)
-        } else if (display === ChartDisplayType.SlopeGraph) {
-            if ((source.trendsFilter?.smoothingIntervals ?? 1) > 1 || hasBreakdown(source)) {
-                return null
-            }
-            rows = rows.map(toSlope)
-        }
-        return { response: rows === base.results ? base.response : withResults(base.response, rows), sample: false }
-    }
-
-    if (TOTAL_VALUE_DISPLAYS.has(display)) {
-        if (shape === 'totalValue') {
-            return passthrough
-        }
-        if (!base || !canSumBuckets(source, base.results)) {
-            return null
-        }
-        return { response: withResults(base.response, base.results.map(toTotalValue)), sample: false }
-    }
-
-    return passthrough
+    return recipe.sampleRows
+        ? { response: withResults(loaded.response, recipe.sampleRows(loaded.results)), sample: true }
+        : null
 }
