@@ -8,12 +8,14 @@ from products.wizard.backend.facade import api as wizard_facade
 from products.wizard.backend.facade.contracts import WizardRunDTO
 from products.wizard.backend.facade.enums import WizardRunEnvironment, WizardRunStatus
 from products.wizard.backend.facade.errors import IllegalStatusTransitionError
+from products.wizard.backend.observability.tracing import annotate_run_span
 from products.wizard.backend.temporal.contracts import WizardRunFinalizationActivityInput
 
 
 @activity.defn(name="wizard_finalize_run")
 @asyncify
 def finalize_run(input: WizardRunFinalizationActivityInput) -> None:
+    annotate_run_span(input.team_id, input.run_id)
     transition_cloud_run(
         input.team_id,
         input.run_id,

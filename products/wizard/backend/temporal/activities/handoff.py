@@ -11,6 +11,7 @@ from products.wizard.backend.logic.workers import (
     service as cloud_worker,
 )
 from products.wizard.backend.logic.workers.service import GitRepositoryHandoffRequest
+from products.wizard.backend.observability.tracing import annotate_run_span, wizard_span
 from products.wizard.backend.temporal.activities.errors import WIZARD_WORKER_EXECUTION_ERROR_TYPE
 from products.wizard.backend.temporal.activities.lifecycle import transition_cloud_run
 from products.wizard.backend.temporal.contracts import PreparedGitRepositoryWorkspace
@@ -19,6 +20,7 @@ from products.wizard.backend.temporal.contracts import PreparedGitRepositoryWork
 @activity.defn(name="wizard_create_run_artifacts")
 @asyncify
 def create_run_artifacts(input: PreparedGitRepositoryWorkspace) -> None:
+    annotate_run_span(input.team_id, input.run_id)
     wizard_facade.update_run_stage(input.team_id, input.run_id, WizardRunStage.CREATING_ARTIFACTS)
     try:
         result = cloud_worker.create_git_repository_handoff(
@@ -38,7 +40,9 @@ def create_run_artifacts(input: PreparedGitRepositoryWorkspace) -> None:
             non_retryable=True,
         ) from error
 
-    wizard_facade.create_git_diff_artifact(input.team_id, input.run_id, result.diff)
+    with wizard_span("wizard.artifacts.persist_diff") as span:
+        span.set_attribute("wizard.diff.size_bytes", len(result.diff))
+        wizard_facade.create_git_diff_artifact(input.team_id, input.run_id, result.diff)
     if result.pull_request is not None:
         wizard_facade.create_pull_request_artifact(
             CreatePullRequestArtifactInput(
