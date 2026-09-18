@@ -186,7 +186,7 @@ def _filter_supported_markdown_component_for_sharing(tag_name: str, raw: str) ->
     for prop_name, expected_type in supported_props.items():
         value = props.get(prop_name)
         if _is_markdown_component_prop_type(value, expected_type):
-            if tag_name == "Embed" and prop_name == "src":
+            if tag_name == "Embed" and prop_name == "src" and isinstance(value, str):
                 value = value.strip()
                 try:
                     _validate_notebook_embed_src(value)
