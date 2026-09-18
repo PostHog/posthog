@@ -71,6 +71,13 @@ var quotedHogQLKeywords = map[string]struct{}{
 	"UNBOUNDED": {}, "UNION": {}, "UNPIVOT": {}, "USING": {}, "VALUES": {}, "WEEK": {}, "WHEN": {},
 	"WHERE": {}, "WHILE": {}, "WINDOW": {}, "WITH": {}, "WITHIN": {}, "YEAR": {}, "YYYY": {}, "ZONE": {},
 }
+var quotedHogQLKeywordsFolded = func() map[string]struct{} {
+	result := make(map[string]struct{}, len(quotedHogQLKeywords))
+	for keyword := range quotedHogQLKeywords {
+		result[strings.ToLower(keyword)] = struct{}{}
+	}
+	return result
+}()
 var hogQLIdentifierEscaper = strings.NewReplacer(
 	"\\", "\\\\",
 	"`", "``",
@@ -97,11 +104,19 @@ func Complete(schema *catalog.PreparedCatalog, query string, position int, posit
 		return Result{}, err
 	}
 	prefix, qualifier, start := cursorWord(query[:position])
+	mode := analyzeCursorContext(query[:start])
+	tableNamespace := ""
+	if path, ok := dottedTablePathAtCursor(query[:position]); ok {
+		prefix = path.prefix
+		qualifier = ""
+		start = path.start
+		tableNamespace = path.namespace
+		mode = completionModeTable
+	}
 	if len(prefix) > querylimits.MaxSuggestionInputBytes {
 		return Result{Suggestions: []Suggestion{}}, nil
 	}
 	lowerPrefix := strings.ToLower(prefix)
-	mode := analyzeCursorContext(query[:start])
 	if mode == completionModeNone {
 		return Result{Suggestions: []Suggestion{}}, nil
 	}
@@ -119,10 +134,17 @@ func Complete(schema *catalog.PreparedCatalog, query string, position int, posit
 	document, bindings, qualified, parseErr := cursorBindings(schema, repaired, start, qualifier)
 
 	var suggestions []Suggestion
-	namespace, propertyPrefix, propertyOK := propertyContext(query[:position], bindings)
 	if document != nil && document.LimitError() != nil {
 		return Result{}, document.LimitError()
 	}
+	if mode == completionModeTable {
+		result := tableResult(schema, bindings, lowerPrefix, tableNamespace, offset, parseErr)
+		if document != nil && document.LimitError() != nil {
+			return Result{}, document.LimitError()
+		}
+		return result, nil
+	}
+	namespace, propertyPrefix, propertyOK := propertyContext(query[:position], bindings)
 	if propertyOK {
 		return indexedResult(slices.Values(schema.Properties(namespace).Prefix(propertyPrefix)), "property", offset, parseErr), nil
 	} else if qualifier != "" {
@@ -131,12 +153,6 @@ func Complete(schema *catalog.PreparedCatalog, query string, position int, posit
 			return Result{}, document.LimitError()
 		}
 		return indexedResult(entries, "field", offset, parseErr), nil
-	} else if mode == completionModeTable {
-		result := tableResult(schema, bindings, lowerPrefix, offset, parseErr)
-		if document != nil && document.LimitError() != nil {
-			return Result{}, document.LimitError()
-		}
-		return result, nil
 	} else if mode == completionModeComparison {
 		suggestions = appendNamed(suggestions, comparisonOperators, lowerPrefix, "operator", "")
 	} else if mode == completionModeBetweenSeparator {
@@ -287,16 +303,20 @@ func suggestionInsertText(kind, name string) string {
 	case "field", "property":
 		insertText = quoteHogQLFieldIdentifier(name)
 	case "table":
-		parts := strings.Split(name, ".")
-		for index := range parts {
-			parts[index] = quoteHogQLFieldIdentifier(parts[index])
-		}
-		insertText = strings.Join(parts, ".")
+		insertText = quoteHogQLTablePath(name)
 	}
 	if insertText == name {
 		return ""
 	}
 	return insertText
+}
+
+func quoteHogQLTablePath(name string) string {
+	parts := strings.Split(name, ".")
+	for index := range parts {
+		parts[index] = quoteHogQLFieldIdentifier(parts[index])
+	}
+	return strings.Join(parts, ".")
 }
 
 func supportedHogQLIdentifier(name string) bool {
@@ -375,6 +395,43 @@ func cursorWord(input string) (prefix, qualifier string, start int) {
 		qualifier = input[qualifierStart:qualifierEnd]
 	}
 	return prefix, qualifier, start
+}
+
+type dottedTablePath struct {
+	prefix    string
+	namespace string
+	start     int
+}
+
+func dottedTablePathAtCursor(input string) (dottedTablePath, bool) {
+	start := len(input)
+	for start > 0 {
+		character, size := utf8.DecodeLastRuneInString(input[:start])
+		if character != '.' && !isIdentifier(character) {
+			break
+		}
+		start -= size
+	}
+	prefix := input[start:]
+	lastDot := strings.LastIndexByte(prefix, '.')
+	if lastDot < 1 || !directTablePathContext(input[:start]) {
+		return dottedTablePath{}, false
+	}
+	for _, component := range strings.Split(prefix[:lastDot], ".") {
+		if component == "" {
+			return dottedTablePath{}, false
+		}
+	}
+	return dottedTablePath{prefix: prefix, namespace: prefix[:lastDot+1], start: start}, true
+}
+
+func directTablePathContext(input string) bool {
+	tokens, depth, incomplete := scanSQLTokens(input)
+	if incomplete {
+		return false
+	}
+	last := lastTokenAtDepth(tokens, depth)
+	return last.kind == sqlTokenWord && (last.text == "FROM" || last.text == "JOIN")
 }
 
 func isIdentifier(r rune) bool {

@@ -134,14 +134,25 @@ func (c *PreparedCatalog) TableSpellings() *Index {
 }
 
 func (c *PreparedCatalog) TableSuggestions(prefix string, excluded map[string]bool) []Entry {
+	return c.tableSuggestions(prefix, excluded, nil)
+}
+
+func (c *PreparedCatalog) TableSuggestionsMatching(prefix string, excluded map[string]bool, matches func(Entry) bool) []Entry {
+	return c.tableSuggestions(prefix, excluded, matches)
+}
+
+func (c *PreparedCatalog) tableSuggestions(prefix string, excluded map[string]bool, matches func(Entry) bool) []Entry {
+	accepted := func(entry Entry) bool {
+		return !excluded[entry.Name] && (matches == nil || matches(entry))
+	}
 	if !c.hasAliases {
 		candidates := c.tables.Prefix(prefix)
-		if len(excluded) == 0 {
+		if len(excluded) == 0 && matches == nil {
 			return candidates
 		}
 		result := make([]Entry, 0, len(candidates))
 		for _, candidate := range candidates {
-			if !excluded[candidate.Name] {
+			if accepted(candidate) {
 				result = append(result, candidate)
 			}
 		}
@@ -150,7 +161,7 @@ func (c *PreparedCatalog) TableSuggestions(prefix string, excluded map[string]bo
 	candidates := c.tableSpellings.Prefix(prefix)
 	canonicalMatches := make(map[int]bool, len(candidates))
 	for _, candidate := range candidates {
-		if excluded[candidate.Name] {
+		if !accepted(candidate) {
 			continue
 		}
 		index := c.tablesByName[candidate.Name]
@@ -161,7 +172,7 @@ func (c *PreparedCatalog) TableSuggestions(prefix string, excluded map[string]bo
 	seen := make(map[int]bool, len(candidates))
 	result := make([]Entry, 0, len(candidates))
 	for _, candidate := range candidates {
-		if excluded[candidate.Name] {
+		if !accepted(candidate) {
 			continue
 		}
 		index := c.tablesByName[candidate.Name]

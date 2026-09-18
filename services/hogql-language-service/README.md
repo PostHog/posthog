@@ -33,6 +33,11 @@ curl -sS -X POST http://localhost:8091/teams/2/users/1/validate \
 Completion and validation share scope analysis for table CTEs and aliased `FROM` subqueries.
 Completion suggests projected fields, including aliases and wildcard outputs, with catalog types for direct field projections.
 FROM and JOIN completion suggests visible CTE names before catalog tables and respects CTE shadowing.
+It reads unquoted multi-part table prefixes from the catalog: `FROM postgres.` shows the full `postgres.demo.orders` label and inserts only `demo.orders`.
+Already-typed namespace components must use the catalog's exact case, while the final partial component remains case-insensitive.
+Completion inside quoted path components remains unsupported.
+Completion omits dotted candidates when a remaining path component would require quotes.
+The editor replaces text from the start of the current word to the cursor and leaves text after the cursor unchanged.
 Empty queries offer SELECT and WITH; typed prefixes filter those starting keywords.
 Joined fields with the same name show their source and insert a qualified reference, including separate aliases in self-joins.
 Unique fields and already-qualified completion keep their existing insertion behavior.

@@ -79,6 +79,12 @@ CTE shadowing and table-suggestion deduplication use exact names, so a CTE named
 Multi-part names retain their source identity when their parser-safe forms coincide, such as `a.b.c_d` and `a.b_c.d`.
 Duplicate qualifiers do not establish property provenance, including inside CTE projections and qualified wildcards.
 FROM and JOIN completion includes visible table CTEs before catalog tables, with `CTE` in the suggestion detail.
+For an unquoted multi-part prefix, completion returns matching leaf tables with full labels and suffix-only insertion.
+For example, `FROM postgres.` labels the result `postgres.demo.orders` and inserts `demo.orders`; `FROM postgres.demo.or` inserts `orders`.
+Namespace components already present in SQL must match catalog case exactly, so insertion cannot produce an unresolved spelling.
+Completion inside quoted path components and namespace-only suggestions remain follow-up work.
+The service omits dotted candidates when any remaining component would require identifier quotes.
+Monaco replaces the current word only through the cursor, so text after a mid-word cursor remains in the document.
 CTE names follow the same scope, definition-order, and shadowing rules as relation lookup; scalar WITH aliases are not tables.
 A visible CTE hides a catalog table with the same name, and pagination counts that name once.
 CTE insertion quotes the whole name when needed, including names with dots.
