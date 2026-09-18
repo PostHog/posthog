@@ -42,6 +42,27 @@ class TestTaskUsageQueryTagging(SimpleTestCase):
 
         assert captured_tags == {"product": Product.POSTHOG_CODE, "feature": Feature.QUERY}
 
+    def test_a_callers_deadline_bounds_the_query_and_forbids_a_partial_sum(self) -> None:
+        # Without the bound the read can outlive the caller that asked for it, and a partial
+        # sum on overflow would be presented as the complete cost.
+        with (
+            self.settings(CLOUD_DEPLOYMENT="US", LLM_ANALYTICS_INTERNAL_TEAM_ID=2),
+            patch.object(task_usage.Team.objects, "get", return_value=object()),
+            patch.object(task_usage, "execute_hogql_query", return_value=SimpleNamespace(results=[])) as execute,
+        ):
+            task_usage.get_local_task_run_token_costs(
+                team_id=1,
+                origin_product="slack",
+                task_run_ids=[UUID("00000000-0000-0000-0000-000000000001")],
+                generated_after=datetime(2026, 8, 1, tzinfo=UTC),
+                product=Product.POSTHOG_CODE,
+                max_execution_time=10,
+            )
+
+        query_settings = execute.call_args.kwargs["settings"]
+        assert query_settings.max_execution_time == 10
+        assert query_settings.timeout_overflow_mode == "throw"
+
     @parameterized.expand([("US", 2), ("EU", 1)])
     def test_costs_are_read_from_the_regions_own_internal_project(self, region: str, expected_team_id: int) -> None:
         # A region's generations are captured into the internal project in that same region, and
