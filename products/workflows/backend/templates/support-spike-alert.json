@@ -95,15 +95,22 @@
                             {
                                 "type": "section",
                                 "text": {
+                                    "type": "plain_text",
+                                    "text": "\ud83d\udea8 Ticket spike: {event.properties.topic}\n\n{event.properties.summary}"
+                                }
+                            },
+                            {
+                                "type": "section",
+                                "text": {
                                     "type": "mrkdwn",
-                                    "text": "\ud83d\udea8 *Ticket spike: {event.properties.topic}*\n\n{event.properties.summary}\n\n*Tickets:* {event.properties.ticket_count} from {event.properties.requester_count} customers in the last {event.properties.window_minutes} minutes."
+                                    "text": "*Tickets:* {event.properties.ticket_count} from {event.properties.requester_count} customers in the last {event.properties.window_minutes} minutes."
                                 }
                             }
                         ],
                         "templating": "hog"
                     },
                     "text": {
-                        "value": "Ticket spike: {event.properties.topic} ({event.properties.requester_count} customers)",
+                        "value": "Ticket spike detected ({event.properties.requester_count} customers)",
                         "templating": "hog"
                     }
                 },
