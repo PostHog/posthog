@@ -1,4 +1,3 @@
-import { DISPLAY_TYPES_TO_CATEGORIES } from 'lib/constants'
 import { objectCleanWithEmpty, objectsEqual, removeUndefinedAndNull } from 'lib/utils/objects'
 import { isValidRE2 } from 'lib/utils/regexp'
 
@@ -32,7 +31,7 @@ import {
     isTrendsQuery,
     isWebAnalyticsInsightQuery,
 } from '~/queries/utils'
-import { BaseMathType, ChartDisplayCategory, ChartDisplayType } from '~/types'
+import { BaseMathType, ChartDisplayType } from '~/types'
 
 import {
     isFunnelWithEnoughSteps,
@@ -388,17 +387,28 @@ export const cleanInsightQuery = (query: InsightQueryNode, opts?: CompareQueryOp
     return cleanedQuery
 }
 
-// A result computed under a different display category renders as a blank or zeroed chart.
+// Sync with backend TrendsDisplay.is_total_value: only these displays return one aggregated value per row.
+const AGGREGATED_RESULT_DISPLAYS = new Set<ChartDisplayType>([
+    ChartDisplayType.BoldNumber,
+    ChartDisplayType.ActionsPie,
+    ChartDisplayType.ActionsDonut,
+    ChartDisplayType.ActionsBarValue,
+    ChartDisplayType.ActionsTable,
+    ChartDisplayType.WorldMap,
+    ChartDisplayType.CalendarHeatmap,
+])
+
+// A result computed for the other row shape renders as a blank or zeroed chart.
 export const trendsResultsMatchQuery = (results: unknown[], query: TrendsQuery): boolean => {
     const first = results[0] as { data?: unknown[]; aggregated_value?: unknown } | undefined
-    const isTotalValue =
-        DISPLAY_TYPES_TO_CATEGORIES[query.trendsFilter?.display ?? ChartDisplayType.ActionsLineGraph] ===
-        ChartDisplayCategory.TotalValue
+    const isAggregated = AGGREGATED_RESULT_DISPLAYS.has(
+        query.trendsFilter?.display ?? ChartDisplayType.ActionsLineGraph
+    )
     if (first?.data?.length) {
-        return !isTotalValue
+        return !isAggregated
     }
     if (first?.aggregated_value != null) {
-        return isTotalValue
+        return isAggregated
     }
     return true
 }
