@@ -10,7 +10,7 @@ import dj_database_url
 
 from posthog.product_db_config import load_product_db_routes
 from posthog.settings.base_variables import DEBUG, IN_EVAL_TESTING, IS_COLLECT_STATIC, TEST
-from posthog.settings.utils import get_from_env, get_list, str_to_bool
+from posthog.settings.utils import assert_postgres_engine, get_from_env, get_list, str_to_bool
 from posthog.utils import str_to_int_set
 
 # See https://docs.djangoproject.com/en/3.2/ref/settings/#std:setting-DATABASE-DISABLE_SERVER_SIDE_CURSORS
@@ -87,6 +87,8 @@ if DATABASE_URL:
     DATABASES: dict[str, dict[str, Any]] = {
         "default": dict(dj_database_url.config(default=DATABASE_URL, conn_max_age=0))
     }
+
+    assert_postgres_engine(DATABASES["default"]["ENGINE"])
 
     if DISABLE_SERVER_SIDE_CURSORS:
         DATABASES["default"]["DISABLE_SERVER_SIDE_CURSORS"] = True
