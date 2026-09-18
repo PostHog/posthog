@@ -1,6 +1,8 @@
-import { fileSystemList, fileSystemRetrieve } from '~/generated/core/api'
+import apiMutator from 'lib/api-orval-mutator'
+
+import { fileSystemCreate, fileSystemList, fileSystemRetrieve, getFileSystemMoveCreateUrl } from '~/generated/core/api'
 import type { FileSystemApi } from '~/generated/core/api.schemas'
-import { splitPath } from '~/layout/panel-layout/ProjectTree/utils'
+import { joinPath, splitPath } from '~/layout/panel-layout/ProjectTree/utils'
 
 import { dashboardsRetrieve } from 'products/dashboards/frontend/generated/api'
 import { featureFlagsRetrieve } from 'products/feature_flags/frontend/generated/api'
@@ -8,7 +10,13 @@ import { notebooksList, notebooksPartialUpdate, notebooksRetrieve } from 'produc
 import type { NotebookMinimalApi } from 'products/notebooks/frontend/generated/api.schemas'
 import { insightsRetrieve } from 'products/product_analytics/frontend/generated/api'
 
-import { MAX_TERMINAL_FILE_BYTES, TerminalFile, TerminalFilesystem, TerminalNode } from './terminalFilesystem'
+import {
+    FilesystemError,
+    MAX_TERMINAL_FILE_BYTES,
+    TerminalFile,
+    TerminalFilesystem,
+    TerminalNode,
+} from './terminalFilesystem'
 
 const encoder = new TextEncoder()
 const decoder = new TextDecoder('utf-8', { fatal: true })
@@ -86,8 +94,11 @@ Try:
 Saving an existing .md notebook updates PostHog using your current permissions.
 Writes commit on fsync or close. Concurrent edits fail instead of overwriting
 someone else's changes. Check the browser's save error banner and /posthog/recovery.
-Use in-place writes; creating, deleting, moving and replacing project files are
-not supported. Work in /tmp for programs that save by renaming a temporary file,
+Use mkdir to create project folders and mv to move or rename files and folders
+inside /posthog/files. Keep .md or .json extensions when renaming files.
+Moves preserve object IDs and folder contents. Existing destinations cannot be
+replaced. Use ph notebook-create and ph notebook-delete to create or delete notebooks.
+Work in /tmp for programs that save by renaming a temporary file,
 then use cat /tmp/edited.md > '/posthog/files/path/to/notebook.md'.
 
 Directories are a snapshot from startup. File contents load from the API on open.
@@ -109,7 +120,8 @@ ph runs project commands and tools from connected MCP servers with your permissi
 Run ph help <command> for its arguments. Notebook commands accept IDs or file paths.
 Use --json @file.json or --json - for arguments from a file or stdin.
 Commands such as ph notebook-delete change real data. Errors exit nonzero.
-Select text to copy with Cmd+C (macOS) or Ctrl+Shift+C (Linux/Windows).
+Selecting text copies it automatically. You can also copy with Cmd+C (macOS) or
+Ctrl+Shift+C (Linux/Windows).
 Paste with Cmd+V or Ctrl+Shift+V, or use the Copy selection and Paste buttons.
 
 Browser agents can use window.posthogTerminal.write('ls\\n') and
@@ -120,6 +132,10 @@ export class PosthogFilesystem extends TerminalFilesystem {
     private readonly files = this.directory('files', this.root)
     private readonly api = this.directory('api', this.root)
     private readonly references = new Map<string, FileSystemApi>()
+    private readonly projectNodes = new Map<
+        TerminalNode,
+        { parts: string[]; entry?: FileSystemApi; extension?: string }
+    >()
 
     resolveReference(value: string, cwd: string, type?: string): string {
         const parts: string[] = []
@@ -152,6 +168,104 @@ export class PosthogFilesystem extends TerminalFilesystem {
     ) {
         super()
         this.text('README.txt', this.root, TERMINAL_README)
+        this.registerDirectory(this.files, [])
+    }
+
+    private registerDirectory(node: TerminalNode, parts: string[], entry?: FileSystemApi): void {
+        this.projectNodes.set(node, { parts, entry })
+        node.mkdir = async (name) => {
+            const directory = this.projectNodes.get(node)
+            if (!directory) {
+                throw new FilesystemError(116)
+            }
+            const parts = [...directory.parts, this.storedName(name)]
+            const entry = await fileSystemCreate(
+                this.projectId,
+                { path: joinPath(parts), type: 'folder' },
+                { signal: this.signal }
+            )
+            const child = this.directory(name, node)
+            this.registerDirectory(child, parts, entry)
+            return child
+        }
+        if (node !== this.files) {
+            node.rename = (parent, name) => this.move(node, parent, name)
+        }
+    }
+
+    private storedName(name: string): string {
+        try {
+            const decoded = decodeURIComponent(name)
+            return terminalFilename(decoded) === name ? decoded : name
+        } catch {
+            return name
+        }
+    }
+
+    private mountedPath(node: TerminalNode): string {
+        const parts = [node.name]
+        for (let parent = node.parent; parent && parent !== this.root; parent = parent.parent) {
+            parts.unshift(parent.name)
+        }
+        return `/posthog/${parts.join('/')}`
+    }
+
+    private async move(node: TerminalNode, parent: TerminalNode, name: string): Promise<void> {
+        const source = this.projectNodes.get(node)
+        const destination = this.projectNodes.get(parent)
+        if (!source || !destination) {
+            throw new FilesystemError(116)
+        }
+        if (source.extension && !name.endsWith(source.extension)) {
+            throw new FilesystemError(22)
+        }
+        const originalName = source.parts[source.parts.length - 1]
+        const projectedExtension = source.extension && !originalName.endsWith(source.extension) ? source.extension : ''
+        const basename =
+            name === node.name
+                ? originalName
+                : this.storedName(projectedExtension ? name.slice(0, -projectedExtension.length) : name)
+        if (!basename) {
+            throw new FilesystemError(22)
+        }
+        const parts = [...destination.parts, basename]
+        const entry =
+            source.entry ??
+            (await fileSystemCreate(
+                this.projectId,
+                { path: joinPath(source.parts), type: 'folder' },
+                { signal: this.signal }
+            ))
+        source.entry = entry
+        // The generated move body describes a filesystem row, but this action requires new_path.
+        await apiMutator<FileSystemApi>(getFileSystemMoveCreateUrl(this.projectId, entry.id), {
+            method: 'POST',
+            body: JSON.stringify({ new_path: joinPath(parts) }),
+            signal: this.signal,
+        })
+        const descendants = [...this.projectNodes].filter(([candidate]) => {
+            for (let ancestor: TerminalNode | undefined = candidate; ancestor; ancestor = ancestor.parent) {
+                if (ancestor === node) {
+                    return true
+                }
+            }
+            return false
+        })
+        for (const [child] of descendants) {
+            this.references.delete(this.mountedPath(child))
+        }
+        const oldDepth = source.parts.length
+        node.parent!.children!.delete(node.name)
+        node.parent = parent
+        node.name = name
+        parent.children!.set(name, node)
+        for (const [child, metadata] of descendants) {
+            metadata.parts = [...parts, ...metadata.parts.slice(oldDepth)]
+            if (metadata.entry) {
+                metadata.entry.path = joinPath(metadata.parts)
+                this.references.set(this.mountedPath(child), metadata.entry)
+            }
+        }
     }
 
     private async object(entry: FileSystemApi): Promise<unknown> {
@@ -237,8 +351,11 @@ export class PosthogFilesystem extends TerminalFilesystem {
         this.files.children!.clear()
         this.api.children!.clear()
         this.references.clear()
-        for (const entry of entries.filter((item) => item.type === 'folder')) {
-            this.parent(splitPath(entry.path), this.files)
+        this.projectNodes.clear()
+        this.registerDirectory(this.files, [])
+        for (const entry of entries.filter((item) => item.type === 'folder' && item.user_access_level !== 'none')) {
+            const parts = splitPath(entry.path)
+            this.registerDirectory(this.parent(parts, this.files), parts, entry)
         }
         for (const entry of entries) {
             if (entry.type === 'folder' || entry.user_access_level === 'none') {
@@ -257,7 +374,7 @@ export class PosthogFilesystem extends TerminalFilesystem {
             while (parent.children!.has(name)) {
                 name = `${basename}~${entry.id}-${duplicate++}${extension}`
             }
-            this.file(
+            const file = this.file(
                 name,
                 parent,
                 notebook ? () => this.notebook(entry) : async () => jsonFile(await this.object(entry)),
@@ -265,6 +382,8 @@ export class PosthogFilesystem extends TerminalFilesystem {
                     (notebook.user_access_level === null ||
                         ['editor', 'manager'].includes(notebook.user_access_level ?? ''))
             )
+            this.projectNodes.set(file, { parts: splitPath(entry.path), entry, extension })
+            file.rename = (parent, name) => this.move(file, parent, name)
             this.references.set(`/posthog/files/${[...parts.map(terminalFilename), name].join('/')}`, entry)
             const type = this.directory(terminalFilename(entry.type ?? 'unknown'), this.api)
             const apiName = `${terminalFilename(entry.ref ?? entry.id)}.json`
@@ -276,6 +395,12 @@ export class PosthogFilesystem extends TerminalFilesystem {
     }
 
     private parent(parts: string[], root: TerminalNode): TerminalNode {
-        return parts.reduce((parent, part) => this.directory(terminalFilename(part), parent), root)
+        return parts.reduce((parent, part, index) => {
+            const node = this.directory(terminalFilename(part), parent)
+            if (!this.projectNodes.has(node)) {
+                this.registerDirectory(node, parts.slice(0, index + 1))
+            }
+            return node
+        }, root)
     }
 }

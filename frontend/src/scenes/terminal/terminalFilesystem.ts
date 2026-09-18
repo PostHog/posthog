@@ -11,6 +11,14 @@ export interface TerminalNode {
     open?: () => Promise<TerminalFile>
     size: number
     writable: boolean
+    mkdir?: (name: string) => Promise<TerminalNode>
+    rename?: (parent: TerminalNode, name: string) => Promise<void>
+}
+
+export class FilesystemError extends Error {
+    constructor(readonly errno: number) {
+        super(`Filesystem error ${errno}`)
+    }
 }
 
 export const MAX_TERMINAL_FILE_BYTES = 4 * 1024 * 1024

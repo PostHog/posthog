@@ -26,20 +26,32 @@ const meta: Meta<typeof TerminalScene> = {
             user_access_level: 'editor',
         }
         const notebooks = new Map([[notebook.short_id, notebook]])
+        const paths = new Map([[notebook.id, 'Research/Welcome']])
+        const folders = new Map([['01900000-0000-7000-8000-000000000005', 'Research']])
         useStorybookMocks({
             get: {
                 '/api/projects/:projectId/file_system/': () => [
                     200,
                     {
-                        count: notebooks.size,
+                        count: notebooks.size + folders.size,
                         next: null,
-                        results: [...notebooks.values()].map((item) => ({
-                            id: item.id,
-                            path: `Research/${item.title}`,
-                            type: 'notebook',
-                            ref: item.short_id,
-                            user_access_level: 'editor',
-                        })),
+                        results: [...notebooks.values()]
+                            .map((item) => ({
+                                id: item.id,
+                                path: paths.get(item.id) ?? `Research/${item.title}`,
+                                type: 'notebook',
+                                ref: item.short_id,
+                                user_access_level: 'editor',
+                            }))
+                            .concat(
+                                [...folders].map(([id, path]) => ({
+                                    id,
+                                    path,
+                                    type: 'folder',
+                                    ref: '',
+                                    user_access_level: 'editor',
+                                }))
+                            ),
                     },
                 ],
                 '/api/projects/:projectId/notebooks/': () => [
@@ -85,6 +97,28 @@ const meta: Meta<typeof TerminalScene> = {
                 ],
             },
             post: {
+                '/api/projects/:projectId/file_system/': async ({ request }) => {
+                    const { path } = (await request.json()) as { path: string }
+                    const id = crypto.randomUUID()
+                    folders.set(id, path)
+                    return [201, { id, path, type: 'folder', user_access_level: 'editor' }]
+                },
+                '/api/projects/:projectId/file_system/:id/move/': async ({ request, params }) => {
+                    const id = String(params.id)
+                    const { new_path } = (await request.json()) as { new_path: string }
+                    const oldPath = folders.get(id) ?? paths.get(id)
+                    if (!oldPath) {
+                        return [404, { detail: 'Not found' }]
+                    }
+                    for (const entries of [paths, folders]) {
+                        for (const [entryId, path] of entries) {
+                            if (path === oldPath || path.startsWith(`${oldPath}/`)) {
+                                entries.set(entryId, new_path + path.slice(oldPath.length))
+                            }
+                        }
+                    }
+                    return [200, { id, path: new_path }]
+                },
                 '/api/projects/:projectId/notebooks/': async ({ request }) => {
                     const body = (await request.json()) as typeof notebook
                     const created = {
@@ -94,6 +128,7 @@ const meta: Meta<typeof TerminalScene> = {
                         short_id: 'demo-created',
                     }
                     notebooks.set(created.short_id, created)
+                    paths.set(created.id, `Research/${created.title}`)
                     return [201, created]
                 },
                 '/api/projects/:projectId/mcp_server_installations/:id/call_tool/': async ({ request }) => {

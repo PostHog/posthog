@@ -1,11 +1,11 @@
 import { NinePReader, NinePWriter } from './ninepCodec'
-import { MAX_TERMINAL_FILE_BYTES, TerminalFile, TerminalFilesystem, TerminalNode } from './terminalFilesystem'
-
-class FilesystemError extends Error {
-    constructor(readonly errno: number) {
-        super(`Filesystem error ${errno}`)
-    }
-}
+import {
+    FilesystemError,
+    MAX_TERMINAL_FILE_BYTES,
+    TerminalFile,
+    TerminalFilesystem,
+    TerminalNode,
+} from './terminalFilesystem'
 
 interface Fid {
     node: TerminalNode
@@ -139,6 +139,35 @@ export class NinePServer {
         }
     }
 
+    private validateDestination(parent: TerminalNode, name: string): void {
+        if (!parent.children) {
+            throw new FilesystemError(20)
+        }
+        if (!name || name === '.' || name === '..' || /[/\x00]/.test(name)) {
+            throw new FilesystemError(22)
+        }
+        if (parent.children.has(name)) {
+            // Replacing a project object would delete data, so require an unused destination.
+            throw new FilesystemError(17)
+        }
+    }
+
+    private async rename(node: TerminalNode, parent: TerminalNode, name: string): Promise<void> {
+        if (node.parent === parent && node.name === name) {
+            return
+        }
+        this.validateDestination(parent, name)
+        for (let ancestor: TerminalNode | undefined = parent; ancestor; ancestor = ancestor.parent) {
+            if (ancestor === node) {
+                throw new FilesystemError(22)
+            }
+        }
+        if (!node.rename || !parent.mkdir) {
+            throw new FilesystemError(30)
+        }
+        await node.rename(parent, name)
+    }
+
     private async request(type: number, reader: NinePReader): Promise<NinePWriter> {
         const result = new NinePWriter()
         switch (type) {
@@ -187,13 +216,39 @@ export class NinePServer {
                 await this.open(fid, reader.number(4))
                 return qid(result, fid.node).number(this.messageSize - 24, 4)
             }
+            case 72: {
+                const parent = this.fid(reader.number(4)).node
+                const name = reader.string()
+                this.validateDestination(parent, name)
+                if (!parent.mkdir) {
+                    throw new FilesystemError(30)
+                }
+                return qid(result, await parent.mkdir(name))
+            }
+            case 20: {
+                const node = this.fid(reader.number(4)).node
+                const parent = this.fid(reader.number(4)).node
+                await this.rename(node, parent, reader.string())
+                return result
+            }
+            case 74: {
+                const source = this.fid(reader.number(4)).node
+                const node = source.children?.get(reader.string())
+                const parent = this.fid(reader.number(4)).node
+                const name = reader.string()
+                if (!node) {
+                    throw new FilesystemError(2)
+                }
+                await this.rename(node, parent, name)
+                return result
+            }
             case 24: {
                 const fid = this.fid(reader.number(4))
                 const node = fid.node
                 // Like procfs, unopened API files report zero bytes without fetching their contents.
                 result.number(0x7ff, 8)
                 qid(result, node)
-                result.number(node.children ? 0o40555 : node.writable ? 0o100644 : 0o100444, 4)
+                result.number(node.children ? (node.mkdir ? 0o40755 : 0o40555) : node.writable ? 0o100644 : 0o100444, 4)
                 result
                     .number(0, 4)
                     .number(0, 4)

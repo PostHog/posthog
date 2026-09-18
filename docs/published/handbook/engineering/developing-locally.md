@@ -36,7 +36,7 @@ jq '.title' /posthog/api/notebook/<short-id>.json
 The guest includes BusyBox tools, `jq`, `vi`, `joe`, `less`, and Lua.
 Pipes, redirection, completion, terminal colors, Ctrl+C, and scrollback use the real shell and terminal.
 The terminal uses a black background in both app themes.
-Select text and use **Copy selection**, or use **Paste** to paste clipboard text into the terminal.
+Selecting text copies it automatically. **Copy selection** also copies selected text, and **Paste** inserts clipboard text into the terminal.
 Keyboard shortcuts are ⌘C/⌘V on macOS and Ctrl+Shift+C/V on Linux and Windows; Ctrl+C still interrupts the running command.
 If the browser denies clipboard access, focus the terminal and use its native paste shortcut or context menu.
 Click a command below the terminal to insert it without running it; press Enter to run.
@@ -79,7 +79,18 @@ Run `ph refresh` after mutations to update the tree and tool catalog.
 Notebook writes commit on `fsync` or close.
 A rejected save returns an I/O error, shows a browser error banner, and preserves the edit under `/posthog/recovery`.
 Check that banner after saving: some programs do not check errors returned from `close`.
-Creating, deleting, moving, and replacing PostHog files are unsupported.
+Use `mkdir` and `mv` inside `/posthog/files` to create folders and move or rename project files and folders.
+These commands update the real project tree, preserve object IDs, and work without fetching object contents.
+Keep the `.md` or `.json` extension when renaming files. Folder moves include their contents.
+Moves to an existing destination are rejected rather than replacing another object.
+Use `ph notebook-create` and `ph notebook-delete` to create or delete notebooks; creating ordinary files and removing folders through the mount are unsupported.
+
+```sh
+mkdir -p /posthog/files/Research/Archive
+mv /posthog/files/Unfiled/Notebooks/Foobar.md /posthog/files/Research/Archive/
+mv /posthog/files/Research/Archive /posthog/files/Research/Reviewed
+```
+
 For editors that save by renaming temporary files, edit a copy in `/tmp`, then use `cat /tmp/edited.md > '/posthog/files/Research/Notes.md'`.
 Local Linux files and recovery copies disappear when you stop the VM or leave the page.
 

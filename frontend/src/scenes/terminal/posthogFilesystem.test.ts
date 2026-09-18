@@ -1,12 +1,21 @@
-import { fileSystemList } from '~/generated/core/api'
+import apiMutator from 'lib/api-orval-mutator'
+
+import { fileSystemCreate, fileSystemList } from '~/generated/core/api'
 import type { FileSystemApi } from '~/generated/core/api.schemas'
 
 import { notebooksList, notebooksPartialUpdate, notebooksRetrieve } from 'products/notebooks/frontend/generated/api'
 import type { NotebookApi, NotebookMinimalApi } from 'products/notebooks/frontend/generated/api.schemas'
 
+import { NinePReader, NinePWriter } from './ninepCodec'
+import { NinePServer } from './ninepServer'
 import { PosthogFilesystem, terminalFilename } from './posthogFilesystem'
 
-jest.mock('~/generated/core/api', () => ({ fileSystemList: jest.fn() }))
+jest.mock('~/generated/core/api', () => ({
+    ...jest.requireActual('~/generated/core/api'),
+    fileSystemList: jest.fn(),
+    fileSystemCreate: jest.fn(),
+}))
+jest.mock('lib/api-orval-mutator', () => ({ __esModule: true, default: jest.fn() }))
 jest.mock('products/notebooks/frontend/generated/api', () => ({
     notebooksRetrieve: jest.fn(),
     notebooksList: jest.fn(),
@@ -107,6 +116,103 @@ describe('PostHog filesystem projection', () => {
         expect(() => fs.resolveReference('Research/Notes.md', '/posthog/files', 'notebook')).toThrow('No project file')
         expect(notebooksRetrieve).not.toHaveBeenCalled()
     })
+
+    it.each(['Notes', 'Notes.md'])(
+        'persists mkdir and moves of %s, preserves open files, and refuses replacement and cycles',
+        async (storedName) => {
+            jest.mocked(fileSystemList).mockResolvedValue({
+                count: 2,
+                results: [entry('research', 'Research', 'folder'), entry('note-1', `Research/${storedName}`)],
+            })
+            jest.mocked(fileSystemCreate).mockImplementation(async (_, body) => entry('created', body.path, 'folder'))
+            jest.mocked(apiMutator).mockResolvedValue({})
+            const fs = new PosthogFilesystem('42', new AbortController().signal)
+            await fs.load()
+            const server = new NinePServer(fs, jest.fn())
+            const request = async (type: number, body: NinePWriter): Promise<{ type: number; body: NinePReader }> => {
+                const bytes = await new Promise<Uint8Array>((resolve) => server.handle(body.frame(type, 1), resolve))
+                const response = new NinePReader(bytes)
+                response.number(4)
+                const responseType = response.number(1)
+                response.number(2)
+                return { type: responseType, body: response }
+            }
+            const walk = async (from: number, to: number, name: string): Promise<void> => {
+                expect(
+                    (await request(110, new NinePWriter().number(from, 4).number(to, 4).number(1, 2).string(name))).type
+                ).toBe(111)
+            }
+            const move = (
+                from: number,
+                name: string,
+                to: number,
+                newName: string
+            ): Promise<{ type: number; body: NinePReader }> =>
+                request(74, new NinePWriter().number(from, 4).string(name).number(to, 4).string(newName))
+            await request(
+                104,
+                new NinePWriter().number(1, 4).number(0xffffffff, 4).string('root').string('').number(0, 4)
+            )
+            await walk(1, 2, 'files')
+            await walk(2, 3, 'Research')
+            await walk(3, 4, 'Notes.md')
+            const note = fs.root.children!.get('files')!.children!.get('Research')!.children!.get('Notes.md')!
+            const opened = await note.open!()
+            jest.mocked(notebooksRetrieve).mockClear()
+            const mkdir = await request(
+                72,
+                new NinePWriter().number(2, 4).string('Archive').number(0o755, 4).number(0, 4)
+            )
+            expect(mkdir.type).toBe(73)
+            expect(fileSystemCreate).toHaveBeenCalledWith('42', { path: 'Archive', type: 'folder' }, expect.anything())
+            await walk(2, 5, 'Archive')
+            expect((await move(3, 'Notes.md', 5, 'Renamed.md')).type).toBe(75)
+            expect(apiMutator).toHaveBeenLastCalledWith(
+                '/api/projects/42/file_system/note-1/move/',
+                expect.objectContaining({
+                    method: 'POST',
+                    body: JSON.stringify({
+                        new_path: storedName.endsWith('.md') ? 'Archive/Renamed.md' : 'Archive/Renamed',
+                    }),
+                })
+            )
+            expect(fs.resolveReference('Archive/Renamed.md', '/posthog/files', 'notebook')).toBe('note-1')
+            expect(() => fs.resolveReference('Research/Notes.md', '/posthog/files')).toThrow('No project file')
+            expect(fs.root.children!.get('files')!.children!.get('Archive')!.children!.get('Renamed.md')).toBe(note)
+            const rename = await request(20, new NinePWriter().number(5, 4).number(2, 4).string('Published'))
+            expect(rename.type).toBe(21)
+            expect(apiMutator).toHaveBeenLastCalledWith(
+                '/api/projects/42/file_system/created/move/',
+                expect.objectContaining({
+                    body: JSON.stringify({ new_path: 'Published' }),
+                })
+            )
+            expect(fs.resolveReference('Published/Renamed.md', '/posthog/files', 'notebook')).toBe('note-1')
+            expect(notebooksRetrieve).not.toHaveBeenCalled()
+            jest.mocked(notebooksPartialUpdate).mockResolvedValue({ ...notebook, version: 8 })
+            await opened.save!(new TextEncoder().encode('Edit after move'))
+            expect(notebooksPartialUpdate).toHaveBeenCalledWith(
+                '42',
+                'note-1',
+                expect.objectContaining({ version: 7 }),
+                expect.anything()
+            )
+            const collision = await move(2, 'Published', 2, 'Research')
+            expect(collision.type).toBe(7)
+            expect(collision.body.number(4)).toBe(17)
+            const cycle = await move(2, 'Published', 5, 'Nested')
+            expect(cycle.type).toBe(7)
+            expect(cycle.body.number(4)).toBe(22)
+            const outside = await move(2, 'Published', 1, 'Outside')
+            expect(outside.type).toBe(7)
+            expect(outside.body.number(4)).toBe(30)
+            expect(apiMutator).toHaveBeenCalledTimes(2)
+            jest.mocked(apiMutator).mockRejectedValue(new Error('Permission denied'))
+            expect((await move(5, 'Renamed.md', 3, 'Denied.md')).type).toBe(7)
+            expect(fs.resolveReference('Published/Renamed.md', '/posthog/files', 'notebook')).toBe('note-1')
+            expect(() => fs.resolveReference('Research/Denied.md', '/posthog/files')).toThrow('No project file')
+        }
+    )
 
     it('loads every page and keeps legacy notebooks and duplicate names accessible', async () => {
         jest.mocked(fileSystemList)
