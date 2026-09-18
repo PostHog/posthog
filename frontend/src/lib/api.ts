@@ -308,10 +308,6 @@ export interface CountedPaginatedResponseWithUsers<T> extends CountedPaginatedRe
     users: UserBasicType[]
 }
 
-export interface ActivityLogPaginatedResponse<T> extends PaginatedResponse<T> {
-    count: number
-}
-
 export interface ApiMethodOptions {
     signal?: AbortSignal
     headers?: Record<string, any>
@@ -2655,7 +2651,7 @@ const api = {
             props: ActivityLogProps,
             page: number = 1,
             projectId: ProjectType['id'] = ApiConfig.getCurrentProjectId()
-        ): Promise<ActivityLogPaginatedResponse<ActivityLogItem>> {
+        ): Promise<PaginatedResponse<ActivityLogItem>> {
             const scopes = Array.isArray(props.scope) ? [...props.scope] : [props.scope]
 
             // The experiment activity endpoint merges in entries from the experiment's holdout

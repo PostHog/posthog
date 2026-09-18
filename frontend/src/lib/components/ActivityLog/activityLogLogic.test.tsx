@@ -158,6 +158,34 @@ describe('the activity log logic', () => {
         })
     })
 
+    describe('pagination', () => {
+        beforeEach(() => {
+            useMocks({
+                get: {
+                    [`/api/projects/${MOCK_TEAM_ID}/feature_flags/activity/`]: ({ request }) => [
+                        200,
+                        {
+                            results: featureFlagsActivityResponseJson,
+                            next: new URL(request.url).searchParams.get('page') === '2' ? null : 'a provided url',
+                        },
+                    ],
+                },
+            })
+            initKeaTests()
+            logic = activityLogLogic({ scope: ActivityScope.FEATURE_FLAG })
+            logic.mount()
+        })
+
+        it('offers a next page only while the API reports one', async () => {
+            await expectLogic(logic).toDispatchActions(['fetchActivitySuccess'])
+            expect(logic.values.pagination.onForward).toBeTruthy()
+
+            logic.actions.setPage(2)
+            await expectLogic(logic).toDispatchActions(['fetchActivitySuccess'])
+            expect(logic.values.pagination.onForward).toBeUndefined()
+        })
+    })
+
     describe('incident regression test for #inc-2023-03-09-us-cloud-ui-unavailable-when-users-have-a-notification', () => {
         it('backend sends unexpected field and describer should not explode', () => {
             expect(() => {

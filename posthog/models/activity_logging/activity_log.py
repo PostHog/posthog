@@ -7,7 +7,6 @@ from django.conf import settings
 from django.contrib.auth.models import AnonymousUser
 from django.contrib.postgres.indexes import GinIndex
 from django.core.exceptions import FieldDoesNotExist, ObjectDoesNotExist
-from django.core.paginator import EmptyPage, Paginator
 from django.db import models, transaction
 from django.db.models import QuerySet
 from django.db.models.signals import post_save
@@ -1439,7 +1438,6 @@ def bulk_log_activity(
 
 @dataclasses.dataclass(frozen=True)
 class ActivityPage:
-    total_count: int
     limit: int
     has_next: bool
     has_previous: bool
@@ -1447,25 +1445,16 @@ class ActivityPage:
 
 
 def get_activity_page(activity_query: models.QuerySet, limit: int = 10, page: int = 1) -> ActivityPage:
-    paginator = Paginator(activity_query, limit)
-    try:
-        activity_page = paginator.page(page)
-    except EmptyPage:
-        # A page after the last one holds no records. It is not an error.
-        return ActivityPage(
-            results=[],
-            total_count=paginator.count,
-            limit=limit,
-            has_next=False,
-            has_previous=page > 1,
-        )
+    # One row past the page answers "is there a next page?". A total count makes Postgres read every
+    # matching row, which these list queries cannot serve from an index.
+    offset = (page - 1) * limit
+    rows = list(activity_query[offset : offset + limit + 1])
 
     return ActivityPage(
-        results=list(activity_page.object_list),
-        total_count=paginator.count,
+        results=rows[:limit],
         limit=limit,
-        has_next=activity_page.has_next(),
-        has_previous=activity_page.has_previous(),
+        has_next=len(rows) > limit,
+        has_previous=page > 1,
     )
 
 

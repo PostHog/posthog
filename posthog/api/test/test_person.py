@@ -18,7 +18,9 @@ from posthog.test.base import (
 )
 from unittest import mock
 
+from django.db import connection
 from django.test import SimpleTestCase
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 from clickhouse_driver.errors import ServerException
@@ -1899,9 +1901,35 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         page = response.json()
         self.assertEqual(page["results"], [])
-        self.assertEqual(page["total_count"], 1)
         self.assertIsNone(page["next"])
         self.assertIsNotNone(page["previous"])
+
+    def test_activity_page_next_link_stops_at_the_last_page_without_counting(self):
+        person = _create_person(
+            team=self.team,
+            distinct_ids=["1"],
+            properties={"$browser": "whatever"},
+            immediate=True,
+        )
+        created_person = self.client.get(f"/api/person/{person.uuid}/").json()
+        for value in ["b", "c"]:
+            created_person["properties"]["a"] = value
+            self.client.patch(f"/api/person/{person.uuid}/", created_person)
+
+        with CaptureQueriesContext(connection) as captured:
+            first_page = self.client.get("/api/person/activity?limit=1&page=1").json()
+        last_page = self.client.get("/api/person/activity?limit=1&page=2").json()
+
+        self.assertEqual(len(first_page["results"]), 1)
+        self.assertIsNotNone(first_page["next"])
+        self.assertEqual(len(last_page["results"]), 1)
+        self.assertIsNone(last_page["next"])
+        activity_counts = [
+            query["sql"]
+            for query in captured.captured_queries
+            if "posthog_activitylog" in query["sql"] and "COUNT(" in query["sql"].upper()
+        ]
+        self.assertEqual(activity_counts, [])
 
     @parameterized.expand(
         [
