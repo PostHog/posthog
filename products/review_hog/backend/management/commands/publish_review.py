@@ -78,7 +78,12 @@ class Command(BaseCommand):
             raise CommandError(f"No review found for {repository}#{pr_number} on team {team_id}. Run run_review first.")
         if report.run_count == 0 or not report.report_markdown:
             raise CommandError(f"Review for {repository}#{pr_number} hasn't completed a run yet; nothing to publish.")
-        head_sha = report.head_sha
+        # The head the latest COMPLETED turn reviewed. `head_sha` advances at turn START, so a turn
+        # that fetched a new commit and then failed leaves it pointing past the findings published
+        # here — positioning them against that diff anchors comments on shifted lines and burns the
+        # published-head watermark on a commit the turn never reviewed. Pre-column rows fall back,
+        # like every other latest-turn reader.
+        head_sha = report.completed_head_sha or report.head_sha
         if not head_sha:
             raise CommandError(f"Review for {repository}#{pr_number} has no reviewed head_sha; nothing to publish.")
 
