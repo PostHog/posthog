@@ -6,6 +6,7 @@ to the topic creator, idempotent on ``call.id``.
 """
 
 from collections.abc import Mapping
+from datetime import datetime
 from typing import Any
 
 from django.db import connection, transaction
@@ -205,6 +206,19 @@ def _capture_user_interview_event(
         )
 
 
+def _backdate_to_receipt(interview: UserInterview, received_at: str | None) -> None:
+    """Stamp the interview with the time the endpoint accepted the report, not the worker's."""
+    if not received_at:
+        return
+    try:
+        accepted_at = datetime.fromisoformat(received_at)
+    except ValueError:
+        return
+    # created_at is auto_now_add, so the row must be updated after the insert.
+    UserInterview.objects.filter(pk=interview.pk).update(created_at=accepted_at)
+    interview.created_at = accepted_at
+
+
 def handle_vapi_webhook_delivery(
     payload: Mapping[str, Any],
     event_type: str,
@@ -340,6 +354,7 @@ def handle_vapi_webhook_delivery(
             created_by=topic.created_by,
             classifications=classifications,
         )
+        _backdate_to_receipt(interview, received_at)
         # Collapse the abandoned partial an accidental refresh leaves behind: when a shared-link
         # respondent comes back (same respondent_key) and finishes, drop their earlier abandoned
         # rows so the topic shows one response per respondent instead of a junk trail.
