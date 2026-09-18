@@ -1352,10 +1352,23 @@ class OrganizationFeatureFlagView(
             # FeatureFlagSerializer validates create/update semantics from the request method.
             request.method = "PATCH" if existing_flag else "POST"
             try:
+                # The copied payload holds the source flag's fields, so the target project's own
+                # tag and evaluation context requirements cannot apply to it. Remove this once
+                # #102783 makes a copy carry tags and evaluation contexts.
+                copy_exemption = {"skip_team_flag_requirements": True}
                 if existing_flag:
-                    saved_flag = update_flag(existing_flag, flag_data, team=target_team, user=user, request=request)
+                    saved_flag = update_flag(
+                        existing_flag,
+                        flag_data,
+                        team=target_team,
+                        user=user,
+                        request=request,
+                        serializer_context=copy_exemption,
+                    )
                 else:
-                    saved_flag = create_flag(flag_data, team=target_team, user=user, request=request)
+                    saved_flag = create_flag(
+                        flag_data, team=target_team, user=user, request=request, serializer_context=copy_exemption
+                    )
                 if target_flag_access_context is not None:
                     target_flag_access_context.flags_by_key[source_flag.key] = saved_flag
             except IntegrityError as e:
