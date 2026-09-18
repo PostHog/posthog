@@ -23,6 +23,8 @@ from products.tasks.backend.temporal.process_task.activities.mark_pr_ready impor
         ("different_pr", False),
         ("different_repository", False),
         ("different_branch", False),
+        ("unset_branch", True),
+        ("unset_branch_changed", False),
         ("new_commit", False),
         ("new_feedback", False),
         ("github_failure", False),
@@ -64,6 +66,10 @@ def test_activity_rechecks_run_and_pr_before_requesting_review(monkeypatch, chan
         context = replace(context, repository="example/other")
     elif change == "different_branch":
         raw["head_ref"] = "other"
+    elif change in ("unset_branch", "unset_branch_changed"):
+        run.branch = None
+        if change == "unset_branch_changed":
+            raw["head_ref"] = "other"
     elif change == "new_commit":
         raw["head_sha"] = "head2"
     elif change == "new_feedback":
