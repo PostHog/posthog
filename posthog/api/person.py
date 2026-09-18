@@ -303,6 +303,8 @@ class PersonBulkDeleteResponseSerializer(serializers.Serializer):
         "error status, so a 202 with entries means those persons were not deleted and the request should be "
         "retried for them, except entries whose step is 'log_activity': that person was deleted, but the "
         "activity log entry was not written. "
+        "A 'tombstone_clickhouse' step means the person was removed from the database but analytics "
+        "was not told, so it stays visible there until the next repair. "
         "Always empty when the deletion was queued (see persons_queued_for_deletion). "
         "Contact support if this persists.",
     )
