@@ -3,18 +3,12 @@ import datetime as dt
 from django.db.models import Q
 
 from products.alerts.backend.facade.contracts import AlertBatchKey, AlertDemand, SourceKind
+from products.alerts.backend.logic.platform_lifecycle import slot_of
 from products.alerts.backend.models import PlatformAlertConfiguration
 
 # Keys per source in one manifest. A key is a team id and a minute, so unlike an id list it does not
 # grow with a team's alert count, and this bound is about how many distinct chunks one tick starts.
 DISCOVERY_LIMIT_PER_SOURCE = 1000
-
-
-def _slot(next_check_at: dt.datetime | None, cutoff: dt.datetime) -> str:
-    """The minute a configuration is due for. Load spreading moves alerts between minutes rather
-    than within one, so flooring here loses nothing it was meant to spread. A configuration that
-    has never been checked belongs to the tick that found it."""
-    return (next_check_at or cutoff).replace(second=0, microsecond=0).isoformat()
 
 
 def discover_demand(cutoff: str, limit_per_source: int = DISCOVERY_LIMIT_PER_SOURCE) -> AlertDemand:
@@ -35,17 +29,17 @@ def discover_demand(cutoff: str, limit_per_source: int = DISCOVERY_LIMIT_PER_SOU
     )
 
     keys_by_source: dict[SourceKind, list[AlertBatchKey]] = {}
-    seen: dict[SourceKind, set[tuple[int, str]]] = {}
+    seen: dict[SourceKind, set[AlertBatchKey]] = {}
     omitted_by_source: dict[SourceKind, int] = {}
     for raw_source, team_id, next_check_at in due.iterator():
         source = SourceKind(raw_source)
-        key = AlertBatchKey(team_id=team_id, slot=_slot(next_check_at, cutoff_time))
+        key = AlertBatchKey(team_id=team_id, slot=slot_of(next_check_at, cutoff_time))
         source_seen = seen.setdefault(source, set())
-        if (key.team_id, key.slot) in source_seen:
+        if key in source_seen:
             continue
+        source_seen.add(key)
         keys = keys_by_source.setdefault(source, [])
         if len(keys) < limit_per_source:
-            source_seen.add((key.team_id, key.slot))
             keys.append(key)
         else:
             omitted_by_source[source] = omitted_by_source.get(source, 0) + 1

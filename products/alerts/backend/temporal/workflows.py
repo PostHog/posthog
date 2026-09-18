@@ -29,6 +29,8 @@ with workflow.unsafe.imports_passed_through():
 
     from asgiref.sync import sync_to_async
 
+    from posthog.sync import database_sync_to_async_pool
+
     from products.alerts.backend.facade.contracts import (
         AlertDeliveryPreview,
         AlertDemand,
@@ -67,7 +69,7 @@ class AlertsProductInputs:
 
 @activity.defn
 async def alerts_product_discover_demand_activity(inputs: DemandDiscoveryInputs) -> AlertDemand:
-    return discover_demand(inputs.cutoff)
+    return await database_sync_to_async_pool(discover_demand)(inputs.cutoff)
 
 
 @activity.defn
@@ -98,7 +100,7 @@ async def alerts_product_deliver_preview_activity(preview: AlertDeliveryPreview)
             for transition in preview.transitions
         ],
     )
-    safe_record("deliveries_previewed_total", increment_deliveries_previewed, preview.source.value)
+    safe_record(increment_deliveries_previewed, preview.source.value)
 
 
 @workflow.defn(name="alerts-product-deliver-preview")
