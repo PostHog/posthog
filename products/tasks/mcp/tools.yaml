@@ -481,12 +481,12 @@ tools:
         title: Create task and start or schedule run
         description: >
             Create a task and start its first background run, or set `scheduled_at` for a one-off run within 90 days.
-            Times without an offset use UTC. Confirm the returned time; execution starts at or after that time.
-            Omit model fields to use saved defaults. Use `tasks-models-retrieve` before an explicit model choice.
-            Set `description` to the agent's instructions. For code
-            tasks, set `repository` to `organization/repo`. Omit `branch` to use the default branch. Check `run_error`
-            if the run does not start. Poll `tasks-runs-list` or `tasks-runs-retrieve` for progress. If the response is
-            lost, search for the task before you retry. A repeated call can create another task.
+            Times without an offset use UTC. Confirm the returned time; execution starts at or after that time. Omit
+            model fields to use saved defaults. Use `tasks-models-retrieve` before an explicit model choice. Set
+            `description` to the agent's instructions. For code tasks, set `repository` to `organization/repo`. Omit
+            `branch` to use the default branch. Check `run_error` if the run does not start. Poll `tasks-runs-list` or
+            `tasks-runs-retrieve` for progress. If the response is lost, search for the task before you retry. A
+            repeated call can create another task.
         feature_flag: tasks-mcp-agent-run-start
         response:
             include:
@@ -668,13 +668,12 @@ tools:
         enrich_url: '{id}'
         title: Start or schedule task run
         description: >
-            Start a cloud run for an existing task, or set `scheduled_at` for a one-off run within 90 days.
-            Times without an offset use UTC. Confirm the returned time; execution starts at or after that time.
-            Omit model fields to use saved defaults, or the previous run's model on resume.
-            Use `tasks-models-retrieve` before an explicit model choice. Use `pending_user_message` for follow-up work and
-            `resume_from_run_id` to continue a prior run. Poll `tasks-runs-list` or `tasks-runs-retrieve` for progress.
-            Check `run_error` for a start failure. If the response is lost, check the runs before you retry. A repeated
-            call can start another run.
+            Start a cloud run for an existing task, or set `scheduled_at` for a one-off run within 90 days. Times
+            without an offset use UTC. Confirm the returned time; execution starts at or after that time. Omit model
+            fields to use saved defaults, or the previous run's model on resume. Use `tasks-models-retrieve` before an
+            explicit model choice. Use `pending_user_message` for follow-up work and `resume_from_run_id` to continue a
+            prior run. Poll `tasks-runs-list` or `tasks-runs-retrieve` for progress. Check `run_error` for a start
+            failure. If the response is lost, check the runs before you retry. A repeated call can start another run.
         feature_flag: tasks-mcp-agent-run-start
         response:
             include:
