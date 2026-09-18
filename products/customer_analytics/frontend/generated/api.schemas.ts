@@ -2365,6 +2365,17 @@ export const AnnouncementStatusEnumApi = {
 } as const
 
 /**
+ * * `bot` - SupportHog
+ * * `user` - The person who created it
+ */
+export type AnnouncementSendAsEnumApi = (typeof AnnouncementSendAsEnumApi)[keyof typeof AnnouncementSendAsEnumApi]
+
+export const AnnouncementSendAsEnumApi = {
+    Bot: 'bot',
+    User: 'user',
+} as const
+
+/**
  * * `pending` - Pending
  * * `sent` - Sent
  * * `failed` - Failed
@@ -2415,6 +2426,13 @@ export interface AnnouncementApi {
      * * `partially_failed` - Partially failed
      * * `failed` - Failed */
     readonly status: AnnouncementStatusEnumApi
+    /** Slack identity the message is posted under: 'bot' posts as SupportHog, 'user' posts under the Slack name and avatar of the person sending it (matched by their PostHog email).
+     *
+     * * `bot` - SupportHog
+     * * `user` - The person who created it */
+    send_as?: AnnouncementSendAsEnumApi
+    /** Slack display name the message was posted under when send_as is 'user'; empty otherwise. */
+    readonly sender_display_name: string
     /** Number of channels this announcement targets. */
     readonly total_channels: number
     /** Number of channels the message was successfully delivered to. */

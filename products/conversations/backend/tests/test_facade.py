@@ -6,6 +6,7 @@ from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
 from django.conf import settings
+from django.core.cache import cache
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -17,11 +18,13 @@ from posthog.models.comment import Comment
 from products.conversations.backend.channel_summary_ids import build_channel_summary_workflow_id
 from products.conversations.backend.facade.api import (
     SupportMessageSendError,
+    SupportSlackSender,
     get_public_human_replies,
     list_account_ticket_messages,
     list_account_tickets,
     list_resolved_ticket_revisions,
     post_support_message,
+    resolve_support_slack_sender,
     trigger_immediate_channel_summary,
 )
 from products.conversations.backend.models.constants import Status
@@ -58,6 +61,43 @@ class TestPostSupportMessage(BaseTest):
         assert kwargs["text"] == "hello team"
         assert kwargs["username"] == "SupportBot"
         assert kwargs["icon_url"] == "https://example.com/icon.png"
+
+    @patch(CLIENT)
+    def test_sender_overrides_the_bot_identity(self, mock_get_client: MagicMock):
+        self.team.conversations_settings = {
+            "slack_bot_display_name": "SupportBot",
+            "slack_bot_icon_url": "https://example.com/bot.png",
+        }
+        self.team.save()
+        client = MagicMock()
+        client.chat_postMessage.return_value = {"ts": "111.222"}
+        mock_get_client.return_value = client
+
+        post_support_message(
+            self.team.pk,
+            "C1",
+            "hello team",
+            sender=SupportSlackSender(name="Ada", icon_url="https://example.com/ada.png"),
+        )
+
+        kwargs = client.chat_postMessage.call_args.kwargs
+        assert kwargs["username"] == "Ada"
+        assert kwargs["icon_url"] == "https://example.com/ada.png"
+
+    @patch(CLIENT)
+    def test_sender_without_avatar_keeps_the_name_only(self, mock_get_client: MagicMock):
+        self.team.conversations_settings = {"slack_bot_icon_url": "https://example.com/bot.png"}
+        self.team.save()
+        client = MagicMock()
+        client.chat_postMessage.return_value = {"ts": "111.222"}
+        mock_get_client.return_value = client
+
+        post_support_message(self.team.pk, "C1", "hi", sender=SupportSlackSender(name="Ada", icon_url=""))
+
+        kwargs = client.chat_postMessage.call_args.kwargs
+        assert kwargs["username"] == "Ada"
+        # The bot icon would contradict the name, so it is not applied.
+        assert "icon_url" not in kwargs
 
     @parameterized.expand(
         [
@@ -96,6 +136,33 @@ class TestPostSupportMessage(BaseTest):
             post_support_message(self.team.pk, "C1", "hi")
         assert ctx.exception.code == expected_code
         assert ctx.exception.retry_after == expected_retry_after
+
+
+class TestResolveSupportSlackSender(BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        cache.clear()
+
+    def _client_returning(self, data: dict) -> MagicMock:
+        client = MagicMock()
+        client.users_lookupByEmail.return_value.data = data
+        return client
+
+    @patch(CLIENT)
+    def test_resolves_workspace_member_by_email(self, mock_get_client: MagicMock):
+        mock_get_client.return_value = self._client_returning(
+            {"ok": True, "user": {"profile": {"display_name": "Ada", "image_72": "https://example.com/ada.png"}}}
+        )
+
+        sender = resolve_support_slack_sender(self.team.pk, "ada@example.com")
+
+        assert sender == SupportSlackSender(name="Ada", icon_url="https://example.com/ada.png")
+
+    @patch(CLIENT)
+    def test_returns_none_when_no_slack_user_has_the_email(self, mock_get_client: MagicMock):
+        mock_get_client.return_value = self._client_returning({"ok": False, "error": "users_not_found"})
+
+        assert resolve_support_slack_sender(self.team.pk, "nobody@example.com") is None
 
 
 class TestListAccountTickets(BaseTest):

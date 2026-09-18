@@ -23,6 +23,7 @@ from temporalio.exceptions import WorkflowAlreadyStartedError
 from temporalio.service import RPCError
 
 from posthog.dataclasses import frozen
+from posthog.helpers.slack_identity import resolve_slack_profile_by_email
 from posthog.ingress.contracts import DeliveryOwnership, WebhookDelivery
 from posthog.models.comment import Comment
 from posthog.models.integration import Integration
@@ -42,6 +43,7 @@ from products.conversations.backend.facade.types import (
     PublicHumanReplies as PublicHumanReplies,
     ResolvedTicketRevision as ResolvedTicketRevision,
     SupportChannel as SupportChannel,
+    SupportSlackSender as SupportSlackSender,
     SupportTicketMessage as SupportTicketMessage,
     TicketSummary as TicketSummary,
 )
@@ -209,9 +211,55 @@ def list_support_bot_channels(team_id: int, *, members_only: bool = False) -> li
     return [SupportChannel(id=c["id"], name=c["name"], is_member=c["is_member"]) for c in channels]
 
 
-def post_support_message(team_id: int, channel_id: str, text: str) -> str:
+def _message_identity_kwargs(team: Team, sender: SupportSlackSender | None) -> dict[str, Any]:
+    """``chat.postMessage`` overrides for the name and avatar a message appears under."""
+    if sender is not None:
+        # The bot icon next to a person's name would contradict it, so it is not a fallback.
+        return {"username": sender.name, **({"icon_url": sender.icon_url} if sender.icon_url else {})}
+
+    kwargs: dict[str, Any] = {}
+    support_settings = team.conversations_settings or {}
+    if bot_display_name := support_settings.get("slack_bot_display_name"):
+        kwargs["username"] = bot_display_name
+    if bot_icon_url := support_settings.get("slack_bot_icon_url"):
+        kwargs["icon_url"] = bot_icon_url
+    return kwargs
+
+
+def resolve_support_slack_sender(team_id: int, email: str) -> SupportSlackSender | None:
+    """The Slack name and avatar of the workspace member with this email, or ``None`` when
+    the email matches no Slack user.
+
+    Lets a caller post as a teammate's profile rather than the bot's; the message is still
+    a bot message, Slack only renders it under that name and avatar.
+
+    Raises :class:`SupportSlackNotConfigured` when the bot isn't connected.
+    """
+    try:
+        team = Team.objects.get(id=team_id)
+        client = get_slack_client(team)
+    except (Team.DoesNotExist, ValueError):
+        raise SupportSlackNotConfigured()
+
+    profile = resolve_slack_profile_by_email(client, email)
+    if not profile or not profile.get("name"):
+        return None
+    return SupportSlackSender(name=str(profile["name"]), icon_url=str(profile.get("avatar") or ""))
+
+
+def post_support_message(
+    team_id: int,
+    channel_id: str,
+    text: str,
+    *,
+    sender: SupportSlackSender | None = None,
+) -> str:
     """Post ``text`` to a Slack channel as the SupportHog bot, applying the team's
     configured bot display name and icon. Returns the posted message's Slack ts.
+
+    ``sender`` overrides that identity for this message only — Slack renders it under the
+    given name and avatar (needs the ``chat:write.customize`` scope), which is how a
+    message can look like it comes from a teammate instead of the bot.
 
     Raises :class:`SupportSlackNotConfigured` when the bot isn't connected and
     :class:`SupportMessageSendError` when the post fails.
@@ -222,12 +270,7 @@ def post_support_message(team_id: int, channel_id: str, text: str) -> str:
     except (Team.DoesNotExist, ValueError):
         raise SupportSlackNotConfigured()
 
-    message_kwargs: dict[str, Any] = {}
-    support_settings = team.conversations_settings or {}
-    if bot_display_name := support_settings.get("slack_bot_display_name"):
-        message_kwargs["username"] = bot_display_name
-    if bot_icon_url := support_settings.get("slack_bot_icon_url"):
-        message_kwargs["icon_url"] = bot_icon_url
+    message_kwargs = _message_identity_kwargs(team, sender)
 
     try:
         response = client.chat_postMessage(channel=channel_id, text=text, **message_kwargs)

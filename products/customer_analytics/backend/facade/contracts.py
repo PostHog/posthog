@@ -1316,6 +1316,8 @@ class AnnouncementView:
     short_id: str = ""
     message: str = ""
     status: str = ""
+    send_as: str = "bot"
+    sender_display_name: str = ""
     total_channels: int = 0
     sent_count: int = 0
     failed_count: int = 0

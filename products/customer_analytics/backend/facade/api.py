@@ -5313,6 +5313,8 @@ def _to_announcement_view(announcement) -> contracts.AnnouncementView:
         short_id=announcement.short_id,
         message=announcement.message,
         status=announcement.status,
+        send_as=announcement.send_as,
+        sender_display_name=announcement.sender_display_name,
         total_channels=announcement.total_channels,
         sent_count=announcement.sent_count,
         failed_count=announcement.failed_count,
@@ -5344,9 +5346,11 @@ def get_announcement(team_id: int, short_id: str) -> contracts.AnnouncementView 
     return _to_announcement_view(announcement) if announcement is not None else None
 
 
-def create_announcement(*, team_id: int, user: "User", message: str, channels: list[str]) -> contracts.AnnouncementView:
+def create_announcement(
+    *, team_id: int, user: "User", message: str, channels: list[str], send_as: str = "bot"
+) -> contracts.AnnouncementView:
     team = Team.objects.get(id=team_id)
-    announcement = _announcements_logic.create_announcement(team, user, message, channels)
+    announcement = _announcements_logic.create_announcement(team, user, message, channels, send_as)
     # Dispatch only after the delivery rows commit; a rollback must not leave a phantom task.
     transaction.on_commit(lambda: send_announcement.delay(str(announcement.id), team_id))
     return _to_announcement_view(announcement)
