@@ -8,9 +8,25 @@ import { initKeaTests } from '~/test/init'
 
 import { SessionRecordingContent } from './SessionRecordingTab'
 
+const SESSION_ID = '0199aaaa-bbbb-cccc-dddd-eeeeffff0000'
+
+// What the existence lookup has answered for this session, read fresh on every render.
+const mockRecordingExists: { value: boolean | undefined } = { value: undefined }
+
 jest.mock('scenes/session-recordings/player/SessionRecordingPlayer', () => ({
     SessionRecordingPlayer: () => <div data-attr="session-recording-player" />,
 }))
+
+jest.mock('lib/components/ViewRecordingButton/sessionRecordingInfoLogic', () => {
+    const kea = jest.requireActual('kea')
+    return {
+        sessionRecordingInfoLogic: kea.kea([
+            kea.path(['test', 'sessionRecordingInfoLogicStub']),
+            kea.actions({ checkRecordingInfo: (sessionId: string) => ({ sessionId }) }),
+            kea.selectors({ getRecordingExists: [() => [], () => () => mockRecordingExists.value] }),
+        ]),
+    }
+})
 
 // The real logic connects to the recording data coordinator, which mounts the whole playback
 // pipeline. The tab only reads four settled values from it, so a static stand-in is enough.
@@ -31,9 +47,12 @@ jest.mock('./sessionTabLogic', () => {
     }
 })
 
-const SESSION_ID = '0199aaaa-bbbb-cccc-dddd-eeeeffff0000'
+function renderTab(recordingStatus?: string): HTMLElement {
+    const properties = {
+        $session_id: SESSION_ID,
+        $recording_status: recordingStatus,
+    } as unknown as ErrorEventProperties
 
-function renderTab(properties: ErrorEventProperties): HTMLElement {
     const { container } = render(
         <Provider>
             <BindLogic logic={errorPropertiesLogic} props={{ id: 'exception-uuid', properties }}>
@@ -50,35 +69,37 @@ const playerIn = (container: HTMLElement): Element | null =>
 describe('SessionRecordingContent', () => {
     beforeEach(() => {
         initKeaTests()
+        mockRecordingExists.value = undefined
     })
 
     it('explains the miss on the event instead of mounting a player that can only 404', () => {
-        const container = renderTab({
-            $session_id: SESSION_ID,
-            $recording_status: 'disabled',
-            $has_recording: false,
-        } as unknown as ErrorEventProperties)
+        mockRecordingExists.value = false
+        const container = renderTab('disabled')
 
         expect(container.textContent).toContain('Replay was not active when capturing this event')
         expect(playerIn(container)).toBeNull()
     })
 
-    it('mounts the player when the recorder was running', () => {
-        const container = renderTab({
-            $session_id: SESSION_ID,
-            $recording_status: 'active',
-        } as unknown as ErrorEventProperties)
+    it('falls back to the plain miss when the recorder reported no status', () => {
+        mockRecordingExists.value = false
+        const container = renderTab(undefined)
+
+        expect(container.textContent).toContain('No recording for this event')
+        expect(playerIn(container)).toBeNull()
+    })
+
+    // Loading, empty and error are three different screens — an unanswered lookup is not "empty",
+    // and an inactive recorder status alone must not retire the player.
+    it('keeps the player while the existence lookup has not answered', () => {
+        mockRecordingExists.value = undefined
+        const container = renderTab('disabled')
 
         expect(playerIn(container)).not.toBeNull()
     })
 
-    // A recorder that reports itself off can still sit in a session recorded earlier.
     it('keeps the player when a recording is known to exist', () => {
-        const container = renderTab({
-            $session_id: SESSION_ID,
-            $recording_status: 'disabled',
-            $has_recording: true,
-        } as unknown as ErrorEventProperties)
+        mockRecordingExists.value = true
+        const container = renderTab('disabled')
 
         expect(playerIn(container)).not.toBeNull()
     })

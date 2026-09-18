@@ -1,9 +1,11 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
+import { useEffect } from 'react'
 
 import { IconExternal } from '@posthog/icons'
 import { LemonBanner } from '@posthog/lemon-ui'
 
 import { errorPropertiesLogic } from 'lib/components/Errors/errorPropertiesLogic'
+import { sessionRecordingInfoLogic } from 'lib/components/ViewRecordingButton/sessionRecordingInfoLogic'
 import { recordingDisabledReason } from 'lib/components/ViewRecordingButton/ViewRecordingButton'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { Button, TabsContent } from 'lib/ui/quill'
@@ -23,16 +25,21 @@ export function SessionRecordingTab(): JSX.Element {
 }
 
 export function SessionRecordingContent(): JSX.Element {
-    const { properties, recordingStatus } = useValues(errorPropertiesLogic)
+    const { recordingStatus } = useValues(errorPropertiesLogic)
     const { recordingProps, recordingTimestamp, isTimestampOutsideRecording, sessionId } = useValues(sessionTabLogic)
+    const { getRecordingExists } = useValues(sessionRecordingInfoLogic)
+    const { checkRecordingInfo } = useActions(sessionRecordingInfoLogic)
 
-    // The event already carries why replay was not running when it was captured. Say that, rather
-    // than mounting a player that can only 404 and then explain the miss in project-wide terms.
-    // A recorder that reports itself off can still sit in a session recorded earlier, so a known
-    // recording always wins and the player stays.
-    const hasRecording = properties?.$has_recording as boolean | undefined
+    useEffect(() => {
+        checkRecordingInfo(sessionId)
+    }, [sessionId, checkRecordingInfo])
+
+    // The event's own `$has_recording` is not authoritative: it can be missing, or snapshot false
+    // before the replay rows land. So the existence lookup decides whether there is anything to
+    // play, and until it answers the player stays and shows its own loading state. Only a confirmed
+    // miss gets the explanation, with `$recording_status` choosing the wording.
     const noRecordingReason =
-        hasRecording === true ? null : recordingDisabledReason(sessionId, recordingStatus, hasRecording)
+        getRecordingExists(sessionId) === false ? recordingDisabledReason(sessionId, recordingStatus, false) : null
 
     if (noRecordingReason) {
         return (

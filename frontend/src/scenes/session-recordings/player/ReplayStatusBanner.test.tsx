@@ -1,6 +1,6 @@
 import { TeamPublicType, TeamType } from '~/types'
 
-import { replayOptInStatus } from './RecordingNotFound'
+import { replayOptInStatus } from './ReplayStatusBanner'
 
 const teamWithOptIn = (session_recording_opt_in: boolean): TeamType =>
     ({ id: 1, session_recording_opt_in }) as unknown as TeamType
