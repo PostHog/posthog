@@ -15,6 +15,7 @@ from . import contracts
 AlertValidationError = _alerts.AlertValidationError
 
 NATIVE_ALERTS_FLAG = _alerts.NATIVE_ALERTS_FLAG
+MAX_THROTTLE_SECONDS = _alerts.MAX_THROTTLE_SECONDS
 native_alerts_enabled = _alerts.native_alerts_enabled
 
 # Presentation code reads choice values from here so it never imports Django models.
@@ -36,6 +37,10 @@ def _to_alert(alert: ErrorTrackingAlertModel) -> contracts.ErrorTrackingAlert:
                 channel_type=destination.channel_type,
                 integration_id=destination.integration_id,
                 config=dict(destination.config),
+                last_delivered_at=destination.last_delivered_at,
+                last_failure_at=destination.last_failure_at,
+                last_error=destination.last_error,
+                consecutive_failures=destination.consecutive_failures,
                 created_at=destination.created_at,
                 updated_at=destination.updated_at,
             )

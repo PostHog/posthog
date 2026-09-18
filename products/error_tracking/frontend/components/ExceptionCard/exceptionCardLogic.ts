@@ -5,6 +5,7 @@ import posthog from 'lib/posthog-typed'
 export type ExceptionCardLogicProps = {
     issueId: string
     loading: boolean
+    logicKey?: string
 }
 
 export type ExceptionCardTab = 'stack_trace' | 'properties' | 'timeline' | 'recording' | 'logs'
@@ -63,7 +64,7 @@ export type exceptionCardLogicType = MakeLogicType<
 
 export const exceptionCardLogic = kea<exceptionCardLogicType>([
     path((key) => ['products', 'error_tracking', 'ExceptionCard', key]),
-    key((props) => props.issueId),
+    key((props) => props.logicKey ?? props.issueId),
     props({} as ExceptionCardLogicProps),
 
     actions({
