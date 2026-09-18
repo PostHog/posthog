@@ -1840,11 +1840,16 @@ class SignalReportArtefactSerializer(serializers.ModelSerializer):
                 Mapping[str, User] | None,
                 self.context.get("signals_reviewer_user_uuid_map"),
             )
+            scout_display_names = cast(
+                Mapping[str, str] | None,
+                self.context.get("signals_scout_display_names"),
+            )
             return enrich_reviewer_dicts_with_org_members(
                 obj.team_id,
                 parsed,
                 login_to_user=reviewer_login_map,
                 uuid_to_user=reviewer_uuid_map,
+                scout_display_names=scout_display_names,
             )
 
         if obj.type == SignalReportArtefact.ArtefactType.CHECK_RESULT and isinstance(parsed, dict):
