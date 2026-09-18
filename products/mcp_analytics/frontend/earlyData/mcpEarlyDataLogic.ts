@@ -1,64 +1,40 @@
-import {
-    MakeLogicType,
-    actions,
-    afterMount,
-    connect,
-    isBreakpoint,
-    kea,
-    listeners,
-    path,
-    reducers,
-    selectors,
-} from 'kea'
+import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
+import api from 'lib/api'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
-import { DataTableNode } from '~/queries/schema/schema-general'
+import {
+    DataTableNode,
+    HogQLFilters,
+    MCPHarnessBreakdownItem,
+    MCPModelBreakdownItem,
+    NodeKind,
+} from '~/queries/schema/schema-general'
 
 import { DEFAULT_MCP_ACTIVITY_QUERY, MCP_ACTIVITY_DATA_COLLECTION_ID } from '../components/toolCallFeedQuery'
-import { mcpAnalyticsSessionsActivityOverview, mcpAnalyticsSessionsIntentDigest } from '../generated/api'
-import type { MCPActivityOverviewApi, MCPIntentThemeApi } from '../generated/api.schemas'
+import { mcpAnalyticsSessionsActivityOverview } from '../generated/api'
+import type { MCPActivityOverviewApi } from '../generated/api.schemas'
 import { mcpAnalyticsOnboardingLogic } from '../mcpAnalyticsOnboardingLogic'
 import type { MCPOnboardingSignals } from '../mcpAnalyticsOnboardingLogic'
+import type { HarnessRow, ModelRow } from '../mcpDashboardOverviewLogic'
 import { buildActivitySummary } from './activitySummary'
-import { ChecklistItem, EarlyStats, buildChecklist } from './earlyDataChecklist'
 
-export type { ChecklistItem, EarlyStats } from './earlyDataChecklist'
-
-export interface EarlyRecentCall {
-    timestamp: string
-    tool: string
-    intent: string | null
-    isError: boolean
-    /** Short human-readable error extracted from the tool's response, when the call failed. */
-    errorMessage: string | null
-    durationMs: number | null
-    clientName: string | null
-}
-
-// Frequency-grouped verbatim intents, the fallback shown when no AI digest is available.
-export interface IntentFrequency {
-    intent: string
-    count: number
-}
-
-export interface IntentDigest {
-    digest: string | null
-    intentCount: number
-    themes: readonly MCPIntentThemeApi[]
+export interface EarlyStats {
+    totalCalls: number
+    distinctTools: number
+    distinctSessions: number
+    distinctClients: number
+    callsWithIntent: number
+    errorCalls: number
+    missingCapabilityReports: number
 }
 
 export interface EarlyToolRow {
     tool: string
     calls: number
     errors: number
-}
-
-export interface EarlyClientRow {
-    client: string
-    calls: number
 }
 
 const EMPTY_STATS: EarlyStats = {
@@ -71,6 +47,10 @@ const EMPTY_STATS: EarlyStats = {
     missingCapabilityReports: 0,
 }
 
+// The feed's default range, unfiltered like the feed and the overview endpoint, so every number on
+// the tab describes the same calls. The dashboard applies its own test-account filter.
+export const ACTIVITY_FILTERS: HogQLFilters = { dateRange: { date_from: '-30d' } }
+
 // Refresh cadence for the early view. Slower than the onboarding signal poll: the
 // overview aggregates 30 days of property-reading queries server-side, and "within
 // a minute" is live enough.
@@ -81,14 +61,13 @@ export interface mcpEarlyDataLogicValues {
     signals: MCPOnboardingSignals | null // mcpAnalyticsOnboardingLogic
     currentProjectId: number | string // teamLogic
     activityQuery: DataTableNode
-    checklist: ChecklistItem[]
-    clients: EarlyClientRow[]
-    intentDigest: IntentDigest | null
-    intentDigestLoading: boolean
-    intentFrequencies: IntentFrequency[]
+    harnessRows: HarnessRow[]
+    harnessRowsLoading: boolean
+    hasModelData: boolean
+    modelRows: ModelRow[]
+    modelRowsLoading: boolean
     overview: MCPActivityOverviewApi | null
     overviewLoading: boolean
-    recentCalls: EarlyRecentCall[]
     stats: EarlyStats
     summary: string
     topTools: EarlyToolRow[]
@@ -98,19 +77,34 @@ export interface mcpEarlyDataLogicValues {
 export interface mcpEarlyDataLogicActions {
     reloadActivityQuery: () => {} // dataNodeCollectionLogic
     loadSignals: (_?: void | undefined) => void // mcpAnalyticsOnboardingLogic
-    loadIntentDigest: (_: void) => void
-    loadIntentDigestFailure: (
+    loadHarnessRows: (_: void) => void
+    loadHarnessRowsFailure: (
         error: string,
         errorObject?: any
     ) => {
         error: string
         errorObject?: any
     }
-    loadIntentDigestSuccess: (
-        intentDigest: IntentDigest | null,
+    loadHarnessRowsSuccess: (
+        harnessRows: HarnessRow[],
         payload?: void
     ) => {
-        intentDigest: IntentDigest | null
+        harnessRows: HarnessRow[]
+        payload?: void
+    }
+    loadModelRows: (_: void) => void
+    loadModelRowsFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadModelRowsSuccess: (
+        modelRows: ModelRow[],
+        payload?: void
+    ) => {
+        modelRows: ModelRow[]
         payload?: void
     }
     loadOverview: (_: void) => void
@@ -141,11 +135,8 @@ export interface mcpEarlyDataLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         stats: (overview: MCPActivityOverviewApi | null) => EarlyStats
         topTools: (overview: MCPActivityOverviewApi | null) => EarlyToolRow[]
-        clients: (overview: MCPActivityOverviewApi | null) => EarlyClientRow[]
-        recentCalls: (overview: MCPActivityOverviewApi | null) => EarlyRecentCall[]
         summary: (signals: MCPOnboardingSignals | null, stats: EarlyStats, topTools: EarlyToolRow[]) => string
-        intentFrequencies: (recentCalls: EarlyRecentCall[]) => IntentFrequency[]
-        checklist: (stats: EarlyStats) => ChecklistItem[]
+        hasModelData: (modelRows: ModelRow[]) => boolean
     }
 }
 
@@ -160,12 +151,11 @@ export const mcpEarlyDataLogic = kea<mcpEarlyDataLogicType>([
     path(['products', 'mcp_analytics', 'frontend', 'earlyData', 'mcpEarlyDataLogic']),
     connect(() => ({
         values: [mcpAnalyticsOnboardingLogic, ['signals'], teamLogic, ['currentProjectId']],
-        // Refresh the lifetime signal with the overview so first-call copy can
-        // advance even after the onboarding signal poll stops.
-        actions: [mcpAnalyticsOnboardingLogic, ['loadSignals']],
-    })),
-    connect(() => ({
         actions: [
+            // Refresh the lifetime signal with the overview so first-call copy can
+            // advance even after the onboarding signal poll stops.
+            mcpAnalyticsOnboardingLogic,
+            ['loadSignals'],
             dataNodeCollectionLogic({ key: MCP_ACTIVITY_DATA_COLLECTION_ID }),
             ['reloadAll as reloadActivityQuery'],
         ],
@@ -178,32 +168,6 @@ export const mcpEarlyDataLogic = kea<mcpEarlyDataLogicType>([
         activityQuery: [DEFAULT_MCP_ACTIVITY_QUERY, { setActivityQuery: (_, { query }) => query }],
     }),
     loaders(({ values }) => ({
-        intentDigest: {
-            __default: null as IntentDigest | null,
-            loadIntentDigest: async (_: void, breakpoint): Promise<IntentDigest | null> => {
-                if (!values.currentProjectId) {
-                    return null
-                }
-                try {
-                    const response = await mcpAnalyticsSessionsIntentDigest(String(values.currentProjectId))
-                    breakpoint()
-                    return {
-                        digest: response.digest,
-                        intentCount: response.intent_count,
-                        themes: response.themes ?? [],
-                    }
-                } catch (error: unknown) {
-                    // A newer load superseded this one; let kea-loaders skip the stale success
-                    // rather than reporting it as a failed digest.
-                    if (isBreakpoint(error as Error)) {
-                        throw error
-                    }
-                    // LLM unconfigured (503) or transient failure: the card falls back
-                    // to the verbatim intent list.
-                    return null
-                }
-            },
-        },
         overview: {
             __default: null as MCPActivityOverviewApi | null,
             loadOverview: async (_: void, breakpoint): Promise<MCPActivityOverviewApi | null> => {
@@ -215,6 +179,38 @@ export const mcpEarlyDataLogic = kea<mcpEarlyDataLogicType>([
                 return response
             },
         },
+        harnessRows: [
+            [] as HarnessRow[],
+            {
+                loadHarnessRows: async (_: void, breakpoint): Promise<HarnessRow[]> => {
+                    const response = (await api.query({
+                        kind: NodeKind.MCPHarnessBreakdownQuery,
+                        ...ACTIVITY_FILTERS,
+                    })) as { results?: MCPHarnessBreakdownItem[] }
+                    breakpoint()
+                    return (response?.results ?? []).map((r) => ({
+                        category: r.harness,
+                        total_calls: r.total_calls,
+                        errors: r.errors,
+                        error_rate_pct: r.error_rate_pct,
+                        sessions: r.sessions,
+                    }))
+                },
+            },
+        ],
+        modelRows: [
+            [] as ModelRow[],
+            {
+                loadModelRows: async (_: void, breakpoint): Promise<ModelRow[]> => {
+                    const response = (await api.query({
+                        kind: NodeKind.MCPModelBreakdownQuery,
+                        ...ACTIVITY_FILTERS,
+                    })) as { results?: MCPModelBreakdownItem[] }
+                    breakpoint()
+                    return response?.results ?? []
+                },
+            },
+        ],
     })),
     selectors({
         stats: [
@@ -237,24 +233,6 @@ export const mcpEarlyDataLogic = kea<mcpEarlyDataLogicType>([
             (overview: MCPActivityOverviewApi | null): EarlyToolRow[] =>
                 (overview?.top_tools ?? []).map((row) => ({ tool: row.tool, calls: row.calls, errors: row.errors })),
         ],
-        clients: [
-            (s) => [s.overview],
-            (overview: MCPActivityOverviewApi | null): EarlyClientRow[] =>
-                (overview?.clients ?? []).map((row) => ({ client: row.client, calls: row.calls })),
-        ],
-        recentCalls: [
-            (s) => [s.overview],
-            (overview: MCPActivityOverviewApi | null): EarlyRecentCall[] =>
-                (overview?.recent_calls ?? []).map((row) => ({
-                    timestamp: row.timestamp,
-                    tool: row.tool,
-                    intent: row.intent,
-                    isError: row.is_error,
-                    errorMessage: row.error_message,
-                    durationMs: row.duration_ms,
-                    clientName: row.client_name,
-                })),
-        ],
         summary: [
             (s) => [s.signals, s.stats, s.topTools],
             (signals: MCPOnboardingSignals | null, stats: EarlyStats, topTools: EarlyToolRow[]): string =>
@@ -266,39 +244,24 @@ export const mcpEarlyDataLogic = kea<mcpEarlyDataLogicType>([
                     topTool: stats.totalCalls > 10 ? (topTools[0]?.tool ?? null) : null,
                 }),
         ],
-        // Verbatim agent intents grouped by frequency — the fallback when no AI
-        // digest is available. At low volume, reading what agents actually tried
-        // beats any lossy aggregation of it.
-        intentFrequencies: [
-            (s) => [s.recentCalls],
-            (recentCalls: EarlyRecentCall[]): IntentFrequency[] => {
-                const counts = new Map<string, number>()
-                for (const call of recentCalls) {
-                    if (call.intent) {
-                        counts.set(call.intent, (counts.get(call.intent) ?? 0) + 1)
-                    }
-                }
-                return [...counts.entries()]
-                    .map(([intent, count]) => ({ intent, count }))
-                    .sort((a, b) => b.count - a.count)
-                    .slice(0, 6)
-            },
+        hasModelData: [
+            (s) => [s.modelRows],
+            (modelRows: ModelRow[]): boolean => modelRows.some((row) => row.total_calls > 0),
         ],
-        checklist: [(s) => [s.stats], (stats: EarlyStats): ChecklistItem[] => buildChecklist(stats)],
     }),
     listeners(({ actions }) => ({
         refreshAll: () => {
             actions.loadSignals()
             actions.loadOverview()
+            actions.loadHarnessRows()
+            actions.loadModelRows()
             actions.reloadActivityQuery()
-            // Server-side the digest is content-addressed, so this only reaches the
-            // LLM when new intents have actually arrived.
-            actions.loadIntentDigest()
         },
     })),
     afterMount(({ actions, cache }) => {
         actions.loadOverview()
-        actions.loadIntentDigest()
+        actions.loadHarnessRows()
+        actions.loadModelRows()
         cache.disposables.add(() => {
             const id = window.setInterval(() => actions.refreshAll(), REFRESH_INTERVAL_MS)
             return () => clearInterval(id)
