@@ -1,0 +1,27 @@
+{
+    "letter": "GA",
+    "id": "GA19",
+    "cluster": 3,
+    "is_real": false,
+    "severity": null,
+    "votes": [
+        {
+            "is_real": false,
+            "severity": null,
+            "evidence": "The finding says `bool(context.get(\"self_driving_review\"))` at tools/pr-approval-agent/review_local.py:321 would turn the carve-out on for a truthy non-boolean value such as the string \"false\". No caller can send such a value, so this is a speculative case.\n\n- The only producer is products/stamphog/backend/logic/reviewer.py:101. There the parameter is typed `self_driving_review: bool = False`, and line 131 writes it into the context dict as-is.\n- Its only caller is products/stamphog/backend/temporal/activities.py:451, which passes `self_driving_review=bool(output.get(\"inbox_review\"))`. The server coerces the value to a real bool before it is serialized to JSON.\n- No other code in the repo writes this key. `git grep` finds only these producers, the consumer, and test_review_local.py:278, which sets `True`.\n- A context from the GitHub Action does not have the key. `.get()` returns None, so the carve-out stays closed, as the comment at review_local.py:316-320 says.\n- The context file is built by trusted server code, not by the PR author. A legacy or malformed context with a string value would need a server bug that does not exist in this code.\n- The finding itself admits \"The server always sends a JSON boolean today.\"",
+            "refutation": "The premise needs a non-boolean truthy value to reach review_local.run(). The only writer passes a coerced Python bool: activities.py:451 calls `bool(...)`, and reviewer.py:101/131 uses the type `bool` and writes the value straight into the context. Action-shaped contexts leave the key out, so the flag defaults closed. No reachable trigger exists. Changing the check to `is True` would add a second guard to a value that is already a bool, so this is a style or hardening preference, not a defect."
+        },
+        {
+            "is_real": false,
+            "severity": null,
+            "evidence": "The code does what the finding says: tools/pr-approval-agent/review_local.py:321 runs `bool(context.get(\"self_driving_review\"))`, so a string like \"false\" would count as true. But the only thing that writes this context always writes a real boolean. products/stamphog/backend/logic/reviewer.py:101 declares `self_driving_review: bool = False`, reviewer.py:131 puts it into the context dict, and reviewer.py:136 serializes it with json.dumps. So the JSON always holds true or false. The caller at products/stamphog/backend/temporal/activities.py:451 already converts the value with `bool(output.get(\"inbox_review\"))`. Tests cover the value: products/stamphog/backend/tests/test_integration.py:1413 asserts `context[\"self_driving_review\"] is True`. tools/pr-approval-agent/test_review_local.py:278-283 covers both the key set to True and the key missing (refusal stays in place). The finding itself admits that \"the server always sends a JSON boolean today\".",
+            "refutation": "No real input can trigger this. The context file comes from the server through build_reviewer_invocation, which types the flag as a bool and writes it with json.dumps. The sandbox does not take this context from an untrusted source. A non-boolean or leftover value cannot reach review_local.run(). If the flag is missing, the check fails closed (bot authors are still refused), and a test covers that case. Changing the check to `is True` would only add a second guard for something the server already guarantees. That is hardening by preference, not a fix for a reachable defect."
+        },
+        {
+            "is_real": false,
+            "severity": null,
+            "evidence": "tools/pr-approval-agent/review_local.py:321 does use `bool(context.get(\"self_driving_review\"))`. But the only thing that writes this key is the server. products/stamphog/backend/logic/reviewer.py:101 types the parameter as `self_driving_review: bool = False`, line 131 puts it into the context dict, and line 136 serializes the dict with `json.dumps`. The only caller, products/stamphog/backend/temporal/activities.py:451, passes `self_driving_review=bool(output.get(\"inbox_review\"))`. So the value is always a real JSON `true` or `false`, never the string \"false\" or some other truthy value. The GitHub Action context never sets the key, which leaves it absent and the check closed (the test at tools/pr-approval-agent/test_review_local.py:283 covers this). The integration test at products/stamphog/backend/tests/test_integration.py:1413 asserts `context[\"self_driving_review\"] is True`. The finding itself admits that \"the server always sends a JSON boolean today\".",
+            "refutation": "The trigger can't happen in production. The context file is built in the sandbox from `json.dumps` of a dict whose `self_driving_review` value always goes through `bool()` first (reviewer.py:131, activities.py:451). No code path, legacy or current, writes a string or other non-bool value there. Changing the check to `is True` would only guard against a malformed input that nothing produces, so this is a hardening preference, not a defect."
+        }
+    ]
+}
