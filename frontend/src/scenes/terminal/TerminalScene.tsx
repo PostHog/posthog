@@ -182,7 +182,7 @@ export function TerminalScene(): JSX.Element {
                 aria-label="Linux terminal"
                 data-attr="posthog-terminal"
                 translate="no"
-                className="h-128 min-w-0 overflow-hidden rounded border p-3 bg-black text-white"
+                className="h-128 min-w-0 overflow-hidden rounded border p-3 bg-[var(--color-black)] text-[var(--color-white)]"
             />
             <p className="text-secondary text-sm mb-0">
                 Try <code>ls --color=auto</code>, <code>find /posthog/files -name '*.md'</code>, or{' '}
