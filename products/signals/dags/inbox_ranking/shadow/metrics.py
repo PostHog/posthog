@@ -159,8 +159,9 @@ class RankingGrade:
     # report the pool never held. The three shares sum to 1.
     score_pending_share: float | None
     never_scored_share: float | None
-    # Whether any scored row of this grade came from `load_scores` reading candidate rows in place
-    # of a missing champion. True means the line is not purely a champion read.
+    # Whether any scored row the group held came from `load_scores` reading candidate rows in
+    # place of a missing champion. Group-level like the shares above, so it can warn on a line
+    # whose own graded rows are all real champion scores; it never stays False on one that is not.
     champion_is_fallback: bool
 
     def metrics(self) -> dict[str, int | float | None]:
@@ -453,8 +454,8 @@ def grade_lists(joined: pd.DataFrame, *, served: pd.DataFrame) -> list[RankingGr
     one day's lists are ranked by whichever version scored each report at its birth.
 
     `model_role` is the snapshot role, not the current serving policy. Missing champion partitions
-    use candidate scores as a fallback in `load_scores`, and `champion_is_fallback` says when a
-    grade rests on one. Coverage reports actual non-null scores per group, and is a property of the
+    use candidate scores as a fallback in `load_scores`, and `champion_is_fallback` says when the
+    group holds one. Coverage reports actual non-null scores per group, and is a property of the
     group rather than of the scope, so the same figures ride on both scopes of a group.
     """
     grades: list[RankingGrade] = []
