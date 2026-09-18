@@ -3,7 +3,8 @@ from django.test import SimpleTestCase
 from parameterized import parameterized
 from rest_framework import exceptions
 
-from posthog.api.team import TeamSerializer, validate_path_cleaning_filters
+from posthog.api.team.settings_validation import validate_path_cleaning_filters
+from posthog.api.team.team_serializer import TeamSerializer
 
 
 class TestPathCleaningFilterValidation(SimpleTestCase):
