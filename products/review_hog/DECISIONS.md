@@ -3304,7 +3304,12 @@ RATE_LIMITED` (GraphQL's primary signal, invisible to the REST-shaped helper) no
    so the sandbox agent cannot clear it for the next launch. The tracked entries are marked
    assume-unchanged before the removal, while the index still matches the worktree: otherwise every
    quarantined repository carries a deleted `.claude/settings.json` in `git status`, and the
-   resolution stage's own commit tooling could sweep that removal onto the PR branch. Residual: `.git/config` in a restored repo-setup snapshot still carries
+   resolution stage's own commit tooling could sweep that removal onto the PR branch. The quarantine ENDS by
+   checking that every path is gone and raises `SandboxQuarantineError` when one survives, rather than trusting
+   an exit code: `rm -rf` reports success for a path it never had to touch. Only the index-flag step may fail
+   without blocking the launch, because a dirty status is cosmetic where a live hook is not. _Both landed off
+   the first CodeRabbit pass on this branch, which caught the removal being unverified and the gate below
+   treating an absent trust decision as a pass._ Residual: `.git/config` in a restored repo-setup snapshot still carries
    the write-capable token its creator cloned with (`provision_sandbox.py`), so a hook that survived
    this quarantine would find a credential on disk as well as in the environment; and the read-only
    stages still run with a write-capable token because `github_read_access=True` also disables
@@ -3338,6 +3343,11 @@ RATE_LIMITED` (GraphQL's primary signal, invisible to the REST-shaped helper) no
    permission, so the thread is still read, judged and answered, and only its code writes are refused. Residual,
    unchanged: this is containment, not prevention — a turn that crosses the floor has already pushed, which is
    pre-public-release gate 1 (pre-push enforcement in the signed-commit tooling, outside this product).
+   The gate reads `ask_trusted is not True`, not `is False`: a verdict written before the gate existed carries
+   `None`, and an absent trust decision read as a pass would let a pending pre-gate FIXED row publish a commit
+   link and resolve a thread whose asker nobody ever judged. To keep fail-closed from meaning fail-noisy for
+   legacy rows that were trusted all along, `_prepare_run` decides the gate for a `None` row from the live
+   thread and persists it, which also stops the row being legacy on the next run.
    Not yet validated by a live e2e run, which the deferral asked for on prompt-content changes: the rendering
    and gate are covered by unit tests, and the prompt half needs a real run on a PR with a drive-by thread.
 

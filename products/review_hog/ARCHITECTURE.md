@@ -76,7 +76,8 @@ a command to run, and a `SessionStart` hook executes at agent startup — before
 tool and before any approval callback — so neither the prompt floors nor a permission mode can
 refuse it. Deleting the files is the only control that reaches it. The removal is marked
 assume-unchanged first, so `git status` stays clean and the resolution stage's commit tooling cannot
-sweep it onto the PR branch. The flag is stamped on the run and is not PATCHable, so the sandbox
+sweep it onto the PR branch. The launch fails when any path survives: nothing in the launch parameters disables
+project configuration, so continuing would start the agent on hooks the branch still controls. The flag is stamped on the run and is not PATCHable, so the sandbox
 agent cannot turn its own quarantine off for the next launch.
 
 The **author-permission gate** decides whose ask may drive a code-writing turn, deterministically and
@@ -87,8 +88,9 @@ would drop exactly the bot threads the stage exists to settle. `ReviewThread.ask
 the thread's **opening** comment (the comment that asks; later replies argue about the ask), and the turn is
 told the answer as `code_changes_allowed`. A drive-by thread is still loaded, judged and answered — only its
 code writes are refused. A FIXED verdict on one is never presented as settled, whatever the commit proves:
-`ask_trusted=False` persists on the verdict, `should_resolve` refuses it, and the reply carries a human-review
-caveat instead of the commit link. Trust also gates standing verdicts: a "SAFE TO FIX" / "E2E REQUIRED" reply
+the decision persists on the verdict, `should_resolve` refuses anything it has not positively cleared
+(`ask_trusted is not True`, so a row predating the gate is refused rather than assumed), and the reply carries a
+human-review caveat instead of the commit link. Trust also gates standing verdicts: a "SAFE TO FIX" / "E2E REQUIRED" reply
 counts only from a `trusted` comment, so a thread's own low-trust asker cannot wave their ask through the worth
 bar. Threads reach the session as **JSON** (`tools/thread_resolution.py::render_thread`), not flat text, so a
 commenter cannot forge an author header or a standing verdict inside their own body: the attribution fields are
@@ -96,9 +98,8 @@ the orchestrator's, and only `body` is theirs.
 
 **TODO (BLOCKING — before any rollout beyond the dogfood team / public release) — the last of the three
 injection-surface hardening items from the July e2e GO conditions.** The path backstop, the author-permission
-gate and the structural rendering above are all built — the latter two deferred by maintainer decisions
-2026-08-06 and 2026-08-10, then landed off a security review of the write path (DECISIONS.md Stage 7). This
-one MUST land before the resolution stage runs on PRs the team does not own:
+gate and the structural rendering above are all built (history in DECISIONS.md Stage 7). This one MUST land
+before the resolution stage runs on PRs the team does not own:
 
 - **Pre-push restricted-paths enforcement** — the path backstop is detection, not prevention: GitHub's
   `createCommitOnBranch` makes commit and push one atomic act, so a fix commit touching `.github/`, CODEOWNERS,
@@ -166,9 +167,8 @@ the experiment backlog — is in [DECISIONS.md](./DECISIONS.md) (start at its "�
 (`RUN_LOG.md`, `POTENTIAL_EXPERIMENTS.md`, `experiments/`).
 
 **Before real users:** settle the "ReviewHog Alpha" published-comment wording (see
-[Known issues](#known-issues--tech-debt)), and land the three BLOCKING resolution-stage hardening TODOs above
-(structural comment rendering + author-permission gate + pre-push restricted-paths enforcement) — they gate any
-rollout beyond the dogfood team.
+[Known issues](#known-issues--tech-debt)), and land the one remaining BLOCKING resolution-stage hardening TODO
+above (pre-push restricted-paths enforcement) — it gates any rollout beyond the dogfood team.
 
 ---
 

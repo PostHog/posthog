@@ -226,7 +226,7 @@ def _prepare_run(input: ResolveThreadsInput) -> _PreparedRun | ResolutionRunResu
         if action == ThreadAction.TRIAGE:
             triage.append(thread)
         elif action == ThreadAction.SIDE_EFFECTS:
-            redeliver.append((thread, verdicts[thread.thread_id]))
+            redeliver.append((thread, _with_backfilled_ask_trust(input, report_id, thread, verdicts[thread.thread_id])))
         else:
             skipped += 1
 
@@ -268,6 +268,24 @@ def _prepare_run(input: ResolveThreadsInput) -> _PreparedRun | ResolutionRunResu
         skill_version=skill.version,
         integration_row_id=github.integration.id,
     )
+
+
+def _with_backfilled_ask_trust(
+    input: ResolveThreadsInput, report_id: str, thread: ReviewThread, verdict: ThreadVerdictArtefact
+) -> ThreadVerdictArtefact:
+    """Decide the author-permission gate for a verdict that predates it, from the live thread.
+
+    Delivery and `should_resolve` both read `ask_trusted is not True`, so an undelivered row
+    written before the gate existed would otherwise deliver with a could-not-clear caveat and never
+    resolve, however trusted its asker was. The thread is in hand here and the gate is a pure
+    function of its opening comment, so the decision is simply made now and persisted, which also
+    stops the row being legacy on the next run.
+    """
+    if verdict.ask_trusted is not None:
+        return verdict
+    updated = verdict.model_copy(update={"ask_trusted": thread.ask_is_trusted})
+    persist_thread_verdict(team_id=input.team_id, report_id=report_id, verdict=updated)
+    return updated
 
 
 def _append_resolution_run(
@@ -412,8 +430,9 @@ def _deliver_side_effects(
     (persisted as `commit_verified=False`); the thread stays open for a human. A proven commit is
     then checked against the hard-floor path backstop: one touching CI/CODEOWNERS/dependency files
     delivers a human-review warning instead of the link and never auto-resolves either. A fix on a
-    thread the author-permission gate refused (`ask_trusted=False`) gets that treatment whatever the
-    commit proves: the ask had no standing, so the outcome is never presented as settled. Only a
+    thread the author-permission gate has not positively cleared (`ask_trusted is not True`) gets
+    that treatment whatever the commit proves: without a trust decision the outcome is never
+    presented as settled, and a row predating the gate carries no decision at all. Only a
     verified commit gets a `commit` artefact (the schema records pushed commits only), appended
     right after the verification persists so it happens exactly once per verdict.
     The reply lands first (the outcome must be readable even if resolving then fails); the watermark
@@ -475,7 +494,7 @@ def _deliver_side_effects(
     if not updated.reply_posted:
         body = _fold_overlong_reply(_normalize_reply_divider(updated.reply), thread_id=updated.thread_id)
         if updated.outcome == ThreadOutcome.FIXED.value and updated.commit_sha:
-            if updated.ask_trusted is False:
+            if updated.ask_trusted is not True:
                 body += (
                     "\n\n⚠️ This thread was opened by someone without write access to this repository, so "
                     "ReviewHog cannot change code in response to it. A human needs to review the commit on "

@@ -28,6 +28,7 @@ from products.tasks.backend.exceptions import (
     SandboxControlPlaneError,
     SandboxExecutionError,
     SandboxMissingRepositoryError,
+    SandboxQuarantineError,
 )
 from products.tasks.backend.logic.services.connection_token import create_sandbox_event_ingest_token
 from products.tasks.backend.logic.services.launch_preparation_metrics import launch_preparation_metric_context
@@ -202,10 +203,16 @@ def _quarantine_untrusted_agent_config(ctx: TaskProcessingContext, sandbox: Sand
     would land the removal on somebody's PR branch. Order matters: the flag has to be set while the
     index entry still matches the worktree.
 
-    Best-effort: a repository with none of these paths is the normal case, and a failure is logged
-    loudly rather than failing the launch, because the run has already paid for its sandbox by this
-    point. The removal runs even when the index bookkeeping fails, because a dirty status is a
-    cosmetic problem and an executable hook is not.
+    Fails the launch when any path survives. Nothing in the launch parameters disables project
+    configuration, so a launch that continued past a failed removal would run the branch's hooks
+    with this sandbox's credentials — losing the run costs a sandbox, continuing costs the
+    credentials. The command therefore ENDS by checking that every path is gone, rather than
+    trusting an exit code: `rm -rf` reports success for a path it never had to touch, so its status
+    says nothing about what is left on disk.
+
+    The index-flag step is the one part allowed to fail. It only keeps `git status` clean, and a
+    dirty status is cosmetic where a live hook is not, so its failure is logged and the removal
+    still runs.
     """
     if not ctx.untrusted_checkout or not ctx.repositories:
         return
@@ -213,21 +220,26 @@ def _quarantine_untrusted_agent_config(ctx: TaskProcessingContext, sandbox: Sand
     for repository in ctx.repositories:
         repo_path = sandbox_repo_path(repository)
         command = (
-            f"cd {shlex.quote(repo_path)} && "
-            f"git ls-files -z -- {paths} | xargs -0 -r git update-index --assume-unchanged; "
-            f"rm -rf -- {paths}"
+            f"set -u; cd {shlex.quote(repo_path)} || exit 3; "
+            f"{{ git ls-files -z -- {paths} | xargs -0 -r git update-index --assume-unchanged; }} "
+            f'|| echo "could not mark the quarantined paths unchanged" >&2; '
+            f"rm -rf -- {paths}; "
+            f'for path in {paths}; do if [ -e "$path" ]; then echo "still present: $path" >&2; exit 4; fi; done'
         )
         result = sandbox.execute(command, timeout_seconds=30)
         if result.exit_code != 0:
-            logger.error(
-                "Could not quarantine the checkout's agent config",
-                extra={
+            raise SandboxQuarantineError(
+                f"Could not quarantine the agent config in {repository}'s checkout, so the agent "
+                "server was not started",
+                {
                     "task_id": ctx.task_id,
                     "run_id": ctx.run_id,
                     "sandbox_id": sandbox.id,
                     "repository": repository,
+                    "exit_code": result.exit_code,
                     "stderr": result.stderr,
                 },
+                cause=RuntimeError(f"quarantine command returned {result.exit_code}"),
             )
 
 

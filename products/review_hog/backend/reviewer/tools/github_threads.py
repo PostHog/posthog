@@ -564,12 +564,14 @@ def should_resolve(verdict: ThreadVerdictArtefact) -> bool:
     A FIXED verdict whose commit failed server-side verification never resolves either: the model's
     claim is unproven, so the thread stays open for a human. None (unchecked) keeps legacy behavior.
     The same holds for a commit touching restricted paths (`commit_restricted`) — the hard-floor
-    backstop leaves it for a human — and for a fix on a thread the author-permission gate refused
-    (`ask_trusted is False`): a turn that implemented it anyway crossed a prompt floor, so its claim
-    is never presented as settled.
+    backstop leaves it for a human — and for any fix the author-permission gate has not positively
+    cleared. That gate reads `ask_trusted is not True`, not `is False`: a row written before the
+    gate existed carries `None`, and treating an absent trust decision as a pass would let a
+    pre-gate verdict resolve a thread nobody ever judged. `_prepare_run` fills `None` in from the
+    live thread before delivery, so a legacy row that was genuinely trusted still resolves.
     """
     if verdict.outcome == "fixed" and (
-        verdict.commit_verified is False or verdict.commit_restricted or verdict.ask_trusted is False
+        verdict.commit_verified is False or verdict.commit_restricted or verdict.ask_trusted is not True
     ):
         return False
     return verdict.author_is_bot and verdict.outcome != "escalate"

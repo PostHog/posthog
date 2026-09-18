@@ -10,6 +10,7 @@ from products.tasks.backend.exceptions import (
     ProcessTaskFatalError,
     SandboxExecutionError,
     SandboxMissingRepositoryError,
+    SandboxQuarantineError,
     SandboxRateLimitedError,
     SandboxTimeoutError,
 )
@@ -662,14 +663,33 @@ def test_untrusted_checkout_quarantines_every_repository(mocker) -> None:
     assert sandbox_repo_path("PostHog/posthog-js") in sandbox.execute.call_args_list[1].args[0]
 
 
-def test_quarantine_failure_never_blocks_the_launch(mocker) -> None:
+def test_quarantine_failure_blocks_the_launch(mocker) -> None:
+    # Nothing in the launch parameters disables project configuration, so continuing past a failed
+    # removal starts the agent on hooks the branch still controls. Losing the run costs a sandbox;
+    # continuing costs the sandbox's GitHub and PostHog credentials.
     sandbox = mocker.Mock()
     sandbox.id = "sandbox-id"
-    sandbox.execute.return_value = ExecutionResult(stdout="", stderr="nope", exit_code=1)
+    sandbox.execute.return_value = ExecutionResult(stdout="", stderr="still present: .mcp.json", exit_code=4)
+    mocker.patch("products.tasks.backend.exceptions.capture_exception")
+
+    with pytest.raises(SandboxQuarantineError):
+        _quarantine_untrusted_agent_config(
+            _context(repository="PostHog/posthog", state={"untrusted_checkout": True}), sandbox
+        )
+
+
+def test_quarantine_verifies_absence_rather_than_trusting_rm(mocker) -> None:
+    # `rm -rf` reports success for a path it never had to touch, so its status says nothing about
+    # what is left on disk. The command has to end by checking, or the gate is decorative.
+    sandbox = mocker.Mock()
+    sandbox.execute.return_value = ExecutionResult(stdout="", stderr="", exit_code=0)
 
     _quarantine_untrusted_agent_config(
         _context(repository="PostHog/posthog", state={"untrusted_checkout": True}), sandbox
     )
+
+    command = sandbox.execute.call_args.args[0]
+    assert command.index("rm -rf") < command.index("still present")
 
 
 def test_ensure_repository_on_disk_fails_non_retryably_when_repo_missing(mocker) -> None:

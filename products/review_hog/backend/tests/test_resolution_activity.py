@@ -37,6 +37,7 @@ from products.review_hog.backend.temporal.resolution import (
     _prepare_run,
     _PreparedRun,
     _verification_section,
+    _with_backfilled_ask_trust,
     resolve_threads_activity,
 )
 from products.signals.backend.artefact_attribution import ArtefactAttribution
@@ -75,7 +76,7 @@ def _verdict(
     resolved: bool = False,
     commit_sha: str | None = "abc123",
     verification: str | None = None,
-    ask_trusted: bool | None = None,
+    ask_trusted: bool | None = True,
 ) -> ThreadVerdictArtefact:
     return ThreadVerdictArtefact(
         thread_id=thread_id,
@@ -393,6 +394,46 @@ class TestResolutionPersistenceAndDelivery(BaseTest):
         assert stored.resolved is False
         # Restricted commits are real pushed commits: the restriction gates delivery, not the audit log.
         assert ReviewReportArtefact.objects.for_team(self.team.id).filter(report_id=report.id, type="commit").exists()
+
+    @parameterized.expand(
+        [
+            # (name, the live thread's opening association, the trust decision written back)
+            ("member_ask_stays_deliverable", "MEMBER", True),
+            ("drive_by_ask_is_refused", "NONE", False),
+        ]
+    )
+    def test_pre_gate_verdict_gets_its_trust_decision_from_the_live_thread(
+        self, _name: str, association: str, expected: bool
+    ) -> None:
+        # Delivery reads `is not True`, so a row written before the gate existed would post a
+        # could-not-clear caveat and never resolve however trusted its asker was. The thread is in
+        # hand at redelivery, so the decision is made then and persisted.
+        report = self._report()
+        thread = ReviewThread(
+            thread_id="PRRT_1",
+            path="f.py",
+            line=1,
+            comments=[ThreadComment(id=100, author_login="alice", author_association=association, body="fix this")],
+        )
+        verdict = _verdict(outcome="fixed", ask_trusted=None)
+
+        backfilled = _with_backfilled_ask_trust(self._input(), str(report.id), thread, verdict)
+
+        assert backfilled.ask_trusted is expected
+        # Persisted, so the row stops being legacy and the next run needs no backfill.
+        stored = load_thread_verdicts(team_id=self.team.id, report_id=str(report.id))["PRRT_1"]
+        assert stored.ask_trusted is expected
+
+    def test_recorded_trust_decision_is_never_overwritten(self) -> None:
+        thread = ReviewThread(
+            thread_id="PRRT_1",
+            comments=[ThreadComment(id=100, author_association="OWNER", body="fix this")],
+        )
+        verdict = _verdict(outcome="fixed", ask_trusted=False)
+
+        # The gate was already decided against this ask. A later owner comment on the thread must
+        # not launder it, and the opening comment is what the gate reads anyway.
+        assert _with_backfilled_ask_trust(self._input(), "unused", thread, verdict).ask_trusted is False
 
     def test_fix_on_an_untrusted_ask_delivers_warning_and_never_resolves(self) -> None:
         # The author-permission gate: the turn crossed a prompt floor and committed for a commenter

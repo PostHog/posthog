@@ -64,7 +64,7 @@ def _verdict(
     resolved: bool = False,
     commit_verified: bool | None = None,
     commit_restricted: bool | None = None,
-    ask_trusted: bool | None = None,
+    ask_trusted: bool | None = True,
 ) -> ThreadVerdictArtefact:
     return ThreadVerdictArtefact(
         thread_id=thread_id,
@@ -182,10 +182,17 @@ class TestGitHubThreads:
         verdict = _verdict(author_is_bot=True, outcome="fixed", commit_verified=True, commit_restricted=True)
         assert should_resolve(verdict) is False
 
-    def test_should_resolve_untrusted_ask_fixed_never(self) -> None:
+    @parameterized.expand([("refused", False), ("no_decision_recorded", None)])
+    def test_should_resolve_fixed_without_a_trust_pass_never(self, _name: str, ask_trusted: bool | None) -> None:
         # A proven commit still has no standing behind it, so the thread stays open for a human.
-        verdict = _verdict(author_is_bot=True, outcome="fixed", commit_verified=True, ask_trusted=False)
+        # None is the pre-gate row: an absent decision read as a pass would resolve a thread whose
+        # asker nobody ever judged.
+        verdict = _verdict(author_is_bot=True, outcome="fixed", commit_verified=True, ask_trusted=ask_trusted)
         assert should_resolve(verdict) is False
+
+    def test_should_resolve_trusted_ask_fixed_resolves(self) -> None:
+        verdict = _verdict(author_is_bot=True, outcome="fixed", commit_verified=True, ask_trusted=True)
+        assert should_resolve(verdict) is True
 
     @parameterized.expand(
         [
