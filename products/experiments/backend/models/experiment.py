@@ -2,6 +2,7 @@ from collections.abc import Callable, Sequence
 from typing import TYPE_CHECKING, Any, Literal
 
 from django.contrib.postgres.fields import ArrayField
+from django.contrib.postgres.indexes import GinIndex
 from django.db import models
 from django.db.models import Exists, OuterRef, QuerySet
 from django.utils import timezone
@@ -159,6 +160,14 @@ class Experiment(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.
 
     class Meta:
         db_table = "posthog_experiment"
+        indexes = [
+            # The `?event=` list filter matches a jsonpath `@?` predicate against these columns, and
+            # only jsonb_ops can answer it, because jsonb_path_ops cannot serve a `$.**` path.
+            # `fastupdate` is off so a read skips the pending-list scan, which the planner prices
+            # high enough to choose a sequential scan instead.
+            GinIndex(fields=["metrics"], name="exp_metrics_gin", fastupdate=False),
+            GinIndex(fields=["metrics_secondary"], name="exp_metrics_secondary_gin", fastupdate=False),
+        ]
         constraints = [
             # Rule IDs are UUIDs that no later experiment may reuse, so uniqueness is global, not per team.
             models.UniqueConstraint(

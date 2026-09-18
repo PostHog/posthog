@@ -1,8 +1,13 @@
 """Utility functions for working with experiment metrics."""
 
 import copy
+import json
 import logging
+from collections.abc import Collection
 from typing import Any
+
+from django.db.models import BooleanField
+from django.db.models.expressions import RawSQL
 
 from posthog.models.team.team import Team
 
@@ -216,6 +221,55 @@ def resolve_action_events(action_ids: set[int], team: Team) -> dict[int, set[str
         action.id: {event for event in action.get_step_events() if event}
         for action in Action.objects.filter(id__in=action_ids, team=team, deleted=False)
     }
+
+
+def actions_firing_event(event: str, team: Team) -> set[int]:
+    """Return the ids of the team's actions that have a step on ``event``.
+
+    Mirrors ``Action.get_step_events``, which reads the same ``event`` key out of each
+    ``steps_json`` element, so an action is matched by what it fires on and not by its
+    stored (possibly stale) name.
+    """
+    return set(
+        Action.objects.filter(team=team, deleted=False, steps_json__contains=[{"event": event}]).values_list(
+            "id", flat=True
+        )
+    )
+
+
+def metric_event_reference_jsonpath(event: str, action_ids: Collection[int]) -> str:
+    """Build a jsonpath that matches a metric query which references ``event``.
+
+    This is the SQL counterpart of ``collect_metric_events_and_action_ids``: an ``EventsNode``
+    that names the event, or an ``ActionsNode`` that points at one of the actions which fire it.
+    ``$.**`` walks the whole document, so the node is found wherever the metric type puts it
+    (``source``, ``numerator``, ``series``, ``start_event``, and so on).
+
+    ``json.dumps`` renders the event name because a jsonpath string literal follows JSON quoting
+    rules, so a name that holds a quote or a backslash cannot alter the expression. An action id
+    is stored as a number, but some payloads hold the same id as a string, so the predicate
+    compares both forms.
+
+    The ids are sorted to keep the jsonpath stable for a given input.
+    """
+    predicates = [f'@.kind == "EventsNode" && @.event == {json.dumps(event)}']
+    if action_ids:
+        id_predicates = " || ".join(
+            f"@.id == {action_id} || @.id == {json.dumps(str(action_id))}" for action_id in sorted(action_ids)
+        )
+        predicates.append(f'@.kind == "ActionsNode" && ({id_predicates})')
+    return "$.** ? (" + " || ".join(f"({predicate})" for predicate in predicates) + ")"
+
+
+def jsonb_matches_jsonpath(table: str, column: str, jsonpath: str) -> RawSQL:
+    """Boolean expression for "this jsonb column matches this jsonpath".
+
+    The ``@?`` operator is used instead of ``jsonb_path_exists`` because only the operator form
+    can be answered from a GIN index on the column. ``table`` and ``column`` are code-controlled
+    identifiers, and the jsonpath is passed as a query parameter.
+    """
+    # nosemgrep: python.django.security.audit.raw-query.avoid-raw-sql
+    return RawSQL(f'"{table}"."{column}" @? %s::jsonpath', [jsonpath], output_field=BooleanField())
 
 
 def filter_metric_group_ids_by_event(

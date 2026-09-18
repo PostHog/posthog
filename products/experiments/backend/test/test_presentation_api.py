@@ -295,7 +295,9 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         assert response.status_code == status.HTTP_200_OK
         return response.json()["results"]
 
-    def _create_experiment_with_metric_event(self, name: str, flag_key: str, event: str) -> Experiment:
+    def _create_experiment_with_metric_event(
+        self, name: str, flag_key: str, event: str, column: str = "metrics"
+    ) -> Experiment:
         flag = FeatureFlag.objects.create(
             team=self.team,
             created_by=self.user,
@@ -315,22 +317,45 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
             team=self.team,
             name=name,
             feature_flag=flag,
-            metrics=[
-                {"kind": "ExperimentMetric", "metric_type": "mean", "source": {"kind": "EventsNode", "event": event}}
-            ],
+            **{
+                column: [
+                    {
+                        "kind": "ExperimentMetric",
+                        "metric_type": "mean",
+                        "source": {"kind": "EventsNode", "event": event},
+                    }
+                ]
+            },
         )
 
-    def test_can_filter_experiments_by_event(self) -> None:
-        purchase_experiment = self._create_experiment_with_metric_event("Purchase", "purchase-flag", "purchase")
-        self._create_experiment_with_metric_event("Signup", "signup-flag", "signup")
+    def _event_filter_results(self, event: str) -> list[dict[str, Any]]:
+        response = self.client.get(f"/api/projects/{self.team.id}/experiments/", {"event": event})
+        assert response.status_code == status.HTTP_200_OK
+        return response.json()["results"]
 
-        response = self.client.get(f"/api/projects/{self.team.id}/experiments/?event=purchase")
+    @parameterized.expand(
+        [
+            ("primary_metrics", "metrics", "purchase"),
+            ("secondary_metrics", "metrics_secondary", "purchase"),
+            ("quoted_event_name", "metrics", 'clicked "buy now"'),
+            ("backslash_event_name", "metrics", "path\\to\\event"),
+        ]
+    )
+    def test_can_filter_experiments_by_event(self, _name: str, column: str, event: str) -> None:
+        matching = self._create_experiment_with_metric_event("Matching", "matching-flag", event, column=column)
+        self._create_experiment_with_metric_event("Other", "other-flag", "signup", column=column)
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["count"], 1)
-        self.assertEqual(response.json()["results"][0]["id"], purchase_experiment.id)
+        results = self._event_filter_results(event)
 
-    def test_filter_by_event_resolves_actions(self) -> None:
+        self.assertEqual([result["id"] for result in results], [matching.id])
+
+    @parameterized.expand(
+        [
+            ("numeric_id", False),
+            ("string_id", True),
+        ]
+    )
+    def test_filter_by_event_resolves_actions(self, _name: str, id_as_string: bool) -> None:
         action = Action.objects.create(team=self.team, name="Checked out", steps_json=[{"event": "checkout"}])
         flag = FeatureFlag.objects.create(
             team=self.team,
@@ -352,15 +377,50 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
             name="Action experiment",
             feature_flag=flag,
             metrics=[
+                {
+                    "kind": "ExperimentMetric",
+                    "metric_type": "mean",
+                    "source": {"kind": "ActionsNode", "id": str(action.id) if id_as_string else action.id},
+                }
+            ],
+        )
+
+        results = self._event_filter_results("checkout")
+
+        self.assertEqual([result["id"] for result in results], [experiment.id])
+
+    def test_filter_by_event_ignores_deleted_action(self) -> None:
+        action = Action.objects.create(
+            team=self.team, name="Checked out", steps_json=[{"event": "checkout"}], deleted=True
+        )
+        flag = FeatureFlag.objects.create(
+            team=self.team, created_by=self.user, key="deleted-action-flag", name="Flag for deleted action"
+        )
+        Experiment.objects.create(
+            team=self.team,
+            name="Deleted action experiment",
+            feature_flag=flag,
+            metrics=[
                 {"kind": "ExperimentMetric", "metric_type": "mean", "source": {"kind": "ActionsNode", "id": action.id}}
             ],
         )
 
-        response = self.client.get(f"/api/projects/{self.team.id}/experiments/?event=checkout")
+        self.assertEqual(self._event_filter_results("checkout"), [])
+
+    def test_filter_by_event_handles_name_the_database_cannot_store(self) -> None:
+        self._create_experiment_with_metric_event("Matching", "null-character-flag", "purchase")
+
+        self.assertEqual(self._event_filter_results("\x00"), [])
+
+    def test_matching_ids_filters_by_event(self) -> None:
+        # The event predicate has to survive the `only()` narrowing that matching_ids applies.
+        matching = self._create_experiment_with_metric_event("Matching", "matching-ids-flag", "purchase")
+        self._create_experiment_with_metric_event("Other", "matching-ids-other-flag", "signup")
+
+        response = self.client.get(f"/api/projects/{self.team.id}/experiments/matching_ids/", {"event": "purchase"})
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["count"], 1)
-        self.assertEqual(response.json()["results"][0]["id"], experiment.id)
+        self.assertEqual(response.json(), {"ids": [matching.id], "total": 1})
 
     def test_filter_by_event_matches_saved_metric(self) -> None:
         experiment = self._create_experiment_with_metric_event("Saved metric", "saved-metric-flag", "primary_event")
