@@ -30,6 +30,20 @@ export class SessionRecordingIngesterMetrics {
         buckets: BUCKETS_KB_WRITTEN,
     })
 
+    private static readonly batchStageDuration = new Histogram({
+        name: 'recording_blob_ingestion_v2_batch_stage_duration_ms',
+        help: 'Wall time one poll batch spent running one stage. Batches overlap across stages, so a stage that runs for close to 100% of wall time is the one the lane is bound by',
+        labelNames: ['stage'],
+        buckets: [10, 25, 50, 100, 250, 500, 1000, 2500, 5000, 10000, 30000, 60000, Infinity],
+    })
+
+    private static readonly batchStageWait = new Histogram({
+        name: 'recording_blob_ingestion_v2_batch_stage_wait_ms',
+        help: 'Time one poll batch waited for a stage to free up after the previous stage finished with it, which is the previous batch still in that stage',
+        labelNames: ['stage'],
+        buckets: [1, 5, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000, 10000, 30000, Infinity],
+    })
+
     private static readonly sessionInfo = new Summary({
         name: 'recording_blob_ingestion_v2_session_info_bytes',
         help: 'Size of aggregated session information being processed',
@@ -133,5 +147,10 @@ export class SessionRecordingIngesterMetrics {
 
     public static observeKafkaBatchSizeKb(sizeKb: number): void {
         this.kafkaBatchSizeKb.observe(sizeKb)
+    }
+
+    public static observeBatchStage(stage: string, waitMs: number, durationMs: number): void {
+        this.batchStageWait.labels(stage).observe(waitMs)
+        this.batchStageDuration.labels(stage).observe(durationMs)
     }
 }

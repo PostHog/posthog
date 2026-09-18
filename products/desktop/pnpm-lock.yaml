@@ -829,9 +829,6 @@ importers:
         specifier: 4.4.3
         version: 4.4.3
     devDependencies:
-      '@posthog/enricher':
-        specifier: workspace:*
-        version: link:../enricher
       '@posthog/git':
         specifier: workspace:*
         version: link:../git
@@ -1050,6 +1047,12 @@ importers:
       '@modelcontextprotocol/sdk':
         specifier: ^1.29.0
         version: 1.29.0(zod@4.4.3)
+      '@posthog/enricher':
+        specifier: workspace:*
+        version: link:../enricher
+      '@posthog/git':
+        specifier: workspace:*
+        version: link:../git
       '@posthog/shared':
         specifier: workspace:*
         version: link:../shared

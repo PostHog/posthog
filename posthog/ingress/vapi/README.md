@@ -32,8 +32,18 @@ The secret is the Django setting `VAPI_WEBHOOK_SECRET`.
 A bad signature answers 401 and an unconfigured instance answers 503.
 The public interview surface already relies on both codes.
 
+A delivery a consumer did not accept answers 500 rather than the 202 receipt, because Vapi sends the delivery again after a 5xx.
+The report is the only copy of an interview, so losing it to a receipt costs the transcript.
+
 ## Consumers
 
-No product registers a Vapi consumer yet.
-The user interviews endpoint moves to ingress in its own PR.
+One consumer, `user_interviews_vapi`, declared in `products/user_interviews/backend/webhook_consumers.py`.
+
+It enqueues a Celery task and returns, so the request does not wait on persistence.
+The enqueue is the only work on the request path, so a failure there is what the 500 above answers.
+The task persists the end-of-call report and retries a transient database error, so a lost connection does not lose the transcript.
+It acknowledges late, so a worker that dies mid-task gives the report back to the broker.
+The handler is idempotent on the call id, which is what makes both the retry and the redelivery safe.
+
+The product keeps a per-IP throttle in front of the endpoint, because the endpoint is public and Vapi calls it a small number of times per interview.
 See the [Endpoints table](../README.md#endpoints).

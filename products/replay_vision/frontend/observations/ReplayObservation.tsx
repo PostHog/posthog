@@ -70,7 +70,6 @@ import { ObservationLabelControl } from './ObservationLabelControl'
 import { observationLabelLogic } from './observationLabelLogic'
 import { ObservationPinnedProperties } from './ObservationPinnedProperties'
 import { ObservationShareButton } from './ObservationShareButton'
-import { ObservationSignalReports } from './ObservationSignalReports'
 import {
     neighborFilterParams,
     observationDetailUrl,
@@ -636,12 +635,6 @@ export function ReplayObservationSceneComponent(): JSX.Element {
                             <LabeledRow label="Score label">
                                 <span>{scorerLabel}</span>
                             </LabeledRow>
-                        )}
-                        {snapshot?.emits_signals && (
-                            <ObservationSignalReports
-                                observationId={observation.id}
-                                signalsCount={observation.scanner_result?.signals_count ?? 0}
-                            />
                         )}
                     </div>
                 </LemonCard>
