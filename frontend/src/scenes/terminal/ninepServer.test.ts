@@ -103,12 +103,13 @@ describe('PostHog 9P filesystem', () => {
         expect(await open(1)).toBe(13)
     })
 
-    it('accepts the size and timestamp flags Linux sends when truncating a file', async () => {
+    it.each([2, 3])('accepts Linux truncation through open or path fid %i', async (fid) => {
         await open(1)
+        await walk('note.md', 3)
         const response = await request(
             26,
             new NinePWriter()
-                .number(2, 4)
+                .number(fid, 4)
                 .number(0x68, 4)
                 .number(0, 4)
                 .number(0xffffffff, 4)
@@ -123,6 +124,19 @@ describe('PostHog 9P filesystem', () => {
         await write('Truncated')
         await request(120, new NinePWriter().number(2, 4))
         expect(saved).toBe('Truncated')
+    })
+
+    it('commits a path-only truncate without keeping a writer lock', async () => {
+        const response = await request(
+            26,
+            new NinePWriter().number(2, 4).number(8, 4).data(new Uint8Array(12)).number(0, 8)
+        )
+        expect(response.type).toBe(27)
+        expect(saved).toBe('')
+        expect(await open(1)).toBe(13)
+        await write('After truncate')
+        await request(120, new NinePWriter().number(2, 4))
+        expect(saved).toBe('After truncate')
     })
 
     it('rejects concurrent writers, writes through a read descriptor, and writes to read-only objects', async () => {
@@ -143,6 +157,14 @@ describe('PostHog 9P filesystem', () => {
         expect(await write('x', MAX_TERMINAL_FILE_BYTES)).toBe(7)
         await request(120, new NinePWriter().number(2, 4))
         expect(saved).toBe('# café 🦔\n')
+    })
+
+    it('appends to freshly loaded content even when the guest sends a stale size as its offset', async () => {
+        expect(await open(1025)).toBe(13)
+        await write('Appended', 0)
+        await write(' twice', 8)
+        await request(120, new NinePWriter().number(2, 4))
+        expect(saved).toBe('# café 🦔\nAppended twice')
     })
 
     it('keeps directory offsets stable across paginated readdir', async () => {

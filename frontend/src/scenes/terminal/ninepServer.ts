@@ -12,6 +12,7 @@ interface Fid {
     file?: TerminalFile
     dirty?: boolean
     writing?: boolean
+    append?: boolean
     failed?: boolean
 }
 
@@ -77,6 +78,7 @@ export class NinePServer {
             throw new FilesystemError(30)
         }
         fid.writing = writing
+        fid.append = !!(flags & 1024)
         if (writing) {
             this.writers.add(fid.node.id)
         }
@@ -105,6 +107,35 @@ export class NinePServer {
                 `Could not save ${fid.node.name}. Check your access or concurrent edits. Your edit is in ${recovery}.`
             )
             throw new FilesystemError(5)
+        }
+    }
+
+    private async truncate(fid: Fid, size: number): Promise<void> {
+        if (size > MAX_TERMINAL_FILE_BYTES) {
+            throw new FilesystemError(27)
+        }
+        // Linux can truncate through a path fid while a separate open fid owns the write.
+        const writer = [...this.fids.values()].find((candidate) => candidate.node === fid.node && candidate.writing)
+        const target: Fid = writer ?? { node: fid.node }
+        if (!writer) {
+            await this.open(target, 1)
+        }
+        try {
+            if (!target.file || target.failed) {
+                throw new FilesystemError(5)
+            }
+            const bytes = new Uint8Array(size)
+            bytes.set(target.file.bytes.subarray(0, size))
+            target.file.bytes = bytes
+            target.node.size = size
+            target.dirty = true
+            if (!writer) {
+                await this.save(target)
+            }
+        } finally {
+            if (!writer) {
+                this.writers.delete(target.node.id)
+            }
         }
     }
 
@@ -214,11 +245,13 @@ export class NinePServer {
             }
             case 118: {
                 const fid = this.fid(reader.number(4))
-                const offset = reader.number(8)
+                const requestedOffset = reader.number(8)
                 const count = reader.number(4)
                 if (!fid.writing || !fid.file || fid.failed) {
                     throw new FilesystemError(9)
                 }
+                // The guest can still have an unknown inode size when an API file opens with O_APPEND.
+                const offset = fid.append ? fid.file.bytes.length : requestedOffset
                 if (offset + count > MAX_TERMINAL_FILE_BYTES) {
                     throw new FilesystemError(27)
                 }
@@ -240,20 +273,7 @@ export class NinePServer {
                     throw new FilesystemError(95)
                 }
                 if (valid & 8) {
-                    if (size > MAX_TERMINAL_FILE_BYTES) {
-                        throw new FilesystemError(27)
-                    }
-                    if (!fid.file) {
-                        await this.open(fid, 1)
-                    }
-                    if (!fid.writing || !fid.file) {
-                        throw new FilesystemError(30)
-                    }
-                    const bytes = new Uint8Array(size)
-                    bytes.set(fid.file.bytes.subarray(0, size))
-                    fid.file.bytes = bytes
-                    fid.node.size = size
-                    fid.dirty = true
+                    await this.truncate(fid, size)
                 }
                 return result
             }

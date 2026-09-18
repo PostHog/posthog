@@ -12,6 +12,7 @@ showTitle: true
 Open `/project/<project-id>/terminal` and select **Start Linux** to boot a Linux VM in your browser.
 The terminal uses xterm.js and v86, with a 9P filesystem that connects Linux file operations to the existing authenticated PostHog APIs.
 The first start downloads a checksum-verified Linux image from `i.copy.sh` and pinned firmware from the v86 GitHub repository.
+The image uses Linux 5.6.15, whose uncached 9P driver can read API files before their sizes are known.
 PostHog serves the bundled jq 1.8.2 Linux i386 binary itself because GitHub release downloads do not support browser CORS.
 The binary in `frontend/public/terminal/` comes from [the official release](https://github.com/jqlang/jq/releases/download/jq-1.8.2/jq-linux-i386), with SHA-256 `ba996e8ce436973e2f39e2639405a37e8c81ba8c722b71c83996278ad0af16dd` and upstream license notices alongside it.
 The VM receives no session cookies or API keys and has no network connection.

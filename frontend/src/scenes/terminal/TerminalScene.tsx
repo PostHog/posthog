@@ -128,7 +128,7 @@ export function TerminalScene(): JSX.Element {
             </div>
             <LemonBanner type="info">
                 Saving a markdown notebook writes to PostHog. Local files and unsaved edits disappear when you leave
-                this page. The first start downloads Linux and jq (about 12 MB).
+                this page. The first start downloads Linux and jq (about 8 MB).
             </LemonBanner>
             <div className="flex items-center gap-2 flex-wrap">
                 <LemonButton
