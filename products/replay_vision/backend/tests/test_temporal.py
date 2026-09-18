@@ -35,6 +35,7 @@ from temporalio.exceptions import (
 )
 from temporalio.testing import ActivityEnvironment
 
+from posthog.api.capture import CaptureInternalError, CaptureInternalResult
 from posthog.models import Organization, Team
 from posthog.models.user import User
 from posthog.redis import get_async_client
@@ -1525,6 +1526,34 @@ class TestEmitObservationEventActivity:
         properties = capture.call_args.kwargs["properties"]
         assert properties["$group_0"] == "acme-inc"
         assert "$groups" not in properties
+
+    @parameterized.expand(
+        [
+            ("billing_limit", 402, False),
+            ("server_error", 500, True),
+        ]
+    )
+    def test_capture_rejection_only_raises_when_a_retry_could_help(
+        self, _name: str, status_code: int, expects_raise: bool
+    ) -> None:
+        # A team over its ingestion quota rejects every attempt, so raising here burns the activity's whole
+        # retry budget and reports a permanent, expected outcome as a crash.
+        scanner = _make_scanner()
+        observation = _make_observation(scanner)
+        inputs = EmitObservationEventInputs(
+            observation_id=observation.id,
+            model_output=MonitorOutput(verdict="yes", reasoning="ok", confidence=0.9),
+        )
+
+        with patch(
+            "products.replay_vision.backend.temporal.activities.emit_observation_event.capture_internal",
+            return_value=CaptureInternalResult(status_code=status_code, error={"error": "rejected"}),
+        ):
+            if expects_raise:
+                with pytest.raises(CaptureInternalError):
+                    _emit_event(inputs)
+            else:
+                _emit_event(inputs)
 
 
 def _counter_value(metric_name: str, **labels: str) -> float:

@@ -5,7 +5,7 @@ from datetime import UTC, datetime
 import structlog
 from temporalio import activity
 
-from posthog.api.capture import capture_internal
+from posthog.api.capture import CaptureInternalError, capture_internal
 from posthog.models.group_type_mapping import get_group_types_for_project
 from posthog.models.team import Team
 from posthog.sync import database_sync_to_async
@@ -90,7 +90,18 @@ def _emit_event(inputs: EmitObservationEventInputs) -> None:
         # Make the captured event UUID equal to observation.id so the admin UI can link back to it directly.
         event_uuid=str(observation.id),
     )
-    result.raise_for_status()
+    try:
+        result.raise_for_status()
+    except CaptureInternalError as e:
+        # A team over its ingestion quota is a permanent rejection, so a retry can never land the event.
+        if e.is_billing_limit_exceeded:
+            logger.info(
+                "replay_vision.emit.skipped_over_billing_quota",
+                observation_id=str(observation.id),
+                team_id=observation.team_id,
+            )
+            return
+        raise
 
 
 def _group_properties(team: Team, observation: ReplayObservation) -> dict:
