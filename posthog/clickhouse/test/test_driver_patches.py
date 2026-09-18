@@ -41,8 +41,7 @@ class TestClickHouseDriverPatches(SimpleTestCase):
 
     @parameterized.expand(
         [
-            # Every spec below nests a comma before a parenthesis inside the Map value type, which
-            # is what the driver's own comma regex splits into three parts.
+            # Each spec nests a comma before a parenthesis, which the driver's comma regex mis-splits.
             ("nested_map", "Map(String, Map(String, Array(UInt64)))", [{"a": {"x": [1, 2]}}, {}]),
             (
                 "tuple_value",

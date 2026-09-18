@@ -30,8 +30,7 @@ class ClickHouseColumnDecodeError(Exception):
         super().__init__(f"Cannot decode ClickHouse column of type {column_type}: {cause}")
 
 
-# A decode failure is a parsing or unpacking fault. A network or socket error passes through the
-# same call and must stay untouched, because a retry can still succeed for it.
+# Network and socket errors reach the same call and stay out, because a retry can still succeed.
 _DECODE_ERROR_TYPES = (
     driver_errors.UnknownTypeError,
     driver_errors.LogicalError,
