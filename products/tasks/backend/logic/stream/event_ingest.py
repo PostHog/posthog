@@ -30,6 +30,7 @@ from products.tasks.backend.logic.stream.redis_stream import (
     TaskRunStreamSequenceGap,
     get_task_run_stream_key,
 )
+from products.tasks.backend.logic.stream.turn_completion import turn_completed_successfully
 from products.tasks.backend.metrics import observe_stream_write_skipped
 from products.tasks.backend.models import TaskRun
 from products.tasks.backend.push_dispatcher import dispatch_task_run_turn_completed
@@ -398,7 +399,11 @@ async def _heartbeat_workflow_if_needed(redis_stream: TaskRunRedisStream, run_id
         if pi_turn_error(event):
             await _dispatch_turn_failed(run_id)
         else:
-            await _dispatch_turn_completed(run_id, turn_completed=not is_idle_resume_turn_complete(event))
+            await _dispatch_turn_completed(
+                run_id,
+                succeeded=turn_completed_successfully(event),
+                turn_completed=not is_idle_resume_turn_complete(event),
+            )
         return
 
     if _is_session_update(event):
@@ -449,11 +454,13 @@ def _signal_agent_boot_milestone(
     return task_run.signal_agent_boot_milestone(milestone)
 
 
-async def _dispatch_turn_completed(run_id: str, *, turn_completed: bool = True) -> None:
-    await sync_to_async(_dispatch_turn_completed_sync, thread_sensitive=True)(run_id, turn_completed=turn_completed)
+async def _dispatch_turn_completed(run_id: str, *, succeeded: bool = False, turn_completed: bool = True) -> None:
+    await sync_to_async(_dispatch_turn_completed_sync, thread_sensitive=True)(
+        run_id, succeeded=succeeded, turn_completed=turn_completed
+    )
 
 
-def _dispatch_turn_completed_sync(run_id: str, *, turn_completed: bool = True) -> None:
+def _dispatch_turn_completed_sync(run_id: str, *, succeeded: bool = False, turn_completed: bool = True) -> None:
     if not settings.TEST:
         close_old_connections()
 
@@ -463,7 +470,7 @@ def _dispatch_turn_completed_sync(run_id: str, *, turn_completed: bool = True) -
         logger.warning("task_run_event_ingest_turn_completed_run_missing", run_id=run_id)
         return
 
-    task_run.signal_agent_turn_completed()
+    task_run.signal_agent_turn_completed(succeeded=succeeded)
     dispatch_task_run_turn_completed(task_run, turn_completed=turn_completed)
 
 
