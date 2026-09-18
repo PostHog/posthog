@@ -35,8 +35,9 @@ from products.engineering_analytics.backend.logic.queries.delivery_summary impor
 
 # The census runs daily, so a few days always find its latest run.
 _CENSUS_LOOKBACK = timedelta(days=3)
-# Below this many other authors who contribute a value, the author could read a teammate's value back from
-# the team median and their own (SPEC §2). Two, because a three-person team is a real team.
+# Below this many other authors who contribute a value, the median is one or two pull requests wearing a
+# team's label (SPEC §2). A noise floor, not a privacy floor: the population holds one value per merged pull
+# request, and each of those times already shows on its own pull request page.
 MIN_OTHER_TEAM_AUTHORS = 2
 
 # Every team the author is in, with all of its members.
