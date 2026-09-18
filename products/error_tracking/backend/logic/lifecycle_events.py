@@ -20,6 +20,7 @@ from posthog.models.user import User
 
 from products.error_tracking.backend.models import (
     ErrorTrackingAlert,
+    ErrorTrackingAlertThread,
     ErrorTrackingIssue,
     ErrorTrackingIssueAssignment,
     ErrorTrackingIssueFingerprintV2,
@@ -109,6 +110,7 @@ def prepare_issue_lifecycle_event(
     user: Optional[User],
     status: Optional[str] = None,
     extra_properties: Optional[dict[str, Any]] = None,
+    opener_allowed: bool = True,
 ) -> PendingLifecycleEvent:
     # Snapshot everything now: the issue row may be mutated again (or deleted, for
     # merge sources) before the surrounding transaction commits.
@@ -173,7 +175,11 @@ def prepare_issue_lifecycle_event(
         status=status_property if isinstance(status_property, str) else None,
         assignee=assignee_property_value if isinstance(assignee_property_value, str) else None,
         actor_email=actor_email,
+        severity=properties.get("severity"),
+        fingerprint=fingerprint,
+        first_seen=properties.get("first_seen"),
         extra=delivery_extra or None,
+        opener_allowed=opener_allowed,
     )
     return PendingLifecycleEvent(
         team_id=team_id, internal_event=internal_event, person=person, alert_inputs=alert_inputs
@@ -206,14 +212,17 @@ def produce_issue_lifecycle_events_on_commit(events: list[PendingLifecycleEvent]
         # queue nothing; the flag is evaluated once, inside the task.
         if not ErrorTrackingAlert.objects.for_team(team_id).filter(enabled=True).exists():
             return
+        to_dispatch = _with_reply_targets(team_id, events)
+        if not to_dispatch:
+            return
         # The task module imports the Temporal package aggregator, which loads every
         # worker-only workflow module; keep it off the web import path.
         from products.error_tracking.backend.tasks.tasks import (  # noqa: PLC0415
             dispatch_error_tracking_alert_deliveries,
         )
 
-        for start in range(0, len(events), ALERT_DISPATCH_BATCH_SIZE):
-            chunk = events[start : start + ALERT_DISPATCH_BATCH_SIZE]
+        for start in range(0, len(to_dispatch), ALERT_DISPATCH_BATCH_SIZE):
+            chunk = to_dispatch[start : start + ALERT_DISPATCH_BATCH_SIZE]
             try:
                 dispatch_error_tracking_alert_deliveries.delay(
                     team_id=team_id,
@@ -229,6 +238,31 @@ def produce_issue_lifecycle_events_on_commit(events: list[PendingLifecycleEvent]
 
     # robust: a failure here must not stop the mutation's other post-commit hooks.
     transaction.on_commit(_produce, robust=True)
+
+
+def _with_reply_targets(team_id: int, events: list[PendingLifecycleEvent]) -> list[PendingLifecycleEvent]:
+    """Drop reply-only transitions for issues no thread has been opened on.
+
+    Bulk actions cannot open threads, so their transitions only matter where a
+    thread already exists; one lookup here keeps a bulk action over hundreds of
+    issues from starting hundreds of workflows that would plan nothing.
+    """
+    reply_only_issue_ids = {
+        pending.alert_inputs.issue_id for pending in events if not pending.alert_inputs.opener_allowed
+    }
+    if not reply_only_issue_ids:
+        return events
+    threaded_issue_ids = {
+        str(issue_id)
+        for issue_id in ErrorTrackingAlertThread.objects.for_team(team_id)
+        .filter(issue_id__in=reply_only_issue_ids)
+        .values_list("issue_id", flat=True)
+    }
+    return [
+        pending
+        for pending in events
+        if pending.alert_inputs.opener_allowed or pending.alert_inputs.issue_id in threaded_issue_ids
+    ]
 
 
 def produce_issue_lifecycle_event_on_commit(

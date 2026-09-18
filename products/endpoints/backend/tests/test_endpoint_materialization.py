@@ -54,7 +54,7 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         # The DAG node exists by scheduling time, so the v2 lookup would hit Temporal for real.
         self.v2_dag_ids_patcher = mock.patch(
             "products.data_modeling.backend.schedule.get_v2_scheduled_dag_ids",
-            side_effect=lambda candidate_dag_ids=None: set(candidate_dag_ids or []),
+            side_effect=lambda candidate_dag_ids=None, **_kwargs: set(candidate_dag_ids or []),
         )
         self.mock_v2_dag_ids = self.v2_dag_ids_patcher.start()
 

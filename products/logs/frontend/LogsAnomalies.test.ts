@@ -7,11 +7,12 @@ describe('LogsAnomalies', () => {
         // A truncating diff read a 2.9 day wait as "2 more days", which promises the
         // band a day early. A partial day still needs a whole day of data.
         it.each([
+            [null, 'Expected range unavailable'],
             ['2026-08-08T21:36:00Z', 'Learning baseline · 3 more days'],
             ['2026-08-07T04:48:00Z', 'Learning baseline · 2 more days'],
             ['2026-08-07T00:00:00Z', 'Learning baseline · 1 more day'],
             ['2026-08-20T00:00:00Z', 'Learning baseline · 14 more days'],
-        ])('rounds a wait ending %s up to whole days', (bandReadyAt, expected) => {
+        ])('formats readiness %s as %s', (bandReadyAt, expected) => {
             expect(learningBaselineLabel(bandReadyAt, WINDOW_END)).toBe(expected)
         })
 

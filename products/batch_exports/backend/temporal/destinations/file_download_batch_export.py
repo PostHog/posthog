@@ -273,6 +273,10 @@ async def export_to_file_download_bucket_with_temporary_credentials(inputs: Expo
         batch_export_model=inputs.batch_export.batch_export_model,
         batch_export_id=inputs.batch_export.batch_export_id,
         destination_default_fields=inputs.batch_export.destination_default_fields,
+        # These files live in a PostHog bucket, expire on a lifecycle rule, and are reached through
+        # a key stored on `BatchExportFileDownload`. No customer pipeline matches on their names, so
+        # there is nothing to grandfather and they always use the standard extension.
+        legacy_parquet_extension=False,
     )
     # Minting the first credentials calls AWS STS, and this activity heartbeats every 10 seconds,
     # so the call runs under the heartbeater rather than ahead of it.

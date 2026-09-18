@@ -126,6 +126,7 @@ from products.streamlit_apps.backend.facade.api import (
     prune_old_streamlit_app_versions,
     stop_idle_streamlit_sandboxes,
 )
+from products.surveys.backend.facade.tasks import sweep_expired_desktop_feedback_media_task
 from products.tasks.backend.facade.tasks import (
     bake_dev_stack_image_task,
     reconcile_loop_trigger_schedules_task,
@@ -139,7 +140,7 @@ from products.visual_review.backend.facade.tasks import (
     sweep_visual_review_artifacts,
     sweep_visual_review_runs,
 )
-from products.warehouse_sources.backend.facade.tasks import sweep_stopped_schema_syncs
+from products.warehouse_sources.backend.facade.tasks import sweep_stalled_schema_schedules, sweep_stopped_schema_syncs
 from products.web_analytics.backend.achievements.tasks import sweep_web_analytics_achievement_team_tracks
 from products.web_analytics.backend.tasks.heatmap_screenshot import (
     reap_stale_prewarm_heatmaps,
@@ -537,6 +538,13 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         name="sweep abandoned media uploads",
     )
 
+    # Desktop feedback attachments are private diagnostic data with a fixed retention period.
+    sender.add_periodic_task(
+        crontab(hour="4", minute="20"),
+        sweep_expired_desktop_feedback_media_task.s(),
+        name="sweep expired desktop feedback media",
+    )
+
     # Team metadata cache verification - hourly at minute 20
     add_periodic_task_with_expiry(
         sender,
@@ -708,6 +716,15 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(hour="*", minute="25"),
         sweep_stopped_schema_syncs.s(),
         name="sweep stopped schema syncs",
+    )
+
+    # The mirror of the sweep above: schemas that should be syncing but get no runs at all.
+    # A schedule paused out of band produces no job row and no error, so this sweep is the
+    # only thing that reports it.
+    sender.add_periodic_task(
+        crontab(hour="*", minute="40"),
+        sweep_stalled_schema_schedules.s(),
+        name="sweep stalled schema schedules",
     )
 
     # Background net for tables created while nobody visits the warehouse status page. Each

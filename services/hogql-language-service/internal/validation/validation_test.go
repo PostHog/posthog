@@ -93,6 +93,50 @@ func TestValidateUnknownTableSuggestsVisibleMatch(t *testing.T) {
 	}
 }
 
+func TestValidateRelationNamesAreCaseSensitive(t *testing.T) {
+	result := Validate(schema(), "SELECT properties FROM Events")
+	if result.Valid || len(result.Diagnostics) != 1 || result.Diagnostics[0].Code != "unknown_table" || result.Diagnostics[0].Start != len("SELECT properties FROM ") {
+		t.Fatalf("wrong-case table result = %#v", result)
+	}
+
+	caseVariants := catalog.Prepare(&catalog.Catalog{Tables: map[string]catalog.Table{
+		"events": {Name: "events", Fields: map[string]catalog.Field{
+			"properties": {Name: "properties", Type: "json"},
+		}},
+		"Events": {Name: "Events", Fields: map[string]catalog.Field{
+			"custom_field": {Name: "custom_field", Type: "string"},
+		}},
+		"persons": {Name: "persons", Fields: map[string]catalog.Field{
+			"properties": {Name: "properties", Type: "json"},
+		}},
+	}, Properties: map[string][]catalog.Property{
+		"event":  {{Name: "$geo_city", ValueType: "String"}},
+		"person": {{Name: "$geo_country", ValueType: "String"}},
+	}})
+
+	result = Validate(caseVariants, "SELECT events.properties, Events.custom_field FROM events JOIN Events ON 1 = 1")
+	if !result.Valid || len(result.Diagnostics) != 0 || strings.Join(result.TableNames, ",") != "events,Events" {
+		t.Fatalf("case-variant table result = %#v", result)
+	}
+
+	for _, test := range []struct{ query, suggestion string }{
+		{"SELECT e.properties.$geo_cty FROM events AS e JOIN persons AS E ON 1 = 1", "$geo_city"},
+		{"SELECT E.properties.$geo_contry FROM events AS e JOIN persons AS E ON 1 = 1", "$geo_country"},
+		{"WITH t AS (SELECT properties FROM events), T AS (SELECT properties FROM persons) SELECT t.properties.$geo_cty FROM t JOIN T ON 1 = 1", "$geo_city"},
+		{"WITH t AS (SELECT properties FROM events), T AS (SELECT properties FROM persons) SELECT T.properties.$geo_contry FROM t JOIN T ON 1 = 1", "$geo_country"},
+	} {
+		checked := Validate(caseVariants, test.query)
+		if checked.Valid || len(checked.Diagnostics) != 1 || checked.Diagnostics[0].Code != "unknown_property" || len(checked.Diagnostics[0].Suggestions) == 0 || checked.Diagnostics[0].Suggestions[0].Label != test.suggestion {
+			t.Fatalf("query %q returned %#v", test.query, checked)
+		}
+	}
+
+	result = Validate(caseVariants, "WITH t AS (SELECT properties FROM events) SELECT properties FROM T")
+	if result.Valid || len(result.Diagnostics) != 1 || result.Diagnostics[0].Code != "unknown_table" || result.Diagnostics[0].Start != len("WITH t AS (SELECT properties FROM events) SELECT properties FROM ") {
+		t.Fatalf("wrong-case CTE result = %#v", result)
+	}
+}
+
 func TestValidateUnknownAliasedFieldSuggestsVisibleMatch(t *testing.T) {
 	for _, test := range []struct{ query, suggestion string }{
 		{"SELECT o.amuont FROM warehouse_orders AS o", "amount"},
@@ -125,6 +169,9 @@ func TestValidateAcceptsKnownFieldsAndFunctions(t *testing.T) {
 		{query: "SELECT event AS kind FROM events WHERE uuid IN (SELECT uuid AS kind FROM events WHERE kind != '') ORDER BY kind", tableName: "events"},
 		{query: "SELECT s.subtotal FROM (SELECT amount AS total, total AS subtotal FROM warehouse_orders) AS s", tableName: "warehouse_orders"},
 		{query: "SELECT amount AS amount FROM warehouse_orders ORDER BY amount", tableName: "warehouse_orders"},
+		{query: "SELECT TRUE, false FROM events WHERE TRUE AND false = FALSE", tableName: "events"},
+		{query: "SELECT CASE WHEN TRUE THEN false ELSE FALSE END AS enabled FROM events", tableName: "events"},
+		{query: "WITH flags AS (SELECT TRUE AS enabled FROM events) SELECT enabled FROM flags WHERE enabled = FALSE", tableName: "events"},
 	} {
 		result := Validate(schema(), test.query)
 		if !result.Valid || len(result.Diagnostics) != 0 {
@@ -270,6 +317,8 @@ func TestValidateRejectsUnknownFields(t *testing.T) {
 		"WITH t AS (SELECT total FROM warehouse_orders) SELECT amount AS total FROM warehouse_orders",
 		"SELECT event AS kind FROM events ORDER BY events.kind",
 		"SELECT amount AS Total FROM warehouse_orders ORDER BY total",
+		`SELECT "TRUE" FROM events`,
+		"SELECT events.FALSE FROM events",
 	} {
 		result := Validate(schema(), query)
 		if result.Valid || len(result.Diagnostics) != 1 || result.Diagnostics[0].Code != "unknown_field" {

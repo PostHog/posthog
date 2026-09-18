@@ -30,7 +30,7 @@ use crate::{
         legacy::{emit_processing_abort_warning, request_context},
     },
     outputs::OutputRegistry,
-    prometheus::{report_clock_skew, report_dropped_events},
+    prometheus::{report_clock_skew, report_dropped_events, report_timestamp_path},
     router,
     utils::uuid_v7_from_datetime,
     v0_request::{
@@ -165,6 +165,11 @@ pub fn process_single_event(
     if let Some(skew) = parsed_timestamp.clock_skew {
         report_clock_skew(skew);
     }
+    report_timestamp_path(
+        parsed_timestamp.source,
+        event.uuid,
+        parsed_timestamp.timestamp,
+    );
 
     let event_name = event.event.clone();
 

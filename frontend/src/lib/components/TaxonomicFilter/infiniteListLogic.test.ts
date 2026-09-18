@@ -17,6 +17,7 @@ import { dataWarehouseSettingsSceneLogic } from 'scenes/data-warehouse/settings/
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
 import { Mocks } from '~/mocks/utils'
+import { dashboardsModel } from '~/models/dashboardsModel'
 import { initKeaTests } from '~/test/init'
 import { mockEventDefinitions, mockEventPropertyDefinitions } from '~/test/mocks'
 import { AppContext, PropertyDefinition, PropertyFilterType, PropertyOperator, PropertyType } from '~/types'
@@ -100,6 +101,33 @@ describe('infiniteListLogic', () => {
         logicWithProps.mount()
         return logicWithProps
     }
+
+    it('shows loading while the dashboard list loads', async () => {
+        let completeDashboardLoad!: () => void
+        const dashboardLoad = new Promise<void>((resolve) => {
+            completeDashboardLoad = resolve
+        })
+        useMocks({
+            get: {
+                '/api/environments/:team/dashboards/': async () => {
+                    await dashboardLoad
+                    return [200, { count: 0, next: null, previous: null, results: [] }]
+                },
+            },
+        })
+
+        dashboardsModel.mount()
+        const dashboardsList = logicWith({
+            listGroupType: TaxonomicFilterGroupType.Dashboards,
+            taxonomicGroupTypes: [TaxonomicFilterGroupType.Dashboards],
+        })
+
+        expect(dashboardsList.values.showLoadingState).toBe(true)
+        expect(dashboardsList.values.showEmptyState).toBe(false)
+
+        completeDashboardLoad()
+        await expectLogic(dashboardsModel).toDispatchActions(['loadDashboardsSuccess'])
+    })
 
     it.each([
         { state: 'initial request pending', initialCompleted: false, previousSearchPending: false, clear: false },

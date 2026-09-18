@@ -54,10 +54,9 @@ func Validate(schema *catalog.PreparedCatalog, query string) Result {
 	seenTableNames := map[string]bool{}
 	for statement := range document.Statements() {
 		for table := range statement.Tables() {
-			lowerName := strings.ToLower(table.Name)
-			if !seenTableNames[lowerName] {
+			if !seenTableNames[table.Name] {
 				referencedTableNames = append(referencedTableNames, table.Name)
-				seenTableNames[lowerName] = true
+				seenTableNames[table.Name] = true
 			}
 			if !table.Known && len(diagnostics) < querylimits.MaxDiagnostics {
 				diagnostics = append(diagnostics, Diagnostic{
@@ -147,7 +146,7 @@ func Validate(schema *catalog.PreparedCatalog, query string) Result {
 					}
 				}
 			case *clickhouse.Ident:
-				if ignoredIdents[typed] || typed.Name == "*" {
+				if ignoredIdents[typed] || typed.Name == "*" || analysis.IsBooleanLiteral(typed) {
 					return true
 				}
 				bindings := statement.BindingsAt(int(node.Pos()), int(node.End()))

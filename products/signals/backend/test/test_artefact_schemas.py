@@ -11,6 +11,7 @@ from products.signals.backend.artefact_schemas import (
     CodeReference,
     Commit,
     NoteArtefact,
+    RelevantCommit,
     SuggestedReviewerEntry,
     SummaryChange,
     TaskRunArtefact,
@@ -22,6 +23,12 @@ from products.signals.backend.models import SignalReportArtefact
 
 
 class TestArtefactSchemas(SimpleTestCase):
+    def test_reviewer_reasons_are_bounded_on_write(self):
+        with self.assertRaises(ValidationError):
+            SuggestedReviewerEntry(github_login="reviewer", reason="x" * 501)
+        with self.assertRaises(ValidationError):
+            RelevantCommit(sha="abc1234", url="https://example.com", reason="x" * 501)
+
     def test_registry_covers_every_artefact_type_exactly(self):
         assert set(ARTEFACT_CONTENT_SCHEMAS.keys()) == set(SignalReportArtefact.ArtefactType.values)
 
