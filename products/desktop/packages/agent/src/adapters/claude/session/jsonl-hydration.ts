@@ -9,6 +9,7 @@ import { DEFAULT_GATEWAY_MODEL } from "../../../gateway-models";
 import type { PostHogAPIClient } from "../../../posthog-api";
 import type { StoredEntry } from "../../../types";
 import { isEmptyContentBlock } from "../../../utils/acp-content";
+import { stripMcpResultMeta } from "../../../utils/mcp-result";
 import { neutralizeUnprocessableImages } from "../image-sanitization";
 import { supports1MContext } from "./models";
 
@@ -73,21 +74,6 @@ function capToolPayload(value: unknown): unknown {
   return typeof value === "string"
     ? preview
     : { _truncated: true, preview, originalSize: text.length };
-}
-
-function stripMcpResultMeta(value: unknown): unknown {
-  if (
-    value !== null &&
-    typeof value === "object" &&
-    "_meta" in value &&
-    ("content" in value || "structuredContent" in value)
-  ) {
-    // ACP keeps app data for widgets, but a rebuilt transcript becomes model input.
-    // Strip metadata before capping so UI data cannot consume the resume budget either.
-    const { _meta, ...modelResult } = value;
-    return modelResult;
-  }
-  return value;
 }
 
 function isEmptyRecord(value: unknown): boolean {
@@ -289,6 +275,7 @@ function estimateTurnTokens(turn: ConversationTurn): number {
   }
   if (turn.toolCalls) {
     for (const tc of turn.toolCalls) {
+      chars += tc.toolName.length;
       chars += JSON.stringify(tc.input ?? "").length;
       if (tc.result !== undefined) {
         chars +=

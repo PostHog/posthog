@@ -8,6 +8,7 @@ import {
 import type { PostHogAPIClient } from "../posthog-api";
 import type { StoredNotification } from "../types";
 import type { Logger } from "../utils/logger";
+import { stripMcpResultMeta } from "../utils/mcp-result";
 
 export interface ConversationTurn {
   role: "user" | "assistant";
@@ -19,6 +20,14 @@ export interface ToolCallInfo {
   toolCallId: string;
   toolName: string;
   input: unknown;
+  result?: unknown;
+}
+
+/** One tool call event's fields, before they are merged into a {@link ToolCallInfo}. */
+interface PartialToolCall {
+  toolCallId: string;
+  toolName?: string;
+  input?: unknown;
   result?: unknown;
 }
 
@@ -260,52 +269,9 @@ export class ResumeSaga extends Saga<ResumeInput, ResumeOutput> {
           }
 
           case "tool_call":
-          case "tool_call_update": {
-            const meta = (update._meta as Record<string, unknown>)
-              ?.claudeCode as Record<string, unknown> | undefined;
-            if (meta) {
-              const toolCallId = meta.toolCallId as string | undefined;
-              const toolName = meta.toolName as string | undefined;
-              const toolInput = meta.toolInput;
-              const toolResponse = meta.toolResponse;
-
-              if (toolCallId && toolName) {
-                let toolCall = currentToolCalls.find(
-                  (tc) => tc.toolCallId === toolCallId,
-                );
-                if (!toolCall) {
-                  toolCall = {
-                    toolCallId,
-                    toolName,
-                    input: toolInput,
-                  };
-                  currentToolCalls.push(toolCall);
-                }
-
-                if (toolResponse !== undefined) {
-                  toolCall.result = toolResponse;
-                }
-              }
-            }
-            break;
-          }
-
+          case "tool_call_update":
           case "tool_result": {
-            const meta = (update._meta as Record<string, unknown>)
-              ?.claudeCode as Record<string, unknown> | undefined;
-            if (meta) {
-              const toolCallId = meta.toolCallId as string | undefined;
-              const toolResponse = meta.toolResponse;
-
-              if (toolCallId) {
-                const toolCall = currentToolCalls.find(
-                  (tc) => tc.toolCallId === toolCallId,
-                );
-                if (toolCall && toolResponse !== undefined) {
-                  toolCall.result = toolResponse;
-                }
-              }
-            }
+            mergeToolCall(currentToolCalls, readToolCall(update));
             break;
           }
         }
@@ -322,4 +288,103 @@ export class ResumeSaga extends Saga<ResumeInput, ResumeOutput> {
 
     return turns;
   }
+}
+
+/**
+ * Fold one tool call event into the turn's calls. A call is created on the
+ * first event that names it, and later events fill in what they carry, so a
+ * result that arrives on a separate update still reaches the resume prompt.
+ */
+function mergeToolCall(
+  toolCalls: ToolCallInfo[],
+  fields: PartialToolCall,
+): void {
+  if (!fields.toolCallId) return;
+  let toolCall = toolCalls.find((tc) => tc.toolCallId === fields.toolCallId);
+  if (!toolCall) {
+    if (!fields.toolName) return;
+    toolCall = {
+      toolCallId: fields.toolCallId,
+      toolName: fields.toolName,
+      input: fields.input,
+    };
+    toolCalls.push(toolCall);
+  } else if (
+    fields.input !== undefined &&
+    (toolCall.input === undefined || !isEmptyRecord(fields.input))
+  ) {
+    // The opening tool_call ships `rawInput: {}`, so a later cumulative
+    // snapshot has to win — but an empty one must not clobber a stored input.
+    toolCall.input = fields.input;
+  }
+  if (fields.result !== undefined) {
+    toolCall.result = fields.result;
+  }
+}
+
+function isEmptyRecord(value: unknown): boolean {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    !Array.isArray(value) &&
+    Object.keys(value).length === 0
+  );
+}
+
+/**
+ * Tool call fields, read from wherever the emitting runtime puts them. ACP
+ * carries the id and the payloads on the update itself, and every adapter
+ * emits them there; `_meta.claudeCode` only reliably carries `toolName` (and
+ * sometimes `toolResponse`), so it is a per-field fallback for older logs
+ * rather than an alternative source. Codex names its calls on `_meta.posthog`,
+ * and a plain shell call carries no meta at all, leaving `title` as the only
+ * name. Pi never arrives here: it persists its own `pi_event` entries, and
+ * `rebuildConversation` reads only `session/update` notifications.
+ */
+function readToolCall(update: Record<string, unknown>): PartialToolCall {
+  const meta = update._meta as Record<string, unknown> | undefined;
+  const claudeMeta = meta?.claudeCode as Record<string, unknown> | undefined;
+  const posthogMeta = meta?.posthog as Record<string, unknown> | undefined;
+
+  // A null rawOutput is an absent one: the Codex app-server serializes absent
+  // optional `CallToolResult` fields as JSON null, and a failed call keeps its
+  // error text in the content blocks the null would otherwise win over.
+  const result =
+    update.rawOutput ??
+    claudeMeta?.toolResponse ??
+    toolContentText(update.content);
+
+  return {
+    toolCallId: firstString(update.toolCallId, claudeMeta?.toolCallId) ?? "",
+    toolName: firstString(
+      claudeMeta?.toolName,
+      posthogMeta?.toolName,
+      update.title,
+    ),
+    input: firstDefined(update.rawInput, claudeMeta?.toolInput),
+    result: stripMcpResultMeta(result),
+  };
+}
+
+function firstString(...values: unknown[]): string | undefined {
+  return values.find((value): value is string => typeof value === "string");
+}
+
+function firstDefined(...values: unknown[]): unknown {
+  return values.find((value) => value !== undefined);
+}
+
+/** The text of an ACP tool call's content blocks, for a call with no `rawOutput`. */
+function toolContentText(content: unknown): string | undefined {
+  if (!Array.isArray(content)) return undefined;
+  const texts: string[] = [];
+  for (const block of content) {
+    const inner = (block as { content?: unknown } | null)?.content as
+      | { type?: unknown; text?: unknown }
+      | undefined;
+    if (inner?.type === "text" && typeof inner.text === "string") {
+      texts.push(inner.text);
+    }
+  }
+  return texts.length > 0 ? texts.join("\n") : undefined;
 }

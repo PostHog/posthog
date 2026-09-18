@@ -262,7 +262,7 @@ export function buildStoreSkillsInstructions(installedCount: number): string {
   }
   return `
 ## Skills from the PostHog skills store
-${installedCount} of the user's skills from the PostHog skills store are installed as local skills. Each one's SKILL.md is a pointer, not the skill: when you invoke one, follow the pointer and fetch the skill body with the PostHog MCP \`skill-get\` tool before you act. Never improvise the skill from the pointer text.`;
+${installedCount} of the user's skills from the PostHog skills store are installed as local skills. Each one's SKILL.md is a pointer, not the skill: when you invoke one, follow the pointer and fetch the skill body by running \`call skill-get {"skill_name": "<name>"}\` through the PostHog MCP \`exec\` tool before you act. Never improvise the skill from the pointer text.`;
 }
 
 function selectInstallable(stubs: readonly StoreSkillStub[]): {
