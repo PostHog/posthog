@@ -1409,6 +1409,9 @@ class OrganizationFeatureFlagView(
                 )
                 schedule_copy_error = str(e)
 
+        # update_flag reloads the stored ciphertext onto the instance, so redact it the way the
+        # other org-wide read paths do before it reaches the response.
+        self._redact_encrypted_payloads(request, saved_flag)
         copy_context = {"request": request, "team_id": target_team.id, "project_id": target_project_id}
         result = dict(serialize_flags([saved_flag], context=copy_context)[0])
         result["team_id"] = saved_flag.team_id

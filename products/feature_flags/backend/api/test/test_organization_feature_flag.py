@@ -1219,7 +1219,7 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
         real_save = FeatureFlagSerializer.save
 
         def gated_save(serializer_self, **kwargs):
-            if kwargs.get("team_id") == self.team_2.id:
+            if serializer_self.context.get("team_id") == self.team_2.id:
                 raise ApprovalRequired(
                     change_request=change_request,
                     message="Approval required",
