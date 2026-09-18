@@ -242,6 +242,28 @@ describe('supportTicketsSceneLogic', () => {
             expect(router.values.searchParams.search).toBeUndefined()
         })
 
+        it('keeps a cleared spike cleared when another filter changes', async () => {
+            router.actions.push(urls.supportTickets(), { ids: 'ticket-a,ticket-b' })
+            logic = supportTicketsSceneLogic()
+            logic.mount()
+
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.spikeTicketIds).toEqual(['ticket-a', 'ticket-b'])
+
+            await expectLogic(logic, () => {
+                logic.actions.clearSpikeFilter()
+            }).toFinishAllListeners()
+
+            expect(router.values.searchParams.ids).toBeUndefined()
+
+            await expectLogic(logic, () => {
+                logic.actions.setStatusFilter(['open'])
+            }).toFinishAllListeners()
+
+            expect(logic.values.spikeTicketIds).toEqual([])
+            expect(router.values.searchParams.ids).toBeUndefined()
+        })
+
         it('detaches an active view when the URL changes to explicit filters', async () => {
             router.actions.push(urls.supportTickets())
             logic = supportTicketsSceneLogic()

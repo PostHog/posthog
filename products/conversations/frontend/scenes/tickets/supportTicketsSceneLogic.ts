@@ -988,6 +988,18 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
             applyUrlFilters: buildUrl,
             setActiveView: buildUrl,
             clearActiveView: buildUrl,
+            // A cleared spike must leave the URL too. buildUrl copies unknown params forward,
+            // so a leftover `ids` would survive the next filter change and urlToAction would
+            // put the spike filter straight back.
+            clearSpikeFilter: () => {
+                if (props.distinctIds?.length || router.values.searchParams.ids === undefined) {
+                    return
+                }
+                const searchParams = { ...router.values.searchParams }
+                delete searchParams.ids
+                cache.selfNavigating = true
+                return [router.values.location.pathname, searchParams, router.values.hashParams, { replace: true }]
+            },
         }
     }),
     urlToAction(({ actions, values, props, cache }) => ({
