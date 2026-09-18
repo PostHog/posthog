@@ -8,11 +8,14 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import {
     hogFlowsProposalsApproveCreate,
+    hogFlowsOptimisationCreate,
+    hogFlowsOptimisationRetrieve,
     hogFlowsProposalsList,
     hogFlowsProposalsOutcomeRetrieve,
     hogFlowsProposalsRejectCreate,
 } from '../generated/api'
 import type {
+    HogFlowOptimisationApi,
     PaginatedWorkflowProposalListApi,
     WorkflowProposalApi,
     WorkflowProposalOutcomeApi,
@@ -36,6 +39,10 @@ export interface workflowProposalsLogicValues {
     appliedResponse: PaginatedWorkflowProposalListApi | null
     appliedResponseLoading: boolean
     lastSeenVersion: number | null
+    optimisation: HogFlowOptimisationApi | null
+    optimisationEnabled: boolean
+    optimisationLoading: boolean
+    optimisationUnreadable: boolean
     outcomes: Record<string, WorkflowProposalOutcomeApi>
     pendingProposals: WorkflowProposalApi[]
     proposalsResponse: PaginatedWorkflowProposalListApi | null
@@ -74,6 +81,21 @@ export interface workflowProposalsLogicActions {
         appliedResponse: PaginatedWorkflowProposalListApi
         payload?: any
     }
+    loadOptimisation: () => any
+    loadOptimisationFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadOptimisationSuccess: (
+        optimisation: HogFlowOptimisationApi | null,
+        payload?: any
+    ) => {
+        optimisation: HogFlowOptimisationApi | null
+        payload?: any
+    }
     loadOutcome: (proposalId: string) => {
         proposalId: string
     }
@@ -101,6 +123,30 @@ export interface workflowProposalsLogicActions {
     setLastSeenVersion: (version: number | null) => {
         version: number | null
     }
+    setOptimisationEnabled: (enabled: boolean) => {
+        enabled: boolean
+    }
+    setOptimisationEnabledFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    setOptimisationEnabledSuccess: (
+        optimisation: HogFlowOptimisationApi,
+        payload?: {
+            enabled: boolean
+        }
+    ) => {
+        optimisation: HogFlowOptimisationApi
+        payload?: {
+            enabled: boolean
+        }
+    }
+    setOptimisationUnreadable: (unreadable: boolean) => {
+        unreadable: boolean
+    }
     setOutcome: (
         proposalId: string,
         outcome: WorkflowProposalOutcomeApi
@@ -122,6 +168,7 @@ export interface workflowProposalsLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
         appliedProposals: (appliedResponse: PaginatedWorkflowProposalListApi | null) => WorkflowProposalApi[]
+        optimisationEnabled: (optimisation: HogFlowOptimisationApi | null) => boolean
         pendingProposals: (proposalsResponse: PaginatedWorkflowProposalListApi | null) => WorkflowProposalApi[]
     }
 }
@@ -155,6 +202,8 @@ export const workflowProposalsLogic = kea<workflowProposalsLogicType>([
         }),
         loadOutcome: (proposalId: string) => ({ proposalId }),
         setLastSeenVersion: (version: number | null) => ({ version }),
+        setOptimisationUnreadable: (unreadable: boolean) => ({ unreadable }),
+        setOptimisationEnabled: (enabled: boolean) => ({ enabled }),
         setOutcome: (proposalId: string, outcome: WorkflowProposalOutcomeApi) => ({ proposalId, outcome }),
     }),
     reducers({
@@ -184,6 +233,15 @@ export const workflowProposalsLogic = kea<workflowProposalsLogicType>([
                 setResolvingId: (_, { action }) => action,
             },
         ],
+        // A failed read must not read as "off".
+        optimisationUnreadable: [
+            false,
+            {
+                setOptimisationUnreadable: (_, { unreadable }) => unreadable,
+                loadOptimisationSuccess: () => false,
+                setOptimisationEnabledSuccess: () => false,
+            },
+        ],
         lastSeenVersion: [
             null as number | null,
             {
@@ -200,7 +258,7 @@ export const workflowProposalsLogic = kea<workflowProposalsLogicType>([
             },
         ],
     }),
-    loaders(({ props, values }) => ({
+    loaders(({ actions, props, values }) => ({
         appliedResponse: [
             null as PaginatedWorkflowProposalListApi | null,
             {
@@ -217,6 +275,26 @@ export const workflowProposalsLogic = kea<workflowProposalsLogicType>([
                         }
                         throw error
                     }
+                },
+            },
+        ],
+        optimisation: [
+            null as HogFlowOptimisationApi | null,
+            {
+                loadOptimisation: async () => {
+                    try {
+                        return await hogFlowsOptimisationRetrieve(String(values.currentTeamIdStrict), props.id)
+                    } catch (error) {
+                        // 404 is the flag being off, which the panel already reads as "nothing here".
+                        if (error instanceof ApiError && error.status === 404) {
+                            return null
+                        }
+                        actions.setOptimisationUnreadable(true)
+                        throw error
+                    }
+                },
+                setOptimisationEnabled: async ({ enabled }) => {
+                    return await hogFlowsOptimisationCreate(String(values.currentTeamIdStrict), props.id, { enabled })
                 },
             },
         ],
@@ -243,6 +321,10 @@ export const workflowProposalsLogic = kea<workflowProposalsLogicType>([
         appliedProposals: [
             (s) => [s.appliedResponse],
             (response: PaginatedWorkflowProposalListApi | null): WorkflowProposalApi[] => response?.results ?? [],
+        ],
+        optimisationEnabled: [
+            (s) => [s.optimisation],
+            (optimisation: HogFlowOptimisationApi | null): boolean => !!optimisation?.enabled,
         ],
         pendingProposals: [
             (s) => [s.proposalsResponse],
@@ -382,5 +464,6 @@ export const workflowProposalsLogic = kea<workflowProposalsLogicType>([
         actions.setLastSeenVersion(values.originalWorkflow?.version ?? null)
         actions.loadProposals()
         actions.loadApplied()
+        actions.loadOptimisation()
     }),
 ])
