@@ -8,6 +8,7 @@ from opentelemetry import trace
 from rest_framework.exceptions import PermissionDenied
 
 from posthog.schema import (
+    EventMatchScope,
     HogQLQueryModifiers,
     PropertyOperator,
     RecordingOrder,
@@ -274,7 +275,12 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
             # Tagged around the listing execution only, so the tag marks exactly the queries that
             # carry the evidence scan and its GLOBAL IN set: the precompute builds that run during
             # linkage resolution and the blocklist probe below stay untagged.
-            with tags_context(**({"experiment_exposures_in_session": True} if in_session_narrowed else {})):
+            listing_tags: dict[str, Any] = {}
+            if in_session_narrowed:
+                listing_tags["experiment_exposures_in_session"] = True
+            if self._query.event_match_scope == EventMatchScope.RECORDING:
+                listing_tags["replay_event_match_scope"] = EventMatchScope.RECORDING.value
+            with tags_context(**listing_tags):
                 paginated_response = self._paginator.execute_hogql_query(
                     # TODO I guess the paginator needs to know how to handle union queries or all callers are supposed to collapse them or .... 🤷
                     query=cast(ast.SelectQuery, query),

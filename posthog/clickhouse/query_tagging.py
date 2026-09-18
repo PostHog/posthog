@@ -492,6 +492,10 @@ class QueryTags(BaseModel):
     # in-session exposure evidence, which adds a live events scan and a GLOBAL IN set on top of the
     # population read. Separates that heavier read from a plain exposure listing in the query log.
     experiment_exposures_in_session: Optional[bool] = None
+    # Set on a recordings-list read whose event filters only match inside each recording's window.
+    # That path adds a GLOBAL JOIN on the per-recording bounds to every events subquery, so the tag
+    # separates its cost from the default session-scoped listing in the query log.
+    replay_event_match_scope: Optional[str] = None  # "recording"; absent for the default session scope
     experiment_metric_events_path: Optional[str] = None  # "direct_scan", "precomputed", or "not_applicable"
     experiment_query_surface: Optional[str] = None  # "metric", "exposures_timeseries", "actors", "precompute_build"
     experiment_precompute_table: Optional[str] = None  # on precompute_build rows: "exposures" or "metric_events"

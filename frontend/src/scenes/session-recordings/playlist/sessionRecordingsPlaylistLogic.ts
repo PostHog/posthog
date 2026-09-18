@@ -146,6 +146,8 @@ interface NoEventsToMatch {
 interface EventNamesMatching {
     matchType: 'name'
     eventNames: string[]
+    /** Under recording scope an event only counts when it falls inside the recording's window. */
+    withinRecording?: boolean
 }
 
 interface EventUUIDsMatching {
@@ -2046,6 +2048,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                     return {
                         matchType: 'name',
                         eventNames: simpleEventsFilters,
+                        withinRecording: filters.event_match_scope === 'recording',
                     }
                 }
 

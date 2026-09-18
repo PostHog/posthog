@@ -1283,6 +1283,40 @@ describe('sessionRecordingsPlaylistLogic', () => {
 
             expect(logic.values.matchingEventsMatchType.matchType).toBe('none')
         })
+
+        it.each([
+            [undefined, false],
+            ['recording' as const, true],
+        ])(
+            'with event_match_scope %s a simple event filter matches by name, withinRecording %s',
+            (eventMatchScope, expected) => {
+                // The player matches by name over every event in the session, so under recording scope it
+                // has to know to also check the recording window.
+                logic = sessionRecordingsPlaylistLogic({
+                    logicKey: `match-type-tests-scope-${eventMatchScope}`,
+                    filters: {
+                        ...DEFAULT_RECORDING_FILTERS,
+                        event_match_scope: eventMatchScope,
+                        filter_group: {
+                            type: FilterLogicalOperator.And,
+                            values: [
+                                {
+                                    type: FilterLogicalOperator.And,
+                                    values: [{ id: '$pageview', name: '$pageview', type: 'events' }],
+                                },
+                            ],
+                        },
+                    },
+                })
+                logic.mount()
+
+                expect(logic.values.matchingEventsMatchType).toEqual({
+                    matchType: 'name',
+                    eventNames: ['$pageview'],
+                    withinRecording: expected,
+                })
+            }
+        )
     })
 
     describe('resetting filters', () => {

@@ -59,7 +59,8 @@ REPLAY_NEGATIVE_BLOCKLIST_TRUNCATED_COUNTER = Counter(
 
 # An event's client timestamp can sit a little before the recorder's first snapshot lands and a
 # little after its last one, so a recording-scoped match allows this margin on each side of the
-# recording window.
+# recording window. The player mirrors it as RECORDING_MATCH_MARGIN_MS in
+# frontend/src/scenes/session-recordings/utils.ts, so change both together.
 RECORDING_MATCH_MARGIN_MINUTES = 1
 RECORDING_BOUNDS_ALIAS = "recording_bounds"
 

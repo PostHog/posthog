@@ -28419,11 +28419,14 @@ class RecordingsQuery(BaseModel):
     event_match_scope: EventMatchScope | None = Field(
         default=EventMatchScope.SESSION,
         description=(
-            "Where an event, action, or event property filter must match. 'session'"
+            "Where a filter that is evaluated against events must match. 'session'"
             " (default) matches an event anywhere in the session, including before the"
             " recording started or after it ended. 'recording' only matches events"
-            " whose timestamp falls inside the recording's own window, so the matched"
-            " moment is in the video."
+            " whose timestamp falls inside the recording's own window (with a one"
+            " minute margin), so the matched moment is in the video. This applies to"
+            " every filter the events table answers: events, actions, event properties,"
+            " and, when the project resolves them on events, person, group, and cohort"
+            " properties."
         ),
     )
     events: list[dict[str, Any]] | None = None

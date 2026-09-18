@@ -2942,6 +2942,49 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             [session_id] if is_listed else [],
         )
 
+    # under person-on-events a person property is answered by the events that carry it, so the
+    # recording scope applies to those events like any other
+    @parameterized.expand(
+        [
+            ("session_scope_matches_a_person_property_before_the_video", "session", True),
+            ("recording_scope_needs_the_carrying_event_inside_the_video", "recording", False),
+        ]
+    )
+    def test_event_match_scope_applies_to_person_properties_resolved_on_events(
+        self, _name: str, scope: str, matches: bool
+    ) -> None:
+        with self.settings(PERSON_ON_EVENTS_V2_OVERRIDE=True):
+            assert self.team.person_on_events_mode == PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS
+            distinct_id = f"event-match-scope-person-user-{uuid4()}"
+            create_person(team=self.team, distinct_ids=[distinct_id], properties={"email": "bla@example.com"})
+            session_id = f"event-match-scope-person-session-{uuid4()}"
+
+            produce_replay_summary(
+                distinct_id=distinct_id,
+                session_id=session_id,
+                first_timestamp=self.an_hour_ago,
+                last_timestamp=self.an_hour_ago + relativedelta(minutes=5),
+                team_id=self.team.id,
+                ensure_analytics_event_in_session=False,
+            )
+            create_event(
+                team=self.team,
+                distinct_id=distinct_id,
+                timestamp=self.an_hour_ago - relativedelta(minutes=10),
+                event_name="$pageview",
+                properties={"$session_id": session_id},
+            )
+
+            self._assert_query_matches_session_ids(
+                {
+                    "properties": [
+                        {"key": "email", "value": ["bla@example.com"], "operator": "exact", "type": "person"}
+                    ],
+                    "event_match_scope": scope,
+                },
+                [session_id] if matches else [],
+            )
+
     @also_test_with_materialized_columns(event_properties=["$current_url", "$browser"], person_properties=["email"])
     @snapshot_clickhouse_queries
     def test_event_filter_with_hogql_properties(self):
