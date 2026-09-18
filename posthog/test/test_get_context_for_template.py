@@ -20,10 +20,21 @@ from products.conversations.backend.services.identity import IDENTITY_CLAIM_MAX_
 
 
 class TestPersistedFeatureFlagsForAppContext(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("enabled", True, ["warehouse-person-properties"]),
+            ("disabled", False, []),
+        ]
+    )
     @mock.patch("posthog.utils.posthoganalytics.feature_flag_definitions", return_value=[])
-    def test_self_hosted_context_includes_non_cloud_persisted_flags_without_an_env_override(self, _definitions):
-        with self.settings(CLOUD_DEPLOYMENT=None, DEBUG=False, PERSISTED_FEATURE_FLAGS=[]):
-            assert get_persisted_feature_flags_for_app_context() == ["warehouse-person-properties"]
+    def test_self_hosted_context_respects_operator_setting(self, _name, enabled, expected, _definitions):
+        with self.settings(
+            CLOUD_DEPLOYMENT=None,
+            DEBUG=False,
+            PERSISTED_FEATURE_FLAGS=[],
+            WAREHOUSE_PERSON_PROPERTIES_ENABLED_SELF_HOSTED=enabled,
+        ):
+            assert get_persisted_feature_flags_for_app_context() == expected
 
     @mock.patch("posthog.utils.posthoganalytics.feature_flag_definitions", return_value=[])
     def test_cloud_context_does_not_include_non_cloud_persisted_flags(self, _definitions):
