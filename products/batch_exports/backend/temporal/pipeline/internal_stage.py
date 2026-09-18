@@ -109,7 +109,6 @@ class HogQLQueryResourceLimitExceededError(Exception):
 # non-retryable errors (see `handle_non_retryable_errors`), and prevents us being alerted on user errors.
 NON_RETRYABLE_ERRORS: tuple[type[Exception], ...] = (
     DataIntervalInFutureError,
-    MissingRequiredInputsError,
     HogQLQueryResourceLimitExceededError,
     InvalidFilterError,
     UnsupportedHogQLQueryError,
