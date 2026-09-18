@@ -46,7 +46,7 @@ jobs:
         name: Emit master run traces
         # hogli-lint: not-a-required-gate — report-only telemetry, gates nothing.
         if: github.repository == 'PostHog/posthog'
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         timeout-minutes: 20
         steps:
             # A cron workflow always runs the default-branch copy of this file, so the

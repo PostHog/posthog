@@ -470,7 +470,7 @@ jobs:
     # this job breaks that lookup.
     hand-off-to-depot:
         name: Hand off backend tests to Depot CI
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         timeout-minutes: 2
         needs: [changes]
         if: needs.changes.outputs.engine == 'depot'
@@ -1472,7 +1472,7 @@ jobs:
             contents: read
             actions: write
         name: Cancel Backend CI after repo check failure
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         steps:
             - name: Cancel run
               env:
@@ -1497,8 +1497,8 @@ jobs:
             github.event.pull_request.head.repo.full_name == github.repository
             && needs.changes.outputs.engine != 'depot'
         timeout-minutes: 5
-        name: Validate product.yaml owners (ubuntu-latest)
-        runs-on: ubuntu-latest
+        name: Validate product.yaml owners (ubuntu-24.04)
+        runs-on: ubuntu-24.04
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
@@ -1516,7 +1516,7 @@ jobs:
                   owner: ${{ github.repository_owner }}
                   repositories: ${{ github.event.repository.name }}
 
-            # Plain setup-python: this PR-only job runs on ubuntu-latest, whose cache
+            # Plain setup-python: this PR-only job runs on ubuntu-24.04, whose cache
             # store no master job ever saves the python tool cache to, so the
             # setup-python-cached restore would miss on every run.
             - name: Set up Python
@@ -2290,7 +2290,7 @@ jobs:
         # Mirror the dump there so fork PRs prime instead of migrating from scratch.
         if: github.event_name == 'push' && github.ref == 'refs/heads/master'
         name: Mirror schema cache to GitHub cache
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         timeout-minutes: 5
         permissions:
             contents: read
@@ -2552,7 +2552,7 @@ jobs:
             contents: read
             actions: write
         name: Cancel Backend CI after OpenAPI check failure
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         steps:
             - name: Cancel run
               env:
@@ -3917,7 +3917,7 @@ jobs:
         # Only in UPDATE mode - CHECK mode verifies snapshots match exactly
         # Run even if some matrix jobs failed (to commit snapshots from passing jobs)
         if: ${{ !cancelled() && needs.detect-snapshot-mode.outputs.mode == 'update' && needs.changes.outputs.backend == 'true' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog' }}
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         timeout-minutes: 5
         permissions:
             contents: write
@@ -3999,7 +3999,7 @@ jobs:
                 repo-checks,
             ]
         name: Django Tests Pass
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         permissions:
             contents: read
             actions: read # the failure rollup downloads each shard's JUnit artifact
@@ -4273,7 +4273,7 @@ jobs:
             !cancelled() && github.event_name == 'pull_request' &&
             needs.changes.result != 'skipped' &&
             (needs.django.result != 'skipped' || needs.turbo-tests.result != 'skipped')
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         timeout-minutes: 10
         permissions:
             contents: read
@@ -4369,7 +4369,7 @@ jobs:
     calculate-running-time:
         name: Calculate running time
         needs: [changes, django_tests]
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         timeout-minutes: 5
         # Run on pull requests to PostHog/posthog + on PostHog/posthog outside of PRs - but never on forks or Dependabot (no secrets access)
         if: >-
@@ -4417,7 +4417,7 @@ jobs:
     capture-test-selection:
         name: Capture test selection
         needs: [turbo-discover]
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         timeout-minutes: 5
         # An empty mode means this run never selected, so there is no decision to report.
         # DevEx project only, mirroring monitor-github-rate-limit; continue-on-error so
@@ -4442,7 +4442,7 @@ jobs:
         # django and turbo-tests are here for their results only; django_tests already
         # waits for both, so this adds no wall time.
         needs: [django_tests, django, turbo-tests]
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         continue-on-error: true
         timeout-minutes: 10
         # Runs on every attempt: a re-run passing what an earlier attempt failed is the same-commit
@@ -4513,7 +4513,7 @@ jobs:
     backend-coverage-report:
         name: Backend coverage report
         needs: [changes, turbo-tests, django_tests, turbo-discover]
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         continue-on-error: true # report-only, never block a PR
         timeout-minutes: 10
         # Pinned job-level: this job runs PR-head-controlled scripts with github.token, so its

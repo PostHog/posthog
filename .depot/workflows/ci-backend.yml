@@ -12,7 +12,7 @@
 #   `handed_off`, true only when GitHub Actions handed the tests to this engine. Canonical's
 #   `Django Tests Pass` gate then relays this workflow's gate verdict. Neither the hand-off
 #   job nor the relay has a counterpart here.
-# - runs-on: depot-* labels instead of ubuntu-latest
+# - runs-on: depot-* labels instead of GitHub-hosted ubuntu-24.04
 # - action paths: ./.depot/actions/... instead of ./.github/actions/... (pnpm-install,
 #   setup-sqlx-cli, setup-python-cached, setup-uv, setup-turbo, and paths-filter mirror
 #   the canonical composites; any deltas are documented in each mirror's header). Every
