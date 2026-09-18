@@ -189,13 +189,17 @@ export function Members(): JSX.Element | null {
     const { downloadMembersListDisabledReason } = useValues(membersExportLogic)
     const { currentOrganization } = useValues(organizationLogic)
     const { preflight } = useValues(preflightLogic)
-    const { user } = useValues(userLogic)
+    const { user, hasAvailableFeature } = useValues(userLogic)
     const { setSearch, ensureAllMembersLoaded } = useActions(membersLogic)
     const { downloadMembersList } = useActions(membersExportLogic)
     const { updateOrganization } = useActions(organizationLogic)
     const { openTwoFactorSetupModal } = useActions(twoFactorLogic)
 
     const adminRestrictionReason = useRestrictedArea({ minimumAccessLevel: OrganizationMembershipLevel.Admin })
+    // PayGateMini falls through to its children when billing carries no metadata for the feature,
+    // so the entitlement is checked here too. Otherwise a switch the API rejects looks usable.
+    const settingDisabledReason = (feature: AvailableFeature): string | null =>
+        adminRestrictionReason ?? (hasAvailableFeature(feature) ? null : 'Your plan does not include this setting.')
     const hasHiddenMembers =
         (members?.length ?? 0) > 0 && (members?.length ?? 0) < (currentOrganization?.member_count ?? 0)
 
@@ -388,7 +392,7 @@ export function Members(): JSX.Element | null {
                     bordered
                     checked={!!currentOrganization?.enforce_2fa}
                     onChange={(enforce_2fa) => updateOrganization({ enforce_2fa })}
-                    disabledReason={adminRestrictionReason}
+                    disabledReason={settingDisabledReason(AvailableFeature.TWOFA_ENFORCEMENT)}
                 />
             </PayGateMini>
 
@@ -408,7 +412,7 @@ export function Members(): JSX.Element | null {
                     data-attr="org-members-can-invite-toggle"
                     checked={!!currentOrganization?.members_can_invite}
                     onChange={(members_can_invite) => updateOrganization({ members_can_invite })}
-                    disabledReason={adminRestrictionReason}
+                    disabledReason={settingDisabledReason(AvailableFeature.ORGANIZATION_INVITE_SETTINGS)}
                 />
                 <p className="mt-4">
                     Control who can create new projects. Admins and owners can always create projects.
@@ -423,7 +427,7 @@ export function Members(): JSX.Element | null {
                     data-attr="org-members-can-create-projects-toggle"
                     checked={!!currentOrganization?.members_can_create_projects}
                     onChange={(members_can_create_projects) => updateOrganization({ members_can_create_projects })}
-                    disabledReason={adminRestrictionReason}
+                    disabledReason={settingDisabledReason(AvailableFeature.ORGANIZATION_INVITE_SETTINGS)}
                 />
             </PayGateMini>
 
@@ -450,7 +454,7 @@ export function Members(): JSX.Element | null {
                             onChange={(members_can_use_personal_api_keys) =>
                                 updateOrganization({ members_can_use_personal_api_keys })
                             }
-                            disabledReason={adminRestrictionReason}
+                            disabledReason={settingDisabledReason(AvailableFeature.ORGANIZATION_SECURITY_SETTINGS)}
                         />
                     </PayGateMini>
                 </>
