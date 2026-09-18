@@ -12,8 +12,3 @@ MCP_TOOLS_LIST_EVENT = "$mcp_tools_list"
 # to render in one go. Lives here (not intent_clustering.py) so the API read
 # path can import it without pulling sklearn/numpy into the request path.
 MAX_SNAPSHOT_CLUSTERS = 100
-
-# $session_id comes from client-supplied event properties, and each MCP client picks its own
-# format, so the store holds more than a bare UUID. Django does not enforce max_length on save,
-# so the API rejects a longer id rather than letting Postgres fail the write.
-MAX_SESSION_ID_LENGTH = 200

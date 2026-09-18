@@ -5,7 +5,7 @@ from django.db import models
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.utils import UUIDModel
 
-from products.mcp_analytics.backend.constants import MAX_SESSION_ID_LENGTH
+from products.mcp_analytics.backend.facade.contracts import MAX_SESSION_ID_LENGTH
 
 
 class MCPIntentClusterSnapshot(TeamScopedRootMixin):

@@ -19,7 +19,6 @@ from posthog.models.user import User
 from posthog.permissions import PostHogFeatureFlagPermission
 
 from products.mcp_analytics.backend import logic
-from products.mcp_analytics.backend.constants import MAX_SESSION_ID_LENGTH
 from products.mcp_analytics.backend.facade import api, contracts, enums
 from products.mcp_analytics.backend.models import MCPAnalyticsSubmission
 
@@ -254,9 +253,9 @@ class MCPSessionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             return Response({"detail": "session_id is required."}, status=status.HTTP_400_BAD_REQUEST)
         # Django does not enforce max_length on save, so an over-long id would reach Postgres and
         # fail the write after the summary has already been paid for. Reject it before the LLM call.
-        if len(session_id) > MAX_SESSION_ID_LENGTH:
+        if len(session_id) > contracts.MAX_SESSION_ID_LENGTH:
             return Response(
-                {"detail": f"session_id must be at most {MAX_SESSION_ID_LENGTH} characters."},
+                {"detail": f"session_id must be at most {contracts.MAX_SESSION_ID_LENGTH} characters."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
         date_from = _parse_detail_date_from(request.query_params.get("date_from"))

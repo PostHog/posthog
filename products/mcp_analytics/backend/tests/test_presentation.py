@@ -19,8 +19,10 @@ from posthog.temporal.mcp_analytics.intent_clustering.constants import (
 )
 
 from products.mcp_analytics.backend import intent_generation
-from products.mcp_analytics.backend.constants import MAX_SESSION_ID_LENGTH
-from products.mcp_analytics.backend.facade.contracts import MCP_ANALYTICS_INTENT_ROUTING_FEATURE_FLAG
+from products.mcp_analytics.backend.facade.contracts import (
+    MAX_SESSION_ID_LENGTH,
+    MCP_ANALYTICS_INTENT_ROUTING_FEATURE_FLAG,
+)
 from products.mcp_analytics.backend.models import MCPAnalyticsSubmission, MCPIntentClusterSnapshot, MCPSession
 from products.mcp_analytics.backend.presentation.serializers import (
     MCP_SESSION_LIST_DEFAULT_LIMIT,
