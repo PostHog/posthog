@@ -233,7 +233,7 @@ from posthog.schema_enums import (
     PropertyType as PropertyType,
     QueryIndexUsage as QueryIndexUsage,
     QueryScanFindingKind as QueryScanFindingKind,
-    QueryScanFindingReason as QueryScanFindingReason,
+    QueryScanFixLocation as QueryScanFixLocation,
     QuickFilterContext as QuickFilterContext,
     QuickFilterType as QuickFilterType,
     RecordingOrder as RecordingOrder,
@@ -2678,13 +2678,35 @@ class QueryScanWarning(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    actionable: bool = Field(
+        ...,
+        description=(
+            "Whether the person can change the query so it reads less and still answers"
+            ' the same question. Surfaces show the full advice and "Fix with AI" only'
+            " when a finding is actionable."
+        ),
+    )
+    by_design: bool | None = Field(
+        default=None,
+        description=(
+            "True when the query reads this much on purpose, so reading less would change the answer. Absent means no."
+        ),
+    )
+    cause: str | None = Field(
+        default=None,
+        description=(
+            "A label for what in the query text kept the read wide, such as `in_or`."
+            " Only analytics and the assistant read it, and the labels can change."
+        ),
+    )
     evidence: str | None = Field(default=None, description="The one fact the finding rests on.")
     fix: str = Field(..., description='What "Fix with AI" and the assistant are told to do.')
+    fix_location: QueryScanFixLocation | None = Field(
+        default=None,
+        description="Where the change goes. Absent means the query itself.",
+    )
     kind: QueryScanFindingKind
     message: str = Field(..., description="Shown to the person: what happened and what to do.")
-    reason: QueryScanFindingReason | None = Field(
-        default=None, description="Only with `no_event_filter` and `no_start_date`."
-    )
 
 
 class QueryTiming(BaseModel):
@@ -6818,7 +6840,10 @@ class QueryScanAnalysis(BaseModel):
             " finding can be fixed in the query."
         ),
     )
-    findings: list[QueryScanWarning] = Field(..., description="Empty when the analysis found nothing to fix.")
+    findings: list[QueryScanWarning] = Field(
+        ...,
+        description=("Every finding, fixable or not. Empty when the analysis found none."),
+    )
     project_share: float | None = Field(
         default=None,
         description="How much of all the project's events the query read, 0 to 1.",

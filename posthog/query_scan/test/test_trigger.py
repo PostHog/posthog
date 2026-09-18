@@ -1,6 +1,7 @@
 import json
 from typing import Any
 
+from posthog.test.base import BaseTest
 from unittest import mock
 
 from django.test import SimpleTestCase
@@ -9,26 +10,38 @@ from parameterized import parameterized
 
 from posthog.schema import (
     BaseMathType,
+    Breakdown,
+    BreakdownFilter,
+    BreakdownType,
     DateRange,
     EventsNode,
+    EventsQuery,
     FunnelMathType,
     FunnelsQuery,
     HogQLFilters,
     HogQLQuery,
+    LifecycleQuery,
+    MultipleBreakdownType,
     RetentionFilter,
     RetentionQuery,
     RetentionType,
     TrendsQuery,
 )
 
+from posthog.hogql import ast
+from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.parser import parse_select
+from posthog.hogql.query import HogQLQueryExecutor
 from posthog.hogql.query_stats import QueryStats, RecordedExecution
 
 from posthog.clickhouse.query_tagging import AccessMethod, Feature, reset_query_tags, tag_queries
+from posthog.event_usage import EventSource
+from posthog.query_scan.explain import EXPLAIN_MAX_SECONDS
 from posthog.query_scan.flag import QueryScanFlag, QueryScanMode
 from posthog.query_scan.slot import slot_key
-from posthog.query_scan.trigger import MAX_EXECUTION_BYTES, _open_filters_placeholder, maybe_trigger_query_scan
+from posthog.query_scan.tree_facts import TreeFacts
+from posthog.query_scan.trigger import _open_filters_placeholder, maybe_trigger_query_scan
 
 FLAG = QueryScanFlag(mode=QueryScanMode.SHOW, floor_ms=1000, event_ratio=0.1, persons_ratio=0.5)
 
@@ -37,15 +50,35 @@ _QUERY_WITH_SUBQUERY = "select 1 from events where event in (select 'x')"
 
 
 def _execution(
-    sql: str = _QUERY_WITH_SUBQUERY, rows_read: int = 100, values: dict[str, Any] | None = None
+    sql: str = _QUERY_WITH_SUBQUERY,
+    rows_read: int = 100,
+    values: dict[str, Any] | None = None,
+    lookup: str | None = None,
+    settings: HogQLGlobalSettings | None = None,
 ) -> RecordedExecution:
     return RecordedExecution(
-        tree=parse_select(sql), context=HogQLContext(team_id=1, values=values or {}), rows_read=rows_read
+        tree=parse_select(sql),
+        context=HogQLContext(team_id=1, values=values or {}),
+        rows_read=rows_read,
+        lookup=lookup,
+        settings=settings,
     )
 
 
-def _stats(*, duration_ms: float = 2000.0, executions: list[RecordedExecution] | None = None) -> QueryStats:
-    stats = QueryStats(rows_read=10, duration_ms=duration_ms)
+def _stats(
+    *,
+    duration_ms: float = 2000.0,
+    rows_read: int = 10,
+    executions: list[RecordedExecution] | None = None,
+    lookup_rows_read: int = 0,
+    lookup_duration_ms: float = 0.0,
+) -> QueryStats:
+    stats = QueryStats(
+        rows_read=rows_read,
+        duration_ms=duration_ms,
+        lookup_rows_read=lookup_rows_read,
+        lookup_duration_ms=lookup_duration_ms,
+    )
     stats.executions.extend(executions if executions is not None else [_execution()])
     return stats
 
@@ -62,6 +95,14 @@ def _spend_the_enqueue_budget(test: "TestQueryScanTrigger") -> None:
     test.redis.incr.return_value = 11
 
 
+def _tag_as_mcp_tool(test: "TestQueryScanTrigger") -> None:
+    tag_queries(access_method=AccessMethod.PERSONAL_API_KEY, feature=Feature.MCP)
+
+
+def _tag_as_mcp_server(test: "TestQueryScanTrigger") -> None:
+    tag_queries(access_method=AccessMethod.OAUTH, source=EventSource.MCP)
+
+
 def _lose_the_slot_claim(test: "TestQueryScanTrigger") -> None:
     test.redis.set.return_value = None
 
@@ -69,7 +110,7 @@ def _lose_the_slot_claim(test: "TestQueryScanTrigger") -> None:
 def _printing(values: dict[str, Any]) -> Any:
     """A printer stand-in that adds to the context the values a real print would."""
 
-    def print_with_values(node: Any, context: HogQLContext, dialect: str) -> str:
+    def print_with_values(node: Any, context: HogQLContext, dialect: str, settings: Any = None) -> str:
         context.values.update(values)
         return "SELECT 1"
 
@@ -118,6 +159,20 @@ class TestQueryScanTrigger(SimpleTestCase):
             ("flag off", {"flag": None}, None, "flag_off"),
             ("below the floor", {"stats": _stats(duration_ms=999.0)}, None, "below_floor"),
             ("api key run", {}, _tag_as_api_key, "api_key"),
+            ("an mcp tool on an api key", {}, _tag_as_mcp_tool, "mcp"),
+            ("the mcp server on oauth", {}, _tag_as_mcp_server, "mcp"),
+            (
+                "a kind from one of posthog's own screens",
+                {"query": EventsQuery(select=["*"])},
+                None,
+                "kind_not_analyzed",
+            ),
+            (
+                "sql from a screen that shows no advice",
+                {"insight_id": None, "dashboard_id": None},
+                None,
+                "sql_without_surface",
+            ),
             (
                 "direct connection",
                 {"query": HogQLQuery(query="select 1", connectionId="connection_1")},
@@ -150,10 +205,46 @@ class TestQueryScanTrigger(SimpleTestCase):
         assert self.delay.call_args.kwargs["killed"] is True
         assert self.delay.call_args.kwargs["duration_ms"] == 999
 
-    def test_an_mcp_run_is_analyzed_despite_its_api_key(self) -> None:
-        tag_queries(access_method=AccessMethod.PERSONAL_API_KEY, feature=Feature.MCP)
+    @parameterized.expand(
+        [
+            ("still over the floor without it", 3000.0, None, 50, 1500),
+            ("under the floor without it", 2000.0, "below_floor", None, None),
+        ]
+    )
+    def test_a_runners_own_lookup_does_not_count_toward_the_run(
+        self, _name: str, total_ms: float, expected_reason: str | None, expected_rows: int | None, expected_ms
+    ) -> None:
+        lookup = _execution(rows_read=100, lookup="earliest_timestamp")
+        query = _execution(rows_read=50)
 
-        result = self._trigger()
+        result = self._trigger(
+            stats=_stats(
+                duration_ms=total_ms,
+                rows_read=150,
+                lookup_rows_read=100,
+                lookup_duration_ms=1500.0,
+                executions=[lookup, query],
+            )
+        )
+
+        assert result == expected_reason
+        if expected_reason is not None:
+            self.delay.assert_not_called()
+            return
+        enqueued = self.delay.call_args.kwargs
+        assert (enqueued["rows_read"], enqueued["duration_ms"]) == (expected_rows, expected_ms)
+        assert [execution["rows_read"] for execution in enqueued["executions"]] == [50]
+
+    @parameterized.expand(
+        [
+            ("the sql editor", {"scene": "SQLEditor"}),
+            ("an unsaved insight", {"scene": "Insight"}),
+        ]
+    )
+    def test_sql_outside_an_insight_is_analyzed_where_its_advice_is_read(self, _name, tags) -> None:
+        tag_queries(**tags)
+
+        result = self._trigger(insight_id=None, dashboard_id=None)
 
         assert result is None
         assert self.delay.call_count == 1
@@ -203,37 +294,62 @@ class TestQueryScanTrigger(SimpleTestCase):
         assert result == "enqueue_failed"
         self.redis.delete.assert_called_once_with(slot_key(1, "cache_key_1", FLAG.thresholds_fingerprint))
 
-    def test_the_payload_carries_the_event_filter_classification(self) -> None:
-        # The job folds this verdict into the plan, so a payload that stopped carrying it would
-        # drop the tree's reason for why the filter could not prune.
-        result = self._trigger(trigger="killed", killed=True, error_type="ClickHouseQueryTimeOut")
+    def test_the_payload_carries_the_tree_verdicts(self) -> None:
+        facts = TreeFacts(
+            timestamp_bound=True,
+            property_filter=False,
+            all_history=False,
+            groups_by_event=False,
+            counts_any_event=False,
+            view_name="v_active",
+        )
+        with mock.patch("posthog.query_scan.trigger.tree_facts", return_value=facts):
+            result = self._trigger(trigger="killed", killed=True, error_type="ClickHouseQueryTimeOut")
 
         assert result is None
         enqueued = self.delay.call_args.kwargs["executions"]
-        assert enqueued[0]["event_filter"] == {"classification": "usable", "reason": None}
+        assert enqueued[0]["event_filter"] == {
+            "classification": "usable",
+            "reason": None,
+            "hidden_from_plan": False,
+        }
+        assert enqueued[0]["tree"] == facts.to_payload()
         # The job groups the analytics event by the error kind, so it travels on the payload.
         assert self.delay.call_args.kwargs["error_type"] == "ClickHouseQueryTimeOut"
 
     @parameterized.expand(
         [
-            # The values count because one large literal can outweigh the SQL around it.
-            ("too large to ship", {"hogql_val_0": "x" * (MAX_EXECUTION_BYTES + 1)}, "too_large"),
-            ("carrying a sensitive value", {"hogql_val_0_sensitive": "warehouse-secret"}, "sensitive_values"),
+            ("that will not print", RuntimeError("no printer for this node"), "print_failed"),
+            (
+                "carrying a sensitive value",
+                _printing({"hogql_val_0_sensitive": "warehouse-secret"}),
+                "sensitive_values",
+            ),
         ]
     )
     def test_an_unshippable_selected_execution_aborts_the_whole_scan(
-        self, _name: str, printed_values: dict[str, Any], expected_reason: str
+        self, _name: str, print_outcome: Any, expected_reason: str
     ) -> None:
         # A person reads the advice as if it covered the whole run, so a run with a selected
         # execution that cannot ship is not analyzed in part. The claimed slot is dropped, so a
         # later run can try again.
-        self.print.side_effect = _printing(printed_values)
+        self.print.side_effect = print_outcome
 
         result = self._trigger(stats=_stats(executions=[_execution(rows_read=100), _execution(rows_read=50)]))
 
         assert result == expected_reason
         self.delay.assert_not_called()
         self.redis.delete.assert_called_once_with(slot_key(1, "cache_key_1", FLAG.thresholds_fingerprint))
+
+    def test_the_sql_is_printed_under_the_settings_the_run_had(self) -> None:
+        run_settings = HogQLGlobalSettings(max_execution_time=600)
+
+        result = self._trigger(stats=_stats(executions=[_execution(settings=run_settings)]))
+
+        assert result is None
+        printed_under = self.print.call_args.kwargs["settings"]
+        assert printed_under.max_ast_elements == run_settings.max_ast_elements
+        assert printed_under.max_execution_time == EXPLAIN_MAX_SECONDS
 
     def test_ships_several_printable_executions_heaviest_first(self) -> None:
         # An insight fans out into several executions; the job explains the heaviest, so the payload
@@ -247,7 +363,7 @@ class TestQueryScanTrigger(SimpleTestCase):
         enqueued = self.delay.call_args.kwargs["executions"]
         assert [execution["rows_read"] for execution in enqueued] == [100, 50]
         assert enqueued[0]["stubbed_sql"] == "SELECT 1"
-        assert enqueued[0]["subqueries"] == ["SELECT 1"]
+        assert [subquery["sql"] for subquery in enqueued[0]["subqueries"]] == ["SELECT 1"]
         # A warehouse run's own values hold its source credentials, so only the job's print travels.
         assert [execution["values"] for execution in enqueued] == [{}, {}]
 
@@ -279,10 +395,13 @@ class TestQueryScanTrigger(SimpleTestCase):
         # A count left without a TTL would stand forever and cap the team for good.
         self.redis.set.assert_any_call("query_scan:enqueues:1", 0, nx=True, ex=60)
 
-    def test_the_payload_says_whether_all_time_was_chosen(self) -> None:
+    def test_the_payload_says_whether_all_time_was_chosen_and_by_which_picker(self) -> None:
+        tag_queries(dashboard_all_time=True)
+
         self._trigger(query=TrendsQuery(series=[EventsNode(event="$pageview")], dateRange=DateRange(date_from="all")))
 
         assert self.delay.call_args.kwargs["all_time"] is True
+        assert self.delay.call_args.kwargs["dashboard_all_time"] is True
 
     @parameterized.expand(
         [
@@ -313,6 +432,100 @@ class TestQueryScanTrigger(SimpleTestCase):
         self._trigger(query=query)
 
         assert self.delay.call_args.kwargs["all_history_by_design"] is expected
+
+    @parameterized.expand(
+        [
+            ("active users on all events", TrendsQuery(series=[EventsNode(math=BaseMathType.DAU)]), True),
+            (
+                "monthly active on all events",
+                TrendsQuery(series=[EventsNode(math=BaseMathType.MONTHLY_ACTIVE)]),
+                True,
+            ),
+            ("unique sessions on all events", TrendsQuery(series=[EventsNode(math=BaseMathType.UNIQUE_SESSION)]), True),
+            ("lifecycle on all events", LifecycleQuery(series=[EventsNode()]), True),
+            (
+                "a breakdown by event name",
+                TrendsQuery(
+                    series=[EventsNode()],
+                    breakdownFilter=BreakdownFilter(breakdown="event", breakdown_type=BreakdownType.EVENT_METADATA),
+                ),
+                True,
+            ),
+            (
+                "a multiple breakdown by event name",
+                TrendsQuery(
+                    series=[EventsNode()],
+                    breakdownFilter=BreakdownFilter(
+                        breakdowns=[Breakdown(property="event", type=MultipleBreakdownType.EVENT_METADATA)]
+                    ),
+                ),
+                True,
+            ),
+            (
+                "active users on a named event",
+                TrendsQuery(series=[EventsNode(event="a", math=BaseMathType.DAU)]),
+                False,
+            ),
+            (
+                "a breakdown by event name on a named event",
+                TrendsQuery(
+                    series=[EventsNode(event="a")],
+                    breakdownFilter=BreakdownFilter(breakdown="event", breakdown_type=BreakdownType.EVENT_METADATA),
+                ),
+                False,
+            ),
+            ("a total on all events", TrendsQuery(series=[EventsNode(math=BaseMathType.TOTAL)]), False),
+        ]
+    )
+    def test_the_payload_says_whether_the_insight_reads_all_events_by_design(self, _name, query, expected) -> None:
+        self._trigger(query=query)
+
+        assert self.delay.call_args.kwargs["all_events_by_design"] is expected
+
+
+class TestSubqueryVerdicts(BaseTest):
+    def test_the_outer_query_and_a_subquery_are_each_judged_on_their_own_reads(self) -> None:
+        executor = HogQLQueryExecutor(
+            query=parse_select(
+                "select count() from events where event = '$pageview' and timestamp > now() - interval 7 day "
+                "and distinct_id in (select distinct_id from events "
+                "where lower(event) = 'signup' and timestamp > now() - interval 7 day)"
+            ),
+            team=self.team,
+            query_type="HogQLQuery",
+            limit_context=LimitContext.QUERY_ASYNC,
+        )
+        executor.generate_clickhouse_sql()
+        assert isinstance(executor.clickhouse_prepared_ast, ast.Expr) and executor.clickhouse_context is not None
+        execution = RecordedExecution(
+            tree=executor.clickhouse_prepared_ast, context=executor.clickhouse_context, rows_read=100
+        )
+        redis = mock.Mock()
+        redis.get.return_value = None
+        redis.incr.return_value = 1
+
+        with (
+            mock.patch("posthog.query_scan.slot.query_cache_raw_client", return_value=redis),
+            mock.patch("posthog.tasks.query_scan.analyze_query_scan.delay") as delay,
+        ):
+            result = maybe_trigger_query_scan(
+                flag=FLAG,
+                stats=_stats(executions=[execution]),
+                team_id=self.team.pk,
+                cache_key="cache_key_1",
+                query=HogQLQuery(query="select 1"),
+                trigger="fresh",
+                cacheable=True,
+                insight_id=7,
+            )
+
+        assert result is None
+        shipped = delay.call_args.kwargs["executions"][0]
+        assert shipped["event_filter"]["classification"] == "usable"
+        assert [
+            (subquery["event_filter"]["classification"], subquery["event_filter"]["reason"])
+            for subquery in shipped["subqueries"]
+        ] == [("not_used", "wrapped")]
 
 
 class TestOpenFiltersPlaceholder(SimpleTestCase):

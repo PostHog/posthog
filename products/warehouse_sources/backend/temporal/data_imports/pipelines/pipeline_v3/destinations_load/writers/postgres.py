@@ -50,33 +50,25 @@ from products.warehouse_sources.backend.temporal.data_imports.destinations.contr
     DestinationBatchContext,
     DestinationRunContext,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.destinations_load.writers.merge_dedup import (
+    dedupe_merge_source,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.destinations_load.writers.run_markers import (
+    BATCH_INDEX_COLUMN,
+    is_owned_by,
+    is_published_by,
+    owned_marker,
+    published_marker,
+    run_scope,
+    stamp_batch_index,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.destinations_load.writers.sql_types import (
     is_nested_type,
     postgres_type_for,
 )
 
-# Marks which batch of a run wrote a staged row, so re-applying a batch can delete exactly
-# what its previous attempt wrote instead of the whole staging table.
-BATCH_INDEX_COLUMN = "_ph_batch_index"
-
-# Proof this writer created a table, so a sync never drops or merges into one the customer
-# already had. `table_name` comes from the source's resource name, which a custom-source
-# manifest controls, so without it any table sharing that name is fair game.
-#
-# Stored as a Postgres comment because those follow the table's OID, surviving the rename in
-# `finalize_run`. Scoped by schema id because `table_name` collides across sources on purpose
-# and ownership must not.
-_OWNERSHIP_COMMENT = "posthog-warehouse-sync-owned"
-
-
-def _owned_marker(schema_id: str) -> str:
-    """Ownership marker scoped to the schema whose sync created the table."""
-    return f"{_OWNERSHIP_COMMENT}:{schema_id}"
-
-
-def _published_comment(schema_id: str, run_uuid: str) -> str:
-    """Ownership marker plus the run that last published, so a replay can recognize itself."""
-    return f"{_owned_marker(schema_id)}:{run_uuid}"
+# The ownership and publish markers are stored as Postgres comments because those follow the
+# table's OID, surviving the rename in `finalize_run`.
 
 
 class UnrelatedTableExistsError(RuntimeError):
@@ -98,14 +90,14 @@ def _scoped_identifier(base: str, suffix: str) -> str:
 
 def staging_table_name(ctx: DestinationRunContext) -> str:
     # Run-scoped, so two runs of the same table never share a staging table.
-    return _scoped_identifier(ctx.table_name, f"__ph_stage_{ctx.run_uuid.replace('-', '')[:12]}")
+    return _scoped_identifier(ctx.table_name, f"__ph_stage_{run_scope(ctx.run_uuid)}")
 
 
 def merge_stage_name(target: str, ctx: DestinationRunContext) -> str:
     # `target` is the live table on an incremental run, so it can already be at the identifier
     # limit. Reserve room for the suffix or the stage name truncates onto the live table, and
     # dropping the stage would drop it.
-    return _scoped_identifier(target, f"__ph_merge_{ctx.run_uuid.replace('-', '')[:8]}")
+    return _scoped_identifier(target, f"__ph_merge_{run_scope(ctx.run_uuid, 8)}")
 
 
 def _to_json_text(value: Any, *, from_map: bool) -> str | None:
@@ -255,6 +247,11 @@ class PostgresDestinationWriter:
             if field.name in existing:
                 continue
             async with self._write_cursor(client) as cursor:
+                # TODO: `RedshiftDestinationWriter` inherits this statement, and Redshift may
+                # not accept `ADD COLUMN IF NOT EXISTS`. If it does not, every Redshift sync
+                # whose source grows a column fails here with a syntax error rather than
+                # evolving the table. Confirm against a real cluster. The guard above already
+                # skips columns the table has, so a plain `ADD COLUMN` would also do.
                 await cursor.execute(
                     sql.SQL("ALTER TABLE {}.{} ADD COLUMN IF NOT EXISTS {} {}").format(
                         sql.Identifier(self._schema),
@@ -385,10 +382,7 @@ class PostgresDestinationWriter:
         column_names = list(batch.schema.names)
 
         if full_refresh:
-            stamped = batch.append_column(
-                self._batch_index_column,
-                pa.array([ctx.batch_index] * batch.num_rows, type=pa.int32()),
-            )
+            stamped = stamp_batch_index(batch, ctx.batch_index)
             await self._load_batch(client, target, stamped, [*column_names, self._batch_index_column])
             return batch.num_rows
 
@@ -404,20 +398,25 @@ class PostgresDestinationWriter:
         """Upsert a batch on the schema's primary keys, through a stage table."""
         run = self._ctx
         stage = merge_stage_name(target, run)
+        source = dedupe_merge_source(batch, list(run.primary_keys))
 
-        await self._ensure_merge_stage(client, stage, batch.schema)
-        await self._load_batch(client, stage, batch, column_names)
+        await self._ensure_merge_stage(client, target, stage, batch.schema)
+        await self._load_batch(client, stage, source, column_names)
         await self._upsert_from_stage(client, target, stage, column_names, list(run.primary_keys))
 
-        return batch.num_rows
+        return source.num_rows
 
-    async def _ensure_merge_stage(self, client: PostgreSQLClient, stage: str, schema: pa.Schema) -> None:
+    async def _ensure_merge_stage(self, client: PostgreSQLClient, target: str, stage: str, schema: pa.Schema) -> None:
         """Ready the run's stage table to receive one batch.
 
         Created once per run and emptied between batches rather than created and dropped per
         batch. A table per batch is not free on someone else's server: each one writes catalog
         rows that later have to be vacuumed, and vacuuming catalog tables can need locks.
         `abort_run` and `finalize_run` drop it.
+
+        `target` is unused here because `ON CONFLICT` names its columns, so a stage carrying
+        only the batch's own columns is enough. Redshift's merge selects the destination's full
+        column list out of the stage, so its override builds the stage from `target` instead.
         """
         await client.acreate_table(
             self._schema, stage, self._fields_for(schema, with_batch_index=False), exists_ok=True
@@ -523,24 +522,12 @@ class PostgresDestinationWriter:
             # it as a literal is safe the same way the fixed constant was.
             await cursor.execute(
                 sql.SQL("COMMENT ON TABLE {}.{} IS {}").format(
-                    sql.Identifier(self._schema), sql.Identifier(table), sql.Literal(_owned_marker(schema_id))
+                    sql.Identifier(self._schema), sql.Identifier(table), sql.Literal(owned_marker(schema_id))
                 )
             )
 
     async def _is_owned(self, client: PostgreSQLClient, table: str, schema_id: str) -> bool:
-        # Not a plain `startswith`: schema ids are arbitrary strings, and one could be a
-        # character-prefix of another ("abc" of "abc123"), which would let a table another
-        # schema owns pass as owned here. Split on the marker's own `:` separators instead so
-        # the owning schema id is compared for exact equality; a published table carries the
-        # run uuid as a further segment after it, which this ignores.
-        comment = await self._table_comment(client, table)
-        if comment is None:
-            return False
-        marker, sep, rest = comment.partition(":")
-        if marker != _OWNERSHIP_COMMENT or not sep:
-            return False
-        owner = rest.split(":", 1)[0]
-        return owner == schema_id
+        return is_owned_by(await self._table_comment(client, table), schema_id)
 
     async def _table_comment(self, client: PostgreSQLClient, table: str) -> str | None:
         async with client.connection.cursor() as cursor:
@@ -563,7 +550,7 @@ class PostgresDestinationWriter:
             return False
         if not await self._table_exists(client, ctx.table_name):
             return False
-        return await self._table_comment(client, ctx.table_name) == _published_comment(ctx.schema_id, ctx.run_uuid)
+        return is_published_by(await self._table_comment(client, ctx.table_name), ctx.schema_id, ctx.run_uuid)
 
     async def finalize_run(self, ctx: DestinationRunContext) -> None:
         """Publish a full refresh by swapping the staging table into place."""
@@ -594,6 +581,9 @@ class PostgresDestinationWriter:
                 )
 
             async with self._write_cursor(client) as cursor:
+                # TODO: `RedshiftDestinationWriter` inherits this statement, and Redshift may
+                # not accept `DROP COLUMN IF EXISTS`. If it does not, every Redshift full
+                # refresh fails here and no run ever publishes. Confirm against a real cluster.
                 await cursor.execute(
                     sql.SQL("ALTER TABLE {}.{} DROP COLUMN IF EXISTS {}").format(
                         sql.Identifier(self._schema),
@@ -621,7 +611,7 @@ class PostgresDestinationWriter:
                     sql.SQL("COMMENT ON TABLE {}.{} IS {}").format(
                         sql.Identifier(self._schema),
                         sql.Identifier(ctx.table_name),
-                        sql.Literal(_published_comment(ctx.schema_id, ctx.run_uuid)),
+                        sql.Literal(published_marker(ctx.schema_id, ctx.run_uuid)),
                     )
                 )
 

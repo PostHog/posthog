@@ -1601,6 +1601,16 @@ export interface ClickhouseQueryProgressApi {
     time_elapsed: number
 }
 
+export type QueryScanFixLocationApi = (typeof QueryScanFixLocationApi)[keyof typeof QueryScanFixLocationApi]
+
+export const QueryScanFixLocationApi = {
+    Query: 'query',
+    Subquery: 'subquery',
+    View: 'view',
+    InsightDateRange: 'insight_date_range',
+    DashboardDateFilter: 'dashboard_date_filter',
+} as const
+
 export type QueryScanFindingKindApi = (typeof QueryScanFindingKindApi)[keyof typeof QueryScanFindingKindApi]
 
 export const QueryScanFindingKindApi = {
@@ -1609,33 +1619,28 @@ export const QueryScanFindingKindApi = {
     PersonsJoin: 'persons_join',
 } as const
 
-export type QueryScanFindingReasonApi = (typeof QueryScanFindingReasonApi)[keyof typeof QueryScanFindingReasonApi]
-
-export const QueryScanFindingReasonApi = {
-    InOr: 'in_or',
-    Wrapped: 'wrapped',
-    Negated: 'negated',
-    Dynamic: 'dynamic',
-    NotPruned: 'not_pruned',
-    Filters: 'filters',
-} as const
-
 export interface QueryScanWarningApi {
+    /** Whether the person can change the query so it reads less and still answers the same question. Surfaces show the full advice and "Fix with AI" only when a finding is actionable. */
+    actionable: boolean
+    /** True when the query reads this much on purpose, so reading less would change the answer. Absent means no. */
+    by_design?: boolean | null
+    /** A label for what in the query text kept the read wide, such as `in_or`. Only analytics and the assistant read it, and the labels can change. */
+    cause?: string | null
     /** The one fact the finding rests on. */
     evidence?: string | null
     /** What "Fix with AI" and the assistant are told to do. */
     fix: string
+    /** Where the change goes. Absent means the query itself. */
+    fix_location?: QueryScanFixLocationApi | null
     kind: QueryScanFindingKindApi
     /** Shown to the person: what happened and what to do. */
     message: string
-    /** Only with `no_event_filter` and `no_start_date`. */
-    reason?: QueryScanFindingReasonApi | null
 }
 
 export interface QueryScanAnalysisApi {
     /** The message the Fix with AI button sends to the assistant. Absent when no finding can be fixed in the query. */
     assistant_prompt?: string | null
-    /** Empty when the analysis found nothing to fix. */
+    /** Every finding, fixable or not. Empty when the analysis found none. */
     findings: QueryScanWarningApi[]
     /** How much of all the project's events the query read, 0 to 1. */
     project_share?: number | null
@@ -4326,14 +4331,53 @@ export interface PinnedAccountPropertyApi {
     id: string
 }
 
+/**
+ * * `weekdays` - Weekdays
+ * * `every_day` - Every day
+ */
+export type TaskDigestCadenceEnumApi = (typeof TaskDigestCadenceEnumApi)[keyof typeof TaskDigestCadenceEnumApi]
+
+export const TaskDigestCadenceEnumApi = {
+    Weekdays: 'weekdays',
+    EveryDay: 'every_day',
+} as const
+
+export interface TaskDigestPreferencesApi {
+    /** Whether the task digest email is sent to this user. */
+    enabled: boolean
+    /** Time of day to send the digest, as HH:MM in the project timezone. */
+    send_time: string
+    /** How often the digest is sent.
+     *
+     * * `weekdays` - Weekdays
+     * * `every_day` - Every day */
+    cadence: TaskDigestCadenceEnumApi
+}
+
 export interface UserCustomerAnalyticsConfigApi {
     /** Account properties pinned in sidebar display order. */
     readonly pinned_properties: readonly PinnedAccountPropertyApi[]
+    /** Task digest email preferences. Disabled until the user turns the digest on. */
+    readonly task_digest: TaskDigestPreferencesApi
+}
+
+export interface TaskDigestPreferencesUpdateApi {
+    /** Whether the task digest email is sent to this user. */
+    enabled?: boolean
+    /** Time of day to send the digest, as HH:MM in the project timezone. */
+    send_time?: string
+    /** How often the digest is sent.
+     *
+     * * `weekdays` - Weekdays
+     * * `every_day` - Every day */
+    cadence?: TaskDigestCadenceEnumApi
 }
 
 export interface PatchedUserCustomerAnalyticsConfigUpdateApi {
     /** Complete ordered list of account properties to pin. Omit to keep the current pins; pass an empty list to clear them. */
     pinned_properties?: PinnedAccountPropertyApi[]
+    /** Task digest email preferences to change. Omit the object to keep them all; omit a field inside it to keep that one. */
+    task_digest?: TaskDigestPreferencesUpdateApi
 }
 
 export type CustomerAnalyticsExternalAccountRetrieveParams = {

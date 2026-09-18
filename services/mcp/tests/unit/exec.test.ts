@@ -247,7 +247,22 @@ describe('exec tool', () => {
                 command: 'learn posthog:bot-traffic SKILL.md -s',
                 hint: 'Usage: learn <source>:<skill> <path> -s "<keywords>"',
             },
-        ])('returns recovery guidance for $command without opening the gate', async ({ command, hint }) => {
+            {
+                command: 'learn posthog:bot-traffic/SKILL.md',
+                hint: 'Separate the skill name and file path with a space: `learn <source>:<skill> <path>`.',
+                recovery: 'learn posthog:bot-traffic SKILL.md',
+            },
+            {
+                command: 'learn posthog:bot-traffic --file SKILL.md',
+                hint: '`learn` does not support --file. Pass the file path directly: `learn <source>:<skill> <path>`.',
+                recovery: 'learn posthog:bot-traffic SKILL.md',
+            },
+            {
+                command: 'learn posthog:bot-traffic SKILL.md --file',
+                hint: '`learn` does not support --file. Pass the file path directly: `learn <source>:<skill> <path>`.',
+                recovery: 'learn posthog:bot-traffic SKILL.md',
+            },
+        ])('returns recovery guidance for $command without opening the gate', async ({ command, hint, recovery }) => {
             const exec = createExec(undefined, undefined, {
                 learnCatalog: guideCatalog(false),
                 skillsSession: makeSkillsSession(),
@@ -269,7 +284,7 @@ describe('exec tool', () => {
             await expect(exec.handler(mockContext, { command: 'call mock-tool {}' })).rejects.toMatchObject({
                 reason: 'skills_gate',
             })
-            await exec.handler(mockContext, { command: 'learn posthog:bot-traffic' })
+            await exec.handler(mockContext, { command: recovery ?? 'learn posthog:bot-traffic' })
             await expect(exec.handler(mockContext, { command: 'call mock-tool {}' })).resolves.toBeDefined()
         })
 
