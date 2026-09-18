@@ -10,8 +10,9 @@ logger = get_logger(__name__)
 def evaluate_health_check_for_team(kind: str, team_id: int) -> None:
     # Deferred: posthog.dags.__init__ calls django.setup() and would re-enter if loaded during boot.
     from posthog.temporal.health_checks.processing import run_check_for_team
+    from posthog.temporal.health_checks.registry import HealthCheckKindNotRegistered
 
     try:
         run_check_for_team(kind, team_id)
-    except KeyError:
+    except HealthCheckKindNotRegistered:
         logger.warning("evaluate_health_check_for_team.unknown_kind", kind=kind, team_id=team_id)
