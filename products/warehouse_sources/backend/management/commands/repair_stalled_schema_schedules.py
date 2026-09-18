@@ -143,7 +143,7 @@ class Command(BaseCommand):
         for schema in actionable:
             # One schema that cannot be repaired must not abort the rest of the sweep.
             try:
-                repaired = repair_stalled_schema(schema)
+                schedule_rewritten = repair_stalled_schema(schema)
             except Exception:
                 failures += 1
                 logger.exception(
@@ -153,7 +153,7 @@ class Command(BaseCommand):
                 )
                 self.stdout.write(self.style.ERROR(f"  schema={schema.schema_id} FAILED (see logs) - continuing"))
                 continue
-            if not repaired:
+            if not schedule_rewritten:
                 # A revalidation guard inside repair_stalled_schema found the row no longer
                 # eligible on reload (e.g. disabled, or flipped to a state a fresh sweep would
                 # skip) and returned without raising. That is not the same outcome as a rewrite,
