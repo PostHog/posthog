@@ -45962,10 +45962,20 @@ export namespace Schemas {
          * @nullable
          */
       readonly user_access_level: string | null;
+      /**
+         * How many suggested changes are waiting for a person on this workflow. Counted on the list only.
+         * @nullable
+         */
+      readonly pending_suggestions: number | null;
+      /**
+         * Whether someone turned suggestions on for this workflow. Read on the list only.
+         * @nullable
+         */
+      readonly suggestions_enabled: boolean | null;
     }
 
     export interface HogFlowOptimisation {
-      /** Whether PostHog may read this workflow's metrics and suggest changes to it. */
+      /** Whether PostHog may suggest changes to this workflow. */
       enabled: boolean;
     }
 
@@ -65432,7 +65442,7 @@ export namespace Schemas {
     export type WorkflowProposalContent = { [key: string]: unknown };
 
     /**
-     * The numbers behind the proposal, read back by name. Five keys are required: `metric`, the metric name; `current_value`, its value as a number (a rate as a fraction, 0.0865, never a string); `unit`, either `rate` or `count`, since 1.0 is either every message or one of them; `n`, the denominator that value was computed over; and `guardrails`, a list of {metric, value, n, unit} counter-metrics read over the same window, empty only if none apply. Also conventional: target_value, window, query, app_source_id. A rate with no denominator lets a reviewer mistake noise for a result, a target with no counter-metrics hides a change that lifts one number by harming another, and a number under a key of your own reads to a person as no evidence at all.
+     * The numbers behind the proposal, read back by name. Five keys are required: `metric`, the metric name; `current_value`, its value as a number (a rate as a fraction, 0.0865, never a string); `unit`, either `rate` or `count`, since 1.0 is either every message or one of them; `n`, the denominator that value was computed over; and `guardrails`, a list of {metric, value, n, unit} counter-metrics read over the same window, empty only if none apply. PostHog then reads the step's own metrics at `base_version` when the suggestion is filed and stores them under `measured`; the page shows that reading and flags a disagreement with yours. Also conventional: target_value, window, query, app_source_id. A rate with no denominator lets a reviewer mistake noise for a result, a target with no counter-metrics hides a change that lifts one number by harming another, and a number under a key of your own reads to a person as no evidence at all.
      */
     export type WorkflowProposalEvidence = { [key: string]: unknown };
 
@@ -65444,7 +65454,7 @@ export namespace Schemas {
       readonly rationale: string;
       /** Only the content fields the proposal changes. Valid keys: actions, edges, trigger_masking, conversion, exit_condition, email_sending_rate_limit, variables. Each value has the same shape as on the workflow itself. */
       readonly content: WorkflowProposalContent;
-      /** The numbers behind the proposal, read back by name. Five keys are required: `metric`, the metric name; `current_value`, its value as a number (a rate as a fraction, 0.0865, never a string); `unit`, either `rate` or `count`, since 1.0 is either every message or one of them; `n`, the denominator that value was computed over; and `guardrails`, a list of {metric, value, n, unit} counter-metrics read over the same window, empty only if none apply. Also conventional: target_value, window, query, app_source_id. A rate with no denominator lets a reviewer mistake noise for a result, a target with no counter-metrics hides a change that lifts one number by harming another, and a number under a key of your own reads to a person as no evidence at all. */
+      /** The numbers behind the proposal, read back by name. Five keys are required: `metric`, the metric name; `current_value`, its value as a number (a rate as a fraction, 0.0865, never a string); `unit`, either `rate` or `count`, since 1.0 is either every message or one of them; `n`, the denominator that value was computed over; and `guardrails`, a list of {metric, value, n, unit} counter-metrics read over the same window, empty only if none apply. PostHog then reads the step's own metrics at `base_version` when the suggestion is filed and stores them under `measured`; the page shows that reading and flags a disagreement with yours. Also conventional: target_value, window, query, app_source_id. A rate with no denominator lets a reviewer mistake noise for a result, a target with no counter-metrics hides a change that lifts one number by harming another, and a number under a key of your own reads to a person as no evidence at all. */
       readonly evidence: WorkflowProposalEvidence;
       /**
          * The workflow step this is about, when it is about one. The evidence and the outcome both read metrics for this step, so a change to one email in a sequence is not measured against every other email in it.
@@ -65453,7 +65463,7 @@ export namespace Schemas {
       readonly step_id: string | null;
       /** Live workflow version this was authored against. Approving compares the steps and fields this changes against that version to tell whether somebody else already changed them. */
       readonly base_version: number;
-      /** Whether approving this would undo an edit made since it was proposed. False while the workflow only changed elsewhere, because approving merges per step. */
+      /** Whether approving this would undo an edit made since it was proposed. False while the workflow only changed elsewhere, because approving merges only what the proposal changes. */
       readonly is_stale: boolean;
       readonly status: WorkflowProposalStatusEnum;
       /** How the proposal was created. Derived from the request, never set by the caller.
@@ -72192,8 +72202,8 @@ export namespace Schemas {
          */
       repositories?: string[];
       /**
-         * Extra write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `dashboard:write`, `insight:write`, `llm_skill:write`, `replay_scanner:write`, `warehouse_table:write`, `warehouse_view:write`. Empty (the default) means the scout reads the project and writes only what every scout may write: notebooks, its findings, and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant. Applies from the scout's next run.
-         * @maxItems 8
+         * Extra write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `dashboard:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `replay_scanner:write`, `warehouse_table:write`, `warehouse_view:write`. Empty (the default) means the scout reads the project and writes only what every scout may write: notebooks, its findings, and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant. Applies from the scout's next run.
+         * @maxItems 9
          */
       write_scopes?: string[];
     }
@@ -82913,8 +82923,8 @@ export namespace Schemas {
          */
       repositories?: string[];
       /**
-         * Extra write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `dashboard:write`, `insight:write`, `llm_skill:write`, `replay_scanner:write`, `warehouse_table:write`, `warehouse_view:write`. Empty (the default) means the scout reads the project and writes only what every scout may write: notebooks, its findings, and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant. Applies from the scout's next run.
-         * @maxItems 8
+         * Extra write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `dashboard:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `replay_scanner:write`, `warehouse_table:write`, `warehouse_view:write`. Empty (the default) means the scout reads the project and writes only what every scout may write: notebooks, its findings, and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant. Applies from the scout's next run.
+         * @maxItems 9
          */
       write_scopes?: string[];
       /** Whether this scout runs on its schedule. Defaults to true. */
@@ -83109,8 +83119,8 @@ export namespace Schemas {
          */
       repositories?: string[];
       /**
-         * Extra write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `dashboard:write`, `insight:write`, `llm_skill:write`, `replay_scanner:write`, `warehouse_table:write`, `warehouse_view:write`. Empty (the default) means the scout reads the project and writes only what every scout may write: notebooks, its findings, and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant. Applies from the scout's next run.
-         * @maxItems 8
+         * Extra write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `dashboard:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `replay_scanner:write`, `warehouse_table:write`, `warehouse_view:write`. Empty (the default) means the scout reads the project and writes only what every scout may write: notebooks, its findings, and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant. Applies from the scout's next run.
+         * @maxItems 9
          */
       readonly write_scopes: readonly string[];
       /**
@@ -84390,8 +84400,8 @@ export namespace Schemas {
          */
       repositories?: string[];
       /**
-         * Extra write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `dashboard:write`, `insight:write`, `llm_skill:write`, `replay_scanner:write`, `warehouse_table:write`, `warehouse_view:write`. Empty (the default) means the scout reads the project and writes only what every scout may write: notebooks, its findings, and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant. Applies from the scout's next run.
-         * @maxItems 8
+         * Extra write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `dashboard:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `replay_scanner:write`, `warehouse_table:write`, `warehouse_view:write`. Empty (the default) means the scout reads the project and writes only what every scout may write: notebooks, its findings, and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant. Applies from the scout's next run.
+         * @maxItems 9
          */
       write_scopes?: string[];
       /** Whether this scout runs on its schedule. Defaults to true. */
@@ -95743,7 +95753,7 @@ export namespace Schemas {
     }
 
     /**
-     * Only the workflow content fields this proposal changes. Approving merges them over the live content to build the staged draft, so unrelated parts of the workflow stay as they are. In `actions`, send only the steps you change, each with its `id`.
+     * Only the workflow content fields this proposal changes. Approving merges them over the live content to build the staged draft, so unrelated parts of the workflow stay as they are. In `actions`, send each step you change with its `id` and only the fields you change; they merge into the live step, and a null field deletes it.
      */
     export type WorkflowProposalCreateContent = { [key: string]: unknown };
 
@@ -95760,12 +95770,12 @@ export namespace Schemas {
       title: string;
       /** Why this change is worth making, in prose a human reads. */
       rationale: string;
-      /** Only the workflow content fields this proposal changes. Approving merges them over the live content to build the staged draft, so unrelated parts of the workflow stay as they are. In `actions`, send only the steps you change, each with its `id`. */
+      /** Only the workflow content fields this proposal changes. Approving merges them over the live content to build the staged draft, so unrelated parts of the workflow stay as they are. In `actions`, send each step you change with its `id` and only the fields you change; they merge into the live step, and a null field deletes it. */
       content: WorkflowProposalCreateContent;
       /** The metric numbers behind the proposal, so a human can judge it without re-deriving them. */
       evidence?: WorkflowProposalCreateEvidence;
-      /** Workflow version this was authored against. Required when the proposal changes actions, edges or variables: it is the snapshot approve compares against to tell whether someone edited the same steps since, and a defaulted version would read as current however long the producer took. Defaults to the current live version otherwise. */
-      base_version?: number;
+      /** Workflow version this was authored against, as read from the workflow. It is the snapshot approve compares against to tell whether someone edited the same steps or fields since, and a defaulted version would read as current however long the producer took. */
+      base_version: number;
       /**
          * The step this is about, when it is about one. Both the evidence and the outcome then read that step's metrics, so a change to one email in a sequence is not measured against the rest.
          * @maxLength 200
@@ -95794,9 +95804,50 @@ export namespace Schemas {
       below_minimum_sample: boolean;
     }
 
+    export interface WorkflowVersionChange {
+      /**
+         * Step the field belongs to, or null for a workflow field.
+         * @nullable
+         */
+      step_name: string | null;
+      /** What changed, as a person reads it, e.g. 'email > subject'. */
+      field: string;
+      /**
+         * Value in the version before this one.
+         * @nullable
+         */
+      before: string | null;
+      /**
+         * Value this version published.
+         * @nullable
+         */
+      after: string | null;
+      /** Whether the suggestion is what changed this field. */
+      from_suggestion: boolean;
+    }
+
     export interface WorkflowProposalVersionOutcome {
       /** Workflow version these numbers belong to. */
       version: number;
+      /** Whether the suggestion went live as this version. */
+      applied?: boolean;
+      /** Whether the suggestion was written against this version. */
+      proposed_against?: boolean;
+      /** Whether this version still holds what the suggestion changed. */
+      carries_change?: boolean;
+      /** Whether this version also changed something the suggestion did not, which the numbers cannot separate. */
+      other_changes?: boolean;
+      /** What this version changed against the version before it. */
+      changes?: WorkflowVersionChange[];
+      /**
+         * When this version went live.
+         * @nullable
+         */
+      published_at?: string | null;
+      /** Who published this version. */
+      published_by?: UserBasic | null;
+      /** Every version summed into these numbers. The after side runs on while later versions keep the change. */
+      versions?: number[];
       /** The metric the suggestion aimed at. */
       target: WorkflowProposalMetric;
       /** Click-through rate over the same window and denominator, since opens alone can move without clicks. */
@@ -95806,12 +95857,17 @@ export namespace Schemas {
     }
 
     export interface WorkflowProposalOutcome {
-      /** Relative window both sides were measured over. */
-      window: string;
+      /** Every published version around the change, each read over its own time live, so a later edit shows up as its own point rather than ending the comparison. */
+      versions: WorkflowProposalVersionOutcome[];
       /** The version the change was proposed against. */
       before: WorkflowProposalVersionOutcome | null;
-      /** The version it went live as. Null until the proposal is applied. */
+      /** The versions that carried the change. Null until the proposal is applied. */
       after: WorkflowProposalVersionOutcome | null;
+      /**
+         * The version that changed what the suggestion changed, which is where the after side stops. Null while the change is still live.
+         * @nullable
+         */
+      change_ended_at_version: number | null;
       /** Counter-metrics that cannot be read yet, named so their absence is not read as zero. */
       unavailable_guardrails: string[];
     }
@@ -104427,6 +104483,10 @@ export namespace Schemas {
      * @minLength 1
      */
     name?: string;
+    /**
+     * Read one workflow version's series: every run of that version, keyed on the workflow. The unversioned read keys batch and broadcast runs on the run instead, so it is not the sum of the versions; compare versions with each other, not with it.
+     */
+    version?: number;
     };
 
     export type HogFlowsMetricsRetrieveBreakdownBy = typeof HogFlowsMetricsRetrieveBreakdownBy[keyof typeof HogFlowsMetricsRetrieveBreakdownBy];
@@ -104489,6 +104549,10 @@ export namespace Schemas {
      * @minLength 1
      */
     name?: string;
+    /**
+     * Read one workflow version's series: every run of that version, keyed on the workflow. The unversioned read keys batch and broadcast runs on the run instead, so it is not the sum of the versions; compare versions with each other, not with it.
+     */
+    version?: number;
     };
 
     export type HogFlowsMetricsTotalsRetrieveBreakdownBy = typeof HogFlowsMetricsTotalsRetrieveBreakdownBy[keyof typeof HogFlowsMetricsTotalsRetrieveBreakdownBy];

@@ -30,6 +30,7 @@ from posthog.test.fixtures import create_app_metric2
 from products.access_control.backend.models.access_control import AccessControl
 from products.actions.backend.models.action import Action
 from products.cdp.backend.api.test.test_hog_function_templates import MOCK_NODE_TEMPLATES
+from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cohorts.backend.models.cohort import Cohort
 from products.skills.backend.models.skills import LLMSkill
 from products.workflows.backend.api.hog_flow import (
@@ -4863,6 +4864,91 @@ class TestHogFlowAPI(APIBaseTest):
         serializer.is_valid()
 
         assert "type" not in serializer.errors
+
+
+class TestHogFlowVersionedMetrics(ClickhouseTestMixin, APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.flow = HogFlow.objects.create(team=self.team, name="Versioned flow")
+
+    def _seed(self, app_source: str, app_source_id: str, succeeded: int) -> None:
+        create_app_metric2(
+            team_id=self.team.pk,
+            app_source=app_source,
+            app_source_id=app_source_id,
+            metric_kind="success",
+            metric_name="succeeded",
+            count=succeeded,
+        )
+
+    def test_a_version_reads_only_its_own_series(self):
+        self._seed("hog_flow_version", f"{self.flow.id}/1", succeeded=3)
+        self._seed("hog_flow_version", f"{self.flow.id}/2", succeeded=5)
+        self._seed("hog_flow", str(self.flow.id), succeeded=7)
+        base = f"/api/projects/{self.team.id}/hog_flows/{self.flow.id}/metrics/totals"
+
+        version_one = self.client.get(f"{base}?version=1")
+        version_two = self.client.get(f"{base}?version=2")
+        whole = self.client.get(base)
+
+        assert version_one.status_code == 200, version_one.json()
+        assert version_one.json()["totals"] == {"success": 3}
+        assert version_two.json()["totals"] == {"success": 5}
+        assert whole.json()["totals"] == {"success": 7}
+
+    @patch("products.workflows.backend.api.hog_flow.posthoganalytics.feature_enabled", return_value=True)
+    def test_a_suggestion_carries_what_posthog_measured_next_to_what_it_claimed(self, _mock_flag):
+        HogFlow.objects.filter(id=self.flow.id).update(
+            actions=[{"id": "email_1", "type": "function_email", "name": "Email", "config": {}}], status="active"
+        )
+        opted_in = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/{self.flow.id}/optimisation", {"enabled": True}, format="json"
+        )
+        assert opted_in.status_code == 200, opted_in.json()
+        for name, count in (("email_sent", 100), ("email_opened", 10), ("email_bounced", 2)):
+            create_app_metric2(
+                team_id=self.team.id,
+                app_source="hog_flow_version",
+                app_source_id=f"{self.flow.id}/1",
+                instance_id="email_1",
+                metric_kind="email",
+                metric_name=name,
+                count=count,
+            )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/{self.flow.id}/proposals/",
+            {
+                "title": "Shorten the subject",
+                "rationale": "Opens are low.",
+                "content": {"exit_condition": "exit_only_at_end"},
+                "step_id": "email_1",
+                "base_version": 1,
+                "evidence": {"metric": "email_opened", "current_value": 0.5, "unit": "rate", "n": 9, "guardrails": []},
+            },
+            format="json",
+        )
+
+        assert response.status_code == 201, response.json()
+        evidence = response.json()["evidence"]
+        assert evidence["current_value"] == 0.5
+        measured = evidence["measured"]
+        assert measured["version"] == 1
+        assert measured["target"] == {
+            "metric": "email open rate",
+            "value": 0.1,
+            "n": 100,
+            "below_minimum_sample": False,
+        }
+        assert {g["metric"]: g["value"] for g in measured["guardrails"]}["bounce rate"] == 0.02
+
+    def test_a_version_is_refused_where_nothing_records_one(self):
+        function = HogFunction.objects.create(team=self.team, name="fn", type="destination", hog="return event")
+
+        response = self.client.get(f"/api/projects/{self.team.id}/hog_functions/{function.id}/metrics/totals?version=1")
+
+        assert response.status_code == 400, response.json()
+        assert "per version" in str(response.json())
 
 
 class TestHogFlowGlobalStats(ClickhouseTestMixin, APIBaseTest):

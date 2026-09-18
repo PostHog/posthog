@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { router } from 'kea-router'
 import { useMemo } from 'react'
 
 import { LemonCheckbox, LemonDivider, LemonInput, LemonSelect, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
@@ -6,6 +7,7 @@ import { LemonCheckbox, LemonDivider, LemonInput, LemonSelect, LemonTag, Link, T
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { AppMetricsSparkline } from 'lib/components/AppMetrics/AppMetricsSparkline'
 import { MemberSelect } from 'lib/components/MemberSelect'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
@@ -13,6 +15,7 @@ import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/Le
 import { updatedAtColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 
@@ -105,6 +108,8 @@ function WorkflowActionsSummary({ workflow }: { workflow: HogFlow }): JSX.Elemen
 }
 
 export function WorkflowsTable(): JSX.Element {
+    const { featureFlags } = useValues(featureFlagLogic)
+    const selfOptimisingEnabled = !!featureFlags[FEATURE_FLAGS.SELF_OPTIMISING_WORKFLOWS]
     const logic = workflowsLogic()
     const {
         workflowsLoading,
@@ -180,7 +185,31 @@ export function WorkflowsTable(): JSX.Element {
                 ) : (
                     <LemonTableLink
                         to={urls.workflow(item.id, 'workflow')}
-                        title={item.name}
+                        title={
+                            <span className="flex items-center gap-2 flex-wrap">
+                                {item.name}
+                                {selfOptimisingEnabled &&
+                                    item.status === 'active' &&
+                                    item.suggestions_enabled && (
+                                        // A tag with its own click rather than a link: the row is already a link.
+                                        <LemonTag
+                                            type={item.pending_suggestions ? 'completion' : 'option'}
+                                            data-attr="workflow-list-suggestions"
+                                            onClick={(event) => {
+                                                event.preventDefault()
+                                                event.stopPropagation()
+                                                router.actions.push(urls.workflow(item.id, 'self-driving'))
+                                            }}
+                                        >
+                                            {!item.pending_suggestions
+                                                ? 'Self-driving'
+                                                : item.pending_suggestions === 1
+                                                  ? '1 suggestion'
+                                                  : `${item.pending_suggestions} suggestions`}
+                                        </LemonTag>
+                                    )}
+                            </span>
+                        }
                         description={item.description}
                         truncateDescription
                     />

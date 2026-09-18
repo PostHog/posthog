@@ -108,6 +108,9 @@ export interface HogFlow extends z.infer<typeof HogFlowSchema> {
     // True when only PostHog can lift the pause: staff placed it, or it re-tripped soon after a resume.
     email_sending_pause_requires_support?: boolean
     email_sending_resumed_at?: string | null
+    // Suggested changes waiting for a person. Only the list endpoint counts it.
+    pending_suggestions?: number | null
+    suggestions_enabled?: boolean | null
 }
 
 export interface HogFlowEdge extends z.infer<typeof HogFlowEdgeSchema> {}

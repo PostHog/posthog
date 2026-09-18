@@ -1021,6 +1021,12 @@ export const HogFlowsMetricsRetrieveQueryParams = () => zod.object({
         ),
     kind: zod.string().min(1).optional().describe("Comma-separated metric kinds to filter by, e.g. 'success,failure'."),
     name: zod.string().min(1).optional().describe('Comma-separated metric names to filter by.'),
+    version: zod
+        .number()
+        .optional()
+        .describe(
+            "Read one workflow version's series: every run of that version, keyed on the workflow. The unversioned read keys batch and broadcast runs on the run instead, so it is not the sum of the versions; compare versions with each other, not with it."
+        ),
 })
 
 /**
@@ -1074,7 +1080,7 @@ export const HogFlowsProposalsCreateBody = () => zod.object({
     content: zod
         .record(zod.string(), zod.unknown())
         .describe(
-            'Only the workflow content fields this proposal changes. Approving merges them over the live content to build the staged draft, so unrelated parts of the workflow stay as they are. In `actions`, send only the steps you change, each with its `id`.'
+            'Only the workflow content fields this proposal changes. Approving merges them over the live content to build the staged draft, so unrelated parts of the workflow stay as they are. In `actions`, send each step you change with its `id` and only the fields you change; they merge into the live step, and a null field deletes it.'
         ),
     evidence: zod
         .record(zod.string(), zod.unknown())
@@ -1082,9 +1088,8 @@ export const HogFlowsProposalsCreateBody = () => zod.object({
         .describe('The metric numbers behind the proposal, so a human can judge it without re-deriving them.'),
     base_version: zod
         .number()
-        .optional()
         .describe(
-            'Workflow version this was authored against. Required when the proposal changes actions, edges or variables: it is the snapshot approve compares against to tell whether someone edited the same steps since, and a defaulted version would read as current however long the producer took. Defaults to the current live version otherwise.'
+            'Workflow version this was authored against, as read from the workflow. It is the snapshot approve compares against to tell whether someone edited the same steps or fields since, and a defaulted version would read as current however long the producer took.'
         ),
     step_id: zod
         .string()

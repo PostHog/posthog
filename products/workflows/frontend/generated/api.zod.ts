@@ -2412,13 +2412,13 @@ export const HogFlowsInvocationsCancelCreateBody = /* @__PURE__ */ zod
     .describe('Cancel in-flight invocations of a workflow. Provide exactly one selector.')
 
 /**
- * Whether PostHog may look at this workflow and suggest changes to it.
+ * Whether PostHog may suggest changes to this workflow.
  *
- * Turning it off stops a producer reading the workflow. Suggestions already made are left
- * alone: someone still has them to resolve.
+ * Turning it off stops new suggestions. Suggestions already made are left alone: someone
+ * still has them to resolve.
  */
 export const HogFlowsOptimisationCreateBody = /* @__PURE__ */ zod.object({
-    enabled: zod.boolean().describe("Whether PostHog may read this workflow's metrics and suggest changes to it."),
+    enabled: zod.boolean().describe('Whether PostHog may suggest changes to this workflow.'),
 })
 
 /**
@@ -2439,7 +2439,7 @@ export const HogFlowsProposalsCreateBody = /* @__PURE__ */ zod.object({
     content: zod
         .record(zod.string(), zod.unknown())
         .describe(
-            'Only the workflow content fields this proposal changes. Approving merges them over the live content to build the staged draft, so unrelated parts of the workflow stay as they are. In `actions`, send only the steps you change, each with its `id`.'
+            'Only the workflow content fields this proposal changes. Approving merges them over the live content to build the staged draft, so unrelated parts of the workflow stay as they are. In `actions`, send each step you change with its `id` and only the fields you change; they merge into the live step, and a null field deletes it.'
         ),
     evidence: zod
         .record(zod.string(), zod.unknown())
@@ -2447,9 +2447,8 @@ export const HogFlowsProposalsCreateBody = /* @__PURE__ */ zod.object({
         .describe('The metric numbers behind the proposal, so a human can judge it without re-deriving them.'),
     base_version: zod
         .number()
-        .optional()
         .describe(
-            'Workflow version this was authored against. Required when the proposal changes actions, edges or variables: it is the snapshot approve compares against to tell whether someone edited the same steps since, and a defaulted version would read as current however long the producer took. Defaults to the current live version otherwise.'
+            'Workflow version this was authored against, as read from the workflow. It is the snapshot approve compares against to tell whether someone edited the same steps or fields since, and a defaulted version would read as current however long the producer took.'
         ),
     step_id: zod
         .string()
