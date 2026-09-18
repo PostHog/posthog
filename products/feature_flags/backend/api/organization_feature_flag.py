@@ -1353,8 +1353,7 @@ class OrganizationFeatureFlagView(
             request.method = "PATCH" if existing_flag else "POST"
             try:
                 # The copied payload holds the source flag's fields, so the target project's own
-                # tag and evaluation context requirements cannot apply to it. Remove this once
-                # #102783 makes a copy carry tags and evaluation contexts.
+                # tag and evaluation context requirements cannot apply to it.
                 copy_exemption = {"skip_team_flag_requirements": True}
                 if existing_flag:
                     saved_flag = update_flag(

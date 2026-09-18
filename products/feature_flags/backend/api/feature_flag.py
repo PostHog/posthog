@@ -1510,7 +1510,6 @@ class FeatureFlagSerializer(
 
         # A copy between projects carries the source flag's fields only, so the target's own
         # requirements cannot be met by the payload. The copy endpoint has always skipped them.
-        # Remove this once #102783 makes a copy carry tags and evaluation contexts.
         if self.context.get("skip_team_flag_requirements"):
             return attrs
 
