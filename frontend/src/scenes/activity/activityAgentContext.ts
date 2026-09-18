@@ -12,7 +12,13 @@ const LIVE_DISMISS_GROUP = 'activity-live-filters'
 // the user's whole message. Stay under that, with room for the surrounding block.
 export const CONTEXT_VALUE_MAX_CHARS = 3_500
 
-const ELIDED_MARKER = '[elided for size]'
+export const ELIDED_MARKER = '[elided for size]'
+
+// Both instruction items need this rule, because either payload can be elided. Sharing one string
+// keeps a future edit to one surface from leaving the other claiming filters it was never sent.
+const ELIDED_MARKER_RULE =
+    `A field whose value is "${ELIDED_MARKER}" was too large to send, so ask the user what it holds ` +
+    'rather than assuming it is empty.'
 
 // These are our own build-time constants, which is what makes them safe as trusted `instructions`.
 // Which tab is open travels on the untrusted item's `type`, so no page value reaches trusted context.
@@ -26,10 +32,8 @@ const EXPLORE_CONTEXT_ITEM: AttachedContextItem = {
         'table on their screen. Read it to resolve what "this", "these rows", or "the current filters" refer ' +
         'to. Answer questions about it by running HogQL over the events or sessions table with the execute-sql ' +
         'tool. Keep the columns, filters, and time range of that query unless the user asks to change them. ' +
-        'A field whose value is "' +
-        ELIDED_MARKER +
-        '" was too large to send, so ask the user what it holds rather than ' +
-        'assuming it is empty. Results you compute are not applied back to the open table, so say so when you ' +
+        ELIDED_MARKER_RULE +
+        ' Results you compute are not applied back to the open table, so say so when you ' +
         'answer from a query other than the one on screen.',
 }
 
@@ -41,7 +45,8 @@ const LIVE_CONTEXT_ITEM: AttachedContextItem = {
         'The user is watching the PostHog live event stream, which shows events as they arrive. The ' +
         'live_events_filters item holds the event name and property filters applied to that stream. The ' +
         'stream itself is not queryable, so answer questions about what the user sees by running HogQL over ' +
-        'the events table with the execute-sql tool, applying the same filters over a recent time range.',
+        'the events table with the execute-sql tool, applying the same filters over a recent time range. ' +
+        ELIDED_MARKER_RULE,
 }
 
 // Any of `select`, `where`, `properties`, `fixedProperties` and `eventProperties` can grow without
