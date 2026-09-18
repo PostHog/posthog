@@ -475,7 +475,7 @@ describe('supportSettingsLogic', () => {
             expect(logic.values.playbookSaving).toBe(false)
         })
 
-        it('keeps the draft when the save fails', async () => {
+        it('keeps the draft when the save fails, even once an unrelated save lands', async () => {
             useMocks({
                 get: {
                     '/api/conversations/v1/email/status': { configs: [] },
@@ -494,6 +494,10 @@ describe('supportSettingsLogic', () => {
                 logic.actions.savePlaybook()
             }).toDispatchActions(['updateCurrentTeamFailure'])
             await expectLogic(logic).toFinishAllListeners()
+
+            await expectLogic(logic, () => {
+                logic.actions.updateCurrentTeamSuccess({} as TeamType, { conversations_enabled: true })
+            }).toNotHaveDispatchedActions(['loadPlaybook'])
 
             expect(logic.values.playbookSaving).toBe(false)
             expect(logic.values.playbookDraft).toBe('Always greet first.')

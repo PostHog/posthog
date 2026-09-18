@@ -1311,7 +1311,7 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
             },
         ],
     }),
-    listeners(({ values, actions }) => ({
+    listeners(({ values, actions, cache }) => ({
         connectSlack: async ({ nextPath }) => {
             const query = encodeURIComponent(nextPath)
             // nosemgrep: prefer-codegen-api
@@ -1749,25 +1749,24 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
             if (values.playbookSaving) {
                 return
             }
-            const settingsBefore = values.currentTeam?.conversations_settings
+            // kea-loaders swallows the rejection and hands this payload back on the shared
+            // success action, so its identity is what tells our own write apart from a
+            // concurrent settings save. Reloading on someone else's success, or after a
+            // failure, would drop the text the user still has open.
+            const payload: Partial<TeamType> = {
+                conversations_settings: {
+                    ...values.currentTeam?.conversations_settings,
+                    ai_reply_custom_instructions: instructions,
+                },
+            }
+            cache.playbookPayload = payload
             actions.setPlaybookSaving(true)
             try {
-                // Awaiting this specific request, rather than listening for the shared
-                // updateCurrentTeam actions, keeps a concurrent settings save from settling
-                // the playbook. teamLogic toasts both outcomes.
-                await teamLogic.asyncActions.updateCurrentTeam({
-                    conversations_settings: {
-                        ...settingsBefore,
-                        ai_reply_custom_instructions: instructions,
-                    },
-                })
+                // teamLogic toasts both outcomes.
+                await teamLogic.asyncActions.updateCurrentTeam(payload)
             } finally {
+                cache.playbookPayload = null
                 actions.setPlaybookSaving(false)
-            }
-            // kea-loaders swallows the error, so a landed write is what a fresh settings object
-            // means. Reloading after a failed one would drop the text the user still has open.
-            if (values.currentTeam?.conversations_settings !== settingsBefore) {
-                actions.loadPlaybook()
             }
         },
         connectGithub: async ({ integrationId }) => {
@@ -1808,6 +1807,9 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
             }
         },
         updateCurrentTeamSuccess: ({ payload }) => {
+            if (payload && payload === cache.playbookPayload) {
+                actions.loadPlaybook()
+            }
             actions.setGreetingInputValue(null)
             actions.setIdentificationFormTitleValue(null)
             actions.setIdentificationFormDescriptionValue(null)
