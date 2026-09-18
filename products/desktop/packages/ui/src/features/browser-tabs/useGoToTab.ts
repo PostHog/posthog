@@ -9,7 +9,6 @@ import { pushTabHistoryEntry } from "./tabHistory";
 
 export type TabRef = {
   id: string;
-  /** Where the tab is. Null only for tabs persisted before hrefs were stored. */
   href: string | null;
   dashboardId: string | null;
   taskId: string | null;
@@ -37,7 +36,6 @@ export function useGoToTab(): (tab: TabRef) => void {
           state,
         });
       } else if (tab.taskId) {
-        // A channel-less task tab — the Code task detail route.
         navigate({
           to: "/tasks/$taskId",
           params: { taskId: tab.taskId },
@@ -51,8 +49,6 @@ export function useGoToTab(): (tab: TabRef) => void {
         });
       } else if (tab.channelId) {
         const params = { channelId: tab.channelId };
-        // Section keys are the route segments; unknown/stale sections (e.g. from
-        // a since-removed tab type) fall back to the channel home.
         const section = channelSectionFor(tab.channelSection);
         if (section) {
           navigate({
@@ -64,8 +60,6 @@ export function useGoToTab(): (tab: TabRef) => void {
           navigate({ to: "/spaces/$channelId", params, state });
         }
       } else if (tab.appView && isTabAppView(tab.appView)) {
-        // A top-level app page — back to its canonical route (literal `to` per
-        // case so the router types stay checked).
         switch (tab.appView) {
           case "activity":
             navigate({ to: "/activity", state });
@@ -109,9 +103,6 @@ export function useGoToTab(): (tab: TabRef) => void {
             navigate({ to: "/settings", state });
             break;
           default: {
-            // Exhaustiveness guard: a new AppView value fails to compile here
-            // until its canonical route is wired above — so the tab-target set
-            // (union + APP_VIEW_META) and this navigation can't drift apart.
             const _exhaustive: never = tab.appView;
             return _exhaustive;
           }

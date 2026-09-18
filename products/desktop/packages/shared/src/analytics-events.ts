@@ -347,12 +347,19 @@ export interface TaskListGroupingChangedProperties {
 
 export interface BrowserTabTiledProperties {
   edge: "left" | "right" | "top" | "bottom";
-  /** Tiles in the group after the drop. */
+  source: "strip" | "tile" | "sidebar";
   tile_count: number;
 }
 
 export interface BrowserTabUntiledProperties {
-  /** Tiles left in the group; 0 when the group dissolved. */
+  tile_count: number;
+}
+
+export interface BrowserTabTileFocusedProperties {
+  tile_count: number;
+}
+
+export interface BrowserTabSplitRenamedProperties {
   tile_count: number;
 }
 
@@ -1627,6 +1634,8 @@ export const ANALYTICS_EVENTS = {
   TASK_LIST_APPEARANCE_CHANGED: "Task list appearance changed",
   BROWSER_TAB_TILED: "Browser tab tiled",
   BROWSER_TAB_UNTILED: "Browser tab untiled",
+  BROWSER_TAB_TILE_FOCUSED: "Browser tab tile focused",
+  BROWSER_TAB_SPLIT_RENAMED: "Browser tab split renamed",
 
   // Permission events
   PERMISSION_RESPONDED: "Permission responded",
@@ -1842,6 +1851,8 @@ export type EventPropertyMap = {
   [ANALYTICS_EVENTS.TASK_LIST_APPEARANCE_CHANGED]: TaskListAppearanceChangedProperties;
   [ANALYTICS_EVENTS.BROWSER_TAB_TILED]: BrowserTabTiledProperties;
   [ANALYTICS_EVENTS.BROWSER_TAB_UNTILED]: BrowserTabUntiledProperties;
+  [ANALYTICS_EVENTS.BROWSER_TAB_TILE_FOCUSED]: BrowserTabTileFocusedProperties;
+  [ANALYTICS_EVENTS.BROWSER_TAB_SPLIT_RENAMED]: BrowserTabSplitRenamedProperties;
 
   // Permission events
   [ANALYTICS_EVENTS.PERMISSION_RESPONDED]: PermissionRespondedProperties;

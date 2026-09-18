@@ -38,11 +38,17 @@ function resetDragState(): void {
   store.setOverStrip(false);
 }
 
-function tileBeside(tabId: string, targetTabId: string, edge: TileEdge): void {
+function tileBeside(
+  tabId: string,
+  targetTabId: string,
+  edge: TileEdge,
+  source: "strip" | "tile",
+): void {
   useTileLayoutStore.getState().tileTab(tabId, targetTabId, edge);
   const group = groupForTab(useTileLayoutStore.getState().groups, targetTabId);
   track(ANALYTICS_EVENTS.BROWSER_TAB_TILED, {
     edge,
+    source,
     tile_count: group ? tabIdsIn(group.root).length : 0,
   });
 }
@@ -127,7 +133,9 @@ export function BrowserTabsDndProvider({ children }: { children: ReactNode }) {
     previewed: string[] | null,
   ) => {
     if (isTileDropData(target)) {
-      if (target.tabId !== tabId) tileBeside(tabId, target.tabId, target.edge);
+      if (target.tabId !== tabId) {
+        tileBeside(tabId, target.tabId, target.edge, "tile");
+      }
       return;
     }
     const pill = target as { type?: unknown } | undefined;
@@ -208,7 +216,7 @@ export function BrowserTabsDndProvider({ children }: { children: ReactNode }) {
       }
       if (src?.type !== "browser-tab") return;
       if (isTileDropData(tgt)) {
-        tileBeside(src.tabId, tgt.tabId, tgt.edge);
+        tileBeside(src.tabId, tgt.tabId, tgt.edge, "strip");
         return;
       }
       if (!order || (initial && sameOrder(order, initial))) return;

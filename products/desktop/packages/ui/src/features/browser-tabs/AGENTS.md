@@ -313,100 +313,34 @@ retarget its originating background tab as described below. `railHistoryStore`
 
 ## Tiled tabs (split view)
 
-Tabs can share the content pane side by side or in a grid, the way Arc splits
-a space. The feature lives in `features/tab-tiling/`; this section documents
-the model and the UX so both stay in step with the code.
+Tabs can share the content pane side by side or in a grid.
+The feature lives in `features/tab-tiling/`; this section keeps the model and the UX in step with the code.
 
-### The model (`tileLayout.ts`)
-- A **group** is a tree. Leaves are tab ids; inner nodes split their children
-  along one axis (`horizontal` = side by side, `vertical` = stacked) and carry
-  optional `sizes` in percent. Two tabs beside each other are one horizontal
-  split; a 2x2 grid is a horizontal split of two vertical splits.
-- `tileTab` places a tab on an edge of the tile that shows another tab. When
-  the target's parent already splits on that axis the new leaf becomes a
-  sibling, so three tabs in a row stay one flat split. A tab that was tiled
-  elsewhere is removed from its old group first. A group stops accepting drops
-  at `MAX_TILES_PER_GROUP` (4).
-- `untileTab` removes a leaf, collapses a split left with one child, and
-  dissolves a group left with one tile. `pruneGroups` applies that to every
-  tab missing from the live snapshot.
-- Groups are **view state** in `tileLayoutStore` (zustand `persist` →
-  localStorage), like pins: tab ids are durable in SQLite so a split survives
-  relaunch, and the model is pure so the tree transforms are unit-tested in
-  `tileLayout.test.ts`.
+### The model (`tileTree.ts`)
+- A **group** is a tree. Leaves are tab ids; inner nodes split their children along one axis (`horizontal` = side by side, `vertical` = stacked) and carry optional `sizes` in percent.
+- `tileTab` places a tab on an edge of the tile that shows another tab. A drop on the axis the parent already splits on adds a sibling, so three tabs in a row stay one flat split. A tab that was tiled elsewhere leaves its old group first. A group stops accepting drops at `MAX_TILES_PER_GROUP` (4).
+- `untileTab` removes a leaf, collapses a split left with one child, and dissolves a group left with one tile. `pruneGroups` applies that to every tab missing from the live snapshot.
+- Groups, the focused tile per group (`activeByGroup`) and the split names are **view state** in `tileLayoutStore` (zustand `persist` to localStorage). Every group has a name: `Split N` until someone renames it. The tree transforms are unit-tested in `tileTree.test.ts`.
 
 ### Rendering (`TileLayout.tsx`)
-- **The constraint:** one TanStack Router = one location = one `<Outlet>`.
-  `TileLayout` wraps the outlet in `__root.tsx`. When the active tab belongs
-  to a group, the whole group renders as nested `react-resizable-panels`
-  groups and the **outlet renders inside the active tab's tile**. Every other
-  tile renders its tab **without the router** (`TileTabContent`): a task tab
-  mounts `TaskDetail` from the cache-first fetch, a dashboard tab mounts
-  `WebsiteDashboard`. Pages that read route params (channel views, settings)
-  cannot mount that way yet; their tile shows a notice with a button that
-  activates the tab instead.
-- Activating a tab in a group shows the group with the outlet moved to that
-  tab's tile. Tabs outside a group show alone, as before.
-- Each tile has a `ChromeBar` header with an X that removes it from the split.
-  A background tile shows icon and name. The active tile shows what its page
-  pushes to the header store (the editable title) and, on a task, the
-  `TaskHeaderActions` row; a page that pushes nothing shows the tab name.
-  **The header is the only place that switches the active tab.** A click
-  inside a background page never moves the outlet out from under it.
-- The pane-wide header rows (`ContentHeader`, `SpaceHeaderRow`) hide while
-  the active tab is in a group (`useActiveTabTiled`): one title above several
-  tiles named the wrong thing, and the active tile's header carries it now.
-- Resizes persist through `onLayout` → `setSplitSizes`, which returns the same
-  array for an unchanged layout so the mount-time callback writes nothing.
+- Every tile renders its tab through `TileTabContent`, and stays mounted whichever tile is focused. A task tab mounts `TaskDetail`, a canvas tab mounts `WebsiteDashboard`, and any other tab mounts its page in its own TanStack router over a memory history seeded at the tab's href (`TileRouter`). The root route renders only its outlet inside a tile (`useInBackgroundTile`), and a navigation inside a tile writes the new href back onto the tab.
+- **Focusing a tile is not a navigation.** The route, the history and the side nav stay where they are; `useFocusTab` records the tile in `activeByGroup`, and `useActiveTabId` resolves the focused member of the route's group. A tab switch into another group still navigates.
+- A plain navigation made while a split is on screen lands in the focused tile, not in the tab that owns the route (`navigationOwner` in `BrowserTabStrip`).
+- Each tile has a `ChromeBar` header: the tab's grip, icon and title, an X that removes the tile from the split, and on a task its `TaskHeaderActions`. The header is plain until dragged; only the drag ghost takes the pill styling.
+- `useSetHeaderContent` writes nothing from inside a tile, so the pane-wide header never names one tile's page above several tiles.
+
+### Moving tiles
+- The tile header is a `@dnd-kit/react` draggable (`tile-tab`). Dropping it on another tile's edge moves it there. Dropping it on the strip pulls it out as its own tab; while the ghost is over the strip, the tab previews as a pill in the slot it would take (`tabReorderStore.overStrip`).
+- Session and canvas rows in the sidebar are native HTML5 drags (they already drop onto Command Center). `TileDropZones` accept them too: the drop opens the task or canvas as a background tab and tiles it beside the target (`tileDrop.ts`).
+- The dragged tile shows no zones on itself, and a full group disables its zones.
 
 ### The split in the strip
-A split is one thing you switch to, so the strip shows it as **one pill**, the
-way Arc, Chrome and Edge nest split tabs under one entry. Vivaldi leaves tiled
-tabs unmarked and scattered in its bar, and that is its most-requested fix.
-- `collapseSplits` (`displayOrder.ts`) keeps one pill per group in the slot of
-  its first member in the display order (the **anchor**); the other members
-  leave the strip. The pill's `id` is the anchor, so reorder and the
-  sortable slot work as for one tab.
-- The pill leads with a miniature of the split: the members' icons in a
-  framed row, in tile order. Its label and icon follow the tile that was
-  active last (`tileLayoutStore.activeByGroup`, written by `TileLayout` on
-  every activation), so the pill always names the page you would land on.
-  The tooltip reads `Split view` and lists every member.
-- **Click the pill to come back to the split** after visiting another tab; it
-  reopens on that last-active tile (`lastActiveIn`). A click while the split
-  is on screen does nothing.
-- The pill's X, middle-click and `Close split` close every tab of the split.
-  Removing one tab is the tile header's X, and Cmd/Ctrl+W closes the active
-  tile only and focuses another tile of the split. Bulk closes count a split pill as one slot but close all of its
-  tabs. `Separate all tabs` in the pill's menu dissolves the group and keeps
-  the tabs. A split pill has no pin item.
-- Cmd/Ctrl+1-9 count the split pill as one stop.
+- `collapseSplits` (`displayOrder.ts`) keeps one pill per group in the slot of its first member (the **anchor**); the other members leave the strip.
+- The pill is a normal pill: a split icon, the group's name, the hover close. Its hover card lists the tiles and marks the one on screen. Click it to return to the split on the focused tile. `Rename split` in its menu edits the name inline; `Separate all tabs` dissolves the group.
+- The X, middle-click and `Close split` close every tab of the split. Cmd/Ctrl+W closes the focused tile only.
 
-### Drag to tile
-- While a pill is dragged **and detached** (`tabReorderStore.draggingTabId`
-  with `detached`), every tile of the visible group, or the lone active page,
-  shows four edge drop zones
-  (`TileDropZones`, `useDroppable` in the same `BrowserTabsDndProvider` scope,
-  data `{ type: "tile-drop", tabId, edge }`). The dragged tab's own tile shows
-  none, and a full group disables its zones. A split pill drags as one unit
-  and a pinned pill stays icon-only, so neither shows zones, and `dragend`
-  refuses a tile drop for them.
-- A detached pill renders lifted (shadow, ring, rounded) so it
-  reads as a card the user carries into the pane, the way Chrome and Arc show
-  a tab in flight. The zones are hit by dnd-kit's default collision detection,
-  which tests the **pointer** position first.
-- `dragend` on a tile zone calls `tileTab` and returns without persisting the
-  strip order, because the pill never left its slot.
-- Analytics: `Browser tab tiled` (`edge`, `tile_count`) and
-  `Browser tab untiled` (`tile_count`).
-
-### Follow-ups
-- Channel views in background tiles need a props-parameterization pass.
-- No in-tile navigation without a router: a link inside a background tile
-  drives the one router, so it changes the active tile's page, not its own.
-  A second router over memory history is the known alternative.
-- Tiles cannot be rearranged inside a split yet (the pill drags as one unit);
-  keyboard focus between tiles is also open.
+### Analytics
+- `Browser tab tiled` (`edge`, `source`: strip, tile or sidebar, `tile_count`), `Browser tab untiled` (`tile_count`), `Browser tab tile focused` (`tile_count`), `Browser tab split renamed` (`tile_count`).
 
 ## Known rough edges / follow-ups
 

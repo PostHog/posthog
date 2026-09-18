@@ -341,9 +341,6 @@ function SortableTabPill({
               {tab.icon ?? <PushPinIcon size={14} weight="fill" />}
             </span>
           ) : null}
-          {/* Fade the right edge instead of an ellipsis; the label shrinks on
-            hover (button gets pr) so the fade follows, clearing room for the
-            close button. */}
           {tab.pinned ? null : (
             <span className="min-w-0 flex-1 overflow-hidden whitespace-nowrap text-left [-webkit-mask-image:linear-gradient(to_right,#000,#000_calc(100%-0.75rem),#0000)] [mask-image:linear-gradient(to_right,#000,#000_calc(100%-0.75rem),#0000)]">
               {label}

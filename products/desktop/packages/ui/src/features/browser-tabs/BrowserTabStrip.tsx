@@ -566,8 +566,6 @@ function BrowserTabStripImpl() {
     }
     const viewFor = (t: BrowserTab): TabView => {
       const pinned = pinnedSet.has(t.id);
-      // The active tab shows the current route's target, so resolve from the
-      // route (instant) rather than its stored ids (which lag a navigation).
       const isActive = t.id === activeTabId;
       const taskId = isActive ? (activeSession.taskId ?? null) : t.taskId;
       const dashId = isActive ? (params.dashboardId ?? null) : t.dashboardId;
@@ -593,8 +591,6 @@ function BrowserTabStripImpl() {
           id: t.id,
           label:
             task?.title ?? taskInfo.get(taskId) ?? t.viewState?.title ?? "Task",
-          // The session list's status dot, so a tab and its row never say
-          // different things about the same session.
           icon: <TaskTabDot task={task} />,
           channelName: channel,
           pinned,
@@ -612,10 +608,6 @@ function BrowserTabStripImpl() {
           pinned,
         };
       }
-      // A top-level app page (Inbox, Agents, Skills, …).
-      // Resolve this before channel state: when navigation crosses from a
-      // space to Activity, persisted channel context must not turn the new
-      // top-level tab into a space tab.
       if (appView && isTabAppView(appView)) {
         const tabReportId = isActive
           ? activeReportId
@@ -635,9 +627,6 @@ function BrowserTabStripImpl() {
           pinned,
         };
       }
-      // A channel tab: a sub-section (Recents/CONTEXT.md/…) or the channel home.
-      // The section drives the label; the channel name carries the space
-      // context. Home has no section, so it labels by the channel name.
       if (channelId) {
         const meta = channelSectionFor(section);
         return {
@@ -652,7 +641,6 @@ function BrowserTabStripImpl() {
             space: spacesLayout,
           }),
           channelName: channel,
-          // No section meta → the channel's index page.
           isChannelHome: !meta,
           pinned,
         };
@@ -875,7 +863,11 @@ function BrowserTabStripImpl() {
 
   const handleRenameSplit = (tabId: string, name: string) => {
     const group = groupForTab(tileGroups, tabId);
-    if (group) renameGroup(group.id, name);
+    if (!group) return;
+    renameGroup(group.id, name);
+    track(ANALYTICS_EVENTS.BROWSER_TAB_SPLIT_RENAMED, {
+      tile_count: tabIdsIn(group.root).length,
+    });
   };
 
   const handleSeparate = (tabId: string) => {

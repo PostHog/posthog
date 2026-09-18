@@ -139,6 +139,7 @@ export function dropIntoTile(
     const group = groupForTab(useTileLayoutStore.getState().groups, tabId);
     track(ANALYTICS_EVENTS.BROWSER_TAB_TILED, {
       edge,
+      source: "sidebar",
       tile_count: group ? tabIdsIn(group.root).length : 0,
     });
   }
