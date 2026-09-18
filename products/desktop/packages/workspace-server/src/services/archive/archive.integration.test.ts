@@ -1,4 +1,4 @@
-import { execSync } from "node:child_process";
+import { execFileSync, execSync } from "node:child_process";
 import { writeFileSync } from "node:fs";
 import fs from "node:fs/promises";
 import os from "node:os";
@@ -51,19 +51,17 @@ async function createTempRepo(): Promise<string> {
 }
 
 function initializeGitRepo(dir: string): void {
-  execSync("git init", { cwd: dir, stdio: "pipe" });
-  execSync("git config user.email 'test@test.com'", {
-    cwd: dir,
-    stdio: "pipe",
-  });
-  execSync("git config user.name 'Test'", { cwd: dir, stdio: "pipe" });
-  execSync("git config commit.gpgsign false", { cwd: dir, stdio: "pipe" });
-  execSync("git config tag.gpgsign false", { cwd: dir, stdio: "pipe" });
+  const git = (args: string[]): void => {
+    execFileSync("git", args, { cwd: dir, stdio: "pipe" });
+  };
+  git(["init"]);
+  git(["config", "user.email", "test@test.com"]);
+  git(["config", "user.name", "Test"]);
+  git(["config", "commit.gpgsign", "false"]);
+  git(["config", "tag.gpgsign", "false"]);
   writeFileSync(path.join(dir, "README.md"), "# Test Repo");
-  execSync("git add . && git commit -m 'Initial commit'", {
-    cwd: dir,
-    stdio: "pipe",
-  });
+  git(["add", "."]);
+  git(["commit", "-m", "Initial commit"]);
 }
 
 async function pathExists(p: string): Promise<boolean> {
@@ -396,8 +394,7 @@ describe("ArchiveService integration", () => {
     it("archive and unarchive preserves branch name", () =>
       withTestContext({}, async (ctx) => {
         const branchName = "feature/my-branch";
-        ctx.git(`checkout -b ${branchName}`);
-        ctx.git("checkout -");
+        ctx.git(`branch ${branchName}`);
 
         const { worktreePath } = await ctx.setupWorktree("branch", branchName);
 
@@ -414,8 +411,7 @@ describe("ArchiveService integration", () => {
     it("unarchive with recreateBranch creates new branch", () =>
       withTestContext({}, async (ctx) => {
         const branchName = "feature/old-branch";
-        ctx.git(`checkout -b ${branchName}`);
-        ctx.git("checkout -");
+        ctx.git(`branch ${branchName}`);
 
         const { worktreePath } = await ctx.setupWorktree("branch", branchName);
         await fs.writeFile(path.join(worktreePath, "work.txt"), "my work");

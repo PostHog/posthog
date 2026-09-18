@@ -27,7 +27,6 @@ import { urls } from 'scenes/urls'
 
 import { Experiment } from '~/types'
 
-import { isLaunched } from 'products/experiments/frontend/experimentStatus'
 import { experimentScannerParams } from 'products/replay_vision/frontend/replay_scanners/experimentTargeting'
 import { scannerTypeLabel } from 'products/replay_vision/frontend/replay_scanners/types'
 
@@ -37,6 +36,7 @@ import { EXPERIMENT_RECORDING_MODE_OPTIONS, METRIC_UNSELECTABLE_COPY } from './e
 import { type ExperimentReplayMetricFilterMode, isFunnelMode } from './experimentRecordingsDeepLink'
 import { ExperimentRecordingsListEmptyState } from './ExperimentRecordingsListEmptyState'
 import {
+    ExperimentRecordingsListUnavailableReason,
     ExperimentReplayMetricOption,
     ExperimentSessionBucket,
     LinkedScanner,
@@ -88,6 +88,24 @@ const IN_SESSION_COPY: Record<InSessionEvidenceKind, { tooltip: string; caption:
             scopeLockedReason: 'This metric filter already narrows to sessions carrying in-session exposure evidence.',
         },
     }
+
+// What the tab says in place of a list the backend would refuse. Each entry carries its own
+// `data-attr` so autocapture can count how often each state is reached, and so a story can wait
+// for the one it renders.
+const LIST_UNAVAILABLE_COPY: Record<ExperimentRecordingsListUnavailableReason, { dataAttr: string; copy: string }> = {
+    not_launched: {
+        dataAttr: 'experiment-recordings-unavailable-not-launched',
+        copy: 'Launch the experiment to see recordings of participants.',
+    },
+    group_aggregated: {
+        dataAttr: 'experiment-recordings-unavailable-group-aggregated',
+        copy: "Recordings aren't available for this experiment. It counts groups rather than individual people, so recordings can't be matched to a variant.",
+    },
+    no_variants: {
+        dataAttr: 'experiment-recordings-unavailable-no-variants',
+        copy: "Recordings aren't available because this experiment's feature flag has no variants. Add variants to the flag to see recordings of participants.",
+    },
+}
 
 // A session fires a metric's events, never the metric — the caption spells that out where it
 // has the room the trigger doesn't.
@@ -273,6 +291,8 @@ export function ExperimentReplayTab({ experiment }: { experiment: Experiment }):
         sessionBucketRequest,
         linkedScanners,
         linkedScannersLoading,
+        listUnavailableReason,
+        listLoadError,
     } = useValues(logic)
     const {
         setSelectedVariantKey,
@@ -282,6 +302,8 @@ export function ExperimentReplayTab({ experiment }: { experiment: Experiment }):
         loadSessionBucket,
         playlistFiltersChanged,
         recordingsLoaded,
+        recordingsLoadFailed,
+        retryListLoad,
         recordingOpened,
         scannerCrossSellClicked,
     } = useActions(logic)
@@ -305,9 +327,22 @@ export function ExperimentReplayTab({ experiment }: { experiment: Experiment }):
         playlist.actions.setSelectedRecordingId(sessionId)
         return true
     }
+    // The button that calls this only renders under a failed list, so the playlist below it is
+    // mounted. Guarded anyway, because nothing in the type keeps it that way.
+    const retryList = (): void => {
+        retryListLoad()
+        sessionRecordingsPlaylistLogic.findMounted(playlistLogicProps)?.actions.loadSessionRecordings()
+    }
 
-    if (!isLaunched(experiment)) {
-        return <LemonBanner type="info">Launch the experiment to see recordings of participants.</LemonBanner>
+    // The variant switcher, the scope control and the metric filter all describe a list, so they
+    // are meaningless without one. Placed after every hook, as the draft case always was.
+    if (listUnavailableReason !== null) {
+        const { dataAttr, copy } = LIST_UNAVAILABLE_COPY[listUnavailableReason]
+        return (
+            <div data-attr={dataAttr}>
+                <LemonBanner type="info">{copy}</LemonBanner>
+            </div>
+        )
     }
 
     // Selectable metrics render as checkboxes. The rest move to labelled sections that explain
@@ -480,8 +515,27 @@ export function ExperimentReplayTab({ experiment }: { experiment: Experiment }):
                 caption follows the request, not the mode. The dropped-metric caption claims a whole
                 population, so a filter the viewer added in the playlist bar makes it wrong and takes
                 it away. The telemetry nulls the reason on the same condition. */}
-            <div className="mb-2 flex items-center gap-2 text-xs text-secondary">
-                {clientSideFilterApplied ? null : droppedMetricReason && !filtersCustomized ? (
+            <div className="mb-2 flex flex-wrap items-center gap-2 text-xs text-secondary">
+                {/* First, because a list that failed makes every other caption moot: none of them
+                    describes a population the viewer can see. The retry is offered whatever the
+                    status, unlike the shelf above, which shows a 400 as a plain answer: the tab
+                    now states the refusals it can foresee instead of sending the list, so the
+                    ones that reach here pass once the exposures finish computing. */}
+                {listLoadError !== null ? (
+                    <>
+                        <span data-attr="experiment-recordings-list-error-caption">
+                            Couldn't load recordings: {listLoadError.detail}
+                        </span>
+                        <LemonButton
+                            size="xsmall"
+                            type="secondary"
+                            onClick={retryList}
+                            data-attr="experiment-recordings-list-retry"
+                        >
+                            Try again
+                        </LemonButton>
+                    </>
+                ) : clientSideFilterApplied ? null : droppedMetricReason && !filtersCustomized ? (
                     <span data-attr="experiment-recordings-dropped-metric-caption">
                         {METRIC_UNSELECTABLE_COPY[droppedMetricReason].onTab}
                     </span>
@@ -524,6 +578,7 @@ export function ExperimentReplayTab({ experiment }: { experiment: Experiment }):
                         resetToCallerFilters
                         onFiltersChange={(filters) => playlistFiltersChanged(filters)}
                         onRecordingsLoaded={(recordings, isFirstPage) => recordingsLoaded(recordings, isFirstPage)}
+                        onRecordingsLoadFailed={(error, isFirstPage) => recordingsLoadFailed(error, isFirstPage)}
                         onRecordingSelected={(recordingId) => recordingOpened(recordingId)}
                         listEmptyState={<ExperimentRecordingsListEmptyState experiment={experiment} />}
                     />

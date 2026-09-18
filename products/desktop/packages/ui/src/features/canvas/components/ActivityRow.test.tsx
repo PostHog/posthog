@@ -7,6 +7,10 @@ const navigation = vi.hoisted(() => ({
   toChannelTask: vi.fn(),
   toTaskDetail: vi.fn(),
 }));
+const links = vi.hoisted(() => ({
+  copyCanvasLink: vi.fn(() => Promise.resolve()),
+  copyChannelLink: vi.fn(() => Promise.resolve()),
+}));
 
 vi.mock("@posthog/ui/router/navigationBridge", () => ({
   navigateToChannelDashboard: navigation.toChannelDashboard,
@@ -27,6 +31,12 @@ vi.mock("@posthog/ui/features/canvas/hooks/useFileTaskToChannel", () => ({
 }));
 vi.mock("@posthog/ui/features/browser-tabs/useOpenBrowserTab", () => ({
   useOpenBrowserTab: () => vi.fn(),
+}));
+vi.mock("@posthog/ui/features/canvas/utils/copyCanvasLink", () => ({
+  copyCanvasLink: links.copyCanvasLink,
+}));
+vi.mock("@posthog/ui/features/canvas/utils/copyChannelLink", () => ({
+  copyChannelLink: links.copyChannelLink,
 }));
 
 import { useCommentNavigationStore } from "@posthog/ui/features/sessions/commentNavigationStore";
@@ -222,5 +232,30 @@ describe("ActivityRow", () => {
       openCommentsTab: true,
       intent: "navigate",
     });
+  });
+
+  it("copies a canvas link, not a task link, for a canvas comment row", () => {
+    render(
+      <ActivityRow
+        item={item({
+          channelId: "channel-1",
+          commentId: "comment-1",
+          commentTarget: { scope: "desktop_canvas", itemId: "canvas-1" },
+        })}
+        menu={taskMenu()}
+        onMarkRead={vi.fn()}
+        onActivate={vi.fn()}
+        blockedTaskIds={NO_BLOCKED_TASKS}
+      />,
+    );
+
+    fireEvent.click(screen.getByLabelText("Copy thread link"));
+
+    expect(links.copyCanvasLink).toHaveBeenCalledWith(
+      "channel-1",
+      "canvas-1",
+      "activity",
+    );
+    expect(links.copyChannelLink).not.toHaveBeenCalled();
   });
 });

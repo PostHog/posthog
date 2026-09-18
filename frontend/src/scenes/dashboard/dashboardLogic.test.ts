@@ -21,7 +21,10 @@ import { dashboardInsightColorsModalLogic } from 'scenes/dashboard/dashboardInsi
 import { DashboardLoadAction, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import * as dashboardUtils from 'scenes/dashboard/dashboardUtils'
 import * as widgetFetchUtils from 'scenes/dashboard/widgetFetchUtils'
+import { sceneLogic } from 'scenes/sceneLogic'
+import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
 
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
@@ -2291,6 +2294,30 @@ describe('dashboardLogic', () => {
                 expect(logic.values.dashboard).toBeNull()
                 expect(logic.values.dashboardFailedToLoad).toBe(false)
                 expect(logic.values.error404).toBe(true)
+            })
+
+            // Logging in lands a person on their configured home. When that home is this dashboard and
+            // it was deleted, this screen is all they ever see, so the stale setting must go.
+            it('clears a configured homepage that points at this dashboard', async () => {
+                const scene = sceneLogic({ scenes: {} })
+                scene.mount()
+                scene.actions.setHomepage({
+                    id: 'homepage-dashboard',
+                    pathname: urls.dashboard(13),
+                    search: '',
+                    hash: '',
+                    title: 'Home dashboard',
+                    iconType: 'dashboard',
+                    sceneId: Scene.Dashboard,
+                    sceneParams: { params: {}, searchParams: {}, hashParams: {} },
+                })
+                router.actions.push(urls.dashboard(13))
+
+                await expectLogic(logic).toFinishAllListeners()
+                await expectLogic(scene).toFinishAllListeners()
+
+                expect(scene.values.homepage).toBeNull()
+                scene.unmount()
             })
         })
     })

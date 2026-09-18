@@ -278,8 +278,13 @@ def _fetch_utm_groups(team: Team, *, lookback_days: int) -> list[_UtmRow]:
 
     Intentionally not restricted to `$pageview` — conversion goals are often custom
     events, so attribution should reflect all UTM-tagged activity.
+
+    The window ends at the run time. Event timestamps come from the client, so a device
+    with a wrong clock can stamp an event years ahead and make `max(timestamp)` report a
+    last-seen date in the future.
     """
-    since = timezone.now() - timedelta(days=lookback_days)
+    now = timezone.now()
+    since = now - timedelta(days=lookback_days)
     hogql = """
         SELECT
             lower(trim(properties.utm_source)) AS raw_utm_source,
@@ -297,6 +302,7 @@ def _fetch_utm_groups(team: Team, *, lookback_days: int) -> list[_UtmRow]:
         FROM events
         WHERE
             timestamp >= {since}
+            AND timestamp <= {until}
             AND properties.utm_source IS NOT NULL
             AND properties.utm_source != ''
         GROUP BY raw_utm_source
@@ -309,6 +315,7 @@ def _fetch_utm_groups(team: Team, *, lookback_days: int) -> list[_UtmRow]:
             team,
             placeholders={
                 "since": ast.Constant(value=since),
+                "until": ast.Constant(value=now),
                 "limit": ast.Constant(value=HOGQL_GROUP_LIMIT),
             },
         )
