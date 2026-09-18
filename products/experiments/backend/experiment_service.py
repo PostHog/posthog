@@ -4415,6 +4415,11 @@ class ExperimentService:
         The actions that fire the event are resolved first, so the jsonpath can name their ids and
         match an action-based metric without a second pass.
         """
+        # A jsonb value cannot hold a NUL, so no stored metric or action step can name this
+        # event. Both queries below would raise on the escape instead of matching nothing.
+        if "\x00" in event:
+            return queryset.none()
+
         jsonpath = metric_event_reference_jsonpath(event, actions_firing_event(event, self.team))
         # The saved-metric branch resolves to ids because Django renames the outer table of a nested
         # queryset, and a subquery inside the OR leaves the planner no bitmap path.

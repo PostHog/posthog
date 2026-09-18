@@ -407,6 +407,11 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
 
         self.assertEqual(self._event_filter_results("checkout"), [])
 
+    def test_filter_by_event_handles_name_the_database_cannot_store(self) -> None:
+        self._create_experiment_with_metric_event("Matching", "null-character-flag", "purchase")
+
+        self.assertEqual(self._event_filter_results("\x00"), [])
+
     def test_matching_ids_filters_by_event(self) -> None:
         # The event predicate has to survive the `only()` narrowing that matching_ids applies.
         matching = self._create_experiment_with_metric_event("Matching", "matching-ids-flag", "purchase")
