@@ -500,6 +500,13 @@ class DatabricksDestinationWriter:
                     fetch_results=False,
                     timeout=FIVE_MINUTES,
                 )
+            # Stamp the run that published on the staging table, before it swaps into place.
+            # The comment survives the rename below, so the table is never visible under its
+            # live name without the marker already on it. Stamping after the rename would leave
+            # a crash window where the swap completes but the marker never lands, and a
+            # redelivered final batch would then rebuild staging from just that batch and
+            # publish over the table that already holds the complete data.
+            await self._set_comment(client, staging, published_marker(ctx.schema_id, ctx.run_uuid))
             await client.adelete_table(ctx.table_name)
             async with handle_common_errors(f"ALTER TABLE {staging} RENAME TO {ctx.table_name}", FIVE_MINUTES):
                 await client.execute_query(
@@ -507,9 +514,6 @@ class DatabricksDestinationWriter:
                     fetch_results=False,
                     timeout=FIVE_MINUTES,
                 )
-            # Stamp the run that published, so a redelivery of the final batch can tell "already
-            # published" from "never started" and refuse to rebuild the table.
-            await self._set_comment(client, ctx.table_name, published_marker(ctx.schema_id, ctx.run_uuid))
 
     async def abort_run(self, ctx: DestinationRunContext) -> None:
         # The next run stages under its own id, so a leftover table costs storage only.
