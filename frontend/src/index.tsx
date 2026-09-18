@@ -1,5 +1,6 @@
 import '~/styles'
 
+import './object-has-own-polyfill'
 import './buffer-polyfill'
 
 import { Suspense, lazy } from 'react'

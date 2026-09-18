@@ -1,6 +1,10 @@
 import '~/styles'
 import './styles.scss'
 
+// Must evaluate before the toolbar runtime, which lazily loads the product-tour step HTML
+// generator; that module initializes lowlight at module scope. See ../object-has-own-polyfill.
+import '../object-has-own-polyfill'
+
 import { KeaPlugin, resetContext } from 'kea'
 import { disposablesPlugin } from 'kea-disposables'
 import { formsPlugin } from 'kea-forms'
