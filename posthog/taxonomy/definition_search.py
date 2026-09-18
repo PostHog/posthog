@@ -27,7 +27,10 @@ LARGE_PROJECT_COUNT_CAP = 10_000
 
 def is_large_project(table: DefinitionTable, project_id: int, db_alias: str) -> bool:
     """Whether the project holds more than PROJECT_SCAN_MAX_DEFINITIONS rows of `table` (cached for a day)."""
-    return _cached_search_plan(table, project_id, db_alias) == "trigram"
+    plan = _cached_search_plan(table, project_id, db_alias)
+    # Both readers of the plan record it, so a request tells which access path it took.
+    trace.get_current_span().set_attribute("taxonomy_search_plan", plan)
+    return plan == "trigram"
 
 
 def bounded_count_sql(source_sql: str, order_by: str) -> str:
