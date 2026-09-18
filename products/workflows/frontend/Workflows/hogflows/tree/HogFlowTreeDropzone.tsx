@@ -128,7 +128,7 @@ export function HogFlowTreeDropzone({
                                 tooltip={insertionLabel ?? 'Insert step here'}
                                 className={cn(
                                     alwaysVisible
-                                        ? 'relative z-10 me-auto bg-transparent text-muted-foreground'
+                                        ? 'relative z-10 me-auto min-w-0 max-w-full bg-transparent text-muted-foreground'
                                         : 'absolute -right-2 top-1/2 z-10 !size-4 -translate-y-1/2 border-0 !bg-transparent !p-0'
                                 )}
                                 aria-label={insertionLabel ?? 'Insert step here'}
