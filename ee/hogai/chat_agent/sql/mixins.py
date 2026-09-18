@@ -1,6 +1,7 @@
 import asyncio
 from typing import cast
 
+import posthoganalytics
 from langchain_core.prompts import ChatPromptTemplate
 from pydantic import BaseModel, Field
 
@@ -203,6 +204,14 @@ class HogQLOutputParserMixin(HogQLDatabaseMixin):
             ):
                 err_msg = "HogQL parsing error: this query isn't valid HogQL."
             raise PydanticOutputParserException(llm_output=cleaned_query, validation_message=err_msg)
+        except Exception as err:
+            # A resolver or printer crash is still a fact about this query. Report it as a
+            # validation failure the model can retry, and keep the exception visible in tracking.
+            posthoganalytics.capture_exception(err)
+            raise PydanticOutputParserException(
+                llm_output=cleaned_query,
+                validation_message=f"HogQL error: {err}",
+            )
 
         return AssistantHogQLQuery(query=cleaned_query)
 
