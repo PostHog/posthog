@@ -1,7 +1,15 @@
 import { querySelectorAllDeep } from 'query-selector-shadow-dom'
 import { CSSProperties } from 'react'
 
-import { CLICK_TARGETS, CLICK_TARGET_SELECTOR, TAGS_TO_IGNORE, escapeRegex } from 'lib/utils/actions'
+import {
+    CLICK_TARGETS,
+    CLICK_TARGET_SELECTOR,
+    TAGS_TO_IGNORE,
+    containsUnstableGeneratedId,
+    escapeRegex,
+} from 'lib/utils/actions'
+
+export { containsUnstableGeneratedId }
 
 import { patch } from '~/toolbar/patch'
 import { toolbarLogger } from '~/toolbar/toolbarLogger'
@@ -694,15 +702,6 @@ export function unescapeCssSelector(foundSelector: string): string {
         }
         return escaped
     })
-}
-
-// React's useId() emits per-render identifiers like ":r5:" (React <= 18) or "«r5»" (React 19),
-// which component libraries embed in DOM attributes (e.g. data-id="base-ui-:rg:-viewport").
-// They change between renders and deploys, so a selector built on one never matches recorded events.
-const UNSTABLE_GENERATED_ID_REGEX = /:r[0-9a-z]*:|«r[0-9a-z]*»/i
-
-export function containsUnstableGeneratedId(value: string): boolean {
-    return UNSTABLE_GENERATED_ID_REGEX.test(value)
 }
 
 export function makeNavigateWrapper(onNavigate: () => void, patchKey: string): () => () => void {

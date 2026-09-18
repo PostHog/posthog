@@ -41,13 +41,40 @@ export const TAGS_TO_IGNORE = ['html', 'body', 'meta', 'head', 'script', 'link',
 
 export const escapeRegex = (str: string): string => str.replace(/([.*+?^=!:${}()|[\]/\\])/g, '\\$1')
 
+// React's useId() produces identifiers like ":r5:" (React <= 18) or "«r5»" (React 19) that
+// component libraries bake into DOM ids and attributes (e.g. id="radix-:rr:"). A new value is
+// generated per render and per deploy, so an action selector anchored to one never matches again.
+const UNSTABLE_GENERATED_ID_REGEX = /:r[0-9a-z]*:|«r[0-9a-z]*»/i
+
+export function containsUnstableGeneratedId(value: string): boolean {
+    return UNSTABLE_GENERATED_ID_REGEX.test(value)
+}
+
+// raw first-present matching: for callers that locate elements by their recorded
+// attributes (toolbar/elements/domElementIndex.ts), where the lookup must mirror how the
+// element was originally recorded. Selector building and save-as-action anchoring use
+// matchesStableDataAttribute instead.
 export function matchesDataAttribute(element: ElementType, dataAttributes: string[]): string | void {
+    return matchDataAttributeBy(element, dataAttributes, () => true)
+}
+
+// the first configured attribute whose value is usable long-term: unstable generated ids
+// are skipped in favor of a later configured attribute with a stable value
+export function matchesStableDataAttribute(element: ElementType, dataAttributes: string[]): string | void {
+    return matchDataAttributeBy(element, dataAttributes, (value) => !containsUnstableGeneratedId(value))
+}
+
+function matchDataAttributeBy(
+    element: ElementType,
+    dataAttributes: string[],
+    acceptValue: (value: string) => boolean
+): string | void {
     if (!element.attributes) {
         return
     }
     for (const attribute of dataAttributes) {
         const regex = new RegExp(`^attr__${attribute.split('*').map(escapeRegex).join('.*')}$`)
-        const match = Object.keys(element.attributes).find((a) => regex.test(a))
+        const match = Object.keys(element.attributes).find((a) => regex.test(a) && acceptValue(element.attributes[a]))
         if (match) {
             return match.replace(/^attr__/, '')
         }
@@ -60,12 +87,13 @@ const escapeQuotedSelectorValue = (value: string): string => value.replace(/\\/g
 
 export function elementToSelector(element: ElementType, dataAttributes: string[]): string {
     let selector = ''
-    const attribute = matchesDataAttribute(element, dataAttributes)
+    const attribute = matchesStableDataAttribute(element, dataAttributes)
     if (attribute) {
-        selector += `[${attribute}="${escapeQuotedSelectorValue(element.attributes[`attr__${attribute}`])}"]`
+        const attributeValue = element.attributes[`attr__${attribute}`]
+        selector += `[${attribute}="${escapeQuotedSelectorValue(attributeValue)}"]`
         return selector
     }
-    if (element.attr_id) {
+    if (element.attr_id && !containsUnstableGeneratedId(element.attr_id)) {
         selector += `[id="${CSS.escape(element.attr_id)}"]`
         return selector
     }

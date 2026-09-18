@@ -113,6 +113,52 @@ describe('saveAsActionDialog', () => {
             })
         })
 
+        it('does not anchor the selector to an unstable useId-derived id on an icon button', () => {
+            const step = eventToActionStep(
+                makeAutocaptureEvent({
+                    elements: [
+                        { tag_name: 'svg', attributes: {}, order: 0 },
+                        { tag_name: 'button', attr_id: 'radix-:rr:', attr_class: ['btn'], attributes: {}, order: 1 },
+                    ],
+                }) as any,
+                []
+            )
+
+            expect(step.selector).not.toBeUndefined()
+            expect(step.selector).not.toContain('radix-:rr:')
+        })
+
+        it('anchors on a later configured data attribute when the first is unstable', () => {
+            const step = eventToActionStep(
+                makeAutocaptureEvent({
+                    elements: [
+                        {
+                            tag_name: 'button',
+                            attributes: { 'attr__data-attr': 'radix-:rr:', 'attr__data-testid': 'save-button' },
+                            order: 0,
+                        },
+                    ],
+                }) as any,
+                ['data-attr', 'data-testid']
+            )
+
+            expect(step.selector).toBe('[data-testid="save-button"]')
+        })
+
+        it('prefers a stable data attribute over an unstable id on an ancestor', () => {
+            const step = eventToActionStep(
+                makeAutocaptureEvent({
+                    elements: [
+                        { tag_name: 'span', attr_id: 'radix-:rr:', attributes: {}, order: 0 },
+                        { tag_name: 'div', attributes: { 'attr__data-attr': 'signup-button' }, order: 1 },
+                    ],
+                }) as any,
+                ['data-attr']
+            )
+
+            expect(step.selector).toBe('[data-attr="signup-button"] > span')
+        })
+
         it('applies the $event_type=submit property when present', () => {
             const step = eventToActionStep(
                 makeAutocaptureEvent({
