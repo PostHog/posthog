@@ -4,7 +4,7 @@ import { calculateViewportRange } from 'lib/components/IframedToolbarBrowser/uti
 export const HEATMAP_PRESET_WIDTHS = [320, 375, 425, 768, 1024, 1440, 1920]
 
 export interface HeatmapCoverageRow {
-    type: string
+    type: HeatmapKind
     width: number
     count: number
 }
@@ -27,7 +27,7 @@ export type HeatmapEmptyDiagnosis =
 
 export const computeWidthShares = (
     rows: HeatmapCoverageRow[],
-    type: string,
+    type: HeatmapKind,
     heatmapFilters: HeatmapFilters,
     widths: number[]
 ): Record<number, number> => {
@@ -52,7 +52,7 @@ export const diagnoseEmptyHeatmap = ({
 }: {
     captureEnabled: boolean
     rows: HeatmapCoverageRow[]
-    type: string
+    type: HeatmapKind
     heatmapFilters: HeatmapFilters
     analysisWidth: number
     urlDiagnosis: HeatmapUrlDiagnosis | null
@@ -71,7 +71,7 @@ export const diagnoseEmptyHeatmap = ({
     if (bestShare > 0) {
         return { reason: 'other_widths', width: bestWidth, share: bestShare }
     }
-    const countsByType = new Map<string, number>()
+    const countsByType = new Map<HeatmapKind, number>()
     for (const row of rows) {
         if (row.type !== type) {
             countsByType.set(row.type, (countsByType.get(row.type) ?? 0) + row.count)
@@ -79,7 +79,7 @@ export const diagnoseEmptyHeatmap = ({
     }
     const [otherType, otherCount] = Array.from(countsByType.entries()).sort((a, b) => b[1] - a[1])[0] ?? [null, 0]
     if (otherType && otherCount > 0) {
-        return { reason: 'other_types', type: otherType as HeatmapKind, count: otherCount }
+        return { reason: 'other_types', type: otherType, count: otherCount }
     }
     if (!urlDiagnosis) {
         return { reason: 'no_data' }

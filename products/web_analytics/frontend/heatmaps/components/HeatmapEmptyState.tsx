@@ -2,21 +2,15 @@ import { useActions, useValues } from 'kea'
 
 import { LemonBanner, LemonButton, Link, Spinner } from '@posthog/lemon-ui'
 
-import { heatmapDataLogic } from 'lib/components/heatmaps/heatmapDataLogic'
+import { HEATMAP_TYPES, heatmapDataLogic } from 'lib/components/heatmaps/heatmapDataLogic'
 import type { HeatmapKind } from 'lib/components/heatmaps/types'
-import { humanFriendlyLargeNumber } from 'lib/utils/numbers'
+import { humanFriendlyLargeNumber, percentage } from 'lib/utils/numbers'
 import { urls } from 'scenes/urls'
 
 import type { HeatmapEmptyDiagnosis } from './heatmapCoverage'
 import { heatmapCoverageLogic } from './heatmapCoverageLogic'
 
-const INTERACTION_NOUNS: Record<HeatmapKind, string> = {
-    click: 'clicks',
-    rageclick: 'rage clicks',
-    deadclick: 'dead clicks',
-    mousemove: 'mouse movements',
-    scrolldepth: 'scroll depth data',
-}
+const interactionNoun = (type: HeatmapKind): string => HEATMAP_TYPES[type].label.toLowerCase()
 
 function DiagnosisMessage({
     diagnosis,
@@ -37,7 +31,7 @@ function DiagnosisMessage({
             type="secondary"
             size="xsmall"
             loading={rawHeatmapLoading}
-            onClick={() => applySuggestion(diagnosis, url)}
+            onClick={() => applySuggestion(url)}
             data-attr={dataAttr}
         >
             {label}
@@ -56,7 +50,7 @@ function DiagnosisMessage({
             return (
                 <div className="flex flex-wrap items-center gap-2">
                     <span>
-                        No {noun} at {width}px. {Math.round(diagnosis.share * 100)}% of this page's {noun} are at about{' '}
+                        No {noun} at {width}px. {percentage(diagnosis.share, 0)} of this page's {noun} are at about{' '}
                         {diagnosis.width}px.
                     </span>
                     {suggestionButton(`Show ${diagnosis.width}px`, 'heatmap-empty-show-width')}
@@ -67,9 +61,9 @@ function DiagnosisMessage({
                 <div className="flex flex-wrap items-center gap-2">
                     <span>
                         No {noun} for this page, but it has {humanFriendlyLargeNumber(diagnosis.count)}{' '}
-                        {INTERACTION_NOUNS[diagnosis.type]}.
+                        {interactionNoun(diagnosis.type)}.
                     </span>
-                    {suggestionButton(`Show ${INTERACTION_NOUNS[diagnosis.type]}`, 'heatmap-empty-show-type')}
+                    {suggestionButton(`Show ${interactionNoun(diagnosis.type)}`, 'heatmap-empty-show-type')}
                 </div>
             )
         case 'other_dates':
@@ -120,14 +114,11 @@ function DiagnosisMessage({
     }
 }
 
-export function HeatmapEmptyState(): JSX.Element | null {
+export function HeatmapEmptyState(): JSX.Element {
     const { emptyDiagnosis, emptyDiagnosisLoading, hasValidReplayIframeData, recordingUrlMatchMode } =
         useValues(heatmapCoverageLogic)
-    const { heatmapEmpty, heatmapFilters, analysisWidth } = useValues(heatmapDataLogic({ context: 'in-app' }))
+    const { heatmapFilters, analysisWidth } = useValues(heatmapDataLogic({ context: 'in-app' }))
 
-    if (!heatmapEmpty) {
-        return null
-    }
     if (emptyDiagnosisLoading) {
         return (
             <p className="text-sm text-muted mt-2 mb-0 flex items-center gap-1">
@@ -147,7 +138,7 @@ export function HeatmapEmptyState(): JSX.Element | null {
         <LemonBanner type="info" className="mt-2">
             <DiagnosisMessage
                 diagnosis={emptyDiagnosis}
-                noun={INTERACTION_NOUNS[heatmapFilters.type ?? 'click']}
+                noun={interactionNoun(heatmapFilters.type ?? 'click')}
                 width={analysisWidth}
                 canMatchPage={hasValidReplayIframeData && recordingUrlMatchMode !== 'page'}
             />

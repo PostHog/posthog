@@ -16,6 +16,7 @@ import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
+import { percentage } from 'lib/utils/numbers'
 import { COHORTS_ONLY_SUPPORT_IN_PICKER_PROPS } from 'scenes/feature-flags/cohortPickerProps'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/types'
@@ -23,6 +24,7 @@ import { TestAccountFilter } from 'scenes/insights/filters/TestAccountFilter'
 
 import { AnyPropertyFilter, CohortPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
 
+import { HEATMAP_PRESET_WIDTHS } from './heatmapCoverage'
 import { heatmapCoverageLogic } from './heatmapCoverageLogic'
 import { HeatmapEmptyState } from './HeatmapEmptyState'
 
@@ -45,36 +47,17 @@ export function ViewportChooser({ lockedWidth }: { lockedWidth?: number }): JSX.
     const { widthShares } = useValues(heatmapCoverageLogic)
     const { setWindowWidthOverride } = useActions(heatmapDataLogic({ context: 'in-app' }))
 
-    const options = [
-        {
-            value: 320,
-            icon: <IconPhone />,
-        },
-        {
-            value: 375,
-            icon: <IconPhone />,
-        },
-        {
-            value: 425,
-            icon: <IconPhone />,
-        },
-        {
-            value: 768,
-            icon: <IconTabletPortrait />,
-        },
-        {
-            value: 1024,
-            icon: <IconTabletLandscape />,
-        },
-        {
-            value: 1440,
-            icon: <IconLaptop />,
-        },
-        {
-            value: 1920,
-            icon: <IconLaptop />,
-        },
-    ]
+    const iconForWidth = (width: number): JSX.Element =>
+        width < 768 ? (
+            <IconPhone />
+        ) : width < 1024 ? (
+            <IconTabletPortrait />
+        ) : width < 1440 ? (
+            <IconTabletLandscape />
+        ) : (
+            <IconLaptop />
+        )
+    const options = HEATMAP_PRESET_WIDTHS.map((value) => ({ value, icon: iconForWidth(value) }))
 
     const allOptions = lockedWidth ? [{ value: lockedWidth, icon: <IconLaptop /> }] : [...options]
     if (!lockedWidth && widthOverride && !options.some((option) => option.value === widthOverride)) {
@@ -100,7 +83,7 @@ export function ViewportChooser({ lockedWidth }: { lockedWidth?: number }): JSX.
                             {icon}
                             <div className="text-xs">{value} px</div>
                             {widthShares?.[value] !== undefined ? (
-                                <div className="text-xs text-muted">{Math.round(widthShares[value] * 100)}%</div>
+                                <div className="text-xs text-muted">{percentage(widthShares[value], 0)}</div>
                             ) : null}
                         </div>
                     ),
