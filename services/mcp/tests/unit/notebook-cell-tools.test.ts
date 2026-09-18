@@ -1189,6 +1189,68 @@ describe('notebook cell tools', () => {
         expect(result.hint).toContain('notebooks-run-status')
     })
 
+    it('run status does not roll a cell back to an older run', async () => {
+        // Finish run A, finish run B, then read A's status. The cell carries B's result, and
+        // A's rows must not replace them: run ids are uuid7, so the one already there sorting
+        // above this one means a later execution produced it.
+        const state = makeState(
+            ['# Doc', '', '<SQLV2 nodeId="first" code="select 1" returnVariable="df" runId="cell-b" />', ''].join('\n')
+        )
+        state.notebookRunStatuses.push(notebookRunStatus('done', [runCell('first', 'df', 'done', 'cell-a')]))
+        state.runStatusResponses.push(DONE_STATUS)
+        const context = createMockContext(state)
+
+        await runNotebookStatusHandler(context, { notebook_id: 'aBcD1234', run_id: 'nbrun-a' })
+
+        expect(state.saveBodies).toHaveLength(0)
+        expect(state.markdown).toContain('runId="cell-b"')
+    })
+
+    it('a run that produced nothing clears the rows the previous one left', async () => {
+        // Rerunning a cell that already has rows, and failing, used to update runId and leave
+        // the old result attached. Reopening then shows those rows as this run's output, and
+        // the editor skips recovery for a cell that already carries one.
+        const state = makeState(
+            [
+                '# Doc',
+                '',
+                '<SQLV2 nodeId="first" code="select 1" returnVariable="df" runId="cell-1" result={{"columns":["x"],"first_page":[[1]]}} />',
+                '',
+            ].join('\n')
+        )
+        state.notebookRunStatuses.push(notebookRunStatus('done', [runCell('first', 'df', 'failed', 'cell-2')]))
+        state.runStatusResponses.push({ status: 'failed', result: null, error: 'boom' })
+        const context = createMockContext(state)
+
+        await runNotebookStatusHandler(context, { notebook_id: 'aBcD1234', run_id: 'nbrun-1' })
+
+        const markdown = state.saveBodies[0].content.content[0].attrs.markdown
+        expect(markdown).toContain('runId="cell-2"')
+        expect(markdown).not.toContain('result=')
+    })
+
+    it('a failed write-back still hands back the run id', async () => {
+        // The run started and its cells may be executing. Raising bare would take the id with
+        // it, and the status tool needs that id — starting over either collides with this run
+        // or repeats it once it finishes.
+        const state = makeState(RUN_MARKDOWN)
+        state.notebookRunStatuses.push(notebookRunStatus('done', [runCell('first', 'df', 'done', 'cell-1')]))
+        state.runStatusResponses.push(DONE_STATUS)
+        const context = createMockContext(state)
+        const passThrough = context.api.request as any
+        ;(context.api as any).request = vi.fn(async (opts: any) => {
+            if (opts.method === 'POST' && (opts.path ?? '').endsWith('/collab/markdown_save/')) {
+                throw new Error('an editor holds the document')
+            }
+            return passThrough(opts)
+        })
+
+        const result: any = await runNotebookHandler(context, { notebook_id: 'aBcD1234', wait: true })
+
+        expect(result.run_id).toBe('nbrun-1')
+        expect(result.hint).toContain('notebooks-run-status')
+    })
+
     it('run status leaves a result the document already carries alone', async () => {
         const state = makeState(
             ['# Doc', '', '<SQLV2 nodeId="first" code="select 1" returnVariable="df" runId="cell-1" />', ''].join('\n')

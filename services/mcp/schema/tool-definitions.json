@@ -349,7 +349,7 @@
         }
     },
     "notebooks-run": {
-        "description": "Run every SQL and Python cell of a markdown notebook, in document order, in one call. Cells run one at a time, and the run stops at the first cell that fails or is stopped, so a later cell never reads a stale upstream result. Pass `variables` to set the notebook's values first: the list replaces the whole set and the notebook stores it, so \"refresh this report for last week\" is a single call. Waits up to ~45s and writes each cell's result into the document as it lands. A longer run comes back with status 'running' and a run_id; continue with notebooks-run-status, which keeps waiting and writes the rest. Editing the notebook during a run does not change which cells run: the plan is frozen when the run starts, and a result whose cell was deleted is dropped. A Python cell provisions the notebook's sandbox when none is running, and the user pays for it while it runs, so tell them the sandbox_hourly_price the first time a run starts one.",
+        "description": "Run every SQL and Python cell of a markdown notebook, in document order, in one call. Cells run one at a time, and the run stops at the first cell that fails or is stopped, so a later cell never reads a stale upstream result. Pass `variables` to set the notebook's values first: the list replaces the whole set and the notebook stores it, so \"refresh this report for last week\" is a single call. Waits up to ~45s and writes each cell's result into the document as it lands. A longer run comes back with status 'running' and a run_id; continue with notebooks-run-status, which keeps waiting and writes the rest. Editing the notebook during a run does not change which cells run: the plan is frozen when the run starts, and a result whose cell was deleted is dropped. Editing a cell's code mid-run is the one case to avoid: the frozen code still runs, and its result lands under the code you just wrote. A Python cell provisions the notebook's sandbox when none is running, and the user pays for it while it runs, so tell them the sandbox_hourly_price the first time a run starts one.",
         "category": "Notebooks",
         "feature": "notebooks",
         "summary": "Run every SQL and Python cell of a notebook in document order.",
@@ -364,7 +364,7 @@
         }
     },
     "notebooks-run-status": {
-        "description": "Keep waiting on a notebook run that notebooks-run started, and write each cell's result into the document as it lands. Waits up to ~45s per call, so call it again while the status is still 'running'. Safe to repeat: a result already in the document is not written a second time. Returns the same shape as notebooks-run, including which cell stopped the run.",
+        "description": "Keep waiting on a notebook run that notebooks-run started, and write each cell's result into the document as it lands. Waits up to ~45s per call, so call it again while the status is still 'running'. Safe to repeat: a result already in the document is not written a second time. Returns the same shape as notebooks-run, including which cell stopped the run. A cell edited since the run started still receives the frozen code's result, so its rows and its code can disagree.",
         "category": "Notebooks",
         "feature": "notebooks",
         "summary": "Continue waiting on a notebook run and write its results into the document.",

@@ -10,7 +10,7 @@ To run one case:
 
 from __future__ import annotations
 
-from products.notebooks.evals.scorers import CellRunsCompleted, NotebookCreated
+from products.notebooks.evals.scorers import CellRunsCompleted, NotebookCreated, NotebookRunCompleted
 from products.notebooks.evals.seeders import seed_case_team
 from products.posthog_ai.eval_harness.base import SandboxedPublicEval
 from products.posthog_ai.eval_harness.config import SandboxedEvalCase
@@ -74,6 +74,11 @@ async def eval_notebook_cells(ctx: EvalContext) -> None:
             expected={
                 "notebook_created": {},
                 "cell_runs_completed": {"node_types": ["hogql", "python"]},
+                # The point of the case. Walking the cells one at a time satisfies
+                # cell_runs_completed just as well, so only the run row proves the agent used
+                # the single call — and only its frozen variables prove the run that finished
+                # is the second one, under the new window.
+                "notebook_run_completed": {"variables": {"days_back": 7}},
             },
             setup=seed_case_team,
         ),
@@ -86,6 +91,7 @@ async def eval_notebook_cells(ctx: EvalContext) -> None:
             RequiredToolCall({"notebooks-add-cell"}),
             NotebookCreated(),
             CellRunsCompleted(),
+            NotebookRunCompleted(),
         ],
         ctx=ctx,
     )

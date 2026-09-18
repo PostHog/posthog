@@ -9,7 +9,7 @@ import {
     sleep,
     type ShapedRunResult,
 } from './cellRuns'
-import { findCellTag, readStringProp, replaceCellTag, upsertProp } from './cellTags'
+import { findCellTag, readStringProp, removeProp, replaceCellTag, upsertProp } from './cellTags'
 import { applyMarkdownEdit } from './markdownDoc'
 
 export interface NotebookRunCellOutcome {
@@ -46,9 +46,21 @@ const TERMINAL_CELL_STATUSES = new Set(['done', 'failed', 'interrupted'])
 const MAX_CELLS_PER_SAVE = 10
 
 /** A cell result already written into the document, keyed by the run that produced it. */
-function alreadyWritten(markdown: string, nodeId: string, runId: string): boolean {
+/**
+ * Whether the cell already carries this run's result, or one from a later run.
+ *
+ * Run ids are uuid7, so their canonical form sorts by creation time and an id above this one
+ * belongs to a later execution. Without the ordering, reading the status of an older run —
+ * an agent polling run A after run B has finished — puts A's rows back under the cell that
+ * B produced, leaving results that do not match the code beside them.
+ */
+function carriesThisRunOrNewer(markdown: string, nodeId: string, runId: string): boolean {
     const block = findCellTag(markdown, nodeId)
-    return !!block && readStringProp(block.source, 'runId') === runId
+    if (!block) {
+        return false
+    }
+    const existing = readStringProp(block.source, 'runId')
+    return !!existing && existing >= runId
 }
 
 /**
@@ -145,9 +157,10 @@ async function writeCellBatch(
     await applyMarkdownEdit(context, notebookId, (current) => {
         let markdown = current
         for (const { nodeId, runId: cellRunId, envelope } of envelopes) {
-            // A cell deleted while the run worked has nowhere for its result to land, and a
-            // cell already carrying this run's result must not be written twice.
-            if (alreadyWritten(markdown, nodeId, cellRunId)) {
+            // A cell deleted while the run worked has nowhere for its result to land, a cell
+            // already carrying this run's result must not be written twice, and one carrying a
+            // later run's result must not be rolled back to this one.
+            if (carriesThisRunOrNewer(markdown, nodeId, cellRunId)) {
                 continue
             }
             const block = findCellTag(markdown, nodeId)
@@ -155,9 +168,12 @@ async function writeCellBatch(
                 continue
             }
             let source = upsertProp(block.source, 'runId', cellRunId)
-            if (envelope) {
-                source = upsertProp(source, 'result', buildResultProp(envelope))
-            }
+            source = envelope
+                ? upsertProp(source, 'result', buildResultProp(envelope))
+                : // No envelope means this run produced none — it failed or was stopped. Leaving
+                  // the previous run's rows attached would show them as this run's output, and
+                  // the editor skips recovery for a cell that already carries a result.
+                  removeProp(source, 'result')
             markdown = replaceCellTag(markdown, block, source)
         }
         return markdown

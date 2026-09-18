@@ -60,8 +60,24 @@ export const runNotebookHandler: ToolBase<typeof NotebooksRunSchema, NotebookRun
         })
     }
 
-    const outcome = await awaitNotebookRun(context, params.notebook_id, notebookPath, started.run_id)
-    return wrapRunResultAsInformational({ ...outcome, ...disclosure })
+    try {
+        const outcome = await awaitNotebookRun(context, params.notebook_id, notebookPath, started.run_id)
+        return wrapRunResultAsInformational({ ...outcome, ...disclosure })
+    } catch (error) {
+        // The run started, and the cells may well be executing. Only following it failed —
+        // a save that lost every attempt to an active editor, say. Raising bare would take
+        // the run id with it, and the caller needs that id: the status tool asks for it, and
+        // starting over either collides with this run or repeats it once it finishes.
+        return wrapRunResultAsInformational({
+            run_id: started.run_id,
+            status: 'running',
+            cell_count: started.cell_count,
+            completed_count: 0,
+            cells: [],
+            ...disclosure,
+            hint: `The run started, but following it failed (${error instanceof Error ? error.message : String(error)}). Call notebooks-run-status with this run_id to read the results and write them into the document.`,
+        })
+    }
 }
 
 const tool = (): ToolBase<typeof NotebooksRunSchema, NotebookRunOutcome> => ({
