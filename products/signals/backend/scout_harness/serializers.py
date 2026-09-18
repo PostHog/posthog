@@ -208,7 +208,9 @@ class SignalScoutRunSummarySerializer(serializers.Serializer):
         allow_blank=True,
         help_text=(
             "One-paragraph close-out the scout wrote at end-of-run. Empty string for "
-            "runs that errored before close-out. The dedupe key for non-emitting runs."
+            "runs that errored before close-out. The dedupe key for non-emitting runs. "
+            "Blank when the search projected it out (`compact=true`); truncated to a preview "
+            "when `summary_max_chars` was set."
         ),
     )
     error = serializers.CharField(
@@ -216,7 +218,8 @@ class SignalScoutRunSummarySerializer(serializers.Serializer):
         required=False,
         help_text=(
             "Full `error_message` from the linked TaskRun, surfaced only for failed/cancelled runs "
-            "(null otherwise, including on success). Use `failure_reason` for a concise scan-friendly summary."
+            "(null otherwise, including on success, and when the search was `compact`). Use "
+            "`failure_reason` for a concise scan-friendly summary."
         ),
     )
     failure_reason = serializers.CharField(
@@ -928,6 +931,24 @@ class SearchRecentRunsQuerySerializer(serializers.Serializer):
         required=False,
         min_value=1,
         help_text="Exact-match filter on the skill version. Pair with `skill_name` to pin one version; omit for all.",
+    )
+    compact = serializers.BooleanField(
+        required=False,
+        help_text=(
+            "When true, blank each run's `summary` and drop its `error`, returning run identities, "
+            "status, timestamps, and emit tallies only. Use to scan which runs exist without pulling "
+            "their close-out prose and stack traces, then read the ones worth it with the retrieve "
+            "call. `failure_reason` still says why a failed run failed. Takes precedence over "
+            "`summary_max_chars`."
+        ),
+    )
+    summary_max_chars = serializers.IntegerField(
+        required=False,
+        min_value=0,
+        help_text=(
+            "Truncate each run's `summary` to the first N characters (a preview). Omit for the full "
+            "close-out. Ignored when `compact=true`."
+        ),
     )
     limit = serializers.IntegerField(
         required=False,

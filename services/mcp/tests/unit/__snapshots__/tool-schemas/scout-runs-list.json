@@ -1,6 +1,10 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
+        "compact": {
+            "description": "When true, blank each run's `summary` and drop its `error`, returning run identities, status, timestamps, and emit tallies only. Use to scan which runs exist without pulling their close-out prose and stack traces, then read the ones worth it with the retrieve call. `failure_reason` still says why a failed run failed. Takes precedence over `summary_max_chars`.",
+            "type": "boolean"
+        },
         "date_from": {
             "description": "ISO-8601 inclusive lower bound on `created_at`. Omit to skip the lower bound.",
             "format": "date-time",
@@ -38,6 +42,11 @@
         "skill_version": {
             "description": "Exact-match filter on the skill version. Pair with `skill_name` to pin one version; omit for all.",
             "minimum": 1,
+            "type": "number"
+        },
+        "summary_max_chars": {
+            "description": "Truncate each run's `summary` to the first N characters (a preview). Omit for the full close-out. Ignored when `compact=true`.",
+            "minimum": 0,
             "type": "number"
         },
         "text": {

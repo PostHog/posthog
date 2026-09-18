@@ -230,7 +230,10 @@ tools:
             `source_product=conversations` and the ticket's UUID as `source_id`); add `include_all_statuses=true` to
             include dismissed ones. Each row includes typed impact metric metadata and any accessible cached snapshot,
             but omits live query definitions and comparisons. Queryless legacy or malformed metrics are always redacted.
-            Listing reports does not execute metric queries.
+            Listing reports does not execute metric queries. A summary runs to 10,000 characters, so a page of rows
+            carries far more prose than a scan or a dedupe pass reads: pass `compact=true` to blank every row's
+            `summary` and `metrics` and keep the rest of the row, or `summary_max_chars` for a bounded preview, then
+            read the matches in full with `inbox-reports-retrieve`.
         agent_note: >
             You may inspect reports without claiming them. A claim indicates active work that should not be duplicated.
             Before claiming a report, read the report and its work log. If you decide to begin working to fix the issues
@@ -1004,8 +1007,12 @@ tools:
             dedupes against its own past runs. Pass `emitted=true` to return only runs that emitted at least one finding
             (or `emitted=false` for runs that surfaced nothing). Pass `text` for a case-insensitive substring match on
             the run's `summary` (the primary dedupe key for runs that didn't emit findings). Pass `date_from` /
-            `date_to` (ISO-8601, inclusive lower / exclusive upper bound on `created_at`) to scope to a window. Results
-            capped at 100.
+            `date_to` (ISO-8601, inclusive lower / exclusive upper bound on `created_at`) to scope to a window. Pass
+            `compact=true` to blank each run's `summary` and drop its `error`, leaving run identities, status,
+            timestamps and emit tallies — the shape to scan a window in, since a full page of close-out prose and stack
+            traces costs more context than it gives. `failure_reason` still says why a failed run failed, and
+            `scout-runs-retrieve` returns the whole close-out for a run worth reading. Pass `summary_max_chars` instead
+            for a bounded preview of each `summary`. Results capped at 100.
     scout-runs-recent-emissions:
         operation: signals_scout_runs_recent_emissions
         enabled: true

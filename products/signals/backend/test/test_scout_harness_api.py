@@ -247,6 +247,32 @@ class TestScoutHarnessRunsAPI(APIBaseTest):
         assert row["error"] == "boom: sandbox died\nstack line 2"
         assert row["failure_reason"] == "boom: sandbox died"
 
+    def test_list_compact_projects_out_the_run_bodies(self) -> None:
+        TaskRun = apps.get_model("tasks", "TaskRun")
+        run = _make_run(self.team, summary="a long close-out", task_run_status=TaskRun.Status.FAILED)
+        TaskRun.objects.filter(id=run.task_run_id).update(error_message="boom: sandbox died\nstack line 2")
+
+        response = self.client.get(f"{self._list_url()}?compact=true")
+
+        assert response.status_code == status.HTTP_200_OK
+        row = response.json()[0]
+        assert row["summary"] == ""
+        assert row["error"] is None
+        assert row["failure_reason"] == "boom: sandbox died"
+
+    def test_list_summary_max_chars_truncates_preview(self) -> None:
+        _make_run(self.team, summary="abcdefghij")
+
+        response = self.client.get(f"{self._list_url()}?summary_max_chars=4")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()[0]["summary"] == "abcd"
+
+    def test_list_rejects_a_negative_summary_max_chars(self) -> None:
+        response = self.client.get(f"{self._list_url()}?summary_max_chars=-1")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
     def test_retrieve_returns_bridge_projection(self) -> None:
         TaskRun = apps.get_model("tasks", "TaskRun")
         run = _make_run(self.team, summary="looked at /checkout, nothing actionable")

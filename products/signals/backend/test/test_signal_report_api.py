@@ -1414,6 +1414,56 @@ class TestSignalReportListAPI(APIBaseTest):
         assert len(for_many.captured_queries) == baseline
         assert baseline == 6
 
+    # --- row body projection (compact / summary_max_chars) ---
+
+    def test_list_compact_projects_out_the_row_bodies(self):
+        metric = self._affected_users_metric(series={"kind": "EventsNode", "event": "$exception", "math": "dau"})
+        report = self._create_report(summary="A long report summary", metrics=[metric])
+
+        response = self.client.get(self._list_url(compact="true"))
+
+        assert response.status_code == status.HTTP_200_OK
+        row = next(item for item in response.json()["results"] if item["id"] == str(report.id))
+        assert row["summary"] == ""
+        assert row["metrics"] == []
+        # Everything a scan or a dedupe pass reads off the row survives the projection.
+        assert row["title"] == "Test report"
+        assert row["status"] == SignalReport.Status.READY
+        assert row["updated_at"]
+
+    @parameterized.expand(
+        [
+            ("full_by_default", {}, "A long report summary"),
+            ("preview_truncates", {"summary_max_chars": 6}, "A long"),
+            ("zero_preview_blanks_the_body", {"summary_max_chars": 0}, ""),
+            ("compact_wins_over_preview", {"compact": "true", "summary_max_chars": 6}, ""),
+        ]
+    )
+    def test_list_summary_projection(self, _name, query, expected):
+        report = self._create_report(summary="A long report summary")
+
+        response = self.client.get(self._list_url(**query))
+
+        assert response.status_code == status.HTTP_200_OK
+        row = next(item for item in response.json()["results"] if item["id"] == str(report.id))
+        assert row["summary"] == expected
+
+    def test_retrieve_keeps_the_full_summary(self):
+        report = self._create_report(summary="A long report summary")
+
+        response = self.client.get(f"{self._list_url()}{report.id}/?compact=true&summary_max_chars=1")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["summary"] == "A long report summary"
+
+    @parameterized.expand([("negative", "-1"), ("not_a_number", "lots")])
+    def test_list_rejects_an_invalid_summary_max_chars(self, _name, value):
+        self._create_report()
+
+        response = self.client.get(self._list_url(summary_max_chars=value))
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
     # --- has_implementation_pr filter ---
 
     @parameterized.expand(

@@ -18,6 +18,10 @@
             "description": "Narrow to reports assigned to one space (channel). Absent or empty means all reports regardless of assignment.",
             "type": "string"
         },
+        "compact": {
+            "description": "Blank each row's summary and metrics, keeping ids, titles, status, priority, timestamps, and the rest of the row. Use it to scan or deduplicate against the inbox without pulling every report's full body, then read the matches with the retrieve call. Takes precedence over summary_max_chars. Defaults to false.",
+            "type": "boolean"
+        },
         "count_only": {
             "description": "Return the filtered total with an empty results page. Skips report ordering, serialization, and decorative metadata lookups. Defaults to false.",
             "type": "boolean"
@@ -81,6 +85,10 @@
         "suggested_reviewers": {
             "description": "Comma-separated list of PostHog user UUIDs. Reports are kept if their suggested reviewers include any of the given users.",
             "type": "string"
+        },
+        "summary_max_chars": {
+            "description": "Truncate each row's summary to the first N characters (a preview). Omit for the full body, which runs up to 10000 characters per report. Ignored when compact=true.",
+            "type": "number"
         },
         "task_id": {
             "description": "Only reports associated with this task (via the report's task associations).",

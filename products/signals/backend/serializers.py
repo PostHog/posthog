@@ -2,7 +2,7 @@ import json
 import uuid
 from collections.abc import Mapping
 from datetime import datetime, timedelta
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Any, cast
 
 from django.db.models import TextChoices
 from django.utils import timezone
@@ -1438,9 +1438,36 @@ class SignalReportListSerializer(SignalReportSerializer):
         read_only=True,
         help_text=(
             "Snapshot-only impact measurements for inbox rows. Live query definitions and authored "
-            "comparisons are available from the report detail endpoint."
+            "comparisons are available from the report detail endpoint. Empty when the list was "
+            "requested `compact`."
         ),
     )
+
+    def get_fields(self) -> dict[str, serializers.Field]:
+        fields = super().get_fields()
+        if self.context.get("compact"):
+            # `list` defers both columns for a compact page, so rendering them would lazy-load
+            # each one back per row. `to_representation` puts the keys back as empty values.
+            fields.pop("summary", None)
+            fields.pop("metrics", None)
+        return fields
+
+    def to_representation(self, instance: SignalReport) -> dict[str, Any]:
+        """Apply the row's body projection — see the `compact` / `summary_max_chars` query params.
+
+        A summary runs to `SIGNAL_REPORT_SUMMARY_MAX_LENGTH` characters, so a full page of rows can
+        carry around a megabyte of prose that a caller scanning or deduplicating against the inbox
+        does not read. The retrieve call still returns the whole body.
+        """
+        data = super().to_representation(instance)
+        if self.context.get("compact"):
+            data["summary"] = ""
+            data["metrics"] = []
+            return data
+        summary_max_chars = self.context.get("summary_max_chars")
+        if summary_max_chars is not None:
+            data["summary"] = (data["summary"] or "")[:summary_max_chars]
+        return data
 
 
 class SignalReportMetricRefreshRequestSerializer(serializers.Serializer):

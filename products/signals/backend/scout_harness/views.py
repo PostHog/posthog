@@ -623,6 +623,8 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             "(`>= date_from`, `< date_to`); pass `date_to` on subsequent calls to walk past the "
             "100-row cap. Pass `emitted=true` to see only runs that surfaced at least one finding. "
             "Pass `skill_name` (optionally with `skill_version`) to scope to a single scout. "
+            "Pass `compact=true` to scan run identities without their close-out prose or stack "
+            "traces, or `summary_max_chars` to cap each `summary` to a preview. "
             "Results capped at 100."
         ),
     )
@@ -644,6 +646,8 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             skill_name=skill_name,
             skill_version=skill_version,
             limit=limit,
+            compact=bool(validated.get("compact", False)),
+            summary_max_chars=validated.get("summary_max_chars"),
         )
         return Response(SignalScoutRunSummarySerializer([row.as_dict() for row in rows], many=True).data)
 

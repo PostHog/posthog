@@ -62285,7 +62285,7 @@ export namespace Schemas {
       readonly artefact_count: number;
       /** Charts the report shows, in the order they were written. The summary places one with a `[label](chart:<chart_id>)` link; the rest render below it. */
       readonly charts: readonly ReportChart[];
-      /** Snapshot-only impact measurements for inbox rows. Live query definitions and authored comparisons are available from the report detail endpoint. */
+      /** Snapshot-only impact measurements for inbox rows. Live query definitions and authored comparisons are available from the report detail endpoint. Empty when the list was requested `compact`. */
       readonly metrics: readonly ReportMetricList[];
       /** Follow-up prompts the report's author suggests sending about it (questions to ask, or next-step actions to request), in the order they were written. The inbox offers them above the `Ask AI` box; clicking one fills the box with it. */
       readonly suggested_prompts: readonly string[];
@@ -84937,10 +84937,10 @@ export namespace Schemas {
          * @nullable
          */
       task_url?: string | null;
-      /** One-paragraph close-out the scout wrote at end-of-run. Empty string for runs that errored before close-out. The dedupe key for non-emitting runs. */
+      /** One-paragraph close-out the scout wrote at end-of-run. Empty string for runs that errored before close-out. The dedupe key for non-emitting runs. Blank when the search projected it out (`compact=true`); truncated to a preview when `summary_max_chars` was set. */
       summary: string;
       /**
-         * Full `error_message` from the linked TaskRun, surfaced only for failed/cancelled runs (null otherwise, including on success). Use `failure_reason` for a concise scan-friendly summary.
+         * Full `error_message` from the linked TaskRun, surfaced only for failed/cancelled runs (null otherwise, including on success, and when the search was `compact`). Use `failure_reason` for a concise scan-friendly summary.
          * @nullable
          */
       error?: string | null;
@@ -85036,10 +85036,10 @@ export namespace Schemas {
          * @nullable
          */
       task_url?: string | null;
-      /** One-paragraph close-out the scout wrote at end-of-run. Empty string for runs that errored before close-out. The dedupe key for non-emitting runs. */
+      /** One-paragraph close-out the scout wrote at end-of-run. Empty string for runs that errored before close-out. The dedupe key for non-emitting runs. Blank when the search projected it out (`compact=true`); truncated to a preview when `summary_max_chars` was set. */
       summary: string;
       /**
-         * Full `error_message` from the linked TaskRun, surfaced only for failed/cancelled runs (null otherwise, including on success). Use `failure_reason` for a concise scan-friendly summary.
+         * Full `error_message` from the linked TaskRun, surfaced only for failed/cancelled runs (null otherwise, including on success, and when the search was `compact`). Use `failure_reason` for a concise scan-friendly summary.
          * @nullable
          */
       error?: string | null;
@@ -108147,6 +108147,10 @@ export namespace Schemas {
      */
     channel_id?: string;
     /**
+     * Blank each row's summary and metrics, keeping ids, titles, status, priority, timestamps, and the rest of the row. Use it to scan or deduplicate against the inbox without pulling every report's full body, then read the matches with the retrieve call. Takes precedence over summary_max_chars. Defaults to false.
+     */
+    compact?: boolean;
+    /**
      * Return the filtered total with an empty results page. Skips report ordering, serialization, and decorative metadata lookups. Defaults to false.
      */
     count_only?: boolean;
@@ -108210,6 +108214,10 @@ export namespace Schemas {
      * Comma-separated list of PostHog user UUIDs. Reports are kept if their suggested reviewers include any of the given users.
      */
     suggested_reviewers?: string;
+    /**
+     * Truncate each row's summary to the first N characters (a preview). Omit for the full body, which runs up to 10000 characters per report. Ignored when compact=true.
+     */
+    summary_max_chars?: number;
     /**
      * Only reports associated with this task (via the report's task associations).
      */
@@ -108412,6 +108420,10 @@ export namespace Schemas {
 
     export type SignalsScoutRunsListParams = {
     /**
+     * When true, blank each run's `summary` and drop its `error`, returning run identities, status, timestamps, and emit tallies only. Use to scan which runs exist without pulling their close-out prose and stack traces, then read the ones worth it with the retrieve call. `failure_reason` still says why a failed run failed. Takes precedence over `summary_max_chars`.
+     */
+    compact?: boolean;
+    /**
      * ISO-8601 inclusive lower bound on `created_at`. Omit to skip the lower bound.
      */
     date_from?: string;
@@ -108440,6 +108452,11 @@ export namespace Schemas {
      * @minimum 1
      */
     skill_version?: number;
+    /**
+     * Truncate each run's `summary` to the first N characters (a preview). Omit for the full close-out. Ignored when `compact=true`.
+     * @minimum 0
+     */
+    summary_max_chars?: number;
     /**
      * Case-insensitive substring match on the scout's end-of-run `summary`. Omit to skip the filter.
      * @minLength 1

@@ -225,6 +225,44 @@ class TestSearchRecentRuns(BaseTest):
         assert detail is not None
         assert detail.summary == "emit-free run; only known-noise patterns"
 
+    @parameterized.expand(
+        [
+            ("full_by_default", False, None, "abcdefghij"),
+            ("compact_blanks_the_body", True, None, ""),
+            ("preview_truncates", False, 4, "abcd"),
+            ("compact_wins_over_preview", True, 4, ""),
+            ("zero_preview_blanks_the_body", False, 0, ""),
+            # Unclamped this reaches Postgres as an out-of-range LEFT() length and 500s.
+            ("oversized_preview_returns_the_whole_body", False, 2**40, "abcdefghij"),
+        ]
+    )
+    def test_summary_projection(self, _name: str, compact: bool, summary_max_chars: int | None, expected: str) -> None:
+        _create_run(self.team, summary="abcdefghij")
+
+        hits = search_recent_runs(team_id=self.team.id, compact=compact, summary_max_chars=summary_max_chars, limit=1)
+
+        assert hits[0].summary == expected
+
+    def test_compact_drops_the_error_but_keeps_the_failure_reason(self) -> None:
+        TaskRun = apps.get_model("tasks", "TaskRun")
+        run = _create_run(self.team, task_run_status=TaskRun.Status.FAILED)
+        TaskRun.objects.filter(id=run.task_run_id).update(error_message="tool call failed\nstack frame\nstack frame")
+
+        compact = search_recent_runs(team_id=self.team.id, compact=True, limit=1)[0]
+        full = search_recent_runs(team_id=self.team.id, limit=1)[0]
+
+        assert compact.error is None
+        assert compact.failure_reason == "tool call failed"
+        assert full.error is not None and "stack frame" in full.error
+
+    def test_compact_still_filters_on_the_projected_summary(self) -> None:
+        keep = _create_run(self.team, summary="Looked at /checkout 500s")
+        _create_run(self.team, summary="Scanned LLM costs")
+
+        hits = search_recent_runs(team_id=self.team.id, text="checkout", compact=True)
+
+        assert [h.run_id for h in hits] == [str(keep.id)]
+
     def test_emit_tally_round_trips_through_projection(self) -> None:
         run = _create_run(self.team, emitted_count=2, emitted_finding_ids=["f-a", "f-b"])
 

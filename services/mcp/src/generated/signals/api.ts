@@ -39,6 +39,12 @@ export const SignalsReportsListQueryParams = () => zod.object({
         .describe(
             'Narrow to reports assigned to one space (channel). Absent or empty means all reports regardless of assignment.'
         ),
+    compact: zod
+        .boolean()
+        .optional()
+        .describe(
+            "Blank each row's summary and metrics, keeping ids, titles, status, priority, timestamps, and the rest of the row. Use it to scan or deduplicate against the inbox without pulling every report's full body, then read the matches with the retrieve call. Takes precedence over summary_max_chars. Defaults to false."
+        ),
     count_only: zod
         .boolean()
         .optional()
@@ -115,6 +121,12 @@ export const SignalsReportsListQueryParams = () => zod.object({
         .optional()
         .describe(
             'Comma-separated list of PostHog user UUIDs. Reports are kept if their suggested reviewers include any of the given users.'
+        ),
+    summary_max_chars: zod
+        .number()
+        .optional()
+        .describe(
+            "Truncate each row's summary to the first N characters (a preview). Omit for the full body, which runs up to 10000 characters per report. Ignored when compact=true."
         ),
     task_id: zod
         .string()
@@ -1503,7 +1515,7 @@ export const SignalsScoutProjectProfileGetQueryParams = () => zod.object({
 })
 
 /**
- * Return the most recent `SignalScoutRun` summaries for this project, newest first. Used by the headless scout to dedupe against work other runs already covered. ILIKE matches on `summary`. `date_from` / `date_to` are a half-open window on `created_at` (`>= date_from`, `< date_to`); pass `date_to` on subsequent calls to walk past the 100-row cap. Pass `emitted=true` to see only runs that surfaced at least one finding. Pass `skill_name` (optionally with `skill_version`) to scope to a single scout. Results capped at 100.
+ * Return the most recent `SignalScoutRun` summaries for this project, newest first. Used by the headless scout to dedupe against work other runs already covered. ILIKE matches on `summary`. `date_from` / `date_to` are a half-open window on `created_at` (`>= date_from`, `< date_to`); pass `date_to` on subsequent calls to walk past the 100-row cap. Pass `emitted=true` to see only runs that surfaced at least one finding. Pass `skill_name` (optionally with `skill_version`) to scope to a single scout. Pass `compact=true` to scan run identities without their close-out prose or stack traces, or `summary_max_chars` to cap each `summary` to a preview. Results capped at 100.
  * @summary Search recent agent runs
  */
 export const SignalsScoutRunsListParams = () => zod.object({
@@ -1516,7 +1528,15 @@ export const SignalsScoutRunsListParams = () => zod.object({
 
 export const signalsScoutRunsListQueryLimitMax = 100
 
+export const signalsScoutRunsListQuerySummaryMaxCharsMin = 0
+
 export const SignalsScoutRunsListQueryParams = () => zod.object({
+    compact: zod
+        .boolean()
+        .optional()
+        .describe(
+            "When true, blank each run's `summary` and drop its `error`, returning run identities, status, timestamps, and emit tallies only. Use to scan which runs exist without pulling their close-out prose and stack traces, then read the ones worth it with the retrieve call. `failure_reason` still says why a failed run failed. Takes precedence over `summary_max_chars`."
+        ),
     date_from: zod.iso
         .datetime({ offset: true })
         .optional()
@@ -1551,6 +1571,13 @@ export const SignalsScoutRunsListQueryParams = () => zod.object({
         .min(1)
         .optional()
         .describe('Exact-match filter on the skill version. Pair with `skill_name` to pin one version; omit for all.'),
+    summary_max_chars: zod
+        .number()
+        .min(signalsScoutRunsListQuerySummaryMaxCharsMin)
+        .optional()
+        .describe(
+            "Truncate each run's `summary` to the first N characters (a preview). Omit for the full close-out. Ignored when `compact=true`."
+        ),
     text: zod
         .string()
         .min(1)

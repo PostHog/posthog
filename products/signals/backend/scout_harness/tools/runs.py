@@ -22,8 +22,8 @@ from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
 from django.db import connection
-from django.db.models import Q
-from django.db.models.functions import Coalesce
+from django.db.models import Q, QuerySet, TextField, Value
+from django.db.models.functions import Coalesce, Left
 from django.utils import timezone
 
 import structlog
@@ -78,6 +78,11 @@ FLEET_FINDINGS_SUMMARY_REPORT_CAP = 50
 # `failure_reason` is the concise, list-safe derived signal; `error` carries the full
 # `TaskRun.error_message`. Bound the derived reason so it stays cheap to scan in bulk.
 MAX_FAILURE_REASON_LENGTH = 500
+
+# `summary` is an unbounded TextField, so a full page of runs can carry hundreds of kilobytes of
+# close-out prose that a continuity or dedupe scan never reads. Bounds what a `summary_max_chars`
+# preview can ask for, so an unbounded value can't reach Postgres as an out-of-range `LEFT()` length.
+MAX_SUMMARY_PREVIEW_CHARS = 10_000
 
 
 @dataclass(frozen=True)
@@ -176,6 +181,8 @@ def search_recent_runs(
     skill_name: str | None = None,
     skill_version: int | None = None,
     limit: int = DEFAULT_RUN_SEARCH_LIMIT,
+    compact: bool = False,
+    summary_max_chars: int | None = None,
 ) -> list[RunSummary]:
     """Return the most recent runs for a team, newest first.
 
@@ -192,9 +199,17 @@ def search_recent_runs(
     a single scout — the primary scoping path for a specialist deduping against its
     own past work; pair it with `skill_version` to pin a specific version. Results
     are capped at `MAX_RUN_SEARCH_LIMIT`.
+
+    `compact` and `summary_max_chars` scope the free text a row carries — `summary` is
+    unbounded and `error` is a whole stack trace, so a full page runs to hundreds of
+    kilobytes a caller reading run identities never needs. `SearchRecentRunsQuerySerializer`
+    documents both; `compact` wins where they disagree, and `failure_reason` survives it so a
+    failed run still says why in one line. The summary projection is applied in SQL, as in
+    `search_scratchpad`: a preview trimmed in Python still ships the whole column first.
     """
     clamped_limit = _clamp_limit(limit)
     qs = SignalScoutRun.objects.filter(team_id=team_id).select_related("task_run").order_by("-created_at")
+    qs = _project_summary_in_sql(qs, compact=compact, summary_max_chars=summary_max_chars)
     if date_from is not None:
         qs = qs.filter(created_at__gte=date_from)
     if date_to is not None:
@@ -214,7 +229,7 @@ def search_recent_runs(
     if skill_version is not None:
         qs = qs.filter(skill_version=skill_version)
     qs = qs[:clamped_limit]
-    return [_to_summary(row, team_id=team_id) for row in qs]
+    return [_to_summary(row, team_id=team_id, compact=compact) for row in qs]
 
 
 def _schedule_gap_minutes(config: SignalScoutConfig) -> int:
@@ -473,7 +488,7 @@ def run_id_for_sandbox_task(*, task_id: UUID | None, team_id: int) -> str | None
     return str(row_id) if row_id is not None else None
 
 
-def _to_summary(row: SignalScoutRun, *, team_id: int) -> RunSummary:
+def _to_summary(row: SignalScoutRun, *, team_id: int, compact: bool = False) -> RunSummary:
     task_run = row.task_run
     task_id = str(task_run.task_id) if task_run is not None else None
     task_run_id = str(task_run.id) if task_run is not None else None
@@ -486,7 +501,7 @@ def _to_summary(row: SignalScoutRun, *, team_id: int) -> RunSummary:
         created_at=row.created_at.isoformat(),
         started_at=task_run.created_at.isoformat() if task_run is not None else row.created_at.isoformat(),
         completed_at=task_run.completed_at.isoformat() if task_run is not None and task_run.completed_at else None,
-        summary=row.summary,
+        summary=_resolve_summary(row),
         emitted_count=row.emitted_count or 0,
         emitted_finding_ids=list(row.emitted_finding_ids or []),
         emitted_report_ids=list(row.emitted_report_ids or []),
@@ -494,10 +509,37 @@ def _to_summary(row: SignalScoutRun, *, team_id: int) -> RunSummary:
         task_id=task_id,
         task_run_id=task_run_id,
         task_url=_build_task_url(team_id=team_id, task_id=task_id, task_run_id=task_run_id),
-        error=error,
+        # A compact scan reads run identities, so it keeps the bounded `failure_reason` and drops
+        # the full trace behind it. `get_run` on a chosen run still returns the whole message.
+        error=None if compact else error,
         failure_reason=failure_reason,
         metadata=dict(row.metadata or {}),
     )
+
+
+def _project_summary_in_sql(
+    qs: QuerySet[SignalScoutRun], *, compact: bool, summary_max_chars: int | None
+) -> QuerySet[SignalScoutRun]:
+    """Push the close-out projection into the query so Postgres never ships prose we drop.
+
+    Mirrors `search_scratchpad`'s body projection: `defer` keeps the column out of the SELECT,
+    and the annotation carries whatever slice the caller asked for.
+    """
+    # `Left` rejects a length below 1, and a zero-char preview is a blank summary anyway.
+    if compact or (summary_max_chars is not None and summary_max_chars <= 0):
+        return qs.defer("summary").annotate(projected_summary=Value("", output_field=TextField()))
+    if summary_max_chars is None:
+        return qs
+    return qs.defer("summary").annotate(
+        projected_summary=Left("summary", min(summary_max_chars, MAX_SUMMARY_PREVIEW_CHARS))
+    )
+
+
+def _resolve_summary(row: SignalScoutRun) -> str:
+    # Present only on the search path, where the projection was pushed into SQL above. Every other
+    # caller reads whole rows.
+    projected = getattr(row, "projected_summary", None)
+    return row.summary if projected is None else projected
 
 
 def _to_detail(row: SignalScoutRun, *, team_id: int) -> RunDetail:

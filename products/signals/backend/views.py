@@ -1119,7 +1119,10 @@ class SignalReportViewSet(
         # contract of 404ing on suppressed reports.
         if self.action != "list":
             return False
-        raw = self.request.query_params.get("include_all_statuses")
+        return self._boolean_query_param("include_all_statuses")
+
+    def _boolean_query_param(self, name: str) -> bool:
+        raw = self.request.query_params.get(name)
         if raw is None or not raw.strip():
             return False
         value = raw.strip().lower()
@@ -1127,18 +1130,27 @@ class SignalReportViewSet(
             return True
         if value in ("0", "false", "no"):
             return False
-        raise serializers.ValidationError({"include_all_statuses": f"Invalid value: {raw!r}. Allowed: true, false."})
+        raise serializers.ValidationError({name: f"Invalid value: {raw!r}. Allowed: true, false."})
 
     def _count_only_requested(self) -> bool:
-        raw = self.request.query_params.get("count_only")
+        return self._boolean_query_param("count_only")
+
+    def _compact_requested(self) -> bool:
+        return self._boolean_query_param("compact")
+
+    def _summary_max_chars_requested(self) -> int | None:
+        raw = self.request.query_params.get("summary_max_chars")
         if raw is None or not raw.strip():
-            return False
-        value = raw.strip().lower()
-        if value in ("1", "true", "yes"):
-            return True
-        if value in ("0", "false", "no"):
-            return False
-        raise serializers.ValidationError({"count_only": f"Invalid value: {raw!r}. Allowed: true, false."})
+            return None
+        try:
+            value = int(raw.strip())
+        except ValueError:
+            raise serializers.ValidationError(
+                {"summary_max_chars": f"Invalid value: {raw!r}. Expected a whole number of characters."}
+            )
+        if value < 0:
+            raise serializers.ValidationError({"summary_max_chars": "Must be zero or greater."})
+        return value
 
     def _apply_signal_report_search_filter(self, queryset):
         search = self.request.query_params.get("search")
@@ -2069,6 +2081,29 @@ class SignalReportViewSet(
                     "serialization, and decorative metadata lookups. Defaults to false."
                 ),
             ),
+            OpenApiParameter(
+                name="compact",
+                type=OpenApiTypes.BOOL,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "Blank each row's summary and metrics, keeping ids, titles, status, priority, "
+                    "timestamps, and the rest of the row. Use it to scan or deduplicate against the "
+                    "inbox without pulling every report's full body, then read the matches with the "
+                    "retrieve call. Takes precedence over summary_max_chars. Defaults to false."
+                ),
+            ),
+            OpenApiParameter(
+                name="summary_max_chars",
+                type=OpenApiTypes.INT,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "Truncate each row's summary to the first N characters (a preview). Omit for the "
+                    f"full body, which runs up to {SIGNAL_REPORT_SUMMARY_MAX_LENGTH} characters per "
+                    "report. Ignored when compact=true."
+                ),
+            ),
         ],
     )
     @tracer.start_as_current_span("signals.reports.list")
@@ -2077,6 +2112,10 @@ class SignalReportViewSet(
         # so a slow load can be attributed to Postgres (queryset annotations), ClickHouse (source
         # products), the task facade (PR urls), or serialization, rather than one opaque request.
         count_only = self._count_only_requested()
+        # Parsed before the queryset runs, so an invalid value is a 400 rather than a 400 charged
+        # for a full inbox page.
+        compact = self._compact_requested()
+        summary_max_chars = self._summary_max_chars_requested()
         list_span = trace.get_current_span()
         list_span.set_attribute(
             "signals.reports.list.client", classify_report_list_client(request.headers.get("user-agent"))
@@ -2085,6 +2124,10 @@ class SignalReportViewSet(
 
         with tracer.start_as_current_span("signals.reports.list.queryset"):
             queryset = self.filter_queryset(self.get_queryset())
+            if compact:
+                # The serializer drops both fields, so deferring them keeps a megabyte of summary
+                # prose and metric snapshots out of the page rather than only out of the response.
+                queryset = queryset.defer("summary", "metrics")
             if count_only:
                 total_count = queryset.count()
             else:
@@ -2154,6 +2197,8 @@ class SignalReportViewSet(
             "implementation_pr_state_map": {rid: pr.state for rid, pr in implementation_pr_by_report.items()},
             "implementation_pr_merged_ids": {rid for rid, pr in implementation_pr_by_report.items() if pr.merged},
             "first_billable_pr_run_at_map": first_billable_pr_run_at_map,
+            "compact": compact,
+            "summary_max_chars": summary_max_chars,
         }
         serializer = self.get_serializer(reports, many=True, context=context)
 
