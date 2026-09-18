@@ -196,6 +196,7 @@ class FunnelEventQuery(DataWarehouseSchemaMixin):
         select: list[ast.Expr] = [
             ast.Alias(alias="timestamp", expr=ast.Field(chain=[self.EVENT_TABLE_ALIAS, "timestamp"])),
             ast.Alias(alias="aggregation_target", expr=self._aggregation_target_expr()),
+            *self._capture_order_cols(),
             *all_step_cols,
         ]
 
@@ -258,6 +259,7 @@ class FunnelEventQuery(DataWarehouseSchemaMixin):
                 expr=timestamp_expr,
             ),
             ast.Alias(alias="aggregation_target", expr=parse_expr(table_entity.aggregation_target_field)),
+            *self._capture_order_cols(is_warehouse=True),
             *all_step_cols,
         ]
 
@@ -585,6 +587,27 @@ class FunnelEventQuery(DataWarehouseSchemaMixin):
             return ast.Field(chain=[self.EVENT_TABLE_ALIAS, field])
 
         return [ast.Alias(alias=field, expr=_expr_for(field)) for field in self.extra_fields]
+
+    def _capture_order_cols(self, is_warehouse: bool = False) -> list[ast.Expr]:
+        """Columns the capture-order key needs, or nothing when the modifier is off.
+
+        Only a client-minted UUIDv7 carries the device's own capture instant. Capture mints its
+        own v7 when the SDK sends none, and the warehouse path synthesizes one by hashing an ID
+        column, so both must fall back rather than read a fabricated time out of the UUID.
+        """
+        if not self.context.modifiers.funnelUseClientCaptureOrder:
+            return []
+        if is_warehouse:
+            return [ast.Alias(alias="capture_device", expr=ast.Constant(value=""))]
+        return [
+            ast.Alias(
+                alias="capture_device",
+                expr=ast.Call(
+                    name="toString",
+                    args=[ast.Field(chain=[self.EVENT_TABLE_ALIAS, "properties", "$device_id"])],
+                ),
+            )
+        ]
 
     def _aggregation_target_expr(self) -> ast.Expr:
         query, funnelsFilter = self.context.query, self.context.funnelsFilter
