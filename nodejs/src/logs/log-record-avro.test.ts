@@ -13,9 +13,12 @@ import {
     extractJsonAttributesFromBody,
     flattenJson,
     logsJsonAttributeSniffCounter,
+    logsJsonEnrichmentSkippedCounter,
     processLogMessageBuffer,
     sniffJsonLogAttributes,
+    transformDecodedLogRecordsInPlace,
 } from './log-record-avro'
+import { MAX_LOG_RECORD_BYTES, logRecordSizeBytes } from './log-record-size'
 
 const LOG_RECORD_SCHEMA = avro.parse(`{
 "type": "record",
@@ -112,6 +115,25 @@ const LOG_RECORD_SCHEMA = avro.parse(`{
 ]
 }`)
 
+const createRecord = (overrides: Partial<LogRecord> = {}): LogRecord => ({
+    uuid: null,
+    trace_id: null,
+    span_id: null,
+    trace_flags: null,
+    timestamp: null,
+    observed_timestamp: null,
+    body: null,
+    severity_text: null,
+    severity_number: null,
+    service_name: null,
+    resource_attributes: null,
+    instrumentation_scope: null,
+    event_name: null,
+    attributes: null,
+    bytes_uncompressed: null,
+    ...overrides,
+})
+
 describe('log-record-avro', () => {
     describe('sniffJsonLogAttributes', () => {
         it.each([
@@ -163,8 +185,43 @@ describe('log-record-avro', () => {
             ],
             ['handles empty object', {}, {}],
             ['handles empty array', { items: [] }, {}],
+            ['preserves later dotted-key overwrites', { path: { value: 1 }, 'path.value': 2 }, { 'path.value': 2 }],
+            ['preserves later nested overwrites', { 'path.value': 1, path: { value: 2 } }, { 'path.value': 2 }],
+            ['preserves top-level array indexing', ['a', null, { b: true }], { '0': 'a', '1': 'null', '2.b': true }],
         ])('%s', (_, input, expected) => {
             expect(flattenJson(input)).toEqual(expected)
+        })
+
+        it.each([
+            [{ 'path.value': 1, filler: 2, path: { value: 3 } }, { 'path.value': 3 }],
+            [{ text: 1, '': { '2': 2 } }, { '2': 2 }],
+            [{ '-1': 1, '': { '0': 2 } }, { '0': 2 }],
+            [{ '2': 1, '': { '1': 2 } }, { '1': 2 }],
+            [{ '1': 1, '': { '2': 2 } }, { '1': 1 }],
+        ])('preserves ordering and collisions beyond the retained field limit for %j', (input, expected) => {
+            expect(flattenJson(input, '', 1)).toEqual(expected)
+        })
+
+        it.each([
+            ['unicode value at budget', { a: '😀' }, 7, { a: '😀' }],
+            ['unicode value over budget', { a: '😀' }, 6, null],
+            ['escaped value over budget', { a: '\n' }, 4, null],
+            ['cumulative paths over budget', { abc: { def: 1 } }, 9, null],
+            ['overwritten value releases budget', { 'a.b': 'long', a: { b: 1 } }, 20, { 'a.b': 1 }],
+        ] as const)('%s', (_name, input, maxBytes, expected) => {
+            expect(flattenJson(input, '', 50, maxBytes)).toEqual(expected)
+        })
+
+        it.each([128, 129, 10_000])('bounds deeply nested input at depth %i', (depth) => {
+            const input = parseJSON('{"nested":'.repeat(depth) + '1' + '}'.repeat(depth))
+            expect(flattenJson(input)).toEqual(depth <= 128 ? { [Array(depth).fill('nested').join('.')]: 1 } : null)
+        })
+
+        it.each([
+            Array.from({ length: 10_000 }, () => ({})),
+            Object.fromEntries(Array.from({ length: 10_000 }, (_, index) => [`key${index}`, {}])),
+        ])('bounds wide containers even when they contain no leaves', (input) => {
+            expect(flattenJson(input)).toBeNull()
         })
     })
 
@@ -203,7 +260,7 @@ describe('log-record-avro', () => {
             const body = JSON.stringify(largeObject)
             const result = extractJsonAttributesFromBody(body)
 
-            expect(Object.keys(result).length).toBe(50)
+            expect(Object.keys(result)).toEqual(Array.from({ length: 50 }, (_, index) => `key${index}`))
         })
 
         it('flattens nested JSON', () => {
@@ -335,6 +392,77 @@ describe('log-record-avro', () => {
     })
 
     describe('enrichLogRecordWithJsonAttributes', () => {
+        beforeEach(() => {
+            logsJsonEnrichmentSkippedCounter.reset()
+        })
+
+        it.each([-1, 0, 1])('checks merged UTF-8 content at the size boundary (%i bytes)', async (offset) => {
+            const record = createRecord({
+                body: '{"a":"é"}',
+                severity_text: 'info',
+                attributes: { existing: 'true' },
+                resource_attributes: { padding: '' },
+            })
+            const extractedBytes = 5
+            record.resource_attributes!.padding = 'x'.repeat(
+                MAX_LOG_RECORD_BYTES - logRecordSizeBytes(record) - extractedBytes + offset
+            )
+            const original = structuredClone(record)
+            const attributes = record.attributes
+
+            expect(enrichLogRecordWithJsonAttributes(record)).toBe(record)
+
+            if (offset > 0) {
+                expect(record).toEqual(original)
+                expect(record.attributes).toBe(attributes)
+                expect((await logsJsonEnrichmentSkippedCounter.get()).values).toEqual([
+                    expect.objectContaining({ labels: { reason: 'output_size' }, value: 1 }),
+                ])
+            } else {
+                expect(record).toEqual({ ...original, attributes: { existing: 'true', a: '"é"' } })
+                expect(logRecordSizeBytes(record)).toBe(MAX_LOG_RECORD_BYTES + offset)
+                expect((await logsJsonEnrichmentSkippedCounter.get()).values).toEqual([])
+            }
+        })
+
+        it('counts only the winning sender value toward the merged budget', () => {
+            const record = createRecord({
+                body: JSON.stringify({ payload: 'x'.repeat(600 * 1024), added: true }),
+                attributes: { payload: '"sender"' },
+            })
+            enrichLogRecordWithJsonAttributes(record)
+            expect(record.attributes).toEqual({ payload: '"sender"', added: 'true' })
+        })
+
+        it.each([
+            ['input_size', JSON.stringify({ value: '😀'.repeat(MAX_LOG_RECORD_BYTES / 4) })],
+            ['output_size', JSON.stringify({ value: 'x'.repeat(600 * 1024), other: true })],
+            ['flatten_budget', '{"nested":'.repeat(129) + '1' + '}'.repeat(129)],
+        ])('preserves records and counts %s skips through the buffer processor', async (reason, body) => {
+            const record = createRecord({ body, attributes: { original: 'true' } })
+            const encoded = await encodeLogRecords(LOG_RECORD_SCHEMA, 'zstandard', [record])
+            const result = await processLogMessageBuffer(encoded, { json_parse_logs: true })
+            const [, , decoded] = await decodeLogRecords(result.value!)
+
+            expect(decoded).toEqual([{ ...record, bytes_uncompressed: null }])
+            expect((await logsJsonEnrichmentSkippedCounter.get()).values).toEqual([
+                expect.objectContaining({ labels: { reason }, value: 1 }),
+            ])
+        })
+
+        it('does not parse oversized bodies on direct or batch enrichment paths', async () => {
+            const body = JSON.stringify({ value: '😀'.repeat(MAX_LOG_RECORD_BYTES / 4) })
+            const parse = jest.spyOn(logBodyParse, 'parseLogBodyForIngestion')
+            try {
+                expect(extractJsonAttributesFromBody(body)).toEqual({})
+                enrichLogRecordWithJsonAttributes(createRecord({ body }))
+                await transformDecodedLogRecordsInPlace([createRecord({ body })], { json_parse_logs: true })
+                expect(parse.mock.calls.every(([input]) => input === null)).toBe(true)
+            } finally {
+                parse.mockRestore()
+            }
+        })
+
         it('adds JSON attributes from body', () => {
             const record: LogRecord = {
                 uuid: 'test-uuid',
