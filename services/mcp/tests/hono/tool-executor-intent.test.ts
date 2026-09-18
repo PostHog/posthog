@@ -146,7 +146,7 @@ describe('ToolExecutor analytics capture', () => {
             // context (when present) must not break exec validation — proves it was stripped.
             expect(result.isError).toBeFalsy()
 
-            expect(captureSpy).toHaveBeenCalledTimes(1)
+            await vi.waitFor(() => expect(captureSpy).toHaveBeenCalledTimes(1))
             const arg = captureSpy.mock.calls[0]![0]
             expect(arg.toolName).toBe('exec')
             expect(arg.intent).toBe(expectedIntent)
@@ -209,7 +209,7 @@ describe('ToolExecutor analytics capture', () => {
             )) as { isError?: boolean }
 
             expect(result.isError).toBeFalsy()
-            expect(captureSpy).toHaveBeenCalledTimes(1)
+            await vi.waitFor(() => expect(captureSpy).toHaveBeenCalledTimes(1))
             expect(captureSpy.mock.calls[0]![0].properties?.$mcp_llm_model_missing_reason).toBe(reason)
             expect(captureSpy.mock.calls[0]![0].llmModel).toBeUndefined()
         }

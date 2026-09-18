@@ -660,6 +660,7 @@ export function makeToolExecutorState(
     return {
         reqCtx: {
             cache: { get: vi.fn(), set: vi.fn() },
+            isImpersonated: vi.fn().mockResolvedValue(false),
             safelyGetAnalyticsContext: vi.fn().mockResolvedValue(undefined),
             trackEvent: vi.fn(),
             trackContextSwitchEvent: vi.fn(),

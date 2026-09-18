@@ -3,8 +3,7 @@ import { createHash, randomUUID } from 'node:crypto'
 import { ApiClient } from '@/api/client'
 import { MemoryCache } from '@/lib/cache/MemoryCache'
 import { getPostHogClient } from '@/lib/posthog'
-import { buildMCPAnalyticsGroups, buildMCPContextProperties } from '@/lib/posthog/analytics'
-import type { AnalyticsEvent } from '@/lib/posthog/analytics'
+import { AnalyticsEvent, buildMCPAnalyticsGroups, buildMCPContextProperties } from '@/lib/posthog/analytics'
 import { resolveScopePreset } from '@/lib/scope-preset'
 import { SessionManager } from '@/lib/SessionManager'
 import { StateManager } from '@/lib/StateManager'
@@ -77,7 +76,7 @@ export async function buildCliContext(config: CliConfig): Promise<Context> {
                         stateManager.getAnalyticsContext().catch(() => undefined),
                         stateManager.getApiKey().catch(() => undefined),
                     ])
-                    if (user?.is_impersonated) {
+                    if (event === AnalyticsEvent.MCP_TOOL_CALL && (!user || user.is_impersonated)) {
                         return
                     }
                     const groups = analyticsContext ? buildMCPAnalyticsGroups(analyticsContext) : {}
