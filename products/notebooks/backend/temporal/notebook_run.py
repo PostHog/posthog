@@ -174,8 +174,7 @@ def stop_notebook_cell_activity(input: NotebookRunInput) -> None:
     """Stop whatever cell the run left in flight once the run itself is terminal."""
     notebook_run = _load_run(input.team_id, input.notebook_run_id)
     if notebook_run is not None:
-        user = notebook_run.user if isinstance(notebook_run.user, User) else None
-        stop_current_cell(notebook_run.notebook, user, notebook_run)
+        stop_current_cell(notebook_run.notebook, notebook_run)
 
 
 @workflow.defn(name="notebook-run")
