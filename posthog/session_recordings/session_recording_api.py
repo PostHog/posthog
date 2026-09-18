@@ -124,6 +124,8 @@ MAX_RECORDINGS_PER_BULK_ACTION = 20
 # Matches recording-api's MAX_DELETE_SESSION_IDS — one downstream call per delete batch.
 MAX_RECORDINGS_PER_BULK_DELETE = 100
 
+CLICKHOUSE_AT_CAPACITY_RETRY_AFTER_SECONDS = 5
+
 SNAPSHOTS_BY_PERSONAL_API_KEY_COUNTER = Counter(
     "snapshots_personal_api_key_counter",
     "Requests for recording snapshots per personal api key",
@@ -1440,7 +1442,12 @@ class SessionRecordingViewSet(
                 status.HTTP_503_SERVICE_UNAVAILABLE if is_ch_error else status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 
-            return Response({"error": message}, status=response_status)
+            response = Response({"error": message}, status=response_status)
+            if is_ch_error:
+                # The player retries this fetch, so tell it how long to wait. Capacity usually frees
+                # up in seconds, and a client that guesses either hammers us or makes the person wait.
+                response.headers["Retry-After"] = str(CLICKHOUSE_AT_CAPACITY_RETRY_AFTER_SECONDS)
+            return response
 
     def _maybe_report_recording_list_filters_changed(self, request: request.Request, team: Team):
         """
