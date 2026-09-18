@@ -47928,6 +47928,8 @@ export namespace Schemas {
       interval?: string | null;
       kind?: 'MetricsHistogramQuery';
       metricName: string;
+      /** Pins the OTel type, as on a MetricsQuery clause: one name can exist as more than one type, and the heatmap must grid only the distribution series. */
+      metricType?: MetricsOtelType | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
       response?: MetricsHistogramQueryResponse | null;
