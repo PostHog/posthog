@@ -214,11 +214,13 @@ export const apiSurveyLogic: LogicWrapper<apiSurveyLogicType> = kea<apiSurveyLog
             }
             try {
                 const responses = Object.fromEntries(
-                    values.survey.questions.flatMap(({ id }) => {
-                        const answer = values.answers[id!]
-                        const value = typeof answer === 'string' ? answer.trim() : answer
-                        return value?.length ? [[`$survey_response_${id}`, value]] : []
-                    })
+                    values.survey.questions
+                        .filter(({ id }) => !partial || id === firstQuestion?.id)
+                        .flatMap(({ id }) => {
+                            const answer = values.answers[id!]
+                            const value = typeof answer === 'string' ? answer.trim() : answer
+                            return value?.length ? [[`$survey_response_${id}`, value]] : []
+                        })
                 )
                 const queued = (props.client ?? posthog).capture('survey sent', {
                     ...values.eventProperties,

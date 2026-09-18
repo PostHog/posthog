@@ -185,6 +185,7 @@ describe('apiSurveyLogic', () => {
         logic.actions.submitRating('2')
         expect(logic.values.ratingAccepted).toBe(true)
         expect(logic.values.answers.goal).toBe('Keep this draft')
+        expect(capture.mock.calls.at(-1)?.[1]).not.toHaveProperty('$survey_response_goal')
         expect(new Set(capture.mock.calls.map(([, properties]) => properties?.$survey_submission_id)).size).toBe(1)
         unmount()
     })

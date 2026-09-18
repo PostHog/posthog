@@ -48,6 +48,7 @@ Two-point emoji ratings use thumbs; numeric ratings use equal-width, flat button
 It calls `onChange(rating, submissionId)` immediately with the selected value (`1` for thumbs up or `2` for thumbs down).
 After the caller accepts a rating, the controls show the selected answer, a Change action, and Share more feedback.
 Change returns focus to the selected rating and keeps the same submission ID and detail draft.
+A rating edit sends only the rating when partial responses are enabled; unfinished detail answers wait for Send feedback.
 Share more feedback calls `onMoreFeedback(submissionId)`.
 When partial responses are disabled, the summary explains that the rating is sent when the survey is completed.
 After final submission and closing the dialog, only the thank-you message remains and receives focus.
