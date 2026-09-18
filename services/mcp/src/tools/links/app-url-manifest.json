@@ -1729,6 +1729,11 @@
         "params": ["repoId"],
         "scope": "project"
     },
+    "warehouseDestinations": {
+        "template": "/data-management/warehouse-destinations",
+        "params": [],
+        "scope": "project"
+    },
     "warehouseProperties": {
         "template": "/data-management/warehouse-properties",
         "params": [],

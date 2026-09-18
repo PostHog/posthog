@@ -1559,3 +1559,44 @@ class TestNoProjectAccessCard:
 
     def test_normal_tab_is_untouched_when_a_project_is_reachable(self):
         assert "No project to show yet" not in _all_text(self._view(has_project_access=True))
+
+
+class TestUnidentifiedViewerProjectList:
+    """What the tab lists for a Slack user it cannot map to a PostHog account.
+
+    The regression to catch is the list widening again. A Slack workspace can connect
+    several organizations, so returning every candidate publishes the project and
+    organization names of orgs the viewer is not a member of to anyone in the workspace.
+    """
+
+    @pytest.fixture(autouse=True)
+    def setup(self, db):
+        from posthog.models.integration import Integration
+        from posthog.models.organization import Organization
+        from posthog.models.team.team import Team
+
+        self.own_org = Organization.objects.create(name="Acme")
+        self.other_org = Organization.objects.create(name="Umbrella")
+        self.rendered_for = Integration.objects.create(
+            team=Team.objects.create(organization=self.own_org, name="Acme prod"),
+            kind="slack",
+            integration_id="T_WS",
+            sensitive_config={"access_token": "xoxb"},
+        )
+        self.other_org_install = Integration.objects.create(
+            team=Team.objects.create(organization=self.other_org, name="Umbrella prod"),
+            kind="slack",
+            integration_id="T_WS",
+            sensitive_config={"access_token": "xoxb"},
+        )
+
+    def test_shows_only_the_project_the_tab_renders_for(self):
+        from products.slack_app.backend.services.slack_app_home import _filter_accessible_integrations
+
+        # No SlackUserProfileCache row and no OAuth link, so the viewer is unidentifiable.
+        accessible = _filter_accessible_integrations(
+            self.rendered_for, "U_STRANGER", [self.rendered_for, self.other_org_install]
+        )
+
+        assert [i.id for i in accessible] == [self.rendered_for.id]
+        assert self.other_org_install.id not in {i.id for i in accessible}
