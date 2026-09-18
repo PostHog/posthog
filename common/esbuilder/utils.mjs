@@ -255,6 +255,7 @@ export const commonConfig = {
     alias: {
         buffer: 'buffer',
         crypto: 'crypto-browserify',
+        'node:crypto': 'crypto-browserify',
         stream: 'stream-browserify',
     },
     tsconfig: tsconfigPath,
@@ -263,6 +264,8 @@ export const commonConfig = {
         'process.env.NODE_ENV': isDev ? '"development"' : '"production"',
     },
     loader: {
+        '.bin': 'file',
+        '.wasm': 'file',
         '.ttf': 'file',
         '.png': 'file',
         '.gif': 'file',

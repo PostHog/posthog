@@ -7,6 +7,125 @@ showTitle: true
 > ❗️ This guide is intended only for development of PostHog itself. If you're looking to deploy PostHog
 > for your product analytics needs, go to [Self-host PostHog](https://posthog.com/docs/self-host).
 
+## Browser terminal experiment
+
+Open `/project/<project-id>/terminal` and select **Start Linux** to boot a Linux VM in your browser.
+The terminal uses xterm.js and v86, with a 9P filesystem that connects Linux file operations to the existing authenticated PostHog APIs.
+The first start downloads a checksum-verified Linux image from `i.copy.sh` and pinned firmware from the v86 GitHub repository.
+The image uses Linux 5.6.15, whose uncached 9P driver can read API files before their sizes are known.
+PostHog serves the bundled jq 1.8.2 Linux i386 binary itself because GitHub release downloads do not support browser CORS.
+The binary in `frontend/public/terminal/` comes from [the official release](https://github.com/jqlang/jq/releases/download/jq-1.8.2/jq-linux-i386), with SHA-256 `ba996e8ce436973e2f39e2639405a37e8c81ba8c722b71c83996278ad0af16dd` and upstream license notices alongside it.
+The bundled tools archive adds nano 8.4, tree 2.2.1, ncdu 1.22, and Midnight Commander 4.8.33 from Alpine Linux's x86 packages, with isolated libraries.
+`frontend/public/terminal/tools-manifest.json` pins package checksums and links to the corresponding sources and build recipes.
+Run `.codex/with-flox python frontend/bin/build-terminal-tools.py` to rebuild the archive, then update its checksum in `terminalRuntime.ts`.
+The archive includes upstream licenses and the source manifest under `/opt/posthog-tools/licenses`.
+The VM receives no session cookies or API keys and has no network connection.
+
+Your project tree appears under `/posthog/files`.
+Markdown notebooks have a `.md` extension, and saving an existing markdown file updates the notebook with optimistic version checks.
+Notebooks, insights, dashboards, feature flags, cohorts, actions, surveys, and experiments expose editable `.json` API representations when you have edit access.
+Other types expose read-only filesystem records.
+`/posthog/api` provides the same JSON representations grouped by type and ID.
+Saving JSON in either mount sends the parsed object to its existing update endpoint with PATCH, using the mounted object's ID and your current project.
+The API validates writable fields and ignores its read-only fields. Editing an ID inside the JSON does not change the target endpoint.
+Malformed JSON, non-object JSON, and API errors fail the save and preserve the edited bytes under `/posthog/recovery`; the error banner includes the API's reason when available.
+Notebook JSON saves retain version checks. Other objects use the concurrency behavior of their update endpoint.
+Extensions only affect this filesystem view, not names stored in PostHog.
+
+```sh
+cd /posthog/files
+ls --color=auto
+find . -name '*.md'
+grep -r 'revenue' .
+cat '/posthog/files/Research/Notes.md'
+vi '/posthog/files/Research/Notes.md'
+jq '.title' /posthog/api/notebook/<short-id>.json
+```
+
+The guest includes BusyBox tools, `jq`, `nano`, `tree`, `ncdu`, `mc`, `vi`, `joe`, `less`, and Lua.
+Run `mc` for Midnight Commander's two-panel file browser. Tab switches panels, F3 views a file, F4 edits it, and F10 quits.
+Escape followed by a digit works when your browser or keyboard captures function keys; Escape then 0 quits.
+`mcview`, `mcedit`, and `mcdiff` also run directly from the shell. Their wrappers disable the background subshell for compatibility with the guest shell.
+Use `nano '/posthog/files/Research/Notes.md'` to edit an existing notebook with syntax highlighting; Ctrl+S saves and Ctrl+X exits.
+`tree -C -L 3 /posthog/files` shows a colored folder tree, and `ncdu -r /posthog/files` opens a read-only disk usage browser.
+Both use directory metadata without downloading file contents; `ncdu` reports zero bytes for project files that have not been opened.
+Pipes, redirection, completion, terminal colors, Ctrl+C, and scrollback use the real shell and terminal.
+The terminal uses a black background in both app themes and fills the available page height.
+Scrolling to the bottom returns to the current prompt without typing.
+The guest clock and local timezone offset follow your browser, with synchronization every 30 seconds and when you return to the tab.
+Selecting text copies it automatically. **Copy selection** also copies selected text, and **Paste** inserts clipboard text into the terminal.
+Keyboard shortcuts are ⌘C/⌘V on macOS and Ctrl+Shift+C/V on Linux and Windows; Ctrl+C still interrupts the running command.
+If the browser denies clipboard access, focus the terminal and use its native paste shortcut or context menu.
+The toolbar's **Examples** menu contains commands for files, PostHog tools, and JSON filtering.
+Choose a command to insert it without running it; press Enter to run.
+The information button in the toolbar contains help, keyboard shortcuts, and details about saving changes.
+Directories are a snapshot; run `ph refresh` to discover newly created, renamed, or deleted objects.
+Startup uses the filesystem index and the filtered notebook index without downloading notebook bodies.
+Directory listings, including `ls -l` and `find`, use local metadata without fetching object contents.
+Unopened files show a size of zero; after opening a file, listings show its last known byte size.
+Contents are fetched when a file opens, with a 4 MiB limit per file.
+
+`ph` runs built-in project commands and tools from connected MCP servers using your current browser session.
+The built-in commands cover notebook creation, reading, updates, and deletion, plus reading insights, dashboards, and feature flags.
+They use MCP command names and the existing generated API clients; they do not embed the full PostHog MCP server.
+Connected servers expose their available tools as `server/tool` commands through the existing MCP gateway, including its approval checks.
+The VM receives no credentials, and the bridge does not provide arbitrary HTTP access.
+
+```sh
+ph help
+ph tools notebook
+ph help notebooks-destroy
+ph notebooks-list --limit 10 | jq '.results[].title'
+ph notebook-get '/posthog/files/Research/Notes.md'
+ph notebook-create --title 'Notes' --markdown @/tmp/notes.md
+ph notebook-delete <short-id>
+ph refresh
+cat /posthog/tools/notebooks-destroy.json
+```
+
+`notebook-list`, `notebook-get`, `notebook-create`, `notebook-update`, and `notebook-delete` are aliases for the corresponding notebook commands.
+Built-in ID arguments accept a file path under `/posthog/files` or `/posthog/api`, including paths relative to the current directory.
+Use named flags such as `--short-id abc`, or pass an arguments object with `--json '{"short_id":"abc"}'`.
+An `@file` argument reads a Linux file's contents; `--json -` reads JSON from stdin.
+Results go to stdout and can be piped to `jq` or redirected to a local file.
+Failures go to stderr and return a nonzero exit code.
+Calls serialize through a guest file lock, so pipelines and background commands cannot consume each other's responses.
+Tool descriptions and argument schemas appear as JSON files under `/posthog/tools`; `ph tools` loads connected tool schemas there too.
+Run `ph refresh` after mutations to update the tree and tool catalog.
+
+File writes commit on `fsync` or close.
+A rejected save returns an I/O error, shows a browser error banner, and preserves the edit under `/posthog/recovery`.
+Check that banner after saving: some programs do not check errors returned from `close`.
+Use `mkdir` and `mv` inside `/posthog/files` to create folders and move or rename project files and folders.
+These commands update the real project tree, preserve object IDs, and work without fetching object contents.
+Keep the `.md` or `.json` extension when renaming files. Folder moves include their contents.
+Moves to an existing destination are rejected rather than replacing another object.
+Use `rm` for files, `rmdir` for empty folders, and `rm -r` for folder trees under `/posthog/files`.
+Removing the last file reference deletes its PostHog object through the same permission checks as the project tree.
+Folder removal checks for remaining contents on the server, including contents absent from the terminal's snapshot.
+Files open for writing must be closed before removal. Remove or move objects through `/posthog/files`.
+Use `ph notebook-create` to create notebooks; creating ordinary files through the mount is unsupported.
+
+```sh
+mkdir -p /posthog/files/Research/Archive
+mv /posthog/files/Unfiled/Notebooks/Foobar.md /posthog/files/Research/Archive/
+mv /posthog/files/Research/Archive /posthog/files/Research/Reviewed
+```
+
+For editors that save by renaming temporary files, edit a copy in `/tmp`, then use `cat /tmp/edited.md > '/posthog/files/Research/Notes.md'`.
+Local Linux files and recovery copies disappear when you stop the VM or leave the page.
+
+Browser agents can send input to the same terminal and read its recent output:
+
+```js
+window.posthogTerminal.write('find /posthog/files -name "*.md"\n')
+window.posthogTerminal.read()
+```
+
+This interface exists while the terminal is ready and is removed when it stops.
+`read()` returns the latest one million characters, including ANSI escape sequences.
+Commands run asynchronously; poll for the shell prompt or a marker printed by your command.
+
 ## What does PostHog look like on the inside?
 
 Before jumping into setup, let's dissect a PostHog.

@@ -1491,7 +1491,8 @@ class CSPMiddleware:
                 # SQL editor all render blob URLs, so they lose their images without it.
                 f"img-src 'self' data: blob: https: {resource_url} https://posthog.com https://www.gravatar.com https://res.cloudinary.com https://platform.slack-edge.com https://raw.githubusercontent.com",
                 frame_ancestors,
-                f"connect-src 'self' https://www.posthogstatus.com {resource_url} {connect_debug_url} https://raw.githubusercontent.com https://api.github.com",
+                # The terminal verifies the v86 Linux image before booting it in WebAssembly.
+                f"connect-src 'self' https://www.posthogstatus.com {resource_url} {connect_debug_url} https://raw.githubusercontent.com https://api.github.com https://i.copy.sh",
                 # https: lets heatmaps frame a customer's site. 'self' is for the replay player
                 # frame, whose document is same-origin: an http origin does not match https:.
                 "frame-src 'self' https:",

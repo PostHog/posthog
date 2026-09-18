@@ -186,12 +186,26 @@ class TestFileSystemAPI(APIBaseTest):
             created_by=self.user,
         )
 
+        refused = self.client.delete(f"/api/projects/{self.team.id}/file_system/{folder_obj.pk}/?recursive=false")
+        self.assertEqual(refused.status_code, status.HTTP_409_CONFLICT)
+        self.assertTrue(FileSystem.objects.filter(pk=file1_obj.pk).exists())
+        self.assertTrue(FileSystem.objects.filter(pk=file2_obj.pk).exists())
+
         delete_response = self.client.delete(f"/api/projects/{self.team.id}/file_system/{folder_obj.pk}/")
 
         self.assertEqual(delete_response.status_code, status.HTTP_204_NO_CONTENT)
         self.assertFalse(FileSystem.objects.filter(pk=folder_obj.pk).exists())
         self.assertFalse(FileSystem.objects.filter(pk=file1_obj.pk).exists())
         self.assertFalse(FileSystem.objects.filter(pk=file2_obj.pk).exists())
+
+    def test_delete_empty_folder_without_cascading(self) -> None:
+        folder = FileSystem.objects.create(team=self.team, path="Empty", type="folder", created_by=self.user)
+        other_team = Team.objects.create(organization=self.organization)
+        unrelated = FileSystem.objects.create(team=other_team, path="Empty/Child", type="folder")
+        response = self.client.delete(f"/api/projects/{self.team.id}/file_system/{folder.pk}/?recursive=false")
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertFalse(FileSystem.objects.filter(pk=folder.pk).exists())
+        self.assertTrue(FileSystem.objects.filter(pk=unrelated.pk).exists())
 
     def test_delete_ref_less_registered_row_refused_on_web_surface(self):
         """
@@ -1215,6 +1229,12 @@ class TestFileSystemAPIAdvancedPermissions(APIBaseTest):
         resp_a = self.client.delete(url_a)
         self.assertEqual(resp_a.status_code, status.HTTP_204_NO_CONTENT)
         self.assertFalse(FileSystem.objects.filter(pk=self.file_a.pk).exists())
+
+        folder_response = self.client.delete(
+            f"/api/projects/{self.team.id}/file_system/{self.folder.pk}/?recursive=false"
+        )
+        self.assertEqual(folder_response.status_code, status.HTTP_409_CONFLICT)
+        self.assertTrue(FileSystem.objects.filter(pk=self.file_b.pk).exists())
 
     @patch("posthoganalytics.feature_enabled", return_value=True)
     def test_move_excludes_none_access_objects(self, mock_flag):
