@@ -3,8 +3,11 @@ import { useActions } from 'kea'
 import { IconBolt } from '@posthog/icons'
 import { LemonSelect } from '@posthog/lemon-ui'
 
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+
+import { PropertyDefinition, PropertyDefinitionType, PropertyType } from '~/types'
 
 import { HogFlowPropertyFilters } from 'products/workflows/frontend/Workflows/hogflows/filters/HogFlowFilters'
 import {
@@ -77,27 +80,68 @@ function StepTriggerConfigurationSupportStatusChanged({ node }: { node: any }): 
     )
 }
 
-const SUPPORT_TRIGGER_META: Record<string, { name: string; description: string }> = {
+const TICKET_FILTERS_INFO =
+    'Only run when the ticket matches these properties. Filter on assignee_role_name to target a single team, or on priority, status, or channel_source.'
+
+// A spike is reported for the project rather than for a person, and the event carries only these
+// properties. Without this list the picker offers the whole taxonomy, including person and group
+// properties, and a filter on anything a spike does not carry stops the trigger firing at all.
+const SPIKE_PROPERTIES: { key: string; type: PropertyType }[] = [
+    { key: 'topic', type: PropertyType.String },
+    { key: 'summary', type: PropertyType.String },
+    { key: 'ticket_count', type: PropertyType.Numeric },
+    { key: 'requester_count', type: PropertyType.Numeric },
+    { key: 'window_minutes', type: PropertyType.Numeric },
+]
+
+type SupportTriggerMeta = {
+    name: string
+    description: string
+    filtersInfo: string
+    // Set only where the event's properties are a known, fixed set, which scopes the picker to them.
+    properties?: { key: string; type: PropertyType }[]
+}
+
+const SUPPORT_TRIGGER_META: Record<string, SupportTriggerMeta> = {
     $conversation_message_received: {
         name: 'Ticket message received',
         description: 'This trigger runs when a customer sends a message on a ticket.',
+        filtersInfo: TICKET_FILTERS_INFO,
     },
     $conversation_message_sent: {
         name: 'Ticket message sent',
         description: 'This trigger runs when a teammate sends a reply on a ticket.',
+        filtersInfo: TICKET_FILTERS_INFO,
     },
     $conversation_private_message_sent: {
         name: 'Ticket private note sent',
         description: 'This trigger runs when a teammate sends a private note on a ticket.',
+        filtersInfo: TICKET_FILTERS_INFO,
     },
     $conversation_ticket_assigned: {
         name: 'Ticket assigned',
         description: 'This trigger runs when a ticket is assigned to a teammate or team.',
+        filtersInfo: TICKET_FILTERS_INFO,
     },
     $conversation_ticket_pattern_detected: {
         name: 'Ticket spike detected',
         description: 'This trigger runs when several customers report the same problem within a short window.',
+        filtersInfo:
+            'Only run when the spike matches these properties. Filter on requester_count or ticket_count to alert on bigger spikes only.',
+        properties: SPIKE_PROPERTIES,
     },
+}
+
+function toPropertyDefinitions(
+    eventId: string,
+    properties: { key: string; type: PropertyType }[]
+): PropertyDefinition[] {
+    return properties.map(({ key, type }) => ({
+        id: `${eventId}-${key}`,
+        name: key,
+        type: PropertyDefinitionType.Event,
+        property_type: type,
+    }))
 }
 
 // A support trigger is fundamentally an event subscription; these extra property filters narrow it,
@@ -108,13 +152,12 @@ function StepTriggerConfigurationSupportFilters({ node }: { node: any }): JSX.El
     const eventId = getEventId(config) ?? '$conversation_message_received'
     const meta = SUPPORT_TRIGGER_META[eventId] ?? SUPPORT_TRIGGER_META['$conversation_message_received']
 
+    const scoped = meta.properties
+
     return (
         <div className="flex flex-col gap-2 w-full">
             <p className="mb-0 text-sm text-muted-alt">{meta.description}</p>
-            <LemonField.Pure
-                label="Filters"
-                info="Only run when the ticket matches these properties. Filter on assignee_role_name to target a single team, or on priority, status, or channel_source."
-            >
+            <LemonField.Pure label="Filters" info={meta.filtersInfo}>
                 <HogFlowPropertyFilters
                     filtersKey={`support-trigger-${node.data.id}`}
                     filters={config.filters ?? {}}
@@ -128,6 +171,20 @@ function StepTriggerConfigurationSupportFilters({ node }: { node: any }): JSX.El
                         })
                     }
                     typeKey={`support-trigger-${node.data.id}`}
+                    taxonomicGroupTypes={scoped ? [TaxonomicFilterGroupType.EventProperties] : undefined}
+                    propertyAllowList={
+                        scoped ? { [TaxonomicFilterGroupType.EventProperties]: scoped.map((p) => p.key) } : undefined
+                    }
+                    propertyDefinitionsOverride={scoped ? toPropertyDefinitions(eventId, scoped) : undefined}
+                    // The picker reads the team's stored taxonomy, so these keys would be missing
+                    // until the first spike is captured.
+                    taxonomicFilterOptionsFromProp={
+                        scoped
+                            ? {
+                                  [TaxonomicFilterGroupType.EventProperties]: scoped.map((p) => ({ name: p.key })),
+                              }
+                            : undefined
+                    }
                 />
             </LemonField.Pure>
         </div>
