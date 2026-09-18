@@ -22,7 +22,7 @@ permissions:
 jobs:
     trigger_audit:
         name: Trigger Playwright run with retries=0
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         timeout-minutes: 5
         steps:
             - name: Dispatch main E2E workflow with PLAYWRIGHT_RETRIES=0
