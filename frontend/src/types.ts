@@ -805,6 +805,8 @@ export interface ConversationsSettings {
     ai_diagnostics_enabled?: boolean
     ai_resolution_channels?: string[] | null
     ai_reply_modes?: Record<string, Record<string, 'private_note' | 'bot_reply'>> | null
+    ai_reply_custom_instructions?: string | null
+    docs_source?: 'posthog' | null
 }
 
 export interface LogsSettings {
@@ -6356,6 +6358,8 @@ export interface DataWarehouseSavedQuery {
     user_access_level?: AccessControlLevel
     incremental?: DataWarehouseSavedQueryIncremental | null
     incremental_state?: DataWarehouseSavedQueryIncrementalState | null
+    /** Whether incremental settings participated in any materialization run. */
+    has_incremental_history?: boolean
 }
 
 export interface DataWarehouseSavedQueryIncremental {
