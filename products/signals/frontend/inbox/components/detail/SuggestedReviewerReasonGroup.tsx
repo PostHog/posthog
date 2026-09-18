@@ -70,9 +70,8 @@ export function SuggestedReviewerReasonGroup({
                     )
                 })}
             </div>
-            <div className="flex min-w-0 items-start justify-between gap-2 border-t px-2.5 py-2">
-                <span className="min-w-0 text-xs leading-snug text-tertiary [overflow-wrap:anywhere]">{reason}</span>
-                <span className="flex min-w-0 flex-wrap justify-end gap-1">
+            <div className="flow-root min-w-0 border-t px-2.5 py-2">
+                <span className="float-right ml-2 flex min-w-0 flex-wrap justify-end gap-1">
                     {scoutNames.size > 0 && (
                         <Tooltip
                             title={
@@ -94,6 +93,7 @@ export function SuggestedReviewerReasonGroup({
                         </LemonTag>
                     ))}
                 </span>
+                <span className="min-w-0 text-xs leading-snug text-tertiary [overflow-wrap:anywhere]">{reason}</span>
             </div>
         </div>
     )
