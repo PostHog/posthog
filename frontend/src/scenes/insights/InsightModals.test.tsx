@@ -53,9 +53,6 @@ describe('InsightModals sidebar data loading', () => {
 
     it.each(['inline', 'actions'] as const)('loads catalogs only when the %s sidebar opens', async (panel) => {
         render(<InsightModals insightLogicProps={insightLogicProps} />)
-        await act(async () => {
-            await new Promise((resolve) => setTimeout(resolve, 0))
-        })
         expect(metricsApi.dataCatalogMetricsList).not.toHaveBeenCalled()
         expect(api.endpoint.list).not.toHaveBeenCalled()
 
