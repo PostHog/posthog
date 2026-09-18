@@ -178,15 +178,15 @@ def notebook_run_status(notebook_run: NotebookRun) -> dict[str, Any]:
 
     cells = []
     for cell in plan:
-        node_run = latest_by_node.get(cell["node_id"])
+        latest = latest_by_node.get(cell["node_id"])
         cells.append(
             {
                 "node_id": cell["node_id"],
                 "cell_type": cell["cell_type"],
                 "dataframe_name": cell["dataframe_name"],
-                "run_id": str(node_run.id) if node_run else None,
-                "status": node_run.status if node_run else None,
-                "error": (node_run.error or None) if node_run else None,
+                "run_id": str(latest.id) if latest else None,
+                "status": latest.status if latest else None,
+                "error": (latest.error or None) if latest else None,
             }
         )
     current = plan[notebook_run.current_index] if notebook_run.current_index < len(plan) else None
