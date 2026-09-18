@@ -197,6 +197,8 @@
         "@tiptap/suggestion": "3.20.6",
         "@vapi-ai/web": "2.5.2",
         "@vitejs/plugin-react": "catalog:",
+        "@xterm/addon-fit": "0.10.0",
+        "@xterm/xterm": "5.5.0",
         "@xyflow/react": "^12.6.0",
         "bloommx": "^1.0.3",
         "buffer": "^6.0.3",
@@ -289,6 +291,7 @@
         "ts-pattern": "catalog:",
         "use-debounce": "catalog:",
         "use-resize-observer": "^8.0.0",
+        "v86": "0.5.458",
         "zod": "^4.3.6",
         "zxcvbn": "^4.4.2"
     },

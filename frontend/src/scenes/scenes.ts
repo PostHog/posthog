@@ -151,6 +151,7 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     },
     [Scene.DebugHog]: { projectBased: true, name: 'Hog Repl' },
     [Scene.DebugQuery]: { projectBased: true },
+    [Scene.Terminal]: { projectBased: true, name: 'Terminal' },
 
     [Scene.Error404]: { name: 'Not found', projectBased: true },
     [Scene.ErrorAccessDenied]: { name: 'Access denied' },
@@ -883,6 +884,7 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.stripeConfirmInstall()]: [Scene.StripeConfirmInstall, 'stripeConfirmInstall'],
     [urls.debugQuery()]: [Scene.DebugQuery, 'debugQuery'],
     [urls.debugHog()]: [Scene.DebugHog, 'debugHog'],
+    [urls.terminal()]: [Scene.Terminal, 'terminal'],
 
     [urls.notebook(':shortId')]: [Scene.Notebook, 'notebook'],
     [urls.notebooks()]: [Scene.Notebooks, 'notebooks'],
