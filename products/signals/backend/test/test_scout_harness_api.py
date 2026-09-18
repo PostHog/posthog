@@ -38,6 +38,8 @@ from products.signals.backend.daily_limit import DailyReportLimitGate
 from products.signals.backend.models import (
     SignalProjectProfile,
     SignalReport,
+    SignalReportArtefact,
+    SignalReportCheck,
     SignalScoutConfig,
     SignalScoutEmission,
     SignalScoutNote,
@@ -4513,6 +4515,52 @@ class TestScoutRunDerivedMetadata(APIBaseTest):
             content="pending",
         )
         SignalScratchpad.all_teams.filter(pk=entry.pk).update(created_at=run.created_at - timedelta(hours=2))
+        assert self._stamp(run)["has_self_validation"] is False
+
+    def test_self_validation_counts_a_run_that_wrote_a_report_check(self) -> None:
+        # Writing a check *is* the validation being scheduled, unlike writing a queue entry, which
+        # only asks a future run to do it. Keeping the same field name is deliberate: the flag means
+        # "this run closed a loop", and scouts are moving from the queue onto checks.
+        run = _make_run(self.team)
+        report = SignalReport.objects.create(team=self.team, title="Checkout 500s")
+        SignalReportCheck.objects.for_team(self.team.id).create(
+            team=self.team,
+            report=report,
+            title="Checkout errors stay low",
+            kind=SignalReportCheck.Kind.AGENT,
+            config={"instructions": "Re-read the issue."},
+            next_run_at=timezone.now() + timedelta(days=3),
+            expires_at=timezone.now() + timedelta(days=30),
+            task_id=run.task_run.task_id,
+        )
+        assert self._stamp(run)["has_self_validation"] is True
+
+    def test_self_validation_counts_a_run_that_recorded_a_verdict(self) -> None:
+        run = _make_run(self.team)
+        report = SignalReport.objects.create(team=self.team, title="Checkout 500s")
+        SignalReportArtefact.objects.create(
+            team=self.team,
+            report=report,
+            type=SignalReportArtefact.ArtefactType.CHECK_RESULT,
+            content="{}",
+            task_id=run.task_run.task_id,
+        )
+        assert self._stamp(run)["has_self_validation"] is True
+
+    def test_another_runs_check_does_not_count(self) -> None:
+        run = _make_run(self.team)
+        other_run = _make_run(self.team)
+        report = SignalReport.objects.create(team=self.team, title="Checkout 500s")
+        SignalReportCheck.objects.for_team(self.team.id).create(
+            team=self.team,
+            report=report,
+            title="Checkout errors stay low",
+            kind=SignalReportCheck.Kind.AGENT,
+            config={"instructions": "Re-read the issue."},
+            next_run_at=timezone.now() + timedelta(days=3),
+            expires_at=timezone.now() + timedelta(days=30),
+            task_id=other_run.task_run.task_id,
+        )
         assert self._stamp(run)["has_self_validation"] is False
 
     def test_derived_map_round_trips_as_an_object_not_a_string(self) -> None:
