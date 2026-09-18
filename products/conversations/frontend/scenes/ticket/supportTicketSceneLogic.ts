@@ -5,6 +5,7 @@ import {
     afterMount,
     beforeUnmount,
     connect,
+    getContext,
     kea,
     key,
     listeners,
@@ -20,6 +21,7 @@ import posthog from 'posthog-js'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import { commentsLogic } from 'lib/components/Comments/commentsLogic'
+import { captureSupportAgentLoadFailed } from 'lib/components/Support/supportLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
@@ -36,6 +38,7 @@ import { userLogic } from 'scenes/userLogic'
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import { impersonationNoticeLogic } from '~/layout/navigation/ImpersonationNotice/impersonationNoticeLogic'
 import api from '~/lib/api'
+import type { CountedPaginatedResponse } from '~/lib/api'
 import { PERSON_DISPLAY_NAME_COLUMN_NAME } from '~/lib/constants'
 import { CLOUD_HOSTNAMES } from '~/lib/constants'
 import { tagsModel } from '~/models/tagsModel'
@@ -97,6 +100,18 @@ function classifySendFailure(error: any): UnconfirmedSendReason {
     }
     // Includes 429: throttling rejects before the request body is handled, so nothing was written.
     return null
+}
+
+/**
+ * A request still in flight when the agent leaves the ticket resumes on a logic that no longer has
+ * a store, so reading `values` or dispatching afterwards throws. Build the guard while the logic is
+ * alive, then check it after every await. `isDisposed` alone is not enough, because replacing the
+ * kea context drops the logic without unmounting it.
+ */
+function whileMounted(cache: Record<string, any>): () => boolean {
+    const disposables = cache.disposables as { isDisposed: boolean }
+    const mountedIn = getContext()
+    return () => !disposables.isDisposed && getContext() === mountedIn
 }
 
 function regionFromUrl(url?: string): Region | undefined {
@@ -1136,55 +1151,64 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 actions.setTicket(null)
                 return
             }
+            const isLive = whileMounted(cache)
+            let ticket: Ticket
             try {
-                const ticket = await api.conversationsTickets.get(props.id.toString())
-
-                // If accessed via UUID, redirect to ticket_number URL for cleaner URLs
-                const isUuid = props.id.toString().includes('-')
-                if (isUuid && ticket.ticket_number) {
-                    router.actions.replace(urls.supportTicketDetail(ticket.ticket_number))
+                ticket = await api.conversationsTickets.get(props.id.toString())
+            } catch (error) {
+                if (!isLive()) {
                     return
                 }
-
-                actions.setTicket(ticket)
-                actions.loadMessages()
-
-                impersonationNoticeLogic.findMounted()?.actions.setTicketContext({
-                    ticketId: ticket.id,
-                    // email_from is the customer's address on email tickets, and it's the only
-                    // place it lives on tickets whose traits were never populated.
-                    email: ticket.anonymous_traits?.email || ticket.email_from || '',
-                    region: regionFromUrl(ticket.session_context?.current_url),
-                })
-
-                // Load session context data
-                actions.loadPerson()
-                actions.loadLinkedReports()
-
-                // Refresh the unread count since viewing a ticket marks it as read
-                supportTicketCounterLogic.findMounted()?.actions.refreshCount()
-
-                // Start message polling using disposables pattern
-                cache.disposables.dispose('messagePolling')
-                cache.discussionPollTick = 0
-                cache.disposables.add(() => {
-                    const intervalId = setInterval(() => {
-                        actions.loadMessages()
-                        // A discussion is a slower conversation than the ticket itself, and a Slack
-                        // reply landing a few seconds late costs nothing — so it rides the same timer
-                        // at a fraction of the rate rather than starting a second one.
-                        cache.discussionPollTick = (cache.discussionPollTick ?? 0) + 1
-                        if (cache.discussionPollTick % DISCUSSION_POLL_EVERY_N_TICKS === 0) {
-                            actions.pollDiscussionThread()
-                        }
-                    }, MESSAGE_POLL_INTERVAL)
-                    return () => clearInterval(intervalId)
-                }, 'messagePolling')
-            } catch (error) {
                 console.error('Failed to load ticket:', error)
+                captureSupportAgentLoadFailed({ surface: 'ticket_scene', reason: 'ticket_load_failed', error })
                 lemonToast.error('Failed to load ticket')
                 actions.setTicketLoading(false)
+                return
             }
+            if (!isLive()) {
+                return
+            }
+            // If accessed via UUID, redirect to ticket_number URL for cleaner URLs
+            const isUuid = props.id.toString().includes('-')
+            if (isUuid && ticket.ticket_number) {
+                router.actions.replace(urls.supportTicketDetail(ticket.ticket_number))
+                return
+            }
+
+            actions.setTicket(ticket)
+            actions.loadMessages()
+
+            impersonationNoticeLogic.findMounted()?.actions.setTicketContext({
+                ticketId: ticket.id,
+                // email_from is the customer's address on email tickets, and it's the only
+                // place it lives on tickets whose traits were never populated.
+                email: ticket.anonymous_traits?.email || ticket.email_from || '',
+                region: regionFromUrl(ticket.session_context?.current_url),
+            })
+
+            // Load session context data
+            actions.loadPerson()
+            actions.loadLinkedReports()
+
+            // Refresh the unread count since viewing a ticket marks it as read
+            supportTicketCounterLogic.findMounted()?.actions.refreshCount()
+
+            // Start message polling using disposables pattern
+            cache.disposables.dispose('messagePolling')
+            cache.discussionPollTick = 0
+            cache.disposables.add(() => {
+                const intervalId = setInterval(() => {
+                    actions.loadMessages()
+                    // A discussion is a slower conversation than the ticket itself, and a Slack
+                    // reply landing a few seconds late costs nothing — so it rides the same timer
+                    // at a fraction of the rate rather than starting a second one.
+                    cache.discussionPollTick = (cache.discussionPollTick ?? 0) + 1
+                    if (cache.discussionPollTick % DISCUSSION_POLL_EVERY_N_TICKS === 0) {
+                        actions.pollDiscussionThread()
+                    }
+                }, MESSAGE_POLL_INTERVAL)
+                return () => clearInterval(intervalId)
+            }, 'messagePolling')
         },
         loadPersonSuccess: async () => {
             // Load previous tickets after person is loaded
@@ -1269,23 +1293,42 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
             }
             const revision = ++cache.messageRevision
             const ticketId = values.ticket.id
+            const isLive = whileMounted(cache)
+            // The newest revision owns the shared loading flag and the message list, so a call that
+            // loses the race leaves both to whoever took it.
+            const isSuperseded = (): boolean => cache.messageRevision !== revision || values.ticket?.id !== ticketId
+            let response: CountedPaginatedResponse<CommentType>
             try {
-                const response = await api.comments.list({
+                response = await api.comments.list({
                     scope: 'conversations_ticket',
                     item_id: ticketId,
                 })
-                if (cache.messageRevision !== revision || values.ticket?.id !== ticketId) {
-                    // setMessages replaces the list wholesale, so a poll that started before a
-                    // newer load or a local write must not apply its older snapshot.
-                    actions.setMessagesLoading(false)
+            } catch (error) {
+                if (!isLive()) {
                     return
                 }
-                // Reverse to show oldest first (bottom = newest)
-                actions.setMessages((response.results || []).reverse())
-            } catch {
+                if (isSuperseded()) {
+                    return
+                }
+                captureSupportAgentLoadFailed({
+                    surface: 'ticket_scene',
+                    reason: 'thread_load_failed',
+                    error,
+                })
                 lemonToast.error('Failed to load messages')
                 actions.setMessagesLoading(false)
+                return
             }
+            if (!isLive()) {
+                return
+            }
+            if (isSuperseded()) {
+                // setMessages replaces the list wholesale, so a poll that started before a
+                // newer load or a local write must not apply its older snapshot.
+                return
+            }
+            // Reverse to show oldest first (bottom = newest)
+            actions.setMessages((response.results || []).reverse())
         },
         loadOlderMessages: async () => {
             const currentMessages = values.messages
