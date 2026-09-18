@@ -73,6 +73,7 @@ import {
     buildNotebookDependencyGraph,
     collectNodeIndices,
     collectNotebookFrameNodes,
+    collectRunnableCellNodeIds,
     collectSqlV2Nodes,
 } from '../Nodes/notebookNodeContent'
 import type { NotebookDependencyGraph, NotebookFrameNodeSummary, SqlV2NodeSummary } from '../Nodes/notebookNodeContent'
@@ -341,6 +342,7 @@ export interface notebookLogicValues {
     notebookPresenceParticipants: NotebookPresenceParticipant[]
     personUUIDFromCanvasOverride: string | null
     previewContent: JSONContent | null
+    runnableCellNodeIds: string[]
     runnableVariables: NotebookVariable[]
     shortId: string
     shouldBeEditable: boolean
@@ -684,6 +686,7 @@ export interface notebookLogicMeta {
             content: JSONContent
         ) => BuiltLogic<notebookNodeLogicType>[]
         sqlV2NodeSummaries: (content: JSONContent) => SqlV2NodeSummary[]
+        runnableCellNodeIds: (content: JSONContent) => string[]
         frameNodeSummaries: (content: JSONContent) => NotebookFrameNodeSummary[]
         dependencyGraph: (contentAtLastRun: JSONContent | null) => NotebookDependencyGraph
         sqlNodeIndices: (content: JSONContent) => Map<string, number>
@@ -1443,6 +1446,7 @@ export const notebookLogic = kea<notebookLogicType>([
         ],
 
         sqlV2NodeSummaries: [(s) => [s.content], (content: JSONContent) => collectSqlV2Nodes(content)],
+        runnableCellNodeIds: [(s) => [s.content], (content: JSONContent) => collectRunnableCellNodeIds(content)],
         frameNodeSummaries: [(s) => [s.content], (content: JSONContent) => collectNotebookFrameNodes(content)],
         dependencyGraph: [
             // Keyed on the last-run snapshot, not live content, so typing does not rebuild it.
