@@ -603,6 +603,18 @@ def scout_skill_row_origin(skill: LLMSkill) -> Literal["canonical", "custom"]:
     return "custom" if _compute_row_hash(skill, list(skill.files.all())) != stored_hash else "canonical"
 
 
+def scout_skill_row_is_proven_canonical(skill: LLMSkill) -> bool:
+    """`scout_skill_row_origin`, plus the baseline hash that makes the verdict provable.
+
+    The two disagree on one row: a seeded row carrying no `canonical_hash`. `scout_skill_row_origin`
+    keeps it canonical because its consumer (the self-improvement gate) is conservative in the
+    direction of not inviting edits. A caller that *grants* something on canonical origin is
+    conservative the other way, so it reads that row as `sync_canonical_skills` does — no baseline
+    hash, no claim.
+    """
+    return scout_skill_row_origin(skill) == "canonical" and (skill.metadata or {}).get("canonical_hash") is not None
+
+
 def _create_skill_from_canonical(team: Team, canonical: CanonicalSkill, canonical_hash: str) -> None:
     """Insert a brand-new row for a (team, canonical.name) that has no prior history.
 

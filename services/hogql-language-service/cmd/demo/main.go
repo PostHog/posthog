@@ -68,6 +68,15 @@ func demoHandler(backend http.Handler, host string, payload []byte) http.Handler
 		// nosemgrep: go.lang.security.audit.xss.no-direct-write-to-responsewriter.no-direct-write-to-responsewriter
 		_, _ = w.Write(payload)
 	})
+	mux.HandleFunc("GET /api/health", func(w http.ResponseWriter, r *http.Request) {
+		request, err := http.NewRequestWithContext(r.Context(), http.MethodGet, "/health", nil)
+		if err != nil {
+			http.Error(w, "Could not check the service. Restart the demo.", http.StatusInternalServerError)
+			return
+		}
+		request.RemoteAddr = r.RemoteAddr
+		backend.ServeHTTP(w, request)
+	})
 	for _, operation := range []string{"autocomplete", "validate"} {
 		mux.HandleFunc("POST /api/"+operation, func(w http.ResponseWriter, r *http.Request) {
 			body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 128<<10))

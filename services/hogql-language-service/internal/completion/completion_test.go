@@ -21,6 +21,9 @@ func testCatalog() *catalog.PreparedCatalog {
 			"uuid": {Name: "uuid", Type: "string"}, "event": {Name: "event", Type: "string"},
 			"properties": {Name: "properties", Type: "json"},
 		}},
+		"Events": {Name: "Events", Type: "data_warehouse", Fields: map[string]catalog.Field{
+			"custom_field": {Name: "custom_field", Type: "string"}, "properties": {Name: "properties", Type: "json"},
+		}},
 		"persons": {Name: "persons", Type: "posthog", Fields: map[string]catalog.Field{
 			"id": {Name: "id", Type: "string"}, "properties": {Name: "properties", Type: "json"},
 		}},
@@ -111,9 +114,10 @@ func TestCompletesTablesAfterFrom(t *testing.T) {
 		{"cte join", "WITH recent AS (SELECT event FROM events) SELECT * FROM events JOIN rec| ON 1 = 1", map[string]string{"recent": "CTE"}},
 		{"cte comma", "WITH recent AS (SELECT event FROM events) SELECT * FROM events, rec|", map[string]string{"recent": "CTE"}},
 		{"catalog and cte", "WITH order_summary AS (SELECT event FROM events) SELECT * FROM ord|", map[string]string{"orders": "data_warehouse", "order_summary": "CTE"}},
-		{"catalog shadow", "WITH Orders AS (SELECT event FROM events) SELECT * FROM ord|", map[string]string{"Orders": "CTE"}},
+		{"case-variant catalog tables", "SELECT * FROM EV|", map[string]string{"Events": "data_warehouse", "events": "posthog"}},
+		{"case-variant catalog and CTE", "WITH Orders AS (SELECT event FROM events) SELECT * FROM ord|", map[string]string{"Orders": "CTE", "orders": "data_warehouse"}},
 		{"unicode prefix", "WITH `Σ` AS (SELECT event FROM events) SELECT * FROM ς|", map[string]string{"Σ": "CTE"}},
-		{"inner shadow", "WITH recent AS (SELECT event FROM events) SELECT * FROM (WITH Recent AS (SELECT uuid FROM events) SELECT * FROM rec|) AS s", map[string]string{"Recent": "CTE"}},
+		{"case-variant nested CTEs", "WITH recent AS (SELECT event FROM events) SELECT * FROM (WITH Recent AS (SELECT uuid FROM events) SELECT * FROM rec|) AS s", map[string]string{"Recent": "CTE", "recent": "CTE"}},
 		{"outer visible", "WITH recent AS (SELECT event FROM events) SELECT * FROM (SELECT * FROM rec|) AS s", map[string]string{"recent": "CTE"}},
 		{"previous cte", "WITH recent AS (SELECT event FROM events), recent_next AS (SELECT * FROM rec|) SELECT * FROM recent_next", map[string]string{"recent": "CTE"}},
 		{"no self or later cte", "WITH recent AS (SELECT * FROM rec|), recent_next AS (SELECT event FROM events) SELECT * FROM recent", nil},
@@ -188,6 +192,9 @@ func TestCompletesFieldsForAlias(t *testing.T) {
 		{"select alias precedence", "SELECT e.event AS uuid FROM events AS e JOIN events AS other ON 1 = 1 ORDER BY uu|", []Suggestion{{Label: "uuid", Detail: "string"}}},
 		{"case-sensitive select alias precedence", "SELECT e.properties AS UUID FROM events AS e JOIN events AS other ON 1 = 1 ORDER BY uu|", []Suggestion{
 			{Label: "UUID", Detail: "json"}, {Label: "uuid", Detail: "string from e", InsertText: "e.uuid"}, {Label: "uuid", Detail: "string from other", InsertText: "other.uuid"},
+		}},
+		{"case-variant relation aliases", "SELECT prop| FROM events AS e JOIN persons AS E ON 1 = 1", []Suggestion{
+			{Label: "properties", Detail: "json from E", InsertText: "E.properties"}, {Label: "properties", Detail: "json from e", InsertText: "e.properties"},
 		}},
 		{"qualified join stays unqualified", "SELECT e.uu| FROM events AS e JOIN events AS other ON 1 = 1", []Suggestion{{Label: "uuid", Detail: "string"}}},
 		{"nested alias shadow", "SELECT * FROM events AS e WHERE uuid IN (SELECT uu| FROM events AS e)", []Suggestion{{Label: "uuid", Detail: "string"}}},
@@ -278,6 +285,12 @@ func TestCompletesScopedProjections(t *testing.T) {
 		{"renamed properties are unrelated", "WITH t AS (SELECT properties AS attrs FROM events) SELECT properties.$geo_ci| FROM events JOIN t ON 1 = 1", map[string]string{"$geo_city": "String"}},
 		{"derived properties are ambiguous", "WITH t AS (SELECT properties FROM events) SELECT properties.$geo_ci| FROM events JOIN t ON 1 = 1", nil},
 		{"qualified physical properties remain available", "WITH t AS (SELECT properties FROM events) SELECT e.properties.$geo_ci| FROM events AS e JOIN t ON 1 = 1", map[string]string{"$geo_city": "String"}},
+		{"lowercase alias keeps event properties", "SELECT e.properties.$geo_co| FROM events AS e JOIN persons AS E ON 1 = 1", map[string]string{"$geo_country": "String"}},
+		{"uppercase alias keeps person properties", "SELECT E.properties.$geo| FROM events AS e JOIN persons AS E ON 1 = 1", map[string]string{"$geo_city": "String"}},
+		{"wrong-case alias does not recover event properties", "SELECT E.properties.$geo| FROM events AS e", nil},
+		{"exact custom table does not inherit event properties", "SELECT Events.properties.$geo| FROM Events", nil},
+		{"nested virtual owner requires exact qualifier", "SELECT e.person.properties.$geo_ci| FROM events AS e", map[string]string{"$geo_city": "String"}},
+		{"nested virtual owner rejects wrong-case qualifier", "SELECT E.person.properties.$geo| FROM events AS e", nil},
 		{"cte property provenance", "WITH recent AS (SELECT properties FROM events) SELECT recent.properties.$geo_co| FROM recent", map[string]string{"$geo_country": "String"}},
 		{"unqualified cte property provenance", "WITH recent AS (SELECT properties FROM events) SELECT properties.$geo_co| FROM recent", map[string]string{"$geo_country": "String"}},
 		{"subquery property provenance", "SELECT recent.properties.$geo_co| FROM (SELECT properties FROM events) AS recent", map[string]string{"$geo_country": "String"}},
@@ -291,6 +304,10 @@ func TestCompletesScopedProjections(t *testing.T) {
 		{"property alias before duplicate", "SELECT properties AS props, props.$geo_co|, uuid AS props FROM events", map[string]string{"$geo_country": "String"}},
 		{"property alias after duplicate", "SELECT properties AS props, uuid AS props, props.$geo| FROM events", nil},
 		{"cte name does not determine provenance", "WITH events AS (SELECT properties FROM persons) SELECT events.properties.$geo| FROM events", map[string]string{"$geo_city": "String"}},
+		{"case-variant CTE property provenance", "WITH t AS (SELECT properties FROM events), T AS (SELECT properties FROM persons) SELECT T.properties.$geo| FROM t JOIN T ON 1 = 1", map[string]string{"$geo_city": "String"}},
+		{"lowercase case-variant CTE property provenance", "WITH t AS (SELECT properties FROM events), T AS (SELECT properties FROM persons) SELECT t.properties.$geo_co| FROM t JOIN T ON 1 = 1", map[string]string{"$geo_country": "String"}},
+		{"wrong-case CTE has no fields", "WITH t AS (SELECT properties FROM events) SELECT T.| FROM T", nil},
+		{"case-variant table fields stay isolated", "SELECT Events.| FROM Events", map[string]string{"custom_field": "string", "properties": "json"}},
 		{"ambiguous joined properties", "WITH t AS (SELECT properties FROM events JOIN persons ON 1 = 1) SELECT t.properties.$geo| FROM t", nil},
 		{"self join properties are ambiguous", "WITH t AS (SELECT properties FROM events AS e JOIN events AS other ON 1 = 1) SELECT t.properties.$geo| FROM t", nil},
 		{"unaliased self join properties are ambiguous", "WITH t AS (SELECT properties FROM events JOIN events ON 1 = 1) SELECT t.properties.$geo| FROM t", nil},
@@ -334,6 +351,7 @@ func TestCompletesScopedProjections(t *testing.T) {
 		{"alias virtual property shadow", "SELECT uuid AS session FROM events ORDER BY session.properties.$entry|", nil},
 		{"qualified properties bypass alias", "SELECT uuid AS properties FROM events ORDER BY events.properties.$geo_ci|", map[string]string{"$geo_city": "String"}},
 		{"no recovered select aliases", "SELECT amount AS total FROM orders WHERE tot| >", nil},
+		{"recovery preserves relation case", "SELECT Mixed.cus| FROM Events AS Mixed WHERE custom_field =", map[string]string{"custom_field": "string"}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			position := strings.IndexByte(test.query, '|')
@@ -341,6 +359,9 @@ func TestCompletesScopedProjections(t *testing.T) {
 			result, err := Complete(testCatalog(), query, position, PositionEncodingUTF8, "")
 			if err != nil {
 				t.Fatal(err)
+			}
+			if test.name == "recovery preserves relation case" && !strings.HasPrefix(result.ParseError, "parse incomplete SQL:") {
+				t.Fatalf("parse error = %q, want recovered incomplete SQL error", result.ParseError)
 			}
 			fields := map[string]string{}
 			for _, suggestion := range result.Suggestions {
@@ -641,13 +662,13 @@ func TestCompletionPaginationSkipsUnsupportedIdentifiers(t *testing.T) {
 	}
 }
 
-func TestCompletesFieldsForMixedCaseTableReference(t *testing.T) {
+func TestDoesNotCompleteFieldsForWrongCaseTableReference(t *testing.T) {
 	query := "SELECT Orders. FROM Orders"
 	result, err := Complete(testCatalog(), query, len("SELECT Orders."), PositionEncodingUTF8, "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !hasSuggestion(result.Suggestions, "order_id") {
+	if len(result.Suggestions) != 0 {
 		t.Fatalf("suggestions = %#v; parse error = %q", result.Suggestions, result.ParseError)
 	}
 }
