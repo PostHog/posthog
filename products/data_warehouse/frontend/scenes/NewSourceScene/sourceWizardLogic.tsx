@@ -664,6 +664,9 @@ export interface sourceWizardLogicActions {
         accessMethod: 'direct' | 'warehouse' | undefined
         connector: SourceConfigResponseApi | null
     }
+    setConnectError: (message: string | null) => {
+        message: string | null
+    }
     setDatabaseSchemas: (schemas: ExternalDataSourceSyncSchema[]) => {
         schemas: ExternalDataSourceSyncSchema[]
     }
@@ -672,9 +675,6 @@ export interface sourceWizardLogicActions {
     }
     setInitialConnector: (connector: SourceConfigResponseApi | null) => {
         connector: SourceConfigResponseApi | null
-    }
-    setConnectError: (message: string | null) => {
-        message: string | null
     }
     setIsLoading: (isLoading: boolean) => {
         isLoading: boolean
