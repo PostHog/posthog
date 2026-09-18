@@ -32,7 +32,7 @@ interface AuthState {
   hydrated: boolean;
   hydrate: () => Promise<void>;
   login: (email: string, password: string) => Promise<void>;
-  loginWithOAuth: (region: CloudRegion) => Promise<void>;
+  loginWithOAuth: (region: CloudRegion, signup?: boolean) => Promise<void>;
   // Swaps an expired OAuth access token; returns the new bearer.
   refresh: () => Promise<string>;
   logout: () => Promise<void>;
@@ -161,8 +161,8 @@ export const useAuth = create<AuthState>((set, get) => ({
     set({ session });
   },
 
-  loginWithOAuth: async (region) => {
-    const tokens = await signInWithOAuth(region);
+  loginWithOAuth: async (region, signup) => {
+    const tokens = await signInWithOAuth(region, signup);
     const session = await describeSession({
       region,
       host: CLOUD_HOSTS[region],
