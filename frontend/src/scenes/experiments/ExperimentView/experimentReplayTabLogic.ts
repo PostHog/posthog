@@ -1314,8 +1314,12 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
          * backend refuses; whatever it misses comes back as a failure, which the tab reports and
          * states.
          *
-         * An experiment with no feature flag is deliberately not a code: it is a legitimate product
-         * path, and the tab's other selectors already assume a flag.
+         * A missing flag is deliberately not a code, even though variants are read off the flag and
+         * a flagless experiment would fall into `no_variants` here: `Experiment.feature_flag` is a
+         * non-null foreign key with `on_delete=RESTRICT`, so a saved experiment always carries a
+         * flag and the flag cannot be deleted from under it. The null branches in the serializer
+         * and in `resolve_exposure_linkage` guard a state the schema forbids, and a scene still
+         * loading holds a blank experiment, which `not_launched` answers for.
          */
         listUnavailableReason: [
             (s) => [s.variantKeys, s.groupAggregatedExposure, (_, props) => props.experiment],
