@@ -124,6 +124,8 @@ export function BatchExportsList(): JSX.Element {
 
             <LemonTable
                 dataSource={filteredBatchExports}
+                // The sparkline loads once per row, so a row must keep its export across a sort or a search.
+                rowKey="id"
                 size="small"
                 loading={batchExportsLoading}
                 columns={columns}
