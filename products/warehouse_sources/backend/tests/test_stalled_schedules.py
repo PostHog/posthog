@@ -138,6 +138,21 @@ class TestStalledSchedules(BaseTest):
         assert mock_sync.call_args.kwargs["trigger_immediately"] is False
         assert mock_sync.call_args.kwargs["should_sync"] is True
 
+    def test_repair_skips_a_schema_disabled_since_it_was_discovered(self) -> None:
+        # The confirmation prompt in the management command alone can put minutes between
+        # discovery and this call. A schema a user disabled in that window must stay paused,
+        # not get rescheduled out from under them by a stale should_sync=True snapshot.
+        schema = self._schema(synced_ago=timedelta(days=5))
+        stalled = next(s for s in find_stalled_schemas() if s.schema_id == str(schema.id))
+
+        schema.should_sync = False
+        schema.save(update_fields=["should_sync"])
+
+        with patch("products.data_warehouse.backend.facade.api.sync_external_data_job_workflow") as mock_sync:
+            repair_stalled_schema(stalled)
+
+        mock_sync.assert_not_called()
+
 
 class TestStalledScheduleSweep(BaseTest):
     def test_the_sweep_reports_stalled_schemas_without_repairing_them(self) -> None:

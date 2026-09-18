@@ -255,18 +255,23 @@ class Command(BaseCommand):
         # the source was still legacy. If it reads the source again after the change, it consumes
         # the buffer on that stale version, which records no load position, so nothing it read is
         # ever proven consumed. Quiesce the schedules so no run straddles the mode change.
-        self.stdout.write("3/7 pausing per-schema schedules")
-        self._pause_schema_schedules_strict(eligible)
-
-        # Everything from here to the mode change leaves the schemas quiesced, and every step in
-        # between can abort: a drain that times out, a buffer file that survives the purge. The
-        # mode does not change until step 6, so on an abort the source is still the legacy source
-        # it was before the command ran. Leaving its schedules paused there stops the customer's
-        # syncs for as long as nobody notices, and nothing reports that: no run starts, so there
-        # is no job row and no error. Restore the schedules and let the abort surface. Extraction
-        # stays paused on purpose, because an operator has to look at whatever stopped the drain
-        # before capture writes again.
+        #
+        # The pause call itself is inside this same try: a schedule that fails to pause partway
+        # through the batch must not leave the ones that did pause stranded. `_restore_schema_schedules`
+        # unpausing a schedule that was never paused is a no-op, so restoring the whole eligible set
+        # on any failure here is safe.
         try:
+            self.stdout.write("3/7 pausing per-schema schedules")
+            self._pause_schema_schedules_strict(eligible)
+
+            # Everything from here to the mode change leaves the schemas quiesced, and every step in
+            # between can abort: a drain that times out, a buffer file that survives the purge. The
+            # mode does not change until step 6, so on an abort the source is still the legacy source
+            # it was before the command ran. Leaving its schedules paused there stops the customer's
+            # syncs for as long as nobody notices, and nothing reports that: no run starts, so there
+            # is no job row and no error. Restore the schedules and let the abort surface. Extraction
+            # stays paused on purpose, because an operator has to look at whatever stopped the drain
+            # before capture writes again.
             self._wait_for_running_sync_jobs(source.team_id, [str(s.id) for s in eligible], drain_timeout)
 
             self.stdout.write("4/7 draining sourcebatch")
@@ -350,9 +355,14 @@ class Command(BaseCommand):
         # Consumer next: a sync merging old buffered rows AFTER legacy capture resumed would
         # overwrite newer legacy writes — legacy writes carry no position, so the guard can't
         # protect them. Strict: a schedule that failed to pause could start such a sync.
-        self.stdout.write("4/6 pausing per-schema schedules")
-        self._pause_schema_schedules_strict(eligible)
+        #
+        # The pause call is inside this same try: a schedule that fails to pause partway through
+        # the batch must not leave the ones that did pause stranded. `_restore_schema_schedules`
+        # unpausing a schedule that was never paused is a no-op, so restoring the whole eligible
+        # set on any failure here is safe.
         try:
+            self.stdout.write("4/6 pausing per-schema schedules")
+            self._pause_schema_schedules_strict(eligible)
             self._wait_for_running_sync_jobs(source.team_id, [str(s.id) for s in eligible], drain_timeout)
             self._wait_for_sourcebatch_drain(source.team_id, [str(s.id) for s in eligible], drain_timeout)
             self._retire_orphaned_companions(eligible)

@@ -42,14 +42,17 @@ STALLED_SCHEDULE_SWEEP_CAP = 2000
 # Teams named in the sweep's log line, worst first.
 STALLED_SCHEDULE_LOG_TEAMS = 10
 
-# Alert on a sustained non-zero `no_runs`. Every beat pod reports the same fleet-wide
-# count from one query, so aggregate with max() rather than summing across pods.
+# Alert on a sustained non-zero `no_runs`. Each tick is a whole-fleet snapshot from one query,
+# so only the newest reading is correct. `livemax` would pin the gauge at the highest value any
+# live process ever wrote for this label, so a count that has since dropped to zero — the sweep
+# healed, or the schemas were repaired — would still read as the old, higher value as long as
+# that process stays up.
 STALLED_SCHEMA_SCHEDULES_GAUGE = Gauge(
     "warehouse_stalled_schema_schedules",
     "Schemas with should_sync set whose last sync is older than their own cadence allows. "
     "kind=no_runs means no run started, which points at the schedule; kind=stuck_job means a run started and never finished.",
     ["kind"],
-    multiprocess_mode="livemax",
+    multiprocess_mode="livemostrecent",
 )
 
 

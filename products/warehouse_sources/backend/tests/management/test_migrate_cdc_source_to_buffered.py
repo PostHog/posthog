@@ -139,6 +139,25 @@ class TestMigrateCDCSourceToBuffered(BaseTest):
         mocks["unpause_schema"].assert_called_once_with(str(schema.id))
         mocks["unpause"].assert_not_called()
 
+    def test_flip_restores_already_paused_schedules_when_a_later_pause_fails(self):
+        # `_pause_schema_schedules_strict` pauses schemas one at a time; a later one failing must
+        # not strand the ones that already paused. The mode never changed, so the source is still
+        # legacy, and leaving any of its schedules paused would stop syncs with nothing anywhere
+        # reporting it.
+        source = self._source()
+        first = self._schema(source, "users")
+        second = self._schema(source, "events")
+
+        with _mocked_side_effects() as mocks:
+            mocks["pause_schema"].side_effect = [None, Exception("boom")]
+            with pytest.raises(CommandError, match="Could not pause the schedule"):
+                self._run(source)
+
+        source.refresh_from_db()
+        assert "cdc_ingest_mode" not in source.job_inputs
+        assert mocks["pause_schema"].call_count == 2
+        assert {c.args[0] for c in mocks["unpause_schema"].call_args_list} == {str(first.id), str(second.id)}
+
     def test_rollback_drains_the_buffer_then_pauses_the_consumer_before_the_mode_flips(self):
         source = self._source(ingest_mode="buffered")
         schema = self._schema(source, "users")

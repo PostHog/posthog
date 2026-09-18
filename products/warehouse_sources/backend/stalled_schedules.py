@@ -202,6 +202,18 @@ def repair_stalled_schema(stalled: StalledSchema) -> None:
 
     schema = ExternalDataSchema.objects.select_related("source").get(id=stalled.schema_id, team_id=stalled.team_id)
 
+    # `stalled` is a discovery-time snapshot, and the management command's confirmation prompt
+    # alone can put minutes between discovery and this call. Re-check should_sync against the
+    # reloaded row rather than assuming the snapshot still holds — a schema a user disabled in
+    # that window must stay paused, not get rescheduled out from under them.
+    if not schema.should_sync:
+        logger.info(
+            "repair_stalled_schema_schedules_skipped_now_ineligible",
+            schema_id=str(schema.id),
+            team_id=schema.team_id,
+        )
+        return
+
     # A schema whose run never reached finalization still reads RUNNING, and the scheduler
     # treats that as a live run. Repainting it first stops the next tick being skipped.
     if schema.status == ExternalDataSchema.Status.RUNNING:
@@ -215,6 +227,6 @@ def repair_stalled_schema(stalled: StalledSchema) -> None:
     sync_external_data_job_workflow(
         schema,
         create=True,
-        should_sync=True,
+        should_sync=schema.should_sync,
         trigger_immediately=False,
     )
