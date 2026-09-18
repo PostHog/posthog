@@ -456,6 +456,7 @@ class TestSessionRecordingsExclusionsUnderOrWithPersonsOnEvents(ClickhouseTestMi
             session_id=session_id,
             first_timestamp=self.an_hour_ago,
             team_id=self.team.id,
+            ensure_analytics_event_in_session=bool(events),
         )
         for i, (distinct_id, event_name) in enumerate(events):
             create_event(
@@ -518,4 +519,35 @@ class TestSessionRecordingsExclusionsUnderOrWithPersonsOnEvents(ClickhouseTestMi
                     "properties": [{"key": "id", "value": internal_cohort.pk, "operator": "not_in", "type": "cohort"}],
                 },
                 expected=[non_member_pageview, anonymous_pageview],
+            )
+
+    @patch("posthog.session_recordings.queries.utils.posthoganalytics.feature_enabled", return_value=True)
+    @exclusions_under_or_flag_on()
+    def test_positive_cohort_ORed_matches_through_the_events_table(self, _flag, _anonymous_cohort_fix_flag):
+        with self.settings(USE_PRECALCULATED_CH_COHORT_PEOPLE=True, PERSON_ON_EVENTS_V2_OVERRIDE=True):
+            member = "cohort-member"
+            non_member = "not-a-cohort-member"
+            create_person(team=self.team, distinct_ids=[member], properties={"user_group": "internal"})
+            create_person(team=self.team, distinct_ids=[non_member], properties={"user_group": "external"})
+
+            member_pageview = self._a_session(member, [(member, "$pageview")])
+            # under OR a cohort filter now matches on the events table, as it already does under AND,
+            # so a member's recording with no analytics event is not matched
+            _member_without_any_event = self._a_session(member, [])
+            _non_member_pageview = self._a_session(non_member, [(non_member, "$pageview")])
+
+            internal_cohort = Cohort.objects.create(
+                team=self.team,
+                name="internal_users",
+                groups=[{"properties": [{"key": "user_group", "value": "internal", "type": "person"}]}],
+            )
+            internal_cohort.calculate_people_ch(pending_version=0)
+
+            assert_query_matches_session_ids(
+                team=self.team,
+                query={
+                    "operand": "OR",
+                    "properties": [{"key": "id", "value": internal_cohort.pk, "operator": "in", "type": "cohort"}],
+                },
+                expected=[member_pageview],
             )
