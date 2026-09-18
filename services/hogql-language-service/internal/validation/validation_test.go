@@ -190,6 +190,54 @@ func TestValidateAcceptsHogQLQualifiedTable(t *testing.T) {
 	}
 }
 
+func TestValidateCatalogTableAliasesPreserveQuerySpellingAndOccurrences(t *testing.T) {
+	value := &catalog.Catalog{
+		Tables: map[string]catalog.Table{
+			"postgres.demo.orders": {Type: "data_warehouse", Fields: map[string]catalog.Field{"id": {Type: "integer"}}},
+			"events":               {Type: "posthog", Fields: map[string]catalog.Field{"uuid": {Type: "uuid"}}},
+		},
+		TableAliases: map[string]string{"demo_postgres_orders": "postgres.demo.orders"},
+		Properties:   map[string][]catalog.Property{},
+	}
+	prepared := catalog.Prepare(value)
+
+	for _, query := range []string{
+		"SELECT id FROM demo_postgres_orders",
+		"SELECT a.id, b.id FROM demo_postgres_orders AS a JOIN postgres.demo.orders AS b ON a.id = b.id",
+	} {
+		result := Validate(prepared, query)
+		if !result.Valid {
+			t.Fatalf("query %q returned %#v", query, result)
+		}
+	}
+	result := Validate(prepared, "SELECT a.id, b.id FROM demo_postgres_orders AS a JOIN postgres.demo.orders AS b ON a.id = b.id")
+	if strings.Join(result.TableNames, ",") != "demo_postgres_orders,postgres.demo.orders" {
+		t.Fatalf("table names = %#v", result.TableNames)
+	}
+
+	cte := Validate(prepared, "WITH demo_postgres_orders AS (SELECT uuid FROM events) SELECT c.uuid, o.id FROM demo_postgres_orders AS c JOIN postgres.demo.orders AS o ON 1 = 1")
+	if !cte.Valid || strings.Join(cte.TableNames, ",") != "events,postgres.demo.orders" {
+		t.Fatalf("CTE shadow result = %#v", cte)
+	}
+}
+
+func TestUnknownTableSuggestionsDeduplicateAliasTargets(t *testing.T) {
+	prepared := catalog.Prepare(&catalog.Catalog{
+		Tables: map[string]catalog.Table{
+			"postgres.demo.orders": {Fields: map[string]catalog.Field{}},
+		},
+		TableAliases: map[string]string{
+			"demo_postgres_orders":   "postgres.demo.orders",
+			"legacy_postgres_orders": "postgres.demo.orders",
+		},
+		Properties: map[string][]catalog.Property{},
+	})
+	result := Validate(prepared, "SELECT * FROM demo_postgres_order")
+	if result.Valid || len(result.Diagnostics) != 1 || len(result.Diagnostics[0].Suggestions) != 1 || result.Diagnostics[0].Suggestions[0].Label != "demo_postgres_orders" {
+		t.Fatalf("result = %#v", result)
+	}
+}
+
 func TestValidateDuplicateTableNames(t *testing.T) {
 	for _, test := range []struct {
 		name, query, qualifier string

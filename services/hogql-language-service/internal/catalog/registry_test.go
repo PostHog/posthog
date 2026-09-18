@@ -116,3 +116,21 @@ func TestRegistryEvictsCatalogsToStayWithinMemoryBudget(t *testing.T) {
 		t.Fatal("new catalog was not retained")
 	}
 }
+
+func TestRegistryCountsAliasesAgainstMemoryBudget(t *testing.T) {
+	base := &Catalog{Tables: map[string]Table{"orders": {Fields: map[string]Field{"id": {Type: "integer"}}}}, Properties: map[string][]Property{}}
+	withAlias := &Catalog{
+		Tables:       base.Tables,
+		TableAliases: map[string]string{"demo_postgres_orders": "orders"},
+		Properties:   base.Properties,
+	}
+	baseSize := Prepare(base).EstimatedBytes()
+	aliased := Prepare(withAlias)
+	if aliased.EstimatedBytes() <= baseSize {
+		t.Fatalf("alias did not increase estimated bytes: base=%d alias=%d", baseSize, aliased.EstimatedBytes())
+	}
+	registry := NewRegistry(1, baseSize, time.Hour)
+	if err := registry.Put(serviceauth.Authorization{TeamID: 1, UserID: 10}, "1", aliased); err != ErrCatalogTooLarge {
+		t.Fatalf("Put() error = %v, want %v", err, ErrCatalogTooLarge)
+	}
+}

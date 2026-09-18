@@ -412,7 +412,7 @@ func bindingPropertyNamespace(binding Relation, name string) (string, bool) {
 		if _, ok := binding.table.Fields.Exact(name); !ok {
 			return "", false
 		}
-		return propertyresolver.Resolve([]string{binding.name, name, "property"}, map[string]string{binding.name: binding.name})
+		return propertyresolver.Resolve([]string{binding.table.Name, name, "property"}, nil)
 	}
 	if binding.cte == nil {
 		return "", false

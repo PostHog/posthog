@@ -70,6 +70,11 @@ Catalogs can contain both `events` and `Events`; each name retains its own field
 With only `events` in the catalog, `SELECT properties FROM Events` reports `unknown_table`.
 The same query is valid when an exact `Events` entry exists and exposes `properties`.
 Table completion still matches prefixes without regard to case, so typing `EV` can suggest both names and inserts the selected name with its original case.
+The optional `tableAliases` catalog map registers exact alternate spellings without duplicating field indexes.
+For example, `"demo_postgres_orders": "postgres.demo.orders"` lets both names resolve to the fields on the canonical `tables` entry.
+Validation retains the spelling from SQL in `tableNames`, and self-joins through two spellings keep separate source bindings.
+Completion shows one spelling per canonical target. It prefers a matching canonical name and otherwise shows one matching alias.
+CTEs shadow only their exact spelling, so a CTE named `demo_postgres_orders` does not hide `postgres.demo.orders`.
 CTE shadowing and table-suggestion deduplication use exact names, so a CTE named `Events` does not hide the catalog table `events`.
 Duplicate qualifiers do not establish property provenance, including inside CTE projections and qualified wildcards.
 FROM and JOIN completion includes visible table CTEs before catalog tables, with `CTE` in the suggestion detail.
@@ -212,6 +217,26 @@ team remains the primary isolation boundary in that model.
 Catalog publication replaces the catalog and revision atomically. Readers observe either the previous complete
 revision or the next complete revision.
 
+The publication contract accepts this alias form:
+
+```json
+{
+  "tables": {
+    "postgres.demo.orders": { "type": "data_warehouse", "fields": {} }
+  },
+  "tableAliases": {
+    "demo_postgres_orders": "postgres.demo.orders"
+  },
+  "properties": {}
+}
+```
+
+`tableAliases` is optional, so older publishers remain compatible.
+Each alias target must be a direct key in `tables`; aliases cannot target another alias.
+An alias that equals a canonical key is valid only when it targets itself, which makes the entry a no-op.
+The service rejects empty names, dangling targets, chains, cycles, and aliases that contradict canonical keys before cache admission.
+Alias strings and lookup entries count toward the catalog memory limit.
+
 The in-memory registry has two bounds:
 
 - an idle TTL removes unused entries; and
@@ -242,6 +267,8 @@ fails startup unless dedicated signing keys are configured.
 
 Local and debug environments may use the service directly. Production integration remains behind a server-side
 feature flag and should progress through shadow comparison before serving editor results.
+The Go consumer accepts alias metadata before Django publishes it.
+Deploy this consumer first, then enable alias publication separately; catalogs without aliases continue to work throughout the rollout.
 
 The initial rollout keeps ClickHouse execution in Django:
 

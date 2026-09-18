@@ -286,7 +286,7 @@ func (b Bindings) PropertyNamespace(parts []string) (string, bool) {
 			}
 			continue
 		}
-		names[name] = relation.name
+		names[name] = relation.table.Name
 	}
 	return propertyresolver.Resolve(parts, names)
 }

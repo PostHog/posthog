@@ -98,12 +98,20 @@ curl -sS -X PUT http://localhost:8091/teams/2/users/17/catalog \
     "revision": "schema-42:permissions-9",
     "catalog": {
       "tables": {
-        "events": {"name": "events", "type": "posthog", "fields": {}}
+        "events": {"name": "events", "type": "posthog", "fields": {}},
+        "postgres.demo.orders": {"name": "postgres.demo.orders", "type": "data_warehouse", "fields": {}}
       },
+      "tableAliases": {"demo_postgres_orders": "postgres.demo.orders"},
       "properties": {"event": [{"name": "$geo_city", "property_type": "String"}]}
     }
   }'
 ```
+
+`tableAliases` is optional. Each key is an accepted alternate table spelling, and each value must name a canonical key in `tables`.
+An alias and its canonical table share prepared fields, but validation retains the spelling used in SQL in `tableNames`.
+An identity entry such as `"events": "events"` is a no-op.
+Publication rejects empty names, aliases that replace another canonical key, and targets that create a dangling reference, chain, or cycle.
+Catalogs without `tableAliases` keep the previous behavior.
 
 Every protected route requires positive `teamId` and `userId` path parameters. The response includes
 `catalogRevision`, allowing Django and the editor to detect a stale response. An unknown, expired, or evicted pair

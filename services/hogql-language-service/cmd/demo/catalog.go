@@ -71,5 +71,9 @@ func syntheticCatalog() catalogPublication {
 	for index := range 35 {
 		properties["event"] = append(properties["event"], catalog.Property{Name: fmt.Sprintf("demo_property_%02d", index), ValueType: "String"})
 	}
-	return catalogPublication{Revision: "synthetic-demo-v2", Catalog: catalog.Catalog{Tables: tables, Properties: properties}}
+	return catalogPublication{Revision: "synthetic-demo-v3", Catalog: catalog.Catalog{
+		Tables:       tables,
+		TableAliases: map[string]string{"demo_postgres_orders": "postgres.demo.orders"},
+		Properties:   properties,
+	}}
 }
