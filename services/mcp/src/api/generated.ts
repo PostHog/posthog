@@ -16495,6 +16495,14 @@ export namespace Schemas {
       event_count_30d: number;
     }
 
+    /**
+     * Request body for `scout-report-check-cancel`.
+     */
+    export interface CancelReportCheckRequest {
+      /** The check to stop. Its recorded results stay on the report. */
+      check_id: string;
+    }
+
     export interface CandidateEvent {
       /** Name of the candidate event */
       event_name: string;
@@ -18698,6 +18706,16 @@ export namespace Schemas {
     export interface CheckDatabaseNameResponse {
       name: string;
       available: boolean;
+    }
+
+    export interface CheckFailedSignalExtra {
+      check_id: string;
+      report_id: string;
+      check_title: string;
+      explanation: string;
+      observed_value?: number | null;
+      baseline_value?: number | null;
+      threshold?: string | null;
     }
 
     /**
@@ -21618,6 +21636,95 @@ export namespace Schemas {
       repo_full_name: string;
       /** @nullable */
       repo_external_id?: number | null;
+    }
+
+    /**
+     * * `metric_threshold` - Metric Threshold
+     * * `agent` - Agent
+     */
+    export type SignalReportCheckKindEnum = typeof SignalReportCheckKindEnum[keyof typeof SignalReportCheckKindEnum];
+
+
+    export const SignalReportCheckKindEnum = {
+      MetricThreshold: 'metric_threshold',
+      Agent: 'agent',
+    } as const;
+
+    /**
+     * Live InsightVizNode wrapping one TrendsQuery: supplied by the caller, or copied from the named metric when the check is created.
+     */
+    export type MetricThresholdConfigQuery = { [key: string]: unknown } | null;
+
+    /**
+     * A deterministic check: measure one number, compare it, record the verdict.
+     *
+     * The number comes either from a metric the report already shows (``metric_id``) or from a query
+     * the author supplies. Both end up in the same runner, so a supplied query must satisfy the live
+     * metric contract — the node allowlist, the bounded window, and the single-output-series rule.
+     *
+     * A caller names one source. When it names a metric, the create path copies that metric's query
+     * into ``query`` before the row is stored, so the check keeps measuring what its author saw even if
+     * the report's metric is later rewritten under the same id; ``metric_id`` stays as provenance.
+     *
+     * Unknown keys are refused rather than ignored, so a misspelled field name is reported instead of
+     * being dropped in silence and stored as it arrived.
+     */
+    export interface MetricThresholdConfig {
+      /** Identifier of a metric on the report whose query this check measures. The metric's query is copied into `query` when the check is created. */
+      metric_id?: string | null;
+      /** Live InsightVizNode wrapping one TrendsQuery: supplied by the caller, or copied from the named metric when the check is created. */
+      query?: MetricThresholdConfigQuery;
+      /** What the measured value must satisfy to pass. */
+      comparison: CheckComparison;
+      /** The value observed when the check was written, recorded on each result for context. */
+      baseline_value?: number | null;
+    }
+
+    export type SignalReportCheckConfig = MetricThresholdConfig | AgentCheckConfig;
+
+    /**
+     * Request body for `scout-report-check-create`: one forward-looking check on a report.
+     *
+     * The REST body plus the report it attaches to. Subclassed rather than restated so the schedule
+     * bounds a scout writes under are the ones the endpoint enforces, with no second copy to drift.
+     */
+    export interface CreateReportCheckRequest {
+      /**
+         * Short label for the expectation, e.g. `Checkout 500s stay below 10 a day`.
+         * @maxLength 200
+         */
+      title: string;
+      /**
+         * Why the check is worth running.
+         * @maxLength 2000
+         */
+      rationale?: string;
+      /** How the check is evaluated.
+       *
+       * * `metric_threshold` - Metric Threshold
+       * * `agent` - Agent */
+      kind: SignalReportCheckKindEnum;
+      /** What the check measures and what the result must satisfy; the shape depends on `kind`. */
+      config: SignalReportCheckConfig;
+      /** When to first evaluate the check. Must be in the future and within 90 days. Defaults to 7 days from now. */
+      next_run_at?: string;
+      /**
+         * Gap between runs for a recurring check, between 360 and 129600 minutes. Omit for a one-shot check.
+         * @minimum 360
+         * @maximum 129600
+         * @nullable
+         */
+      run_interval_minutes?: number | null;
+      /**
+         * How many times to evaluate the check, at most 10. Defaults to 1.
+         * @minimum 1
+         * @maximum 10
+         */
+      runs_remaining?: number;
+      /** Horizon after which the check retires unrun. Defaults to 30 days after the last scheduled run, or the 90-day horizon if that comes first. */
+      expires_at?: string;
+      /** The report the check attaches to. */
+      report_id: string;
     }
 
     export type CreateRunInputBaselineHashes = {[key: string]: string};
@@ -56147,36 +56254,6 @@ export namespace Schemas {
     } as const;
 
     /**
-     * Live InsightVizNode wrapping one TrendsQuery: supplied by the caller, or copied from the named metric when the check is created.
-     */
-    export type MetricThresholdConfigQuery = { [key: string]: unknown } | null;
-
-    /**
-     * A deterministic check: measure one number, compare it, record the verdict.
-     *
-     * The number comes either from a metric the report already shows (``metric_id``) or from a query
-     * the author supplies. Both end up in the same runner, so a supplied query must satisfy the live
-     * metric contract — the node allowlist, the bounded window, and the single-output-series rule.
-     *
-     * A caller names one source. When it names a metric, the create path copies that metric's query
-     * into ``query`` before the row is stored, so the check keeps measuring what its author saw even if
-     * the report's metric is later rewritten under the same id; ``metric_id`` stays as provenance.
-     *
-     * Unknown keys are refused rather than ignored, so a misspelled field name is reported instead of
-     * being dropped in silence and stored as it arrived.
-     */
-    export interface MetricThresholdConfig {
-      /** Identifier of a metric on the report whose query this check measures. The metric's query is copied into `query` when the check is created. */
-      metric_id?: string | null;
-      /** Live InsightVizNode wrapping one TrendsQuery: supplied by the caller, or copied from the named metric when the check is created. */
-      query?: MetricThresholdConfigQuery;
-      /** What the measured value must satisfy to pass. */
-      comparison: CheckComparison;
-      /** The value observed when the check was written, recorded on each result for context. */
-      baseline_value?: number | null;
-    }
-
-    /**
      * * `funnel` - funnel
      * * `mean_count` - mean_count
      * * `mean_sum_or_avg` - mean_sum_or_avg
@@ -61593,18 +61670,7 @@ export namespace Schemas {
     }
 
     /**
-     * * `metric_threshold` - Metric Threshold
-     * * `agent` - Agent
-     */
-    export type SignalReportCheckKindEnum = typeof SignalReportCheckKindEnum[keyof typeof SignalReportCheckKindEnum];
-
-
-    export const SignalReportCheckKindEnum = {
-      MetricThreshold: 'metric_threshold',
-      Agent: 'agent',
-    } as const;
-
-    /**
+     * * `pending` - Pending
      * * `active` - Active
      * * `passed` - Passed
      * * `failed` - Failed
@@ -61616,6 +61682,7 @@ export namespace Schemas {
 
 
     export const SignalReportCheckStatusEnum = {
+      Pending: 'pending',
       Active: 'active',
       Passed: 'passed',
       Failed: 'failed',
@@ -61623,8 +61690,6 @@ export namespace Schemas {
       Expired: 'expired',
       Cancelled: 'cancelled',
     } as const;
-
-    export type SignalReportCheckConfig = MetricThresholdConfig | AgentCheckConfig;
 
     /**
      * * `passed` - Passed
@@ -61651,8 +61716,9 @@ export namespace Schemas {
        * * `metric_threshold` - Metric Threshold
        * * `agent` - Agent */
       readonly kind: SignalReportCheckKindEnum;
-      /** `active` while the check still runs; every other value is terminal.
+      /** `pending` while the check waits for the report to resolve, `active` while it still runs; every other value is terminal.
        *
+       * * `pending` - Pending
        * * `active` - Active
        * * `passed` - Passed
        * * `failed` - Failed
@@ -61662,8 +61728,13 @@ export namespace Schemas {
       readonly status: SignalReportCheckStatusEnum;
       /** What the check measures and what the result must satisfy; the shape depends on `kind`. `query` and `baseline_value` are null when you cannot read the data they describe. */
       config: SignalReportCheckConfig;
-      /** When the coordinator next evaluates the check. */
+      /** When the coordinator next evaluates the check. Provisional while the check is `pending`: the report resolving is what sets it. */
       readonly next_run_at: string;
+      /**
+         * How long after the report resolves a `pending` check waits before its first run. Null on a check that named its own `next_run_at`.
+         * @nullable
+         */
+      readonly soak_minutes: number | null;
       /**
          * Gap between runs for a recurring check; null for a one-shot.
          * @nullable
@@ -62099,6 +62170,7 @@ export namespace Schemas {
      * * `error_tracking` - Error tracking
      * * `pganalyze` - pganalyze
      * * `signals_scout` - Signals scout
+     * * `signals_check` - Report check
      * * `logs` - Logs
      * * `health_checks` - Health checks
      * * `endpoints` - Endpoints
@@ -62153,6 +62225,7 @@ export namespace Schemas {
       ErrorTracking: 'error_tracking',
       Pganalyze: 'pganalyze',
       SignalsScout: 'signals_scout',
+      SignalsCheck: 'signals_check',
       Logs: 'logs',
       HealthChecks: 'health_checks',
       Endpoints: 'endpoints',
@@ -80839,6 +80912,7 @@ export namespace Schemas {
      * * `endpoints` - endpoints
      * * `pganalyze` - pganalyze
      * * `signals_scout` - signals_scout
+     * * `signals_check` - signals_check
      * * `logs` - logs
      * * `health_checks` - health_checks
      * * `replay_vision` - replay_vision
@@ -80893,6 +80967,7 @@ export namespace Schemas {
       Endpoints: 'endpoints',
       Pganalyze: 'pganalyze',
       SignalsScout: 'signals_scout',
+      SignalsCheck: 'signals_check',
       Logs: 'logs',
       HealthChecks: 'health_checks',
       ReplayVision: 'replay_vision',
@@ -80956,6 +81031,7 @@ export namespace Schemas {
      * * `ci_broken_default_branch` - ci_broken_default_branch
      * * `ci_duration_regression` - ci_duration_regression
      * * `search_opportunity` - search_opportunity
+     * * `check_failed` - check_failed
      */
     export type SignalSourceType = typeof SignalSourceType[keyof typeof SignalSourceType];
 
@@ -80983,6 +81059,7 @@ export namespace Schemas {
       CiBrokenDefaultBranch: 'ci_broken_default_branch',
       CiDurationRegression: 'ci_duration_regression',
       SearchOpportunity: 'search_opportunity',
+      CheckFailed: 'check_failed',
     } as const;
 
     export interface SessionProblemEventEntry {
@@ -81107,7 +81184,7 @@ export namespace Schemas {
       createdDate: string | null;
     }
 
-    export type SignalExtra = SessionProblemSignalExtra | LlmEvalSignalExtra | LlmEvalReportSignalExtra | ZendeskTicketSignalExtra | GithubIssueSignalExtra | LinearIssueSignalExtra | JiraIssueSignalExtra | ConversationsTicketSignalExtra | ErrorTrackingSignalExtra | PgAnalyzeIssueSignalExtra | EndpointExecutionFailedSignalExtra | EndpointBreakdownLimitExceededSignalExtra | SignalsScoutSignalExtra | LogsAlertStateChangeSignalExtra | ReplayVisionScannerFindingSignalExtra | AnalyticsAnomalyInvestigationSignalExtra | HealthCheckSignalExtra | EngineeringAnalyticsCIFlakyCheckSignalExtra | EngineeringAnalyticsCIBrokenDefaultBranchSignalExtra | EngineeringAnalyticsCIDurationRegressionSignalExtra | FreshdeskTicketSignalExtra | FreshserviceTicketSignalExtra | FrontConversationSignalExtra | GorgiasTicketSignalExtra | KustomerConversationSignalExtra | DixaConversationSignalExtra | PlainThreadSignalExtra | GitlabIssueSignalExtra | GiteaIssueSignalExtra | ShortcutStorySignalExtra | SentryIssueSignalExtra | RollbarItemSignalExtra | BugsnagErrorSignalExtra | HoneybadgerFaultSignalExtra | RaygunErrorGroupSignalExtra | SnykScannerFindingSignalExtra | SonarqubeScannerFindingSignalExtra | SemgrepScannerFindingSignalExtra | Rapid7InsightvmScannerFindingSignalExtra | FeaturebaseFeedbackSignalExtra | FrillFeedbackSignalExtra | AhaFeedbackSignalExtra | UservoiceFeedbackSignalExtra | ProductboardFeedbackSignalExtra | CannyFeedbackSignalExtra | AsknicelyFeedbackSignalExtra | RetentlyFeedbackSignalExtra | AppfiguresReviewSignalExtra | AppfollowReviewSignalExtra | JudgemeReviewsReviewSignalExtra | IntercomTicketSignalExtra | HubspotTicketSignalExtra | GoogleSearchConsoleSearchOpportunitySignalExtra;
+    export type SignalExtra = SessionProblemSignalExtra | LlmEvalSignalExtra | LlmEvalReportSignalExtra | ZendeskTicketSignalExtra | GithubIssueSignalExtra | LinearIssueSignalExtra | JiraIssueSignalExtra | ConversationsTicketSignalExtra | ErrorTrackingSignalExtra | PgAnalyzeIssueSignalExtra | EndpointExecutionFailedSignalExtra | EndpointBreakdownLimitExceededSignalExtra | SignalsScoutSignalExtra | CheckFailedSignalExtra | LogsAlertStateChangeSignalExtra | ReplayVisionScannerFindingSignalExtra | AnalyticsAnomalyInvestigationSignalExtra | HealthCheckSignalExtra | EngineeringAnalyticsCIFlakyCheckSignalExtra | EngineeringAnalyticsCIBrokenDefaultBranchSignalExtra | EngineeringAnalyticsCIDurationRegressionSignalExtra | FreshdeskTicketSignalExtra | FreshserviceTicketSignalExtra | FrontConversationSignalExtra | GorgiasTicketSignalExtra | KustomerConversationSignalExtra | DixaConversationSignalExtra | PlainThreadSignalExtra | GitlabIssueSignalExtra | GiteaIssueSignalExtra | ShortcutStorySignalExtra | SentryIssueSignalExtra | RollbarItemSignalExtra | BugsnagErrorSignalExtra | HoneybadgerFaultSignalExtra | RaygunErrorGroupSignalExtra | SnykScannerFindingSignalExtra | SonarqubeScannerFindingSignalExtra | SemgrepScannerFindingSignalExtra | Rapid7InsightvmScannerFindingSignalExtra | FeaturebaseFeedbackSignalExtra | FrillFeedbackSignalExtra | AhaFeedbackSignalExtra | UservoiceFeedbackSignalExtra | ProductboardFeedbackSignalExtra | CannyFeedbackSignalExtra | AsknicelyFeedbackSignalExtra | RetentlyFeedbackSignalExtra | AppfiguresReviewSignalExtra | AppfollowReviewSignalExtra | JudgemeReviewsReviewSignalExtra | IntercomTicketSignalExtra | HubspotTicketSignalExtra | GoogleSearchConsoleSearchOpportunitySignalExtra;
 
     export type SignalMatchMetadata = MatchedMetadata | NoMatchMetadata;
 
@@ -81129,6 +81206,7 @@ export namespace Schemas {
        * * `endpoints` - endpoints
        * * `pganalyze` - pganalyze
        * * `signals_scout` - signals_scout
+       * * `signals_check` - signals_check
        * * `logs` - logs
        * * `health_checks` - health_checks
        * * `replay_vision` - replay_vision
@@ -81191,7 +81269,8 @@ export namespace Schemas {
        * * `ci_flaky_check` - ci_flaky_check
        * * `ci_broken_default_branch` - ci_broken_default_branch
        * * `ci_duration_regression` - ci_duration_regression
-       * * `search_opportunity` - search_opportunity */
+       * * `search_opportunity` - search_opportunity
+       * * `check_failed` - check_failed */
       source_type: SignalSourceType;
       /** Emitter-scoped id of the underlying object (issue, ticket, ...). */
       source_id: string;
@@ -83285,6 +83364,29 @@ export namespace Schemas {
     }
 
     /**
+     * One check as a scout run reads it back.
+     */
+    export interface ScoutCheckSummary {
+      /** The check. */
+      check_id: string;
+      /** The report it is attached to. */
+      report_id: string;
+      /** The expectation the check states. */
+      title: string;
+      /** `metric_threshold` (the coordinator measures it) or `agent` (a run does). */
+      kind: string;
+      /** `pending` while the check waits for the report to resolve, `active` while it still runs; every other value is terminal. */
+      status: string;
+      /** When the check next runs. Provisional while it is `pending`. */
+      next_run_at: string;
+      /**
+         * Verdict of the most recent run; null before the first.
+         * @nullable
+         */
+      last_outcome: string | null;
+    }
+
+    /**
      * What one scout spent in the window, and what it produced for that spend.
      */
     export interface ScoutCost {
@@ -84167,49 +84269,6 @@ export namespace Schemas {
       failed_count: number;
       /** Number of requested ids not visible to the caller. */
       not_found_count: number;
-    }
-
-    /**
-     * Request body for creating a check on a report.
-     *
-     * The schedule is the check's own: `next_run_at` says when to look, rather than the system
-     * deriving a soak window from a merged pull request that many fixes never have.
-     */
-    export interface SignalReportCheckWrite {
-      /**
-         * Short label for the expectation, e.g. `Checkout 500s stay below 10 a day`.
-         * @maxLength 200
-         */
-      title: string;
-      /**
-         * Why the check is worth running.
-         * @maxLength 2000
-         */
-      rationale?: string;
-      /** How the check is evaluated.
-       *
-       * * `metric_threshold` - Metric Threshold
-       * * `agent` - Agent */
-      kind: SignalReportCheckKindEnum;
-      /** What the check measures and what the result must satisfy; the shape depends on `kind`. */
-      config: SignalReportCheckConfig;
-      /** When to first evaluate the check. Must be in the future and within 90 days. Defaults to 7 days from now. */
-      next_run_at?: string;
-      /**
-         * Gap between runs for a recurring check, between 360 and 129600 minutes. Omit for a one-shot check.
-         * @minimum 360
-         * @maximum 129600
-         * @nullable
-         */
-      run_interval_minutes?: number | null;
-      /**
-         * How many times to evaluate the check, at most 10. Defaults to 1.
-         * @minimum 1
-         * @maximum 10
-         */
-      runs_remaining?: number;
-      /** Horizon after which the check retires unrun. Defaults to 30 days after the last scheduled run, or the 90-day horizon if that comes first. */
-      expires_at?: string;
     }
 
     export interface SignalReportClaim {
@@ -108115,6 +108174,13 @@ export namespace Schemas {
      * @minLength 1
      */
     text?: string;
+    };
+
+    export type SignalsScoutReportChecksListParams = {
+    /**
+     * The report whose checks to list.
+     */
+    report_id: string;
     };
 
     export type SignalsScoutRunsCostsParams = {
