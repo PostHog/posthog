@@ -47,6 +47,7 @@ var queryStarters = []catalog.Entry{{Name: "SELECT"}, {Name: "WITH"}}
 var betweenSeparator = []string{"AND"}
 var predicateContinuations = []string{"AND", "OR", "GROUP BY", "ORDER BY", "LIMIT"}
 var joinPredicateContinuations = []string{"AND", "OR", "WHERE", "GROUP BY", "ORDER BY", "LIMIT"}
+var joinPredicateContinuationsBeforeJoin = []string{"AND", "OR"}
 var caseExpressionKeywords = []string{"CASE", "WHEN", "THEN", "ELSE", "END", "NULL", "TRUE", "FALSE", "NOT"}
 var comparisonOperators = []string{"=", "!=", "<", "<=", ">", ">=", "LIKE", "ILIKE", "IN", "NOT IN", "IS NULL", "IS NOT NULL", "BETWEEN", "NOT BETWEEN"}
 var commonFunctions = []string{"avg", "coalesce", "count", "countDistinct", "countIf", "if", "max", "min", "now", "sum", "sumIf", "toDate", "toDateTime", "uniq", "uniqExact"}
@@ -145,7 +146,7 @@ func Complete(schema *catalog.PreparedCatalog, query string, position int, posit
 	} else if mode == completionModeJoinPredicateContinuation {
 		continuations := joinPredicateContinuations
 		if laterJoinAtCursor(query, position) {
-			continuations = predicateContinuations
+			continuations = joinPredicateContinuationsBeforeJoin
 		}
 		suggestions = appendNamed(suggestions, continuations, lowerPrefix, "keyword", "")
 	} else if mode == completionModePostExpression {
@@ -155,7 +156,7 @@ func Complete(schema *catalog.PreparedCatalog, query string, position int, posit
 		suggestions = appendNamed(suggestions, comparisonOperators, lowerPrefix, "operator", "")
 		continuations := joinPredicateContinuations
 		if laterJoinAtCursor(query, position) {
-			continuations = predicateContinuations
+			continuations = joinPredicateContinuationsBeforeJoin
 		}
 		suggestions = appendNamed(suggestions, continuations, lowerPrefix, "keyword", "")
 	} else {

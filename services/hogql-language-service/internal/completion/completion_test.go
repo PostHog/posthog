@@ -836,6 +836,7 @@ func TestCompletesSQLSyntaxForCursorContext(t *testing.T) {
 		label      string
 		kind       string
 		insertText string
+		required   []string
 		excluded   []string
 		total      int
 	}{
@@ -859,7 +860,8 @@ func TestCompletesSQLSyntaxForCursorContext(t *testing.T) {
 		{name: "no where inside join parentheses", query: "SELECT * FROM events AS e JOIN events AS other ON (e.uuid = other.uuid ", position: len("SELECT * FROM events AS e JOIN events AS other ON (e.uuid = other.uuid "), label: "AND", kind: "keyword", insertText: "AND", excluded: []string{"WHERE"}},
 		{name: "no where within join between bounds", query: "SELECT * FROM orders AS a JOIN orders AS b ON a.amount BETWEEN 1 ", position: len("SELECT * FROM orders AS a JOIN orders AS b ON a.amount BETWEEN 1 "), label: "AND", kind: "keyword", insertText: "AND", total: 1},
 		{name: "where after joined ctes before order by", query: "WITH a AS (SELECT uuid FROM events WHERE event = 'demo'), b AS (SELECT uuid FROM events) SELECT a.uuid FROM a LEFT JOIN b ON a.uuid = b.uuid\n\nORDER BY a.uuid", position: len("WITH a AS (SELECT uuid FROM events WHERE event = 'demo'), b AS (SELECT uuid FROM events) SELECT a.uuid FROM a LEFT JOIN b ON a.uuid = b.uuid\n"), label: "WHERE", kind: "keyword", insertText: "WHERE"},
-		{name: "no where before later join", query: "SELECT * FROM events AS e JOIN events AS other ON e.uuid = other.uuid  JOIN persons AS p ON 1 = 1", position: len("SELECT * FROM events AS e JOIN events AS other ON e.uuid = other.uuid "), label: "AND", kind: "keyword", insertText: "AND", excluded: []string{"WHERE"}},
+		{name: "only boolean continuations after join predicate before later join", query: "SELECT * FROM events AS e JOIN events AS other ON e.uuid = other.uuid  JOIN persons AS p ON 1 = 1", position: len("SELECT * FROM events AS e JOIN events AS other ON e.uuid = other.uuid "), label: "AND", kind: "keyword", insertText: "AND", required: []string{"OR"}, excluded: []string{"WHERE", "GROUP BY", "ORDER BY", "LIMIT"}, total: 2},
+		{name: "comparison and boolean continuations after join expression before later join", query: "SELECT * FROM events AS e JOIN events AS other ON TRUE  JOIN persons AS p ON 1 = 1", position: len("SELECT * FROM events AS e JOIN events AS other ON TRUE "), label: "=", kind: "operator", insertText: "=", required: []string{"AND", "OR"}, excluded: []string{"WHERE", "GROUP BY", "ORDER BY", "LIMIT"}},
 		{name: "nested later join does not suppress where", query: "SELECT * FROM events AS e JOIN events AS other ON e.uuid = other.uuid  ORDER BY (SELECT 1 FROM events JOIN persons ON 1 = 1)", position: len("SELECT * FROM events AS e JOIN events AS other ON e.uuid = other.uuid "), label: "WHERE", kind: "keyword", insertText: "WHERE"},
 		{name: "join in comment does not suppress where", query: "SELECT * FROM events AS e JOIN events AS other ON e.uuid = other.uuid  /* JOIN persons */ ORDER BY e.uuid", position: len("SELECT * FROM events AS e JOIN events AS other ON e.uuid = other.uuid "), label: "WHERE", kind: "keyword", insertText: "WHERE"},
 		{name: "join in string does not suppress where", query: "SELECT * FROM events AS e JOIN events AS other ON e.uuid = other.uuid  ORDER BY 'JOIN persons'", position: len("SELECT * FROM events AS e JOIN events AS other ON e.uuid = other.uuid "), label: "WHERE", kind: "keyword", insertText: "WHERE"},
@@ -906,6 +908,11 @@ func TestCompletesSQLSyntaxForCursorContext(t *testing.T) {
 			suggestion, ok := findSuggestion(result.Suggestions, test.label)
 			if !ok || suggestion.Kind != test.kind || suggestion.InsertText != test.insertText {
 				t.Fatalf("suggestion %q = %#v; all suggestions = %#v; parse error = %q", test.label, suggestion, result.Suggestions, result.ParseError)
+			}
+			for _, required := range test.required {
+				if !hasSuggestion(result.Suggestions, required) {
+					t.Fatalf("missing suggestion %q in %#v", required, result.Suggestions)
+				}
 			}
 			for _, excluded := range test.excluded {
 				if hasSuggestion(result.Suggestions, excluded) {
