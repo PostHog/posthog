@@ -757,6 +757,27 @@ class TestSingleTableRunIsUntouched:
         assert v3_pipeline_class(MagicMock(lanes=[OutputLane(name="users_cdc")])) is LanedPipelineV3
 
 
+class TestFinalizeStagesTheWatermarkFirst:
+    @pytest.mark.asyncio
+    async def test_desc_watermark_is_staged_before_the_final_batch_notification(self) -> None:
+        pipeline = _make_pipeline()
+        pipeline._batch_results = [MagicMock()]
+        pipeline._last_incremental_field_value = None
+        order: list[str] = []
+        pipeline._send_final_batches = AsyncMock(side_effect=lambda *_a, **_k: order.append("send"))  # type: ignore[method-assign]
+
+        with (
+            patch(
+                f"{_PIPELINE}.finalize_desc_sort_incremental_value",
+                AsyncMock(side_effect=lambda *_a, **_k: order.append("stage")),
+            ),
+            patch(f"{_PIPELINE}.advance_xmin_state", AsyncMock()),
+        ):
+            await pipeline._finalize(row_count=1)
+
+        assert order == ["stage", "send"]
+
+
 class TestZeroBatchRunStampsTheFullRunMarker:
     @pytest.mark.asyncio
     async def test_a_run_that_extracted_nothing_still_counts_as_a_full_run(self) -> None:
