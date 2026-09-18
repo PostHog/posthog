@@ -53,7 +53,7 @@ from products.alerts.backend.facade.temporal import (
     AlertsProductTelemetryInterceptor,
 )
 from products.alerts.backend.logic import demand
-from products.alerts.backend.models import PlatformAlertConfiguration
+from products.alerts.backend.models import PlatformAlert, PlatformAlertConfiguration
 from products.alerts.backend.temporal import postgres
 from products.alerts.backend.temporal.workflows import (
     AlertsProductEvaluateWorkflow,
@@ -451,10 +451,26 @@ class TestDemandDiscovery(APIBaseTest):
     def _key(self, minutes_ago: int) -> AlertBatchKey:
         return AlertBatchKey(team_id=self.team.id, slot=(self.tick - dt.timedelta(minutes=minutes_ago)).isoformat())
 
-    def test_only_enabled_and_due_configurations_become_keys(self) -> None:
+    def _alert(self, configuration, *, state: str, snooze_until: dt.datetime | None = None) -> None:
+        with team_scope(self.team.id):
+            PlatformAlert.objects.create(
+                team=self.team,
+                configuration=configuration,
+                grouping_key="",
+                state=state,
+                snooze_until=snooze_until,
+            )
+
+    def test_only_enabled_due_and_unsuppressed_configurations_become_keys(self) -> None:
         self._configuration(minutes_ago=1, name="due")
         self._configuration(minutes_ago=-1, name="not yet due")
         self._configuration(minutes_ago=1, enabled=False, name="disabled")
+        self._alert(self._configuration(minutes_ago=2, name="broken"), state=PlatformAlert.State.BROKEN)
+        self._alert(
+            self._configuration(minutes_ago=3, name="snoozed"),
+            state=PlatformAlert.State.SNOOZED,
+            snooze_until=self.tick + dt.timedelta(hours=1),
+        )
 
         discovered = demand.discover_demand(self.tick.isoformat())
 

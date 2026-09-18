@@ -8,7 +8,7 @@ from collections.abc import Sequence
 from datetime import datetime
 
 from django.db import transaction
-from django.db.models import Q
+from django.db.models import Exists, OuterRef, Q
 
 from products.alerts.backend.facade.contracts import PlatformAlertCheck, PlatformAlertOutcome, PlatformAlertUpsert
 from products.alerts.backend.facade.scheduling import (
@@ -55,12 +55,36 @@ def _alerts_for_write(team_id: int, configurations: Sequence[PlatformAlertConfig
     return existing
 
 
+def suppressed(cutoff: datetime) -> Exists:
+    """Configurations a runtime state holds back, mirroring the source stacks' `due_alerts_q`.
+
+    Those stacks read both states off the configuration row. Here they live on `PlatformAlert`,
+    so discovery and the batch read both reach for this rather than each writing the predicate
+    out. If the two disagreed, a broken alert would be dispatched by one and dropped by the
+    other, every tick, in silence.
+
+    Excluded as one `Exists` rather than as a lookup across the relation. Django splits an
+    excluded multi-valued lookup into a subquery per leaf, which lets the three conditions match
+    three different alert rows once a source writes a real grouping key, and buries them where
+    Postgres cannot lift them into an anti-join.
+    """
+    # `unscoped` because the subquery runs without ambient scope in both callers, and it is
+    # correlated to a configuration the outer query has already scoped, so the foreign key keeps
+    # it inside that team.
+    return Exists(
+        PlatformAlert.objects.unscoped()
+        .filter(configuration=OuterRef("pk"), grouping_key="")
+        .filter(Q(state=PlatformAlert.State.BROKEN) | Q(state=PlatformAlert.State.SNOOZED, snooze_until__gt=cutoff))
+    )
+
+
 def due_checks(team_id: int, source_kind: str, slot: str, cutoff: datetime) -> tuple[PlatformAlertCheck, ...]:
     """Every configuration in one batch key, with its runtime state, ready to evaluate."""
     configurations = list(
         PlatformAlertConfiguration.objects.for_team(team_id)
         .filter(enabled=True, source_kind=source_kind)
         .filter(due_q(cutoff))
+        .exclude(suppressed(cutoff))
         # Ordered so a retried attempt keeps the same alerts under any downstream cap.
         .order_by("id")
     )

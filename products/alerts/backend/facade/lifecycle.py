@@ -351,6 +351,18 @@ def apply_user_reset(snapshot: StatefulSnapshot) -> ControlPlaneOutcome:
     return ControlPlaneOutcome(new_state=AlertState.NOT_FIRING, consecutive_failures=0)
 
 
+def apply_broken_config(snapshot: StatefulSnapshot) -> ControlPlaneOutcome:
+    """A configuration that cannot be evaluated at all, whatever the data says.
+
+    The failure counter survives, because it records checks that ran and failed. A user who
+    fixes the configuration resets it through `apply_user_reset`.
+    """
+    return ControlPlaneOutcome(
+        new_state=AlertState.BROKEN,
+        consecutive_failures=snapshot.consecutive_failures,
+    )
+
+
 def apply_disable(snapshot: StatefulSnapshot) -> ControlPlaneOutcome:
     # Preserve consecutive_failures so re-enable without reset doesn't silently
     # wipe forensic state.
