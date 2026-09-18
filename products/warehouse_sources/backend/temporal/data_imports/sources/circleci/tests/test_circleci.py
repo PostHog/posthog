@@ -618,9 +618,9 @@ class TestComponentVersionsFanOut:
         assert rows[1]["namespace"] == ""
 
     @mock.patch(PATCH_SESSION)
-    def test_repeated_page_token_stops_pagination(self, mock_session):
+    def test_repeated_page_token_fails_the_run(self, mock_session):
         # The versions endpoint documents no page-token param; if it ignores ours it hands
-        # back the same token forever.
+        # back the same token forever. Truncating there would publish a partial table.
         _route_session(
             mock_session,
             {
@@ -629,14 +629,9 @@ class TestComponentVersionsFanOut:
                 "/api/v2/deploy/components/c1/versions": _page([{"name": "1.0.0"}], "same-token"),
             },
         )
-        logger = mock.MagicMock()
 
-        batches = list(get_rows("token", "gh/posthog", "component_versions", logger, _make_manager()))
-
-        assert len(batches) == 2
-        version_urls = [url for url in _requested_urls(mock_session) if "/versions" in url]
-        assert len(version_urls) == 2
-        assert "repeated page token" in logger.warning.call_args.args[0]
+        with pytest.raises(ValueError, match="same page token twice"):
+            list(get_rows("token", "gh/posthog", "component_versions", mock.MagicMock(), _make_manager()))
 
 
 class TestUsersRows:

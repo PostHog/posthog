@@ -1,4 +1,3 @@
-import dataclasses
 from collections.abc import Callable, Iterator
 from typing import Any, Optional
 from urllib.parse import quote, urlencode
@@ -6,6 +5,8 @@ from urllib.parse import quote, urlencode
 import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import RetryCallState, retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.circleci.settings import CIRCLECI_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
@@ -59,7 +60,7 @@ def _retry_wait(retry_state: RetryCallState) -> float:
     return _EXPONENTIAL_WAIT(retry_state)
 
 
-@dataclasses.dataclass
+@frozen
 class CircleCIResumeConfig:
     # Page token for the endpoint's top-level scan (pipelines, or deploy components for the
     # components streams). Fan-out streams also resume on it: children of fully processed
@@ -189,11 +190,12 @@ def _iter_pages(
             return
 
         if next_token == page_token:
-            # The component versions endpoint returns a next_page_token while documenting no
-            # page-token param. If it ignores ours we would re-fetch the same page until the
-            # cap, so treat a repeated token as the end of the list.
-            logger.warning(f"CircleCI: repeated page token for {resource}, stopping pagination. path={path}")
-            return
+            # CircleCI ends a list with a null next_page_token, never with a repeat, so the
+            # endpoint ignored our page-token and is serving the same page again. Stopping
+            # here would publish a truncated table on a full refresh, so fail the run.
+            raise ValueError(
+                f"CircleCI returned the same page token twice for {resource}, so pagination cannot advance. path={path}"
+            )
 
         if pages_fetched >= max_pages:
             logger.warning(
