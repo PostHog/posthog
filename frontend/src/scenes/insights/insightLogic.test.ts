@@ -639,22 +639,29 @@ describe('insightLogic', () => {
         await expectLogic(dashboardsModel).toDispatchActions(['updateDashboardInsight'])
     })
 
-    test('updateInsight resolves id from short_id when id is missing', async () => {
-        // Simulates the race condition where updateInsight fires before loadInsight
-        // completes: the insight has a short_id but no numeric id yet (e.g. when
-        // adding to a dashboard immediately after saving a new insight).
+    test.each([
+        [
+            'updateInsight',
+            (): void => logic.actions.updateInsight({ dashboards: [MOCK_DASHBOARD_ID] }),
+            'updateInsightSuccess',
+        ],
+        [
+            'setInsightMetadata',
+            (): void => logic.actions.setInsightMetadata({ name: 'updated name' }),
+            'setInsightMetadataSuccess',
+        ],
+    ])('%s resolves id from short_id when id is missing', async (_name, trigger, successAction) => {
+        // Simulates the race where the update fires before loadInsight completes: the insight
+        // has a short_id but no numeric id yet, which is what createEmptyInsight produces.
         logic = insightLogic({
             dashboardItemId: Insight42,
             cachedInsight: {
                 short_id: Insight42,
-                // no `id` field — mirrors createEmptyInsight output
             },
         })
         logic.mount()
 
-        await expectLogic(logic, () => {
-            logic.actions.updateInsight({ dashboards: [MOCK_DASHBOARD_ID] })
-        }).toDispatchActions(['updateInsightSuccess'])
+        await expectLogic(logic, trigger).toDispatchActions([successAction])
     })
 
     test('after save as from a dashboard tile, the editor state stays on the tile insight until navigation opens the copy', async () => {
