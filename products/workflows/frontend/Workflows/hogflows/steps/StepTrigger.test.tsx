@@ -104,6 +104,27 @@ describe('StepTriggerConfiguration', () => {
         })
     })
 
+    it('keeps a condition added while the CSV was still uploading', async () => {
+        renderBatchTrigger()
+
+        const file = new File(['a@example.com'], 'launch-list.csv', { type: 'text/csv' })
+        const input = document.querySelector('input[type="file"]') as HTMLInputElement
+        fireEvent.change(input, { target: { files: [file] } })
+
+        const addedWhileUploading = { type: 'hogql', key: "properties.plan = 'pro'" }
+        workflowLogic(LOGIC_PROPS).actions.partialSetWorkflowActionConfig('trigger_node', {
+            filters: { properties: [addedWhileUploading] },
+        } as Partial<TriggerAction['config']>)
+
+        await waitFor(() => {
+            const trigger = workflowLogic(LOGIC_PROPS).values.workflow.trigger as TriggerAction['config']
+            expect((trigger as Extract<TriggerAction['config'], { type: 'batch' }>).filters?.properties).toEqual([
+                addedWhileUploading,
+                { type: 'cohort', key: 'id', value: 42, operator: 'in', cohort_name: 'launch-list' },
+            ])
+        })
+    })
+
     it('keeps a stored global property filter when the trigger events change', async () => {
         const properties = [{ type: 'hogql', key: "properties.plan = 'pro'" }] as NonNullable<
             HogFlowAction['filters']
