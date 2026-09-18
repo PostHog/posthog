@@ -7,6 +7,7 @@ import { eventPropertyFilteringLogic } from 'lib/components/EventPropertyTabs/ev
 import { HTMLElementsDisplay } from 'lib/components/HTMLElementsDisplay/HTMLElementsDisplay'
 import { dayjs } from 'lib/dayjs'
 import { LemonTab, LemonTabs, LemonTabsProps } from 'lib/lemon-ui/LemonTabs'
+import { Link } from 'lib/lemon-ui/Link'
 import { isKeyOf } from 'lib/utils/guards'
 import { isSurveyResponseEvent } from 'scenes/surveys/utils'
 
@@ -25,7 +26,7 @@ export interface TabContentComponentFnProps {
     tabKey: EventPropertyTabKey
 }
 
-type EventPropertyTabKey =
+export type EventPropertyTabKey =
     | 'properties'
     | 'flags'
     | 'image'
@@ -42,6 +43,73 @@ type EventPropertyTabKey =
     | 'metadata'
     | 'survey_response'
     | 'mcp'
+
+interface PropertyGroupCopy {
+    description: JSX.Element | string
+    /** Only the tabs that can render with no properties need one. The others are hidden when their group is empty. */
+    emptyMessage?: string
+}
+
+const PROPERTY_GROUP_COPY: Partial<Record<EventPropertyTabKey, PropertyGroupCopy>> = {
+    properties: {
+        description: 'Properties sent with this event.',
+        emptyMessage: 'This event has no properties.',
+    },
+    metadata: {
+        description: 'Core fields PostHog records for every event.',
+    },
+    flags: {
+        description: 'Feature flags that were active when this event was sent.',
+        emptyMessage: 'No feature flags were active when this event was sent.',
+    },
+    $set_properties: {
+        description: (
+            <>
+                Person properties sent with this event. Will replace any property value that may have been set on this
+                person profile before now.{' '}
+                <Link to="https://posthog.com/docs/getting-started/person-properties">Learn more</Link>
+            </>
+        ),
+    },
+    $set_once_properties: {
+        description: (
+            <>
+                "Set once" person properties sent with this event. Will replace any property value that has never been
+                set on this person profile before now.{' '}
+                <Link to="https://posthog.com/docs/getting-started/person-properties">Learn more</Link>
+            </>
+        ),
+    },
+    exception_properties: {
+        description: 'Internal properties that PostHog uses to display information about exceptions.',
+    },
+    debug_properties: {
+        description: 'Properties that PostHog uses to help debug issues with the SDKs.',
+    },
+}
+
+/** Names the property group a tab lists, so each tab reads differently from the one before it. */
+export function EventPropertyTabContent({
+    tabKey,
+    properties,
+    children,
+}: {
+    tabKey: EventPropertyTabKey
+    properties: Record<string, any>
+    children: JSX.Element
+}): JSX.Element {
+    const copy = PROPERTY_GROUP_COPY[tabKey]
+    if (!copy) {
+        return children
+    }
+    const isEmpty = Object.keys(properties).length === 0
+    return (
+        <>
+            <p className="text-secondary text-xs mb-2">{copy.description}</p>
+            {isEmpty && copy.emptyMessage ? <p className="text-secondary">{copy.emptyMessage}</p> : children}
+        </>
+    )
+}
 
 export const EventPropertyTabs = ({
     event,
@@ -251,10 +319,14 @@ export const EventPropertyTabs = ({
             content: tabContentComponentFn({ event, properties, tabKey: 'raw' }),
         },
     ]
+    // A conditional tab disappears when the event object is replaced, and LemonTabs renders nothing
+    // for a key it cannot find, so fall back to the tab that is always there.
+    const activeKey = tabs.some((tab) => tab && tab.key === activeTab) ? activeTab : 'properties'
+
     return (
         <LemonTabs
             {...lemonTabsProps}
-            activeKey={activeTab}
+            activeKey={activeKey}
             onChange={(newKey: EventPropertyTabKey) => setActiveTab(newKey)}
             tabs={tabs}
         />

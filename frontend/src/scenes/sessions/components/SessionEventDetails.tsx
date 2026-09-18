@@ -1,5 +1,5 @@
 import { ErrorDisplay } from 'lib/components/Errors/ErrorDisplay'
-import { EventPropertyTabs } from 'lib/components/EventPropertyTabs/EventPropertyTabs'
+import { EventPropertyTabContent, EventPropertyTabs } from 'lib/components/EventPropertyTabs/EventPropertyTabs'
 import { SimpleKeyValueList } from 'lib/components/SimpleKeyValueList'
 import { dayjs } from 'lib/dayjs'
 import { Spinner } from 'lib/lemon-ui/Spinner'
@@ -51,7 +51,11 @@ export function SessionEventDetails({ event, errorDisplayIdSuffix }: SessionEven
                                 </pre>
                             )
                         default:
-                            return <SimpleKeyValueList item={properties} promotedKeys={promotedKeys} />
+                            return (
+                                <EventPropertyTabContent tabKey={tabKey} properties={properties}>
+                                    <SimpleKeyValueList item={properties} promotedKeys={promotedKeys} />
+                                </EventPropertyTabContent>
+                            )
                     }
                 }}
             />
