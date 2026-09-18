@@ -42,7 +42,10 @@ from products.warehouse_sources.backend.temporal.data_imports.workload_report im
 
 if TYPE_CHECKING:
     from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
-    from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+    from products.warehouse_sources.backend.models.external_data_schema import (
+        ExternalDataSchema,
+        ProcessedIncrementalValue,
+    )
     from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
     from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.import_data_sync import (
         ImportDataActivityInputs,
@@ -729,7 +732,7 @@ async def seed_desc_sort_incremental_value(
     should_resume: bool,
     logger: FilteringBoundLogger,
     log_prefix: str = "",
-) -> Any:
+) -> "ProcessedIncrementalValue | None":
     """Return the high-water mark an earlier attempt of this run staged, for a resumed desc extract.
 
     A resumed attempt continues from the previous attempt's checkpoint, so every row it reads is older

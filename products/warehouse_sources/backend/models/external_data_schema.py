@@ -40,6 +40,9 @@ if TYPE_CHECKING:
     from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
 
 type IncrementalFieldValue = str | int | float | None
+# A stored cursor after process_incremental_value: the serialized form above, widened by the
+# datetime or date a DateTime, Timestamp or Date field parses to.
+type ProcessedIncrementalValue = datetime | date | str | int | float
 
 # Recorded as the job's latest_error, which the syncs UI shows to the customer.
 SYNC_DISABLED_JOB_ERROR = "Sync stopped because syncing was turned off"
@@ -925,7 +928,7 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         # `_get_before_update` SELECT (see save()).
         self.save(skip_activity_log=True)
 
-    def staged_incremental_last_value_for_run(self, workflow_run_id: str) -> Any:
+    def staged_incremental_last_value_for_run(self, workflow_run_id: str) -> ProcessedIncrementalValue | None:
         """Return the highest `last_value` any attempt of `workflow_run_id` has staged, or None.
 
         Each attempt stages under `{workflow_run_id}-a{attempt}`. A newer attempt displaces the live
@@ -935,7 +938,7 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
             self.sync_type_config.get("incremental_staged"),
             *self.sync_type_config.get("incremental_staged_pending", []),
         ]
-        values = []
+        values: list[ProcessedIncrementalValue] = []
         for entry in entries:
             if not entry or "last_value" not in entry:
                 continue
