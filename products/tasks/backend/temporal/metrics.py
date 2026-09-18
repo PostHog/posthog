@@ -298,6 +298,25 @@ def increment_credential_refresh(kind: str, outcome: str) -> None:
         pass
 
 
+def increment_credential_resolution_failure(kind: str, outcome: str) -> None:
+    """Record a credential resolution failure while a run is being provisioned.
+
+    Unlike `increment_credential_refresh`, which covers the periodic in-sandbox top-up, this
+    counts the failures that end a run before the agent starts. outcome is one of:
+    reauthorization_required (the user must re-link), unavailable (the mint call never reached
+    the provider, so a retry can still work), failed (anything else). Best-effort: a metric
+    failure must never mask the error being reported.
+    """
+    try:
+        meter = _metric_meter({"kind": kind, "outcome": outcome})
+        meter.create_counter(
+            "tasks_credential_resolution_failure",
+            "Credential resolution failures that stop a cloud task run from starting",
+        ).add(1)
+    except Exception:
+        pass
+
+
 def increment_sandbox_wedge_probe(verdict: str, write_stage: str) -> None:
     try:
         meter = _metric_meter({"verdict": verdict, "write_stage": write_stage})

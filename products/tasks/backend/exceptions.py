@@ -278,6 +278,18 @@ class GitHubAuthenticationError(ProcessTaskFatalError):
     pass
 
 
+class GitHubTokenRefreshUnavailableError(ProcessTaskTransientError):
+    """The GitHub token refresh call never reached GitHub — a proxy or network failure.
+
+    The stored tokens are untouched, so resolving again on a later attempt can still work.
+    Retryable, and never captured to error tracking: the fault belongs to the network in
+    front of the call, not to the run, so an issue per shed call is unactionable.
+    """
+
+    def __init__(self, message: str, context: dict[str, Any], cause: BaseException | None = None):
+        ProcessTaskError.__init__(self, message, context, cause, capture=False, non_retryable=False)
+
+
 class CredentialUnavailableError(ProcessTaskFatalError):
     """A sandbox credential can never be resolved again for this run — the backing
     integration row was deleted mid-run or the user must re-authorize.

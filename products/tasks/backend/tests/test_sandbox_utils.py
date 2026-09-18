@@ -7,9 +7,13 @@ from parameterized import parameterized
 
 from posthog.models.github_integration_base import GitHubIntegrationError
 from posthog.models.integration import GitHubIntegration
-from posthog.models.user_integration import ReauthorizationRequired, UserGitHubIntegration
+from posthog.models.user_integration import (
+    GitHubTokenRefreshUnavailable,
+    ReauthorizationRequired,
+    UserGitHubIntegration,
+)
 
-from products.tasks.backend.exceptions import CredentialUnavailableError
+from products.tasks.backend.exceptions import CredentialUnavailableError, GitHubTokenRefreshUnavailableError
 from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import TaskProcessingContext
 from products.tasks.backend.temporal.process_task.utils import (
     can_mint_readonly_github_token,
@@ -238,3 +242,32 @@ def test_reauthorization_required_surfaces_as_credential_unavailable(
 
     with pytest.raises(CredentialUnavailableError):
         _resolve_sandbox_github_token(ctx, task=MagicMock(), actor_user=None, repository="acme/repo", has_repo=True)
+
+
+@patch("products.tasks.backend.temporal.process_task.activities.provision_sandbox.emit_agent_log")
+@patch("products.tasks.backend.temporal.process_task.activities.provision_sandbox.get_sandbox_github_token")
+def test_unreachable_token_refresh_surfaces_as_a_retryable_error(mock_full: MagicMock, _mock_log: MagicMock) -> None:
+    # A proxy or network failure on the refresh call says nothing about the user's GitHub link, so
+    # provisioning must stay retryable. Wrapped in GitHubAuthenticationError instead, one shed
+    # call ends the whole run and reports it as an authentication problem the user cannot fix.
+    from products.tasks.backend.temporal.process_task.activities.provision_sandbox import (  # noqa: PLC0415 — activities import the workflow stack; keep it off this module's import path
+        _resolve_sandbox_github_token,
+    )
+
+    mock_full.side_effect = GitHubTokenRefreshUnavailable("tunnel connection failed")
+    ctx = TaskProcessingContext(
+        task_id="t",
+        run_id="r",
+        team_id=1,
+        team_uuid="u",
+        organization_id="o",
+        github_integration_id=5,
+        repository="acme/repo",
+        distinct_id="d",
+        state={},
+    )
+
+    with pytest.raises(GitHubTokenRefreshUnavailableError) as raised:
+        _resolve_sandbox_github_token(ctx, task=MagicMock(), actor_user=None, repository="acme/repo", has_repo=True)
+
+    assert raised.value.non_retryable is False

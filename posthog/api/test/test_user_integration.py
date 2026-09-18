@@ -7,6 +7,7 @@ from unittest.mock import MagicMock, patch
 
 from django.test import override_settings
 
+import requests
 from parameterized import parameterized
 from rest_framework import status
 
@@ -25,6 +26,7 @@ from posthog.models.integration import (
 )
 from posthog.models.user_integration import (
     GitHubInstallRequest,
+    GitHubTokenRefreshUnavailable,
     ReauthorizationRequired,
     UserGitHubIntegration,
     UserIntegration,
@@ -1125,6 +1127,25 @@ class TestUserGitHubIntegration(APIBaseTest):
         with self.assertRaises(ReauthorizationRequired):
             gh.refresh_user_access_token()
         self.assertFalse(UserIntegration.objects.filter(user=self.user, kind="github").exists())
+
+    @parameterized.expand(
+        [
+            ("proxy", requests.exceptions.ProxyError("Tunnel connection failed: 504 Gateway Timeout")),
+            ("connection", requests.exceptions.ConnectionError("connection reset")),
+            ("timeout", requests.exceptions.ReadTimeout("read timed out")),
+        ]
+    )
+    @override_settings(GITHUB_APP_CLIENT_ID="client_id", GITHUB_APP_CLIENT_SECRET="client_secret")
+    @patch("posthog.models.user_integration.requests.post")
+    def test_refresh_keeps_the_row_when_the_call_never_reaches_github(self, _name, error, mock_post):
+        mock_post.side_effect = error
+
+        gh = self._make_integration()
+        with self.assertRaises(GitHubTokenRefreshUnavailable):
+            gh.refresh_user_access_token()
+        self.assertTrue(UserIntegration.objects.filter(user=self.user, kind="github").exists())
+        gh.integration.refresh_from_db()
+        self.assertEqual(gh.user_refresh_token, "ghr_refresh")
 
     def test_get_usable_user_access_token_raises_when_refresh_token_expired(self):
         now = int(time.time())

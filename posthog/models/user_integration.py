@@ -150,6 +150,15 @@ class ReauthorizationRequired(Exception):
     """The stored GitHub tokens cannot produce a usable access token; user must re-authorize."""
 
 
+class GitHubTokenRefreshUnavailable(Exception):
+    """A transport failure stopped the refresh call from reaching GitHub for an answer.
+
+    GitHub never rejected anything, and the stored tokens are untouched, so a caller can
+    resolve again later. Distinct from :class:`ReauthorizationRequired`, which means the
+    user must re-link their account.
+    """
+
+
 class UserGitHubIntegration(GitHubIntegrationBase):
     """Helper for operating on a GitHub `UserIntegration`.
 
@@ -282,7 +291,9 @@ class UserGitHubIntegration(GitHubIntegrationBase):
         """Exchange the refresh token for a fresh user-to-server access token.
 
         Deletes the integration row and raises :class:`ReauthorizationRequired`
-        when GitHub signals the refresh token can't produce a new access token.
+        when GitHub signals the refresh token can't produce a new access token,
+        and raises :class:`GitHubTokenRefreshUnavailable` when the call never
+        reached GitHub.
         """
         client_id = settings.GITHUB_APP_CLIENT_ID
         client_secret = settings.GITHUB_APP_CLIENT_SECRET
@@ -293,17 +304,21 @@ class UserGitHubIntegration(GitHubIntegrationBase):
             self._discard("no user refresh token stored")
             raise ReauthorizationRequired("No refresh token stored for this GitHub integration.")
 
-        response = requests.post(
-            "https://github.com/login/oauth/access_token",
-            json={
-                "client_id": client_id,
-                "client_secret": client_secret,
-                "grant_type": "refresh_token",
-                "refresh_token": refresh_token,
-            },
-            headers={"Accept": "application/json"},
-            timeout=10,
-        )
+        try:
+            response = requests.post(
+                "https://github.com/login/oauth/access_token",
+                json={
+                    "client_id": client_id,
+                    "client_secret": client_secret,
+                    "grant_type": "refresh_token",
+                    "refresh_token": refresh_token,
+                },
+                headers={"Accept": "application/json"},
+                timeout=10,
+            )
+        # Covers a refused or timed-out egress proxy tunnel too: `ProxyError` is a `ConnectionError`.
+        except (requests.exceptions.ConnectionError, requests.exceptions.Timeout) as e:
+            raise GitHubTokenRefreshUnavailable(f"Could not reach GitHub to refresh the user token: {e}") from e
         try:
             payload = response.json()
         except ValueError:
