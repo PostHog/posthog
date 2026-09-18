@@ -30,7 +30,7 @@ export function SuggestedReviewerReasonGroup({
     }
 
     return (
-        <div className="rounded border bg-primary">
+        <div className="mr-2 -ml-2 rounded border bg-primary">
             <div className="flex flex-col p-1">
                 {reviewers.map((reviewer) => {
                     const displayName = getReviewerDisplayName(reviewer)
