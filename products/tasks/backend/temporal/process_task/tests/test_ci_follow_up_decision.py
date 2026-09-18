@@ -240,7 +240,13 @@ class TestBabysitFollowUpDecision:
         if queued:
             wf._pending_followups.append(PendingFollowup(message="More work", artifact_ids=[]))
         snapshot = _babysit_snapshot(
-            **{"pr_state": "draft", "ci_status": "passing", "mergeable": True, "review_threads_complete": True, **overrides}
+            **{
+                "pr_state": "draft",
+                "ci_status": "passing",
+                "mergeable": True,
+                "review_threads_complete": True,
+                **overrides,
+            }
         )
         executed = []
 
