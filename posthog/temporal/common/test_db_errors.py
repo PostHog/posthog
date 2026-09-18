@@ -2,7 +2,9 @@ import errno
 
 import pytest
 
-from django.db import InterfaceError, InternalError, OperationalError
+from django.db import InterfaceError, InternalError, OperationalError, ProgrammingError
+
+import psycopg.errors
 
 from posthog.temporal.common.db_errors import is_transient_db_error
 
@@ -72,4 +74,21 @@ def test_is_transient_db_error_by_message(error: BaseException, expected: bool) 
 def test_is_transient_db_error_by_sqlstate(error_cls: type[Exception], sqlstate: str, expected: bool) -> None:
     error = error_cls("some driver-specific message")
     error.__cause__ = _WithSqlstate(sqlstate)
+    assert is_transient_db_error(error) is expected
+
+
+@pytest.mark.parametrize(
+    "cause,expected",
+    [
+        # A migration adding a column and the activity code reading it ship in the same deploy;
+        # a worker rolling out ahead of the migration completing gets this from Postgres.
+        (psycopg.errors.UndefinedColumn("column posthog_externaldataschema.auto_disabled_at does not exist"), True),
+        (psycopg.errors.UndefinedTable('relation "sourcebatch" does not exist'), True),
+        # A real bug (e.g. a typo in raw SQL) must keep reaching error tracking.
+        (psycopg.errors.SyntaxErrorOrAccessRuleViolation("syntax error"), False),
+    ],
+)
+def test_is_transient_db_error_for_schema_lag(cause: Exception, expected: bool) -> None:
+    error = ProgrammingError(str(cause))
+    error.__cause__ = cause
     assert is_transient_db_error(error) is expected
