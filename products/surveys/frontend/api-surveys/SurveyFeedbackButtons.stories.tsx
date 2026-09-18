@@ -9,9 +9,10 @@ const meta: Meta<typeof SurveyFeedbackButtons> = {
     args: { onMoreFeedback: () => {} },
     render: function Render(args) {
         const [value, setValue] = useState(args.value)
+        const [submissionId] = useState(() => crypto.randomUUID())
         return (
             <div className="w-96 max-w-full">
-                <SurveyFeedbackButtons {...args} value={value} onChange={setValue} />
+                <SurveyFeedbackButtons {...args} value={value} submissionId={submissionId} onChange={setValue} />
             </div>
         )
     },

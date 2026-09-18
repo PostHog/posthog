@@ -76,6 +76,35 @@ describe('apiSurveyLogic', () => {
         unmount()
     })
 
+    it('keeps the caller submission ID across reopening and retries, with a new ID for a new interaction', async () => {
+        const client = exampleSurveyClient()
+        const capture = jest.spyOn(client, 'capture')
+        const firstId = '00000000-0000-4000-8000-000000000123'
+        const nextId = '00000000-0000-4000-8000-000000000456'
+        for (const submissionId of [firstId, firstId, nextId]) {
+            const logic = apiSurveyLogic({
+                surveyId: exampleApiSurvey.id,
+                instanceId: 'dialog',
+                submissionId,
+                client,
+                context: { $survey_submission_id: 'cannot-override' },
+            })
+            const unmount = logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            logic.actions.setAnswer('goal', 'Find the settings')
+            logic.actions.setAnswer('outcome', 'Yes')
+            capture.mockReturnValueOnce(undefined)
+            logic.actions.submit()
+            logic.actions.submit()
+            expect(capture.mock.calls.slice(-3).map(([, properties]) => properties?.$survey_submission_id)).toEqual([
+                submissionId,
+                submissionId,
+                submissionId,
+            ])
+            unmount()
+        }
+    })
+
     it.each(['missing', 'duplicate IDs', 'branching', 'validation', 'link'] as const)(
         'does not show an incompatible or %s survey',
         async (kind) => {

@@ -64,6 +64,7 @@ export const Dialog: Story = {
     render: (args, { parameters }) => {
         const [isOpen, setIsOpen] = useState(!!parameters.initiallyOpen)
         const titleId = useId()
+        const [submissionId] = useState(() => crypto.randomUUID())
         const [rating, setRating] = useState<SurveyFeedbackRating | undefined>(
             parameters.initiallyOpen ? '1' : undefined
         )
@@ -71,6 +72,7 @@ export const Dialog: Story = {
             <>
                 <SurveyFeedbackButtons
                     value={rating}
+                    submissionId={submissionId}
                     onChange={setRating}
                     onMoreFeedback={() => setIsOpen(true)}
                     expanded={isOpen}
@@ -83,7 +85,13 @@ export const Dialog: Story = {
                     width={520}
                     hasUnsavedInput
                 >
-                    {isOpen && <APISurveyForm {...args} context={{ ...args.context, feedback_rating: rating }} />}
+                    {isOpen && (
+                        <APISurveyForm
+                            {...args}
+                            submissionId={submissionId}
+                            context={{ ...args.context, feedback_rating: rating }}
+                        />
+                    )}
                 </LemonModal>
             </>
         )

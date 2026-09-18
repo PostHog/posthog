@@ -7,6 +7,7 @@ export type SurveyFeedbackRating = '1' | '2'
 
 export function SurveyFeedbackButtons({
     value,
+    submissionId,
     onChange,
     onMoreFeedback,
     loading = false,
@@ -14,8 +15,9 @@ export function SurveyFeedbackButtons({
     expanded = false,
 }: {
     value?: SurveyFeedbackRating
-    onChange: (rating: SurveyFeedbackRating) => void
-    onMoreFeedback: () => void
+    submissionId: string
+    onChange: (rating: SurveyFeedbackRating, submissionId: string) => void
+    onMoreFeedback: (submissionId: string) => void
     loading?: boolean
     disabledReason?: string
     expanded?: boolean
@@ -31,40 +33,45 @@ export function SurveyFeedbackButtons({
     }, [value, loading, disabledReason, expanded])
 
     return (
-        <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Was this helpful?">
-            <span className="text-secondary text-sm">Was this helpful?</span>
-            {(
-                [
-                    { value: '1', label: 'Helpful', icon: <IconThumbsUp /> },
-                    { value: '2', label: 'Not helpful', icon: <IconThumbsDown /> },
-                ] as const
-            ).map((option) => (
-                <LemonButton
-                    key={option.value}
-                    type={value === option.value ? 'primary' : 'secondary'}
-                    size="small"
-                    icon={option.icon}
-                    active={value === option.value}
-                    aria-label={option.label}
-                    aria-pressed={value === option.value}
-                    tooltip={option.label}
-                    loading={loading}
-                    disabledReason={disabledReason}
-                    onClick={() => {
-                        if (value !== option.value) {
-                            pendingFocusRating.current = option.value
-                            onChange(option.value)
-                        }
-                    }}
-                    data-attr={option.value === '1' ? 'api-survey-thumbs-up' : 'api-survey-thumbs-down'}
-                />
-            ))}
-            {value !== undefined && (
+        <div
+            className="flex w-full flex-wrap items-center justify-between gap-2"
+            role="group"
+            aria-label="Survey feedback"
+        >
+            <span className="text-secondary text-sm">
+                {value === undefined ? 'Was this helpful?' : 'Thanks for your feedback.'}
+            </span>
+            {value === undefined ? (
+                <div className="flex items-center gap-2">
+                    {(
+                        [
+                            { value: '1', label: 'Helpful', icon: <IconThumbsUp /> },
+                            { value: '2', label: 'Not helpful', icon: <IconThumbsDown /> },
+                        ] as const
+                    ).map((option) => (
+                        <LemonButton
+                            key={option.value}
+                            type="secondary"
+                            size="small"
+                            icon={option.icon}
+                            aria-label={option.label}
+                            tooltip={option.label}
+                            loading={loading}
+                            disabledReason={disabledReason}
+                            onClick={() => {
+                                pendingFocusRating.current = option.value
+                                onChange(option.value, submissionId)
+                            }}
+                            data-attr={option.value === '1' ? 'api-survey-thumbs-up' : 'api-survey-thumbs-down'}
+                        />
+                    ))}
+                </div>
+            ) : (
                 <LemonButton
                     ref={moreFeedbackRef}
                     className="motion-safe:animate-fade-in"
                     size="small"
-                    onClick={onMoreFeedback}
+                    onClick={() => onMoreFeedback(submissionId)}
                     aria-haspopup="dialog"
                     aria-expanded={expanded}
                     disabledReason={loading ? 'Saving feedback' : disabledReason}

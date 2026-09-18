@@ -23,6 +23,11 @@ The question definition and caller-supplied context are copied when the survey l
 Edits in PostHog do not change an answer already in progress.
 Answers and `$survey_questions` use stable question IDs.
 One complete `survey sent` event contains all nonempty answers and the original submission ID.
+For a quick rating followed by details, create one unique `submissionId` in the caller and pass it to both `SurveyFeedbackButtons` and `APISurveyForm`.
+Use the ID received by the button callbacks as `$survey_submission_id` when capturing the quick rating, with the same `$survey_id` as the detailed form.
+Keep that ID across dialog reopenings and retries; create a new one only for a new feedback interaction.
+The SDK uses the same ID across partial responses, and Surveys merges their answers by question ID.
+A standalone form generates its own ID when no `submissionId` is supplied.
 An unsuccessful SDK queue operation leaves answers available for retry.
 Queue success does not confirm ingestion.
 This foundation does not submit partial answers or emit automatic dismissal events.
@@ -30,10 +35,12 @@ This foundation does not submit partial answers or emit automatic dismissal even
 ## Feedback controls
 
 `SurveyFeedbackButtons` is a controlled thumbs-up/down input with a separate Share more feedback action.
-It calls `onChange` immediately with `1` for helpful or `2` for not helpful; clicking the selected rating again does nothing.
+It calls `onChange(rating, submissionId)` immediately with `1` for helpful or `2` for not helpful.
+After the caller accepts a rating, the thumbs are replaced by Share more feedback, which calls `onMoreFeedback(submissionId)`.
 The caller owns persistence, pending and error state, and any link between a quick rating and a detailed response.
 Pass `loading` while saving to prevent duplicate actions, and update `value` when the caller accepts the rating.
-Share more feedback appears after a rating is accepted, with a short fade that respects reduced-motion preferences.
+The prompt and action sit at opposite ends of the row.
+Share more feedback replaces the thumbs after a rating is accepted, with a short fade that respects reduced-motion preferences.
 After a user selects a rating, focus moves to that action once saving finishes and the action is enabled.
 A preselected rating does not take focus on mount.
 The component does not load a survey or emit analytics events itself.
@@ -67,11 +74,12 @@ Replay is off by default.
 `Surveys/API survey question` covers each supported control.
 Stories inject a client that uses invented surveys and never sends analytics events.
 The Dialog story starts with SurveyFeedbackButtons and opens LemonModal only on Share more feedback; DialogOpen captures the open state.
-Its quick rating stays selected when the dialog closes and is included in the detailed response context.
+Its quick rating is retained when the dialog closes and is included in the detailed response context.
+The story creates one submission ID for the whole interaction and passes it to the controls and every dialog mount.
 The story stores the rating locally; it does not demonstrate production persistence or response enrichment.
 The form mounts only while the dialog is open, and Escape or the close button returns focus to the trigger.
 Backdrop clicks leave the dialog open to avoid losing input accidentally.
-Closing discards the draft; reopening starts a new response.
+Closing discards the detail draft; reopening keeps the same submission ID.
 This placement is a Storybook prototype, with product integration still owned by callers.
 Product-specific context capture and response-quality experiments belong in later integrations.
 Voice recording and transcription are a separate foundation change.

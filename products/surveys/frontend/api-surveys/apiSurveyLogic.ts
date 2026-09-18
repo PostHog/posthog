@@ -21,6 +21,7 @@ export type ApiSurveyClient = Pick<typeof posthog, 'getSurveys' | 'capture' | 'g
 export interface ApiSurveyProps {
     surveyId: string
     instanceId: string
+    submissionId?: string
     client?: ApiSurveyClient
     context?: Record<string, unknown>
     includeReplay?: boolean
@@ -140,7 +141,11 @@ export const apiSurveyLogic: LogicWrapper<apiSurveyLogicType> = kea<apiSurveyLog
                 if (props.includeReplay) {
                     metadata.sessionRecordingUrl = client.get_session_replay_url({ withTimestamp: true }) ?? null
                 }
-                actions.surveyLoaded(survey ? structuredClone(survey) : null, crypto.randomUUID(), metadata)
+                actions.surveyLoaded(
+                    survey ? structuredClone(survey) : null,
+                    props.submissionId || crypto.randomUUID(),
+                    metadata
+                )
             } catch {
                 breakpoint()
                 if (!manager.isDisposed && getContext() === context) {

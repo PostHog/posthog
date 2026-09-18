@@ -1,9 +1,10 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 
-import { SurveyFeedbackButtons, SurveyFeedbackRating } from './SurveyFeedbackButtons'
+import { SurveyFeedbackButtons } from './SurveyFeedbackButtons'
 
 describe('SurveyFeedbackButtons', () => {
     afterEach(cleanup)
+    const submissionId = '00000000-0000-4000-8000-000000000123'
 
     it.each([
         ['Helpful', '1'],
@@ -11,23 +12,24 @@ describe('SurveyFeedbackButtons', () => {
     ] as const)('sends %s separately from opening detailed feedback', (label, rating) => {
         const onChange = jest.fn()
         const onMoreFeedback = jest.fn()
-        const props = { onChange, onMoreFeedback }
+        const props = { submissionId, onChange, onMoreFeedback }
         const { rerender } = render(<SurveyFeedbackButtons {...props} />)
         expect(screen.queryByText('Share more feedback')).toBeNull()
         fireEvent.click(screen.getByLabelText(label))
-        expect(onChange).toHaveBeenCalledWith(rating)
+        expect(onChange).toHaveBeenCalledWith(rating, submissionId)
         expect(onMoreFeedback).not.toHaveBeenCalled()
         rerender(<SurveyFeedbackButtons {...props} value={rating} />)
         expect(screen.getByText('Share more feedback').closest('button')).toBe(document.activeElement)
-        fireEvent.click(screen.getByLabelText(label))
+        expect(screen.queryByLabelText('Helpful')).toBeNull()
+        expect(screen.queryByLabelText('Not helpful')).toBeNull()
         expect(onChange).toHaveBeenCalledTimes(1)
         fireEvent.click(screen.getByText('Share more feedback'))
-        expect(onMoreFeedback).toHaveBeenCalledTimes(1)
+        expect(onMoreFeedback).toHaveBeenCalledWith(submissionId)
         expect(onChange).toHaveBeenCalledTimes(1)
     })
 
     it('waits until saving finishes before focusing the follow-up action', () => {
-        const props = { onChange: jest.fn(), onMoreFeedback: jest.fn() }
+        const props = { submissionId, onChange: jest.fn(), onMoreFeedback: jest.fn() }
         const { rerender } = render(<SurveyFeedbackButtons {...props} />)
         const thumb = screen.getByLabelText('Helpful')
         thumb.focus()
@@ -37,23 +39,36 @@ describe('SurveyFeedbackButtons', () => {
         expect(followUp).not.toBe(document.activeElement)
         rerender(<SurveyFeedbackButtons {...props} value="1" />)
         expect(screen.getByRole('button', { name: 'Share more feedback' })).toBe(document.activeElement)
-        thumb.focus()
+        screen.getByRole('button', { name: 'Share more feedback' }).blur()
         rerender(<SurveyFeedbackButtons {...props} value="1" />)
-        expect(thumb).toBe(document.activeElement)
+        expect(document.activeElement).toBe(document.body)
     })
 
     it('does not steal focus for a preselected rating', () => {
-        render(<SurveyFeedbackButtons value="1" onChange={jest.fn()} onMoreFeedback={jest.fn()} />)
+        render(
+            <SurveyFeedbackButtons
+                submissionId={submissionId}
+                value="1"
+                onChange={jest.fn()}
+                onMoreFeedback={jest.fn()}
+            />
+        )
         expect(screen.getByRole('button', { name: 'Share more feedback' })).not.toBe(document.activeElement)
     })
 
-    it('blocks rating changes and opening the dialog while saving', () => {
-        const onChange = jest.fn<void, [SurveyFeedbackRating]>()
+    it.each([undefined, '1'] as const)('blocks actions while saving with rating %s', (value) => {
+        const onChange = jest.fn()
         const onMoreFeedback = jest.fn()
-        render(<SurveyFeedbackButtons onChange={onChange} onMoreFeedback={onMoreFeedback} value="1" loading />)
-        fireEvent.click(screen.getByLabelText('Helpful'))
-        fireEvent.click(screen.getByLabelText('Not helpful'))
-        fireEvent.click(screen.getByText('Share more feedback'))
+        render(
+            <SurveyFeedbackButtons
+                submissionId={submissionId}
+                onChange={onChange}
+                onMoreFeedback={onMoreFeedback}
+                value={value}
+                loading
+            />
+        )
+        screen.getAllByRole('button').forEach((button) => fireEvent.click(button))
         expect(onChange).not.toHaveBeenCalled()
         expect(onMoreFeedback).not.toHaveBeenCalled()
     })
