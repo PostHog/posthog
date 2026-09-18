@@ -64,6 +64,19 @@ def _is_outbound_reply(item_context: dict | None, created_by_id: int | None) -> 
 AI_BOT_DISPLAY_NAME = "AI assistant"
 
 
+def _clear_awaiting_clarification(*, team_id: int, ticket_id: str) -> None:
+    # Lock so a follow-up persist cannot read awaiting and post after a human took the ticket.
+    with transaction.atomic():
+        ticket = Ticket.objects.select_for_update().filter(id=ticket_id, team_id=team_id).first()
+        if ticket is None:
+            return
+        triage = ticket.ai_triage if isinstance(ticket.ai_triage, dict) else None
+        if not triage or triage.get("status") != "awaiting_clarification":
+            return
+        ticket.ai_triage = {**triage, "status": "done"}
+        ticket.save(update_fields=["ai_triage", "updated_at"])
+
+
 @receiver(post_save, sender=Ticket)
 def emit_ticket_created_event(sender, instance: Ticket, created: bool, **kwargs):
     """
@@ -136,6 +149,8 @@ def update_ticket_on_message(sender, instance: Comment, created: bool, **kwargs)
             if not (created_by_id and author_type != "customer"):
                 return
             try:
+                if author_type != "AI":
+                    _clear_awaiting_clarification(team_id=team_id, ticket_id=item_id)
                 ticket = Ticket.objects.select_related("team").get(id=item_id, team_id=team_id)
                 author = User.objects.filter(id=created_by_id).first()
                 capture_private_message_sent(ticket, comment_id, author=author)
@@ -173,6 +188,8 @@ def update_ticket_on_message(sender, instance: Comment, created: bool, **kwargs)
 
             if is_team_message and created_by_id:
                 try:
+                    if author_type != "AI":
+                        _clear_awaiting_clarification(team_id=team_id, ticket_id=item_id)
                     maybe_record_human_outcome(
                         team_id=team_id,
                         ticket_id=item_id,

@@ -21,6 +21,7 @@ const existingRequest: FeatureRequestApi = {
     archived_by: null,
     version: 3,
     can_update: true,
+    github_link: null,
     account: { id: 'account-1', name: 'Acme' },
     account_links: [
         {

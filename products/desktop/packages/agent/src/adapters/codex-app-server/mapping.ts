@@ -619,6 +619,11 @@ function mapStatus(
 ): "completed" | "failed" | "in_progress" {
   if (status === "completed") return "completed";
   if (status === "failed" || status === "declined") return "failed";
+  // Both callers describe a finished item, and item types such as `webSearch`
+  // carry no status field at all. Reporting `in_progress` there leaves the tool
+  // call open for good: the thread chip keeps reading as active and the APM
+  // span only ends when the turn does.
+  if (status === undefined) return "completed";
   return "in_progress";
 }
 

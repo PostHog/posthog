@@ -269,3 +269,27 @@ ACP defines standard methods like `session/prompt`, `session/update`, and `sessi
 **Debug** — operational visibility without polluting the ACP conversation.
 
 - `_posthog/console` — `{ sessionId, level, message }` — structured debug/info/warn/error log from the agent internals
+
+## Releasing
+
+Releases are automatic. There is no manual version bump: `package.json` stays at `0.0.0-dev` and the release workflow sets the version from the tag.
+
+1. A merge to `master` that changes a file in this package runs `.github/workflows/desktop-agent-tag.yml`.
+2. It pushes the tag `agent-vX.Y.Z`. `Z` is the number of commits to this package since the base tag `agent-vX.Y.0`.
+3. The tag push runs `.github/workflows/desktop-agent-release.yml`, which builds, tests and publishes to npm with provenance, then rebuilds the sandbox base images.
+
+A merge that changes nothing in this package adds no new version.
+A change to either agent workflow file still runs the tag job, so it releases any package commits that have no tag yet.
+
+The publish job runs in the `npm-posthog-agent` GitHub environment, which only deploys from `agent-v*` tags.
+A tag ruleset protects `agent-v*` tags. The Releaser GitHub App pushes release tags, and only a repository admin can push a base tag.
+
+To start a new minor or major version, a repository admin pushes a base tag from a `master` commit:
+
+```bash
+git tag agent-v2.5.0
+git push origin agent-v2.5.0
+```
+
+Use the three-part form. A base tag also matches `agent-v*`, so the push runs the release workflow and publishes `2.5.0` from the tagged commit.
+The two-part form `agent-v2.5` starts the same run, which fails because `2.5` is not a valid npm version.
