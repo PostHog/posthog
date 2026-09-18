@@ -943,10 +943,10 @@ export interface featureFlagLogicValues {
     >
     featureFlagHasErrors: boolean
     featureFlagKey: string
-    featureFlagLoading: boolean
-    featureFlagManualErrors: Record<string, any>
     featureFlagLoadErrored: boolean
     featureFlagLoadFailed: boolean
+    featureFlagLoading: boolean
+    featureFlagManualErrors: Record<string, any>
     featureFlagMissing: boolean
     featureFlagRefresh: FeatureFlagType | null
     featureFlagRefreshLoading: boolean
