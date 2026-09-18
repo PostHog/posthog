@@ -53,8 +53,11 @@ export function SuggestedReviewerAvatarStack({
 }: SuggestedReviewerAvatarStackProps) {
   const client = useOptionalAuthenticatedClient();
   const { data: currentUser } = useCurrentUser({ client, enabled: !!client });
+  // Prefer reviewers denormalised on the report (no per-card fetch); fall back to passed artefacts,
+  // then a fetch, for older backends and the detail header.
+  const reviewersFromReport = report.suggested_reviewers;
   const { data } = useInboxReportArtefacts(report.id, {
-    enabled: artefacts === undefined,
+    enabled: reviewersFromReport === undefined && artefacts === undefined,
     staleTime: 5 * 60 * 1000,
     refetchOnWindowFocus: false,
   });
@@ -66,10 +69,11 @@ export function SuggestedReviewerAvatarStack({
   const reviewerArtefact = selectSuggestedReviewersArtefact(
     artefacts?.results ?? data?.results ?? [],
   );
+  const allReviewers = reviewersFromReport ?? reviewerArtefact?.content ?? [];
   // The stack draws GitHub profile avatars, so it can only show reviewers who have a login. A
   // reviewer identified by PostHog user alone still routes the report; they just have no avatar
   // to draw here yet.
-  const reviewers = (reviewerArtefact?.content ?? []).filter(
+  const reviewers = allReviewers.filter(
     (reviewer): reviewer is SuggestedReviewer & { github_login: string } =>
       !!reviewer.github_login,
   );
@@ -103,8 +107,8 @@ export function SuggestedReviewerAvatarStack({
   );
 
   const removeSelf = () => {
-    if (!currentReviewer || !reviewerArtefact) return;
-    const nextReviewers = reviewerArtefact.content.filter(
+    if (!currentReviewer) return;
+    const nextReviewers = allReviewers.filter(
       (reviewer) => reviewer.user?.uuid !== currentUser?.uuid,
     );
     const startedAt = Date.now();
@@ -183,7 +187,7 @@ export function SuggestedReviewerAvatarStack({
             ))}
           </Accordion>
         </div>
-        {currentReviewer && reviewerArtefact ? (
+        {currentReviewer ? (
           <div className="border-(--gray-6) border-t p-2">
             <Button
               type="button"

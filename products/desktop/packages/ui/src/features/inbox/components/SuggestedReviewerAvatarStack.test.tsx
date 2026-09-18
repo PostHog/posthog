@@ -168,6 +168,36 @@ describe("SuggestedReviewerAvatarStack", () => {
     document.removeEventListener("click", onCardClick);
   });
 
+  it("reads reviewers from the report without an artefact fetch", async () => {
+    const user = userEvent.setup();
+    const reportWithReviewers = {
+      ...report,
+      suggested_reviewers: [me, teammate],
+    } satisfies SignalReport;
+    render(<SuggestedReviewerAvatarStack report={reportWithReviewers} />);
+
+    await user.click(
+      screen.getByRole("button", {
+        name: "View suggested reviewer rationale",
+      }),
+    );
+    expect(screen.getByText("2 suggested reviewers")).toBeTruthy();
+
+    await user.click(
+      screen.getByRole("button", { name: "Remove me from reviewers" }),
+    );
+    expect(mocks.mutate).toHaveBeenCalledWith(
+      {
+        content: [{ user_uuid: "user-bob" }],
+        optimisticReviewers: [teammate],
+      },
+      expect.objectContaining({
+        onSuccess: expect.any(Function),
+        onError: expect.any(Function),
+      }),
+    );
+  });
+
   it("does not render the reviewer action as a report status", async () => {
     const user = userEvent.setup();
     const { rerender } = render(
