@@ -41,6 +41,14 @@ class UncaughtHogVMException(HogVMException):
         return f"{self.type}('{msg}')"
 
 
+class HogVMGlobalNotFoundException(HogVMException):
+    """Exception thrown when Hog code reads a global the caller did not provide"""
+
+    def __init__(self, name: str):
+        self.name = name
+        super().__init__(f"Global variable not found: {name}")
+
+
 class HogVMRuntimeExceededException(HogVMException):
     """Exception thrown when HogVM code exceeds its runtime limit"""
 

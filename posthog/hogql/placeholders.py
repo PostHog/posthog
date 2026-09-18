@@ -83,6 +83,7 @@ class ReplacePlaceholders(CloningVisitor):
         from posthog.hogql.compiler.bytecode import create_bytecode
 
         from common.hogvm.python.execute import execute_bytecode
+        from common.hogvm.python.utils import HogVMException, HogVMGlobalNotFoundException
 
         if self._deadline is None:
             self._deadline = time.monotonic() + PLACEHOLDER_EXPANSION_BUDGET.total_seconds()
@@ -108,12 +109,22 @@ class ReplacePlaceholders(CloningVisitor):
         if remaining <= 0:
             raise QueryError("Expanding this query's placeholders took too long. Simplify it and try again.")
 
-        response = execute_bytecode(
-            bytecode.bytecode,
-            self.placeholders,
-            timeout=timedelta(seconds=remaining),
-            disallowed_functions=BLOCKING_FUNCTIONS,
-        )
+        # Every VM failure here comes from the submitted expression, so it is a query error, not a
+        # server-side exception.
+        try:
+            response = execute_bytecode(
+                bytecode.bytecode,
+                self.placeholders,
+                timeout=timedelta(seconds=remaining),
+                disallowed_functions=BLOCKING_FUNCTIONS,
+            )
+        except HogVMGlobalNotFoundException as e:
+            raise QueryError(
+                f'This query has no value for the placeholder "{e.name}". '
+                "Pass a value for it with the query, or remove it from the query."
+            ) from e
+        except HogVMException as e:
+            raise QueryError(f"Can't expand this query's placeholders: {e}") from e
 
         if isinstance(response.result, dict) and ("__hx_ast" in response.result or "__hx_tag" in response.result):
             response.result = deserialize_hx_ast(response.result)
