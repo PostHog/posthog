@@ -87,6 +87,12 @@ HOGLAND_GOLDEN_DISK_GB = 64.0
 # so what a long workflow id adds is the prefix in front of them.
 HOGLAND_MAX_TAG_LENGTH = 64
 
+# 4xx codes that mean "try again later", not "this snapshot is bad": expired/missing
+# credentials, a rate limit, or a slow upstream. Retiring the row on one of these would
+# discard a perfectly good snapshot over a transient condition. Every other 4xx is
+# treated as hogland rejecting the snapshot reference itself, so the row is retired.
+HOGLAND_TRANSIENT_CLIENT_STATUS_CODES = {401, 403, 408, 429}
+
 # `create()` blocks until the box is running; a cold boot on a fresh Karpenter node
 # can take minutes, and `exec` calls legitimately run up to the caller's
 # timeout_seconds (default 10 minutes). One generous read timeout covers both —
@@ -282,7 +288,11 @@ class HoglandSandbox(AgentServerLaunchMixin):
                     "status_code": e.status_code,
                 },
             )
-            if e.status_code is not None and 400 <= e.status_code < 500:
+            if (
+                e.status_code is not None
+                and 400 <= e.status_code < 500
+                and e.status_code not in HOGLAND_TRANSIENT_CLIENT_STATUS_CODES
+            ):
                 cls._mark_repository_snapshot_error(config.snapshot_id)
             config.image_fallback = f"repository snapshot {repo_snapshot_external_id} -> golden snapshot"
             repo_snapshot_external_id = None

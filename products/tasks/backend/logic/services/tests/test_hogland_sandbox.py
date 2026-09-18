@@ -350,6 +350,10 @@ class TestHoglandRepositorySnapshotRestore:
             # A client-side rejection retires the row; a server blip keeps it for retry.
             ("client_rejection", 422, SandboxSnapshot.Status.ERROR),
             ("server_error", 500, SandboxSnapshot.Status.COMPLETE),
+            # Auth/rate-limit/timeout responses don't mean the snapshot itself is bad —
+            # retiring the row over one of these would discard a good snapshot.
+            ("unauthorized", 401, SandboxSnapshot.Status.COMPLETE),
+            ("rate_limited", 429, SandboxSnapshot.Status.COMPLETE),
         ]
     )
     def test_restore_failure_falls_back_to_the_golden_snapshot(
