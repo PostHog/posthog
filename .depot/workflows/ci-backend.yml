@@ -91,6 +91,10 @@
 # - Three data-modeling tests deselected (Depot-only MinIO 403 quarantine)
 # - COMPOSE_PROJECT_NAME pinned to posthog because bin/wait-for-docker filters by that
 #   project name and checkout directory names are not stable across CI providers
+# - Compose launches run under `nohup` with stdin, stdout and stderr redirected to
+#   $RUNNER_TEMP/compose-launch.log. Depot ends a step's background processes and closes its
+#   output pipes when the step shell exits, so a plain `&` launch dies before it creates any
+#   container. The wait steps print that log when they fail.
 # - Canonical baseline checkouts and comparisons use PostHog/posthog directly so fork
 #   dispatches compare against the authoritative upstream master branch
 # - Docker Hub login reads vars.DOCKERHUB_USER / secrets.DOCKERHUB_TOKEN directly in the
@@ -1064,9 +1068,9 @@ jobs:
                   CLICKHOUSE_SERVER_IMAGE: ${{ needs.get_clickhouse_versions.outputs.local_image }}
               run: |
                   cp posthog/user_scripts/latest_user_defined_function.xml docker/clickhouse/user_defined_function.xml
-                  bin/ci-wait-for-docker launch --background --down \
+                  nohup bin/ci-wait-for-docker launch --background --down \
                     db redis7 clickhouse zookeeper kafka objectstorage \
-                    temporal elasticsearch objectstorage-azure
+                    temporal elasticsearch objectstorage-azure </dev/null >"${RUNNER_TEMP:-/tmp}/compose-launch.log" 2>&1
             # Dedicated app: this product matrix alone is ~half the offloadable
             # setup-action volume, enough to threaten any shared 15k/hr bucket.
             - name: Mint setup-action GitHub token
@@ -1118,7 +1122,9 @@ jobs:
                   COMPOSE_PROFILES: temporal,azure
                   CLICKHOUSE_SERVER_IMAGE: ${{ needs.get_clickhouse_versions.outputs.local_image }}
               # objectstorage answers InvalidAccessKeyId until its bootstrap registers identities.
-              run: bin/ci-wait-for-docker wait objectstorage
+              run: |
+                  bin/ci-wait-for-docker wait objectstorage \
+                    || { echo "::group::compose launch log"; cat "${RUNNER_TEMP:-/tmp}/compose-launch.log" 2>/dev/null || true; echo "::endgroup::"; exit 1; }
             - name: Restore schema cache from master
               if: ${{ github.event_name == 'pull_request' }}
               uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
@@ -1585,7 +1591,7 @@ jobs:
             - name: Stop/Start stack with Docker Compose
               env:
                   COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
-              run: bin/ci-wait-for-docker launch --background --down db redis7 clickhouse
+              run: nohup bin/ci-wait-for-docker launch --background --down db redis7 clickhouse </dev/null >"${RUNNER_TEMP:-/tmp}/compose-launch.log" 2>&1
             - name: Mint setup-action GitHub token
               id: setup-gh-token
               if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
@@ -1665,7 +1671,9 @@ jobs:
             - name: Wait for Docker services
               env:
                   COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
-              run: bin/ci-wait-for-docker wait --only db redis7 clickhouse
+              run: |
+                  bin/ci-wait-for-docker wait --only db redis7 clickhouse \
+                    || { echo "::group::compose launch log"; cat "${RUNNER_TEMP:-/tmp}/compose-launch.log" 2>/dev/null || true; echo "::endgroup::"; exit 1; }
             - name: Prime posthog DB from cached schema
               # Turns "Run migrations up to master" below into a no-op instead
               # of a full migration run.
@@ -1934,7 +1942,7 @@ jobs:
             - name: Stop/Start stack with Docker Compose
               env:
                   COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
-              run: bin/ci-wait-for-docker launch --background --down db clickhouse
+              run: nohup bin/ci-wait-for-docker launch --background --down db clickhouse </dev/null >"${RUNNER_TEMP:-/tmp}/compose-launch.log" 2>&1
             - name: Mint setup-action GitHub token
               id: setup-gh-token
               if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
@@ -1974,7 +1982,9 @@ jobs:
             - name: Wait for Docker services
               env:
                   COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
-              run: bin/ci-wait-for-docker wait --only db clickhouse
+              run: |
+                  bin/ci-wait-for-docker wait --only db clickhouse \
+                    || { echo "::group::compose launch log"; cat "${RUNNER_TEMP:-/tmp}/compose-launch.log" 2>/dev/null || true; echo "::endgroup::"; exit 1; }
             - name: Add OpenAPI Problem Matcher
               run: echo "::add-matcher::.github/openapi-problem-matcher.json"
             - name: Check OpenAPI types
@@ -2390,7 +2400,7 @@ jobs:
                   WAIT_FOR_DOCKER_LAUNCH_RETRY_DELAY: 5
               run: |
                   cp posthog/user_scripts/latest_user_defined_function.xml docker/clickhouse/user_defined_function.xml
-                  bin/ci-wait-for-docker launch --background --down-all-profiles
+                  nohup bin/ci-wait-for-docker launch --background --down-all-profiles </dev/null >"${RUNNER_TEMP:-/tmp}/compose-launch.log" 2>&1
             - name: Add service hostnames to /etc/hosts
               shell: bash
               run: echo "127.0.0.1 db redis7 kafka clickhouse clickhouse-coordinator objectstorage seaweedfs temporal" | sudo tee -a /etc/hosts
@@ -2552,7 +2562,9 @@ jobs:
                   COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
                   COMPOSE_PROFILES: temporal,azure
                   CLICKHOUSE_SERVER_IMAGE: ${{ matrix.clickhouse-server-image || needs.get_clickhouse_versions.outputs.oldest_supported_image }}
-              run: bin/ci-wait-for-docker wait
+              run: |
+                  bin/ci-wait-for-docker wait \
+                    || { echo "::group::compose launch log"; cat "${RUNNER_TEMP:-/tmp}/compose-launch.log" 2>/dev/null || true; echo "::endgroup::"; exit 1; }
             - name: Restore schema cache from master
               if: ${{ github.event_name == 'pull_request' }}
               uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
