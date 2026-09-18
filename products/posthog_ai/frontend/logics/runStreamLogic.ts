@@ -599,6 +599,20 @@ function findLastBufferIndex(state: ThreadItem[], id: string, type: ThreadItemTy
     return -1
 }
 
+/**
+ * A debug row carries a `_posthog/console` line from the agent server, and `threadItems` gates it on
+ * `showDebugLogs`, so for most viewers it renders nothing. Ending a streamed message on one splits
+ * the answer wherever the delta happened to end, with nothing between the halves to explain it.
+ */
+function onlyDebugRowsFollow(state: ThreadItem[], idx: number): boolean {
+    for (let i = idx + 1; i < state.length; i++) {
+        if (state[i].type !== 'debug') {
+            return false
+        }
+    }
+    return true
+}
+
 /** The in-progress spinner for a long-running status — retired when it completes, fails, or its boundary lands. */
 function isPendingStatus(item: ThreadItem, status: string): boolean {
     return item.type === 'status' && item.status === status && item.isComplete !== true
@@ -1182,13 +1196,14 @@ export function foldLogToThread(
 
     const appendChunk = (id: string, type: ThreadItemType, delta: string): void => {
         const idx = findLastBufferIndex(items, id, type, false)
-        // Continue the matched buffer only while it's still the tail and incomplete; otherwise (no
-        // buffer, a finalized one, or one interrupted by a tool call/separator) start a fresh bubble
-        // so text resuming after an interruption renders in chronological order. Every fresh bubble
-        // gets a unique `${id}@<seq>` id — the wire often omits `messageId` (and the S3 replay always
-        // does, since the backend drops chunks), so the bare fallback id would collide as a React key
-        // across messages. The continuation lookup matches the `${id}@` prefix, so it still works.
-        if (idx === -1 || items[idx].complete || idx !== items.length - 1) {
+        // Continue the matched buffer only while it's incomplete and only debug rows followed it;
+        // otherwise (no buffer, a finalized one, or one interrupted by a tool call/separator) start
+        // a fresh bubble so text resuming after an interruption renders in chronological order.
+        // Every fresh bubble gets a unique `${id}@<seq>` id — the wire often omits `messageId` (and
+        // the S3 replay always does, since the backend drops chunks), so the bare fallback id would
+        // collide as a React key across messages. The continuation lookup matches the `${id}@`
+        // prefix, so it still works.
+        if (idx === -1 || items[idx].complete || !onlyDebugRowsFollow(items, idx)) {
             items.push({
                 id: `${id}@${bubbleSeq++}`,
                 type,
