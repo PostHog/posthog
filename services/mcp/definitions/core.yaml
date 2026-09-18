@@ -480,6 +480,15 @@ tools:
     session-recordings-sharing-refresh-create:
         operation: session_recordings_sharing_refresh_create
         enabled: false
+    tags-create:
+        operation: tags_create
+        enabled: false
+    tags-destroy:
+        operation: tags_destroy
+        enabled: false
+    tags-pinned-list:
+        operation: tags_pinned_list
+        enabled: false
     uploaded-media-create:
         operation: uploaded_media_create
         enabled: false
