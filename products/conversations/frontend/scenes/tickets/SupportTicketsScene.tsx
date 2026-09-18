@@ -196,7 +196,7 @@ export function SupportTicketsTable({ embedded = false }: SupportTicketsTablePro
 }
 
 function SpikeFilterNotice(): JSX.Element | null {
-    const { spikeTicketIds, spikeTopic } = useValues(supportTicketsSceneLogic)
+    const { spikeTicketIds } = useValues(supportTicketsSceneLogic)
     const { clearSpikeFilter } = useActions(supportTicketsSceneLogic)
 
     if (!spikeTicketIds.length) {
@@ -209,8 +209,7 @@ function SpikeFilterNotice(): JSX.Element | null {
             action={{ children: 'Show all tickets', onClick: () => clearSpikeFilter() }}
             data-attr="spike-filter-notice"
         >
-            Showing the {spikeTicketIds.length} tickets from
-            {spikeTopic ? ` "${spikeTopic}"` : ' a detected spike'}.
+            Showing the {spikeTicketIds.length} tickets from a detected spike.
         </LemonBanner>
     )
 }
