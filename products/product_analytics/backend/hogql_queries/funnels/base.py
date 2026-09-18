@@ -47,11 +47,14 @@ class FunnelBase(ABC):
     def _with_capture_order_key(self, inner_event_query: ast.Expr) -> ast.Expr:
         """Add `capture_order_key`, the instant each event was captured on its own device.
 
-        `UUIDv7ToDateTime` yields the epoch for any UUID that is not version 7, which covers both
-        the UUID capture mints when an SDK sends none and the synthetic one the warehouse path
-        hashes from an ID column, so `> 0` is the test for a usable client instant. A row without
-        one contributes NULL to the minimum, which `min` skips, and falls back to its stored
-        timestamp.
+        `$client_capture_time` is the device's own clock reading, written by capture. It carries
+        that device's clock error rather than the request's delivery delay, so it orders one
+        device's events correctly but is not comparable between two devices whose clocks differ.
+        Anchoring each device on the smallest offset it was seen with cancels the clock error and
+        leaves the device's constant floor latency, which is comparable.
+
+        A row without the property, or without a device to anchor it to, keeps its stored
+        timestamp and contributes nothing to the minimum.
         """
         if not self.context.modifiers.funnelUseClientCaptureOrder:
             return inner_event_query
@@ -61,8 +64,7 @@ class FunnelBase(ABC):
             SELECT
                 *,
                 if(
-                    capture_ms > 0
-                    AND stored_ms != capture_ms
+                    isNotNull(capture_ms)
                     AND isNotNull(device_offset_ms)
                     AND ifNull(capture_device, '') != '',
                     (capture_ms + device_offset_ms) / 1000,
@@ -71,13 +73,13 @@ class FunnelBase(ABC):
             FROM (
                 SELECT
                     *,
-                    min(if(capture_ms > 0 AND stored_ms != capture_ms, stored_ms - capture_ms, NULL)) OVER (
+                    min(stored_ms - capture_ms) OVER (
                         PARTITION BY aggregation_target, capture_device
                     ) AS device_offset_ms
                 FROM (
                     SELECT
                         *,
-                        toUnixTimestamp64Milli(toDateTime64(UUIDv7ToDateTime(uuid), 3)) AS capture_ms,
+                        toUnixTimestamp64Milli(client_capture_time) AS capture_ms,
                         toUnixTimestamp64Milli(toDateTime64(timestamp, 3)) AS stored_ms
                     FROM {inner_event_query}
                 )

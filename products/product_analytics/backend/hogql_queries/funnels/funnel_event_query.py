@@ -591,14 +591,21 @@ class FunnelEventQuery(DataWarehouseSchemaMixin):
     def _capture_order_cols(self, is_warehouse: bool = False) -> list[ast.Expr]:
         """Columns the capture-order key needs, or nothing when the modifier is off.
 
-        Only a client-minted UUIDv7 carries the device's own capture instant. Capture mints its
-        own v7 when the SDK sends none, and the warehouse path synthesizes one by hashing an ID
-        column, so both must fall back rather than read a fabricated time out of the UUID.
+        `$client_capture_time` is written by capture when the client sent enough to derive it,
+        so it is absent on some events and always absent on warehouse-sourced rows, which have
+        no device at all. Both cases resolve to NULL and fall back to the stored timestamp.
         """
         if not self.context.modifiers.funnelUseClientCaptureOrder:
             return []
         if is_warehouse:
-            return [ast.Alias(alias="capture_device", expr=ast.Constant(value=""))]
+            return [
+                ast.Alias(alias="capture_device", expr=ast.Constant(value="")),
+                # Same expression shape as the events branch so the UNION column types match.
+                ast.Alias(
+                    alias="client_capture_time",
+                    expr=ast.Call(name="parseDateTimeBestEffort", args=[ast.Constant(value="")]),
+                ),
+            ]
         return [
             ast.Alias(
                 alias="capture_device",
@@ -612,7 +619,19 @@ class FunnelEventQuery(DataWarehouseSchemaMixin):
                         ast.Constant(value=""),
                     ],
                 ),
-            )
+            ),
+            ast.Alias(
+                alias="client_capture_time",
+                expr=ast.Call(
+                    name="parseDateTimeBestEffort",
+                    args=[
+                        ast.Call(
+                            name="toString",
+                            args=[ast.Field(chain=[self.EVENT_TABLE_ALIAS, "properties", "$client_capture_time"])],
+                        )
+                    ],
+                ),
+            ),
         ]
 
     def _aggregation_target_expr(self) -> ast.Expr:
