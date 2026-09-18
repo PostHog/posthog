@@ -102,12 +102,14 @@ export const ExperimentReloadAction = ({
     isRefreshing,
     lastRefresh,
     onClick,
+    onAutoRefresh,
     progress,
     queuedHint,
 }: {
     isRefreshing: boolean
     lastRefresh: string | null
     onClick: () => void
+    onAutoRefresh: () => void
     progress?: { completed: number; total: number }
     queuedHint?: string
 }): JSX.Element => {
@@ -122,7 +124,7 @@ export const ExperimentReloadAction = ({
         lastRefresh,
         enabled: autoRefresh.enabled && !ended,
         intervalSeconds: autoRefresh.interval,
-        onRefresh: onClick,
+        onRefresh: onAutoRefresh,
     })
 
     // Memoize the page visibility callback to prevent unnecessary event listener churn

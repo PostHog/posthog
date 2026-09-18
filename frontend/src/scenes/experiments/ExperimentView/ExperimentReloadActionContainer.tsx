@@ -38,9 +38,21 @@ export function ExperimentReloadActionContainer({
 function RecalculationReloadAction({ experiment }: { experiment: Experiment }): JSX.Element {
     const metricsLogic = experimentMetricsLogic({ experiment })
     const { isRecalculating, recalculationProgress, lastRefresh, queuedRerun } = useValues(metricsLogic)
-    const { triggerRecalculation } = useActions(metricsLogic)
     const { autoRefresh, currentRefresh } = useValues(experimentLogic)
     const { refreshExperimentResults, reportExperimentMetricsRefreshed } = useActions(experimentLogic)
+
+    const reload = (intent?: 'full_results_refresh'): void => {
+        if (!intent) {
+            metricsLogic.actions.triggerRecalculation()
+        }
+        reportExperimentMetricsRefreshed(experiment, true, {
+            triggered_by: 'manual',
+            auto_refresh_enabled: autoRefresh.enabled,
+            auto_refresh_interval: autoRefresh.interval,
+            ...previousRefreshAnalytics(currentRefresh),
+        })
+        refreshExperimentResults(true, 'manual', false, intent)
+    }
 
     return (
         <ExperimentReloadAction
@@ -48,17 +60,8 @@ function RecalculationReloadAction({ experiment }: { experiment: Experiment }): 
             lastRefresh={lastRefresh}
             progress={recalculationProgress}
             queuedHint={queuedRerun ? 'Changes will apply after the current recalculation finishes' : undefined}
-            onClick={() => {
-                reportExperimentMetricsRefreshed(experiment, true, {
-                    triggered_by: 'manual',
-                    auto_refresh_enabled: autoRefresh.enabled,
-                    auto_refresh_interval: autoRefresh.interval,
-                    ...previousRefreshAnalytics(currentRefresh),
-                })
-                triggerRecalculation()
-                // Exposures still live in experimentLogic; keep refreshing them on manual reload.
-                refreshExperimentResults(true, 'manual')
-            }}
+            onAutoRefresh={() => reload()}
+            onClick={() => reload('full_results_refresh')}
         />
     )
 }
@@ -68,19 +71,22 @@ function LegacyReloadAction({ experiment, lastRefresh }: { experiment: Experimen
         useValues(experimentLogic)
     const { refreshExperimentResults, reportExperimentMetricsRefreshed } = useActions(experimentLogic)
 
+    const reload = (intent?: 'full_results_refresh'): void => {
+        reportExperimentMetricsRefreshed(experiment, true, {
+            triggered_by: 'manual',
+            auto_refresh_enabled: autoRefresh.enabled,
+            auto_refresh_interval: autoRefresh.interval,
+            ...previousRefreshAnalytics(currentRefresh),
+        })
+        refreshExperimentResults(true, 'manual', false, intent)
+    }
+
     return (
         <ExperimentReloadAction
             isRefreshing={primaryMetricsResultsLoading || secondaryMetricsResultsLoading}
             lastRefresh={lastRefresh}
-            onClick={() => {
-                reportExperimentMetricsRefreshed(experiment, true, {
-                    triggered_by: 'manual',
-                    auto_refresh_enabled: autoRefresh.enabled,
-                    auto_refresh_interval: autoRefresh.interval,
-                    ...previousRefreshAnalytics(currentRefresh),
-                })
-                refreshExperimentResults(true, 'manual')
-            }}
+            onAutoRefresh={() => reload()}
+            onClick={() => reload('full_results_refresh')}
         />
     )
 }
