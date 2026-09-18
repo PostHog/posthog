@@ -12,7 +12,7 @@ The `engineering_analytics_*` views used below have fixed names — no prefix, n
 - [Recipe: weekly open→merge time trend](#recipe-weekly-openmerge-time-trend) — p50 and p95 hours to merge
 - [Recipe: weekly CI success rate and p95 duration per workflow](#recipe-weekly-ci-success-rate-and-p95-duration-per-workflow) — which conclusions count as a verdict
 - [Recipe: PR throughput per week](#recipe-pr-throughput-per-week) — merged and closed-unmerged counts
-- [Recipe: open PRs with failing CI right now](#recipe-open-prs-with-failing-ci-right-now) — latest completed run per `(head_sha, workflow_name)`
+- [Recipe: open PRs with failing CI right now](#recipe-open-prs-with-failing-ci-right-now) — latest run per `(head_sha, workflow_name)`, with only completed failures counted
 - [Job-level recipes](#job-level-recipes) — queue wait and run time from the jobs table, and why you must not recompute cost
 - [Recipe: weekly CI cost by workflow (job_costs view)](#recipe-weekly-ci-cost-by-workflow-job_costs-view) — dollar spend, and what a NULL cost means
 - [Review recipes](#review-recipes) — review states, plus a weekly time-to-first-review recipe
@@ -153,7 +153,8 @@ ORDER BY week
 
 ## Recipe: open PRs with failing CI right now
 
-A PR's current CI status is the latest completed run per `(head_sha, workflow_name)`; this is the one place head SHA is the correct key:
+A PR's current CI status comes from the latest run per `(head_sha, workflow_name)`; a failure counts only when that latest run is completed.
+This is the one place head SHA is the correct key:
 
 ```sql
 WITH prs AS (<PR base>),
