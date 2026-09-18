@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n                    SELECT id, uuid, team_id::bigint as \"team_id!\",\n                           CASE WHEN $3::boolean THEN properties::text ELSE NULL END as \"properties?\",\n                           CASE WHEN $3::boolean THEN properties_last_updated_at::text ELSE NULL END as \"properties_last_updated_at?\",\n                           CASE WHEN $3::boolean THEN properties_last_operation::text ELSE NULL END as \"properties_last_operation?\",\n                           created_at, version, is_identified,\n                           CASE WHEN is_user_id IS NULL THEN NULL ELSE (is_user_id != 0) END as is_user_id,\n                           last_seen_at\n                    FROM posthog_person\n                    WHERE team_id = $1 AND id = ANY($2) AND is_deleted = false\n                    ",
+  "query": "\n                    SELECT id, uuid, team_id::bigint as \"team_id!\",\n                           CASE WHEN $3::boolean THEN properties::text ELSE NULL END as \"properties?\",\n                           CASE WHEN $4::boolean THEN properties_last_updated_at::text ELSE NULL END as \"properties_last_updated_at?\",\n                           CASE WHEN $5::boolean THEN properties_last_operation::text ELSE NULL END as \"properties_last_operation?\",\n                           created_at, version, is_identified,\n                           CASE WHEN is_user_id IS NULL THEN NULL ELSE (is_user_id != 0) END as is_user_id,\n                           last_seen_at\n                    FROM posthog_person\n                    WHERE team_id = $1 AND uuid = ANY($2) AND is_deleted = false\n                    ",
   "describe": {
     "columns": [
       {
@@ -62,7 +62,9 @@
     "parameters": {
       "Left": [
         "Int4",
-        "Int8Array",
+        "UuidArray",
+        "Bool",
+        "Bool",
         "Bool"
       ]
     },
@@ -80,5 +82,5 @@
       true
     ]
   },
-  "hash": "b1d7b6aaae2a3f343e59cbaba6093de154a33475b69017d0bb26a5b9f416d5c6"
+  "hash": "5f5ca81d7bb2430949263e501592846f07851c60b7d467ee57a5fd36e365c8e2"
 }

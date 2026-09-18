@@ -2,7 +2,7 @@ mod common;
 
 use common::TestContext;
 use personhog_replica::storage::postgres::ConsistencyLevel;
-use personhog_replica::storage::{GroupKey, TombstonedDeleteOutcome};
+use personhog_replica::storage::{GroupKey, PersonPropertyColumns, TombstonedDeleteOutcome};
 use rand::Rng;
 use rstest::rstest;
 use std::time::{Duration, Instant};
@@ -83,7 +83,11 @@ async fn test_get_persons_by_ids() {
 
     let result = ctx
         .storage
-        .get_persons_by_ids(ctx.team_id, &[person1.id, person2.id, 999999999], true)
+        .get_persons_by_ids(
+            ctx.team_id,
+            &[person1.id, person2.id, 999999999],
+            PersonPropertyColumns::ALL,
+        )
         .await
         .expect("Failed to get persons");
 
@@ -502,7 +506,7 @@ async fn test_get_persons_by_uuids() {
         .get_persons_by_uuids(
             ctx.team_id,
             &[person1.uuid, person2.uuid, nonexistent_uuid],
-            true,
+            PersonPropertyColumns::ALL,
         )
         .await
         .expect("Failed to get persons by uuids");
@@ -1735,7 +1739,7 @@ async fn test_get_persons_by_ids_chunked() {
 
     let result = ctx
         .storage
-        .get_persons_by_ids(ctx.team_id, &ids, true)
+        .get_persons_by_ids(ctx.team_id, &ids, PersonPropertyColumns::ALL)
         .await
         .expect("Failed to get persons by ids");
 
@@ -1763,7 +1767,7 @@ async fn test_get_persons_by_uuids_chunked() {
 
     let result = ctx
         .storage
-        .get_persons_by_uuids(ctx.team_id, &uuids, true)
+        .get_persons_by_uuids(ctx.team_id, &uuids, PersonPropertyColumns::ALL)
         .await
         .expect("Failed to get persons by uuids");
 
@@ -1789,7 +1793,7 @@ async fn test_get_persons_by_distinct_ids_in_team_chunked() {
 
     let result = ctx
         .storage
-        .get_persons_by_distinct_ids_in_team(ctx.team_id, &distinct_ids, true)
+        .get_persons_by_distinct_ids_in_team(ctx.team_id, &distinct_ids, PersonPropertyColumns::ALL)
         .await
         .expect("Failed to get persons by distinct ids");
 
@@ -1826,7 +1830,7 @@ async fn test_get_persons_by_distinct_ids_in_team_chunked_preserves_missing() {
 
     let result = ctx
         .storage
-        .get_persons_by_distinct_ids_in_team(ctx.team_id, &distinct_ids, true)
+        .get_persons_by_distinct_ids_in_team(ctx.team_id, &distinct_ids, PersonPropertyColumns::ALL)
         .await
         .expect("Failed to get persons");
 
@@ -1859,7 +1863,7 @@ async fn test_get_persons_by_distinct_ids_in_team_handles_duplicates() {
 
     let result = ctx
         .storage
-        .get_persons_by_distinct_ids_in_team(ctx.team_id, &distinct_ids, true)
+        .get_persons_by_distinct_ids_in_team(ctx.team_id, &distinct_ids, PersonPropertyColumns::ALL)
         .await
         .expect("Failed to get persons");
 
@@ -1955,7 +1959,7 @@ async fn test_get_distinct_ids_for_persons_chunked_with_limit() {
 }
 
 // ============================================================
-// include_properties=false storage tests
+// property-column selection storage tests
 // ============================================================
 
 #[tokio::test]
@@ -1969,7 +1973,7 @@ async fn test_get_persons_by_ids_without_properties() {
 
     let with_props = ctx
         .storage
-        .get_persons_by_ids(ctx.team_id, &[person.id], true)
+        .get_persons_by_ids(ctx.team_id, &[person.id], PersonPropertyColumns::ALL)
         .await
         .expect("Failed to get persons with props");
     assert_eq!(with_props.len(), 1);
@@ -1977,7 +1981,7 @@ async fn test_get_persons_by_ids_without_properties() {
 
     let without_props = ctx
         .storage
-        .get_persons_by_ids(ctx.team_id, &[person.id], false)
+        .get_persons_by_ids(ctx.team_id, &[person.id], PersonPropertyColumns::NONE)
         .await
         .expect("Failed to get persons without props");
     assert_eq!(without_props.len(), 1);
@@ -1989,8 +1993,17 @@ async fn test_get_persons_by_ids_without_properties() {
     ctx.cleanup().await.ok();
 }
 
+#[rstest]
+#[case::none(PersonPropertyColumns::NONE, false, false, false)]
+#[case::properties_only(PersonPropertyColumns { properties: true, ..PersonPropertyColumns::NONE }, true, false, false)]
+#[case::all(PersonPropertyColumns::ALL, true, true, true)]
 #[tokio::test]
-async fn test_get_persons_by_uuids_without_properties() {
+async fn test_get_persons_by_uuids_loads_only_the_requested_property_columns(
+    #[case] columns: PersonPropertyColumns,
+    #[case] expect_properties: bool,
+    #[case] expect_last_updated_at: bool,
+    #[case] expect_last_operation: bool,
+) {
     let ctx = TestContext::new().await;
     let props = serde_json::json!({"email": "test@example.com"});
     let person = ctx
@@ -1998,16 +2011,22 @@ async fn test_get_persons_by_uuids_without_properties() {
         .await
         .expect("Failed to insert person");
 
-    let without_props = ctx
+    let rows = ctx
         .storage
-        .get_persons_by_uuids(ctx.team_id, &[person.uuid], false)
+        .get_persons_by_uuids(ctx.team_id, &[person.uuid], columns)
         .await
-        .expect("Failed to get persons without props");
-    assert_eq!(without_props.len(), 1);
-    assert_eq!(without_props[0].id, person.id);
-    assert!(without_props[0].properties.is_none());
-    assert!(without_props[0].properties_last_updated_at.is_none());
-    assert!(without_props[0].properties_last_operation.is_none());
+        .expect("Failed to get persons");
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].id, person.id);
+    assert_eq!(rows[0].properties.is_some(), expect_properties);
+    assert_eq!(
+        rows[0].properties_last_updated_at.is_some(),
+        expect_last_updated_at
+    );
+    assert_eq!(
+        rows[0].properties_last_operation.is_some(),
+        expect_last_operation
+    );
 
     ctx.cleanup().await.ok();
 }
@@ -2022,7 +2041,11 @@ async fn test_get_persons_by_distinct_ids_in_team_without_properties() {
 
     let results = ctx
         .storage
-        .get_persons_by_distinct_ids_in_team(ctx.team_id, &["props_did_test".to_string()], false)
+        .get_persons_by_distinct_ids_in_team(
+            ctx.team_id,
+            &["props_did_test".to_string()],
+            PersonPropertyColumns::NONE,
+        )
         .await
         .expect("Failed to get persons without props");
     assert_eq!(results.len(), 1);
@@ -2046,7 +2069,7 @@ async fn test_get_persons_by_distinct_ids_cross_team_without_properties() {
         .storage
         .get_persons_by_distinct_ids_cross_team(
             &[(ctx.team_id, "props_cross_test".to_string())],
-            false,
+            PersonPropertyColumns::NONE,
         )
         .await
         .expect("Failed to get persons without props");

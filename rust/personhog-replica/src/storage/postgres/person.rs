@@ -12,7 +12,7 @@ use personhog_common::grpc::{current_client_name, current_method_name};
 use super::{PostgresStorage, DB_BULK_CHUNKS, DB_QUERY_DURATION, DB_ROWS_RETURNED};
 use crate::storage::error::{StorageError, StorageResult};
 use crate::storage::traits::PersonLookup;
-use crate::storage::types::{Person, SplitResult, TombstonedDeleteOutcome};
+use crate::storage::types::{Person, PersonPropertyColumns, SplitResult, TombstonedDeleteOutcome};
 
 /// Version offset for split person/PDI rows — mirrors the Django convention.
 const SPLIT_VERSION_OFFSET: i64 = 101;
@@ -98,7 +98,7 @@ impl PersonLookup for PostgresStorage {
         &self,
         team_id: i64,
         person_ids: &[i64],
-        include_properties: bool,
+        property_columns: PersonPropertyColumns,
     ) -> StorageResult<Vec<Person>> {
         if person_ids.is_empty() {
             return Ok(Vec::new());
@@ -134,8 +134,8 @@ impl PersonLookup for PostgresStorage {
                     r#"
                     SELECT id, uuid, team_id::bigint as "team_id!",
                            CASE WHEN $3::boolean THEN properties::text ELSE NULL END as "properties?",
-                           CASE WHEN $3::boolean THEN properties_last_updated_at::text ELSE NULL END as "properties_last_updated_at?",
-                           CASE WHEN $3::boolean THEN properties_last_operation::text ELSE NULL END as "properties_last_operation?",
+                           CASE WHEN $4::boolean THEN properties_last_updated_at::text ELSE NULL END as "properties_last_updated_at?",
+                           CASE WHEN $5::boolean THEN properties_last_operation::text ELSE NULL END as "properties_last_operation?",
                            created_at, version, is_identified,
                            CASE WHEN is_user_id IS NULL THEN NULL ELSE (is_user_id != 0) END as is_user_id,
                            last_seen_at
@@ -144,7 +144,9 @@ impl PersonLookup for PostgresStorage {
                     "#,
                     team_id as i32,
                     &chunk,
-                    include_properties
+                    property_columns.properties,
+                    property_columns.properties_last_updated_at,
+                    property_columns.properties_last_operation
                 )
                 .fetch_all(&mut *conn)
                 .await?;
@@ -173,7 +175,7 @@ impl PersonLookup for PostgresStorage {
         &self,
         team_id: i64,
         uuids: &[Uuid],
-        include_properties: bool,
+        property_columns: PersonPropertyColumns,
     ) -> StorageResult<Vec<Person>> {
         if uuids.is_empty() {
             return Ok(Vec::new());
@@ -209,8 +211,8 @@ impl PersonLookup for PostgresStorage {
                     r#"
                     SELECT id, uuid, team_id::bigint as "team_id!",
                            CASE WHEN $3::boolean THEN properties::text ELSE NULL END as "properties?",
-                           CASE WHEN $3::boolean THEN properties_last_updated_at::text ELSE NULL END as "properties_last_updated_at?",
-                           CASE WHEN $3::boolean THEN properties_last_operation::text ELSE NULL END as "properties_last_operation?",
+                           CASE WHEN $4::boolean THEN properties_last_updated_at::text ELSE NULL END as "properties_last_updated_at?",
+                           CASE WHEN $5::boolean THEN properties_last_operation::text ELSE NULL END as "properties_last_operation?",
                            created_at, version, is_identified,
                            CASE WHEN is_user_id IS NULL THEN NULL ELSE (is_user_id != 0) END as is_user_id,
                            last_seen_at
@@ -219,7 +221,9 @@ impl PersonLookup for PostgresStorage {
                     "#,
                     team_id as i32,
                     &chunk,
-                    include_properties
+                    property_columns.properties,
+                    property_columns.properties_last_updated_at,
+                    property_columns.properties_last_operation
                 )
                 .fetch_all(&mut *conn)
                 .await?;
@@ -292,7 +296,7 @@ impl PersonLookup for PostgresStorage {
         &self,
         team_id: i64,
         distinct_ids: &[String],
-        include_properties: bool,
+        property_columns: PersonPropertyColumns,
     ) -> StorageResult<Vec<(String, Option<Person>)>> {
         if distinct_ids.is_empty() {
             return Ok(Vec::new());
@@ -347,8 +351,8 @@ impl PersonLookup for PostgresStorage {
                         r#"
                         SELECT p.id, p.uuid as "uuid!", p.team_id::bigint as "team_id!",
                                CASE WHEN $3::boolean THEN p.properties::text ELSE NULL END as "properties?",
-                               CASE WHEN $3::boolean THEN p.properties_last_updated_at::text ELSE NULL END as "properties_last_updated_at?",
-                               CASE WHEN $3::boolean THEN p.properties_last_operation::text ELSE NULL END as "properties_last_operation?",
+                               CASE WHEN $4::boolean THEN p.properties_last_updated_at::text ELSE NULL END as "properties_last_updated_at?",
+                               CASE WHEN $5::boolean THEN p.properties_last_operation::text ELSE NULL END as "properties_last_operation?",
                                p.created_at as "created_at!", p.version, p.is_identified as "is_identified!",
                                CASE WHEN p.is_user_id IS NULL THEN NULL ELSE (p.is_user_id != 0) END as is_user_id,
                                p.last_seen_at,
@@ -363,7 +367,9 @@ impl PersonLookup for PostgresStorage {
                         "#,
                         team_id as i32,
                         &chunk,
-                        include_properties
+                        property_columns.properties,
+                        property_columns.properties_last_updated_at,
+                        property_columns.properties_last_operation
                     )
                     .fetch_all(&mut *conn)
                     .await?;
@@ -784,7 +790,7 @@ impl PersonLookup for PostgresStorage {
     async fn get_persons_by_distinct_ids_cross_team(
         &self,
         team_distinct_ids: &[(i64, String)],
-        include_properties: bool,
+        property_columns: PersonPropertyColumns,
     ) -> StorageResult<Vec<((i64, String), Option<Person>)>> {
         if team_distinct_ids.is_empty() {
             return Ok(Vec::new());
@@ -813,8 +819,8 @@ impl PersonLookup for PostgresStorage {
             r#"
             SELECT p.id, p.uuid as "uuid!", p.team_id::bigint as "team_id!",
                    CASE WHEN $3::boolean THEN p.properties::text ELSE NULL END as "properties?",
-                   CASE WHEN $3::boolean THEN p.properties_last_updated_at::text ELSE NULL END as "properties_last_updated_at?",
-                   CASE WHEN $3::boolean THEN p.properties_last_operation::text ELSE NULL END as "properties_last_operation?",
+                   CASE WHEN $4::boolean THEN p.properties_last_updated_at::text ELSE NULL END as "properties_last_updated_at?",
+                   CASE WHEN $5::boolean THEN p.properties_last_operation::text ELSE NULL END as "properties_last_operation?",
                    p.created_at as "created_at!", p.version, p.is_identified as "is_identified!",
                    CASE WHEN p.is_user_id IS NULL THEN NULL ELSE (p.is_user_id != 0) END as is_user_id,
                    p.last_seen_at,
@@ -827,7 +833,9 @@ impl PersonLookup for PostgresStorage {
             "#,
             &team_ids,
             &distinct_ids,
-            include_properties
+            property_columns.properties,
+            property_columns.properties_last_updated_at,
+            property_columns.properties_last_operation
         )
         .fetch_all(&mut *conn)
         .await?;
