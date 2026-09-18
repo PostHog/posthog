@@ -104,16 +104,22 @@ export const replayScannerSceneLogic = kea<replayScannerSceneLogicType>([
             } else {
                 searchParams.tab = values.activeTab
             }
-            // The query belongs to the Search tab; carrying it to another tab would re-run it on return.
-            if (values.activeTab !== ReplayScannerTab.Search) {
-                delete searchParams.q
-            }
             return [router.values.location.pathname, searchParams, router.values.hashParams, { replace: true }]
         },
     })),
 
     urlToAction(({ actions, values }) => ({
         [urls.replayVision(':id')]: ({ id }, searchParams) => {
+            // Old per-scanner search links open the hub search.
+            if (searchParams.tab === ReplayScannerTab.Search) {
+                const q = searchParams.q != null ? String(searchParams.q) : ''
+                router.actions.replace(urls.replayVision(), {
+                    tab: ReplayScannerTab.Search,
+                    ...(id && id !== 'new' ? { scanner: id } : {}),
+                    ...(q ? { q } : {}),
+                })
+                return
+            }
             const scannerId = id || 'new'
             if (scannerId !== values.scannerId) {
                 actions.setScannerId(scannerId)
