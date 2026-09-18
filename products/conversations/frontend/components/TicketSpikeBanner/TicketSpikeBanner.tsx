@@ -35,10 +35,12 @@ function SpikeBanner({ spike }: { spike: TicketPatternApi }): JSX.Element {
 }
 
 export function TicketSpikeBanner(): JSX.Element | null {
-    const { visibleSpikes, dismissedSpikes, expanded } = useValues(ticketSpikeBannerLogic)
+    const { bannerEnabled, visibleSpikes, dismissedSpikes, expanded } = useValues(ticketSpikeBannerLogic)
     const { setExpanded } = useActions(ticketSpikeBannerLogic)
 
-    if (!visibleSpikes.length && !dismissedSpikes.length) {
+    // Checked here as well as in the loader, so a gate closing mid-session hides spikes that
+    // are already in memory instead of waiting for the next reload.
+    if (!bannerEnabled || (!visibleSpikes.length && !dismissedSpikes.length)) {
         return null
     }
 
