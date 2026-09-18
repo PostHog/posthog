@@ -1105,6 +1105,7 @@ export interface SignalReportRefundResponseApi {
  * * `endpoints` - endpoints
  * * `pganalyze` - pganalyze
  * * `signals_scout` - signals_scout
+ * * `signals_check` - signals_check
  * * `logs` - logs
  * * `health_checks` - health_checks
  * * `replay_vision` - replay_vision
@@ -1158,6 +1159,7 @@ export const SignalSourceProductApi = {
     Endpoints: 'endpoints',
     Pganalyze: 'pganalyze',
     SignalsScout: 'signals_scout',
+    SignalsCheck: 'signals_check',
     Logs: 'logs',
     HealthChecks: 'health_checks',
     ReplayVision: 'replay_vision',
@@ -1221,6 +1223,7 @@ export const SignalSourceProductApi = {
  * * `ci_broken_default_branch` - ci_broken_default_branch
  * * `ci_duration_regression` - ci_duration_regression
  * * `search_opportunity` - search_opportunity
+ * * `check_failed` - check_failed
  */
 export type SignalSourceTypeApi = (typeof SignalSourceTypeApi)[keyof typeof SignalSourceTypeApi]
 
@@ -1247,6 +1250,7 @@ export const SignalSourceTypeApi = {
     CiBrokenDefaultBranch: 'ci_broken_default_branch',
     CiDurationRegression: 'ci_duration_regression',
     SearchOpportunity: 'search_opportunity',
+    CheckFailed: 'check_failed',
 } as const
 
 export type ProblemTypeEnumApi = (typeof ProblemTypeEnumApi)[keyof typeof ProblemTypeEnumApi]
@@ -1433,6 +1437,16 @@ export interface SignalsScoutSignalExtraApi {
     tags?: string[] | null
     time_range?: SignalsScoutTimeRangeApi | null
     mcp_trace_id?: string | null
+}
+
+export interface CheckFailedSignalExtraApi {
+    check_id: string
+    report_id: string
+    check_title: string
+    explanation: string
+    observed_value?: number | null
+    baseline_value?: number | null
+    threshold?: string | null
 }
 
 export type LogsAlertStateChangeSignalExtraActionEnumApi =
@@ -1840,6 +1854,7 @@ export type SignalExtraApi =
     | EndpointExecutionFailedSignalExtraApi
     | EndpointBreakdownLimitExceededSignalExtraApi
     | SignalsScoutSignalExtraApi
+    | CheckFailedSignalExtraApi
     | LogsAlertStateChangeSignalExtraApi
     | ReplayVisionScannerFindingSignalExtraApi
     | AnalyticsAnomalyInvestigationSignalExtraApi
@@ -1930,6 +1945,7 @@ export interface SignalNodeApi {
      * * `endpoints` - endpoints
      * * `pganalyze` - pganalyze
      * * `signals_scout` - signals_scout
+     * * `signals_check` - signals_check
      * * `logs` - logs
      * * `health_checks` - health_checks
      * * `replay_vision` - replay_vision
@@ -1992,7 +2008,8 @@ export interface SignalNodeApi {
      * * `ci_flaky_check` - ci_flaky_check
      * * `ci_broken_default_branch` - ci_broken_default_branch
      * * `ci_duration_regression` - ci_duration_regression
-     * * `search_opportunity` - search_opportunity */
+     * * `search_opportunity` - search_opportunity
+     * * `check_failed` - check_failed */
     source_type: SignalSourceTypeApi
     /** Emitter-scoped id of the underlying object (issue, ticket, ...). */
     source_id: string
@@ -2275,6 +2292,7 @@ export const SignalReportCheckKindEnumApi = {
 } as const
 
 /**
+ * * `pending` - Pending
  * * `active` - Active
  * * `passed` - Passed
  * * `failed` - Failed
@@ -2286,6 +2304,7 @@ export type SignalReportCheckStatusEnumApi =
     (typeof SignalReportCheckStatusEnumApi)[keyof typeof SignalReportCheckStatusEnumApi]
 
 export const SignalReportCheckStatusEnumApi = {
+    Pending: 'pending',
     Active: 'active',
     Passed: 'passed',
     Failed: 'failed',
@@ -2412,8 +2431,9 @@ export interface SignalReportCheckApi {
      * * `metric_threshold` - Metric Threshold
      * * `agent` - Agent */
     readonly kind: SignalReportCheckKindEnumApi
-    /** `active` while the check still runs; every other value is terminal.
+    /** `pending` while the check waits for the report to resolve, `active` while it still runs; every other value is terminal.
      *
+     * * `pending` - Pending
      * * `active` - Active
      * * `passed` - Passed
      * * `failed` - Failed
@@ -2423,8 +2443,13 @@ export interface SignalReportCheckApi {
     readonly status: SignalReportCheckStatusEnumApi
     /** What the check measures and what the result must satisfy; the shape depends on `kind`. `query` and `baseline_value` are null when you cannot read the data they describe. */
     config: SignalReportCheckConfigApi
-    /** When the coordinator next evaluates the check. */
+    /** When the coordinator next evaluates the check. Provisional while the check is `pending`: the report resolving is what sets it. */
     readonly next_run_at: string
+    /**
+     * How long after the report resolves a `pending` check waits before its first run. Null on a check that named its own `next_run_at`.
+     * @nullable
+     */
+    readonly soak_minutes: number | null
     /**
      * Gap between runs for a recurring check; null for a one-shot.
      * @nullable
@@ -2458,49 +2483,6 @@ export interface PaginatedSignalReportCheckListApi {
     /** @nullable */
     previous?: string | null
     results: SignalReportCheckApi[]
-}
-
-/**
- * Request body for creating a check on a report.
- *
- * The schedule is the check's own: `next_run_at` says when to look, rather than the system
- * deriving a soak window from a merged pull request that many fixes never have.
- */
-export interface SignalReportCheckWriteApi {
-    /**
-     * Short label for the expectation, e.g. `Checkout 500s stay below 10 a day`.
-     * @maxLength 200
-     */
-    title: string
-    /**
-     * Why the check is worth running.
-     * @maxLength 2000
-     */
-    rationale?: string
-    /** How the check is evaluated.
-     *
-     * * `metric_threshold` - Metric Threshold
-     * * `agent` - Agent */
-    kind: SignalReportCheckKindEnumApi
-    /** What the check measures and what the result must satisfy; the shape depends on `kind`. */
-    config: SignalReportCheckConfigApi
-    /** When to first evaluate the check. Must be in the future and within 90 days. Defaults to 7 days from now. */
-    next_run_at?: string
-    /**
-     * Gap between runs for a recurring check, between 360 and 129600 minutes. Omit for a one-shot check.
-     * @minimum 360
-     * @maximum 129600
-     * @nullable
-     */
-    run_interval_minutes?: number | null
-    /**
-     * How many times to evaluate the check, at most 10. Defaults to 1.
-     * @minimum 1
-     * @maximum 10
-     */
-    runs_remaining?: number
-    /** Horizon after which the check retires unrun. Defaults to 30 days after the last scheduled run, or the 90-day horizon if that comes first. */
-    expires_at?: string
 }
 
 export interface SignalReportBulkStateRequestApi {
@@ -5053,6 +5035,82 @@ export interface RecordStructuredOutputResponseApi {
 }
 
 /**
+ * Request body for `scout-report-check-cancel`.
+ */
+export interface CancelReportCheckRequestApi {
+    /** The check to stop. Its recorded results stay on the report. */
+    check_id: string
+}
+
+/**
+ * One check as a scout run reads it back.
+ */
+export interface ScoutCheckSummaryApi {
+    /** The check. */
+    check_id: string
+    /** The report it is attached to. */
+    report_id: string
+    /** The expectation the check states. */
+    title: string
+    /** `metric_threshold` (the coordinator measures it) or `agent` (a run does). */
+    kind: string
+    /** `pending` while the check waits for the report to resolve, `active` while it still runs; every other value is terminal. */
+    status: string
+    /** When the check next runs. Provisional while it is `pending`. */
+    next_run_at: string
+    /**
+     * Verdict of the most recent run; null before the first.
+     * @nullable
+     */
+    last_outcome: string | null
+}
+
+/**
+ * Request body for `scout-report-check-create`: one forward-looking check on a report.
+ *
+ * The REST body plus the report it attaches to. Subclassed rather than restated so the schedule
+ * bounds a scout writes under are the ones the endpoint enforces, with no second copy to drift.
+ */
+export interface CreateReportCheckRequestApi {
+    /**
+     * Short label for the expectation, e.g. `Checkout 500s stay below 10 a day`.
+     * @maxLength 200
+     */
+    title: string
+    /**
+     * Why the check is worth running.
+     * @maxLength 2000
+     */
+    rationale?: string
+    /** How the check is evaluated.
+     *
+     * * `metric_threshold` - Metric Threshold
+     * * `agent` - Agent */
+    kind: SignalReportCheckKindEnumApi
+    /** What the check measures and what the result must satisfy; the shape depends on `kind`. */
+    config: SignalReportCheckConfigApi
+    /** When to first evaluate the check. Must be in the future and within 90 days. Defaults to 7 days from now. */
+    next_run_at?: string
+    /**
+     * Gap between runs for a recurring check, between 360 and 129600 minutes. Omit for a one-shot check.
+     * @minimum 360
+     * @maximum 129600
+     * @nullable
+     */
+    run_interval_minutes?: number | null
+    /**
+     * How many times to evaluate the check, at most 10. Defaults to 1.
+     * @minimum 1
+     * @maximum 10
+     */
+    runs_remaining?: number
+    /** Horizon after which the check retires unrun. Defaults to 30 days after the last scheduled run, or the 90-day horizon if that comes first. */
+    expires_at?: string
+    /** The report the check attaches to. */
+    report_id: string
+}
+
+/**
  * What one scout spent in the window, and what it produced for that spend.
  */
 export interface ScoutCostApi {
@@ -5332,6 +5390,7 @@ export interface ScoutSuggestionRefreshApi {
  * * `error_tracking` - Error tracking
  * * `pganalyze` - pganalyze
  * * `signals_scout` - Signals scout
+ * * `signals_check` - Report check
  * * `logs` - Logs
  * * `health_checks` - Health checks
  * * `endpoints` - Endpoints
@@ -5385,6 +5444,7 @@ export const SignalSourceProductEnumApi = {
     ErrorTracking: 'error_tracking',
     Pganalyze: 'pganalyze',
     SignalsScout: 'signals_scout',
+    SignalsCheck: 'signals_check',
     Logs: 'logs',
     HealthChecks: 'health_checks',
     Endpoints: 'endpoints',
@@ -5912,6 +5972,13 @@ export type SignalsScoutRunsListParams = {
      * @minLength 1
      */
     text?: string
+}
+
+export type SignalsScoutReportChecksListParams = {
+    /**
+     * The report whose checks to list.
+     */
+    report_id: string
 }
 
 export type SignalsScoutRunsCostsParams = {

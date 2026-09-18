@@ -556,6 +556,15 @@ class TestGetRetryableErrors(SimpleTestCase):
             f"MongoDB connection pool paused should be classified retryable: {error_msg}"
         )
 
+    def test_network_timeout_is_classified_retryable(self):
+        # NetworkTimeout raised when opening a fresh connection (replacing one the pool dropped)
+        # takes longer than connectTimeoutMS — a momentary network blip, not a persistently
+        # unreachable cluster, so it must not flood error tracking on every occurrence.
+        error_msg = "cluster0.example.mongodb.net:27017: timed out (configured timeouts: connectTimeoutMS: 20000.0ms)"
+        assert any(pattern in error_msg for pattern in self.retryable), (
+            f"MongoDB NetworkTimeout on connect should be classified retryable: {error_msg}"
+        )
+
     def test_signing_keys_unavailable_is_classified_retryable(self):
         # mongo.py rewrites OperationFailure code 211 (KeyNotFound) to this message, so it is the
         # text that reaches classification. Without a match the run reports as a bug nobody can act

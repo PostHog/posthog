@@ -4596,6 +4596,14 @@ class AgentProxyCallbackRequestSerializer(serializers.Serializer):
             "This is true for 'heartbeat' and 'agent_activity', and false otherwise."
         ),
     )
+    turn_completed = serializers.BooleanField(
+        required=False,
+        default=True,
+        help_text=(
+            "Whether 'awaiting_input' reports a completed turn. Set false for an idle sandbox resume "
+            "to mark the agent idle without sending a completion notification or updating activity."
+        ),
+    )
     task_id = serializers.CharField(
         max_length=36,
         help_text="UUID of the Task that owns this run. Must match the JWT claim.",
