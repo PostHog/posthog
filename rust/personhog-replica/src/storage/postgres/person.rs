@@ -622,6 +622,7 @@ impl PersonLookup for PostgresStorage {
         };
         if candidates.is_empty() {
             tx.commit().await?;
+            record_tombstoned_delete_rows(&outcome, &client, &method);
             return Ok(outcome);
         }
 
@@ -747,36 +748,7 @@ impl PersonLookup for PostgresStorage {
 
         tx.commit().await?;
 
-        for (operation, value) in [
-            ("delete_tombstoned_persons_deleted", outcome.deleted),
-            (
-                "delete_tombstoned_persons_skipped_live",
-                outcome.skipped_live,
-            ),
-            (
-                "delete_tombstoned_persons_blocked",
-                outcome.blocked_uuids.len() as i64,
-            ),
-            (
-                "delete_tombstoned_persons_pending",
-                outcome.pending_uuids.len() as i64,
-            ),
-            (
-                "delete_tombstoned_persons_rows_deleted",
-                outcome.rows_deleted,
-            ),
-        ] {
-            common_metrics::histogram(
-                DB_ROWS_RETURNED,
-                &[
-                    ("operation".to_string(), operation.to_string()),
-                    ("pool".to_string(), "bulk_primary".to_string()),
-                    ("client".to_string(), client.to_string()),
-                    ("method".to_string(), method.to_string()),
-                ],
-                value as f64,
-            );
-        }
+        record_tombstoned_delete_rows(&outcome, &client, &method);
 
         Ok(outcome)
     }
@@ -1362,6 +1334,41 @@ struct DependentRowCounts {
 impl DependentRowCounts {
     fn total(self) -> i64 {
         self.distinct_ids + self.hash_key_overrides + self.cohort_memberships
+    }
+}
+
+/// Both exits of `delete_tombstoned_persons` call this. The early return for a call with no
+/// tombstoned candidate would otherwise report nothing and hide live persons from the histogram.
+fn record_tombstoned_delete_rows(outcome: &TombstonedDeleteOutcome, client: &str, method: &str) {
+    for (operation, value) in [
+        ("delete_tombstoned_persons_deleted", outcome.deleted),
+        (
+            "delete_tombstoned_persons_skipped_live",
+            outcome.skipped_live,
+        ),
+        (
+            "delete_tombstoned_persons_blocked",
+            outcome.blocked_uuids.len() as i64,
+        ),
+        (
+            "delete_tombstoned_persons_pending",
+            outcome.pending_uuids.len() as i64,
+        ),
+        (
+            "delete_tombstoned_persons_rows_deleted",
+            outcome.rows_deleted,
+        ),
+    ] {
+        common_metrics::histogram(
+            DB_ROWS_RETURNED,
+            &[
+                ("operation".to_string(), operation.to_string()),
+                ("pool".to_string(), "bulk_primary".to_string()),
+                ("client".to_string(), client.to_string()),
+                ("method".to_string(), method.to_string()),
+            ],
+            value as f64,
+        );
     }
 }
 
