@@ -7,11 +7,14 @@ import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedAr
 import { TeamMembershipLevel } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
+import { ModelCostChip } from 'products/posthog_ai/frontend/components/ModelCostChip'
+import { ModelCostFooter } from 'products/posthog_ai/frontend/components/ModelCostFooter'
 import { modelCatalogueLogic } from 'products/posthog_ai/frontend/logics/modelCatalogueLogic'
 import {
     filterEffortForModel,
     getEffortLabel,
     getEffortsForModel,
+    getModelCost,
     getModelLabel,
     getRuntimeAdapterLabel,
     listRuntimeAdapters,
@@ -47,17 +50,30 @@ function PreferenceEditor({
     // Grouped by harness off the same catalogue the composer renders, so a model you can pick for a
     // run is always settable as a default and vice versa — including the Codex models that only
     // Slack and PostHog Desktop drive today.
-    const modelOptions = useMemo(
-        () =>
-            listRuntimeAdapters(catalogue).map((adapter) => ({
-                title: getRuntimeAdapterLabel(adapter),
-                options: modelsForRuntimeAdapter(catalogue, adapter).map((choice) => ({
-                    value: choice.model,
-                    label: choice.display_name,
-                })),
+    const modelOptions = useMemo(() => {
+        const groups = listRuntimeAdapters(catalogue).map((adapter) => ({
+            title: getRuntimeAdapterLabel(adapter),
+            options: modelsForRuntimeAdapter(catalogue, adapter).map((choice) => ({
+                value: choice.model,
+                label: choice.display_name,
+                // Menu only: cost is what you compare models on while choosing, and says
+                // nothing once the closed control shows the one you picked.
+                labelInMenu: (
+                    <span className="flex w-full items-center justify-between gap-2">
+                        {choice.display_name}
+                        <ModelCostChip model={choice.model} />
+                    </span>
+                ),
             })),
-        [catalogue]
-    )
+        }))
+        // On the last group, so it reads as closing the whole list rather than that one harness.
+        const last = groups.at(-1)
+        const anyCost = groups.some((group) => group.options.some((option) => getModelCost(option.value)))
+        if (last && anyCost) {
+            return [...groups.slice(0, -1), { ...last, footer: <ModelCostFooter /> }]
+        }
+        return groups
+    }, [catalogue])
     const effortOptions = useMemo(() => getEffortsForModel(catalogue, draft.model), [catalogue, draft.model])
 
     return (

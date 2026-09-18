@@ -19,6 +19,7 @@ from products.engineering_analytics.backend.logic.ci_signals_config import (
     update_ci_signals_config as update_ci_signals_config,
 )
 from products.engineering_analytics.backend.logic.delivery import (
+    build_delivery_comparison as build_delivery_comparison,
     build_delivery_summary as build_delivery_summary,
     build_pull_request_timelines as build_pull_request_timelines,
 )

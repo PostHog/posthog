@@ -1477,6 +1477,7 @@ const llmaPromptGet = (): ToolBase<ReturnType<typeof LlmaPromptGetSchema>, Schem
             query: {
                 content: params.content,
                 label: params.label,
+                resolve: params.resolve,
                 version: params.version,
             },
         })

@@ -1,6 +1,6 @@
 from datetime import UTC, datetime, timedelta
 
-from posthog.test.base import APIBaseTest
+from posthog.test.base import APIBaseTest, _create_event, flush_persons_and_events
 
 from django.test import SimpleTestCase
 
@@ -8,10 +8,13 @@ from parameterized import parameterized
 from rest_framework import status
 
 from products.engineering_analytics.backend.facade.contracts import (
+    ComparisonTeamBasis as Basis,
     DeliveryScopeKind,
     PRTimelineSegmentKind as Kind,
     ScopeRepoFigure,
 )
+from products.engineering_analytics.backend.logic.census import CENSUS_EVENT
+from products.engineering_analytics.backend.logic.comparison_teams import choose_comparison_teams
 from products.engineering_analytics.backend.logic.delivery_scope import DeliveryScope
 from products.engineering_analytics.backend.logic.pr_timeline import (
     GateAttempt,
@@ -22,6 +25,7 @@ from products.engineering_analytics.backend.logic.pr_timeline import (
     RunAttempt,
 )
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
+from products.engineering_analytics.backend.logic.queries.delivery_comparison import query_delivery_comparison
 from products.engineering_analytics.backend.logic.queries.delivery_summary import (
     CI_LOOKBACK,
     DeliverySummaryAggregator,
@@ -44,6 +48,7 @@ from products.engineering_analytics.backend.tests._github_fixtures import (
     _pr_row,
     _run_row,
     _status_row,
+    create_github_source,
 )
 from products.engineering_analytics.backend.tests._logic_helpers import (
     _ago,
@@ -306,6 +311,7 @@ def _facts(
     ready_at = merged_at - timedelta(hours=ready_hours)
     return MergedPRFacts(
         number=number,
+        author="alice" if in_scope else "bob",
         in_scope=in_scope,
         created_at=ready_at - timedelta(hours=1),
         merged_at=merged_at,
@@ -315,6 +321,95 @@ def _facts(
         gate_attempts=[],
         cost=None,
     )
+
+
+class TestComparisonTeamChoice(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("no_team", set(), {}, set(), [], Basis.NO_TEAM),
+            ("one_team_needs_no_signal", {"team-a"}, {"team-b": 3}, set(), ["team-a"], Basis.ONLY_TEAM),
+            (
+                "a_group_that_owns_no_code_is_no_candidate",
+                {"team-a", "approvers"},
+                {},
+                set(),
+                ["team-a"],
+                Basis.ONLY_TEAM,
+            ),
+            (
+                "a_requested_team_owns_code_without_tests",
+                {"team-a", "team-untested", "approvers"},
+                {"team-untested": 2, "team-a": 1},
+                set(),
+                ["team-untested"],
+                Basis.REVIEW_REQUESTS,
+            ),
+            (
+                "the_pull_request_in_focus_wins",
+                {"team-a", "team-b"},
+                {"team-a": 5, "team-b": 1},
+                {"team-b"},
+                ["team-b"],
+                Basis.PULL_REQUEST,
+            ),
+            (
+                "every_team_the_focus_pull_request_asked_stays",
+                {"team-a", "team-b", "team-c"},
+                {"team-a": 5, "team-b": 1},
+                {"team-a", "team-b"},
+                ["team-a", "team-b"],
+                Basis.PULL_REQUEST,
+            ),
+            (
+                "the_most_requested_team_wins",
+                {"team-a", "team-b"},
+                {"team-a": 1, "team-b": 4},
+                set(),
+                ["team-b"],
+                Basis.REVIEW_REQUESTS,
+            ),
+            (
+                "a_tie_keeps_every_tied_team",
+                {"team-a", "team-b", "team-c"},
+                {"team-a": 2, "team-b": 2, "team-c": 1},
+                set(),
+                ["team-a", "team-b"],
+                Basis.REVIEW_REQUESTS,
+            ),
+            (
+                "requests_for_other_teams_show_every_code_team",
+                {"team-b", "team-a", "approvers"},
+                {"team-x": 3},
+                set(),
+                ["team-a", "team-b"],
+                Basis.ALL_TEAMS,
+            ),
+        ]
+    )
+    def test_picks_the_teams_to_compare_with(
+        self,
+        _name: str,
+        author_teams: set[str],
+        requested_prs: dict[str, int],
+        focus_requested: set[str],
+        teams: list[str],
+        basis: Basis,
+    ) -> None:
+        choice = choose_comparison_teams(
+            author_teams=author_teams,
+            code_teams={"team-a", "team-b", "team-c"},
+            requested_prs=requested_prs,
+            focus_requested=focus_requested,
+        )
+
+        assert (choice.teams, choice.basis) == (teams, basis)
+
+    def test_every_team_is_a_candidate_without_any_evidence_of_owning_code(self) -> None:
+        choice = choose_comparison_teams(
+            author_teams={"team-untested", "approvers"}, code_teams={"team-a"}, requested_prs={}, focus_requested=set()
+        )
+
+        assert (choice.teams, choice.basis) == (["approvers", "team-untested"], Basis.ALL_TEAMS)
 
 
 class TestDeliverySummaryAggregator(SimpleTestCase):
@@ -482,11 +577,143 @@ class TestDeliveryReadsOnWarehouse(_WarehouseMixin):
         assert kinds.get(24, [Kind.DRAFT]) == [Kind.DRAFT]
         merged = next(item for item in timelines.items if item.number == 21)
         assert merged.author.handle == "alice"
-        assert merged.pushes == 2
+        assert [(push.head_sha, push.pushed_at) for push in merged.pushes] == [
+            ("sha21a", _dt(_ago_offset_with_duration(2, 0, 3600)[0])),
+            ("sha21b", _dt(_ago_offset_with_duration(2, 8 * 3600, 3600)[0])),
+        ]
         assert merged.segments[-1].ended_at == merged.merged_at
         assert merged.started_at == _dt(_ago(2))
         old_open = next((item for item in timelines.items if item.number == 26), None)
         assert old_open is None or old_open.started_at == date_from - CI_LOOKBACK
+
+
+_ISSUE_EVENTS_WITHOUT_TEAM_REQUESTS = {
+    column: types for column, types in ISSUE_EVENTS_COLUMNS.items() if column != "requested_team"
+}
+
+
+def _team_request_row(event_id: int, pr_number: int, team_slug: str, created_at: str) -> dict:
+    return {
+        **_issue_event_row(event_id, "review_requested", pr_number, created_at, login="assigner[bot]"),
+        "requested_team": f'{{"slug": "{team_slug}"}}',
+    }
+
+
+class TestDeliveryComparisonOnWarehouse(_WarehouseMixin):
+    def _seed(self, *, with_team_requests: bool) -> None:
+        # The census is keyed by repository, so the source has to name one.
+        self._github_source = create_github_source(self.team, repository="PostHog/posthog")
+        self._create_table(
+            "github_pull_requests",
+            PULL_REQUESTS_COLUMNS,
+            [
+                _pr_row(21, "alice", "closed", 0, _ago(3), merged_at=_ago(1)),
+                _pr_row(27, "alice", "closed", 0, _ago(3), merged_at=_ago(2)),
+                _pr_row(23, "alice", "closed", 0, _ago(2), merged_at=_ago(1)),
+                _pr_row(22, "bob", "closed", 0, _ago(4), merged_at=_ago(1)),
+                _pr_row(28, "carol", "closed", 0, _ago(4), merged_at=_ago(2)),
+                _pr_row(29, "dave", "closed", 0, _ago(4), merged_at=_ago(2)),
+                # Opened before the issue events start, so their ready times are unknown.
+                _pr_row(30, "erin", "closed", 0, _ago(12), merged_at=_ago(2)),
+                _pr_row(31, "gina", "closed", 0, _ago(12), merged_at=_ago(2)),
+                _pr_row(32, "hank", "closed", 0, _ago(12), merged_at=_ago(2)),
+            ],
+        )
+        self._create_table("github_workflow_runs", WORKFLOW_RUNS_COLUMNS, [])
+        # Alice is in two teams that own code and in an approver group that owns none. The two teams sit on
+        # either side of MIN_OTHER_TEAM_AUTHORS: team-replay has exactly as many other authors with a ready
+        # time as the floor asks for, team-ingestion one fewer, so its median stays hidden.
+        self._create_table(
+            "github_team_members",
+            TEAM_MEMBERS_COLUMNS,
+            [
+                _member_row(1, "alice", "team-replay"),
+                _member_row(2, "alice", "team-ingestion"),
+                _member_row(3, "alice", "client-libraries-approvers"),
+                _member_row(4, "bob", "team-replay"),
+                _member_row(5, "carol", "team-ingestion"),
+                _member_row(6, "dave", "team-replay"),
+                _member_row(7, "erin", "team-replay"),
+                _member_row(8, "gina", "team-ingestion"),
+                _member_row(9, "hank", "team-ingestion"),
+            ],
+        )
+        if with_team_requests:
+            # Other authors' pull requests ask team-ingestion more often, and must not count for alice.
+            self._create_table(
+                "github_issue_events",
+                ISSUE_EVENTS_COLUMNS,
+                [
+                    _issue_event_row(9, "labeled", 21, _ago(10)),
+                    _team_request_row(1, 21, "team-replay", _ago(2)),
+                    _team_request_row(2, 27, "team-replay", _ago(3)),
+                    _team_request_row(3, 23, "team-ingestion", _ago(1)),
+                    _team_request_row(4, 22, "team-ingestion", _ago(3)),
+                    _team_request_row(5, 28, "team-ingestion", _ago(3)),
+                ],
+            )
+        else:
+            self._create_table(
+                "github_issue_events",
+                _ISSUE_EVENTS_WITHOUT_TEAM_REQUESTS,
+                [_issue_event_row(1, "labeled", 21, _ago(10)), _issue_event_row(2, "labeled", 21, _ago(0))],
+            )
+        for owner_team in ("team-replay", "team-ingestion"):
+            _create_event(
+                event=CENSUS_EVENT,
+                team=self.team,
+                distinct_id="census",
+                properties={"repository": "PostHog/posthog", "owner_team": owner_team, "test_file_count": 10},
+                timestamp=datetime.now(tz=UTC) - timedelta(days=1),
+            )
+        flush_persons_and_events()
+
+    @parameterized.expand(
+        [
+            ("the_most_requested_team", True, None, Basis.REVIEW_REQUESTS, {"team-replay": 6}, (3, 9), None),
+            ("the_team_the_focus_pr_asked", True, 23, Basis.PULL_REQUEST, {"team-ingestion": None}, (2, 8), 86400),
+            (
+                "every_code_team_without_requests",
+                False,
+                None,
+                Basis.ALL_TEAMS,
+                {"team-ingestion": None, "team-replay": 6},
+                (3, 9),
+                None,
+            ),
+        ]
+    )
+    def test_compares_the_author_with_their_team(
+        self,
+        _name: str,
+        with_team_requests: bool,
+        focus_pr: int | None,
+        basis: Basis,
+        team_merged_counts: dict[str, int | None],
+        author_and_repo_counts: tuple[int, int],
+        focus_ready_seconds: int | None,
+    ) -> None:
+        self._seed(with_team_requests=with_team_requests)
+        curated = CuratedGitHubSource.for_team(self.team)
+
+        comparison = query_delivery_comparison(
+            curated=curated,
+            author="alice",
+            focus_pr=focus_pr,
+            date_from=datetime.now(tz=UTC) - timedelta(days=7),
+            date_to=None,
+        )
+
+        assert comparison.team_basis == basis
+        assert {
+            team.github_team: team.medians.merged_pr_count if team.medians else None for team in comparison.teams
+        } == team_merged_counts
+        assert (
+            comparison.author_medians.merged_pr_count,
+            comparison.repo_medians.merged_pr_count,
+        ) == author_and_repo_counts
+        focus = comparison.pull_request
+        assert (focus.ready_to_merge_seconds if focus else None) == focus_ready_seconds
 
 
 class TestDeliveryDeployWindow(_WarehouseMixin):
@@ -560,9 +787,16 @@ class TestDeliveryDeployWindow(_WarehouseMixin):
 
 
 class TestDeliveryEndpoints(APIBaseTest):
-    @parameterized.expand([("delivery_summary",), ("pull_request_timelines",)])
-    def test_requires_exactly_one_scope(self, action: str) -> None:
-        response = self.client.get(f"/api/projects/{self.team.id}/engineering_analytics/{action}/")
+    @parameterized.expand(
+        [
+            ("delivery_summary", "", "exactly one of author, github_team"),
+            ("pull_request_timelines", "", "exactly one of author, github_team"),
+            ("delivery_comparison", "", "author is required"),
+            ("delivery_comparison", "?author=alice&pr_number=21", "repo is required with pr_number"),
+        ]
+    )
+    def test_rejects_a_missing_scope(self, action: str, query: str, message: str) -> None:
+        response = self.client.get(f"/api/projects/{self.team.id}/engineering_analytics/{action}/{query}")
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert "exactly one of author, github_team" in response.json()["detail"]
+        assert message in response.json()["detail"]

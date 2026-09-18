@@ -100,6 +100,19 @@ export const ExperimentRecordingsEmptyVariantHasNone: Story = {
 }
 
 /**
+ * Narrowed to one variant on a run too young to have recordings either way. The copy stays the
+ * too-early one, because the list is most likely empty for every variant, and the banner carries
+ * the way out of the variant so the viewer is not left with nothing to click.
+ */
+export const ExperimentRecordingsEmptyTooEarlyWithVariantSelected: Story = {
+    decorators: [mswDecorator({ get: { [EXPERIMENT_PATH]: experimentRun('2025-05-30T09:00:00Z', null) } })],
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        await userEvent.click(await canvas.findByText('test-1'))
+    },
+}
+
+/**
  * Narrowed to the sessions the exposure happened in. The scope is offered only once the server
  * confirms this experiment can be asked for it, so the story answers that check first.
  */
@@ -154,6 +167,32 @@ export const ExperimentRecordingsEmptyMetricFilterMatchedNothing: Story = {
 export const ExperimentRecordingsEmptyMetricFilterFailed: Story = {
     decorators: [mswDecorator({ post: { [SESSION_BUCKETS_PATH]: [400, { detail: 'Could not resolve the filter' }] } })],
     play: pickFiredNone,
+}
+
+// A results-row link for a metric the tab can't select. It carries no metric and no mode, so the
+// caption strip is the only thing that says the list is every recording of the variant, and why.
+const DROPPED_METRIC_URL = `${urls.experiment(EXPERIMENT_WITH_FUNNEL_METRIC.id)}?tab=recordings&variant=test-1&entry=results_button&metric_unavailable=server_side_events`
+const DROPPED_METRIC_CAPTION = '[data-attr="experiment-recordings-dropped-metric-caption"]'
+
+export const ExperimentRecordingsDroppedMetric: Story = {
+    parameters: {
+        pageUrl: DROPPED_METRIC_URL,
+        testOptions: { waitForSelector: DROPPED_METRIC_CAPTION },
+    },
+}
+
+/**
+ * The ~520px of scene a nav sidebar and an open side panel leave. The caption is a long sentence,
+ * so this is where it has to wrap rather than clip.
+ */
+export const ExperimentRecordingsDroppedMetricNarrow: Story = {
+    parameters: {
+        pageUrl: DROPPED_METRIC_URL,
+        testOptions: {
+            waitForSelector: DROPPED_METRIC_CAPTION,
+            viewport: { width: 767, height: 1200 },
+        },
+    },
 }
 
 /**
