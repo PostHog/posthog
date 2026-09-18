@@ -54,23 +54,23 @@ Notes:
 
 Only endpoints with a genuine server-side timestamp filter get `supports_incremental=True`:
 
-| Endpoint          | Path                            | Offset pag | Server-side date filter                             | `_order_by` | Incremental                   |
-| ----------------- | ------------------------------- | ---------- | --------------------------------------------------- | ----------- | ----------------------------- |
-| Activities        | `/activity/`                    | yes        | `date_created__gte/lte/gt/lt`                       | yes         | date_created                  |
-| Opportunities     | `/opportunity/`                 | yes        | `date_created__*`, `date_updated__*`, `date_won__*` | yes         | date_created (+ date_updated) |
-| Tasks             | `/task/`                        | yes        | `date_created__*`, `date_updated__*`, `date__*`     | yes         | date_created (+ date_updated) |
-| Leads             | `/data/search/`                 | keyset     | `date_created`, `date_updated` (Advanced Filtering) | sort        | date_created (+ date_updated) |
-| Contacts          | `/data/search/`                 | keyset     | `date_created`, `date_updated` (Advanced Filtering) | sort        | date_created (+ date_updated) |
-| Events            | `/event/`                       | cursor     | `date_updated__gt/gte/lt/lte`                       | no          | date_updated                  |
-| Users             | `/user/`                        | yes        | none                                                | yes         | full refresh                  |
-| Lead statuses     | `/status/lead/`                 | no         | none                                                | no          | full refresh                  |
-| Opp. statuses     | `/status/opportunity/`          | no         | none                                                | no          | full refresh                  |
-| Pipelines         | `/pipeline/`                    | no         | none                                                | no          | full refresh                  |
-| Email templates   | `/email_template/`              | yes        | none                                                | no          | full refresh                  |
-| Outcomes          | `/outcome/`                     | yes        | none                                                | no          | full refresh                  |
-| Organizations     | `/organization/{id}/`           | n/a        | none                                                | no          | full refresh                  |
-| Custom fields     | `/custom_field/{object_type}/`  | yes        | none                                                | no          | full refresh                  |
-| Shared cust. flds | `/custom_field/shared/`         | no         | none                                                | no          | full refresh                  |
+| Endpoint          | Path                           | Offset pag | Server-side date filter                             | `_order_by` | Incremental                   |
+| ----------------- | ------------------------------ | ---------- | --------------------------------------------------- | ----------- | ----------------------------- |
+| Activities        | `/activity/`                   | yes        | `date_created__gte/lte/gt/lt`                       | yes         | date_created                  |
+| Opportunities     | `/opportunity/`                | yes        | `date_created__*`, `date_updated__*`, `date_won__*` | yes         | date_created (+ date_updated) |
+| Tasks             | `/task/`                       | yes        | `date_created__*`, `date_updated__*`, `date__*`     | yes         | date_created (+ date_updated) |
+| Leads             | `/data/search/`                | keyset     | `date_created`, `date_updated` (Advanced Filtering) | sort        | date_created (+ date_updated) |
+| Contacts          | `/data/search/`                | keyset     | `date_created`, `date_updated` (Advanced Filtering) | sort        | date_created (+ date_updated) |
+| Events            | `/event/`                      | cursor     | `date_updated__gt/gte/lt/lte`                       | no          | date_updated                  |
+| Users             | `/user/`                       | yes        | none                                                | yes         | full refresh                  |
+| Lead statuses     | `/status/lead/`                | no         | none                                                | no          | full refresh                  |
+| Opp. statuses     | `/status/opportunity/`         | no         | none                                                | no          | full refresh                  |
+| Pipelines         | `/pipeline/`                   | no         | none                                                | no          | full refresh                  |
+| Email templates   | `/email_template/`             | yes        | none                                                | no          | full refresh                  |
+| Outcomes          | `/outcome/`                    | yes        | none                                                | no          | full refresh                  |
+| Organizations     | `/organization/{id}/`          | n/a        | none                                                | no          | full refresh                  |
+| Custom fields     | `/custom_field/{object_type}/` | yes        | none                                                | no          | full refresh                  |
+| Shared cust. flds | `/custom_field/shared/`        | no         | none                                                | no          | full refresh                  |
 
 Notes:
 

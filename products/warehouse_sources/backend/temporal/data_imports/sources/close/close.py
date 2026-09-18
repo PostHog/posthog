@@ -1,5 +1,4 @@
 import base64
-import dataclasses
 from collections.abc import Iterator
 from datetime import UTC, date, datetime
 from typing import Any, Optional
@@ -8,6 +7,8 @@ from dateutil import parser
 from requests import Request, Response, Session
 from structlog.types import FilteringBoundLogger
 from urllib3.util.retry import Retry
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.close.search import (
     ALL_CUSTOM_FIELDS_SELECTOR,
@@ -54,7 +55,7 @@ INITIAL_INCREMENTAL_VALUE = "1970-01-01T00:00:00+00:00"
 CLOSE_RETRY = DEFAULT_RETRY.new(allowed_methods=frozenset(DEFAULT_RETRY.allowed_methods or ()) | {"POST"})
 
 
-@dataclasses.dataclass
+@frozen
 class CloseResumeConfig:
     next_skip: int = 0
     # Event log walk: the `cursor_next` the next page starts from.
@@ -174,7 +175,11 @@ class CloseEventCursorPaginator(BasePaginator):
         except ValueError:
             body = None
         cursor = body.get("cursor_next") if isinstance(body, dict) else None
-        self._cursor = cursor if isinstance(cursor, str) and cursor else None
+        next_cursor = cursor if isinstance(cursor, str) and cursor else None
+        if next_cursor is not None and next_cursor == self._cursor:
+            # Following it again would re-request the same page for as long as the activity runs.
+            raise ValueError("Close returned the same event cursor twice")
+        self._cursor = next_cursor
         self._has_next_page = self._cursor is not None
 
         if self._has_next_page and self._stop_when_older_than is not None:
@@ -183,7 +188,7 @@ class CloseEventCursorPaginator(BasePaginator):
                 for parsed in (_parse_close_datetime(row.get("date_updated")) for row in data if isinstance(row, dict))
                 if parsed is not None
             ]
-            if timestamps and max(timestamps) < self._stop_when_older_than:
+            if len(timestamps) == len(data) and max(timestamps) < self._stop_when_older_than:
                 self._has_next_page = False
 
     def update_request(self, request: Request) -> None:

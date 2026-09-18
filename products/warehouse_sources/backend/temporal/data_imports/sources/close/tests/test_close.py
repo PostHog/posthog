@@ -502,6 +502,28 @@ class TestCloseEventCursorPaginator:
 
         assert paginator.has_next_page is expected_next_page
 
+    def test_a_row_we_cannot_date_keeps_the_walk_going(self) -> None:
+        # An unparseable timestamp says nothing about whether the page predates the watermark,
+        # so stopping on the rows we can read would skip everything behind it.
+        paginator = CloseEventCursorPaginator(stop_when_older_than=datetime(2024, 6, 1, 12, 0, 0, tzinfo=UTC))
+        rows: list[dict[str, Any]] = [
+            {"id": "ev_1", "date_updated": "2024-05-01T00:00:00+00:00"},
+            {"id": "ev_2", "date_updated": None},
+        ]
+
+        paginator.update_state(self._page(rows, "cursor_2"), rows)
+
+        assert paginator.has_next_page is True
+
+    def test_a_cursor_that_repeats_raises(self) -> None:
+        # Following it again would re-request the same page for as long as the activity runs.
+        paginator = CloseEventCursorPaginator()
+        rows = [{"id": "ev_1", "date_updated": "2024-06-05T00:00:00+00:00"}]
+        paginator.update_state(self._page(rows, "cursor_2"), rows)
+
+        with pytest.raises(ValueError, match="same event cursor twice"):
+            paginator.update_state(self._page(rows, "cursor_2"), rows)
+
     def test_walks_on_without_a_watermark(self) -> None:
         paginator = CloseEventCursorPaginator()
         rows = [{"id": "ev_1", "date_updated": "2019-01-01T00:00:00+00:00"}]

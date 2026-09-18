@@ -1,5 +1,7 @@
-from dataclasses import dataclass, field
+from dataclasses import field
 from typing import Literal, Optional
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SortMode
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
@@ -68,7 +70,7 @@ CONTACT_SEARCH_FIELDS = [
 PaginationStyle = Literal["offset", "single_page", "event_cursor"]
 
 
-@dataclass
+@frozen
 class CloseEndpointConfig:
     name: str
     path: str
