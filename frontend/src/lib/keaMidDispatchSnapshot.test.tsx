@@ -99,4 +99,17 @@ describe('kea mid-dispatch store read guard', () => {
         expect(() => reentrantTestLogic.actions.bump()).not.toThrow()
         expect(reentrantTestLogic.values.total).toEqual(2)
     })
+
+    it('reads the middleware store after the context resets', () => {
+        counterTestLogic.mount()
+        const storeA = getContext().store
+        initKeaTests(false)
+        const storeB = getContext().store
+        storeB.getState = () => {
+            throw new Error('The current context store must not be read by store A middleware.')
+        }
+
+        expect(() => storeA.dispatch(counterTestLogic.actionCreators.increment())).not.toThrow()
+        expect(storeA.getState()).toMatchObject({ [counterTestLogic.path.join('.')]: { count: 1 } })
+    })
 })

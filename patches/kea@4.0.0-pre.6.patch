@@ -46,7 +46,7 @@ index 6cd21508919609f0b6fa59765919a97420946fe1..5816adbf1410a51fa545c2c2532b3dbd
          return function (next) {
            return function (action) {
 -            var previousState = store.getState();
-+            var previousState = getStoreState$1();
++            var previousState = readStoreState(store);
              var response = next(action);
              var _getPluginContext = getPluginContext('listeners'),
                byAction = _getPluginContext.byAction;
@@ -98,7 +98,7 @@ index 03fc2ba40b1c6445f0b642ed236dceccc5659fcb..c1d11d1adf01a783eb609cd80be82018
          return function (next) {
            return function (action) {
 -            var previousState = store.getState();
-+            var previousState = getStoreState$1();
++            var previousState = readStoreState(store);
              var response = next(action);
              var _getPluginContext = getPluginContext('listeners'),
                byAction = _getPluginContext.byAction;
