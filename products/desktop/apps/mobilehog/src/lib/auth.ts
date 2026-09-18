@@ -30,6 +30,7 @@ export interface Session {
 interface AuthState {
   session: Session | null;
   hydrated: boolean;
+  generation: number;
   hydrate: () => Promise<void>;
   login: (email: string, password: string) => Promise<void>;
   loginWithOAuth: (region: CloudRegion, signup?: boolean) => Promise<void>;
@@ -135,68 +136,121 @@ async function describeSession(base: {
   };
 }
 
-async function persist(session: Session): Promise<void> {
-  await SecureStore.setItemAsync(SESSION_KEY, JSON.stringify(session));
+let storageWrite: Promise<void> = Promise.resolve();
+let loginPending = false;
+
+function queueStorageWrite(write: () => Promise<void>): Promise<void> {
+  const pending = storageWrite.then(write);
+  storageWrite = pending.catch(() => {});
+  return pending;
 }
 
-export const useAuth = create<AuthState>((set, get) => ({
-  session: null,
-  hydrated: false,
+export function sessionIdentity(state = useAuth.getState()): string {
+  const { session, generation } = state;
+  return JSON.stringify([
+    generation,
+    session?.host,
+    session?.projectId,
+    session?.userId,
+  ]);
+}
 
-  hydrate: async () => {
-    try {
-      const raw = await SecureStore.getItemAsync(SESSION_KEY);
-      set({
-        session: raw ? (JSON.parse(raw) as Session) : null,
-        hydrated: true,
-      });
-    } catch {
-      set({ session: null, hydrated: true });
-    }
-  },
+export function accountStorageKey(prefix: string): string {
+  const session = requireSession();
+  const host = Array.from(session.host, (character) =>
+    character.charCodeAt(0).toString(16),
+  ).join("-");
+  return `${prefix}_${host}_${session.projectId}_${session.userId}`;
+}
 
-  login: async (email, password) => {
-    const session = await loginWithPassword(email, password);
-    await persist(session);
-    set({ session });
-  },
-
-  loginWithOAuth: async (region, signup) => {
-    const tokens = await signInWithOAuth(region, signup);
-    const session = await describeSession({
-      region,
-      host: CLOUD_HOSTS[region],
-      apiKey: tokens.access_token,
-      refreshToken: tokens.refresh_token,
-      expiresAt: Date.now() + tokens.expires_in * 1000,
-      projectId: tokens.scoped_teams?.[0],
+export const useAuth = create<AuthState>((set, get) => {
+  const commit = async (
+    session: Session,
+    generation: number,
+  ): Promise<void> => {
+    await queueStorageWrite(async () => {
+      if (get().generation !== generation)
+        throw new Error("Session changed. Sign in again.");
+      await SecureStore.setItemAsync(SESSION_KEY, JSON.stringify(session));
+      if (get().generation !== generation)
+        throw new Error("Session changed. Sign in again.");
+      set({ session, hydrated: true });
     });
-    await persist(session);
-    set({ session });
-  },
+  };
 
-  refresh: async () => {
-    const current = get().session;
-    if (!current?.refreshToken || current.region === "local") {
-      throw new Error("Session cannot be refreshed");
+  const login = async (attempt: () => Promise<Session>): Promise<void> => {
+    if (loginPending) return;
+    loginPending = true;
+    if (get().session || !get().hydrated) {
+      set({ session: null, generation: get().generation + 1, hydrated: true });
     }
-    const tokens = await refreshOAuth(current.region, current.refreshToken);
-    const session: Session = {
-      ...current,
-      apiKey: tokens.access_token,
-      refreshToken: tokens.refresh_token || current.refreshToken,
-      expiresAt: Date.now() + tokens.expires_in * 1000,
-    };
-    await persist(session);
-    set({ session });
-    return session.apiKey;
-  },
+    const generation = get().generation;
+    try {
+      await commit(await attempt(), generation);
+    } finally {
+      loginPending = false;
+    }
+  };
 
-  logout: async () => {
-    await SecureStore.deleteItemAsync(SESSION_KEY);
-    set({ session: null });
-  },
-}));
+  return {
+    session: null,
+    hydrated: false,
+    generation: 0,
+
+    hydrate: async () => {
+      if (get().hydrated) return;
+      const generation = get().generation;
+      try {
+        const raw = await SecureStore.getItemAsync(SESSION_KEY);
+        if (get().generation !== generation || get().session) return;
+        set({
+          session: raw ? (JSON.parse(raw) as Session) : null,
+          hydrated: true,
+        });
+      } catch {
+        if (get().generation === generation) set({ hydrated: true });
+      }
+    },
+
+    login: (email, password) => login(() => loginWithPassword(email, password)),
+
+    loginWithOAuth: (region, signup) =>
+      login(async () => {
+        const tokens = await signInWithOAuth(region, signup);
+        return describeSession({
+          region,
+          host: CLOUD_HOSTS[region],
+          apiKey: tokens.access_token,
+          refreshToken: tokens.refresh_token,
+          expiresAt: Date.now() + tokens.expires_in * 1000,
+          projectId: tokens.scoped_teams?.[0],
+        });
+      }),
+
+    refresh: async () => {
+      const { session: current, generation } = get();
+      if (!current?.refreshToken || current.region === "local") {
+        throw new Error("Session cannot be refreshed");
+      }
+      const tokens = await refreshOAuth(current.region, current.refreshToken);
+      if (get().session !== current)
+        throw new Error("Session changed. Sign in again.");
+      const session: Session = {
+        ...current,
+        apiKey: tokens.access_token,
+        refreshToken: tokens.refresh_token || current.refreshToken,
+        expiresAt: Date.now() + tokens.expires_in * 1000,
+      };
+      await commit(session, generation);
+      return session.apiKey;
+    },
+
+    logout: async () => {
+      set({ session: null, generation: get().generation + 1, hydrated: true });
+      await queueStorageWrite(() => SecureStore.deleteItemAsync(SESSION_KEY));
+    },
+  };
+});
 
 export function requireSession(): Session {
   const { session } = useAuth.getState();

@@ -43,7 +43,14 @@ export function Glass({
     );
   }
   return (
-    <View style={[styles.fallback, style]} onLayout={onLayout}>
+    <View
+      style={[
+        styles.fallback,
+        style,
+        tint != null && { backgroundColor: tint },
+      ]}
+      onLayout={onLayout}
+    >
       {children}
     </View>
   );

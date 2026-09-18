@@ -6,20 +6,33 @@ import type {
   Tool,
 } from "@modelcontextprotocol/sdk/types.js";
 import { MCP_HOSTS } from "@/config";
-import { requireSession } from "@/lib/auth";
+import { requireSession, sessionIdentity } from "@/lib/auth";
 
 // The sandbox wrapper sends this too; it is what makes exec results carry the
 // UI-app resource URI and structured data instead of plain text.
 const CONSUMER = "posthog-code";
 
-let connection: { key: string; client: Promise<Client> } | null = null;
+interface Connection {
+  key: string;
+  client: Promise<Client>;
+  tools?: Promise<Tool[]>;
+}
+
+let connection: Connection | null = null;
+
+export function resetMcpClient(): void {
+  const previous = connection;
+  connection = null;
+  previous?.client.then((client) => client.close()).catch(() => {});
+}
 
 // One MCP client to the PostHog server for the signed-in host, opened lazily
 // and reopened if the session changes.
-function getClient(): Promise<Client> {
+function getConnection(): Connection {
   const session = requireSession();
-  const key = `${session.host}|${session.apiKey}`;
-  if (connection?.key === key) return connection.client;
+  const key = `${sessionIdentity()}|${session.apiKey}`;
+  if (connection?.key === key) return connection;
+  resetMcpClient();
   const url = new URL(MCP_HOSTS[session.region]);
   const transport = new StreamableHTTPClientTransport(url, {
     requestInit: {
@@ -34,11 +47,20 @@ function getClient(): Promise<Client> {
     { capabilities: {} },
   );
   const ready = client.connect(transport).then(() => client);
+  const next: Connection = { key, client: ready };
   ready.catch(() => {
-    if (connection?.key === key) connection = null;
+    if (connection === next) connection = null;
   });
-  connection = { key, client: ready };
-  return ready;
+  connection = next;
+  return next;
+}
+
+async function getClient(): Promise<Client> {
+  const current = getConnection();
+  const client = await current.client;
+  if (connection !== current)
+    throw new Error("Session changed. Sign in again.");
+  return client;
 }
 
 export async function readMcpResource(
@@ -59,16 +81,15 @@ export async function callMcpTool(
   })) as CallToolResult;
 }
 
-let tools: Promise<Tool[]> | null = null;
-
 export function listMcpTools(): Promise<Tool[]> {
-  if (!tools) {
-    tools = getClient()
+  const current = getConnection();
+  if (!current.tools) {
+    current.tools = getClient()
       .then((client) => client.listTools())
       .then((result) => result.tools);
-    tools.catch(() => {
-      tools = null;
+    current.tools.catch(() => {
+      current.tools = undefined;
     });
   }
-  return tools;
+  return current.tools;
 }

@@ -12,6 +12,7 @@ import {
   getBaseUrl,
   getProjectId,
 } from "@/lib/api";
+import { sessionIdentity } from "@/lib/auth";
 import { logger } from "@/lib/logger";
 
 const noopAnalytics = {
@@ -31,14 +32,21 @@ let engine: CloudTaskEngine | null = null;
 
 function getEngine(): CloudTaskEngine {
   if (engine) return engine;
+  const identity = sessionIdentity();
+  const assertCurrent = (): void => {
+    if (sessionIdentity() !== identity)
+      throw new Error("Session changed. Sign in again.");
+  };
   engine = createCloudTaskEngine({
     auth: {
-      authenticatedFetch: (url, init) =>
-        authedFetch(url, init as FetchInit | undefined),
-      getCloudContext: async () => ({
-        apiHost: getBaseUrl(),
-        teamId: getProjectId(),
-      }),
+      authenticatedFetch: (url, init) => {
+        assertCurrent();
+        return authedFetch(url, init as FetchInit | undefined);
+      },
+      getCloudContext: async () => {
+        assertCurrent();
+        return { apiHost: getBaseUrl(), teamId: getProjectId() };
+      },
     },
     analytics: noopAnalytics,
     logger,
@@ -47,6 +55,11 @@ function getEngine(): CloudTaskEngine {
       fetch(url, { ...init, credentials: "omit" })) as CloudTaskFetch,
   });
   return engine;
+}
+
+export function resetEngine(): void {
+  engine?.unwatchAll();
+  engine = null;
 }
 
 export interface WatchHandle {
