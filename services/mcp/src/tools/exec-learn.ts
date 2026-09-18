@@ -127,7 +127,7 @@ export class ExecLearnCatalog {
 
         if (tokens[0] === '-s') {
             const query = tokens.slice(1).join(' ')
-            this.validateSearchQuery(query)
+            this.validateSearchQuery(query, 'learn -s "<task keywords>"')
             return await this.searchSkills(query)
         }
 
@@ -167,7 +167,7 @@ export class ExecLearnCatalog {
         const flagArgs = args.slice(flagIndex + 1)
         if (flag === '-s') {
             const query = flagArgs.join(' ')
-            this.validateSearchQuery(query)
+            this.validateSearchQuery(query, 'learn <source>:<skill> <path> -s "<keywords>"')
             return await this.searchSkillFile(skill, path, query)
         }
         if (flag === '--lines' && flagArgs.length === 1) {
@@ -419,9 +419,9 @@ export class ExecLearnCatalog {
         }
     }
 
-    private validateSearchQuery(query: string): void {
+    private validateSearchQuery(query: string, usage: string): void {
         if (!query.trim()) {
-            throw new Error('Search query cannot be empty.')
+            throw new Error(`Search query cannot be empty. Usage: ${usage}.`)
         }
         if (query.length > MAX_SEARCH_QUERY_LENGTH) {
             throw new Error(`Search query must be at most ${MAX_SEARCH_QUERY_LENGTH} characters.`)
@@ -441,8 +441,12 @@ export class ExecLearnCatalog {
                 .map((guide) => guide.id)
                 .join(', ')
             const unknown = unknownGuideIds.map((guideId) => `"${guideId}"`).join(', ')
+            const availableHint = available ? ` Available: ${available}.` : ''
+            const recovery = this.skillSources
+                ? ' To load a skill, run `learn -s "<task keywords>"`, then `learn posthog:<skill>` or `learn project:<skill>` using the exact qualified name from the results.'
+                : ' Run `learn` to list available topics.'
             throw new Error(
-                `Unknown learning ${unknownGuideIds.length === 1 ? 'topic' : 'topics'}: ${unknown}. Available: ${available}`
+                `Unknown learning ${unknownGuideIds.length === 1 ? 'topic' : 'topics'}: ${unknown}.${availableHint}${recovery}`
             )
         }
 
