@@ -1885,6 +1885,10 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
                 value["ai_reply_modes"] = cleaned_modes
             else:
                 raise serializers.ValidationError({"ai_reply_modes": "Must be an object or null."})
+        from products.conversations.backend.api.ai_reply_playbook import validate_playbook_conversations_settings
+
+        existing = getattr(self.instance, "conversations_settings", None) if self.instance is not None else None
+        validate_playbook_conversations_settings(value, existing=existing if isinstance(existing, dict) else None)
         return value
 
     def validate_receive_org_level_activity_logs(self, value: bool | None) -> bool | None:
