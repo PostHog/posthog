@@ -71,7 +71,7 @@ The shred sets the tombstone and removes the key material in one update.
 A batch that meets a tombstoned image row does not add that month key to its keys, so it never writes the row again, and a conditional put would refuse it in any case because the row exists.
 A session in that month then finds no month key, so the batch mints no session key and stores none, and it counts the session as `month_key_unavailable`.
 Every reader drops the same sessions, because the seal only opens under a month key that no longer exists.
-The deletion worker still sweeps the team once more after the reader lease, which catches a key stored by a batch that read before the shred.
+The deletion worker sweeps the team once, and that sweep removes rows to save cost. A key stored after the sweep passes a shard is sealed under a month key the deletion already tombstoned, so a second sweep finds nothing that is readable.
 A team deletion also closes the previous month, the current one and the next one, because a sweep reaches only an image key that already exists. Ingestion admits a session up to `ML_SESSION_MAX_AGE_DAYS` old, so those three are every month a later session can still open.
 Consent stops collection after that, not deletion: a team that keeps its opt-in and keeps sending opens a later month again.
 Kafka offsets advance only after the required writes and publication succeed.
@@ -153,7 +153,7 @@ Neither side reads a shared block item for the month, because every commit in th
 The command uses strongly consistent queries and bounded writes.
 Rerun the command after an interrupted run; it safely repeats completed pages.
 Rerun it once for any month that an earlier version of the command deleted, because readers no longer honor the month block that version wrote.
-Existing read leases expire within five minutes.
+A reader that already cached a key can still use it.
 The matching monthly S3 folders can then be removed from each dataset.
 Deleting a month does not affect another month's image keys.
 

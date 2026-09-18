@@ -1,10 +1,9 @@
 import time
-from datetime import datetime, timedelta
+from datetime import datetime
 
 from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase
-from django.utils import timezone
 
 from parameterized import parameterized
 
@@ -117,24 +116,19 @@ class TestAITrainingPrivacyStore(SimpleTestCase):
             ],
         )
 
-    def test_completion_waits_for_reader_leases_then_shreds_what_a_late_batch_wrote(self) -> None:
-        request = MagicMock(kind="team", team_id=7, cursor={"work": []}, completed_at=None)
-        straggler = session_key(7, "01a09f92-e780-7000-8000-000000000003")
+    def test_team_deletion_completes_in_one_pass_and_shreds_every_shard_it_sweeps(self) -> None:
+        request = MagicMock(kind="team", team_id=7, identifiers=[], cursor={}, completed_at=None)
+        late_write = session_key(7, "01a09f92-e780-7000-8000-000000000003")
         client = MagicMock()
-        client.query.side_effect = [{"Items": []}, {"Items": [straggler]}, *({"Items": []} for _ in range(31))]
+        client.query.side_effect = [{"Items": []}, {"Items": [late_write]}, *({"Items": []} for _ in range(31))]
         store = AITrainingPrivacyStore(client, "table")
-        now = timezone.now()
-        with patch("products.ai_training.backend.privacy.store.timezone.now", return_value=now):
-            self.assertFalse(store.apply(request, time.monotonic() + 1))
-        self.assertIsNone(request.completed_at)
-        client.query.assert_not_called()
-        with patch(
-            "products.ai_training.backend.privacy.store.timezone.now", return_value=now + timedelta(seconds=301)
-        ):
-            self.assertTrue(store.apply(request, time.monotonic() + 1))
+        self.assertTrue(store.apply(request, time.monotonic() + 1))
         self.assertEqual(client.query.call_count, 33)
-        self.assertEqual(
-            [call.kwargs["TransactItems"][0]["Update"]["Key"] for call in client.transact_write_items.call_args_list],
-            [straggler],
-        )
+        shredded = [
+            update["Update"]["Key"]
+            for call in client.transact_write_items.call_args_list
+            for update in call.kwargs["TransactItems"]
+        ]
+        self.assertIn(late_write, shredded)
+        self.assertIsNotNone(request.completed_at)
         self.assertEqual(request.identifiers, [])

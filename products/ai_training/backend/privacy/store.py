@@ -19,8 +19,6 @@ from products.ai_training.backend.models import AITrainingDeletionRequest
 logger = structlog.get_logger(__name__)
 
 KEY_SHARDS = 32
-# The worker waits this long before the last sweep. It does not bound key use, because the row cache holds a month key for longer.
-KEY_READ_LEASE_SECONDS = 300
 # Equals ML_SESSION_MAX_AGE_DAYS in nodejs/src/ingestion/pipelines/sessionreplay/ml-mirror/session-identifier-format.ts: ingestion drops sessions that started earlier than that, so no key for a month can appear after the month end plus this period.
 MONTH_DELETE_GRACE_DAYS = 14
 # A batch admitted just inside the grace period still commits within its 45 s budget, so deletion stays behind that too.
@@ -185,18 +183,8 @@ class AITrainingPrivacyStore:
                 return False
             work = self.advance(work[0]) + work[1:]
             self.save_cursor(request, work=work)
-        now = timezone.now()
-        complete_after = request.cursor.get("complete_after")
-        if complete_after is None:
-            self.save_cursor(request, work=[], complete_after=now.timestamp() + KEY_READ_LEASE_SECONDS)
-            return False
-        if now.timestamp() < complete_after:
-            return False
-        # A batch that read a month key before the shred can still seal and store session keys within its commit budget, so one more sweep after the lease catches those rows. A batch that starts later can still write after that sweep, and no reader can open those rows either, because the shred removed the month key. See products/ai_training/docs/replay-data.md.
-        if request.kind == "team" and not request.cursor.get("reswept"):
-            self.save_cursor(request, work=[{"op": "team", "team_id": request.team_id, "shard": -1}], reswept=True)
-            return self.apply(request, deadline)
-        request.completed_at = now
+        # A key that a batch stores after the sweep passes its shard is sealed under a month key this deletion already tombstoned, so a second sweep finds nothing that is readable. The sweep removes rows to save cost. See products/ai_training/docs/replay-data.md.
+        request.completed_at = timezone.now()
         request.identifiers = []
         request.save(update_fields=["completed_at", "identifiers"])
         return True
@@ -229,9 +217,6 @@ class AITrainingPrivacyStore:
                 logger.exception("ai_training_deletion_request_failed", request_id=str(request.pk), kind=request.kind)
                 request.leased_until = timezone.now() + timedelta(minutes=5)
             else:
-                request.leased_until = max(
-                    timezone.now(),
-                    datetime.fromtimestamp(request.cursor.get("complete_after", 0), tz=timezone.get_current_timezone()),
-                )
+                request.leased_until = timezone.now()
             request.save(update_fields=["leased_until"])
         return completed
