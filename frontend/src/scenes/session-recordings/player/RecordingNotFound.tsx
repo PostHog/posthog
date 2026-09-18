@@ -9,26 +9,47 @@ import { ReplayCaptureDiagnosticsPanel } from 'scenes/session-recordings/compone
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import { TeamPublicType, TeamType } from '~/types'
+
+export type ReplayOptInStatus = 'loading' | 'unknown' | 'enabled' | 'disabled'
+
+/**
+ * `session_recording_opt_in` is absent while the team loads, and the public team payload used by
+ * shared pages never carries it at all. Neither means replay is off, so both resolve to `unknown`
+ * and the page says nothing rather than telling someone with replay running that it is off.
+ *
+ * A known opt-in wins over an in-flight load, so a background team refresh does not drop a settled
+ * banner back to a skeleton.
+ */
+export function replayOptInStatus(
+    currentTeam: TeamType | TeamPublicType | null,
+    currentTeamLoading: boolean
+): ReplayOptInStatus {
+    const optIn = currentTeam?.session_recording_opt_in
+    if (optIn !== undefined) {
+        return optIn ? 'enabled' : 'disabled'
+    }
+    return currentTeamLoading ? 'loading' : 'unknown'
+}
+
 function ReplayStatusBanner(): JSX.Element | null {
     const { currentTeam, currentTeamLoading } = useValues(teamLogic)
+    const status = replayOptInStatus(currentTeam, currentTeamLoading)
 
-    // `session_recording_opt_in` is absent while the team loads, and the public team payload used by
-    // shared pages never carries it at all. Neither means replay is off, so say nothing rather than
-    // tell someone with replay running that they have not set it up.
-    const optIn = currentTeam?.session_recording_opt_in
-
-    if (currentTeamLoading) {
+    if (status === 'loading') {
         return <LemonSkeleton className="mt-4 h-12 max-w-xl mx-auto" />
     }
 
-    if (optIn === undefined) {
+    if (status === 'unknown') {
         return null
     }
 
+    const enabled = status === 'enabled'
+
     return (
-        <LemonBanner type={optIn ? 'success' : 'warning'} className="mt-4 max-w-xl mx-auto">
+        <LemonBanner type={enabled ? 'success' : 'warning'} className="mt-4 max-w-xl mx-auto">
             <div className="flex justify-between items-center">
-                <div>Session replay is {optIn ? 'enabled' : 'disabled'} for this project</div>
+                <div>Session replay is {enabled ? 'enabled' : 'disabled'} for this project</div>
                 <LemonButton
                     data-attr="recording-404-edit-settings"
                     type="secondary"
