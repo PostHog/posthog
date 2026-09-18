@@ -157,19 +157,19 @@ export function HogFlowTreeStep({
                     )}
                 </div>
                 {hasFooterContent && (
-                    <div className="flex min-w-0 flex-col items-start gap-1">
+                    <div className="flex min-w-0 flex-wrap items-center gap-2">
                         {action.description && (
-                            <ItemDescription className="pointer-events-none min-w-0 whitespace-normal break-words leading-tight">
+                            <ItemDescription className="pointer-events-none min-w-0 flex-1 whitespace-normal break-words leading-tight">
                                 {action.description}
                             </ItemDescription>
                         )}
                         {!!step?.previews.length && (
-                            <div className="pointer-events-none flex min-w-0 max-w-full flex-wrap items-center gap-1">
+                            <div className="pointer-events-none ms-auto flex min-w-0 max-w-full flex-wrap items-center justify-end gap-1">
                                 {step.previews.slice(0, 3).map((preview, index) => (
                                     <Badge
                                         key={`${preview.label}-${index}`}
                                         variant="default"
-                                        className="max-w-full whitespace-normal break-words h-auto"
+                                        className="max-w-full whitespace-normal break-words h-auto min-h-4 py-0 leading-tight"
                                     >
                                         {preview.icon}
                                         {preview.label}

@@ -95,6 +95,7 @@ export function HogFlowTreeNode({
                     <LemonButton
                         type="tertiary"
                         size="small"
+                        className="!bg-transparent"
                         aria-label={`${branchesOpen ? 'Hide' : 'Show'} ${branchNoun}`}
                         aria-expanded={branchesOpen}
                         tooltip={`${branchesOpen ? 'Hide' : 'Show'} ${branchNoun}`}
@@ -176,7 +177,7 @@ export function HogFlowTreeNode({
                                         node.action.type === 'conditional_branch'
                                             ? branchIndex === null
                                                 ? 'Else'
-                                                : `${branchIndex + 1}`
+                                                : `If #${branchIndex + 1}`
                                             : node.action.type === 'wait_until_condition'
                                               ? branchIndex === null
                                                   ? 'Timeout'
@@ -202,6 +203,7 @@ export function HogFlowTreeNode({
                                                     <LemonButton
                                                         type="tertiary"
                                                         size="xsmall"
+                                                        className="!bg-transparent"
                                                         aria-label={`${branchCollapsed ? 'Show' : 'Hide'} branch steps`}
                                                         aria-expanded={!branchCollapsed}
                                                         icon={

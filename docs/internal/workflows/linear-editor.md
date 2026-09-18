@@ -9,11 +9,13 @@ The graph editor and workflow execution do not change.
 Step icons and colors come from `HogFlowSteps.tsx` in both editors.
 The linear editor must not define a separate palette.
 Step descriptions and setting previews wrap so that delay values, time windows, and time zones remain visible in a narrow panel.
+Setting previews align to the right and share a row with the description when space permits.
 
 ## Paths and shared steps
 
 A branch group contains its paths and their steps.
 Conditional paths show their order, rule, step count, and destination.
+Condition labels use `If #1`, `If #2`, and so on to distinguish condition order from step numbers.
 The first matching condition sets the path.
 The No match path stays visible when more conditions are hidden.
 Wait steps distinguish a match from a timeout.
