@@ -1,6 +1,9 @@
+use common_database::PoolConfig;
 use envconfig::Envconfig;
 use std::net::SocketAddr;
 use std::time::Duration;
+
+use crate::pools::Lane;
 
 #[derive(Envconfig, Clone, Debug)]
 pub struct Config {
@@ -43,6 +46,7 @@ pub struct Config {
     #[envconfig(default = "lifecycle_op_person_tmp")]
     pub lifecycle_op_person_table: String,
 
+    /// Fast pool (see `crate::pools`).
     #[envconfig(default = "10")]
     pub max_pg_connections: u32,
 
@@ -52,11 +56,26 @@ pub struct Config {
     #[envconfig(default = "10")]
     pub acquire_timeout_secs: u64,
 
-    #[envconfig(default = "300")]
-    pub idle_timeout_secs: u64,
-
     #[envconfig(default = "5000")]
     pub statement_timeout_ms: u64,
+
+    /// Heavy pool, sized separately so a burst of long transactions cannot
+    /// take the fast pool's slots.
+    #[envconfig(default = "10")]
+    pub heavy_max_pg_connections: u32,
+
+    #[envconfig(default = "0")]
+    pub heavy_min_pg_connections: u32,
+
+    #[envconfig(default = "10")]
+    pub heavy_acquire_timeout_secs: u64,
+
+    #[envconfig(default = "5000")]
+    pub heavy_statement_timeout_ms: u64,
+
+    /// Applies to both pools.
+    #[envconfig(default = "300")]
+    pub idle_timeout_secs: u64,
 
     /// Maximum number of server-side (PgBouncer → Postgres) connections to
     /// warm at startup via SELECT 1. Clamped to min_pg_connections. Set to 0
@@ -102,6 +121,14 @@ pub struct Config {
     /// Per-call timeout for leader-routed property writes (ms).
     #[envconfig(default = "5000")]
     pub leader_request_timeout_ms: u64,
+
+    /// etcd endpoints, comma separated. The delete saga groups its fence
+    /// calls by leader partition, and the partition count lives in etcd.
+    #[envconfig(default = "http://localhost:2379")]
+    pub etcd_endpoints: String,
+
+    #[envconfig(default = "/personhog/")]
+    pub etcd_prefix: String,
 
     /// Interval between HTTP/2 keepalive pings sent by the gRPC server (0 = disabled)
     #[envconfig(default = "30")]
@@ -251,10 +278,6 @@ impl Config {
         }
     }
 
-    pub fn acquire_timeout(&self) -> Duration {
-        Duration::from_secs(self.acquire_timeout_secs)
-    }
-
     pub fn idle_timeout(&self) -> Option<Duration> {
         if self.idle_timeout_secs == 0 {
             None
@@ -263,16 +286,55 @@ impl Config {
         }
     }
 
-    pub fn statement_timeout(&self) -> Option<u64> {
-        if self.statement_timeout_ms == 0 {
-            None
-        } else {
-            Some(self.statement_timeout_ms)
+    pub fn fast_pool_config(&self) -> PoolConfig {
+        self.pool_config(
+            Lane::Fast,
+            self.min_pg_connections,
+            self.max_pg_connections,
+            self.acquire_timeout_secs,
+            self.statement_timeout_ms,
+        )
+    }
+
+    pub fn heavy_pool_config(&self) -> PoolConfig {
+        self.pool_config(
+            Lane::Heavy,
+            self.heavy_min_pg_connections,
+            self.heavy_max_pg_connections,
+            self.heavy_acquire_timeout_secs,
+            self.heavy_statement_timeout_ms,
+        )
+    }
+
+    fn pool_config(
+        &self,
+        lane: Lane,
+        min_connections: u32,
+        max_connections: u32,
+        acquire_timeout_secs: u64,
+        statement_timeout_ms: u64,
+    ) -> PoolConfig {
+        PoolConfig {
+            min_connections,
+            max_connections,
+            acquire_timeout: Duration::from_secs(acquire_timeout_secs),
+            idle_timeout: self.idle_timeout(),
+            test_before_acquire: false,
+            statement_timeout_ms: (statement_timeout_ms != 0).then_some(statement_timeout_ms),
+            pool_name: Some(lane.label().to_string()),
         }
     }
 
     pub fn leader_request_timeout(&self) -> Duration {
         Duration::from_millis(self.leader_request_timeout_ms)
+    }
+
+    pub fn etcd_endpoint_list(&self) -> Vec<String> {
+        self.etcd_endpoints
+            .split(',')
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect()
     }
 
     pub fn grpc_keepalive_interval(&self) -> Option<Duration> {

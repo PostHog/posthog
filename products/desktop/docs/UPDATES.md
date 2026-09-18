@@ -62,6 +62,10 @@ git push origin desktop-v0.16
 
 The next `desktop-tag.yml` run releases `desktop-v0.16.N`.
 
+A tag ruleset protects `desktop-v*` and `agent-v*` tags, because pushing one publishes a release.
+Only a repository admin can push a base tag.
+`desktop-tag.yml` and `desktop-agent-tag.yml` push release tags through the Releaser GitHub App, which the ruleset allows.
+
 ## Checking current version
 
 See what version would be released:

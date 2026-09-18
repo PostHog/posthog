@@ -8,13 +8,14 @@ from django.utils import timezone
 
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
-from temporalio.exceptions import ApplicationError
+from temporalio.exceptions import ApplicationError, CancelledError
 
 from posthog.schema import HogQLQuery
 
 from posthog.dataclasses import frozen
 from posthog.models import Team
 from posthog.temporal.common.base import PostHogWorkflow
+from posthog.temporal.common.heartbeat_sync import HeartbeaterSync
 
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.managed_warehouse.backend.facade.client import compile_hogql_to_trino_sql
@@ -133,16 +134,27 @@ def prepare_managed_warehouse_view_translation_activity(job_id: str) -> ViewTran
     return ViewTranslationPreparation(team_ids=team_ids)
 
 
-@activity.defn
-def compile_managed_warehouse_team_views_activity(job_id: str, team_id: int) -> None:
+def _check_translation_running(job_id: str) -> None:
+    if (
+        activity.is_cancelled()
+        or not ManagedWarehouseViewTranslationJob.objects.filter(
+            id=job_id, status=ManagedWarehouseViewTranslationJob.Status.RUNNING
+        ).exists()
+    ):
+        raise CancelledError("View translation activity stopped")
+
+
+def _compile_team_views(job_id: str, team_id: int) -> None:
+    _check_translation_running(job_id)
     job = ManagedWarehouseViewTranslationJob.objects.get(id=job_id)
     team = Team.objects.get(id=team_id, organization_id=job.organization_id)
     results = list(
-        ManagedWarehouseViewTranslationResult.all_teams.filter(
+        ManagedWarehouseViewTranslationResult.objects.for_team(team_id)
+        .filter(
             job=job,
-            team_id=team_id,
             status=ManagedWarehouseViewTranslationResult.Status.PENDING,
-        ).order_by("saved_query_id")
+        )
+        .order_by("saved_query_id")
     )
     saved_queries = DataWarehouseSavedQuery.objects.filter(
         id__in=[result.saved_query_id for result in results],
@@ -152,10 +164,16 @@ def compile_managed_warehouse_team_views_activity(job_id: str, team_id: int) -> 
     saved_queries_by_id = {saved_query.id: saved_query for saved_query in saved_queries}
 
     for result in results:
+        _check_translation_running(job_id)
         activity.heartbeat(str(result.saved_query_id))
+        result_row = ManagedWarehouseViewTranslationResult.objects.for_team(team_id).filter(
+            id=result.id,
+            status=ManagedWarehouseViewTranslationResult.Status.PENDING,
+            job__status=ManagedWarehouseViewTranslationJob.Status.RUNNING,
+        )
         saved_query = saved_queries_by_id.get(result.saved_query_id)
         if saved_query is None or source_query_hash(saved_query.query) != result.source_query_hash:
-            ManagedWarehouseViewTranslationResult.all_teams.filter(id=result.id).update(
+            result_row.update(
                 status=ManagedWarehouseViewTranslationResult.Status.STALE,
                 error_type="SavedQueryChanged",
                 error_message="The saved query changed or was removed after this translation job started",
@@ -175,8 +193,11 @@ def compile_managed_warehouse_team_views_activity(job_id: str, team_id: int) -> 
                 include_hogql=True,
                 expansion_mode=TrinoExpansionMode.DJANGO,
             )
+        except CancelledError:
+            raise
         except Exception as error:
-            ManagedWarehouseViewTranslationResult.all_teams.filter(id=result.id).update(
+            _check_translation_running(job_id)
+            result_row.update(
                 status=ManagedWarehouseViewTranslationResult.Status.FAILED,
                 error_type=type(error).__name__[:255],
                 error_message=str(error)[:4000],
@@ -184,7 +205,8 @@ def compile_managed_warehouse_team_views_activity(job_id: str, team_id: int) -> 
             )
             continue
 
-        ManagedWarehouseViewTranslationResult.all_teams.filter(id=result.id).update(
+        _check_translation_running(job_id)
+        result_row.update(
             status=ManagedWarehouseViewTranslationResult.Status.COMPILED,
             trino_sql=compiled.sql,
             trino_values=compiled.values,
@@ -193,6 +215,12 @@ def compile_managed_warehouse_team_views_activity(job_id: str, team_id: int) -> 
             error_message=None,
             processed_at=timezone.now(),
         )
+
+
+@activity.defn
+def compile_managed_warehouse_team_views_activity(job_id: str, team_id: int) -> None:
+    with HeartbeaterSync(details=(job_id, team_id)):
+        _compile_team_views(job_id, team_id)
 
 
 @activity.defn

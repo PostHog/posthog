@@ -105,6 +105,7 @@ Our signup funnel shows the following conversion rates:
 # Editing a Markdown notebook v2 from inline AI:
 - When the UI context includes a Markdown notebook with an inline response placeholder, use this tool with `content` when the user asks to clean up, rewrite, reorganize, or replace the whole notebook
 - In that case, `content` must be the complete final markdown for the notebook, not just the text that replaces the inline prompt
+- The editor applies the artifact to the open notebook. Do not save a separate notebook or call another notebook editing tool for the same change
 - Do not include the inline placeholder text, empty `<Prompt question="" />` blocks, or the user's instruction prompt in the final markdown unless the user explicitly asks to keep them
 - Use a direct assistant markdown response instead of this tool only for local answers or small insertions that should replace the inline response placeholder
 {cell_guidance}
@@ -185,6 +186,16 @@ class CreateNotebookTool(MaxTool):
         notebook_content = draft_content if is_draft else content
         assert notebook_content is not None
 
+        ui_context = self._context_manager.get_ui_context(self._state)
+        inline_notebook = (
+            next(
+                (notebook for notebook in (ui_context.notebooks or []) if notebook.insertion_placeholder_block_id),
+                None,
+            )
+            if ui_context
+            else None
+        )
+
         artifact, status, blocks = await create_or_update_notebook_artifact(
             artifacts_manager=self._context_manager.artifacts,
             content=notebook_content,
@@ -196,7 +207,9 @@ class CreateNotebookTool(MaxTool):
         is_already_saved = await notebook_exists_for_artifact(self._team, artifact.short_id)
 
         # Save to DB if explicitly requested or if updating an already-saved notebook
-        if save_to_notebook or is_already_saved:
+        # The inline editor owns the save, including the user's retained prompt and unsaved edits.
+        should_save = (save_to_notebook or is_already_saved) and inline_notebook is None
+        if should_save:
             try:
                 await save_notebook_to_db(
                     team=self._team,
@@ -222,7 +235,13 @@ class CreateNotebookTool(MaxTool):
                 )
 
         # Build response message
-        if save_to_notebook or is_already_saved:
+        if inline_notebook is not None:
+            message = (
+                f"The notebook artifact is for the open notebook {inline_notebook.id}. "
+                "The editor applies it there when streamed. No separate notebook was saved. "
+                "Do not save another copy or repeat this edit with another notebook tool."
+            )
+        elif should_save:
             if status == ArtifactStatus.UPDATED:
                 message = f"The notebook artifact and saved notebook have been updated (short_id: {artifact.short_id})."
             else:

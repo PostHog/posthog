@@ -112,6 +112,19 @@ class TestReportMetric(SimpleTestCase):
                 content["query"]["source"]["trendsFilter"] = trends_filter
                 assert ReportMetric.model_validate(content).query is not None
 
+    def test_live_query_rejects_a_sampling_factor_outside_the_valid_range(self) -> None:
+        for sampling_factor in (0, -0.5, 1.5, "0.5"):
+            with self.subTest(sampling_factor=sampling_factor):
+                content = _affected_users_metric().model_dump(mode="json")
+                content["query"]["source"]["samplingFactor"] = sampling_factor
+
+                with self.assertRaisesRegex(ValidationError, "samplingFactor must be greater than 0"):
+                    ReportMetric.model_validate(content)
+
+        content = _affected_users_metric().model_dump(mode="json")
+        content["query"]["source"]["samplingFactor"] = 0.5
+        assert ReportMetric.model_validate(content).query is not None
+
     def test_rejects_unique_groups_labeled_as_affected_users(self) -> None:
         content = _affected_users_metric().model_dump(mode="json")
         content["query"]["source"]["series"][0]["math_group_type_index"] = 0

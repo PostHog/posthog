@@ -7,7 +7,8 @@ its ``resolve_ai_gateway_config`` validator and ``ai_gateway_headers`` helper.
 """
 
 import os
-from collections.abc import Mapping
+import time
+from collections.abc import AsyncIterator, Iterator, Mapping
 from typing import Any, Literal
 
 from django.conf import settings
@@ -19,16 +20,16 @@ from langchain_core.callbacks import BaseCallbackHandler
 from langchain_core.callbacks.manager import AsyncCallbackManagerForLLMRun, CallbackManagerForLLMRun
 from langchain_core.language_models import LanguageModelInput
 from langchain_core.messages import BaseMessage
-from langchain_core.outputs import ChatResult
+from langchain_core.outputs import ChatGenerationChunk, ChatResult
 from langchain_openai import ChatOpenAI
-from openai import APIError
+from openai import APIError, RateLimitError
 from posthoganalytics.ai.langchain.callbacks import CallbackHandler
 from pydantic import PrivateAttr
 from temporalio.exceptions import ApplicationError
 
 from posthog.cloud_utils import is_cloud
 from posthog.llm.gateway_client import ai_gateway_headers, resolve_ai_gateway_config
-from posthog.llm.openai_flex import is_flex_recoverable
+from posthog.llm.openai_flex import FLEX_CAPABLE_MODELS, is_flex_recoverable
 
 logger = structlog.get_logger(__name__)
 
@@ -38,6 +39,9 @@ logger = structlog.get_logger(__name__)
 AI_FEATURES_CLOUD_ONLY_ERROR_TYPE = "AIFeaturesCloudOnly"
 
 
+FLEX_REPROBE_COOLDOWN = 60.0
+
+
 class FlexFirstChatOpenAI(ChatOpenAI):
     """ChatOpenAI that retries a failed flex call once on the standard tier, per call.
 
@@ -45,27 +49,49 @@ class FlexFirstChatOpenAI(ChatOpenAI):
     re-roll a flex capacity refusal. This override retries just the failing chat
     completion with service_tier="default", so an agent loop keeps its completed
     turns instead of rerunning from scratch. Build flex clients with max_retries=0:
-    the tier switch is the retry. The first fallback latches the client to standard,
-    so a flex brownout costs one timeout per agent run, not one per call.
+    the tier switch is the retry.
+
+    A fallback then holds the client on standard, because retrying a tier that just
+    refused wastes a call. How long it holds depends on what the tier cost to discover:
+    a capacity refusal pauses flex for ``FLEX_REPROBE_COOLDOWN`` and the run probes it
+    again, while a stall or a connection failure, which costs a full timeout to find,
+    latches the client for the rest of the run.
+
+    Build one through ``build_flex_first_chat_client`` rather than directly, and build
+    one per run: the latch and the cooldown are run policy, but ``_flex_requested`` is
+    per request, so concurrent calls on one client would overwrite each other's tier.
     """
 
     _flex_latched: bool = PrivateAttr(default=False)
+    _flex_paused_until: float = PrivateAttr(default=0.0)
+    _flex_requested: bool = PrivateAttr(default=False)
+
+    def _flex_allowed_now(self) -> bool:
+        return self.service_tier == "flex" and not self._flex_latched and time.monotonic() >= self._flex_paused_until
 
     def _get_request_payload(self, input_: LanguageModelInput, *, stop: list[str] | None = None, **kwargs: Any) -> dict:
-        if self._flex_latched:
-            kwargs = {**kwargs, "service_tier": "default"}
+        # Assign rather than guard: langchain builds the payload as {**defaults, **kwargs},
+        # so a caller-supplied service_tier would otherwise win and desync the flag.
+        if self.service_tier == "flex":
+            kwargs = {**kwargs, "service_tier": "flex" if self._flex_requested else "default"}
         return super()._get_request_payload(input_, stop=stop, **kwargs)
 
     def _latch_or_raise(self, error: APIError) -> None:
-        if self._flex_latched or self.service_tier != "flex" or not is_flex_recoverable(error):
+        # Only a call that went out as flex has a standard tier left to try.
+        if not self._flex_requested or not is_flex_recoverable(error):
             raise error
+        if isinstance(error, RateLimitError):
+            self._flex_paused_until = time.monotonic() + FLEX_REPROBE_COOLDOWN
+        else:
+            self._flex_latched = True
         logger.warning(
-            "labeling_flex_call_fell_back",
+            "flex_call_fell_back",
             error_type=type(error).__name__,
             status_code=getattr(error, "status_code", None),
             model=self.model_name,
+            latched=self._flex_latched,
         )
-        self._flex_latched = True
+        self._flex_requested = False
 
     def _generate(
         self,
@@ -74,6 +100,9 @@ class FlexFirstChatOpenAI(ChatOpenAI):
         run_manager: CallbackManagerForLLMRun | None = None,
         **kwargs: Any,
     ) -> ChatResult:
+        # Take flex whenever it is allowed, and freeze that for the call. Re-reading
+        # allowance in the error handler would flip once a cooldown expired mid-call.
+        self._flex_requested = self._flex_allowed_now()
         try:
             return super()._generate(messages, stop=stop, run_manager=run_manager, **kwargs)
         except APIError as error:
@@ -87,11 +116,23 @@ class FlexFirstChatOpenAI(ChatOpenAI):
         run_manager: AsyncCallbackManagerForLLMRun | None = None,
         **kwargs: Any,
     ) -> ChatResult:
+        self._flex_requested = self._flex_allowed_now()
         try:
             return await super()._agenerate(messages, stop=stop, run_manager=run_manager, **kwargs)
         except APIError as error:
             self._latch_or_raise(error)
             return await super()._agenerate(messages, stop=stop, run_manager=run_manager, **kwargs)
+
+    # Streaming skips _generate, so it picks the tier itself. No fallback: tokens are
+    # already with the caller by the time an error arrives.
+    def _stream(self, *args: Any, **kwargs: Any) -> Iterator[ChatGenerationChunk]:
+        self._flex_requested = self._flex_allowed_now()
+        return super()._stream(*args, **kwargs)
+
+    async def _astream(self, *args: Any, **kwargs: Any) -> AsyncIterator[ChatGenerationChunk]:
+        self._flex_requested = self._flex_allowed_now()
+        async for chunk in super()._astream(*args, **kwargs):
+            yield chunk
 
 
 def build_langchain_chat_client(
@@ -146,6 +187,49 @@ def build_langchain_chat_client(
         raise Exception("OPENAI_API_KEY is not configured")
     return FlexFirstChatOpenAI(
         model=model, api_key=direct_key, timeout=timeout, max_retries=max_retries, service_tier=service_tier
+    )
+
+
+# Per-call timeouts, capped so no single call can outlive the activity that runs the agent:
+# flex 120s x 1 attempt (the standard-tier fallback call is the retry), standard 240s x 2
+# attempts. The ai-gateway cuts non-streaming calls at ~290s, so longer client timeouts are
+# unreachable.
+FLEX_CALL_TIMEOUT = 120.0
+STANDARD_CALL_TIMEOUT = 240.0
+
+
+def build_flex_first_chat_client(
+    model: str,
+    timeout: float,
+    *,
+    ai_product: str,
+    trace_id: str,
+    session_id: str,
+    properties: Mapping[str, str],
+    distinct_id: str,
+    flex: bool = True,
+) -> ChatOpenAI:
+    """Return a ChatOpenAI client that prefers the flex service tier.
+
+    The langchain agents behind this helper all run as scheduled batches with no user
+    waiting, so an allowlisted model requests flex for half-price tokens and
+    ``FlexFirstChatOpenAI`` retries a failed flex call on the standard tier.
+
+    A model outside the allowlist keeps the standard tier, because OpenAI decides flex
+    eligibility per model and the gpt-4.1 family rejects the service_tier field outright.
+    Pass ``flex=False`` to opt a caller out while keeping the bounded timeouts.
+    """
+    use_flex = flex and model in FLEX_CAPABLE_MODELS
+    return build_langchain_chat_client(
+        model,
+        FLEX_CALL_TIMEOUT if use_flex else min(timeout, STANDARD_CALL_TIMEOUT),
+        ai_product=ai_product,
+        trace_id=trace_id,
+        session_id=session_id,
+        properties=properties,
+        distinct_id=distinct_id,
+        service_tier="flex" if use_flex else None,
+        max_retries=0 if use_flex else 1,
     )
 
 

@@ -245,6 +245,27 @@ func CheckDockerVolumes() (bool, bool) {
 	return hasPostgres, hasClickhouse
 }
 
+// Compose prefixes a volume with the project name, so the MinIO volume is
+// `<project>_objectstorage`. The SeaweedFS replacement uses `objectstorage-data`, which
+// must not match, hence the exact name and suffix test rather than a substring.
+func LegacyObjectStorageVolume() string {
+	out, err := RunCommand("docker", "volume", "ls", "-q")
+	if err != nil {
+		return ""
+	}
+	return findLegacyObjectStorageVolume(strings.Split(out, "\n"))
+}
+
+func findLegacyObjectStorageVolume(names []string) string {
+	for _, name := range names {
+		name = strings.TrimSpace(name)
+		if name == "objectstorage" || strings.HasSuffix(name, "_objectstorage") {
+			return name
+		}
+	}
+	return ""
+}
+
 func AddUserToDockerGroup(user string) error {
 	if err := RequireRoot("add user to docker group"); err != nil {
 		return err

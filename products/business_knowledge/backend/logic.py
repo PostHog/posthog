@@ -510,11 +510,21 @@ def _source_list_annotations() -> dict[str, object]:
 
 
 @with_team_scope(canonical=True)
-def list_for_team(team_id: int) -> list[KnowledgeSource]:
+def list_for_team(
+    team_id: int,
+    *,
+    search: str | None = None,
+    source_type: str | None = None,
+) -> list[KnowledgeSource]:
     # Annotate counts in one round-trip so the serializer doesn't N+1.
-    return list(
-        KnowledgeSource.objects.filter(team_id=team_id).annotate(**_source_list_annotations()).order_by("-created_at")
-    )
+    queryset = KnowledgeSource.objects.filter(team_id=team_id)
+    if source_type:
+        queryset = queryset.filter(source_type=source_type)
+    if search:
+        term = search.strip()
+        if term:
+            queryset = queryset.filter(Q(name__icontains=term) | Q(source_url__icontains=term))
+    return list(queryset.annotate(**_source_list_annotations()).order_by("-created_at"))
 
 
 @with_team_scope(canonical=True)
@@ -527,7 +537,7 @@ def get_for_team(source_id: UUID, team_id: int) -> KnowledgeSource | None:
 
 @with_team_scope(canonical=True)
 def get_source_text_for_team(source_id: UUID, team_id: int) -> str | None:
-    """Return concatenated document text for the edit modal."""
+    """Return concatenated document text for the source editor."""
 
     try:
         source = KnowledgeSource.objects.only("is_generated", "source_type").get(id=source_id, team_id=team_id)

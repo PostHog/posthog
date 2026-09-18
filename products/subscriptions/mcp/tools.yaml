@@ -57,6 +57,7 @@ tools:
             summary (`summary_prompt_guide`). Do not enable the summary on your own without asking. (Prompt
             subscriptions are themselves AI-generated, so this does not apply to them.)
         exclude_params:
+            - contexts
             - deleted
             - next_delivery_date
             - resource_name
@@ -151,8 +152,8 @@ tools:
         title: List subscriptions
         description: >
             List the team's subscriptions. Use `search` to filter by title, insight name (including the auto-generated
-            name of an unnamed insight), or dashboard name. Prompt subscriptions are only matched on their `title` — the
-            `prompt` text is not searchable.
+            name of an unnamed insight), dashboard name, or prompt text. Prompt subscriptions match both their `title`
+            and `prompt` text.
         response:
             exclude:
                 - invite_message
@@ -182,6 +183,7 @@ tools:
             it with `summary_prompt_guide`. Enabling a summary requires the organization to have approved AI data
             processing and to be within its active-summary cap and AI credit budget; otherwise the update is rejected.
         exclude_params:
+            - contexts
             - deleted
             - next_delivery_date
             - resource_name

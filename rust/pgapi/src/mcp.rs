@@ -61,6 +61,18 @@ pub struct TopQueriesArg {
     /// One of total_exec_time (default), calls, mean_exec_time, rows, shared_blks_read, wal_bytes, storage_blks_read.
     pub order: Option<String>,
     pub limit: Option<i64>,
+    /// Only queries seen with these query tags in the window, as "key=value,key2=value2" (e.g. "operation=updatePersonsBatch"). Keys come from query_tags; percent-encode a comma inside a value.
+    pub tags: Option<String>,
+}
+#[derive(Deserialize, schemars::JsonSchema)]
+pub struct TagsArg {
+    pub server: String,
+    pub since: Option<String>,
+    /// Tag key to group on, e.g. "operation", "route", "service", "team_id". Omit to list the keys seen in the window.
+    pub key: Option<String>,
+    /// Restrict to one database.
+    pub datname: Option<String>,
+    pub limit: Option<i64>,
 }
 #[derive(Deserialize, schemars::JsonSchema)]
 pub struct QueryArg {
@@ -69,6 +81,8 @@ pub struct QueryArg {
     pub since: Option<String>,
     /// Series bucket width: 10s, 1m (default), 5m or 1h.
     pub bucket: Option<String>,
+    /// Limit text and series to one database when the query id exists in several.
+    pub datname: Option<String>,
 }
 #[derive(Deserialize, schemars::JsonSchema)]
 pub struct DbArg {
@@ -140,27 +154,51 @@ impl PgMcp {
             .map_err(err)?)
     }
     #[tool(
-        description = "Top queries by total time / calls / mean time / rows / I/O over a window, with normalized text, exact mean and stddev, and share of total time."
+        description = "Top queries by total time / calls / mean time / rows / I/O over a window, with normalized text, first-seen query tags, exact mean and stddev, and share of total time. Filter by query tags to keep only queries a given code path ran."
     )]
     async fn top_queries(
         &self,
         Parameters(a): Parameters<TopQueriesArg>,
     ) -> Result<CallToolResult, McpError> {
         let (f, t) = range(&a.since)?;
+        let tags = q::parse_tag_filter(a.tags.as_deref().unwrap_or("")).map_err(err)?;
         ok(q::top_queries(
             &self.state.db,
             &a.server,
             f,
             t,
-            a.datname.as_deref(),
-            a.order.as_deref().unwrap_or("total_exec_time"),
-            a.limit.unwrap_or(25).clamp(1, 200),
+            q::QueryListOpts {
+                datname: a.datname.as_deref(),
+                order: a.order.as_deref().unwrap_or("total_exec_time"),
+                limit: a.limit.unwrap_or(25).clamp(1, 200),
+                tags: &tags,
+            },
         )
         .await
         .map_err(err)?)
     }
     #[tool(
-        description = "Everything about one query id: text, bucketed calls/mean series, latency percentiles per bucket and for the whole range from sampled logs (p50/p90/p95/p99, weighted for the server's log sampling settings), slowest samples, execution plans (Aurora plan stats and auto_explain), wait events."
+        description = "Database load per code path, from query tags (SQL comments such as /* nodejs:PERSONS_WRITE<updatePersonsBatch> */ or /* route='/api/x' */). Without a key: the tag keys seen in the window. With a key: one row per value with average active sessions (sampled pg_stat_activity), estimated calls, total time and p50/p95/p99 from sampled statement logs, and distinct queries."
+    )]
+    async fn query_tags(
+        &self,
+        Parameters(a): Parameters<TagsArg>,
+    ) -> Result<CallToolResult, McpError> {
+        let (f, t) = range(&a.since)?;
+        ok(q::tag_breakdown(
+            &self.state.db,
+            &a.server,
+            f,
+            t,
+            a.key.as_deref(),
+            a.datname.as_deref(),
+            a.limit.unwrap_or(50),
+        )
+        .await
+        .map_err(err)?)
+    }
+    #[tool(
+        description = "Everything about one query id: text and first-seen query tags, callers (tag sets seen while it ran, with share), bucketed calls/mean series, latency percentiles per bucket and for the whole range from sampled logs (p50/p90/p95/p99, weighted for the server's log sampling settings), slowest samples, execution plans (Aurora plan stats and auto_explain), wait events."
     )]
     async fn query_detail(
         &self,
@@ -174,6 +212,7 @@ impl PgMcp {
             f,
             t,
             a.bucket.as_deref().unwrap_or("1m"),
+            a.datname.as_deref(),
         )
         .await
         .map_err(err)?)
@@ -260,6 +299,7 @@ impl PgMcp {
             f,
             t,
             a.kind.as_deref(),
+            &[],
             a.limit.unwrap_or(100).clamp(1, 1000),
         )
         .await
@@ -304,7 +344,7 @@ impl PgMcp {
             .map_err(err)?)
     }
     #[tool(
-        description = "System view: host CPU/memory (pg_proctab), top backends by CPU, checkpoints, bgwriter, Aurora replica status and per-database commit/DML latency."
+        description = "System view: host CPU % / memory / load and vCPU count (pg_proctab), CPU by user, by code path (query tags) and by query (cpu_seconds, avg_cores, host_pct, backends), a per-minute cores-by-user series, checkpoints, bgwriter, Aurora replica status and per-database commit/DML latency."
     )]
     async fn system_stats(
         &self,
@@ -343,7 +383,7 @@ impl ServerHandler for PgMcp {
     fn get_info(&self) -> ServerInfo {
         ServerInfo::new(ServerCapabilities::builder().enable_tools().build())
             .with_server_info(Implementation::from_build_env())
-            .with_instructions("Read-only access to PostHog's Postgres telemetry (pgcollector). Start with list_servers, then server_overview; drill into top_queries / query_detail for performance, current_activity for live issues, vacuum_status and events for maintenance. query_stats_db runs arbitrary read-only SQL against the stats database.")
+            .with_instructions("Read-only access to PostHog's Postgres telemetry (pgcollector). Start with list_servers, then server_overview; drill into top_queries / query_detail for performance, query_tags for load per code path, current_activity for live issues, vacuum_status and events for maintenance. query_stats_db runs arbitrary read-only SQL against the stats database.")
     }
 }
 

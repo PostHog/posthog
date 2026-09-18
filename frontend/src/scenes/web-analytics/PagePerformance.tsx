@@ -165,25 +165,28 @@ const AiTrendCard = ({
     query: InsightVizNode
     tileId: TileId
     uniqueKey: string
-}): JSX.Element => (
-    <div className="@min-[48rem]/search-ai:col-span-2 min-h-88 min-w-0 flex flex-col">
-        <SearchAndAiQuery
-            uniqueKey={uniqueKey}
-            query={query}
-            insightProps={createPagePerformanceInsightProps(tileId)}
-            renderQuery={(insightProps) => (
-                <WebQuery
-                    attachTo={webAnalyticsLogic}
-                    uniqueKey={uniqueKey}
-                    query={query}
-                    insightProps={insightProps}
-                    tileId={tileId}
-                    headerSlot={<SearchAndAiTrendHeader title={title} />}
-                />
-            )}
-        />
-    </div>
-)
+}): JSX.Element => {
+    const logic = useMountedLogic(webAnalyticsLogic)
+    return (
+        <div className="@min-[48rem]/search-ai:col-span-2 min-h-88 min-w-0 flex flex-col">
+            <SearchAndAiQuery
+                uniqueKey={uniqueKey}
+                query={query}
+                insightProps={createPagePerformanceInsightProps(tileId)}
+                renderQuery={(insightProps) => (
+                    <WebQuery
+                        attachTo={logic}
+                        uniqueKey={uniqueKey}
+                        query={query}
+                        insightProps={insightProps}
+                        tileId={tileId}
+                        headerSlot={<SearchAndAiTrendHeader title={title} />}
+                    />
+                )}
+            />
+        </div>
+    )
+}
 
 export const PagePerformance = (): JSX.Element => {
     useMountedLogic(pagePerformanceLogic)

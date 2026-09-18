@@ -8,12 +8,30 @@ contract.
 
 ## Surfaces
 
-| path                              | what                                                                                                                                               | auth              |
-| --------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------- |
-| `/api/v1/*`                       | JSON API: servers, overview, queries, activity, tables, indexes, vacuum, events, logs, system, schema, settings, collector health, guarded raw SQL | identity required |
-| `/mcp`                            | MCP streamable HTTP, 17 read-only tools over the same query layer                                                                                  | identity required |
-| `/`                               | embedded UI over `/api/v1`                                                                                                                         | identity required |
-| `/healthz`, `/readyz`, `/metrics` | probes and Prometheus                                                                                                                              | none              |
+| path                              | what                                                                                                                                                           | auth              |
+| --------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------- |
+| `/api/v1/*`                       | JSON API: servers, overview, queries, query tags, activity, tables, indexes, vacuum, events, logs, system, schema, settings, collector health, guarded raw SQL | identity required |
+| `/mcp`                            | MCP streamable HTTP, 18 read-only tools over the same query layer                                                                                              | identity required |
+| `/`                               | embedded UI over `/api/v1`                                                                                                                                     | identity required |
+| `/healthz`, `/readyz`, `/metrics` | probes and Prometheus                                                                                                                                          | none              |
+
+## Query tags
+
+Queries are labelled by the tags their clients put in SQL comments, not only by
+their text. `GET /servers/{id}/tags?key=<tag key>` (MCP `query_tags`) gives load
+per code path; `GET /servers/{id}/queries?tags=key=value` filters the
+`pg_stat_statements` list to queries seen with a tag; query detail lists the
+`callers` seen while the query ran. The tag format and key vocabulary are in
+[`rust/pgcollector/docs/query-tags.md`](../../rust/pgcollector/docs/query-tags.md).
+
+## Charts
+
+The UI draws its charts from bucketed endpoints. `GET /servers/{id}/load?bucket=1m`
+gives average active sessions per bucket by wait event type, summed over instances,
+with the host core count; it is the Overview page's database load chart. Every ranged
+endpoint accepts `since` or absolute `from`/`to`, which is how a range dragged on a
+chart is fetched. `GET /servers/{id}/events?exclude=pgss_dealloc,log_cancel,log_lock%`
+leaves out routine kinds before the limit, so event markers show the rare kinds.
 
 ## Identity and authorization
 

@@ -17,7 +17,7 @@ from posthog.hogql.parser import parse_program, parse_string_template
 from posthog.hogql.visitor import TraversingVisitor
 
 from posthog.cdp.filters import compile_filters_bytecode, compile_filters_expr
-from posthog.models.integration import Integration
+from posthog.models.integration import POSTHOG_CONNECT_KIND, Integration
 
 from products.cdp.backend.models.hog_functions.hog_function import (
     TYPES_WITH_JAVASCRIPT_SOURCE,
@@ -69,6 +69,18 @@ def _sender_integration_ids(from_value: dict) -> set[int]:
         for integration_id in [from_value.get("integrationId"), *(from_value.get("integrationIds") or [])]
         if isinstance(integration_id, int) and not isinstance(integration_id, bool)
     }
+
+
+def _validate_not_posthog_connection(integration_ids: list[int], context: dict) -> None:
+    # A PostHog connection acts as the user who created it, so only that user may use it. A function
+    # runs for the whole team and the runtime never resolves one, so reject it where the author sees why.
+    get_team = context.get("get_team")
+    if get_team is None or not integration_ids:
+        return
+    if Integration.objects.filter(team_id=get_team().id, id__in=integration_ids, kind=POSTHOG_CONNECT_KIND).exists():
+        raise serializers.ValidationError(
+            {"input": "A PostHog connection can't be used as a function input. Choose a different integration."}
+        )
 
 
 def _validate_email_sender_override(from_value: dict, context: dict) -> None:
@@ -637,9 +649,11 @@ class InputsItemSerializer(serializers.Serializer):
         elif item_type == "integration":
             if not isinstance(value, int):
                 raise serializers.ValidationError({"input": f"Value must be an Integration ID."})
+            _validate_not_posthog_connection([value], self.context)
         elif item_type == "integration_multi":
             if not isinstance(value, list) or not all(isinstance(v, int) and not isinstance(v, bool) for v in value):
                 raise serializers.ValidationError({"input": "Value must be a list of Integration IDs."})
+            _validate_not_posthog_connection(value, self.context)
         elif item_type == "task_repository":
             if not isinstance(value, str):
                 raise serializers.ValidationError({"input": "Value must be a repository name like your-org/your-repo."})

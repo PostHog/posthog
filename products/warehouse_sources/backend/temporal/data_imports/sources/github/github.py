@@ -381,7 +381,10 @@ REPOSITORY_NOT_ACCESSIBLE_REASON = "not found or not accessible"
 
 
 def validate_credentials(
-    personal_access_token: str, repository: str, api_version: str = GITHUB_DEFAULT_API_VERSION
+    personal_access_token: str,
+    repository: str,
+    egress_identity: GithubEgressIdentity | None = None,
+    api_version: str = GITHUB_DEFAULT_API_VERSION,
 ) -> tuple[bool, str | None]:
     """Validate GitHub API credentials by making a test request to the repository."""
     # A bare owner name otherwise reaches the API as a nonsense path, 404s, and gets reported as
@@ -402,7 +405,18 @@ def validate_credentials(
     headers = _get_headers(personal_access_token, api_version=api_version)
 
     try:
-        response = make_tracked_session().get(url, headers=headers, timeout=10)
+        # NORMAL, not BATCH: the source wizard waits on this answer.
+        response = github_request(
+            "GET",
+            url,
+            source="warehouse",
+            headers=headers,
+            installation_id=egress_identity.installation_id if egress_identity is not None else None,
+            priority=Priority.NORMAL,
+            timeout=10,
+            session=make_tracked_session(retry=_NO_ADAPTER_RETRY),
+        )
+        raise_if_github_rate_limited(response)
 
         if response.status_code == 200:
             return True, None
@@ -429,6 +443,8 @@ def validate_credentials(
             False,
             f"GitHub rejected the request (status {response.status_code}). Please check your token and repository access.",
         )
+    except (GitHubEgressBudgetExhausted, GitHubRateLimitError):
+        return False, "GitHub rate limit reached while validating the repository; please retry shortly."
     except requests.exceptions.RequestException as e:
         return False, str(e)
 
@@ -471,7 +487,7 @@ def check_org_endpoint_permission(
             installation_id=installation_id,
             priority=Priority.NORMAL,
             timeout=10,
-            session=make_tracked_session(),
+            session=make_tracked_session(retry=_NO_ADAPTER_RETRY),
         )
         # A rate-limited 403 carries limit markers; without this check it would read as a missing grant.
         raise_if_github_rate_limited(response)
@@ -726,6 +742,8 @@ _github_backoff_wait = wait_exponential_jitter(initial=1, max=30)
 # would defeat the 300s cap below and stack a second, untested retry layer. With
 # adapter retries off, _fetch_page sees every response/exception and our tenacity
 # layer is the single, rate-limit-aware retry authority.
+# Every gated GET uses it too: an adapter retry happens after egress admission, so one admitted
+# call could send several GitHub requests that the installation budget never counts.
 _NO_ADAPTER_RETRY = Retry(total=0)
 
 
@@ -1649,6 +1667,7 @@ def create_repo_webhook(
     webhook_url: str,
     events: list[str],
     secret: str,
+    egress_identity: GithubEgressIdentity | None = None,
     api_version: str = GITHUB_DEFAULT_API_VERSION,
 ) -> WebhookCreationResult:
     """Create a repo webhook via POST /repos/{repo}/hooks.
@@ -1669,8 +1688,22 @@ def create_repo_webhook(
     }
 
     try:
-        response = make_tracked_session().post(
-            f"{GITHUB_BASE_URL}/repos/{repo}/hooks", headers=headers, json=payload, timeout=30
+        response = github_request(
+            "POST",
+            f"{GITHUB_BASE_URL}/repos/{repo}/hooks",
+            source="warehouse",
+            headers=headers,
+            installation_id=egress_identity.installation_id if egress_identity is not None else None,
+            priority=Priority.NORMAL,
+            timeout=30,
+            session=make_tracked_session(),
+            json=payload,
+        )
+        raise_if_github_rate_limited(response)
+    except (GitHubEgressBudgetExhausted, GitHubRateLimitError):
+        return WebhookCreationResult(
+            success=False,
+            error="GitHub rate limit reached while creating the repository webhook; please retry shortly.",
         )
     except requests.exceptions.RequestException as e:
         return WebhookCreationResult(success=False, error=f"Failed to create webhook automatically: {e}")
@@ -1724,7 +1757,9 @@ def ensure_repo_webhook(
 
     hook = _match_hook_by_url(hooks or [], webhook_url)
     if hook is None:
-        return create_repo_webhook(token, repo, webhook_url, events, secret=secret, api_version=api_version)
+        return create_repo_webhook(
+            token, repo, webhook_url, events, secret=secret, egress_identity=egress_identity, api_version=api_version
+        )
 
     merged_events = sorted(set(hook.get("events") or []) | set(events))
     try:
@@ -1791,7 +1826,7 @@ def _list_repo_hooks(
             installation_id=installation_id,
             priority=Priority.NORMAL,
             timeout=30,
-            session=make_tracked_session(),
+            session=make_tracked_session(retry=_NO_ADAPTER_RETRY),
         )
         raise_if_github_rate_limited(response)
     except (GitHubEgressBudgetExhausted, GitHubRateLimitError):
@@ -1855,8 +1890,21 @@ def delete_repo_webhook(
 
     headers = _get_headers(token, api_version=api_version)
     try:
-        response = make_tracked_session().delete(
-            f"{GITHUB_BASE_URL}/repos/{repo}/hooks/{hook_id}", headers=headers, timeout=30
+        response = github_request(
+            "DELETE",
+            f"{GITHUB_BASE_URL}/repos/{repo}/hooks/{hook_id}",
+            source="warehouse",
+            headers=headers,
+            installation_id=egress_identity.installation_id if egress_identity is not None else None,
+            priority=Priority.NORMAL,
+            timeout=30,
+            session=make_tracked_session(),
+        )
+        raise_if_github_rate_limited(response)
+    except (GitHubEgressBudgetExhausted, GitHubRateLimitError):
+        return WebhookDeletionResult(
+            success=False,
+            error="GitHub rate limit reached while deleting the repository webhook; please retry shortly.",
         )
     except requests.exceptions.RequestException as e:
         return WebhookDeletionResult(success=False, error=f"Failed to delete webhook: {e}")

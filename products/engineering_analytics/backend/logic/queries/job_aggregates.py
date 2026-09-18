@@ -21,14 +21,20 @@ from products.engineering_analytics.backend.facade.contracts import WorkflowHeal
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource, opt_float
 from products.engineering_analytics.backend.logic.queries._workflow_filters import (
     DURATION_PERCENTILE_CONDITION,
+    UNPAGED_SCAN_LIMIT,
     branch_filter_clause,
     cost_run_scope_filter_clause,
     date_to_filter_clause,
+    failure_rate_expr,
     run_scope_filter_clause,
     run_windowed_job_created_floor_constant,
 )
 
 _LIMIT = 200
+
+# A skipped job is stamped started_at = created_at, so it never queued. `conclusion` is Nullable and
+# NULL != 'skipped' is NULL, which quantileIf drops; the ifNull keeps still-running jobs in the sample.
+_QUEUED_JOB_CONDITION = "ifNull(conclusion, '') != 'skipped'"
 
 # De-shard + de-template in SQL so grouping happens server-side over millions of job rows.
 # Mirrors jobGroups.stripShardSuffix / collapseTemplates on the frontend and
@@ -51,10 +57,11 @@ _AGGREGATE_SELECT = f"""
         count() AS job_count,
         uniq(name) AS shard_count,
         uniq(run_id) AS runs_in,
-        quantile(0.5)(queue_seconds) AS queue_p50_seconds,
+        quantileIf(0.5)(queue_seconds, {_QUEUED_JOB_CONDITION}) AS queue_p50_seconds,
         quantileIf(0.5)(duration_seconds, {DURATION_PERCENTILE_CONDITION}) AS p50_seconds,
         quantileIf(0.95)(duration_seconds, {DURATION_PERCENTILE_CONDITION}) AS p95_seconds,
-        countIf(conclusion IN ('failure', 'timed_out')) / nullIf(countIf(status = 'completed'), 0) AS failure_rate,
+        -- Jobs without a verdict (skipped, cancelled, neutral) stay in job_count but not in the rate.
+        {failure_rate_expr()} AS failure_rate,
         countIf(run_attempt > 1) AS retry_job_count
     FROM __JOBS_SOURCE__ AS j
     -- NOT is_rerun_copy: "Re-run failed jobs" re-lists every already-passed job under the new attempt
@@ -81,6 +88,7 @@ _COST_SELECT = f"""
     WHERE workflow_name = {{workflow_name}} AND created_at >= {{date_from}} __DATE_TO__ __BRANCH__
         __COST_RUN_SCOPE__
     GROUP BY job_name
+    LIMIT {UNPAGED_SCAN_LIMIT}
 """
 
 _RUNS_WINDOW = (

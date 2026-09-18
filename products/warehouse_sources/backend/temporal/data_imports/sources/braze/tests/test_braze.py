@@ -13,6 +13,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.braze.braz
     BrazeHostNotAllowedError,
     BrazeResumeConfig,
     _canvas_series_rows,
+    _details_row,
     _format_modified_after,
     _normalize_items,
     _series_rows,
@@ -24,6 +25,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.braze.braz
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.braze.settings import (
     BRAZE_DATA_SERIES_ENDPOINTS,
+    BRAZE_DETAILS_ENDPOINTS,
     BRAZE_ENDPOINTS,
     DATA_SERIES_HISTORY_DAYS,
 )
@@ -636,6 +638,36 @@ class TestDataSeriesRequests:
         assert all(p["include_step_breakdown"] == "true" and p["include_variant_breakdown"] == "true" for p in params)
 
     @mock.patch(SESSION_PATCH)
+    def test_segment_series_skips_segments_without_analytics_tracking(self, MockSession):
+        # Braze keeps no size history for an untracked segment, and asking for one errors — which
+        # would abort the fan-out partway through every other segment.
+        session = MockSession.return_value
+        _wire(
+            session,
+            [
+                _response(
+                    {
+                        "segments": [
+                            {"id": "s1", "analytics_tracking_enabled": True},
+                            {"id": "s2", "analytics_tracking_enabled": False},
+                            {"id": "s3", "analytics_tracking_enabled": True},
+                        ]
+                    }
+                ),
+                _response({"segments": []}),
+            ],
+        )
+        session.get.side_effect = [
+            _series_response([{"time": "2026-03-09", "size": 10}]),
+            _series_response([{"time": "2026-03-09", "size": 20}]),
+        ]
+
+        rows = _rows(_source("segment_analytics"))
+
+        assert [row["segment_id"] for row in rows] == ["s1", "s3"]
+        assert [call.kwargs["params"]["segment_id"] for call in session.get.call_args_list] == ["s1", "s3"]
+
+    @mock.patch(SESSION_PATCH)
     def test_uses_no_redirect_session_with_redacted_key(self, MockSession):
         session = MockSession.return_value
         session.get.side_effect = [_series_response([])]
@@ -689,3 +721,138 @@ class TestBrazeDataSeriesSourceResponse:
         session.get.side_effect = [_series_response([])]
 
         assert _source("kpi_dau").sort_mode is None
+
+
+class TestDetailsRows:
+    @pytest.mark.parametrize("config", list(BRAZE_DETAILS_ENDPOINTS.values()))
+    def test_injects_the_parent_id_and_drops_the_status_envelope(self, config):
+        row = _details_row(config, "p1", {"message": "success", "name": "Welcome"})
+
+        assert row[config.parent_id_column] == "p1"
+        assert "message" not in row
+        assert row["name"] == "Welcome"
+
+    @pytest.mark.parametrize("config", list(BRAZE_DETAILS_ENDPOINTS.values()))
+    def test_varying_shapes_are_encoded_as_json(self, config):
+        # The variation map is keyed by API identifier and the step/variant lists differ per row,
+        # so the column has to hold one type across every row.
+        fields = (*config.json_object_fields, *config.json_array_fields)
+        row = _details_row(config, "p1", dict.fromkeys(fields, [{"id": "x"}]))
+
+        for name in fields:
+            assert row[name] == '[{"id": "x"}]'
+
+    @pytest.mark.parametrize("config", list(BRAZE_DETAILS_ENDPOINTS.values()))
+    def test_missing_json_field_keeps_its_own_empty_shape(self, config):
+        # An omitted array must not read as an object, or the column's JSON type flips per row.
+        row = _details_row(config, "p1", {"name": "Welcome"})
+
+        for name in config.json_object_fields:
+            assert row[name] == "{}"
+        for name in config.json_array_fields:
+            assert row[name] == "[]"
+
+
+class TestDetailsRequests:
+    @mock.patch(SESSION_PATCH)
+    def test_campaign_details_fans_out_over_the_campaign_list(self, MockSession):
+        session = MockSession.return_value
+        _wire(session, [_response({"campaigns": [{"id": "c1"}, {"id": "c2"}]}), _response({"campaigns": []})])
+        session.get.side_effect = [
+            _response({"message": "success", "name": "Welcome", "channels": ["email"]}),
+            _response({"message": "success", "name": "Winback", "channels": ["sms"]}),
+        ]
+
+        rows = _rows(_source("campaign_details"))
+
+        assert rows == [
+            {
+                "campaign_id": "c1",
+                "name": "Welcome",
+                "channels": ["email"],
+                "messages": "{}",
+                "conversion_behaviors": "[]",
+            },
+            {
+                "campaign_id": "c2",
+                "name": "Winback",
+                "channels": ["sms"],
+                "messages": "{}",
+                "conversion_behaviors": "[]",
+            },
+        ]
+        assert [call.args[0] for call in session.get.call_args_list] == [f"{BASE_URL}/campaigns/details"] * 2
+        assert [call.kwargs["params"] for call in session.get.call_args_list] == [
+            {"campaign_id": "c1"},
+            {"campaign_id": "c2"},
+        ]
+
+    @mock.patch(SESSION_PATCH)
+    def test_canvas_details_carries_the_step_and_variant_structure(self, MockSession):
+        session = MockSession.return_value
+        _wire(session, [_response({"canvases": [{"id": "cv1"}]}), _response({"canvases": []})])
+        session.get.side_effect = [
+            _response(
+                {
+                    "message": "success",
+                    "created_at": "2026-01-02T03:04:05Z",
+                    "variants": [{"id": "v1", "name": "Variant 1"}],
+                    "steps": [{"id": "st1", "type": "Message"}],
+                }
+            )
+        ]
+
+        rows = _rows(_source("canvas_details"))
+
+        assert rows == [
+            {
+                "canvas_id": "cv1",
+                "created_at": "2026-01-02T03:04:05Z",
+                "variants": '[{"id": "v1", "name": "Variant 1"}]',
+                "steps": '[{"id": "st1", "type": "Message"}]',
+            }
+        ]
+        assert session.get.call_args.kwargs["params"] == {"canvas_id": "cv1"}
+
+    @mock.patch(SESSION_PATCH)
+    def test_raises_on_an_error_status(self, MockSession):
+        # raise_for_status keeps the 403 wording get_non_retryable_errors matches on.
+        session = MockSession.return_value
+        _wire(session, [_response({"campaigns": [{"id": "c1"}]}), _response({"campaigns": []})])
+        session.get.side_effect = [_response({"message": "forbidden"}, status_code=403)]
+
+        with pytest.raises(HTTPError, match="403 Client Error"):
+            _rows(_source("campaign_details"))
+
+    @mock.patch(HOST_SAFE_PATCH)
+    @mock.patch(SESSION_PATCH)
+    def test_raises_when_host_not_allowed(self, MockSession, mock_host_safe):
+        mock_host_safe.return_value = (False, "host not allowed")
+
+        response = braze_source(
+            "key",
+            "https://10.0.0.1",
+            "campaign_details",
+            team_id=42,
+            job_id="job",
+            resumable_source_manager=_make_manager(),
+        )
+        with pytest.raises(BrazeHostNotAllowedError):
+            list(cast("Iterable[Any]", response.items()))
+
+        MockSession.return_value.get.assert_not_called()
+
+
+class TestBrazeDetailsSourceResponse:
+    @pytest.mark.parametrize("endpoint", list(BRAZE_DETAILS_ENDPOINTS))
+    def test_keyed_on_the_parent_id_and_partitioned_on_creation(self, endpoint):
+        config = BRAZE_DETAILS_ENDPOINTS[endpoint]
+        response = _source(endpoint)
+
+        # One row per parent, so the injected parent id is the whole key.
+        assert response.primary_keys == [config.parent_id_column]
+        assert config.partition_key == "created_at"
+        assert response.partition_mode == "datetime"
+        assert response.partition_keys == ["created_at"]
+        # The parent list is ordered by last edit time, so rows do not arrive by `created_at`.
+        assert response.sort_mode is None
