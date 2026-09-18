@@ -521,7 +521,7 @@ class LogsRetentionRule(ModelActivityMixin, CreatedMetaFields, UpdatedMetaFields
         default=0,
         help_text="Lower values run first; first matching rule wins. Ties use created_at ascending (same as ingestion query order).",
     )
-    # {"filter_group": <PropertyGroupFilter>, "retention_days": <14|30|90>}
+    # {"filter_group": <PropertyGroupFilter>, "retention_days": <14 or a multiple of 30>}
     config = models.JSONField(default=dict)
     version = models.PositiveIntegerField(default=1)
 

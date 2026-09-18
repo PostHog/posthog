@@ -119,6 +119,12 @@ export const BatchExportsCreateBody = /* @__PURE__ */ zod
                                     .describe(
                                         'If set, rolls to a new file once the current file exceeds this size in MB.'
                                     ),
+                                legacy_parquet_extension: zod
+                                    .boolean()
+                                    .optional()
+                                    .describe(
+                                        "Whether Parquet files keep the compression codec in their extension, for example '.parquet.zst' rather than '.parquet'. Parquet records its codec inside the file, so new exports leave it out. An export that already wrote Parquet files before this setting existed keeps it, so that pipelines matching on the old names do not break. Has no effect on JSON Lines, which always carries the codec in its extension."
+                                    ),
                                 type: zod.enum(['AzureBlob']),
                             })
                             .describe(
@@ -225,6 +231,12 @@ export const BatchExportsCreateBody = /* @__PURE__ */ zod
                                     .describe(
                                         'If set, rolls to a new file once the current file exceeds this size in MB.'
                                     ),
+                                legacy_parquet_extension: zod
+                                    .boolean()
+                                    .optional()
+                                    .describe(
+                                        "Whether Parquet files keep the compression codec in their extension, for example '.parquet.zst' rather than '.parquet'. Parquet records its codec inside the file, so new exports leave it out. An export that already wrote Parquet files before this setting existed keeps it, so that pipelines matching on the old names do not break. Has no effect on JSON Lines, which always carries the codec in its extension."
+                                    ),
                                 encryption: zod
                                     .string()
                                     .nullish()
@@ -280,6 +292,12 @@ export const BatchExportsCreateBody = /* @__PURE__ */ zod
                                     .nullish()
                                     .describe(
                                         'If set, rolls to a new file once the current file exceeds this size in MB.'
+                                    ),
+                                legacy_parquet_extension: zod
+                                    .boolean()
+                                    .optional()
+                                    .describe(
+                                        "Whether Parquet files keep the compression codec in their extension, for example '.parquet.zst' rather than '.parquet'. Parquet records its codec inside the file, so new exports leave it out. An export that already wrote Parquet files before this setting existed keeps it, so that pipelines matching on the old names do not break. Has no effect on JSON Lines, which always carries the codec in its extension."
                                     ),
                                 use_virtual_style_addressing: zod
                                     .boolean()
@@ -815,6 +833,12 @@ export const BatchExportsUpdateBody = /* @__PURE__ */ zod
                                     .describe(
                                         'If set, rolls to a new file once the current file exceeds this size in MB.'
                                     ),
+                                legacy_parquet_extension: zod
+                                    .boolean()
+                                    .optional()
+                                    .describe(
+                                        "Whether Parquet files keep the compression codec in their extension, for example '.parquet.zst' rather than '.parquet'. Parquet records its codec inside the file, so new exports leave it out. An export that already wrote Parquet files before this setting existed keeps it, so that pipelines matching on the old names do not break. Has no effect on JSON Lines, which always carries the codec in its extension."
+                                    ),
                                 type: zod.enum(['AzureBlob']),
                             })
                             .describe(
@@ -921,6 +945,12 @@ export const BatchExportsUpdateBody = /* @__PURE__ */ zod
                                     .describe(
                                         'If set, rolls to a new file once the current file exceeds this size in MB.'
                                     ),
+                                legacy_parquet_extension: zod
+                                    .boolean()
+                                    .optional()
+                                    .describe(
+                                        "Whether Parquet files keep the compression codec in their extension, for example '.parquet.zst' rather than '.parquet'. Parquet records its codec inside the file, so new exports leave it out. An export that already wrote Parquet files before this setting existed keeps it, so that pipelines matching on the old names do not break. Has no effect on JSON Lines, which always carries the codec in its extension."
+                                    ),
                                 encryption: zod
                                     .string()
                                     .nullish()
@@ -976,6 +1006,12 @@ export const BatchExportsUpdateBody = /* @__PURE__ */ zod
                                     .nullish()
                                     .describe(
                                         'If set, rolls to a new file once the current file exceeds this size in MB.'
+                                    ),
+                                legacy_parquet_extension: zod
+                                    .boolean()
+                                    .optional()
+                                    .describe(
+                                        "Whether Parquet files keep the compression codec in their extension, for example '.parquet.zst' rather than '.parquet'. Parquet records its codec inside the file, so new exports leave it out. An export that already wrote Parquet files before this setting existed keeps it, so that pipelines matching on the old names do not break. Has no effect on JSON Lines, which always carries the codec in its extension."
                                     ),
                                 use_virtual_style_addressing: zod
                                     .boolean()
@@ -1264,6 +1300,12 @@ export const BatchExportsPartialUpdateBody = /* @__PURE__ */ zod
                                     .describe(
                                         'If set, rolls to a new file once the current file exceeds this size in MB.'
                                     ),
+                                legacy_parquet_extension: zod
+                                    .boolean()
+                                    .optional()
+                                    .describe(
+                                        "Whether Parquet files keep the compression codec in their extension, for example '.parquet.zst' rather than '.parquet'. Parquet records its codec inside the file, so new exports leave it out. An export that already wrote Parquet files before this setting existed keeps it, so that pipelines matching on the old names do not break. Has no effect on JSON Lines, which always carries the codec in its extension."
+                                    ),
                                 type: zod.enum(['AzureBlob']),
                             })
                             .describe(
@@ -1372,6 +1414,12 @@ export const BatchExportsPartialUpdateBody = /* @__PURE__ */ zod
                                     .describe(
                                         'If set, rolls to a new file once the current file exceeds this size in MB.'
                                     ),
+                                legacy_parquet_extension: zod
+                                    .boolean()
+                                    .optional()
+                                    .describe(
+                                        "Whether Parquet files keep the compression codec in their extension, for example '.parquet.zst' rather than '.parquet'. Parquet records its codec inside the file, so new exports leave it out. An export that already wrote Parquet files before this setting existed keeps it, so that pipelines matching on the old names do not break. Has no effect on JSON Lines, which always carries the codec in its extension."
+                                    ),
                                 encryption: zod
                                     .string()
                                     .nullish()
@@ -1427,6 +1475,12 @@ export const BatchExportsPartialUpdateBody = /* @__PURE__ */ zod
                                     .nullish()
                                     .describe(
                                         'If set, rolls to a new file once the current file exceeds this size in MB.'
+                                    ),
+                                legacy_parquet_extension: zod
+                                    .boolean()
+                                    .optional()
+                                    .describe(
+                                        "Whether Parquet files keep the compression codec in their extension, for example '.parquet.zst' rather than '.parquet'. Parquet records its codec inside the file, so new exports leave it out. An export that already wrote Parquet files before this setting existed keeps it, so that pipelines matching on the old names do not break. Has no effect on JSON Lines, which always carries the codec in its extension."
                                     ),
                                 use_virtual_style_addressing: zod
                                     .boolean()
@@ -1735,6 +1789,12 @@ export const BatchExportsPauseCreateBody = /* @__PURE__ */ zod
                                     .describe(
                                         'If set, rolls to a new file once the current file exceeds this size in MB.'
                                     ),
+                                legacy_parquet_extension: zod
+                                    .boolean()
+                                    .optional()
+                                    .describe(
+                                        "Whether Parquet files keep the compression codec in their extension, for example '.parquet.zst' rather than '.parquet'. Parquet records its codec inside the file, so new exports leave it out. An export that already wrote Parquet files before this setting existed keeps it, so that pipelines matching on the old names do not break. Has no effect on JSON Lines, which always carries the codec in its extension."
+                                    ),
                                 type: zod.enum(['AzureBlob']),
                             })
                             .describe(
@@ -1813,6 +1873,12 @@ export const BatchExportsPauseCreateBody = /* @__PURE__ */ zod
                                     .describe(
                                         'If set, rolls to a new file once the current file exceeds this size in MB.'
                                     ),
+                                legacy_parquet_extension: zod
+                                    .boolean()
+                                    .optional()
+                                    .describe(
+                                        "Whether Parquet files keep the compression codec in their extension, for example '.parquet.zst' rather than '.parquet'. Parquet records its codec inside the file, so new exports leave it out. An export that already wrote Parquet files before this setting existed keeps it, so that pipelines matching on the old names do not break. Has no effect on JSON Lines, which always carries the codec in its extension."
+                                    ),
                                 encryption: zod
                                     .string()
                                     .nullish()
@@ -1858,6 +1924,12 @@ export const BatchExportsPauseCreateBody = /* @__PURE__ */ zod
                                     .nullish()
                                     .describe(
                                         'If set, rolls to a new file once the current file exceeds this size in MB.'
+                                    ),
+                                legacy_parquet_extension: zod
+                                    .boolean()
+                                    .optional()
+                                    .describe(
+                                        "Whether Parquet files keep the compression codec in their extension, for example '.parquet.zst' rather than '.parquet'. Parquet records its codec inside the file, so new exports leave it out. An export that already wrote Parquet files before this setting existed keeps it, so that pipelines matching on the old names do not break. Has no effect on JSON Lines, which always carries the codec in its extension."
                                     ),
                                 use_virtual_style_addressing: zod
                                     .boolean()
@@ -2166,6 +2238,12 @@ export const BatchExportsRunTestStepCreateBody = /* @__PURE__ */ zod
                                     .describe(
                                         'If set, rolls to a new file once the current file exceeds this size in MB.'
                                     ),
+                                legacy_parquet_extension: zod
+                                    .boolean()
+                                    .optional()
+                                    .describe(
+                                        "Whether Parquet files keep the compression codec in their extension, for example '.parquet.zst' rather than '.parquet'. Parquet records its codec inside the file, so new exports leave it out. An export that already wrote Parquet files before this setting existed keeps it, so that pipelines matching on the old names do not break. Has no effect on JSON Lines, which always carries the codec in its extension."
+                                    ),
                                 type: zod.enum(['AzureBlob']),
                             })
                             .describe(
@@ -2252,6 +2330,12 @@ export const BatchExportsRunTestStepCreateBody = /* @__PURE__ */ zod
                                     .describe(
                                         'If set, rolls to a new file once the current file exceeds this size in MB.'
                                     ),
+                                legacy_parquet_extension: zod
+                                    .boolean()
+                                    .optional()
+                                    .describe(
+                                        "Whether Parquet files keep the compression codec in their extension, for example '.parquet.zst' rather than '.parquet'. Parquet records its codec inside the file, so new exports leave it out. An export that already wrote Parquet files before this setting existed keeps it, so that pipelines matching on the old names do not break. Has no effect on JSON Lines, which always carries the codec in its extension."
+                                    ),
                                 encryption: zod
                                     .string()
                                     .nullish()
@@ -2299,6 +2383,12 @@ export const BatchExportsRunTestStepCreateBody = /* @__PURE__ */ zod
                                     .nullish()
                                     .describe(
                                         'If set, rolls to a new file once the current file exceeds this size in MB.'
+                                    ),
+                                legacy_parquet_extension: zod
+                                    .boolean()
+                                    .optional()
+                                    .describe(
+                                        "Whether Parquet files keep the compression codec in their extension, for example '.parquet.zst' rather than '.parquet'. Parquet records its codec inside the file, so new exports leave it out. An export that already wrote Parquet files before this setting existed keeps it, so that pipelines matching on the old names do not break. Has no effect on JSON Lines, which always carries the codec in its extension."
                                     ),
                                 use_virtual_style_addressing: zod
                                     .boolean()
@@ -2612,6 +2702,12 @@ export const BatchExportsUnpauseCreateBody = /* @__PURE__ */ zod
                                     .describe(
                                         'If set, rolls to a new file once the current file exceeds this size in MB.'
                                     ),
+                                legacy_parquet_extension: zod
+                                    .boolean()
+                                    .optional()
+                                    .describe(
+                                        "Whether Parquet files keep the compression codec in their extension, for example '.parquet.zst' rather than '.parquet'. Parquet records its codec inside the file, so new exports leave it out. An export that already wrote Parquet files before this setting existed keeps it, so that pipelines matching on the old names do not break. Has no effect on JSON Lines, which always carries the codec in its extension."
+                                    ),
                                 type: zod.enum(['AzureBlob']),
                             })
                             .describe(
@@ -2692,6 +2788,12 @@ export const BatchExportsUnpauseCreateBody = /* @__PURE__ */ zod
                                     .describe(
                                         'If set, rolls to a new file once the current file exceeds this size in MB.'
                                     ),
+                                legacy_parquet_extension: zod
+                                    .boolean()
+                                    .optional()
+                                    .describe(
+                                        "Whether Parquet files keep the compression codec in their extension, for example '.parquet.zst' rather than '.parquet'. Parquet records its codec inside the file, so new exports leave it out. An export that already wrote Parquet files before this setting existed keeps it, so that pipelines matching on the old names do not break. Has no effect on JSON Lines, which always carries the codec in its extension."
+                                    ),
                                 encryption: zod
                                     .string()
                                     .nullish()
@@ -2737,6 +2839,12 @@ export const BatchExportsUnpauseCreateBody = /* @__PURE__ */ zod
                                     .nullish()
                                     .describe(
                                         'If set, rolls to a new file once the current file exceeds this size in MB.'
+                                    ),
+                                legacy_parquet_extension: zod
+                                    .boolean()
+                                    .optional()
+                                    .describe(
+                                        "Whether Parquet files keep the compression codec in their extension, for example '.parquet.zst' rather than '.parquet'. Parquet records its codec inside the file, so new exports leave it out. An export that already wrote Parquet files before this setting existed keeps it, so that pipelines matching on the old names do not break. Has no effect on JSON Lines, which always carries the codec in its extension."
                                     ),
                                 use_virtual_style_addressing: zod
                                     .boolean()
@@ -3047,6 +3155,12 @@ export const BatchExportsRunTestStepNewCreateBody = /* @__PURE__ */ zod
                                     .describe(
                                         'If set, rolls to a new file once the current file exceeds this size in MB.'
                                     ),
+                                legacy_parquet_extension: zod
+                                    .boolean()
+                                    .optional()
+                                    .describe(
+                                        "Whether Parquet files keep the compression codec in their extension, for example '.parquet.zst' rather than '.parquet'. Parquet records its codec inside the file, so new exports leave it out. An export that already wrote Parquet files before this setting existed keeps it, so that pipelines matching on the old names do not break. Has no effect on JSON Lines, which always carries the codec in its extension."
+                                    ),
                                 type: zod.enum(['AzureBlob']),
                             })
                             .describe(
@@ -3135,6 +3249,12 @@ export const BatchExportsRunTestStepNewCreateBody = /* @__PURE__ */ zod
                                     .describe(
                                         'If set, rolls to a new file once the current file exceeds this size in MB.'
                                     ),
+                                legacy_parquet_extension: zod
+                                    .boolean()
+                                    .optional()
+                                    .describe(
+                                        "Whether Parquet files keep the compression codec in their extension, for example '.parquet.zst' rather than '.parquet'. Parquet records its codec inside the file, so new exports leave it out. An export that already wrote Parquet files before this setting existed keeps it, so that pipelines matching on the old names do not break. Has no effect on JSON Lines, which always carries the codec in its extension."
+                                    ),
                                 encryption: zod
                                     .string()
                                     .nullish()
@@ -3182,6 +3302,12 @@ export const BatchExportsRunTestStepNewCreateBody = /* @__PURE__ */ zod
                                     .nullish()
                                     .describe(
                                         'If set, rolls to a new file once the current file exceeds this size in MB.'
+                                    ),
+                                legacy_parquet_extension: zod
+                                    .boolean()
+                                    .optional()
+                                    .describe(
+                                        "Whether Parquet files keep the compression codec in their extension, for example '.parquet.zst' rather than '.parquet'. Parquet records its codec inside the file, so new exports leave it out. An export that already wrote Parquet files before this setting existed keeps it, so that pipelines matching on the old names do not break. Has no effect on JSON Lines, which always carries the codec in its extension."
                                     ),
                                 use_virtual_style_addressing: zod
                                     .boolean()

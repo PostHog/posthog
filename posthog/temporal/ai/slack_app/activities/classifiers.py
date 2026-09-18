@@ -38,7 +38,8 @@ CLASSIFIER_MODEL = "claude-haiku-4-5-20251001"
 # The model-override and agent-directed classifiers both run on a reasoning model, which
 # draws its reasoning from the same token budget as the reply. The reply is one short JSON
 # object; the headroom is for the thinking in front of it, and a truncated turn falls back
-# to the safe answer.
+# to the safe answer. Reasoning-class is also why the cap rides on `max_completion_tokens`:
+# the chat-completions route rejects `max_tokens` outright.
 #
 # The gateway client defaults to a 600s read and two retries, which is the right shape for
 # a generation call and the wrong one here. Left unbounded these never get to fall back,
@@ -46,13 +47,13 @@ CLASSIFIER_MODEL = "claude-haiku-4-5-20251001"
 # as the timeout: the activity is sync, so a thread Temporal has stopped waiting on keeps
 # blocking until the client itself returns.
 MODEL_OVERRIDE_CLASSIFIER_MODEL = "gpt-5.6-luna"
-MODEL_OVERRIDE_MAX_TOKENS = 2048
+MODEL_OVERRIDE_MAX_COMPLETION_TOKENS = 2048
 # One call per `@PostHog`, on the mention text alone. Measured mean is ~1.7s per call.
 MODEL_OVERRIDE_TIMEOUT_SECONDS = 10.0
 MODEL_OVERRIDE_MAX_RETRIES = 1
 
 AGENT_DIRECTED_CLASSIFIER_MODEL = "gpt-5.6-luna"
-AGENT_DIRECTED_MAX_TOKENS = 2048
+AGENT_DIRECTED_MAX_COMPLETION_TOKENS = 2048
 # One call per reply in every thread the agent is working in, and its prompt carries the
 # thread the override classifier's does not. The eval suite sees 3-9s on that shape, close
 # enough to a 10s ceiling that the tail would drop instructions rather than misread them.
@@ -296,7 +297,7 @@ def classify_message_is_agent_directed(
         response = client.chat.completions.create(
             model=AGENT_DIRECTED_CLASSIFIER_MODEL,
             messages=[{"role": "user", "content": prompt}],
-            max_tokens=AGENT_DIRECTED_MAX_TOKENS,
+            max_completion_tokens=AGENT_DIRECTED_MAX_COMPLETION_TOKENS,
             response_format=_agent_directed_response_format(),
         )
         # Tolerant parse on top of the schema on purpose: the gateway fronts several
@@ -450,7 +451,7 @@ def classify_slack_app_model_override(
         response = client.chat.completions.create(
             model=MODEL_OVERRIDE_CLASSIFIER_MODEL,
             messages=[{"role": "user", "content": prompt}],
-            max_tokens=MODEL_OVERRIDE_MAX_TOKENS,
+            max_completion_tokens=MODEL_OVERRIDE_MAX_COMPLETION_TOKENS,
             response_format=_model_override_response_format(choices),
         )
         # Tolerant parse on top of the schema on purpose: the gateway fronts several
