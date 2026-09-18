@@ -13,7 +13,7 @@ The `engineering_analytics_*` views used below have fixed names — no prefix, n
 - [The workflow-runs base](#the-workflow-runs-base) — the shared CI subquery: conclusion, duration, and a simplified `pr_number`
 - [Recipe: weekly open→merge time trend](#recipe-weekly-openmerge-time-trend) — p50 and p95 hours to merge
 - [Recipe: weekly CI success rate and p95 duration per workflow](#recipe-weekly-ci-success-rate-and-p95-duration-per-workflow) — which conclusions count as a verdict
-- [Recipe: PR throughput per week](#recipe-pr-throughput-per-week) — merged and closed-unmerged counts
+- [Recipe: PR throughput per week](#recipe-pr-throughput-per-week) — merged and closed-unmerged counts, bucketed by opening week
 - [Recipe: open PRs with failing CI right now](#recipe-open-prs-with-failing-ci-right-now) — latest run per `(head_sha, workflow_name)`, with only completed failures counted
 - [Job-level recipes](#job-level-recipes) — queue wait and run time from the jobs table, and why you must not recompute cost
 - [Recipe: weekly CI cost by workflow (job_costs view)](#recipe-weekly-ci-cost-by-workflow-job_costs-view) — dollar spend, and what a NULL cost means
@@ -165,6 +165,11 @@ WHERE created_at >= now() - INTERVAL 90 DAY
 GROUP BY week
 ORDER BY week
 ```
+
+These buckets are opening cohorts: a PR counts in the week it was opened, not the week it resolved.
+The newest week therefore reads low, because most of its PRs have not resolved yet, and earlier weeks change between refreshes as their PRs merge later.
+A PR opened before the window never appears, however recently it merged.
+Count merges on the merge clock instead, which is what the dashboard and the MCP tools do: the open→merge recipe above already returns `merged_prs` per merge week.
 
 ## Recipe: open PRs with failing CI right now
 
