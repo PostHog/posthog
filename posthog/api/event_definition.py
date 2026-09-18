@@ -687,6 +687,16 @@ class EventDefinitionViewSet(
                 many=True,
                 description="Return exact matches for these event names. Pass names as repeated or comma-separated values.",
             ),
+            OpenApiParameter(
+                "excluded_properties",
+                OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "JSON-encoded list of event names to omit. The name matches the property definitions "
+                    "endpoint that shares it."
+                ),
+            ),
         ],
         extensions={"x-product": "event_definitions"},
     )
