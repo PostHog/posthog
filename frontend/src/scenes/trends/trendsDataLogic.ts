@@ -159,7 +159,6 @@ export interface trendsDataLogicValues {
     showMultipleYAxes: boolean | null | undefined // insightVizDataLogic
     showPercentStackView: boolean | null | undefined // insightVizDataLogic
     showPercentagesOnSeries: boolean | null | undefined // insightVizDataLogic
-    showSeriesNameWithBreakdown: boolean | null | undefined // insightVizDataLogic
     showValuesOnSeries: boolean | null | undefined // insightVizDataLogic
     stickinessFilter: StickinessFilter | null | undefined // insightVizDataLogic
     supportsPercentStackView: boolean // insightVizDataLogic
@@ -477,7 +476,6 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
                 'hasLegend',
                 'showLegend',
                 'legendPosition',
-                'showSeriesNameWithBreakdown',
                 'showAnnotations',
                 'vizSpecificOptions',
                 'yAxisScaleType',

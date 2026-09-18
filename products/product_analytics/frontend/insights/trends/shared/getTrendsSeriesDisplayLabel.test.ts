@@ -18,8 +18,6 @@ const makeResult = (overrides: Partial<IndexedTrendResult>): IndexedTrendResult 
     ({ id: 0, label: '$pageview', data: [], ...overrides }) as IndexedTrendResult
 
 describe('getTrendsSeriesDisplayLabel', () => {
-    // Guards the legend regression: the in-chart legend must show the series' custom name, not the
-    // raw event/action name. A revert to `humanizeSeriesLabel(r.label)` would fail the custom-name case.
     it.each([
         ['custom name wins over the event name', { action: { name: '$pageview', custom_name: 'Signups' } }, 'Signups'],
         ['humanizes the event name when no custom name', { action: { name: '$pageview' } }, 'Pageview'],
@@ -35,28 +33,14 @@ describe('getTrendsSeriesDisplayLabel', () => {
         ).toBe(expected)
     })
 
-    // The action (and its custom_name) is shared across every breakdown band, so the breakdown value
-    // must win by default — otherwise all bands collapse onto one label. `showSeriesNameWithBreakdown`
-    // opts into carrying both, which is the only way to read a chart whose series share a value.
     it.each([
-        ['the breakdown value alone by default', {}, {}, 'Chrome'],
+        ['the series name and breakdown value for multiple series', {}, {}, 'Signups · Chrome'],
+        ['the breakdown value alone for a single-series query', {}, { isSingleSeriesDefinition: true }, 'Chrome'],
         [
-            'the series name and the breakdown value when opted in',
+            'the formula name and breakdown value for a formula row',
+            { action: null, label: 'A + B' },
             {},
-            { showSeriesNameWithBreakdown: true },
-            'Signups: Chrome',
-        ],
-        [
-            'the breakdown value alone for a single-series query, where every band takes the same prefix',
-            {},
-            { showSeriesNameWithBreakdown: true, isSingleSeriesDefinition: true },
-            'Chrome',
-        ],
-        [
-            'the breakdown value alone when the row has no entity to name, rather than repeating it from the label',
-            { action: null, label: 'A + B - Chrome' },
-            { showSeriesNameWithBreakdown: true },
-            'Chrome',
+            'A + B · Chrome',
         ],
     ])('resolves to %s', (_name, resultOverrides, depOverrides, expected) => {
         const result = makeResult({

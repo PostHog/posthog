@@ -110,7 +110,6 @@ export function TrendsLineChart({
         showValuesOnSeries,
         showConfidenceIntervals,
         confidenceLevel,
-        showSeriesNameWithBreakdown,
         isSingleSeriesDefinition,
     } = useValues(trendsDataLogic(insightProps))
     const { timezone, weekStartDay, baseCurrency } = useValues(teamLogic)
@@ -124,16 +123,9 @@ export function TrendsLineChart({
                 breakdownFilter,
                 cohorts: allCohorts?.results,
                 formatPropertyValueForDisplay,
-                showSeriesNameWithBreakdown,
                 isSingleSeriesDefinition,
             }),
-        [
-            breakdownFilter,
-            allCohorts?.results,
-            formatPropertyValueForDisplay,
-            showSeriesNameWithBreakdown,
-            isSingleSeriesDefinition,
-        ]
+        [breakdownFilter, allCohorts?.results, formatPropertyValueForDisplay, isSingleSeriesDefinition]
     )
 
     const isPercentStackView = !!showPercentStackView && !!supportsPercentStackView

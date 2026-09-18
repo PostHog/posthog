@@ -79,7 +79,6 @@ export function TrendsPieChart({
         labelGroupType,
         getTrendsColor,
         getTrendsHidden,
-        showSeriesNameWithBreakdown,
         isSingleSeriesDefinition,
     } = useValues(trendsDataLogic(insightProps))
 
@@ -105,16 +104,9 @@ export function TrendsPieChart({
                 breakdownFilter,
                 cohorts: allCohorts.results,
                 formatPropertyValueForDisplay,
-                showSeriesNameWithBreakdown,
                 isSingleSeriesDefinition,
             }),
-        [
-            breakdownFilter,
-            allCohorts.results,
-            formatPropertyValueForDisplay,
-            showSeriesNameWithBreakdown,
-            isSingleSeriesDefinition,
-        ]
+        [breakdownFilter, allCohorts.results, formatPropertyValueForDisplay, isSingleSeriesDefinition]
     )
 
     const series: Series<TrendsSeriesMeta>[] = useMemo(

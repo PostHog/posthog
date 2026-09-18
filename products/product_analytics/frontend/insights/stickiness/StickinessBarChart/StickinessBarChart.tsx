@@ -64,7 +64,6 @@ export function StickinessBarChart({ context }: StickinessBarChartProps): JSX.El
         hasPersonsModal,
         querySource,
         showValuesOnSeries,
-        showSeriesNameWithBreakdown,
         isSingleSeriesDefinition,
     } = useValues(trendsDataLogic(insightProps))
     const { timezone, baseCurrency } = useValues(teamLogic)
@@ -78,16 +77,9 @@ export function StickinessBarChart({ context }: StickinessBarChartProps): JSX.El
                 breakdownFilter,
                 cohorts: allCohorts?.results,
                 formatPropertyValueForDisplay,
-                showSeriesNameWithBreakdown,
                 isSingleSeriesDefinition,
             }),
-        [
-            breakdownFilter,
-            allCohorts?.results,
-            formatPropertyValueForDisplay,
-            showSeriesNameWithBreakdown,
-            isSingleSeriesDefinition,
-        ]
+        [breakdownFilter, allCohorts?.results, formatPropertyValueForDisplay, isSingleSeriesDefinition]
     )
 
     // Inverted polarity vs legacy `isStacked` in `ActionsLineGraph`; matches `TrendsBarChart`.
