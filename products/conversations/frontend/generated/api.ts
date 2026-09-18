@@ -59,7 +59,7 @@ export const getConversationsAiContextAccountPropertiesListUrl = (projectId: str
 }
 
 /**
- * Account-target Customer analytics properties that can be included in AI reply context.
+ * Account-target Customer analytics properties that can be included in AI reply context. Capped at the first 500 properties by name.
  */
 export const conversationsAiContextAccountPropertiesList = async (
     projectId: string,

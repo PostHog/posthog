@@ -18,7 +18,7 @@ export function AIContextAccountPropertiesSection(): JSX.Element | null {
         aiContextAccountPropertyIds,
         aiContextAccountPropertiesSaving,
     } = useValues(supportSettingsLogic)
-    const { loadAccountPropertyOptions, setAiContextAccountPropertyIds } = useActions(supportSettingsLogic)
+    const { setAiContextAccountPropertyIds } = useActions(supportSettingsLogic)
 
     if (!featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS]) {
         return null
@@ -38,7 +38,6 @@ export function AIContextAccountPropertiesSection(): JSX.Element | null {
                     onChange={setAiContextAccountPropertyIds}
                     options={accountPropertyOptions.map((option) => ({ key: option.id, label: option.name }))}
                     loading={accountPropertyOptionsLoading}
-                    onFocus={loadAccountPropertyOptions}
                     placeholder={`Select up to ${MAX_AI_CONTEXT_ACCOUNT_PROPERTY_IDS} properties`}
                     limit={MAX_AI_CONTEXT_ACCOUNT_PROPERTY_IDS}
                     disabledReason={aiContextAccountPropertiesSaving ? 'Saving selected properties' : undefined}

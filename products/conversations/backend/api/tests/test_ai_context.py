@@ -42,6 +42,16 @@ class TestValidateAiContextConversationsSettings(SimpleTestCase):
             str(item) for item in ids[:MAX_AI_CONTEXT_ACCOUNT_PROPERTY_IDS]
         ]
 
+    def test_creation_drops_every_id(self) -> None:
+        # No team exists yet on create, so nothing can own a definition.
+        value = validate_ai_context_conversations_settings(
+            {"ai_context_account_property_ids": [str(uuid4())]}, team_id=None
+        )
+        assert value["ai_context_account_property_ids"] == []
+
+        with self.assertRaises(serializers.ValidationError):
+            validate_ai_context_conversations_settings({"ai_context_account_property_ids": ["nope"]}, team_id=None)
+
     def test_drops_missing_and_non_account_defs(self) -> None:
         keep = uuid4()
         skip = uuid4()

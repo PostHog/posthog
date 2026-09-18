@@ -1324,15 +1324,19 @@ def list_custom_property_definitions(
     *,
     user_access_control: "UserAccessControl",
     exclude_group_targets: bool = False,
+    target_type: str | None = None,
 ) -> tuple[list[contracts.CustomPropertyDefinitionView], int]:
     """Custom property definitions for the team, ordered by name. Returns ``(page, total_count)``.
 
     ``has_workflow_reference`` is included for every caller. ``references`` carries only workflow
     metadata the caller can read. ``exclude_group_targets`` hides group-target definitions from callers
-    without ``group`` read authorization."""
+    without ``group`` read authorization. ``target_type`` narrows the scan to one target, so a caller
+    that wants a single target doesn't page over every definition to find it."""
     queryset = CustomPropertyDefinition.objects.for_team(team_id).select_related("source").order_by("name")
     if exclude_group_targets:
         queryset = queryset.exclude(target_type=TargetType.GROUP.value)
+    if target_type is not None:
+        queryset = queryset.filter(target_type=target_type)
     total_count = queryset.count()
     page = list(queryset[offset : offset + limit])
     workflow_references = _custom_property_references_by_definition_id(team_id)
