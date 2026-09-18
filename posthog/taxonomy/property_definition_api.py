@@ -34,7 +34,12 @@ from posthog.taxonomy.definition_listing import (
     DefinitionListTimedOut,
     definition_read_db_alias,
 )
-from posthog.taxonomy.definition_search import LARGE_PROJECT_COUNT_CAP, bounded_count_sql, is_large_project
+from posthog.taxonomy.definition_search import (
+    LARGE_PROJECT_COUNT_CAP,
+    PROJECT_SCAN_MAX_DEFINITIONS,
+    bounded_count_sql,
+    is_large_project,
+)
 from posthog.taxonomy.taxonomy import (
     CORE_FILTER_DEFINITIONS_BY_GROUP,
     PROPERTY_NAME_ALIASES,
@@ -855,7 +860,16 @@ class PropertyDefinitionViewSet(
             return new_enterprise_property
         return non_enterprise_property
 
-    @extend_schema(parameters=[PropertyDefinitionQuerySerializer])
+    @extend_schema(
+        description=(
+            "List the property definitions of a project. On projects with more than "
+            f"{PROJECT_SCAN_MAX_DEFINITIONS} property definitions, `count` stops at "
+            f"{LARGE_PROJECT_COUNT_CAP}. It is a lower bound there, not a total, and `next` is empty "
+            "from that offset on, so read the rows past the cap with a higher explicit `offset`. The "
+            "default sort on those projects is verified definitions first, then name."
+        ),
+        parameters=[PropertyDefinitionQuerySerializer],
+    )
     def list(self, request, *args, **kwargs):
         event_type = request.query_params.get("type", "event")
 
