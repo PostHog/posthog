@@ -21,6 +21,8 @@ from ee.hogai.sandbox import turn_completed_successfully
         ("disabled", False),
         ("failed_run", False),
         ("keep_draft", False),
+        ("queued_followup", False),
+        ("followup_queued_mid_flight", False),
         ("different_pr", False),
         ("different_repository", False),
         ("different_branch", False),
@@ -54,13 +56,24 @@ def test_activity_rechecks_run_and_pr_before_requesting_review(monkeypatch, chan
         "review_threads_complete": True,
     }
     snapshot = PRSnapshot.from_raw(raw, pr_url)
-    run = SimpleNamespace(status="in_progress", branch=raw["head_ref"], output={"pr_url": raw["url"]}, state={})
+    run = SimpleNamespace(
+        status="in_progress",
+        branch=raw["head_ref"],
+        output={"pr_url": raw["url"]},
+        state={},
+        has_pending_followup_messages=False,
+    )
+    late_run = SimpleNamespace(**vars(run))
     github = MagicMock()
     github.mark_pull_request_ready_for_review.return_value = {"success": True, "changed": True}
     if change == "failed_run":
         run.status = "failed"
     elif change == "keep_draft":
         run.state["keep_draft"] = True
+    elif change == "queued_followup":
+        run.has_pending_followup_messages = True
+    elif change == "followup_queued_mid_flight":
+        late_run.has_pending_followup_messages = True
     elif change == "different_pr":
         run.output["pr_url"] = "https://github.com/example/widgets/pull/8"
     elif change == "different_repository":
@@ -81,7 +94,7 @@ def test_activity_rechecks_run_and_pr_before_requesting_review(monkeypatch, chan
     monkeypatch.setattr(ready_module.posthoganalytics, "feature_enabled", lambda *args, **kwargs: change != "disabled")
     monkeypatch.setattr(ready_module, "get_github_integration", lambda _: github)
     with patch.object(ready_module.TaskRun.objects, "filter") as find_run:
-        find_run.return_value.first.return_value = run
+        find_run.return_value.first.side_effect = [run, late_run]
         assert mark_pr_ready(MarkPrReadyInput(context=context, snapshot=snapshot)) is requested
     assert github.mark_pull_request_ready_for_review.called is requested
     if requested:
