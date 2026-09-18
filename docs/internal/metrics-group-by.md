@@ -9,6 +9,7 @@ Search keeps this order.
 The count uses attribute values from series whose latest metadata timestamp is at or after the selected start time.
 It does not read raw metric samples or enforce the selected end time.
 Counts are informational and most useful for recent series.
+The query uses `uniqCombined64` to estimate distinct value counts with bounded memory.
 Metadata updates can lag samples, so this is not an exact count for the selected time window.
 When a metric is selected, it only lists attributes from that metric.
 When no metric is selected, it lists attributes from all metrics in the project.

@@ -82,7 +82,7 @@ class MetricAttributeKeysQueryRunner:
                     arrayJoin(arrayDistinct(arrayConcat(
                         mapKeys(attributes), mapKeys(resource_attributes), ['service_name']
                     ))) AS attribute_key,
-                    uniqExact(if(attribute_key IN ('service_name', 'service.name'), service_name,
+                    uniqCombined64(if(attribute_key IN ('service_name', 'service.name'), service_name,
                         if(arrayElement(resource_attributes, attribute_key) != '',
                             arrayElement(resource_attributes, attribute_key),
                             arrayElement(attributes, attribute_key)))) AS value_count
