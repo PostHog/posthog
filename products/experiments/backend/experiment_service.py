@@ -60,6 +60,10 @@ from products.experiments.backend.hogql_queries.exposure_query_logic import (
     get_exposure_event_and_property,
     resolve_default_exposure_event,
 )
+from products.experiments.backend.metric_conversion_window import (
+    UNITLESS_CONVERSION_WINDOW_ERROR,
+    first_unitless_conversion_window,
+)
 from products.experiments.backend.metric_utils import filter_metric_group_ids_by_event
 from products.experiments.backend.metric_validation import (
     extract_entity_nodes,
@@ -774,6 +778,24 @@ class ExperimentService:
         for i, metric in enumerate(metrics):
             parse_and_validate_metric(metric, error_prefix=f"Invalid metric at index {i}: ")
 
+    @classmethod
+    def validate_conversion_window_units(
+        cls,
+        metrics: list | None,
+        stored_metrics_by_uuid: Mapping[str, Any],
+        *,
+        section: str,
+    ) -> None:
+        """Reject a conversion window that arrives without the unit that gives it meaning.
+
+        Deliberately not part of `validate_experiment_metrics`: that one also runs over stored
+        metrics (the serializer field validators on every write, and the copy path), and stored
+        metrics predate this rule, so a check there would make those experiments uneditable.
+        """
+        index = first_unitless_conversion_window(metrics, stored_metrics_by_uuid)
+        if index is not None:
+            raise ValidationError(f"Invalid metric at index {index} in {section}: {UNITLESS_CONVERSION_WINDOW_ERROR}")
+
     VALID_STATS_METHODS = {"bayesian", "frequentist"}
 
     EXPERIMENT_ORDER_ALLOWLIST = {
@@ -1102,6 +1124,11 @@ class ExperimentService:
         running_time_calculation = running_time_calculation or {}
         self.validate_experiment_metrics(metrics)
         self.validate_experiment_metrics(metrics_secondary)
+        if creation_mode == "new":
+            # Duplicate and copy carry the source's stored metrics, which may hold a unit-less
+            # window from before the rule. Cloning must not be the operation that rejects them.
+            self.validate_conversion_window_units(metrics, {}, section="metrics")
+            self.validate_conversion_window_units(metrics_secondary, {}, section="metrics_secondary")
         validate_metric_action_ids(metrics, self.team.id)
         validate_metric_action_ids(metrics_secondary, self.team.id)
         if not allow_unknown_events:
@@ -3338,6 +3365,20 @@ class ExperimentService:
         persisted_event_names, persisted_action_ids = extract_entity_nodes(
             [*(experiment.metrics or []), *(experiment.metrics_secondary or [])]
         )
+
+        # Same reasoning for conversion windows, matched per metric rather than pooled by
+        # reference. Run before _assign_uuids_to_metrics, which can hand an incoming metric a
+        # fresh uuid and so hide the stored metric it came from.
+        stored_metrics_by_uuid: dict[str, Any] = {}
+        for metric in [*(experiment.metrics or []), *(experiment.metrics_secondary or [])]:
+            if isinstance(metric, dict) and isinstance(metric.get("uuid"), str):
+                stored_metrics_by_uuid[metric["uuid"]] = metric
+        if "metrics" in update_data:
+            self.validate_conversion_window_units(update_data["metrics"], stored_metrics_by_uuid, section="metrics")
+        if "metrics_secondary" in update_data:
+            self.validate_conversion_window_units(
+                update_data["metrics_secondary"], stored_metrics_by_uuid, section="metrics_secondary"
+            )
 
         if "metrics" in update_data:
             update_data["metrics"] = self._assign_uuids_to_metrics(update_data["metrics"], seen=seen_metric_uuids)
