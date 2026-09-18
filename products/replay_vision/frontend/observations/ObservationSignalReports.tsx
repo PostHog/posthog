@@ -43,21 +43,25 @@ function ReportsRow({ observationId }: { observationId: string }): JSX.Element {
     }
     return (
         <LabeledRow label={signalReports.length === 1 ? 'Report' : 'Reports'}>
-            <div className="flex flex-col items-start gap-1">
+            <ul className="flex flex-col list-none pl-0 m-0 rounded border border-primary divide-y divide-primary overflow-hidden">
                 {signalReports.map((report) => (
-                    // The badge flows after the title rather than sitting in its own column, so a
-                    // title that wraps does not leave a ragged gap before it.
-                    <div key={report.id}>
+                    <li key={report.id}>
+                        {/* The whole row is the link, so the target matches what reads as one item. */}
                         <Link
                             to={urls.inboxReport('reports', report.id)}
                             data-attr="vision-observation-open-signal-report"
+                            className="flex flex-col gap-1 px-2 py-1.5 hover:bg-surface-secondary"
                         >
-                            {capitalizeFirstLetter(displayConventionalCommitTitle(report.title, 'Untitled report'))}
-                        </Link>{' '}
-                        <SignalReportStatusBadge status={report.status as SignalReportStatus} />
-                    </div>
+                            <span className="leading-snug">
+                                {capitalizeFirstLetter(displayConventionalCommitTitle(report.title, 'Untitled report'))}
+                            </span>
+                            <span>
+                                <SignalReportStatusBadge status={report.status as SignalReportStatus} />
+                            </span>
+                        </Link>
+                    </li>
                 ))}
-            </div>
+            </ul>
         </LabeledRow>
     )
 }
