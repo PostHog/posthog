@@ -799,10 +799,15 @@ class TestArticleTables:
         # The endpoint reports articles and the walk kept none, so the config no longer
         # matches the response. Completing here is what kept the table empty silently.
         manager = _fresh_manager()
+        logger = MagicMock()
         responses = [_make_response({"unexpected": {"id": 1}, "total": 12})]
 
         with pytest.raises(DecagonContractError) as excinfo:
-            _drive_rows(manager, responses, endpoint="articles")
+            _drive_rows(manager, responses, endpoint="articles", logger=logger)
+
+        # Finalization replaces the raised message with the fixed operator-facing one, so
+        # the shape reaches support through the log or not at all.
+        assert "unexpected: object(id)" in logger.error.call_args.args[0]
 
         # Support cannot read the Decagon account, so the shape the walk saw has to travel
         # with the failure; without it the next envelope change needs a live credential to

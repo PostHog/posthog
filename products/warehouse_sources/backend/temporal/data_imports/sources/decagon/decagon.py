@@ -249,6 +249,12 @@ def _resolve_rows(
             return found
 
     if candidates:
+        # Finalization replaces this message with the fixed operator-facing one, so the
+        # shape only reaches whoever has to act on it through the log.
+        logger.error(
+            f"Decagon: {endpoint} carries lists none of which reads as rows "
+            f"(response shape: {_describe_shape(data)}, rows read from '{config.data_key}')"
+        )
         # Only `articles` and `admin_logs` report a total, so for every other endpoint the
         # contract check has nothing to fail on and this would complete as an empty sync.
         # A full refresh clears the table before extraction, so the populated table would
@@ -529,6 +535,12 @@ class _RowWalk:
             and isinstance(self._reported_total, int | float)
             and self._reported_total > 0
         ):
+            # Finalization replaces the message below with the fixed operator-facing one, so
+            # the shape only reaches whoever has to act on it through the log.
+            self._logger.error(
+                f"Decagon: {self._endpoint} kept no rows against a reported total of {self._reported_total} "
+                f"(response shape: {self._envelope_shape}, rows read from '{self._config.data_key}')"
+            )
             raise DecagonContractError(
                 f"{CONTRACT_MISMATCH_ERROR}: {self._endpoint} reports {self._reported_total} rows and the walk "
                 f"kept none. The last response carried {self._envelope_shape}, and the config reads rows from "
