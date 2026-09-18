@@ -61,6 +61,7 @@ from posthog.models.user import User
 from posthog.models.user_integration import GitHubInstallRequest, UserIntegration
 from posthog.models.utils import hash_key_value
 from posthog.rate_limit import GitHubRepositoryRefreshThrottle
+from posthog.team_notifications.slack import is_shared_channel
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.batch_exports.backend.models import BatchExport, BatchExportDestination
@@ -155,8 +156,35 @@ class TestSlackIntegration:
             "is_private",
             "is_member",
             "is_ext_shared",
+            "is_pending_ext_shared",
+            "is_shared",
             "is_private_without_access",
         }
+
+    @patch("posthog.models.integration.slack.WebClient")
+    def test_list_public_channels_keeps_every_shared_flag(self, mock_webclient_class):
+        mock_client = MagicMock()
+        mock_webclient_class.return_value = mock_client
+        mock_client.conversations_list.return_value = {
+            "channels": [
+                {
+                    "id": "C123",
+                    "name": "shared_with_another_org",
+                    "is_private": False,
+                    "is_ext_shared": False,
+                    "is_pending_ext_shared": False,
+                    "is_shared": True,
+                    "purpose": {"value": "z" * 400, "creator": "U1", "last_set": 1},
+                }
+            ],
+            "response_metadata": {"next_cursor": ""},
+        }
+
+        channels = SlackIntegration(self.integration).list_public_channels()
+
+        # team_notifications reads all three flags to keep an internal message out of a channel
+        # shared beyond the workspace. A dropped flag reads as not shared.
+        assert is_shared_channel(channels[0])
 
     @patch("posthog.models.integration.slack.WebClient")
     def test_list_channels_follows_the_cursor_past_ten_pages(self, mock_webclient_class):

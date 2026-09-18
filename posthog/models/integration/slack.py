@@ -206,14 +206,20 @@ class SlackIntegration:
     @staticmethod
     def _trim_channel(channel: dict) -> dict:
         # A Slack channel payload carries topic, purpose, shared team ids and more, about five times
-        # the size of what the API serves. A listing holds every channel at once, so keep only the
-        # fields the caller reads.
+        # the size of what the callers read. A listing holds every channel at once, so keep only the
+        # fields they use.
+        #
+        # Every SHARED_CHANNEL_FLAGS entry has to survive. A dropped flag reads as absent, which
+        # reads as not shared, and team_notifications uses that to decide whether a channel matched
+        # by name may receive an internal message.
         return {
             "id": channel["id"],
             "name": channel["name"],
             "is_private": channel["is_private"],
             "is_member": channel.get("is_member", True),
             "is_ext_shared": channel["is_ext_shared"],
+            "is_pending_ext_shared": channel.get("is_pending_ext_shared", False),
+            "is_shared": channel.get("is_shared", False),
             "is_private_without_access": channel.get("is_private_without_access", False),
         }
 
