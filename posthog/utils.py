@@ -335,7 +335,7 @@ def get_delta_mapping_for(
     elif kind == "m":
         if number:
             if human_friendly_comparison_periods:
-                delta_mapping["weeks"] = 4
+                delta_mapping["weeks"] = 4 * int(number)
             else:
                 delta_mapping["months"] = int(number)
         if position == "Start":
@@ -358,7 +358,7 @@ def get_delta_mapping_for(
     elif kind == "y":
         if number:
             if human_friendly_comparison_periods:
-                delta_mapping["weeks"] = 52
+                delta_mapping["weeks"] = 52 * int(number)
             else:
                 delta_mapping["years"] = int(number)
         if position == "Start":
