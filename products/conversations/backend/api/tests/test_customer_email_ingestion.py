@@ -648,16 +648,18 @@ class TestCustomerEmailIngestion(MailgunWebhookTestMixin, BaseTest):
 
     @parameterized.expand(
         [
-            ("the sender is active here", "csm@example.com", 204),
-            ("no channel here sends as the sender", "nobody@example.com", 404),
+            ("outbound, the sender is active here", "outbound", "csm@example.com", 204),
+            ("outbound, no channel here sends as the sender", "outbound", "nobody@example.com", 404),
+            ("capture, the sender is active here", "capture", "csm@example.com", 204),
+            ("capture, no channel here sends as the sender", "capture", "nobody@example.com", 404),
         ]
     )
-    def test_the_outbound_route_answers_a_legacy_sender_probe_without_ingesting(
-        self, _name: str, sender_email: str, expected_status: int
+    def test_the_outbound_routes_answer_a_legacy_sender_probe_without_ingesting(
+        self, _name: str, route: str, sender_email: str, expected_status: int
     ) -> None:
         response = post_mailgun(
             self.client,
-            "/api/conversations/v1/email/outbound?sender_lookup=1",
+            f"/api/conversations/v1/email/{route}?sender_lookup=1",
             {
                 "recipient": "sent@mg.posthog.com",
                 "from": f"Customer success <{sender_email}>",

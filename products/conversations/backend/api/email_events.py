@@ -21,10 +21,11 @@ OUTBOUND_SENDER_LOOKUP_QUERY_PARAM = "sender_lookup"
 
 
 class _OutboundMailgunProvider(MailgunProvider):
-    """The outbound capture app, and the sender probe the other region ran before ingress.
+    """An app that captures outbound mail, and the sender probe the other region ran before ingress.
 
-    The regions do not deploy at the same instant, so for one release this route still has to
-    recognise a `sender_lookup=1` probe from a region on the previous version. The probe carries a
+    The regions do not deploy at the same instant, so for one release the outbound route, and the
+    catch-all that served it, still have to recognise a `sender_lookup=1` probe from a region on
+    the previous version. The probe carries a
     whole delivery, so dispatching it would ingest the probe as real mail. Answering it as a
     handshake keeps the shared view's verification, throttle and metrics. Delete this class, and
     the query parameter with it, once both regions run the ingress version.
@@ -52,7 +53,7 @@ email_inbound_handler = build_webhook_view(
 )
 email_outbound_handler = build_webhook_view(_outbound_provider)
 email_capture_handler = build_webhook_view(
-    build_mailgun_provider("capture", signing_key_getter=get_email_webhook_signing_key)
+    _OutboundMailgunProvider("capture", signing_key_getter=get_email_webhook_signing_key)
 )
 
 
