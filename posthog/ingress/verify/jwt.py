@@ -54,7 +54,9 @@ class BearerJwt:
         provided = header_value(headers, self.token_header)
         if not provided or not provided.startswith(self.token_prefix):
             return None
-        return provided[len(self.token_prefix) :]
+        # A prefix with nothing behind it is no credential, so it is refused from the header
+        # alone rather than sent to the JWKS fetch to fail there.
+        return provided[len(self.token_prefix) :].strip() or None
 
     def rejects_headers(self, headers: Mapping[str, str]) -> bool:
         return self._token(headers) is None
