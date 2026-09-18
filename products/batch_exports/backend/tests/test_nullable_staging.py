@@ -157,16 +157,15 @@ async def test_hogql_staging_rejects_each_future_bound_without_waiting(
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "on_demand,model_name,run_id,returns_error",
-    [(False, "hogql", RUN_ID, False), (True, "hogql", None, False), (True, "events", RUN_ID, True)],
+    "on_demand,model_name,run_id",
+    [(False, "hogql", RUN_ID), (True, "hogql", None), (True, "events", RUN_ID)],
     ids=["scheduled-missing-end", "on-demand-missing-run-id", "fixed-model-missing-end"],
 )
-async def test_missing_staging_inputs_are_nonretryable(
+async def test_missing_staging_inputs_raise(
     staging_clients: tuple[AsyncMock, AsyncMock],
     on_demand: bool,
     model_name: str,
     run_id: str | None,
-    returns_error: bool,
 ) -> None:
     inputs = internal_stage.BatchExportInsertIntoInternalStageInputs(
         team_id=1,
@@ -177,15 +176,9 @@ async def test_missing_staging_inputs_are_nonretryable(
         on_demand=on_demand,
         batch_export_model=BatchExportModel(name=model_name, schema=None, hogql_query="SELECT 1 AS value"),
     )
-    if returns_error:
-        result = await ActivityEnvironment().run(internal_stage.insert_into_internal_stage_activity, inputs)
-        assert result.error is not None
-        assert result.error.type == "MissingRequiredInputsError"
-        assert "require data_interval_end" in result.error.message
-    else:
-        with pytest.raises(MissingRequiredInputsError, match="require"):
-            await ActivityEnvironment().run(internal_stage.insert_into_internal_stage_activity, inputs)
-    assert "MissingRequiredInputsError" in STAGE_NON_RETRYABLE_ERROR_TYPES
+    with pytest.raises(MissingRequiredInputsError, match="require"):
+        await ActivityEnvironment().run(internal_stage.insert_into_internal_stage_activity, inputs)
+    assert "MissingRequiredInputsError" not in STAGE_NON_RETRYABLE_ERROR_TYPES
     staging_clients[0].is_alive.assert_not_called()
     staging_clients[1].list_objects_v2.assert_not_called()
 

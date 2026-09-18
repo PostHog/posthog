@@ -876,7 +876,7 @@ class TestFileDownloadHogQL:
             file_download = await BatchExportFileDownload.objects.aget(id=files[0], team_id=team.pk)
             assert file_download.key == (
                 f"batch-exports/{run.batch_export_on_demand_id}/{run.id}/"
-                f"export-{run.created_at.astimezone(dt.UTC):%Y-%m-%dT%H-%M-%SZ}-0.parquet.zst"
+                f"export-{run.created_at.astimezone(dt.UTC):%Y-%m-%dT%H-%M-%SZ}-0.parquet"
             )
         response = await async_client.get(
             f"/api/projects/{team.pk}/file_download_batch_exports/{run_id}/download/{files[0]}",
