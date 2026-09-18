@@ -106,7 +106,8 @@ Queries with this option bypass the simple-breakdown and paths lazy caches and u
 
 ### Bot analytics
 
-Every tile on the AI/Search bots view reads `posthog.web_bots_preaggregated`.
+On an enrolled project, every tile on the AI/Search bots view reads `posthog.web_bots_preaggregated` for the shapes each section below admits.
+Anything else stays on the live path.
 The table stores, for each UTC hour, the request count and the most recent request time per crawler, category, host, and path.
 One job set therefore serves the Crawlers table, the Most crawled paths table, and all four tabs of the request trend chart.
 Counts cover `$pageview`, `$screen`, and `$http_log`.
