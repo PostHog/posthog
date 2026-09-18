@@ -20,8 +20,10 @@ import { lemonToast } from '@posthog/lemon-ui'
 import api, { ApiConfig, ApiError } from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import type { DataWarehouseSavedQuerySummary } from 'scenes/data-warehouse/saved_queries/dataWarehouseViewsLogic'
 
-import { DataModelingSyncInterval, DataWarehouseSavedQuery, DataWarehouseSavedQueryIncrementalCheck } from '~/types'
+import type { DataWarehouseSavedQuery } from '~/types'
+import { DataModelingSyncInterval, DataWarehouseSavedQueryIncrementalCheck } from '~/types'
 
 import { dataModelingJobsList, warehouseSavedQueriesResumeCreate } from 'products/data_warehouse/frontend/generated/api'
 import type { PaginatedDataModelingJobListApi } from 'products/data_warehouse/frontend/generated/api.schemas'
@@ -85,10 +87,10 @@ export interface materializationJobsLogicActions {
         errorObject?: any
     } // dataWarehouseViewsLogic
     deleteDataWarehouseSavedQuerySuccess: (
-        dataWarehouseSavedQueries: DataWarehouseSavedQuery[],
+        dataWarehouseSavedQueries: DataWarehouseSavedQuerySummary[],
         payload?: string | undefined
     ) => {
-        dataWarehouseSavedQueries: DataWarehouseSavedQuery[]
+        dataWarehouseSavedQueries: DataWarehouseSavedQuerySummary[]
         payload?: string
     } // dataWarehouseViewsLogic
     materializationChanged: (viewId: string) => {
@@ -101,17 +103,19 @@ export interface materializationJobsLogicActions {
         viewId: string
     } // dataWarehouseViewsLogic
     updateDataWarehouseSavedQuery: (
-        view: import('./dataWarehouseViewsLogic').DataWarehouseSavedQueryUpdate
-    ) => import('./dataWarehouseViewsLogic').DataWarehouseSavedQueryUpdate // dataWarehouseViewsLogic
+        view: import('scenes/data-warehouse/saved_queries/dataWarehouseViewsLogic').DataWarehouseSavedQueryUpdate
+    ) => import('scenes/data-warehouse/saved_queries/dataWarehouseViewsLogic').DataWarehouseSavedQueryUpdate // dataWarehouseViewsLogic
     updateDataWarehouseSavedQueryFailed: (viewId: string) => {
         viewId: string
     } // dataWarehouseViewsLogic
     updateDataWarehouseSavedQuerySuccess: (
-        dataWarehouseSavedQueries: DataWarehouseSavedQuery[],
-        payload?: import('./dataWarehouseViewsLogic').DataWarehouseSavedQueryUpdate | undefined
+        dataWarehouseSavedQueries: DataWarehouseSavedQuerySummary[],
+        payload?:
+            | import('scenes/data-warehouse/saved_queries/dataWarehouseViewsLogic').DataWarehouseSavedQueryUpdate
+            | undefined
     ) => {
-        dataWarehouseSavedQueries: DataWarehouseSavedQuery[]
-        payload?: import('./dataWarehouseViewsLogic').DataWarehouseSavedQueryUpdate
+        dataWarehouseSavedQueries: DataWarehouseSavedQuerySummary[]
+        payload?: import('scenes/data-warehouse/saved_queries/dataWarehouseViewsLogic').DataWarehouseSavedQueryUpdate
     } // dataWarehouseViewsLogic
     clearSyncFrequencyDraft: () => {
         value: true

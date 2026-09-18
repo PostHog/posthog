@@ -4,6 +4,10 @@ import posixpath
 from posthog.temporal.common.logger import get_logger
 
 from products.batch_exports.backend.service import BatchExportModel
+from products.batch_exports.backend.temporal.destinations.constants import (
+    COMPRESSION_EXTENSIONS,
+    FILE_FORMAT_EXTENSIONS,
+)
 
 EXTERNAL_LOGGER = get_logger("EXTERNAL")
 
@@ -65,13 +69,31 @@ def get_manifest_key(
     return posixpath.join(key_prefix, f"{data_interval_start}-{data_interval_end}_manifest.json")
 
 
+def _get_compression_extension(file_format: str, compression: str | None, legacy_parquet_extension: bool) -> str | None:
+    """Resolve the codec suffix that follows the file format extension, if any.
+
+    Parquet gets no codec suffix, because it records the codec inside the file and a reader opens
+    it as Parquet whatever the codec is. `legacy_parquet_extension` keeps the suffix for an export
+    that already wrote Parquet files before this rule, whose downstream pipeline may match on the
+    old names.
+    """
+    if compression is None:
+        return None
+
+    if file_format == "Parquet" and not legacy_parquet_extension:
+        return None
+
+    return COMPRESSION_EXTENSIONS[compression]
+
+
 def get_object_key(
     prefix: str,
     data_interval_start: str | None,
     data_interval_end: str,
     batch_export_model: BatchExportModel | None,
-    file_extension: str,
-    compression_extension: str | None = None,
+    file_format: str,
+    compression: str | None = None,
+    legacy_parquet_extension: bool = False,
     file_number: int = 0,
     include_file_number: bool = False,
 ) -> str:
@@ -82,6 +104,9 @@ def get_object_key(
 
     if include_file_number:
         base_file_name = f"{base_file_name}-{file_number}"
+
+    file_extension = FILE_FORMAT_EXTENSIONS[file_format]
+    compression_extension = _get_compression_extension(file_format, compression, legacy_parquet_extension)
 
     if compression_extension is not None:
         file_name = f"{base_file_name}.{file_extension}.{compression_extension}"
