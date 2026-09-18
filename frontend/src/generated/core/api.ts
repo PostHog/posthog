@@ -2207,6 +2207,9 @@ export const getPropertyDefinitionsListUrl = (projectId: string, params?: Proper
         : `/api/projects/${projectId}/property_definitions/`
 }
 
+/**
+ * List the property definitions of a project. On projects with more than 50000 property definitions, `count` stops at 10000. It is a lower bound there, not a total, and `next` is empty from that offset on, so read the rows past the cap with a higher explicit `offset`. The default sort on those projects is verified definitions first, then name.
+ */
 export const propertyDefinitionsList = async (
     projectId: string,
     params?: PropertyDefinitionsListParams,

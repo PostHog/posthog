@@ -30,3 +30,15 @@ class EnterprisePropertyDefinition(PropertyDefinition):
         default=None,
         db_column="tags",
     )
+
+    class Meta:
+        indexes = [
+            # Verified rows are a small fraction of the table and the table carries no project column, so a
+            # large project's property list finds its verified rows here and filters them by the parent
+            # row's project key, instead of sorting every definition of the project on `verified`.
+            models.Index(
+                fields=["propertydefinition_ptr"],
+                condition=models.Q(verified=True),
+                name="ee_property_def_verified",
+            ),
+        ]
