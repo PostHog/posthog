@@ -1467,6 +1467,46 @@ mod tests {
         );
     }
 
+    /// The negation bit has to survive `compile`: `email = a@b.com AND NOT plan = paid` composes,
+    /// and its member folds TRUE only through `bit ^ negated`. Were the bit dropped, that member
+    /// would fold to the absent FALSE and be pruned, with no error and no metric.
+    #[test]
+    fn build_keeps_the_negation_of_a_pinned_leaf_below_the_root() {
+        let person = Uuid::from_u128(7).to_string();
+        let ctx = context();
+        let mut leaves =
+            person_filter_leaves(&[(HASH_A, "email", "a@b.com"), (HASH_B, "plan", "paid")]);
+        leaves["properties"]["values"][1]["negation"] = json!(true);
+        let run = Arc::new(
+            seedable(PinnedPersonRun::validate(snapshot(
+                pinned(&[(1, HASH_A), (1, HASH_B)]),
+                vec![participation(1, leaves, false)],
+            )))
+            .run,
+        );
+        assert_eq!(
+            run.composable_cohorts(),
+            Some(1),
+            "one negated leaf under a two-leaf AND is not a root negation"
+        );
+
+        let mut quiet = PersonEvaluator::new(&run, PersonEmissionPolicy::RelevantToSomeCohort);
+        // The member: the positive leaf true, the negated one false.
+        assert!(matches!(
+            quiet
+                .evaluate_row(&person, r#"{"email":"a@b.com","plan":"free"}"#, &ctx)
+                .0,
+            PersonRowOutcome::Seed(_)
+        ));
+        // Both leaves true is a non-member, which the absent prior already reads as.
+        assert_eq!(
+            quiet
+                .evaluate_row(&person, r#"{"email":"a@b.com","plan":"paid"}"#, &ctx)
+                .0,
+            PersonRowOutcome::Irrelevant
+        );
+    }
+
     /// Only the conditions whose keys the blob lacks skip the VM, and a non-object blob skips none.
     #[test]
     fn the_shortcut_count_tracks_which_keys_the_blob_carries() {

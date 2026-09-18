@@ -24,7 +24,7 @@
 
 use cohort_core::filters::TeamId;
 
-use crate::clickhouse::sql::clickhouse_string_literal;
+use crate::clickhouse::sql::key_list;
 use crate::domain::{PersonRange, ProjectedKeys, UtcMillis};
 
 /// The rendered ceiling one scan may reach, leaving about 2 KB of margin.
@@ -33,8 +33,9 @@ use crate::domain::{PersonRange, ProjectedKeys, UtcMillis};
 /// POSTed as `readonly=1` and fails with code 164. The profile lives in the infrastructure
 /// repository, not here, so this constant cannot be derived — re-check it against the profile
 /// rather than against this comment. Conservative in the safe direction: the `?` → `??` escaping in
-/// [`clickhouse_string_literal`] is undone by the client's template parser, so the query that
-/// reaches the server is never longer than the text measured here.
+/// [`clickhouse_string_literal`](super::sql::clickhouse_string_literal) is undone by the client's
+/// template parser, so the query that reaches the server is never longer than the text measured
+/// here.
 const MAX_RENDERED_SCAN_BYTES: usize = 6144;
 
 /// What became of a run's key filter on one chunk, as a bounded metric label.
@@ -136,7 +137,7 @@ pub fn person_scan_sql(spec: &PersonScanSpec) -> String {
 
 /// Drop object blobs carrying none of `keys`.
 ///
-/// Costs two server-side JSON parses per surviving group, `JSONType` and `JSONExtractKeys`, against
+/// Costs two server-side JSON parses per scanned group, `JSONType` and `JSONExtractKeys`, against
 /// the scan's `max_execution_time` budget. Cheap next to the transfer and per-row evaluation it
 /// removes, but it is new ClickHouse work and belongs in the rollout measurement.
 ///
@@ -151,11 +152,7 @@ pub fn person_scan_sql(spec: &PersonScanSpec) -> String {
 /// `no_column_reference_can_resolve_to_the_output_alias` exists to catch. ClickHouse computes one
 /// `argMax` state for the repeated expression.
 fn key_presence_predicate(keys: &ProjectedKeys) -> String {
-    let key_list = keys
-        .iter()
-        .map(clickhouse_string_literal)
-        .collect::<Vec<_>>()
-        .join(", ");
+    let key_list = key_list(keys);
     format!(
         "\n   AND (JSONType(argMax(p.properties, p.version)) != 'Object' OR hasAny(JSONExtractKeys(argMax(p.properties, p.version)), [{key_list}]))"
     )

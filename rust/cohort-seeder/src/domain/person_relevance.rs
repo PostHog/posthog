@@ -139,8 +139,8 @@ impl RelevanceNode {
     /// A cohort-reference leaf collapses to [`Self::Unknown`] and drops its negation bit, which is
     /// sound only because `NOT Unknown` is `Unknown`.
     ///
-    /// Nothing executes the consumer's function against this one. Closing that needs a test in the
-    /// consumer's own crate — see the deferred entry — because the edge has to point that way.
+    /// No test binds this to the consumer's fold. Closing that needs a test in the consumer's own
+    /// crate, because the edge has to point that way.
     fn evaluate(&self, truths: &TruthVector) -> Truth3 {
         match self {
             Self::And(children) => children
@@ -585,8 +585,10 @@ mod tests {
         ) {
             let truths = vector(&bits);
             let oracle = RelevanceOracle::from_roots([root]);
-            // An unknown baseline never prunes, so there is nothing to falsify.
-            let Verdicts::ByCohort(cohorts) = &oracle.0 else { return Ok(()); };
+            // An unknown baseline never prunes, so there is nothing to falsify: reject the case
+            // rather than count it as a pass.
+            prop_assume!(matches!(oracle.0, Verdicts::ByCohort(_)));
+            let Verdicts::ByCohort(cohorts) = &oracle.0 else { unreachable!() };
             prop_assume!(oracle.judge(&truths) == Relevance::IrrelevantToEveryCohort);
 
             for cohort in cohorts {

@@ -19,7 +19,7 @@ use tracing::{debug, info, warn};
 
 use crate::domain::{
     plan_days, ConditionAnalyses, ConditionClass, Lookback, PersonEmissionPolicy,
-    PersonRunValidation, PinnedPersonRun, PinnedRun, PinnedWarning, PlanCaps, RunId,
+    PersonRunValidation, PinnedPersonRun, PinnedRun, PinnedWarning, PlanCaps, ProjectedKeys, RunId,
 };
 use crate::observability::metrics::{
     team_label, BOUNDARY_CAS_LOST, BOUNDARY_ESTABLISHED, CHUNKS_PLANNED, CONDITIONS_CLASSIFIED,
@@ -364,11 +364,11 @@ fn report_person_analysis(run_id: RunId, run: &PinnedPersonRun) {
     let prunable_keys = run.scan_key_filter(PersonEmissionPolicy::RelevantToSomeCohort);
     if run.composable_cohorts() == Some(0) {
         // Every participation is structurally excluded, so the consumer composes none of them and
-        // no seed this run could emit would move membership. It will scan the team, emit nothing
-        // and confirm every chunk, which reads exactly like a successful backfill.
+        // no seed this run emits registers membership for a cohort of its own. It will scan the
+        // team and confirm every chunk, which reads exactly like a successful backfill.
         warn!(
             ?run_id,
-            "person run composes no cohort; it will emit no seeds and change no membership",
+            "person run composes no cohort; no participation of its own registers membership",
         );
     }
     info!(
@@ -377,8 +377,15 @@ fn report_person_analysis(run_id: RunId, run: &PinnedPersonRun) {
         key_decidable = census.key_decidable,
         always_evaluate = %census.render_always_evaluate(),
         composable_cohorts = ?run.composable_cohorts(),
-        prunable_keys = ?prunable_keys.as_ref().map(|keys| keys.iter().collect::<Vec<_>>()),
+        prunable_key_count = ?prunable_keys.as_ref().map(ProjectedKeys::count),
         "person run analyzed",
+    );
+    // The key names are customer-defined and uncapped, so they follow the same rule as the
+    // behavioral census's read sets below.
+    debug!(
+        ?run_id,
+        prunable_keys = ?prunable_keys.as_ref().map(|keys| keys.iter().collect::<Vec<_>>()),
+        "person run prunable keys",
     );
 }
 

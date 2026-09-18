@@ -254,9 +254,9 @@ class FilterShapeHashes:
         """The kinds a definition change must re-run beyond the ones its leaf-hash changes already fire.
 
         Behavioral leaf state is per leaf and survives a composition change, so a behavioral run only
-        re-reconciles the tree: one is owed when the definition moved and no leaf hash fires a run,
-        and it is the kind chosen there because the events stamp it nulls is the one strict flag
-        routing reads.
+        re-reconciles the tree: one is owed when the definition moved and no leaf hash fires a run.
+        A behavioral run nulls `last_backfill_events_at`. Strict flag routing reads that stamp, so
+        it is the kind chosen here.
 
         Person state is not per leaf. The seeder emits a person only when their leaf truths can move
         the tree it pinned, so what a run stored is valid for that tree alone, and a person run is
@@ -273,10 +273,12 @@ class FilterShapeHashes:
         behavioral_run_fires = previous.behavioral != self.behavioral and "behavioral" in leaf_types
         person_run_fires = previous.person != self.person and person_backfillable
 
+        behavioral_repair = bool(self.behavioral) and not behavioral_run_fires and not person_run_fires
+        behavioral_run_rewalks = behavioral_run_fires or behavioral_repair
+
         kinds: set[RepairKind] = set()
-        if self.behavioral and not behavioral_run_fires and not person_run_fires:
+        if behavioral_repair:
             kinds.add("behavioral")
-        behavioral_run_rewalks = behavioral_run_fires or "behavioral" in kinds
         if person_backfillable and not person_run_fires:
             if previous.person_composition != self.person_composition or not behavioral_run_rewalks:
                 kinds.add("person_property")
