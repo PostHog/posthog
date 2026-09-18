@@ -6,7 +6,7 @@ from parameterized import parameterized
 
 from posthog.models.integration import Integration
 
-from products.slack_app.backend.services.welcome_messages import (
+from products.slack_app.backend.services.slack_welcome_messages import (
     build_channel_welcome,
     build_install_welcome,
     build_team_join_welcome,
@@ -39,6 +39,13 @@ class TestWelcomeMessages(SimpleTestCase):
         assert "Home tab" in rendered
         assert "slack://" not in rendered
         assert "None" not in rendered
+
+    @parameterized.expand(BUILDERS)
+    def test_asks_for_a_rating(self, _name, build):
+        _, blocks = build(_integration(app_id="A_WELCOME"))
+        rendered = json.dumps(blocks)
+
+        assert ":thumbsup:" in rendered and ":thumbsdown:" in rendered
 
     @parameterized.expand(BUILDERS)
     def test_carries_fallback_text_for_the_notification(self, _name, build):

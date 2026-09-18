@@ -106,7 +106,7 @@ from products.slack_app.backend.services.slack_user_oauth import (
     find_linked_posthog_user,
     post_link_invite_message,
 )
-from products.slack_app.backend.services.welcome_messages import (
+from products.slack_app.backend.services.slack_welcome_messages import (
     build_channel_welcome,
     build_install_welcome,
     build_team_join_welcome,
