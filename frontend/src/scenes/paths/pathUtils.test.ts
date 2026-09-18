@@ -2,6 +2,7 @@ import { RGBColor } from 'd3'
 
 import { PATH_NODE_CARD_HEIGHT, PATH_NODE_CARD_OVERLAP_GAP } from './constants'
 import {
+    MAXIMUM_CARD_NUDGE,
     PathNodeData,
     PathTargetLink,
     activateNodes,
@@ -482,5 +483,22 @@ describe('resolveCardOverlaps', () => {
         expect(tops.get(0)).toBe(
             calculatePathNodeCardTop(nodes[1], 720) - PATH_NODE_CARD_HEIGHT - PATH_NODE_CARD_OVERLAP_GAP
         )
+    })
+
+    it('keeps every card near its node when the layer has no room left', () => {
+        const nodeHeight = 22
+        const { nodes } = buildPathGraph(Array.from({ length: 24 }, (_, i) => `/page-${i}`))
+        // One layer packed with nodes too short to show a card, which is the shape of a path end
+        for (let i = 0; i < nodes.length; i++) {
+            const y0 = i * (nodeHeight + 8)
+            nodes[i] = { ...nodes[i], layer: 0, y0, y1: y0 + nodeHeight }
+        }
+
+        const tops = resolveCardOverlaps(nodes, 720)
+
+        for (const node of nodes) {
+            const distanceFromNode = Math.abs(tops.get(node.index)! - calculatePathNodeCardTop(node, 720))
+            expect(distanceFromNode).toBeLessThanOrEqual(MAXIMUM_CARD_NUDGE)
+        }
     })
 })

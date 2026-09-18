@@ -81,20 +81,32 @@ export const deactivateNodes = (nodes: PathNodeData[]): PathNodeData[] =>
         active: false,
     }))
 
-const findClosestAvailableCardTop = (naturalTop: number, occupiedTops: number[], canvasHeight: number): number => {
+/**
+ * How far a card may move from its node to reach a free gap. A layer holds about 17 cards at the
+ * minimum spacing, so a dense layer of short nodes runs out of gaps. Searching the whole canvas
+ * then lands a card hundreds of pixels from the node it describes, which reads as belonging to a
+ * different node. Past this distance the card keeps its own position instead.
+ */
+export const MAXIMUM_CARD_NUDGE = 2 * (PATH_NODE_CARD_HEIGHT + PATH_NODE_CARD_OVERLAP_GAP)
+
+const findClosestAvailableCardTop = (
+    naturalTop: number,
+    occupiedTops: number[],
+    canvasHeight: number
+): { top: number; foundGap: boolean } => {
     const minimumDistance = PATH_NODE_CARD_HEIGHT + PATH_NODE_CARD_OVERLAP_GAP
     const maximumTop = Math.max(0, canvasHeight - PATH_NODE_CARD_HEIGHT)
     const clamp = (top: number): number => Math.min(Math.max(top, 0), maximumTop)
     const candidateTops = [
         clamp(naturalTop),
         ...occupiedTops.flatMap((occupiedTop) => [occupiedTop - minimumDistance, occupiedTop + minimumDistance]),
-    ].filter((top) => top >= 0 && top <= maximumTop)
+    ].filter((top) => top >= 0 && top <= maximumTop && Math.abs(top - naturalTop) <= MAXIMUM_CARD_NUDGE)
 
-    return (
-        candidateTops
-            .filter((top) => occupiedTops.every((occupiedTop) => Math.abs(top - occupiedTop) >= minimumDistance))
-            .sort((a, b) => Math.abs(a - naturalTop) - Math.abs(b - naturalTop) || a - b)[0] ?? clamp(naturalTop)
-    )
+    const freeTop = candidateTops
+        .filter((top) => occupiedTops.every((occupiedTop) => Math.abs(top - occupiedTop) >= minimumDistance))
+        .sort((a, b) => Math.abs(a - naturalTop) - Math.abs(b - naturalTop) || a - b)[0]
+
+    return freeTop === undefined ? { top: clamp(naturalTop), foundGap: false } : { top: freeTop, foundGap: true }
 }
 
 /**
@@ -126,10 +138,19 @@ export function resolveCardOverlaps(nodes: PathNodeData[], canvasHeight: number)
 
         occupiedTops.sort((a, b) => a - b)
         for (const node of group.filter((node) => !isCardAlwaysVisible(node))) {
-            const resolvedTop = findClosestAvailableCardTop(topByIndex.get(node.index)!, occupiedTops, canvasHeight)
-            resolvedTops.set(node.index, resolvedTop)
-            occupiedTops.push(resolvedTop)
-            occupiedTops.sort((a, b) => a - b)
+            const { top, foundGap } = findClosestAvailableCardTop(
+                topByIndex.get(node.index)!,
+                occupiedTops,
+                canvasHeight
+            )
+            resolvedTops.set(node.index, top)
+            // A card that found no gap near its node keeps the position it wants and accepts the
+            // overlap. It must not claim that position, because the cards after it would then be
+            // pushed further from their own nodes to avoid a card that is already overlapping.
+            if (foundGap) {
+                occupiedTops.push(top)
+                occupiedTops.sort((a, b) => a - b)
+            }
         }
     }
 
