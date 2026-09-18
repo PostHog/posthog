@@ -1,4 +1,4 @@
-export interface CustomerJourneyScope {
+export interface CustomerJourneyEnrollment {
     region: 'US' | 'EU'
     organization_id: string
     project_id: number
@@ -13,7 +13,7 @@ export function getCustomerJourneyEligibility(
     enabled: unknown,
     payload: unknown,
     context: { region: unknown; organization_id: unknown; project_id: unknown }
-): CustomerJourneyScope | null {
+): CustomerJourneyEnrollment | null {
     if (
         enabled !== true ||
         !isRecord(payload) ||

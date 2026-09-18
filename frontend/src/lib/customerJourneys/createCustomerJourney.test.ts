@@ -102,6 +102,26 @@ describe('customer journey lifecycle', () => {
         expect(b.listeners.size).toBe(0)
     })
 
+    it('keeps phase transitions on the active attempt and reports its latest state once', () => {
+        const b = boundary()
+        const scope = new CustomerJourneyScope<{ handle: CustomerJourney; pending: number }>(({ pending }) => ({
+            pending_count: pending,
+        }))
+        const first = scope.replace(() => ({ handle: createCustomerJourney(context, b.dependencies)!, pending: 2 }))!
+        b.setTime(130)
+        const active = { ...first, pending: 1 }
+        expect(scope.transition(first, active)).toBe(true)
+        expect(scope.transition(first, { ...first, pending: 99 })).toBe(false)
+        const foreign = { ...active, handle: { ...first.handle } }
+        expect(scope.transition(active, foreign)).toBe(false)
+        b.setTime(150)
+        scope.dispose('exited')
+        expect(scope.transition(active, first)).toBe(false)
+        expect(b.capture.mock.calls).toHaveLength(2)
+        expect(b.capture.mock.calls[1][1]).toMatchObject({ outcome: 'exited', duration_ms: 50, pending_count: 1 })
+        expect(b.listeners.size).toBe(0)
+    })
+
     it('emits start synchronously, snapshots context and finishes once with the first useful milestone', () => {
         const b = boundary()
         const mutableContext = { ...context }

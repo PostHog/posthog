@@ -5,9 +5,9 @@ import { uuid } from 'lib/utils/dom'
 import { getAppContext } from 'lib/utils/getAppContext'
 
 import { createCustomerJourney, CustomerJourney, CustomerJourneyOptions } from './createCustomerJourney'
-import { CustomerJourneyScope, getCustomerJourneyEligibility } from './customerJourneyEligibility'
+import { CustomerJourneyEnrollment, getCustomerJourneyEligibility } from './customerJourneyEligibility'
 
-function getRuntimeCustomerJourneyScope(): CustomerJourneyScope | null {
+function getRuntimeCustomerJourneyEnrollment(): CustomerJourneyEnrollment | null {
     try {
         const appContext = getAppContext()
         if (!appContext?.preflight.cloud) {
@@ -25,12 +25,12 @@ function getRuntimeCustomerJourneyScope(): CustomerJourneyScope | null {
 }
 
 export function isCustomerJourneyTelemetryEnabled(): boolean {
-    return getRuntimeCustomerJourneyScope() !== null
+    return getRuntimeCustomerJourneyEnrollment() !== null
 }
 
 export function startCustomerJourney(options: CustomerJourneyOptions): CustomerJourney | null {
     try {
-        const scope = getRuntimeCustomerJourneyScope()
+        const scope = getRuntimeCustomerJourneyEnrollment()
         if (!scope) {
             return null
         }

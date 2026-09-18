@@ -293,7 +293,9 @@ export class DashboardRefreshJourneyController {
             ready: {},
             failed: {},
         }
-        this.scope.current = active
+        if (!this.scope.transition(initial, active)) {
+            return null
+        }
 
         if (required.length === 0) {
             this.scope.dispose('observation_stopped')

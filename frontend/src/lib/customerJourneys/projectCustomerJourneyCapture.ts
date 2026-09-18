@@ -1,4 +1,4 @@
-import { CaptureResult } from 'posthog-js'
+import { BeforeSendFn, CaptureResult } from 'posthog-js'
 
 import { CUSTOMER_JOURNEY_TILE_RESULTS_LIMIT } from './createCustomerJourney'
 
@@ -53,6 +53,52 @@ const SDK_FIELDS = [
 ] as const
 const INSIGHT_TYPES = ['TRENDS', 'STICKINESS', 'LIFECYCLE', 'FUNNELS', 'RETENTION', 'PATHS'] as const
 
+function isJourney(event: CaptureResult): boolean {
+    return ['customer_journey_started', 'customer_journey_finished'].includes(event.event)
+}
+
+function processesPersonProperties(event: CaptureResult): boolean {
+    return !isJourney(event) && event.event !== '$groupidentify' && event.properties.$process_person_profile === true
+}
+
+export function customerJourneyCaptureHooks(beforeSend?: BeforeSendFn | BeforeSendFn[]): BeforeSendFn[] {
+    let deferred: { identity: unknown; properties: NonNullable<CaptureResult['$set_once']> } | undefined
+    return [
+        (event) => {
+            if (!event) {
+                return event
+            }
+            const identity = event.properties.distinct_id
+            if (deferred && deferred.identity !== identity) {
+                deferred = undefined
+            }
+            // The SDK consumes initial attribution before before_send. Preserve it for an ordinary event,
+            // with caller privacy hooks still able to redact it, without changing SDK persistence.
+            if (isJourney(event) && event.$set_once) {
+                const initialKeys = new Set(Object.keys(event.$set_once).filter((key) => key.startsWith('$initial_')))
+                const attribution = Object.fromEntries(
+                    Object.entries(event.$set_once).filter(
+                        ([key]) => initialKeys.has(key) || initialKeys.has(`$initial_${key.replace(/^\$/, '')}`)
+                    )
+                )
+                if (initialKeys.size > 0) {
+                    deferred = { identity, properties: { ...deferred?.properties, ...attribution } }
+                }
+            } else if (deferred && processesPersonProperties(event)) {
+                return { ...event, $set_once: { ...deferred.properties, ...event.$set_once } }
+            }
+            return event
+        },
+        ...(beforeSend ? [beforeSend].flat() : []),
+        (event) => {
+            if (event && deferred?.identity === event.properties.distinct_id && processesPersonProperties(event)) {
+                deferred = undefined
+            }
+            return projectCustomerJourneyCapture(event)
+        },
+    ]
+}
+
 function record(value: unknown): Record<string, unknown> {
     if (!value || typeof value !== 'object' || Array.isArray(value)) {
         throw new Error('Invalid journey record')
@@ -81,7 +127,7 @@ function projectScalars(source: Record<string, unknown>, fields: readonly string
 
 /** Project after SDK enrichment and caller hooks so only operational data leaves on journey events. */
 export function projectCustomerJourneyCapture(event: CaptureResult | null): CaptureResult | null {
-    if (!event || !['customer_journey_started', 'customer_journey_finished'].includes(event.event)) {
+    if (!event || !isJourney(event)) {
         return event
     }
     try {

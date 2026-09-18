@@ -211,7 +211,8 @@ describe('journey outbound SDK projection', () => {
             expect(JSON.stringify(result)).not.toContain('secret')
             expect(send.mock.calls.at(-1)![0].data).toEqual(result)
             if (event.event === 'customer_journey_started') {
-                client.capture('$pageview')
+                const pageview = client.capture('$pageview')!
+                expect(pageview.$set_once?.$initial_current_url).toContain('synthetic-filter-secret')
             }
         }
         expect(captured[1].properties.$pageview_id).toEqual(expect.any(String))
@@ -229,8 +230,43 @@ describe('journey outbound SDK projection', () => {
         expect(normal.properties.arbitrary).toBe('synthetic-superproperty-secret')
         expect(normal.properties.ordinary).toBe(true)
         expect(normal.properties.caller_secret).toBe(mode === 'none' ? undefined : 'synthetic-caller-secret')
-        // The SDK marks initial attribution sent before before_send. We intentionally do not rewind it.
         expect(normal.$set_once).toBeUndefined()
+    })
+
+    it('keeps deferred attribution through dropped events and group identification, then respects caller redaction', () => {
+        const hook: BeforeSendFn = (event) => {
+            if (event?.event === 'dropped-event') {
+                return null
+            }
+            if (event?.event === 'accepted-event' && event.$set_once) {
+                return { ...event, $set_once: { ...event.$set_once, $initial_current_url: 'redacted' } }
+            }
+            return event
+        }
+        const { client } = syntheticClient(hook)
+        const journey = coreEvents()[0]
+        client.capture(journey.event, journey.properties)
+        expect(client.capture('dropped-event')).toBeUndefined()
+        expect(client.capture('$groupidentify')?.$set_once).toBeUndefined()
+        expect(client.capture('accepted-event')?.$set_once?.$initial_current_url).toBe('redacted')
+        expect(client.capture('later-event')?.$set_once).toBeUndefined()
+    })
+
+    it('preserves the same SDK attribution as a pageview without preceding telemetry', () => {
+        const ordinary = syntheticClient().client.capture('$pageview')!
+        const { client } = syntheticClient()
+        const journey = coreEvents()[0]
+        client.capture(journey.event, journey.properties)
+        expect(client.capture('$pageview')?.$set_once).toEqual(ordinary.$set_once)
+    })
+
+    it('does not transfer deferred person properties to a replacement identity', () => {
+        const { client } = syntheticClient()
+        const journey = coreEvents()[0]
+        client.capture(journey.event, journey.properties, { $set_once: { $initial_marker: 'synthetic-old-identity' } })
+        client.reset()
+        client.identify('synthetic-replacement-identity')
+        expect(JSON.stringify(client.capture('normal-event'))).not.toContain('synthetic-old-identity')
     })
 
     it.each(['function', 'array'] as const)('preserves caller drop behavior with a %s hook', (mode) => {

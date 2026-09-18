@@ -15,7 +15,11 @@ function safely<Result>(observe: () => Result): Result | undefined {
 }
 
 export class CustomerJourneyScope<State extends { handle: CustomerJourney }> {
-    public current: State | null = null
+    private active: State | null = null
+
+    public get current(): State | null {
+        return this.active
+    }
 
     public constructor(
         private readonly summarize: (state: State) => CustomerJourneySummary = () => ({}),
@@ -24,8 +28,16 @@ export class CustomerJourneyScope<State extends { handle: CustomerJourney }> {
 
     public replace(start: () => State | null): State | null {
         this.dispose('superseded')
-        this.current = safely(start) ?? null
-        return this.current
+        this.active = safely(start) ?? null
+        return this.active
+    }
+
+    public transition(expected: State, next: State): boolean {
+        if (this.active !== expected || next.handle !== expected.handle) {
+            return false
+        }
+        this.active = next
+        return true
     }
 
     public firstUseful(): void {
@@ -37,7 +49,7 @@ export class CustomerJourneyScope<State extends { handle: CustomerJourney }> {
         if (!current) {
             return
         }
-        this.current = null
+        this.active = null
         const details = { ...safely(() => this.summarize(current)), ...summary }
         safely(() => current.handle.finish(outcome, details))
         safely(this.onFinish)
