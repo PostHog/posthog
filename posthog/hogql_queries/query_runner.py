@@ -2252,7 +2252,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         cache_key = self._cache_key_for(cache_payload)
         # Taken with the cache key, before the fresh path adds user modifiers, so a hit and a fresh run agree.
         self._query_identity: QueryIdentity = self._query_identity_for(cache_payload)
-        self._phase: RunPhase = RunPhase(name="prepare")
+        self._phase = RunPhase(name="prepare")
         self._timings_before_run: dict[str, float] = self.timings.to_dict()
         # Resolve per-call state before observability so SLO + analytics agree on the values.
         self.query_id = query_id or self.query_id
