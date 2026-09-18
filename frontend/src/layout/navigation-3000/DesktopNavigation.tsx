@@ -1,3 +1,5 @@
+import './DesktopNavigation.scss'
+
 import { useValues } from 'kea'
 import { router } from 'kea-router'
 
@@ -22,7 +24,7 @@ export function DesktopNavigation(): JSX.Element {
     const title = isTools ? 'Tools' : 'Library'
 
     return (
-        <nav className="flex flex-col gap-1 overflow-y-auto p-2" aria-label={`${title} navigation`}>
+        <nav className="DesktopNavigation flex flex-col gap-px overflow-y-auto p-2" aria-label={`${title} navigation`}>
             {!isLayoutNavCollapsed && <span className="text-xs text-secondary px-2 py-2">{title}</span>}
             <LemonButton
                 fullWidth
@@ -61,7 +63,7 @@ export function DesktopNavigation(): JSX.Element {
                           active={isLanding && objectType === item.value}
                           tooltip={isLayoutNavCollapsed ? item.label : undefined}
                       >
-                          {!isLayoutNavCollapsed && item.label}
+                          {!isLayoutNavCollapsed && <span className="truncate">{item.label}</span>}
                       </LemonButton>
                   ))}
         </nav>

@@ -30,6 +30,7 @@ New products can use the same registries and existing routes without a separate 
 ## Shared layout and isolation
 
 The web app owns the collapsible navigation beside the Desktop rail, the product tabs, and the page body.
+Library and Tools use compact sidebar rows that match Desktop: 28 px high, with 13 px labels and 16 px icons.
 Desktop does not add a second sidebar for these destinations.
 Desktop's native project picker is authoritative.
 Selecting a different project reloads the frame for that project and account.

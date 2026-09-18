@@ -1,0 +1,11 @@
+.DesktopNavigation .LemonButton {
+    --lemon-button-height: 1.75rem;
+    --lemon-button-font-size: 0.8125rem;
+    --lemon-button-icon-size: 1rem;
+
+    font-family: var(--font-sans);
+
+    .LemonButton__chrome {
+        font-weight: 400;
+    }
+}
