@@ -11,6 +11,7 @@ run row records which input runs or variable values it used.
 """
 
 import re
+import json
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -75,6 +76,33 @@ class NotebookCellState:
     end: int = 0
 
 
+def _code_from_query_prop(value: Any) -> str:
+    """The SQL a SQL cell carries in `query` instead of `code`, or "" when it carries none.
+
+    Mirrors the editor's `getSqlV2PropsFromQueryProp`. A cell written before `code` existed,
+    or converted from a v1 node, holds its SQL three ways: raw in the string prop, as a bare
+    HogQLQuery, or wrapped in a data-table or visualization node. The editor renders all
+    three, so a whole-notebook run has to plan all three rather than silently skip them.
+    """
+    if isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return ""
+        if not text.startswith("{"):
+            # Anything else a string prop can hold is the SQL itself.
+            return text
+        try:
+            value = json.loads(text)
+        except ValueError:
+            return ""
+    if not isinstance(value, dict):
+        return ""
+    source = value if value.get("kind") == "HogQLQuery" else value.get("source")
+    if isinstance(source, dict) and source.get("kind") == "HogQLQuery" and isinstance(source.get("query"), str):
+        return source["query"]
+    return ""
+
+
 def extract_cells(content: Any) -> list[NotebookCellState]:
     markdown = _get_markdown_notebook_markdown(content)
     if markdown is None:
@@ -89,6 +117,8 @@ def extract_cells(content: Any) -> list[NotebookCellState]:
         if not isinstance(node_id, str) or not node_id:
             continue
         code = props.get("dataframeQuery") if cell_type == "saved_insight" else props.get("code")
+        if cell_type == "sql" and not (isinstance(code, str) and code.strip()):
+            code = _code_from_query_prop(props.get("query"))
         dataframe_name = props.get("returnVariable")
         if not isinstance(dataframe_name, str):
             dataframe_name = {"sql": "sql_df", "python": "df", "saved_insight": "insight_df"}[cell_type]

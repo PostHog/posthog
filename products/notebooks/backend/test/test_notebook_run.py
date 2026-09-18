@@ -3,11 +3,16 @@ from typing import Any
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
+
+from parameterized import parameterized
+
 from posthog.models.scoping import team_scope
 from posthog.models.utils import UUIDT
 
 from products.notebooks.backend.models import Notebook, NotebookNodeRun, NotebookRun
-from products.notebooks.backend.notebook_run import node_run_request_for
+from products.notebooks.backend.notebook_run import node_run_request_for, plan_notebook_cells
 from products.notebooks.backend.temporal.notebook_run import NotebookRunCellInput, dispatch_notebook_cell_activity
 
 _RUN_CELLS = (
@@ -24,6 +29,38 @@ def markdown_content(markdown: str) -> dict[str, Any]:
             {"type": "ph-markdown-notebook", "attrs": {"nodeId": "markdown-notebook-v2", "markdown": markdown}}
         ],
     }
+
+
+class TestRunPlanCellShapes(APIBaseTest):
+    """A SQL cell can hold its SQL in `query` rather than `code`, and the editor renders all
+    of these. A run that planned only `code` cells skipped them without saying so."""
+
+    @parameterized.expand(
+        [
+            ("raw_string", '<SQLV2 nodeId="s1" query="select 1" />'),
+            ("bare_hogql", '<SQLV2 nodeId="s1" query={{"kind":"HogQLQuery","query":"select 1"}} />'),
+            (
+                "wrapped_in_a_data_table",
+                '<SQLV2 nodeId="s1" query={{"kind":"DataTableNode","source":{"kind":"HogQLQuery","query":"select 1"}}} />',
+            ),
+        ]
+    )
+    def test_a_sql_cell_carrying_its_query_prop_is_planned(self, _name: str, tag: str) -> None:
+        notebook = Notebook(team=self.team, short_id="nbshape", content=markdown_content(f"# Doc\n\n{tag}\n"))
+
+        assert [cell["node_id"] for cell in plan_notebook_cells(notebook)] == ["s1"]
+        assert plan_notebook_cells(notebook)[0]["code"] == "select 1"
+
+    def test_code_still_wins_when_a_cell_carries_both(self) -> None:
+        notebook = Notebook(
+            team=self.team,
+            short_id="nbshape2",
+            content=markdown_content(
+                '<SQLV2 nodeId="s1" code="select 2" query={{"kind":"HogQLQuery","query":"select 1"}} />\n'
+            ),
+        )
+
+        assert plan_notebook_cells(notebook)[0]["code"] == "select 2"
 
 
 @patch("products.notebooks.backend.presentation.views.notebook.is_sql_v2_enabled", return_value=True)
@@ -146,6 +183,31 @@ class TestNotebookRunEndpoints(APIBaseTest):
         assert [(cell["node_id"], cell["status"]) for cell in payload["cells"]] == [("s1", "done"), ("p1", None)]
         assert payload["cells"][0]["run_id"] == str(node_run.id)
 
+    def test_the_status_read_never_fetches_a_cell_result(self, _start, _flag) -> None:
+        # The response carries no result envelopes, and must not pay for them either: a client
+        # polls this every two seconds while the last cell runs, and a notebook may hold fifty
+        # cells whose envelopes each run to megabytes.
+        run_id = self.client.post(self.runs_url, data={}, format="json").json()["run_id"]
+        with team_scope(self.team.id):
+            NotebookNodeRun.objects.create(
+                team=self.team,
+                notebook=self.notebook,
+                notebook_run=NotebookRun.objects.get(id=run_id),
+                node_id="s1",
+                code="select 1",
+                envelope={"first_page": [["x" * 10_000]]},
+                status=NotebookNodeRun.Status.DONE,
+            )
+
+        with CaptureQueriesContext(connection) as captured:
+            response = self.client.get(f"{self.runs_url}{run_id}/")
+
+        assert response.status_code == 200, response.json()
+        node_run_reads = [q["sql"] for q in captured.captured_queries if "posthog_notebooknoderun" in q["sql"]]
+        assert node_run_reads, "expected the status read to query the cell runs at all"
+        for sql in node_run_reads:
+            assert "envelope" not in sql, sql
+
     def test_a_cell_error_from_an_unreachable_source_is_withheld(self, _start, _flag) -> None:
         # Notebook plus query access does not imply source access, and an engine error can
         # carry its own detail. The cell-result endpoint refuses outright; this one serves
@@ -189,10 +251,40 @@ class TestNotebookRunEndpoints(APIBaseTest):
         cell = NotebookRunCellInput(notebook_run_id=run_id, team_id=self.team.id, index=0)
 
         first = dispatch_notebook_cell_activity(cell)
-        second = dispatch_notebook_cell_activity(cell)
+        # The query manager holds the query the first attempt submitted, which is how the
+        # retry tells a landed handoff from one that never reached the lane.
+        with patch("products.notebooks.backend.sql_v2_dispatch.direct_run_was_enqueued", return_value=True):
+            second = dispatch_notebook_cell_activity(cell)
 
         assert first == second
-        assert mock_enqueue.call_count == 1
+        assert mock_enqueue.call_count == 1, "the retry submitted the query a second time"
+        assert NotebookNodeRun.objects.for_team(self.team.id).filter(notebook_run_id=run_id).count() == 1
+
+    @patch("products.notebooks.backend.sql_v2_dispatch.enqueue_direct_run")
+    def test_a_retry_finishes_a_dispatch_that_never_reached_its_lane(self, mock_enqueue, _start, _flag) -> None:
+        # The row is committed before the lane is told about it, so a worker that dies in
+        # between leaves a row nothing drives. Finding that row is not proof the cell started:
+        # the retry has to complete the handoff, or the orchestrator polls it until the cell
+        # budget expires and fails a run whose cell never ran.
+        run_id = self.client.post(self.runs_url, data={}, format="json").json()["run_id"]
+        with team_scope(self.team.id):
+            orphan = NotebookNodeRun.objects.create(
+                team=self.team,
+                notebook=self.notebook,
+                notebook_run=NotebookRun.objects.get(id=run_id),
+                node_id="s1",
+                code="select 1",
+                status=NotebookNodeRun.Status.RUNNING,
+            )
+
+        returned = dispatch_notebook_cell_activity(
+            NotebookRunCellInput(notebook_run_id=run_id, team_id=self.team.id, index=0)
+        )
+
+        assert returned == str(orphan.id)
+        assert mock_enqueue.call_count == 1, "the retry left the row undispatched"
+        assert str(mock_enqueue.call_args.args[2].id) == str(orphan.id)
+        # Still one row: resuming must not become a second execution.
         assert NotebookNodeRun.objects.for_team(self.team.id).filter(notebook_run_id=run_id).count() == 1
 
     def test_interrupt_stops_the_run_and_is_idempotent(self, _start, _flag) -> None:
