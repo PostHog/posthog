@@ -517,7 +517,10 @@ export function ExperimentReplayTab({ experiment }: { experiment: Experiment }):
                 it away. The telemetry nulls the reason on the same condition. */}
             <div className="mb-2 flex flex-wrap items-center gap-2 text-xs text-secondary">
                 {/* First, because a list that failed makes every other caption moot: none of them
-                    describes a population the viewer can see. */}
+                    describes a population the viewer can see. The retry is offered whatever the
+                    status, unlike the shelf above, which shows a 400 as a plain answer: the tab
+                    now states the refusals it can foresee instead of sending the list, so the
+                    ones that reach here pass once the exposures finish computing. */}
                 {listLoadError !== null ? (
                     <>
                         <span data-attr="experiment-recordings-list-error-caption">

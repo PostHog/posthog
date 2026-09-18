@@ -1186,7 +1186,15 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                     if (memoizedResponse) {
                         response = memoizedResponse
                     } else if (requestInFlight) {
-                        response = await requestInFlight
+                        try {
+                            response = await requestInFlight
+                        } catch (e) {
+                            // One rejection comes back through every load waiting on the shared
+                            // read, so without this each of them reports the same failure. The
+                            // breakpoint leaves only the newest load to answer for it.
+                            breakpoint()
+                            throw e
+                        }
                     } else {
                         await breakpoint(400) // Debounce for lots of quick filter changes
 
@@ -1207,6 +1215,11 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                             if (cache.listRequest === request) {
                                 cache.listRequest = undefined
                             }
+                            // A failure reaches this catch ahead of the breakpoint below, so a load
+                            // the viewer left behind used to raise the error banner over the rows
+                            // that replaced it. Failing at the breakpoint instead drops it, the
+                            // same as a superseded success.
+                            breakpoint()
                             throw e
                         }
                         // The response is here, so nothing can wait on this request any more. The
@@ -1756,8 +1769,11 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             },
 
             loadSessionRecordingsFailure: ({ error, errorObject }) => {
-                // The status is kept apart from the message because a 400 is a refusal the host
-                // page cannot retry away, while every other failure is worth offering a retry for.
+                // The status rides alongside the message so a host page can tell a refusal the
+                // backend states on purpose from a transport failure. What it offers for either is
+                // its own decision, and the two differ: the shelf on the experiment recordings tab
+                // shows a 400 as a plain answer, while the list there keeps the retry, because the
+                // refusals it can still reach pass once the exposures finish computing.
                 props.onRecordingsLoadFailed?.(
                     {
                         status: typeof errorObject?.status === 'number' ? errorObject.status : null,

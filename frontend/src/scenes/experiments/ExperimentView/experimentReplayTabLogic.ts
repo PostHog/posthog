@@ -406,6 +406,7 @@ export interface experimentReplayTabLogicValues {
     exposureScope: ExperimentReplayExposureScope
     filterContext: ExperimentRecordingsFilterContext
     filtersCustomized: boolean
+    groupAggregatedExposure: boolean
     inSessionExposure: ExperimentInSessionExposureApi | null
     inSessionExposureLoading: boolean
     linkedScanners: LinkedScanner[]
@@ -720,9 +721,14 @@ export interface experimentReplayTabLogicMeta {
         loadedRecordingsById: (loadedRecordings: ExperimentReplayRecording[]) => Map<string, ExperimentReplayRecording>
         variantKeys: (arg: any) => string[]
         behaviorComparisonAvailable: (featureFlags: FeatureFlagsSet) => boolean
-        listUnavailableReason: (variantKeys: string[], arg: any) => ExperimentRecordingsListUnavailableReason | null
+        groupAggregatedExposure: (arg: any) => boolean
+        listUnavailableReason: (
+            variantKeys: string[],
+            groupAggregatedExposure: any,
+            arg: any
+        ) => ExperimentRecordingsListUnavailableReason | null
         behaviorComparisonUnavailableReason: (
-            listUnavailableReason: any
+            groupAggregatedExposure: any
         ) => ExperimentBehaviorComparisonUnavailableReason | null
         effectiveVariantKey: (selectedVariantKey: string | null, variantKeys: string[]) => string | null
         exposureInSessionUnavailableReason: (inSessionExposure: ExperimentInSessionExposureApi | null) => string | null
@@ -798,7 +804,7 @@ export interface experimentReplayTabLogicMeta {
             inSessionExposure: ExperimentInSessionExposureApi | null,
             behaviorComparisonAvailable: boolean,
             behaviorComparisonUnavailableReason: 'group_aggregated' | null,
-            listUnavailableReason: any,
+            listUnavailableReason: ExperimentRecordingsListUnavailableReason | null,
             entryPoint: 'results_button' | 'results_menu' | null,
             droppedMetricReason: 'data_warehouse' | 'no_uuid' | 'retention' | 'server_side_events' | null,
             arg: any
@@ -817,7 +823,8 @@ export interface experimentReplayTabLogicMeta {
             metricFilterMode: 'fired_all' | 'fired_any' | 'funnel_completed' | 'funnel_dropoff' | 'no_metric_activity',
             effectiveMetricUuids: string[],
             effectiveVariantKey: string | null,
-            metricOptions: ExperimentReplayMetricOption[]
+            metricOptions: ExperimentReplayMetricOption[],
+            listUnavailableReason: ExperimentRecordingsListUnavailableReason | null
         ) => ExperimentSessionBucketRequest | null
         bucketSessionIds: (
             sessionBucketRequest: ExperimentSessionBucketRequest | null,
@@ -1291,23 +1298,36 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
             (featureFlags: FeatureFlagsSet): boolean => !!featureFlags[FEATURE_FLAGS.EXPERIMENT_BEHAVIOR_COMPARISON],
         ],
         /**
+         * Whether the flag exposes groups rather than people. Read off the feature flag's filters
+         * rather than the experiment's, because the flag's aggregation is what the backend checks.
+         * Both the list verdict and the shelf's read from here, so the two can never disagree
+         * about the fact while still stating it independently.
+         */
+        groupAggregatedExposure: [
+            () => [(_, props) => props.experiment],
+            (experiment: Experiment): boolean => experiment.feature_flag?.filters?.aggregation_group_type_index != null,
+        ],
+        /**
          * Why a list would be refused, decided before any request goes out, in the order
-         * `resolve_exposure_linkage` decides it. Group aggregation is read off the feature flag's
-         * filters rather than the experiment's, because the flag's aggregation is what the backend
-         * checks. The backend drops the experiment's excluded variants before its own variant
-         * check, so `no_variants` here is a subset of what the backend refuses; whatever it misses
-         * comes back as a failure, which the tab reports and states.
+         * `resolve_exposure_linkage` decides it. The backend drops the experiment's excluded
+         * variants before its own variant check, so `no_variants` here is a subset of what the
+         * backend refuses; whatever it misses comes back as a failure, which the tab reports and
+         * states.
          *
          * An experiment with no feature flag is deliberately not a code: it is a legitimate product
          * path, and the tab's other selectors already assume a flag.
          */
         listUnavailableReason: [
-            (s) => [s.variantKeys, (_, props) => props.experiment],
-            (variantKeys: string[], experiment: Experiment): ExperimentRecordingsListUnavailableReason | null => {
+            (s) => [s.variantKeys, s.groupAggregatedExposure, (_, props) => props.experiment],
+            (
+                variantKeys: string[],
+                groupAggregatedExposure: boolean,
+                experiment: Experiment
+            ): ExperimentRecordingsListUnavailableReason | null => {
                 if (!isLaunched(experiment)) {
                     return 'not_launched'
                 }
-                if (experiment.feature_flag?.filters?.aggregation_group_type_index != null) {
+                if (groupAggregatedExposure) {
                     return 'group_aggregated'
                 }
                 if (variantKeys.length === 0) {
@@ -1316,14 +1336,14 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
                 return null
             },
         ],
-        // Read off the list verdict, so the shelf and the list can never disagree about an
-        // experiment that aggregates by group.
+        // Read off the aggregation itself rather than the list verdict, which states only the
+        // first refusal the backend would raise: a draft that also aggregates by group has the
+        // verdict `not_launched`, and a shelf reason taken from it would go null on exactly the
+        // experiments this describes.
         behaviorComparisonUnavailableReason: [
-            (s) => [s.listUnavailableReason],
-            (
-                listUnavailableReason: ExperimentRecordingsListUnavailableReason | null
-            ): ExperimentBehaviorComparisonUnavailableReason | null =>
-                listUnavailableReason === 'group_aggregated' ? 'group_aggregated' : null,
+            (s) => [s.groupAggregatedExposure],
+            (groupAggregatedExposure: boolean): ExperimentBehaviorComparisonUnavailableReason | null =>
+                groupAggregatedExposure ? 'group_aggregated' : null,
         ],
         effectiveVariantKey: [
             (s) => [s.selectedVariantKey, s.variantKeys],
@@ -1731,13 +1751,27 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
          * silently matches the primary event only.
          */
         sessionBucketRequest: [
-            (s) => [s.metricFilterMode, s.effectiveMetricUuids, s.effectiveVariantKey, s.metricOptions],
+            (s) => [
+                s.metricFilterMode,
+                s.effectiveMetricUuids,
+                s.effectiveVariantKey,
+                s.metricOptions,
+                s.listUnavailableReason,
+            ],
             (
                 metricFilterMode: ExperimentReplayMetricFilterMode,
                 effectiveMetricUuids: string[],
                 effectiveVariantKey: string | null,
-                metricOptions: ExperimentReplayMetricOption[]
+                metricOptions: ExperimentReplayMetricOption[],
+                listUnavailableReason: ExperimentRecordingsListUnavailableReason | null
             ): ExperimentSessionBucketRequest | null => {
+                // A stated reason takes the place of the list, so a bucket would spend a scan on a
+                // session set nothing can show. The mode reaches this without a list on screen
+                // three ways: a results-row link, a multi-event metric's default click, and a mode
+                // a previous visit persisted.
+                if (listUnavailableReason !== null) {
+                    return null
+                }
                 const request = (bucket: ExperimentSessionBucketEnumApi): ExperimentSessionBucketRequest => ({
                     bucket,
                     metric_uuids: effectiveMetricUuids,
@@ -2094,6 +2128,10 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
             if (!isFirstPage) {
                 return
             }
+            // The visit now ends on this failure, so the empty page held back above is no longer
+            // the list to report. Replayed after it, that page would report a render for a list
+            // that failed and clear the caption while the playlist's own banner stays up.
+            cache.pendingEmptyRenderSessionIds = undefined
             cache.listOutcomeReported = true
             actions.reportExperimentRecordingsListFailed(props.experiment.id, {
                 ...values.filterContext,

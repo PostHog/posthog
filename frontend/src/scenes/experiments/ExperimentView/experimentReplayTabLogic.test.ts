@@ -1181,8 +1181,8 @@ describe('experimentReplayTabLogic', () => {
                     held_for_checks: false,
                     bucket_loading: false,
                     exposure_scope: 'all_exposed',
+                    ms_on_tab: expect.any(Number),
                 })
-                expect(abandons[0][1].ms_on_tab).toEqual(expect.any(Number))
             }
         }
     )
@@ -1241,6 +1241,76 @@ describe('experimentReplayTabLogic', () => {
             racing.unmount()
         }
     )
+
+    it('drops a held-back empty page once a first page fails, rather than replaying it', async () => {
+        // The visit ends on the failure, so the caption and the report both have to describe it.
+        // Replayed, the held-back page reported a render for a list that failed and cleared the
+        // caption underneath the playlist's own error banner.
+        const captureSpy = jest.spyOn(posthog, 'capture').mockReturnValue(undefined as any)
+        let resolveBucket!: (response: unknown) => void
+        ;(experimentsSessionBucketsCreate as jest.Mock).mockImplementation(
+            () => new Promise((resolve) => (resolveBucket = resolve))
+        )
+        const failing = experimentReplayTabLogic({
+            experiment: { ...EXPERIMENT, id: 174, start_date: daysAgo(10), end_date: null } as Experiment,
+        })
+        failing.mount()
+        failing.actions.setMetricSelected('metric-purchase', true)
+        failing.actions.setMetricFilterMode('no_metric_activity')
+
+        // The bucket load debounces, so both of these land while the answer is still out.
+        failing.actions.recordingsLoaded([])
+        failing.actions.recordingsLoadFailed({ status: 500, detail: 'Server error' }, true)
+
+        while ((experimentsSessionBucketsCreate as jest.Mock).mock.calls.length === 0) {
+            await new Promise((resolve) => setTimeout(resolve, 25))
+        }
+        // An answer that matches the session set the dropped page ran under, which is the case the
+        // replay exists for: the playlist compares by value, so it never reloads.
+        resolveBucket({ ...BUCKET_RESPONSE, session_ids: [] })
+        await expectLogic(failing).toFinishAllListeners()
+
+        expect(listsRendered(captureSpy, 174)).toHaveLength(0)
+        expect(failing.values.listLoadError).toEqual({ status: 500, detail: 'Server error' })
+        failing.unmount()
+    })
+
+    it('asks for no session bucket when it states that no list is available', async () => {
+        // The metric filter is one of three paths that reach the bucket without a list on screen:
+        // a results-row link, a multi-event metric's default click, and a mode a previous visit
+        // persisted. Each one used to spend a ClickHouse scan on a session set nothing can show.
+        const grouped = experimentReplayTabLogic({
+            experiment: { ...GROUP_AGGREGATED_EXPERIMENT, id: 172 } as Experiment,
+        })
+        grouped.mount()
+        grouped.actions.setMetricSelected('metric-purchase', true)
+        grouped.actions.setMetricFilterMode('no_metric_activity')
+        await expectLogic(grouped).toFinishAllListeners()
+
+        expect(grouped.values.sessionBucketRequest).toBeNull()
+        expect(experimentsSessionBucketsCreate).not.toHaveBeenCalled()
+        grouped.unmount()
+    })
+
+    it('still reports the group aggregation for a draft experiment', async () => {
+        // The list verdict takes the first refusal in the backend's order, so a draft's verdict is
+        // `not_launched` whatever its flag does. Read from that verdict, the shelf's own reason
+        // would go null on exactly the experiments it describes.
+        const draftGrouped = experimentReplayTabLogic({
+            experiment: {
+                ...GROUP_AGGREGATED_EXPERIMENT,
+                id: 173,
+                start_date: null,
+                end_date: null,
+            } as Experiment,
+        })
+        draftGrouped.mount()
+        await expectLogic(draftGrouped).toFinishAllListeners()
+
+        expect(draftGrouped.values.listUnavailableReason).toBe('not_launched')
+        expect(draftGrouped.values.behaviorComparisonUnavailableReason).toBe('group_aggregated')
+        draftGrouped.unmount()
+    })
 
     it('reports the entry point a deep link set, and clears it when the viewer moves a facet', async () => {
         // The entry point is what separates a list a results row opened from one somebody narrowed
