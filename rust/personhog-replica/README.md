@@ -8,10 +8,12 @@
 
 ### Person deletes
 
-`DeletePersons` and `DeletePersonsBatchForTeam` hard-delete person and distinct-id rows by default.
-Set `PERSON_DELETE_TOMBSTONE=true` to switch to tombstones: the rows stay with `is_deleted = true`, the version bumped by one, and person properties scrubbed.
+`DeletePersons` hard-deletes person and distinct-id rows by default.
+Set `PERSON_DELETE_TOMBSTONE=true` to switch it to tombstones: the rows stay with `is_deleted = true`, the version is bumped by one, and person properties are scrubbed.
 A tombstone keeps the row's version counter, so a later create on the same key revives it above its own ClickHouse tombstone instead of restarting at version 0.
-Hard deletes still remove tombstoned rows, so disabling the flag or tearing a team down leaves nothing behind.
+The tombstone cleanup drain (`DeleteTombstonedPersons`) removes the rows later, once their ClickHouse history is gone.
+`DeletePersonsBatchForTeam` always hard-deletes, tombstoned rows included: it serves team teardown, where no sweep would ever clean the tombstones up.
+Hard deletes still remove tombstoned rows, so turning the flag off leaves nothing behind.
 
 ### Known Implementation Details
 
