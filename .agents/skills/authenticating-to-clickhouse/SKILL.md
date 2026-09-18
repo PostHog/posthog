@@ -7,7 +7,7 @@ description: Authenticate a new or changed service to ClickHouse with the rotati
 
 A service authenticates to ClickHouse with a short-lived ServiceAccount token, validated by the ch-podauth bridge, not a static password. The token rotates, so the client reads it on each use. Read `posthog/clickhouse/client/AGENTS.md` for the full recipe and the traps. This skill is the entry point.
 
-Use it when adding a new service or ClickHouse user, or when building a ClickHouse pool or client by hand. Converting an already-deployed user off a static password is a ClickHouse-team operation and is out of scope.
+Use it when adding a new service or ClickHouse user, or when building or changing a ClickHouse pool or client by hand. Converting an already-deployed user off a static password is a ClickHouse-team operation and is out of scope.
 
 ## Do
 
@@ -17,5 +17,5 @@ Use it when adding a new service or ClickHouse user, or when building a ClickHou
 
 ## Do not
 
-- Pass your own `sync_client` to `sync_execute`, or build a pool or client by hand, without carrying the credential provider. A custom pool that drops it silently stays on the static password. `posthog/clickhouse/client/AGENTS.md` has the file-backed branch to replicate.
+- Pass your own `sync_client` to `sync_execute`, or build a pool or client by hand, without keeping it token-aware. A native pool must carry `credential_provider`; an HTTP or one-shot client resolves the token per call instead. A pool that skips this silently stays on the static password. `posthog/clickhouse/client/AGENTS.md` has both shapes.
 - Read the credential once at startup, in any language. The token rotates, so read the token file on each connection or request.

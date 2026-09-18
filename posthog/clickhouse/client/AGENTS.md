@@ -17,9 +17,11 @@ Use these paths and token auth is automatic.
 
 Token-awareness is lost when you pass your own `sync_client` to `sync_execute`, or build your own pool or client.
 
-## A custom pool or client must carry the credential provider
+## A custom pool or client must stay token-aware
 
-Build a pool or client for a timeout or a setting only by replicating the file-backed branch of `get_pool`.
+`credential_provider` is a native-pool mechanism. An HTTP or one-shot client does not use it.
+
+Build a custom native pool for a timeout or a setting only by replicating the file-backed branch of `get_pool`.
 A pool that skips this branch stays on the static password with no error.
 Resolve the credentials with `get_clickhouse_creds`.
 When `_is_file_backed_user` is true, pop the static `password` and pass `credential_provider=creds.read_password` to `make_ch_pool`.
@@ -27,7 +29,9 @@ When `_is_file_backed_user` is true, pop the static `password` and pass `credent
 It falls back to the static password only when the file is unreadable or empty.
 `RefreshingChPool` re-stamps the live token on each checkout, so one pool survives a rotation.
 The canonical native implementation is `get_pool`.
-For an HTTP or one-shot client that is rebuilt per call, resolve the token once with `creds.read_password()` and pass it as the password, the way `get_http_kwargs` does.
+
+An HTTP or one-shot client is rebuilt on each call, so it needs no credential provider.
+Resolve the token once with `creds.read_password()` and pass it as the password, the way `get_http_kwargs` does.
 
 ## Wire the username, or the user falls back to the default user
 
