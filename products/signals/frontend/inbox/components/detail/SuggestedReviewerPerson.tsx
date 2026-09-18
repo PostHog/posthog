@@ -35,6 +35,24 @@ export function getReviewerExplanation(reviewer: EnrichedReviewer): string | nul
     return reviewer.reason ?? reviewer.relevant_commits[0]?.reason ?? null
 }
 
+export function SuggestedReviewerScoutTag({ scoutNames }: { scoutNames: string[] }): JSX.Element {
+    return (
+        <Tooltip
+            title={
+                <div className="flex flex-col">
+                    {scoutNames.map((scoutName) => (
+                        <span key={scoutName}>{scoutName}</span>
+                    ))}
+                </div>
+            }
+        >
+            <LemonTag type="muted" size="small" className="cursor-help">
+                Added by scout
+            </LemonTag>
+        </Tooltip>
+    )
+}
+
 export function SuggestedReviewerPerson({
     reviewer,
     disabled,
@@ -69,9 +87,13 @@ export function SuggestedReviewerPerson({
                     </span>
                 </Tooltip>
             </div>
-            <LemonTag type="muted" size="small" wrap className="max-w-32">
-                {sourceLabel}
-            </LemonTag>
+            {isScoutReviewer(reviewer) ? (
+                <SuggestedReviewerScoutTag scoutNames={[sourceLabel]} />
+            ) : (
+                <LemonTag type="muted" size="small" wrap className="max-w-32">
+                    {sourceLabel}
+                </LemonTag>
+            )}
             {explanation && (
                 <span
                     className={`col-span-2 min-w-0 text-xs leading-snug text-tertiary [overflow-wrap:anywhere] ${reviewer.user ? '' : 'opacity-75'}`}

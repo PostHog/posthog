@@ -72,6 +72,23 @@ function ReviewerSourceBadge({ label }: { label: string }) {
   );
 }
 
+function ScoutSourceBadge({ scoutNames }: { scoutNames: string[] }) {
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={<InboxBadge className="cursor-help text-[10px]" />}
+      >
+        Added by scout
+      </TooltipTrigger>
+      <TooltipContent side="top" className="flex-col items-start">
+        {scoutNames.map((scoutName) => (
+          <span key={scoutName}>{scoutName}</span>
+        ))}
+      </TooltipContent>
+    </Tooltip>
+  );
+}
+
 function RemoveReviewerButton({
   reviewer,
   disabled,
@@ -108,10 +125,15 @@ function SuggestedReviewerPerson({
   onRemove?: (reviewer: SuggestedReviewer) => void;
 }) {
   const explanation = suggestedReviewerExplanation(reviewer);
+  const sourceLabel = suggestedReviewerSourceLabel(reviewer);
   return (
     <div className="group grid min-w-0 grid-cols-[minmax(0,1fr)_auto_auto] items-start gap-x-2 gap-y-1 rounded-sm px-1.5 py-1.5 hover:bg-fill-hover">
       <ReviewerIdentity reviewer={reviewer} />
-      <ReviewerSourceBadge label={suggestedReviewerSourceLabel(reviewer)} />
+      {isScoutSuggestedReviewer(reviewer) ? (
+        <ScoutSourceBadge scoutNames={[sourceLabel]} />
+      ) : (
+        <ReviewerSourceBadge label={sourceLabel} />
+      )}
       {onRemove ? (
         <RemoveReviewerButton
           reviewer={reviewer}
@@ -175,29 +197,18 @@ function SuggestedReviewerReasonGroup({
           </div>
         ))}
       </div>
-      <div className="flex min-w-0 flex-wrap items-start justify-between gap-2 border-border border-t px-2.5 py-2">
-        <p className="m-0 min-w-48 flex-1 break-words text-muted-foreground text-xs leading-snug">
-          {reason}
-        </p>
-        <div className="flex min-w-0 flex-wrap justify-end gap-1">
+      <div className="flow-root min-w-0 border-border border-t px-2.5 py-2">
+        <div className="float-right ml-2 flex min-w-0 flex-wrap justify-end gap-1">
           {scoutNames.size > 0 ? (
-            <Tooltip>
-              <TooltipTrigger
-                render={<InboxBadge className="cursor-help text-[10px]" />}
-              >
-                Added by scout
-              </TooltipTrigger>
-              <TooltipContent side="top" className="flex-col items-start">
-                {[...scoutNames].map((scoutName) => (
-                  <span key={scoutName}>{scoutName}</span>
-                ))}
-              </TooltipContent>
-            </Tooltip>
+            <ScoutSourceBadge scoutNames={[...scoutNames]} />
           ) : null}
           {[...otherSourceLabels].map((sourceLabel) => (
             <ReviewerSourceBadge key={sourceLabel} label={sourceLabel} />
           ))}
         </div>
+        <p className="m-0 min-w-0 break-words text-muted-foreground text-xs leading-snug">
+          {reason}
+        </p>
       </div>
     </div>
   );

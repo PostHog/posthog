@@ -42,6 +42,20 @@ const sharedReasonReviewers: SuggestedReviewer[] = [
   }),
 );
 
+const longReason =
+  "These reviewers maintain the request parser and retry handling. Review the long configuration path before release because it affects several report views.";
+
+const longReasonReviewers: SuggestedReviewer[] = [
+  ["casey", "Casey Morgan"],
+  ["jamie", "Jamie Kim"],
+].map(([id, name]) =>
+  reviewer(id, name, {
+    source_skill: "signals-scout-agent-feedback",
+    source_label: "Agent feedback scout",
+    explanation: longReason,
+  }),
+);
+
 const meta: Meta<typeof SuggestedReviewersList> = {
   title: "Inbox/Reports/Suggested reviewers",
   component: SuggestedReviewersList,
@@ -108,4 +122,13 @@ export const NarrowPanel: Story = {
       ...sharedReasonReviewers.slice(0, 2),
     ],
   },
+};
+
+export const WidePanelLongReason: Story = {
+  args: { reviewers: longReasonReviewers },
+};
+
+export const NarrowPanelLongReason: Story = {
+  parameters: { panelWidth: "26rem" },
+  args: { reviewers: longReasonReviewers },
 };
