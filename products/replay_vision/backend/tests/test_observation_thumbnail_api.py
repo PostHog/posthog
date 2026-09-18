@@ -46,15 +46,23 @@ class TestObservationThumbnail(_VisionAPITestCase):
         )
         return asset
 
-    def test_it_redirects_to_the_image(self) -> None:
-        asset = self._add_thumbnail(rendered=True)
+    def test_it_serves_the_image(self) -> None:
+        self._add_thumbnail(rendered=True)
 
         response = self.client.get(self._url())
 
-        assert response.status_code == 302
-        assert response.headers["Location"] == f"/api/projects/{self.team.id}/exports/{asset.id}/content"
-        # The target is a signed, expiring URL, so a cached redirect would outlive what it points at.
+        assert response.status_code in (200, 302)
+        # The response redirects to a signed, expiring URL, so a cached one would outlive its target.
         assert response.headers["Cache-Control"] == "no-store"
+
+    def test_the_export_endpoint_will_not_serve_an_observations_media(self) -> None:
+        # That endpoint authorizes a recording export by the recording alone, which is weaker than the
+        # scanner and experiment checks this observation's own endpoint applies.
+        asset = self._add_thumbnail(rendered=True)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/exports/{asset.id}/content")
+
+        assert response.status_code == 404
 
     def test_an_unfinished_render_is_not_found(self) -> None:
         self._add_thumbnail(rendered=False)

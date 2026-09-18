@@ -11,8 +11,7 @@ from django.db import transaction
 from django.db.models import Case, IntegerField, Q, QuerySet, Value, When
 from django.db.models.fields.json import KeyTextTransform, KeyTransform
 from django.db.models.functions import Cast
-from django.http.response import HttpResponseBase, HttpResponseRedirect
-from django.urls import reverse
+from django.http.response import HttpResponseBase
 
 import requests
 import structlog
@@ -42,6 +41,7 @@ from posthog.permissions import is_scout_sandbox_request
 from posthog.rate_limit import ReplayVisionSearchBurstRateThrottle, ReplayVisionSearchSustainedRateThrottle
 from posthog.renderers import ServerSentEventRenderer
 
+from products.exports.backend.facade.api import get_export_asset_content_response
 from products.replay_vision.backend.api.errors import ReplayVisionErrorSerializer
 from products.replay_vision.backend.api.filters import MultiChoiceFilter, OrderByFilter, ordering_enum, split_csv
 from products.replay_vision.backend.api.observation_progress import stream_observation_progress
@@ -1146,13 +1146,10 @@ class ReplayObservationViewSet(
         )
         if media is None:
             raise NotFound("This observation has no thumbnail.")
-        response = HttpResponseRedirect(
-            reverse(
-                "project_exports-content",
-                kwargs={"parent_lookup_team_id": observation.team_id, "pk": media.asset_id},
-            )
-        )
-        # The target is a signed, expiring URL, so a cached redirect outlives what it points at.
+        # Served from here, not through the export content endpoint: that one authorizes a recording
+        # export by the recording alone, which would let a reader denied this scanner fetch its frames.
+        response = get_export_asset_content_response(asset=media.asset, download=False)
+        # The response redirects to a signed, expiring URL, so a cached redirect outlives its target.
         response["Cache-Control"] = "no-store"
         return response
 
