@@ -459,6 +459,30 @@ class TestDeleteNodeFromDag(BaseTest):
         with self.assertRaises(HasDependentsError):
             delete_node_from_dag(upstream)
 
+    def test_delete_raises_when_dependent_lives_on_a_node_in_another_dag(self):
+        upstream = DataWarehouseSavedQuery.objects.create(
+            name="upstream_view",
+            team=self.team,
+            query={"query": "SELECT * FROM events", "kind": "HogQLQuery"},
+        )
+        sync_saved_query_to_dag(upstream)
+
+        second_dag = DAG.objects.create(team=self.team, name="second-dag")
+        second_node = Node.objects.create(team=self.team, dag=second_dag, saved_query=upstream, type=NodeType.VIEW)
+        downstream = DataWarehouseSavedQuery.objects.create(
+            name="downstream_view",
+            team=self.team,
+            query={"query": "SELECT * FROM upstream_view", "kind": "HogQLQuery"},
+        )
+        downstream_node = Node.objects.create(
+            team=self.team, dag=second_dag, saved_query=downstream, type=NodeType.VIEW
+        )
+        Edge.objects.create(team=self.team, dag=second_dag, source=second_node, target=downstream_node)
+
+        with self.assertRaises(HasDependentsError) as ctx:
+            delete_node_from_dag(upstream)
+        self.assertIn("downstream_view", str(ctx.exception))
+
     def test_delete_succeeds_when_no_dependents(self):
         upstream = DataWarehouseSavedQuery.objects.create(
             name="upstream_view",
@@ -481,6 +505,28 @@ class TestGetDependents(BaseTest):
         sync_saved_query_to_dag(saved_query)
         dependents = get_dependent_saved_queries(saved_query)
         self.assertEqual(dependents, [])
+
+    def test_get_dependents_covers_nodes_in_every_dag(self):
+        upstream = DataWarehouseSavedQuery.objects.create(
+            name="upstream_view",
+            team=self.team,
+            query={"query": "SELECT * FROM events", "kind": "HogQLQuery"},
+        )
+        sync_saved_query_to_dag(upstream)
+
+        second_dag = DAG.objects.create(team=self.team, name="second-dag")
+        second_node = Node.objects.create(team=self.team, dag=second_dag, saved_query=upstream, type=NodeType.VIEW)
+        downstream = DataWarehouseSavedQuery.objects.create(
+            name="downstream_view",
+            team=self.team,
+            query={"query": "SELECT * FROM upstream_view", "kind": "HogQLQuery"},
+        )
+        downstream_node = Node.objects.create(
+            team=self.team, dag=second_dag, saved_query=downstream, type=NodeType.VIEW
+        )
+        Edge.objects.create(team=self.team, dag=second_dag, source=second_node, target=downstream_node)
+
+        self.assertEqual([d.name for d in get_dependent_saved_queries(upstream)], ["downstream_view"])
 
     def test_get_dependents_returns_immediate_dependents(self):
         upstream = DataWarehouseSavedQuery.objects.create(
