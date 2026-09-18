@@ -42,7 +42,7 @@ function getInstruments(): LogsIngestionInstruments {
                 unit: 'By',
             }),
             jsonEnrichmentSkipped: createCounterWithExemplars(meter, 'logs_ingestion_json_enrichment_skipped_total', {
-                description: 'Log body JSON enrichment skipped because a size or traversal budget was exceeded',
+                description: 'Log JSON enrichment skipped because a size or traversal budget was exceeded',
             }),
             recordsReceived: createCounterWithExemplars(meter, 'logs_ingestion_records_received_total', {
                 description: 'Total log records received',

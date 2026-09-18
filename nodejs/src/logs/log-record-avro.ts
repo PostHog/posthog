@@ -4,6 +4,7 @@ import { Counter, Histogram } from 'prom-client'
 import { Readable } from 'stream'
 
 import { instrumented } from '~/common/tracing/tracing-utils'
+import { parseJSON } from '~/common/utils/json-parse'
 import type { LogsSettings } from '~/types'
 
 import { recordJsonEnrichmentSkipped, recordLogProcessingDuration } from './ingestion-otel-metrics'
@@ -45,7 +46,7 @@ export const logsJsonAttributeSniffCounter = new Counter({
 
 export const logsJsonEnrichmentSkippedCounter = new Counter({
     name: 'logs_ingestion_json_enrichment_skipped_total',
-    help: 'Log body JSON enrichment skipped because a size or traversal budget was exceeded',
+    help: 'Log JSON enrichment skipped because a size or traversal budget was exceeded',
     labelNames: ['reason'],
 })
 
@@ -217,15 +218,39 @@ function isArrayIndex(key: string): boolean {
     return Number.isInteger(index) && index >= 0 && index < 2 ** 32 - 1 && String(index) === key
 }
 
+function countJsonNodesWithinBudget(value: unknown, depth: number, budget: number): number | null {
+    const stack = [{ value, depth }]
+    let nodes = 1
+    while (stack.length > 0) {
+        const entry = stack.pop()!
+        if (nodes > budget || entry.depth > MAX_JSON_DEPTH) {
+            return null
+        }
+        if (entry.value !== null && typeof entry.value === 'object') {
+            for (const key in entry.value) {
+                if (!Object.hasOwn(entry.value, key)) {
+                    continue
+                }
+                if (++nodes > budget) {
+                    return null
+                }
+                stack.push({ value: (entry.value as Record<string, unknown>)[key], depth: entry.depth + 1 })
+            }
+        }
+    }
+    return nodes
+}
+
 /**
  * Flattens a JSON object into a flat key-value map with dot-notation keys.
- * Arrays are indexed with numeric keys (e.g., "items.0.name").
+ * Body arrays use indexed paths; selected-attribute arrays are stored as JSON strings.
  */
 function flattenJsonWithBudget(
     obj: unknown,
     prefix = '',
     maxAttributes = MAX_JSON_ATTRIBUTES,
-    maxBytes = MAX_LOG_RECORD_BYTES
+    maxBytes = MAX_LOG_RECORD_BYTES,
+    arrayMode: 'indexed' | 'string' = 'indexed'
 ): { values: Record<string, unknown>; attributes: Record<string, string> } | null {
     const result: Record<string, unknown> = {}
     const attributes: Record<string, string> = {}
@@ -240,6 +265,14 @@ function flattenJsonWithBudget(
         const entry = stack.pop()!
         if (entry.depth > MAX_JSON_DEPTH || pathBytes > maxBytes) {
             return null
+        }
+        if (arrayMode === 'string' && Array.isArray(entry.value)) {
+            const arrayNodes = countJsonNodesWithinBudget(entry.value, entry.depth, MAX_JSON_NODES - nodes + 1)
+            if (arrayNodes === null) {
+                return null
+            }
+            nodes += arrayNodes - 1
+            entry.value = JSON.stringify(entry.value)
         }
         if (entry.value !== null && typeof entry.value === 'object') {
             const value = entry.value as Record<string, unknown>
@@ -393,6 +426,35 @@ export function enrichLogRecordWithJsonAttributes(record: LogRecord, bodyParse?:
     return record
 }
 
+export function enrichLogRecordFromJsonAttribute(record: LogRecord, key: string): void {
+    if (!record.attributes || !Object.hasOwn(record.attributes, key)) {
+        return
+    }
+    const recordBytes = logRecordSizeBytes(record)
+    if (recordBytes > MAX_LOG_RECORD_BYTES) {
+        recordJsonEnrichmentSkip('input_size')
+        return
+    }
+    let parsed: unknown
+    try {
+        parsed = parseJSON(record.attributes[key])
+        if (typeof parsed === 'string') {
+            parsed = parseJSON(parsed)
+        }
+    } catch {
+        return
+    }
+    if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+        return
+    }
+    const flattened = flattenJsonWithBudget(parsed, key, MAX_JSON_ATTRIBUTES, MAX_LOG_RECORD_BYTES, 'string')
+    if (flattened === null) {
+        recordJsonEnrichmentSkip('flatten_budget')
+        return
+    }
+    addJsonAttributes(record, flattened.attributes, recordBytes)
+}
+
 const enrichBatchJsonAttributes = instrumented({
     key: SPAN_LOGS_ENRICH_JSON,
     ...logRecordProcessInstrumentOpts,
@@ -415,9 +477,8 @@ const scrubBatch = instrumented({
 })
 
 /**
- * Applies PII scrub and optional JSON parse + attribute enrichment to decoded records in place.
- * Used by the main buffer processor and by the sampling path (which must decode even when
- * json_parse / pii_scrub are off, then optionally runs this when either flag is on).
+ * Scrub before extracting fields, then enrich from the selected attribute before the body so
+ * sender attributes win over selected-attribute fields, which win over body-derived fields.
  */
 export async function transformDecodedLogRecordsInPlace(
     records: LogRecord[],
@@ -426,15 +487,17 @@ export async function transformDecodedLogRecordsInPlace(
     const jsonParse = settings.json_parse_logs ?? false
     const piiScrub = settings.pii_scrub_logs ?? false
     let pii: PiiScrubStats = EMPTY_PII
-    if (jsonParse && piiScrub) {
+    if (piiScrub) {
         pii = await scrubBatch(records)
+    }
+    if (settings.json_parse_logs_attribute_key) {
+        for (const record of records) {
+            enrichLogRecordFromJsonAttribute(record, settings.json_parse_logs_attribute_key)
+        }
+    }
+    if (jsonParse) {
         const bodyParses = await parseLogBodiesForIngestion(records)
         await enrichBatchJsonAttributes(records, bodyParses)
-    } else if (jsonParse) {
-        const bodyParses = await parseLogBodiesForIngestion(records)
-        await enrichBatchJsonAttributes(records, bodyParses)
-    } else if (piiScrub) {
-        pii = await scrubBatch(records)
     }
     return pii
 }
@@ -473,7 +536,10 @@ export function bufferProcessingMode(
     stageCount: number,
     hasVisitor: boolean
 ): BufferProcessingMode {
-    const normalizeActive = (settings.json_parse_logs ?? false) || (settings.pii_scrub_logs ?? false)
+    const normalizeActive =
+        (settings.json_parse_logs ?? false) ||
+        (settings.pii_scrub_logs ?? false) ||
+        Boolean(settings.json_parse_logs_attribute_key)
     if (normalizeActive || stageCount > 0) {
         return 'decode_and_reencode'
     }
@@ -482,9 +548,9 @@ export function bufferProcessingMode(
 
 /**
  * The single decode → transform → encode path for a log message buffer.
- * Passthrough (no decode) when json_parse_logs and pii_scrub_logs are off, there are no `stages`, and
- * no `onRecordsDecoded` visitor.
- * Otherwise: decode → normalize (optional PII scrub on `body`, then optional JSON parse + enrich) →
+ * Passthrough (no decode) when body parsing, attribute extraction and PII scrubbing are off,
+ * there are no `stages`, and no `onRecordsDecoded` visitor.
+ * Otherwise: decode → normalize (PII scrub, selected-attribute extraction, body enrichment) →
  * `onRecordsDecoded` visitor → run `stages` in order → encode.
  *
  * When both `json_parse_logs` and `pii_scrub_logs` are on, scrub runs **before** parse/enrich so flattened JSON
