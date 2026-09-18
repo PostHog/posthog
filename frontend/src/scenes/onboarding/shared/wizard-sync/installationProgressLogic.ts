@@ -119,10 +119,23 @@ export interface WizardPendingInput {
     prompts: string[]
 }
 
+/**
+ * Why a run is in the error phase. `lost_contact` is the run nobody ever settled — the CLI or the
+ * stream stopped reporting — as opposed to `failed`, a run that reported its own failure. The two
+ * read the same on screen but call for different handling, and only the split makes them countable.
+ */
+export type InstallationErrorKind = 'failed' | 'lost_contact'
+
+export interface InstallationError {
+    title: string
+    detail: string | null
+    kind: InstallationErrorKind
+}
+
 export interface InstallationProgress {
     phase: InstallationPhase
     steps: InstallationStep[]
-    error: { title: string; detail: string | null } | null
+    error: InstallationError | null
     prUrl: string | null
     /** The bound PR was merged (webhook-recorded on the run's output). */
     prMerged: boolean

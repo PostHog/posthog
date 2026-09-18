@@ -2,10 +2,12 @@ import { useActions, useValues } from 'kea'
 import { useEffect, useRef } from 'react'
 
 import { elapsedSecondsFrom } from 'lib/utils/datetime'
+import { sceneLogic } from 'scenes/sceneLogic'
+import { Scene } from 'scenes/sceneTypes'
 import { userLogic } from 'scenes/userLogic'
 
 import { onboardingEventUsageLogic } from '../../onboardingEventUsageLogic'
-import { isRunStale, resolveStartedByLabel } from './helpers'
+import { isLostContact, isRunStale, resolveStartedByLabel } from './helpers'
 import { useNow } from './hooks'
 import { InstallationProgress } from './installationProgressLogic'
 import { WizardSyncCard, WizardSyncMode } from './WizardSyncCard'
@@ -16,6 +18,15 @@ import { wizardSyncUiLogic } from './wizardSyncUiLogic'
 // Corner anchor for the collapsed card and the minimized launcher. The dialog is a portal, so it
 // positions itself.
 const CORNER = 'fixed bottom-5 right-5 z-[60]'
+
+// Scenes where a setup run is the reason the person is on the page, so a run that stopped reporting
+// is still worth the full card. Everywhere else it is a dead end from another task.
+const SETUP_SCENES: Scene[] = [Scene.Onboarding, Scene.OnboardingCoupon]
+
+// How long a run that stopped reporting keeps its surface before it retires itself. There is nothing
+// to wait for and nothing to act on, so the only question is how long the user gets to read it — the
+// run would otherwise sit in the corner until someone dismissed it.
+const LOST_CONTACT_RETIRE_MS = 5 * 60 * 1000
 
 // Shared presentation for a single run: the collapsed card or, once dismissed, the launcher, plus the
 // dialog. Owns the elapsed clock and reads the shared dismiss/expand UI state.
@@ -50,6 +61,7 @@ export function WizardSyncSurface({
     cancelling?: boolean
 }): JSX.Element {
     const { dismissedKey, dialogOpen } = useValues(wizardSyncUiLogic)
+    const { activeSceneId } = useValues(sceneLogic)
     const { dismiss, restore, openDialog, closeDialog, openHandoffDoc } = useActions(wizardSyncUiLogic)
     const { user } = useValues(userLogic)
     const startedByLabel = resolveStartedByLabel(progress.startedBy, user?.email)
@@ -60,18 +72,26 @@ export function WizardSyncSurface({
         reportWizardSyncRunDismissed,
         reportWizardSyncHandoffShown,
         reportWizardSyncHandoffDocOpened,
+        reportWizardSyncLostContact,
     } = useActions(onboardingEventUsageLogic)
     // `now` also feeds the staleness check, which needs a live clock while the run is non-terminal.
     const endMs = endedAt ? new Date(endedAt).getTime() : NaN
     const now = useNow(!Number.isNaN(endMs))
     const elapsedSeconds = startedAt ? elapsedSecondsFrom(startedAt, Number.isNaN(endMs) ? now : endMs) : 0
+    // A run that stopped reporting has nothing the user can do about it, so off the setup scenes it
+    // collapses to the launcher pill rather than putting a red panel over an unrelated page.
+    const lostContact = isLostContact(progress)
+    const collapsedForScene = lostContact && !SETUP_SCENES.some((scene) => scene === activeSceneId)
     // Input-required overrides minimize: the user who tucked the widget away mid-run is exactly the
     // one who will miss the prompt. The server clearing pending_input restores their choice.
-    const minimized = dismissedKey === runKey && !progress.pendingInput
+    const minimized = collapsedForScene || (dismissedKey === runKey && !progress.pendingInput)
     const isTerminal = progress.phase === 'completed' || progress.phase === 'error'
     // Only cloud runs can zombie like this: their handle is persisted browser state that outlives the
     // run, where a local run is gated by the session detector's own liveness poll.
     const stale = mode === 'cloud' && !isTerminal && isRunStale(startedAt, lastActivityAt, streamLost, now)
+    // What the widgets print in place of the elapsed clock. A lost-contact run counts too: its clock
+    // measures silence, not work.
+    const clockStopped = stale || lostContact
     const eventProps = { runKey, mode, phase: progress.phase }
 
     // The completed-handoff funnel (exposure + CTA impression) — deduped per run inside the events
@@ -93,18 +113,43 @@ export function WizardSyncSurface({
     // One-shot: a double-click can land two dispatches before the surface unmounts, which would
     // double-fire the dismissal telemetry and re-run onClear.
     const clearedRef = useRef(false)
-    // Clearing a finished run also closes the dialog before the surface unmounts.
-    const handleClear = onClear
-        ? () => {
+    // Clearing a finished run also closes the dialog before the surface unmounts. Only a dismissal
+    // the user asked for is reported; the run retiring itself is not one.
+    const clearRun = onClear
+        ? (reportDismissal: boolean) => {
               if (clearedRef.current) {
                   return
               }
               clearedRef.current = true
-              reportWizardSyncRunDismissed({ ...eventProps, elapsedSeconds })
+              if (reportDismissal) {
+                  reportWizardSyncRunDismissed({ ...eventProps, elapsedSeconds })
+              }
               closeDialog()
               onClear()
           }
         : undefined
+    const handleClear = clearRun ? () => clearRun(true) : undefined
+
+    // The one measurement of how often a run stops reporting, as opposed to failing: both land in
+    // the error phase, and until now only the dismissal was counted.
+    const surface = collapsedForScene ? 'launcher' : 'card'
+    // `elapsedSeconds` ticks every second, so it is read rather than watched — the report is
+    // deduped per run inside the events logic anyway.
+    useEffect(() => {
+        if (lostContact) {
+            reportWizardSyncLostContact({ runKey, mode, surface, elapsedSeconds: Math.round(elapsedSeconds) })
+        }
+    }, [lostContact, runKey]) // oxlint-disable-line react-hooks/exhaustive-deps
+
+    // Retire the run once the reading window is up. `lostContact` flips at most once per run, so
+    // the timer is armed once and the elapsed clock's re-renders do not push it out.
+    useEffect(() => {
+        if (!lostContact || !clearRun) {
+            return
+        }
+        const id = window.setTimeout(() => clearRun(false), LOST_CONTACT_RETIRE_MS)
+        return () => window.clearTimeout(id)
+    }, [lostContact]) // oxlint-disable-line react-hooks/exhaustive-deps
     const handleMinimize = (): void => {
         reportWizardSyncMinimized(eventProps)
         dismiss(runKey)
@@ -118,10 +163,17 @@ export function WizardSyncSurface({
                     <WizardSyncLauncher
                         progress={progress}
                         elapsedSeconds={elapsedSeconds}
-                        stale={stale}
+                        stale={clockStopped}
                         onRestore={() => {
                             reportWizardSyncRestored(eventProps)
-                            restore()
+                            // Restoring out of the scene collapse would re-collapse on the next
+                            // render, so the pill opens the dialog instead — which is a portal, and
+                            // carries the same detail and the same dismiss.
+                            if (collapsedForScene) {
+                                openDialog()
+                            } else {
+                                restore()
+                            }
                         }}
                     />
                 ) : (
@@ -129,7 +181,7 @@ export function WizardSyncSurface({
                         progress={progress}
                         elapsedSeconds={elapsedSeconds}
                         mode={mode}
-                        stale={stale}
+                        stale={clockStopped}
                         startedByLabel={startedByLabel}
                         onViewReport={handleViewReport}
                         onExpand={() => {
@@ -149,7 +201,7 @@ export function WizardSyncSurface({
                 progress={progress}
                 elapsedSeconds={elapsedSeconds}
                 mode={mode}
-                stale={stale}
+                stale={clockStopped}
                 startedByLabel={startedByLabel}
                 onViewReport={handleViewReport}
                 isOpen={dialogOpen}
