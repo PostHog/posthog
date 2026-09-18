@@ -26,6 +26,9 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useSubscription } from "@trpc/tanstack-react-query";
 import { useCallback, useMemo } from "react";
 
+const DISCOVERY_FAILED =
+  "Connected, but listing the server's tools failed. Open the server to try again.";
+
 /**
  * The team's gateway server registry plus every server-level mutation:
  * connect/disconnect the caller's own credential, the member self-switch, and
@@ -75,6 +78,14 @@ export function useGatewayServers() {
     (client, match: GatewayServerMatch) => discoverGatewayTools(client, match),
     {
       onSuccess: (result) => {
+        // Losing the registry row leaves the same empty server as a failed
+        // listing, so it reports the same way. "no-connection" does not: the
+        // credential is mid-OAuth or needs reauth, which the server's own tag
+        // already says.
+        if (result.skipped === "no-server") {
+          toast.warning(DISCOVERY_FAILED);
+          return;
+        }
         if (!result.discovered || !result.serverId) return;
         queryClient.invalidateQueries({
           queryKey: gatewayKeys.serverTools(result.serverId),
@@ -84,10 +95,7 @@ export function useGatewayServers() {
       // A failed listing must not read as a failed connect, but it must not
       // pass silently either: the server then sits at "Connected" with no
       // tools and nothing says why.
-      onError: () =>
-        toast.warning(
-          "Connected, but listing the server's tools failed. Open the server to try again.",
-        ),
+      onError: () => toast.warning(DISCOVERY_FAILED),
     },
   );
   const discoverTools = discoverToolsMutation.mutate;

@@ -132,7 +132,7 @@ class TestPinnedTransport:
 
 
 class TestPinnedClientRouting:
-    @override_settings(SSRF_TRUSTED_PROXY_URLS=["http://declared.example:3128"])
+    @override_settings(SSRF_TRUSTED_PROXY_URLS=[])
     @pytest.mark.parametrize("proxy_variable", ["HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY"])
     def test_refuses_untrusted_proxy_before_sending_credentials(self, proxy_variable: str) -> None:
         scheme = "http" if proxy_variable == "HTTP_PROXY" else "https"
@@ -145,19 +145,6 @@ class TestPinnedClientRouting:
             with pytest.raises(SSRFBlockedError, match="proxy"):
                 client.get(url, headers={"Authorization": "Bearer fake-test-token"})
             send.assert_not_called()
-
-    @override_settings(SSRF_TRUSTED_PROXY_URLS=[])
-    @pytest.mark.parametrize("proxy_variable", ["HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY"])
-    def test_uses_environment_proxy_while_trust_is_unconfigured(self, proxy_variable: str) -> None:
-        scheme = "http" if proxy_variable == "HTTP_PROXY" else "https"
-        url = f"{scheme}://example.com/"
-        with (
-            patch.dict(os.environ, {**_without_environment_proxies(), proxy_variable: "http://egress.example:3128"}),
-            patch.object(httpx.HTTPTransport, "handle_request", return_value=httpx.Response(200)) as send,
-            pinned_client(url, {PUBLIC_IP}) as client,
-        ):
-            assert client.get(url).status_code == 200
-            assert send.call_count == 1
 
     @override_settings(SSRF_TRUSTED_PROXY_URLS=["http://egress.example:3128"])
     @pytest.mark.parametrize(

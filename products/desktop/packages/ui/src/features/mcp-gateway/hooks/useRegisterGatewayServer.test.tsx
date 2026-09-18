@@ -149,6 +149,18 @@ describe("useRegisterGatewayServer", () => {
     );
   });
 
+  it("reports a server that vanished from the registry before the listing", async () => {
+    mocks.getServers.mockResolvedValue([]);
+
+    const outcome = await register();
+
+    expect(mocks.refreshTools).not.toHaveBeenCalled();
+    expect(outcome.created).toBeNull();
+    expect(mocks.toastWarning).toHaveBeenCalledWith(
+      "Added, but listing the server's tools failed. Open the server to try again.",
+    );
+  });
+
   it("skips the listing when the credential is still mid-OAuth", async () => {
     mocks.getServers.mockResolvedValue([
       gatewayServer({

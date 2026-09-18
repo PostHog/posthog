@@ -25,6 +25,9 @@ interface RegisterGatewayServerResult {
   error: string | null;
 }
 
+const DISCOVERY_FAILED =
+  "Added, but listing the server's tools failed. Open the server to try again.";
+
 /**
  * Registers a custom server with the gateway (Add-server form submit) and
  * resolves the resulting registry entry so the caller can navigate to it.
@@ -64,11 +67,15 @@ export function useRegisterGatewayServer() {
         { serverId: created?.id, url: vars.request.url },
         { servers },
       ).catch(() => {
-        toast.warning(
-          "Added, but listing the server's tools failed. Open the server to try again.",
-        );
+        toast.warning(DISCOVERY_FAILED);
         return null;
       });
+      // Losing the registry row leaves the same empty server as a failed
+      // listing. "no-connection" does not: the credential is mid-OAuth, which
+      // the server's own tag already says.
+      if (discovery?.skipped === "no-server") {
+        toast.warning(DISCOVERY_FAILED);
+      }
       return { created, discoveredTools: !!discovery?.discovered, error: null };
     },
     {
