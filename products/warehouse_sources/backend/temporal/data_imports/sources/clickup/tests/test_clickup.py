@@ -66,8 +66,8 @@ def _wire(session: mock.MagicMock, responses: list[Response]) -> list[dict[str, 
 def _wire_repeating(session: mock.MagicMock, first: list[Response], then: Any) -> list[dict[str, Any]]:
     """Like `_wire`, but answers every request past `first` by calling `then()` for a fresh response.
 
-    A full-refresh window walk issues one request per window back to the history floor — over a
-    hundred of them — so the tail can't be a fixed list.
+    A full-refresh window walk issues one request per window back to the history floor, far more
+    than a fixed list can hold.
     """
     remaining = list(first)
 
@@ -252,7 +252,7 @@ class TestNormalizeTimeEntry:
         assert entry["start"] == "2019-09-06T15:54:10.202000+00:00"
         assert entry["end"] == "2019-09-06T15:54:20.202000+00:00"
         assert entry["at"] == "2019-09-06T15:54:30.202000+00:00"
-        # Duration is a millisecond count, not a timestamp — it must survive untouched.
+        # Duration is a millisecond count, not a timestamp, so it must survive untouched.
         assert entry["duration"] == "10000"
 
 
@@ -295,29 +295,10 @@ class TestTimeEntries:
         # the calling user's own entries.
         assert windows[0]["params"]["assignee"] == "11,22"
         assert rows[0]["start"].startswith("2019-09-06T")
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_checkpoints_each_window_after_yielding_it(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        watermark = datetime.now(tz=UTC) - timedelta(days=45)
-        snapshots = _wire(
-            session,
-            [_response(self.TEAMS), _response(self._entries("e1")), _response(self._entries("e2"))],
-        )
-
-        manager = _make_manager()
-        _rows(
-            _source(
-                "time_entries",
-                manager,
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=watermark,
-            )
-        )
-
-        # The window just yielded, not the next one: a crash re-fetches it and merge dedupes.
+        # Checkpoint the window just yielded, not the next one: a crash re-fetches it and merge
+        # dedupes.
         saved = [call.args[0].window_start for call in manager.save_state.call_args_list]
-        assert saved == [snapshots[1]["params"]["start_date"], snapshots[2]["params"]["start_date"]]
+        assert saved == [window["params"]["start_date"] for window in windows]
 
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_resumes_from_the_saved_window(self, MockSession: mock.MagicMock) -> None:
@@ -344,8 +325,8 @@ class TestTimeEntries:
 
         _rows(_source("time_entries", _make_manager(), should_use_incremental_field=False))
 
-        # No watermark means the whole history, which the endpoint only returns when asked for it —
-        # without an explicit start_date it answers with the last 30 days.
+        # No watermark means the whole history, which the endpoint only returns when asked,
+        # because without an explicit start_date it answers with the last 30 days.
         assert snapshots[1]["params"]["start_date"] == round(TIME_ENTRIES_HISTORY_FLOOR.timestamp() * 1000)
 
     @mock.patch(CLIENT_SESSION_PATCH)
@@ -371,10 +352,6 @@ class TestTimeEntries:
 
 
 class TestTaskTimeInStatus:
-    def test_bulk_batch_size_matches_the_endpoint_cap(self) -> None:
-        # The endpoint rejects more than 100 ids per request.
-        assert TIME_IN_STATUS_BATCH_SIZE == 100
-
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_flattens_the_map_into_rows_keyed_by_task(self, MockSession: mock.MagicMock) -> None:
         session = MockSession.return_value

@@ -48,7 +48,7 @@ TIME_ENTRY_DATE_FIELDS = ("start", "end", "at")
 TIME_ENTRIES_WINDOW_DAYS = 30
 # Where a full refresh starts walking. The endpoint needs an explicit `start_date` (it otherwise
 # answers with just the last 30 days), and ClickUp itself launched in 2017, so no tracked time can
-# predate this. Roughly 110 windows as of now — cheap next to the per-task fan-outs.
+# predate this.
 TIME_ENTRIES_HISTORY_FLOOR = datetime(2017, 1, 1, tzinfo=UTC)
 
 # Get Bulk Tasks' Time in Status accepts at most 100 task ids per request.
@@ -446,8 +446,8 @@ def _time_in_status_rows(client: RESTClient, task_ids: list[str]) -> list[dict[s
     """One row per task from the bulk time-in-status endpoint.
 
     It answers with a map of task id -> {current_status, status_history} instead of a wrapped
-    array, so there is no data selector to point at — the whole body arrives as a single item and
-    is flattened here into rows carrying the task id the merge key needs.
+    array, so there is no data selector to point at. The whole body arrives as a single item and is
+    flattened here into rows carrying the task id the merge key needs.
     """
     rows: list[dict[str, Any]] = []
     for page in client.paginate(
@@ -583,8 +583,8 @@ def clickup_source(
         items=items,
         primary_keys=config.primary_keys,
         # Tasks are fetched newest-first (default ClickUp order). Time entries arrive in whatever
-        # order the endpoint chooses within a window — it documents no sort and takes no sort
-        # param. With sort_mode="desc" the pipeline only commits the cursor watermark once a sync
+        # order the endpoint chooses within a window, because it documents no sort and takes no
+        # sort param. With sort_mode="desc" the pipeline only commits the cursor watermark once a sync
         # fully completes, so a mid-sync crash never advances the cursor past unfetched rows. The
         # server filters (`date_updated_gt`, `start_date`/`end_date`), not row ordering, are what
         # bound each incremental fetch. Live ordering semantics were not verified against the API

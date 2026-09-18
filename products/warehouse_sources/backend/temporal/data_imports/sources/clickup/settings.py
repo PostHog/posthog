@@ -30,7 +30,7 @@ class ClickUpEndpointConfig:
     kind: EndpointKind
     primary_keys: list[str]
     # Key the array is wrapped under in the JSON response (e.g. {"spaces": [...]}). None when the
-    # response is not a wrapped array — the bulk time-in-status endpoint answers with a map keyed
+    # response is not a wrapped array. The bulk time-in-status endpoint answers with a map keyed
     # by task id, which `clickup.py` reshapes itself.
     data_key: Optional[str] = None
     # Resource path segment for team_scoped / space_children / list_children endpoints.
