@@ -4,7 +4,7 @@ from typing import Any
 
 from posthog.schema import AlertCondition, AlertConditionType, HogQLAlertConfig, HogQLAlertEvaluation
 
-from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS
+from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS, LimitContext
 
 from posthog.api.services.query import ExecutionMode
 from posthog.caching.calculate_results import calculate_for_query_based_insight
@@ -51,6 +51,7 @@ def _calculate_rows_and_columns(
     user: Any,
     execution_mode: ExecutionMode,
     require_complete_result: bool = False,
+    limit_context: LimitContext = LimitContext.QUERY_ASYNC,
 ) -> tuple[list, list[str] | None]:
     """Run a SQL insight and return (rows, column_names) — the fetch-and-validate prologue shared by
     the threshold and detector extractors. A ``None`` result means the query layer swallowed an error
@@ -62,6 +63,7 @@ def _calculate_rows_and_columns(
         execution_mode=execution_mode,
         user=user,
         analytics_props={"source": EventSource.ALERT},
+        limit_context=limit_context,
     )
     if require_complete_result and calculation_result.has_more is True:
         raise AlertDataUnavailableError(
@@ -237,6 +239,7 @@ def extract_hogql_detector_series(
         user=user,
         execution_mode=execution_mode,
         require_complete_result=config.evaluation == HogQLAlertEvaluation.LAST_ROW,
+        limit_context=LimitContext.ALERT_DETECTOR,
     )
     if len(rows) == 0:
         return ExtractionResult(

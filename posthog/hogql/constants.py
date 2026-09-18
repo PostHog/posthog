@@ -22,6 +22,7 @@ RESERVED_KEYWORDS = [*KEYWORDS, "team_id"]
 
 # Limit applied to SELECT statements without LIMIT clause when queried via the API
 DEFAULT_RETURNED_ROWS = 100
+DEFAULT_ALERT_DETECTOR_RETURNED_ROWS = 500
 # Max limit for all SELECT queries, and the default for CSV exports
 # Sync with frontend/src/queries/nodes/DataTable/DataTableExport.tsx
 MAX_SELECT_RETURNED_ROWS = 50000
@@ -89,6 +90,7 @@ type HogQLParserBackend = Literal["cpp-json", "rust-json", "rust-py"]
 class LimitContext(StrEnum):
     QUERY = "query"
     QUERY_ASYNC = "query_async"
+    ALERT_DETECTOR = "alert_detector"
     EXPORT = "export"
     COHORT_CALCULATION = "cohort_calculation"
     HEATMAPS = "heatmaps"
@@ -103,6 +105,7 @@ def get_max_limit_for_context(limit_context: LimitContext) -> int:
     if limit_context in (
         LimitContext.QUERY,
         LimitContext.QUERY_ASYNC,
+        LimitContext.ALERT_DETECTOR,
     ):
         return MAX_SELECT_RETURNED_ROWS  # 50k
     elif limit_context == LimitContext.EXPORT:
@@ -131,6 +134,8 @@ def get_default_limit_for_context(limit_context: LimitContext) -> int:
         return CSV_EXPORT_LIMIT
     elif limit_context in (LimitContext.QUERY, LimitContext.QUERY_ASYNC):
         return DEFAULT_RETURNED_ROWS  # 100
+    elif limit_context == LimitContext.ALERT_DETECTOR:
+        return DEFAULT_ALERT_DETECTOR_RETURNED_ROWS
     elif limit_context == LimitContext.POSTHOG_AI:
         return DEFAULT_POSTHOG_AI_RETURNED_ROWS  # 100
     elif limit_context == LimitContext.DATA_CATALOG:
