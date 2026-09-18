@@ -6,16 +6,15 @@ import json
 import math
 import logging
 import functools
-from collections.abc import Iterable, Iterator, Sequence
+from collections.abc import Iterable, Iterator, Mapping, Sequence
 from dataclasses import asdict
 from datetime import datetime, timedelta
-from typing import Any, Literal, NoReturn, Optional, cast
+from typing import TYPE_CHECKING, Any, Literal, NoReturn, Optional, cast
 
 from django.conf import settings
 from django.contrib.postgres.aggregates import ArrayAgg
 from django.db import IntegrityError, transaction
 from django.db.models import Count, Prefetch, Q, QuerySet, deletion
-from django.db.models.functions import JSONObject
 
 import grpc
 import requests
@@ -106,12 +105,19 @@ from products.feature_flags.backend.api.filters_schema import (
     FeatureFlagFiltersSerializer,
 )
 from products.feature_flags.backend.api.remote_config_shadow import shadow_compare_remote_config
+from products.feature_flags.backend.dependency_formats import (
+    DependencyConfigFormatError,
+    require_v1_config,
+    validate_dependency_formats,
+)
 from products.feature_flags.backend.encrypted_flag_payloads import (
     REDACTED_PAYLOAD_VALUE,
+    apply_approved_encrypted_payloads,
     encrypt_flag_payloads,
     get_decrypted_flag_payloads_protected,
+    restore_redacted_flag_payloads,
 )
-from products.feature_flags.backend.facade.config import detect_config_format
+from products.feature_flags.backend.facade.config import ConfigFormatError, detect_config_format
 from products.feature_flags.backend.filters_validation import collect_cross_field_violations, flatten_structural_errors
 from products.feature_flags.backend.flag_analytics import increment_request_count
 from products.feature_flags.backend.flag_limits import get_max_feature_flags_for_team
@@ -120,15 +126,15 @@ from products.feature_flags.backend.flag_status import (
     exclude_archived_unless_requested,
     filter_flags_by_active_param,
 )
-from products.feature_flags.backend.local_evaluation import _get_flag_properties_from_filters
 from products.feature_flags.backend.models.evaluation_context import normalize_context_name
 from products.feature_flags.backend.models.feature_flag import FeatureFlag, FeatureFlagDashboards
 from products.feature_flags.backend.models.team_feature_flag_policy_config import team_requires_flag_tags
+from products.feature_flags.backend.realtime_targeting import is_realtime_cohort_flag_targeting_enabled
 from products.feature_flags.backend.session_recording_links import (
-    REPLAY_LINKED_FLAG_DELETE_ERROR,
-    replay_linked_flag_ids,
-    teams_linking_flag,
-    teams_linking_flag_in_project,
+    REPLAY_GATE_DELETE_ERROR,
+    ReplayFlagGates,
+    replay_gated_flags,
+    teams_gating_replay_on_flag,
 )
 from products.feature_flags.backend.types import PropertyFilterType
 from products.feature_flags.backend.user_blast_radius import get_user_blast_radius
@@ -140,6 +146,9 @@ from products.feature_flags.backend.version_history import (
 )
 from products.product_tours.backend.models import ProductTour
 from products.surveys.backend.models import Survey
+
+if TYPE_CHECKING:
+    from pydantic import JsonValue
 
 logger = logging.getLogger(__name__)
 # Dedicated logger name (not `__name__`) so the underlying stdlib logger is created
@@ -237,7 +246,6 @@ def _count_filters_write_success(serializer: serializers.Serializer, operation: 
 
 BEHAVIOURAL_COHORT_FOUND_ERROR_CODE = "behavioral_cohort_found"
 
-REALTIME_COHORT_FLAG_TARGETING_FLAG = "realtime-cohort-flag-targeting"
 EARLY_EXIT_FLAG = "feature-flag-early-exit"
 
 # Gates enforcement of `feature_flag:write` on cross-resource flag mutations
@@ -395,25 +403,6 @@ def assert_feature_flag_write_scope(
         )
 
 
-def _is_realtime_cohort_flag_targeting_enabled(request, *, team: Team) -> bool:
-    """Check whether the realtime cohort flag targeting feature is enabled for this request."""
-    try:
-        user = getattr(request, "user", None)
-        if user is None or user.is_anonymous:
-            return False
-        organization_id = str(team.organization_id)
-        return feature_enabled_or_false(
-            REALTIME_COHORT_FLAG_TARGETING_FLAG,
-            user.distinct_id,
-            groups={"organization": organization_id, "project": str(team.uuid)},
-            group_properties={"organization": {"id": organization_id}, "project": {"id": team.id}},
-            only_evaluate_locally=False,
-            send_feature_flag_events=False,
-        )
-    except Exception:
-        return False
-
-
 def _describe_behavioral_properties(behavioral_props: list[Property]) -> str | None:
     """Human-readable summary of which condition(s) on a cohort are behavioral, so a
     validation error can point at the specific thing to fix instead of a bare cohort name.
@@ -456,7 +445,7 @@ def _validate_behavioral_cohort_for_feature_flag(
                 code=BEHAVIOURAL_COHORT_FOUND_ERROR_CODE,
             )
         raise serializers.ValidationError(
-            detail=f"Cohort '{cohort.name}' is still being backfilled and cannot be used in feature flags yet. It will become available once its initial backfill completes.",
+            detail=f"Cohort '{cohort.name}' isn't ready for feature flags yet. Open the cohort to see whether PostHog is still preparing it, and try again once it shows as realtime.",
             code=BEHAVIOURAL_COHORT_FOUND_ERROR_CODE,
         )
 
@@ -1314,6 +1303,11 @@ class FeatureFlagSerializer(
             "is_used_in_replay_settings",
             "is_eligible_for_experiment",
         ]
+        # Server-owned timestamps. Neither is declared above, so ModelSerializer would otherwise
+        # build them as writable (`auto_now` makes `updated_at` read-only, but `created_at` only
+        # carries a default and `last_called_at` is a plain column). A client could then overwrite
+        # the usage telemetry staleness detection reads.
+        read_only_fields = ["created_at", "last_called_at"]
 
     def get_can_edit(self, feature_flag: FeatureFlag) -> bool:
         from typing import cast
@@ -1343,7 +1337,7 @@ class FeatureFlagSerializer(
         # ignoring type because mypy doesn't know about the surveys_linked_flag `related_name` relationship
 
     def get_is_used_in_replay_settings(self, feature_flag: FeatureFlag) -> bool:
-        """Check if this feature flag is used in any team's session recording linked flag setting."""
+        """Check if any team gates session recording on this flag, by linked flag or trigger group."""
         # Use annotated value if available (set by queryset annotation)
         if hasattr(feature_flag, "is_used_in_replay_settings_annotation"):
             return bool(feature_flag.is_used_in_replay_settings_annotation)
@@ -1351,7 +1345,27 @@ class FeatureFlagSerializer(
         if not hasattr(feature_flag, "team") or feature_flag.team is None:
             return False
         # Fallback to database query if annotation is not available
-        return teams_linking_flag(feature_flag).exists()
+        return teams_gating_replay_on_flag(feature_flag, key=feature_flag.key).exists()
+
+    def _validate_reactivated_dependency_formats(self, attrs: Mapping[str, JsonValue]) -> None:
+        """Empty filters retain stored targeting and bypass dependency checks in _validate_filters_inner.
+
+        Treat them as omitted so enabling or restoring an active flag still checks its dependencies.
+        """
+        if self.instance is None or self.initial_data.get("filters"):
+            return
+
+        enabling = attrs.get("active") is True and not self.instance.active
+        restoring_active = (
+            attrs.get("deleted") is False and self.instance.deleted and attrs.get("active", self.instance.active)
+        )
+        if not (enabling or restoring_active):
+            return
+
+        try:
+            self._validate_dependency_formats(self.instance.filters or {}, traverse=True)
+        except serializers.ValidationError as exc:
+            raise serializers.ValidationError({"filters": exc.detail}) from exc
 
     def validate(self, attrs):
         """Validate feature flag creation/update including evaluation tag requirements."""
@@ -1369,6 +1383,7 @@ class FeatureFlagSerializer(
         self._validate_device_bucketing_with_persist_auth(attrs)
         self._validate_encrypted_payloads_require_remote_config(attrs)
         self._validate_archived_flags_are_disabled(attrs)
+        self._validate_reactivated_dependency_formats(attrs)
         self._validate_flag_limits()
 
         # Materialize the remote-config 100% rollout default here, before the approval gate runs in
@@ -1593,7 +1608,7 @@ class FeatureFlagSerializer(
         """
         get_team = self.context.get("get_team")
         team = get_team() if get_team else Team.objects.get(pk=self.context["team_id"])
-        return _is_realtime_cohort_flag_targeting_enabled(self.context["request"], team=team)
+        return is_realtime_cohort_flag_targeting_enabled(self.context["request"], team=team)
 
     def validate_filters(self, filters):
         # Metrics wrapper: one increment per rejected write. `rejected` means a switch-gated
@@ -1821,9 +1836,13 @@ class FeatureFlagSerializer(
 
         # Circular dependency checks only apply to person-aggregated conditions
         # since flag-based property filters only work with person aggregation
+        # The cycle walk checks target formats through _validate_flag_reference as it
+        # resolves each edge. Group-only conditions skip that walk, so check them separately.
         has_person_condition = any(c.get("aggregation_group_type_index") is None for c in well_formed_groups)
         if has_person_condition:
             self._check_flag_circular_dependencies(merged)
+        else:
+            self._validate_dependency_formats(merged, traverse=True)
 
         if structurally_valid:
             # Cross-field tier (#50084): variant sums, key uniqueness, payload/variant
@@ -1931,6 +1950,23 @@ class FeatureFlagSerializer(
                 f"Please simplify conditions or reduce payload sizes."
             )
 
+    def _validate_dependency_formats(
+        self, filters: Mapping[str, JsonValue], *, traverse: bool = False, flag_id: int | None = None
+    ) -> None:
+        try:
+            if traverse:
+                validate_dependency_formats(filters, project_id=self.context["project_id"])
+            else:
+                require_v1_config(filters)
+        except ConfigFormatError as exc:
+            if isinstance(exc, DependencyConfigFormatError):
+                flag_id = exc.flag_id
+            dependency = f"Flag dependency with ID {flag_id}" if flag_id is not None else "A flag dependency"
+            raise serializers.ValidationError(
+                f"{dependency} uses an unsupported configuration format. Remove this dependency to continue.",
+                code="unsupported_dependency_config_version",
+            ) from exc
+
     def _validate_flag_reference(self, flag_reference):
         """Validate and convert flag reference to flag key."""
         from posthog.utils import safe_int
@@ -1952,6 +1988,7 @@ class FeatureFlagSerializer(
                     f"Flag dependencies must reference active flags only."
                 )
 
+            self._validate_dependency_formats(flag.filters, flag_id=flag_id)
             return flag.key
         except FeatureFlag.DoesNotExist:
             raise serializers.ValidationError(f"Flag dependency references non-existent flag with ID {flag_id}")
@@ -1987,7 +2024,7 @@ class FeatureFlagSerializer(
     def _extract_flag_dependencies(self, filters):
         """Extract flag dependencies from filters."""
         dependencies = set()
-        for flag_prop in _get_flag_properties_from_filters(filters):
+        for flag_prop in self._get_properties_from_filters(filters, PropertyFilterType.FLAG):
             flag_reference = flag_prop.get("key")
             if flag_reference:
                 flag_key = self._validate_flag_reference(flag_reference)
@@ -2058,6 +2095,10 @@ class FeatureFlagSerializer(
         # the tombstone instead — same scheme as the soft-delete update path.
         # Only safe when no active dependent references it; re-check that
         # invariant and error clearly if violated.
+        #
+        # `teams_gating_replay_on_flag` reads `flag.team.project_id` below. That lazy load
+        # inherits `TeamManager`'s deferrals. `select_related("team")` builds its own projection
+        # and pulls the deprecated taxonomy columns once per row.
         soft_deleted_qs = FeatureFlag.objects_including_soft_deleted.filter(
             key=key,
             team__project_id=self.context["project_id"],
@@ -2067,12 +2108,12 @@ class FeatureFlagSerializer(
             soft_deleted_qs = soft_deleted_qs.exclude(pk=exclude_pk)
 
         for flag in soft_deleted_qs:
-            if teams_linking_flag_in_project(self.context["project_id"], flag.id).exists():
+            if teams_gating_replay_on_flag(flag, key=flag.key).exists():
                 # Hard-deleting fires no save, so nothing relinks the teams gating replay on
                 # this tombstone and they keep the key the new flag is about to claim. Rename
                 # instead and `relink_teams_on_key_change` moves them onto the tombstone. The
                 # blocker check still runs first: renaming a flag an active dependent references
-                # would silently break that dependent, whether or not a team links it for replay.
+                # would silently break that dependent, whether or not a team gates replay on it.
                 self._raise_if_key_reuse_blocked(flag)
                 flag.key = flag.tombstoned_key()
                 flag.save(update_fields=["key"])
@@ -2130,7 +2171,11 @@ class FeatureFlagSerializer(
         # any path that reaches create() without it (e.g. approved-CR re-apply builds a fresh payload).
         self._apply_remote_config_default_filters(validated_data, filters_key="filters")
 
-        encrypt_flag_payloads(validated_data)
+        approved_payloads = self.context.get("approval_encrypted_payloads")
+        if approved_payloads:
+            apply_approved_encrypted_payloads(validated_data, approved_payloads)
+        else:
+            encrypt_flag_payloads(validated_data)
 
         analytics_dashboards = validated_data.pop("analytics_dashboards", None)
 
@@ -2198,9 +2243,11 @@ class FeatureFlagSerializer(
             # Check for other flags that depend on this flag
             raise_if_flag_has_dependents(instance, action="delete")
 
-            # Check if flag is used in session replay settings
-            if teams_linking_flag(instance).exists():
-                raise exceptions.ValidationError(REPLAY_LINKED_FLAG_DELETE_ERROR)
+            # Asks the database rather than reading `is_used_in_replay_settings`. That field is
+            # annotated on the list action alone, so a delete never sees it today, and querying
+            # here keeps the guard reading live state if the annotation ever widens.
+            if teams_gating_replay_on_flag(instance, key=instance.key).exists():
+                raise exceptions.ValidationError(REPLAY_GATE_DELETE_ERROR)
 
             # If the flag is linked to any experiment, rename the key to free it up.
             # Append ID to the key when soft-deleting to prevent key conflicts.
@@ -2256,8 +2303,18 @@ class FeatureFlagSerializer(
             validated_data["has_encrypted_payloads"] = True
             filters = validated_data.get("filters")
             new_true_payload = ((filters or {}).get("payloads") or {}).get("true")
+            approved_payloads = self.context.get("approval_encrypted_payloads")
 
-            if not new_true_payload or new_true_payload == REDACTED_PAYLOAD_VALUE:
+            if approved_payloads:
+                # The approved change request holds its payload as ciphertext, separate from the
+                # change being replayed, which carries only the sentinel. Restore the stored
+                # ciphertext for the keys the approval does not carry, then swap the approved
+                # ciphertext in over the keys it does.
+                if filters is not None:
+                    stored_payloads = (instance.filters or {}).get("payloads") or {}
+                    filters["payloads"] = restore_redacted_flag_payloads(filters.get("payloads") or {}, stored_payloads)
+                apply_approved_encrypted_payloads(validated_data, approved_payloads)
+            elif not new_true_payload or new_true_payload == REDACTED_PAYLOAD_VALUE:
                 # Preserve the existing encrypted payload when the request didn't
                 # supply a fresh one — either because `filters.payloads` was
                 # omitted (partial PATCH from the V2 form), the redacted
@@ -2272,12 +2329,7 @@ class FeatureFlagSerializer(
                         raise exceptions.ValidationError(
                             "An encrypted payload is required when has_encrypted_payloads is true."
                         )
-                    payloads = filters.get("payloads") or {}
-                    # validate_filters substitutes the sentinel for every stored key, so restoring
-                    # only "true" would persist the placeholder over the other keys' ciphertext.
-                    for key, value in payloads.items():
-                        if value == REDACTED_PAYLOAD_VALUE and key in stored_payloads:
-                            payloads[key] = stored_payloads[key]
+                    payloads = restore_redacted_flag_payloads(filters.get("payloads") or {}, stored_payloads)
                     payloads["true"] = stored_payloads["true"]
                     filters["payloads"] = payloads
             else:
@@ -3365,9 +3417,16 @@ class FeatureFlagViewSet(
         """Apply filters from request query params to queryset."""
         return self._apply_filters(request.GET.dict(), queryset)
 
-    def safely_get_queryset(self, queryset) -> QuerySet:
-        from django.db.models import Exists, OuterRef
+    @functools.cached_property
+    def _replay_gates(self) -> ReplayFlagGates:
+        """The project's replay gates, scanned once per request.
 
+        `bulk_delete` tests every flag in the batch against these, and `safely_get_queryset` runs
+        more than once per request, so both share one scan.
+        """
+        return replay_gated_flags(self.project_id)
+
+    def safely_get_queryset(self, queryset) -> QuerySet:
         from products.early_access_features.backend.models import EarlyAccessFeature
         from products.feature_flags.backend.models.evaluation_context import FeatureFlagEvaluationContext
 
@@ -3398,19 +3457,12 @@ class FeatureFlagViewSet(
             )
         )
 
-        # Matches the containment check in FeatureFlagSerializer.get_is_used_in_replay_settings,
-        # so the annotated and unannotated paths agree. Containment never casts, so a
-        # non-integer id in the JSON yields False instead of erroring the query.
-        queryset = queryset.annotate(
-            is_used_in_replay_settings_annotation=Exists(
-                Team.objects.filter(
-                    project_id=OuterRef("team__project_id"),
-                    session_recording_linked_flag__contains=JSONObject(id=OuterRef("id")),
-                )
-            )
-        )
-
         if self.action == "list":
+            # Only the list page serializes enough flags to earn the scan. Elsewhere the
+            # serializer's per-flag fallback costs the same single query, and most detail actions
+            # never read the field.
+            queryset = queryset.annotate(is_used_in_replay_settings_annotation=self._replay_gates.as_q())
+
             queryset = (
                 queryset.filter(deleted=False)
                 .prefetch_related("analytics_dashboards")
@@ -3843,7 +3895,10 @@ class FeatureFlagViewSet(
         detail=True,
         required_scopes=["feature_flag:write"],
         request=None,
-        responses=flag_lifecycle_responses("The flag is archived, or one of the flags it depends on is disabled."),
+        responses=flag_lifecycle_responses(
+            "The flag is archived, one of the flags it depends on is disabled, or a flag it "
+            "depends on uses an unsupported configuration format."
+        ),
     )
     def enable(self, request: request.Request, **kwargs) -> Response:
         """
@@ -3851,8 +3906,8 @@ class FeatureFlagViewSet(
 
         Sets `active` to true and changes nothing else. Targeting, variants, payloads, tags and
         archived state are left as they are. An archived flag is refused: unarchive it first. A
-        flag whose own flag dependencies are disabled is also refused. An already-enabled flag
-        is returned unchanged.
+        flag whose own flag dependencies are disabled or use an unsupported configuration
+        format is also refused. An already-enabled flag is returned unchanged.
         """
         return self._set_active(request, active=True)
 
@@ -4323,8 +4378,6 @@ class FeatureFlagViewSet(
         # Batch query for dependent flags
         dependent_flags_map = find_dependent_flags_batch(flags_list)
 
-        replay_linked_ids = replay_linked_flag_ids(self.project_id, [flag.id for flag in flags_list])
-
         deleted = []
         errors = []
 
@@ -4395,12 +4448,12 @@ class FeatureFlagViewSet(
 
             # Deleting a flag a team gates recording on stops that team recording, and the
             # tombstone rename below fires no signal to relink them.
-            if flag_id in replay_linked_ids:
+            if self._replay_gates.gates(flag):
                 errors.append(
                     {
                         "id": flag_id,
                         "key": flag.key,
-                        "reason": REPLAY_LINKED_FLAG_DELETE_ERROR,
+                        "reason": REPLAY_GATE_DELETE_ERROR,
                     }
                 )
                 continue

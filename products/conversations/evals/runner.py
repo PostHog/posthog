@@ -36,6 +36,7 @@ from products.conversations.backend.temporal.ai_reply.schemas import (
 from products.conversations.backend.temporal.pipeline import (
     SupportReplyWorkflow,
     support_build_context_activity,
+    support_clarify_activity,
     support_classify_activity,
     support_draft_activity,
     support_persist_knowledge_gap_activity,
@@ -72,6 +73,7 @@ WORKFLOW_ACTIVITIES: Sequence[Callable[..., Any]] = cast(
         support_draft_activity,
         support_validate_activity,
         support_review_reply_activity,
+        support_clarify_activity,
         support_persist_reply_activity,
         support_persist_knowledge_gap_activity,
         support_record_triage_activity,
@@ -107,6 +109,10 @@ def _mocked_draft(fixture: SupportReplyFixture, seed: SeededCase) -> DraftOutput
         confidence=draft.confidence,
         sources=sources,
         sandbox_seconds=0.0,
+        verdict=draft.verdict,
+        clarifying_questions=list(draft.clarifying_questions),
+        investigation_summary=draft.investigation_summary,
+        unknowns=list(draft.unknowns),
     )
 
 
@@ -119,6 +125,7 @@ def _mocked_validate(fixture: SupportReplyFixture) -> ValidateOutput:
         coverage=validate.coverage,
         confidence=validate.confidence,
         missing=list(validate.missing),
+        blocker=validate.blocker,
     )
 
 

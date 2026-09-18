@@ -180,25 +180,28 @@ impl FeatureFlagList {
             GROUP BY f.id, f.team_id, f.name, f.key, f.filters, f.deleted, f.active,
                      f.ensure_experience_continuity, f.version, f.evaluation_runtime
         "#;
-        let flags_row = sqlx::query_as::<_, FeatureFlagRow>(query)
-            .bind(team_id)
-            .fetch_all(&mut *conn)
-            .await
-            .map_err(|e| {
-                tracing::error!(
-                    "Failed to fetch feature flags from database for team {}: {}",
-                    team_id,
-                    e
-                );
-                let message = format!("Database query error: {e}");
-                FlagError::internal(anyhow::Error::new(e).context(message))
-            })?;
+        let flags_row = sqlx::query_as::<
+            _,
+            FeatureFlagRow<sqlx::types::Json<Box<serde_json::value::RawValue>>>,
+        >(query)
+        .bind(team_id)
+        .fetch_all(&mut *conn)
+        .await
+        .map_err(|e| {
+            tracing::error!(
+                "Failed to fetch feature flags from database for team {}: {}",
+                team_id,
+                e
+            );
+            let message = format!("Database query error: {e}");
+            FlagError::internal(anyhow::Error::new(e).context(message))
+        })?;
 
         let mut malformed_filter_flags: u64 = 0;
         let flags: Vec<FeatureFlag> = flags_row
             .into_iter()
             .filter_map(|row| {
-                match serde_json::from_value(row.filters) {
+                match crate::flags::config_format::decode_raw_filters(row.filters.0) {
                     Ok(filters) => Some(FeatureFlag {
                         id: row.id,
                         team_id: row.team_id,
@@ -1404,6 +1407,7 @@ mod tests {
             key: "test_flag".to_string(),
             has_experiment: false,
             filters: FlagFilters {
+                non_v1: None,
                 groups: vec![FlagPropertyGroup {
                     properties: Some(vec![
                         PropertyFilter {

@@ -8,6 +8,10 @@ JSON object keyed by normalized path to stdout::
 ``--purpose notifications`` resolves ``slack`` to the team's automation channel
 (falls back to the people channel); the default is the people channel.
 
+``--codeowners FILE`` switches to the other mode: it ignores the path arguments and writes a
+CODEOWNERS projection of every tracked test file's ownership to FILE (``-`` for stdout), for a
+consumer that reads CODEOWNERS and cannot read ``owners.yaml``.
+
 ``--repo-root`` names the directory holding the ownership files. Without it the
 resolver locates the repo with ``git rev-parse``, which needs a real worktree; a
 consumer that fetched only the ``owners.yaml`` / ``product.yaml`` files into a
@@ -27,6 +31,7 @@ import argparse
 from pathlib import Path
 from typing import cast
 
+from .codeowners import package_dirs_from, project
 from .matcher import normalize_path
 from .resolver import DEFAULT_PURPOSE, OwnersResolver, Purpose, read_stdin_paths, resolution_to_wire
 
@@ -39,6 +44,12 @@ def main() -> None:
         default=None,
         help="Directory holding the ownership files; default: the enclosing git worktree",
     )
+    parser.add_argument(
+        "--codeowners",
+        metavar="FILE",
+        default=None,
+        help="Write a CODEOWNERS projection of test-file ownership to FILE ('-' for stdout) and exit",
+    )
     parser.add_argument("paths", nargs="*")
     ns = parser.parse_args()
     # A root that is not a directory reads as a repo with no ownership files, so every path
@@ -47,9 +58,18 @@ def main() -> None:
     if ns.repo_root is not None and not (ns.repo_root and Path(ns.repo_root).is_dir()):
         parser.error(f"--repo-root {ns.repo_root!r} is not a directory")
     repo_root = Path(ns.repo_root) if ns.repo_root is not None else None
-    paths = ns.paths or read_stdin_paths()
-
     resolver = OwnersResolver(repo_root=repo_root, purpose=cast("Purpose", ns.purpose))
+
+    if ns.codeowners:
+        tracked = resolver.tracked_files()
+        rendered = project(tracked, resolver, package_dirs_from(tracked)).render()
+        if ns.codeowners == "-":
+            sys.stdout.write(rendered)
+        else:
+            Path(ns.codeowners).write_text(rendered)
+        return
+
+    paths = ns.paths or read_stdin_paths()
     result = {normalize_path(path): resolution_to_wire(resolver.resolve(path)) for path in paths}
     json.dump(result, sys.stdout)
 

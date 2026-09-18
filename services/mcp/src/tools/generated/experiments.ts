@@ -214,7 +214,7 @@ const ExperimentCreateSchema = () => {
     return ExperimentsCreateBody.omit({
         start_date: true,
         end_date: true,
-        running_time_calculation: true,
+        parameters: true,
         excluded_variants: true,
         secondary_metrics: true,
         saved_metrics_ids: true,
@@ -238,6 +238,9 @@ const ExperimentCreateSchema = () => {
     }).extend({
         feature_flag: ExperimentsCreateBody.shape['feature_flag'].describe(
             'Variant split, rollout scope, payloads, and experience continuity for the auto-created feature flag, in the flag\'s own filters shape. This is the canonical input for flag config. If the user mentions a specific percentage, load the configuring-experiment-rollout skill and clarify before setting these values. Set filters.multivariate.variants (each with key and rollout_percentage; percentages must sum to 100) to customize the variant split. Set filters.groups to a single group [{"properties": [], "rollout_percentage": N}] (0-100) to control the overall fraction of users entering the experiment. Default: 50/50 control/test, 100% rollout. Omit this parameter entirely when feature_flag_key refers to a pre-existing flag: the experiment links to that flag as-is and explicit config is rejected. No specific variant key is required. The analysis baseline defaults to the variant keyed `control` (lowercase) when present, else the first variant; override with stats_config.baseline_variant_key. Convention: when the user describes variants as "A/B", "old/new", "original/redesign", or any other natural-language pair without naming explicit keys, key the baseline `control` and keep their wording in the variant `name`. When the user asks for specific keys, use them as-is and put the baseline first.'
+        ),
+        running_time_calculation: ExperimentsCreateBody.shape['running_time_calculation'].describe(
+            "Persist a running-time / sample-size plan onto the experiment (the planning target shown in the experiment's running-time panel). Object with optional keys: minimum_detectable_effect (percentage, e.g. 20 for a 20% lift), recommended_sample_size (total across all variants), recommended_running_time (days), and exposure_estimate_config."
         ),
     })
 }
@@ -264,8 +267,8 @@ const experimentCreate = (): ToolBase<ReturnType<typeof ExperimentCreateSchema>,
             if (params.holdout_id !== undefined) {
                 body['holdout_id'] = params.holdout_id
             }
-            if (params.parameters !== undefined) {
-                body['parameters'] = params.parameters
+            if (params.running_time_calculation !== undefined) {
+                body['running_time_calculation'] = params.running_time_calculation
             }
             if (params.exposure_criteria !== undefined) {
                 body['exposure_criteria'] = params.exposure_criteria
@@ -275,6 +278,9 @@ const experimentCreate = (): ToolBase<ReturnType<typeof ExperimentCreateSchema>,
             }
             if (params.allow_unknown_events !== undefined) {
                 body['allow_unknown_events'] = params.allow_unknown_events
+            }
+            if (params.tags !== undefined) {
+                body['tags'] = params.tags
             }
             const result = await context.api.request<Schemas.Experiment>({
                 method: 'POST',
@@ -292,11 +298,12 @@ const experimentCreate = (): ToolBase<ReturnType<typeof ExperimentCreateSchema>,
                 'start_date',
                 'end_date',
                 'created_at',
-                'parameters',
+                'running_time_calculation',
                 'metrics',
                 'metrics_secondary',
                 'conclusion',
                 'conclusion_comment',
+                'tags',
             ]) as typeof result
             return await withPostHogUrl(context, filtered, `/experiments/${filtered.id}`)
         },
@@ -351,7 +358,6 @@ const experimentCreateFromPrompt = (): ToolBase<
                 'start_date',
                 'end_date',
                 'created_at',
-                'parameters',
                 'metrics',
                 'metrics_secondary',
                 'conclusion',
@@ -423,6 +429,7 @@ const ExperimentDuplicateSchema = () => {
                     update_feature_flag_params: true,
                     version: true,
                     original_experiment: true,
+                    tags: true,
                 }).shape
             )
             .extend({ id: z.preprocess(castStringToInt, ExperimentsDuplicateCreateParams.shape['id']) })
@@ -767,6 +774,7 @@ const experimentList = (): ToolBase<
                     archived: params.archived,
                     created_by_id: params.created_by_id,
                     event: params.event,
+                    excluded_tags: params.excluded_tags,
                     feature_flag_id: params.feature_flag_id,
                     limit: params.limit,
                     offset: params.offset,
@@ -774,6 +782,7 @@ const experimentList = (): ToolBase<
                     prompt_name: params.prompt_name,
                     search: params.search,
                     status: params.status,
+                    tags: params.tags,
                 },
             })
             const filtered = {
@@ -792,6 +801,7 @@ const experimentList = (): ToolBase<
                         'status',
                         'created_at',
                         'updated_at',
+                        'tags',
                     ])
                 ),
             } as typeof result
@@ -1350,6 +1360,7 @@ const ExperimentUpdateSchema = () => {
                     start_date: true,
                     end_date: true,
                     feature_flag_key: true,
+                    parameters: true,
                     secondary_metrics: true,
                     filters: true,
                     deleted: true,
@@ -1396,9 +1407,6 @@ const experimentUpdate = (): ToolBase<ReturnType<typeof ExperimentUpdateSchema>,
             if (params.holdout_id !== undefined) {
                 body['holdout_id'] = params.holdout_id
             }
-            if (params.parameters !== undefined) {
-                body['parameters'] = params.parameters
-            }
             if (params.running_time_calculation !== undefined) {
                 body['running_time_calculation'] = params.running_time_calculation
             }
@@ -1435,6 +1443,9 @@ const experimentUpdate = (): ToolBase<ReturnType<typeof ExperimentUpdateSchema>,
             if (params.update_feature_flag_params !== undefined) {
                 body['update_feature_flag_params'] = params.update_feature_flag_params
             }
+            if (params.tags !== undefined) {
+                body['tags'] = params.tags
+            }
             const result = await context.api.request<Schemas.Experiment>({
                 method: 'PATCH',
                 path: `/api/projects/${encodeURIComponent(String(projectId))}/experiments/${encodeURIComponent(String(params.id))}/`,
@@ -1451,17 +1462,50 @@ const experimentUpdate = (): ToolBase<ReturnType<typeof ExperimentUpdateSchema>,
                 'start_date',
                 'end_date',
                 'created_at',
-                'parameters',
                 'running_time_calculation',
+                'excluded_variants',
                 'metrics',
                 'metrics_secondary',
                 'saved_metrics',
                 'conclusion',
                 'conclusion_comment',
+                'tags',
             ]) as typeof result
             return await withPostHogUrl(context, filtered, `/experiments/${filtered.id}`)
         },
     })
+
+const ExperimentsBulkUpdateTagsCreateSchema = () => {
+    const ExperimentsBulkUpdateTagsCreateBody = orvalSchemas.ExperimentsBulkUpdateTagsCreateBody()
+    return ExperimentsBulkUpdateTagsCreateBody
+}
+
+const experimentsBulkUpdateTagsCreate = (): ToolBase<
+    ReturnType<typeof ExperimentsBulkUpdateTagsCreateSchema>,
+    Schemas.BulkUpdateTagsResponse
+> => ({
+    name: 'experiments-bulk-update-tags-create',
+    schema: ExperimentsBulkUpdateTagsCreateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ExperimentsBulkUpdateTagsCreateSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.ids !== undefined) {
+            body['ids'] = params.ids
+        }
+        if (params.action !== undefined) {
+            body['action'] = params.action
+        }
+        if (params.tags !== undefined) {
+            body['tags'] = params.tags
+        }
+        const result = await context.api.request<Schemas.BulkUpdateTagsResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/experiments/bulk_update_tags/`,
+            body,
+        })
+        return result
+    },
+})
 
 const ExperimentsSessionEventDeltasCreateSchema = () => {
     const ExperimentsSessionEventDeltasCreateParams = orvalSchemas.ExperimentsSessionEventDeltasCreateParams()
@@ -1534,5 +1578,6 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'experiment-unarchive': experimentUnarchive,
     'experiment-unfreeze-exposure': experimentUnfreezeExposure,
     'experiment-update': experimentUpdate,
+    'experiments-bulk-update-tags-create': experimentsBulkUpdateTagsCreate,
     'experiments-session-event-deltas-create': experimentsSessionEventDeltasCreate,
 }

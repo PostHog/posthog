@@ -53,6 +53,7 @@ const USER_WITH_IDENTITY_PROVIDER_FEATURES = {
         ...MOCK_DEFAULT_ORGANIZATION,
         available_product_features: [
             AvailableFeature.SAML,
+            AvailableFeature.OIDC,
             AvailableFeature.SCIM,
             AvailableFeature.XAA_AUTHENTICATION,
         ].map((feature) => ({ key: feature, name: feature })),
@@ -136,6 +137,39 @@ const needsUpgradeDecorator = mswDecorator({
 })
 
 export const SAML: Story = { args: { configScope: ConfigScopeEnumApi.Saml } }
+export const OIDC: Story = {
+    args: { configScope: ConfigScopeEnumApi.Oidc },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/organizations/:id/identity_provider_configs/:configId': {
+                    ...IDENTITY_PROVIDER_CONFIG,
+                    config_scope: ConfigScopeEnumApi.Oidc,
+                    oidc_issuer_url: 'https://idp.example.com',
+                    oidc_client_id: 'example-client',
+                    has_oidc: true,
+                    has_oidc_client_secret: true,
+                },
+            },
+        }),
+    ],
+}
+export const OIDCNeedsUpgrade: Story = {
+    args: { configScope: ConfigScopeEnumApi.Oidc },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/users/@me': USER_WITHOUT_IDENTITY_PROVIDER_FEATURES,
+                '/api/organizations/:id/identity_provider_configs/:configId': {
+                    ...IDENTITY_PROVIDER_CONFIG,
+                    config_scope: ConfigScopeEnumApi.Oidc,
+                    has_oidc: true,
+                    has_oidc_client_secret: true,
+                },
+            },
+        }),
+    ],
+}
 export const SAMLNeedsUpgrade: Story = {
     args: { configScope: ConfigScopeEnumApi.Saml },
     decorators: [needsUpgradeDecorator],

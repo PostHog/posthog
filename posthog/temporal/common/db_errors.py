@@ -1,3 +1,5 @@
+import errno
+
 from django.db import InterfaceError, InternalError, OperationalError
 
 # Substrings identifying transient Postgres failures. pgbouncer kills queries that wait too long
@@ -47,10 +49,29 @@ _TRANSIENT_SQLSTATE_PREFIXES = ("57P",)
 # rather than by class prefix, because SQLSTATE class 25 (invalid transaction state) also covers
 # codes that are real transaction-handling bugs, not infra hiccups. psycopg raises this under
 # InternalError, not OperationalError, hence the wider isinstance check below.
-_TRANSIENT_SQLSTATES = ("25006",)
+#
+# deadlock_detected: Postgres picked one side of a lock-ordering race and rolled back our
+# transaction so the other side could proceed. The query itself isn't at fault, and retrying
+# resolves it because the race that caused it essentially never repeats identically.
+_TRANSIENT_SQLSTATES = ("25006", "40P01")
+
+
+def _is_too_many_open_files_error(error: BaseException) -> bool:
+    """True if opening a new app-DB connection failed because this worker is out of file descriptors.
+
+    The connect path's socket/selector setup raises a bare `OSError` — not a Django/psycopg
+    exception — when `socket()` hits EMFILE (this process's fd table is full) or ENFILE (the
+    system-wide table is full), before libpq has anything to wrap into `OperationalError`. Same
+    transient fd-pressure condition already classified this way for a source's own connect path
+    (`postgres.py::_is_too_many_open_files_error`) and for `cdp_producer.py`'s own-DB check: a
+    descriptor frees the moment another connection/handle in this worker closes.
+    """
+    return isinstance(error, OSError) and error.errno in (errno.EMFILE, errno.ENFILE)
 
 
 def is_transient_db_error(error: BaseException) -> bool:
+    if _is_too_many_open_files_error(error):
+        return True
     if not isinstance(error, OperationalError | InterfaceError | InternalError):
         return False
     sqlstate = getattr(error.__cause__, "sqlstate", None)

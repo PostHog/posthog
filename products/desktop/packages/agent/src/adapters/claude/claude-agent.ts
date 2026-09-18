@@ -45,6 +45,25 @@ import {
   type SDKUserMessage,
   type SlashCommand,
 } from "@anthropic-ai/claude-agent-sdk";
+import type { ContextWikiEnv } from "@posthog/harness/extensions/context-wiki";
+import {
+  createEnrichment,
+  type Enrichment,
+  type FileEnrichmentDeps,
+} from "@posthog/harness/extensions/enrichment";
+import {
+  isCloudRun,
+  LOCAL_TOOLS_MCP_NAME,
+  type LocalToolCtx,
+  resolveGithubToken,
+} from "@posthog/harness/extensions/local-tools";
+import {
+  classifyPostHogExecCall,
+  isUnclassifiedPostHogSubTool,
+  POSTHOG_PRODUCTS,
+  type PostHogProductId,
+  resolvePostHogExecPermissionRegex,
+} from "@posthog/harness/extensions/posthog-mcp-policy";
 import { leadingSlashCommand, serializeError } from "@posthog/shared";
 import { v7 as uuidv7 } from "uuid";
 import packageJson from "../../../package.json" with { type: "json" };
@@ -55,33 +74,14 @@ import {
   type SteerDeclineCause,
   steerDeclined,
 } from "../../acp-extensions";
-import {
-  createEnrichment,
-  type Enrichment,
-  type FileEnrichmentDeps,
-} from "../../enrichment/file-enricher";
 import { PostHogAPIClient } from "../../posthog-api";
-import { resolvePostHogExecPermissionRegex } from "../../posthog-exec-permission";
-import {
-  classifyPostHogExecCall,
-  isUnclassifiedPostHogSubTool,
-  POSTHOG_PRODUCTS,
-  type PostHogProductId,
-} from "../../posthog-products";
-import type { ContextWikiEnv, PostHogAPIConfig } from "../../types";
+import type { PostHogAPIConfig } from "../../types";
 import { text } from "../../utils/acp-content";
-import {
-  isCloudRun,
-  unreachable,
-  withAbort,
-  withTimeout,
-} from "../../utils/common";
-import { resolveGithubToken } from "../../utils/github-token";
+import { unreachable, withAbort, withTimeout } from "../../utils/common";
 import { Logger } from "../../utils/logger";
 import { Pushable } from "../../utils/streams";
 import { BaseAcpAgent } from "../base-acp-agent";
 import { isLocalSkillCommandChunk } from "../local-skill";
-import { LOCAL_TOOLS_MCP_NAME, type LocalToolCtx } from "../local-tools";
 import { visiblePromptBlocks } from "../prompt-blocks";
 import {
   resolveBedrockGatewayVariant,
@@ -409,7 +409,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
     this.emittedToolCalls = new Set();
     this.toolUseStreamCache = new Map();
     this.logger = new Logger({ debug: true, prefix: "[ClaudeAcpAgent]" });
-    this.enrichment = createEnrichment(options?.posthogApiConfig, this.logger);
+    this.enrichment = createEnrichment(options?.posthogApiConfig);
   }
 
   protected getEnrichmentDeps(): FileEnrichmentDeps | undefined {
