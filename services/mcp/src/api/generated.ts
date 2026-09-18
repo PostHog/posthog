@@ -759,22 +759,6 @@ export namespace Schemas {
     }
 
     /**
-     * * `created` - created
-     * * `updated` - updated
-     * * `cleared` - cleared
-     * * `noop` - noop
-     */
-    export type RuleWriteOutcomeEnum = typeof RuleWriteOutcomeEnum[keyof typeof RuleWriteOutcomeEnum];
-
-
-    export const RuleWriteOutcomeEnum = {
-      Created: 'created',
-      Updated: 'updated',
-      Cleared: 'cleared',
-      Noop: 'noop',
-    } as const;
-
-    /**
      * One stored rule, the same shape for object, resource, project and property rules.
      */
     export interface AccessControlStoredRule {
@@ -797,18 +781,6 @@ export namespace Schemas {
          * @nullable
          */
       role_id: string | null;
-    }
-
-    export interface AccessControlRuleWriteResponse {
-      /** What the write did: `created` or `updated` a rule, `cleared` an existing rule, or `noop` when asked to clear a rule that did not exist.
-       *
-       * * `created` - created
-       * * `updated` - updated
-       * * `cleared` - cleared
-       * * `noop` - noop */
-      outcome: RuleWriteOutcomeEnum;
-      /** The rule as stored after the write. Null when the rule was cleared or absent. */
-      rule: AccessControlStoredRule | null;
     }
 
     /**
