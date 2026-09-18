@@ -3,7 +3,7 @@ import { useRef } from 'react'
 
 import { LemonBanner, LemonDivider, LemonInput, LemonLabel, LemonSegmentedButton } from '@posthog/lemon-ui'
 
-import { hasWildcard, heatmapPagePath } from 'lib/components/heatmaps/heatmapUrlMatch'
+import { hasWildcard, heatmapPageUrl } from 'lib/components/heatmaps/heatmapUrlMatch'
 import type { HeatmapUrlFilter, HeatmapUrlMatchMode } from 'lib/components/heatmaps/heatmapUrlMatch'
 import ViewRecordingsPlaylistButton from 'lib/components/ViewRecordingButton/ViewRecordingsPlaylistButton'
 
@@ -30,7 +30,7 @@ function urlMatchSummary(
         return 'Shows every URL that fits this pattern. * stands for any text, everything else is matched as written.'
     }
     if (mode === 'page') {
-        return `Shows every visit to ${heatmapPagePath(url) ?? 'this page'}, whatever the query string.`
+        return `Shows every visit to ${heatmapPageUrl(url) ?? 'this page'}, whatever the query string.`
     }
     return 'Shows only visits to this exact URL, including its query string.'
 }

@@ -399,8 +399,6 @@ export const recordingClickmapLogic = kea<recordingClickmapLogicType>([
                     await breakpoint(150)
                     // heatmapDataLogic's href is shared and driven by the browser data-URL flow,
                     // so the replay payload's URL is the stable source of truth here
-                    // heatmapDataLogic's href is shared and driven by the browser data-URL flow,
-                    // so the replay payload's URL is the stable source of truth here
                     const urlFilter = values.recordingUrlFilter
                     if (!urlFilter) {
                         return null

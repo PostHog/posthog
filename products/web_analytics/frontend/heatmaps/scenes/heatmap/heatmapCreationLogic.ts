@@ -20,7 +20,7 @@ import {
     authorizedUrlListLogic,
     defaultAuthorizedUrlProperties,
 } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
-import { heatmapUrlPatternToRegex, resolveHeatmapUrlFilter } from 'lib/components/heatmaps/heatmapUrlMatch'
+import { hasWildcard, heatmapUrlPatternToRegex, resolveHeatmapUrlFilter } from 'lib/components/heatmaps/heatmapUrlMatch'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
@@ -36,7 +36,7 @@ import type { TeamPublicType, TeamType } from '~/types'
 
 import { savedPrewarmCreate } from 'products/web_analytics/frontend/generated/api'
 
-import { heatmapsBrowserLogic, isUrlPattern } from '../../components/heatmapsBrowserLogic'
+import { heatmapsBrowserLogic } from '../../components/heatmapsBrowserLogic'
 import type { PagePreflight } from '../../components/heatmapsBrowserLogic'
 import { ReplayIframeData, getStoredRecordingBackground } from '../../replayIframeData'
 import { HeatmapCreationContext, heatmapLogic } from './heatmapLogic'
@@ -685,7 +685,7 @@ export const heatmapCreationLogic = kea<heatmapCreationLogicType>([
                 }
                 actions.checkPageData({
                     url: values.effectiveDataUrl,
-                    matchType: isUrlPattern(values.effectiveDataUrl) ? 'pattern' : 'exact',
+                    matchType: hasWildcard(values.effectiveDataUrl) ? 'pattern' : 'exact',
                     trigger,
                 })
             },

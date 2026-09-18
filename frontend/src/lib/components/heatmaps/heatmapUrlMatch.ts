@@ -28,9 +28,9 @@ const normalizeUrlPath = (urlObj: URL): string => {
     return urlObj.toString()
 }
 
-export const heatmapPagePath = (url: string): string | null => {
+export const heatmapPageUrl = (url: string): string | null => {
     const parsed = parseUrl(url.trim())
-    return parsed ? parsed.pathname : null
+    return parsed ? `${parsed.origin}${parsed.pathname.replace(/\/+$/, '')}` : null
 }
 
 export const resolveHeatmapUrlFilter = (
@@ -50,11 +50,11 @@ export const resolveHeatmapUrlFilter = (
         return { href: segments.join('*'), matchType: 'pattern', regex: `^${segments.join('.*')}$` }
     }
     const parsed = parseUrl(trimmed)
-    if (!parsed) {
+    const page = heatmapPageUrl(trimmed)
+    if (!parsed || !page) {
         return null
     }
     if (mode === 'page') {
-        const page = `${parsed.origin}${parsed.pathname.replace(/\/+$/, '')}`
         const regex = `^${escapeUnescapedRegex(page)}\\/?(\\?.*)?(#.*)?$`
         return { href: regex, matchType: 'pattern', regex }
     }

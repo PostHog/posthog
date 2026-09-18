@@ -3,18 +3,14 @@ import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
 import { heatmapDataLogic } from 'lib/components/heatmaps/heatmapDataLogic'
+import { resolveHeatmapUrlFilter } from 'lib/components/heatmaps/heatmapUrlMatch'
 
 import { initKeaTests } from '~/test/init'
 
-import {
-    PagePreflight,
-    heatmapsBrowserLogic,
-    normalizeHeatmapDataUrl,
-    preflightBannerMessage,
-} from './heatmapsBrowserLogic'
+import { PagePreflight, heatmapsBrowserLogic, preflightBannerMessage } from './heatmapsBrowserLogic'
 
 describe('heatmapsBrowserLogic', () => {
-    describe('normalizeHeatmapDataUrl', () => {
+    describe('resolveHeatmapUrlFilter', () => {
         it.each([
             ['example.com', null],
             ['   ', null],
@@ -34,8 +30,9 @@ describe('heatmapsBrowserLogic', () => {
                 'https://example.com/users/*?tab=1',
                 { href: 'https\\:\\/\\/example\\.com\\/users\\/*\\?tab\\=1', matchType: 'pattern' },
             ],
-        ] as const)('normalizeHeatmapDataUrl(%s) → %s', (input, expected) => {
-            expect(normalizeHeatmapDataUrl(input)).toEqual(expected)
+        ] as const)('resolveHeatmapUrlFilter(%s) → %s', (input, expected) => {
+            const filter = resolveHeatmapUrlFilter(input)
+            expect(filter && { href: filter.href, matchType: filter.matchType }).toEqual(expected)
         })
     })
 
