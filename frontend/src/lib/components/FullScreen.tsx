@@ -39,7 +39,11 @@ export function FullScreen({ onExit }: { onExit?: () => any }): null {
             try {
                 window.removeEventListener('fullscreenchange', handler, false)
                 if (document.fullscreenElement !== null) {
-                    void document.exitFullscreen()
+                    // a rejection here escapes the try block, and the document is often already
+                    // torn down at this point (tab closing, navigation)
+                    document.exitFullscreen().catch((e) => {
+                        console.warn('Failed to leave native full-screen mode:', e)
+                    })
                 }
             } catch {
                 // will break on IE11
