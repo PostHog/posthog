@@ -891,8 +891,8 @@ tools:
             One event or action series, no breakdown and no compare mode. A `trendsFilter.display` of `Metric` has
             `metricShowChange` switched off for you. Use `agent` for a claim no single number settles: pass
             `instructions` saying what a later run must establish and `probe_hints` naming the issue ids, services, or
-            queries to look at; it runs on the scout you name in `skill_name`, or on the fleet's follow-up scout when you
-            name none. `next_run_at` is when to first look, so allow deploy and soak time. The verdict lands on the
+            queries to look at; it runs on the scout you name in `skill_name`, or on the fleet's follow-up scout when
+            you name none. `next_run_at` is when to first look, so allow deploy and soak time. The verdict lands on the
             report as a `check_result` entry people read in the inbox. Check `scout-report-check-list` first: a report
             holds at most five open checks, and a second check for the same claim is noise.
     scout-report-check-list:
