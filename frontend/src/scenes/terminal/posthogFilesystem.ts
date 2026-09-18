@@ -4,8 +4,8 @@ import { splitPath } from '~/layout/panel-layout/ProjectTree/utils'
 
 import { dashboardsRetrieve } from 'products/dashboards/frontend/generated/api'
 import { featureFlagsRetrieve } from 'products/feature_flags/frontend/generated/api'
-import { notebooksPartialUpdate, notebooksRetrieve } from 'products/notebooks/frontend/generated/api'
-import type { NotebookApi } from 'products/notebooks/frontend/generated/api.schemas'
+import { notebooksList, notebooksPartialUpdate, notebooksRetrieve } from 'products/notebooks/frontend/generated/api'
+import type { NotebookMinimalApi } from 'products/notebooks/frontend/generated/api.schemas'
 import { insightsRetrieve } from 'products/product_analytics/frontend/generated/api'
 
 import { MAX_TERMINAL_FILE_BYTES, TerminalFile, TerminalFilesystem, TerminalNode } from './terminalFilesystem'
@@ -77,6 +77,7 @@ Try:
   grep -r 'revenue' /posthog/files
   cat '/posthog/files/Unfiled/Notebooks/My notebook.md'
   vi '/posthog/files/Unfiled/Notebooks/My notebook.md'
+  jq '.title' /posthog/api/notebook/<short-id>.json
 
 Saving an existing .md notebook updates PostHog using your current permissions.
 Writes commit on fsync or close. Concurrent edits fail instead of overwriting
@@ -86,6 +87,9 @@ not supported. Work in /tmp for programs that save by renaming a temporary file,
 then use cat /tmp/edited.md > '/posthog/files/path/to/notebook.md'.
 
 Directories are a snapshot from startup. File contents load from the API on open.
+Listing directories never downloads object contents. Sizes are zero until a file
+is opened, then show its last known size. Startup uses the notebook index to find
+markdown notebooks without fetching their bodies.
 Restart the terminal to discover new or renamed objects. Unsupported object types
 expose their filesystem record as JSON. Legacy rich-text notebooks stay JSON.
 Characters that cannot appear in Unix filenames are percent-encoded. Duplicate
@@ -96,6 +100,9 @@ The VM has no network connection and receives no API tokens or session cookies.
 The browser makes authenticated requests through the existing PostHog APIs.
 Files are limited to 4 MiB. Use Ctrl+C to interrupt, Tab to complete, and the
 mouse wheel for scrollback. Run busybox to see the installed Unix utilities.
+jq 1.8.2 is installed for JSON queries and formatting.
+Select text to copy with Cmd+C (macOS) or Ctrl+Shift+C (Linux/Windows).
+Paste with Cmd+V or Ctrl+Shift+V, or use the Copy selection and Paste buttons.
 
 Browser agents can use window.posthogTerminal.write('ls\\n') and
 window.posthogTerminal.read() to interact with this same terminal.
@@ -175,51 +182,56 @@ export class PosthogFilesystem extends TerminalFilesystem {
         for (const entry of entries.filter((item) => item.type === 'folder')) {
             this.parent(splitPath(entry.path), this.files)
         }
-        // Bound API concurrency while inspecting notebook formats for their filename extensions.
-        for (let start = 0; start < entries.length; start += 8) {
-            const batch = await Promise.all(
-                entries.slice(start, start + 8).map(async (entry) => {
-                    if (entry.type === 'folder' || entry.user_access_level === 'none') {
-                        return
-                    }
-                    let notebook: NotebookApi | null = null
-                    if (entry.type === 'notebook' && entry.ref) {
-                        notebook = await notebooksRetrieve(this.projectId, entry.ref, { signal: this.signal })
-                    }
-                    return { entry, notebook }
-                })
-            )
-            for (const item of batch) {
-                if (!item) {
-                    continue
-                }
-                const { entry, notebook } = item
-                const markdown = notebook && markdownNode(notebook.content)
-                const parts = splitPath(entry.path)
-                const basename = terminalFilename(parts.pop() ?? 'Untitled')
-                const parent = this.parent(parts, this.files)
-                const extension = markdown ? '.md' : '.json'
-                let name = basename.endsWith(extension) ? basename : `${basename}${extension}`
-                if (parent.children!.has(name)) {
-                    name = `${basename}~${entry.id}${extension}`
-                }
-                let duplicate = 1
-                while (parent.children!.has(name)) {
-                    name = `${basename}~${entry.id}-${duplicate++}${extension}`
-                }
-                this.file(
-                    name,
-                    parent,
-                    markdown ? () => this.notebook(entry) : async () => jsonFile(await this.object(entry)),
-                    !!markdown &&
-                        (notebook?.user_access_level === null ||
-                            ['editor', 'manager'].includes(notebook?.user_access_level ?? ''))
+        const markdownNotebooks = new Map<string, NotebookMinimalApi>()
+        if (entries.some((entry) => entry.type === 'notebook')) {
+            let offset = 0
+            while (true) {
+                const page = await notebooksList(
+                    this.projectId,
+                    { contains: 'markdown-notebook', limit: 500, offset },
+                    { signal: this.signal }
                 )
-                const type = this.directory(terminalFilename(entry.type ?? 'unknown'), this.api)
-                const apiName = `${terminalFilename(entry.ref ?? entry.id)}.json`
-                if (!type.children!.has(apiName)) {
-                    this.file(apiName, type, async () => jsonFile(await this.object(entry)))
+                for (const notebook of page.results) {
+                    markdownNotebooks.set(notebook.short_id, notebook)
                 }
+                if (!page.next) {
+                    break
+                }
+                if (!page.results.length || offset > 50_000) {
+                    throw new Error('This notebook index is too large for the terminal experiment.')
+                }
+                offset += page.results.length
+            }
+        }
+        for (const entry of entries) {
+            if (entry.type === 'folder' || entry.user_access_level === 'none') {
+                continue
+            }
+            const notebook = entry.type === 'notebook' ? markdownNotebooks.get(entry.ref ?? '') : undefined
+            const parts = splitPath(entry.path)
+            const basename = terminalFilename(parts.pop() ?? 'Untitled')
+            const parent = this.parent(parts, this.files)
+            const extension = notebook ? '.md' : '.json'
+            let name = basename.endsWith(extension) ? basename : `${basename}${extension}`
+            if (parent.children!.has(name)) {
+                name = `${basename}~${entry.id}${extension}`
+            }
+            let duplicate = 1
+            while (parent.children!.has(name)) {
+                name = `${basename}~${entry.id}-${duplicate++}${extension}`
+            }
+            this.file(
+                name,
+                parent,
+                notebook ? () => this.notebook(entry) : async () => jsonFile(await this.object(entry)),
+                !!notebook &&
+                    (notebook.user_access_level === null ||
+                        ['editor', 'manager'].includes(notebook.user_access_level ?? ''))
+            )
+            const type = this.directory(terminalFilename(entry.type ?? 'unknown'), this.api)
+            const apiName = `${terminalFilename(entry.ref ?? entry.id)}.json`
+            if (!type.children!.has(apiName)) {
+                this.file(apiName, type, async () => jsonFile(await this.object(entry)))
             }
         }
     }

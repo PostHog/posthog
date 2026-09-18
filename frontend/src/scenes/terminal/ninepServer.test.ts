@@ -62,7 +62,14 @@ describe('PostHog 9P filesystem', () => {
     })
 
     it('reads UTF-8 by byte offset, and opens fresh content after a remote edit', async () => {
+        const load = jest.spyOn(filesystem.root.children!.get('note.md')!, 'open')
+        const stat = await request(24, new NinePWriter().number(2, 4).number(0x7ff, 8))
+        expect(stat.type).toBe(25)
+        stat.body.data(49)
+        expect(stat.body.number(8)).toBe(0)
+        expect(load).not.toHaveBeenCalled()
         expect(await open(0)).toBe(13)
+        expect(load).toHaveBeenCalledTimes(1)
         const response = await request(116, new NinePWriter().number(2, 4).number(2, 8).number(1024, 4))
         expect(decoder.decode(response.body.data(response.body.number(4)))).toBe('café 🦔\n')
         await request(120, new NinePWriter().number(2, 4))

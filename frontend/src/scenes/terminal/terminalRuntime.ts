@@ -1,20 +1,26 @@
 import { V86 } from 'v86'
 import wasmUrl from 'v86/build/v86.wasm?url'
 
+import jqUrl from 'public/terminal/jq-linux-i386.bin?url'
+
 import { NinePServer } from './ninepServer'
 
 const FIRMWARE = 'https://raw.githubusercontent.com/copy/v86/589487c7758a2775f606ec631bd78609497f6e05/bios'
 
 async function verifiedImage(url: string, sha256: string, signal: AbortSignal): Promise<ArrayBuffer> {
-    const response = await fetch(url, { signal, credentials: 'omit', referrerPolicy: 'no-referrer' })
+    const response = await fetch(url, {
+        signal,
+        credentials: 'omit',
+        referrerPolicy: 'no-referrer',
+    })
     if (!response.ok) {
-        throw new Error(`Linux image download failed (${response.status}). Retry starting the terminal.`)
+        throw new Error(`Terminal download failed (${response.status}). Retry starting the terminal.`)
     }
     const buffer = await response.arrayBuffer()
     const digest = await crypto.subtle.digest('SHA-256', buffer)
     const actual = Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('')
     if (actual !== sha256) {
-        throw new Error('Linux image verification failed. Reload PostHog before trying again.')
+        throw new Error('Terminal download verification failed. Reload PostHog before trying again.')
     }
     return buffer
 }
@@ -31,7 +37,7 @@ export class TerminalRuntime {
     constructor(private onOutput: (bytes: Uint8Array) => void) {}
 
     async start(server: NinePServer, signal: AbortSignal, onReady: () => void): Promise<void> {
-        const [bios, vgaBios, kernel] = await Promise.all([
+        const [bios, vgaBios, kernel, jq] = await Promise.all([
             verifiedImage(
                 `${FIRMWARE}/seabios.bin`,
                 '73e3f359102e3a9982c35fce98eb7cd08f18303ac7f1ba6ebfbe6cdc1c244d98',
@@ -47,10 +53,13 @@ export class TerminalRuntime {
                 '507a759c70ab7a490a233be454d0b5b88bc667956a410b531cb4edc091e2eb1c',
                 signal
             ),
+            verifiedImage(jqUrl, 'ba996e8ce436973e2f39e2639405a37e8c81ba8c722b71c83996278ad0af16dd', signal),
         ])
         if (signal.aborted || this.disposed) {
             return
         }
+        const bin = server.filesystem.directory('bin', server.filesystem.root)
+        server.filesystem.file('jq', bin, async () => ({ bytes: new Uint8Array(jq) })).size = jq.byteLength
         const emulator = (this.emulator = new V86({
             wasm_path: wasmUrl,
             bios: { buffer: bios },
@@ -86,6 +95,7 @@ export class TerminalRuntime {
                         'mkdir -p /posthog',
                         'umount /mnt',
                         'mount -t 9p -o trans=virtio,version=9p2000.L,cache=none host9p /posthog || exit',
+                        'cp /posthog/bin/jq /usr/bin/jq && chmod +x /usr/bin/jq || exit',
                         'stty -F /dev/ttyS1 raw -echo',
                         '{ while read -r rows cols; do stty -F /dev/ttyS0 rows "$rows" cols "$cols"; done < /dev/ttyS1 & }',
                         "alias ls='ls --color=auto'",

@@ -1,14 +1,15 @@
 import { fileSystemList } from '~/generated/core/api'
 import type { FileSystemApi } from '~/generated/core/api.schemas'
 
-import { notebooksPartialUpdate, notebooksRetrieve } from 'products/notebooks/frontend/generated/api'
-import type { NotebookApi } from 'products/notebooks/frontend/generated/api.schemas'
+import { notebooksList, notebooksPartialUpdate, notebooksRetrieve } from 'products/notebooks/frontend/generated/api'
+import type { NotebookApi, NotebookMinimalApi } from 'products/notebooks/frontend/generated/api.schemas'
 
 import { PosthogFilesystem, terminalFilename } from './posthogFilesystem'
 
 jest.mock('~/generated/core/api', () => ({ fileSystemList: jest.fn() }))
 jest.mock('products/notebooks/frontend/generated/api', () => ({
     notebooksRetrieve: jest.fn(),
+    notebooksList: jest.fn(),
     notebooksPartialUpdate: jest.fn(),
 }))
 
@@ -34,6 +35,12 @@ describe('PostHog filesystem projection', () => {
             content: [{ type: 'ph-markdown-notebook', attrs: { markdown: '# Hello 🦔', nodeId: 'preserved' } }],
         },
     } as NotebookApi
+    const notebookIndex: NotebookMinimalApi = {
+        ...notebook,
+        title: 'Notes',
+        deleted: false,
+        user_access_level: 'editor',
+    }
 
     beforeEach(() => {
         jest.clearAllMocks()
@@ -42,12 +49,23 @@ describe('PostHog filesystem projection', () => {
             next: null,
             results: [entry('note-1', 'Research/Notes')],
         })
+        jest.mocked(notebooksList).mockResolvedValue({
+            count: 2,
+            next: null,
+            results: [notebookIndex, { ...notebookIndex, short_id: 'note-2' }],
+        })
         jest.mocked(notebooksRetrieve).mockResolvedValue(notebook)
     })
 
     it('projects markdown without changing the stored path and saves with the version it read', async () => {
         const fs = new PosthogFilesystem('42', new AbortController().signal)
         await fs.load()
+        expect(notebooksRetrieve).not.toHaveBeenCalled()
+        expect(notebooksList).toHaveBeenCalledWith(
+            '42',
+            { contains: 'markdown-notebook', limit: 500, offset: 0 },
+            expect.anything()
+        )
         const file = fs.root.children!.get('files')!.children!.get('Research')!.children!.get('Notes.md')!
         expect(file.writable).toBe(true)
         const opened = await file.open!()
@@ -98,7 +116,10 @@ describe('PostHog filesystem projection', () => {
             count: 2,
             results: [entry('note-1', 'Notes'), { ...entry('hidden', 'Hidden'), user_access_level: 'none' }],
         })
-        jest.mocked(notebooksRetrieve).mockResolvedValue({ ...notebook, user_access_level: 'viewer' })
+        jest.mocked(notebooksList).mockResolvedValue({
+            count: 1,
+            results: [{ ...notebookIndex, user_access_level: 'viewer' }],
+        })
         const fs = new PosthogFilesystem('42', new AbortController().signal)
         await fs.load()
         const files = fs.root.children!.get('files')!

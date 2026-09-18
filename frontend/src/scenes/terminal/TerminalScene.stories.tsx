@@ -43,6 +43,10 @@ const meta: Meta<typeof TerminalScene> = {
                         ],
                     },
                 ],
+                '/api/projects/:projectId/notebooks/': () => [
+                    200,
+                    { count: 1, next: null, results: [{ short_id: 'demo-note', user_access_level: 'editor' }] },
+                ],
                 '/api/projects/:projectId/notebooks/demo-note/': () => [200, notebook],
             },
             patch: {

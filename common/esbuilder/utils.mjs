@@ -264,6 +264,7 @@ export const commonConfig = {
         'process.env.NODE_ENV': isDev ? '"development"' : '"production"',
     },
     loader: {
+        '.bin': 'file',
         '.wasm': 'file',
         '.ttf': 'file',
         '.png': 'file',
