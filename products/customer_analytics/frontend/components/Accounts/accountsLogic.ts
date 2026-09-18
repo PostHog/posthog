@@ -640,6 +640,7 @@ export interface accountsLogicMeta {
             searchQuery: string,
             tagsFilter: string[],
             assignmentStatus: AssignmentStatus,
+            includeChurnedAndIgnored: boolean,
             accountFilters: AccountFilter[]
         ) => number
         viewState: (
@@ -1030,17 +1031,19 @@ export const accountsLogic = kea<accountsLogicType>([
                     !!savingTags[accountId],
         ],
         activeFilterCount: [
-            (s) => [s.searchQuery, s.tagsFilter, s.assignmentStatus, s.accountFilters],
+            (s) => [s.searchQuery, s.tagsFilter, s.assignmentStatus, s.includeChurnedAndIgnored, s.accountFilters],
             (
                 searchQuery: string,
                 tagsFilter: string[],
                 assignmentStatus: AssignmentStatus,
+                includeChurnedAndIgnored: boolean,
                 accountFilters: AccountFilter[]
             ): number =>
                 [
                     !!searchQuery.trim(),
                     tagsFilter.length > 0,
                     assignmentStatus !== 'all',
+                    includeChurnedAndIgnored,
                     accountFilters.length > 0,
                 ].filter(Boolean).length,
         ],

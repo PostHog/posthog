@@ -541,6 +541,12 @@ describe('accountsLogic', () => {
             expect(logic.values.activeFilterCount).toBe(1)
         })
 
+        it('counts the churned-and-ignored opt-in toward activeFilterCount', () => {
+            expect(logic.values.activeFilterCount).toBe(0)
+            logic.actions.setIncludeChurnedAndIgnored(true)
+            expect(logic.values.activeFilterCount).toBe(1)
+        })
+
         it('selecting users forces the assigned status', async () => {
             logic.actions.setAssignmentStatus('unassigned')
             logic.actions.setAssignedToFilter([7])
