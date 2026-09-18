@@ -16,6 +16,7 @@ import { MaterializationRunActions } from 'products/data_warehouse/frontend/shar
 
 import { dataWarehouseViewsLogic } from './dataWarehouseViewsLogic'
 import { materializationJobsLogic } from './materializationJobsLogic'
+import { MaterializationStatusPanel } from './MaterializationStatusPanel'
 
 const ELIGIBLE_CHECK = {
     eligible: true,
@@ -93,6 +94,55 @@ describe('materializationJobsLogic', () => {
         logic?.unmount()
         featureFlagLogic.unmount()
         jest.useRealTimers()
+    })
+
+    it('shows saved run modes after incremental refresh is disabled', async () => {
+        const mocks = apiMocks({
+            isMaterialized: true,
+            incremental: {
+                enabled: false,
+                unique_key: ['day'],
+                incremental_key: 'day',
+            },
+        })
+        mocks.get!['/api/projects/:team_id/data_modeling_jobs/'] = [
+            200,
+            {
+                count: 2,
+                results: [
+                    {
+                        id: 'full-run',
+                        status: 'Completed',
+                        run_mode: 'full_refresh',
+                        full_refresh_reason: 'first run',
+                        rows_materialized: 20,
+                    },
+                    {
+                        id: 'incremental-run',
+                        status: 'Completed',
+                        run_mode: 'incremental',
+                        full_refresh_reason: null,
+                        rows_materialized: 5,
+                    },
+                ],
+            },
+        ]
+        useMocks(mocks)
+        logic = materializationJobsLogic({ viewId: 'view-1' })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadSavedQuerySuccess', 'loadDataModelingJobsSuccess'])
+
+        render(
+            createElement(MaterializationStatusPanel, {
+                viewId: 'view-1',
+                showRunActions: false,
+                showStatusSummary: false,
+            })
+        )
+
+        expect(screen.getByRole('columnheader', { name: 'Refresh mode' })).toBeTruthy()
+        expect(screen.getByLabelText('Full refresh. Reason: first run.')).toBeTruthy()
+        expect(screen.getByText('Incremental')).toBeTruthy()
     })
 
     it('pages through older runs without changing the latest run or growing polling requests', async () => {
