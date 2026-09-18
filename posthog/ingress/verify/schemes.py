@@ -129,7 +129,7 @@ class HmacSha256:
     def _expected_signature(self, secret: str, signed: bytes) -> str:
         return hmac_sha256_signature(secret, signed, encoding=self.encoding, prefix=self.prefix)
 
-    def rejects_headers(self, headers: Mapping[str, str]) -> bool:
+    def _headers_fail(self, headers: Mapping[str, str]) -> bool:
         provided = header_value(headers, self.signature_header)
         if not provided:
             return True
@@ -138,11 +138,17 @@ class HmacSha256:
         # Freshness needs the clock rather than the headers, so it stays in `_outcome`.
         return self.timestamp_header is not None and not header_value(headers, self.timestamp_header)
 
+    def rejects_headers(self, headers: Mapping[str, str]) -> bool:
+        # An unconfigured endpoint keeps answering NOT_CONFIGURED, whatever the headers carry.
+        if not self.secret_getter():
+            return False
+        return self._headers_fail(headers)
+
     def _outcome(self, *, body: bytes, headers: Mapping[str, str]) -> VerificationOutcome:
         secret = self.secret_getter()
         if not secret:
             return VerificationOutcome.NOT_CONFIGURED
-        if self.rejects_headers(headers):
+        if self._headers_fail(headers):
             return VerificationOutcome.INVALID
 
         # Present and well-shaped, because `rejects_headers` just said so.
