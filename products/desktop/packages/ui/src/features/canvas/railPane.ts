@@ -21,6 +21,9 @@ export type NavRailPane =
   | "command-center"
   | "loops"
   | "context"
+  | "classic"
+  | "library"
+  | "tools"
   | "feeds";
 
 /**
@@ -40,6 +43,9 @@ export const RAIL_PANE_ROOT: Readonly<Record<NavRailPane, string>> = {
   "command-center": "/command-center",
   loops: "/loops",
   context: "/spaces/context",
+  classic: "/classic",
+  library: "/library",
+  tools: "/tools",
   feeds: "/feeds",
 };
 
@@ -54,6 +60,9 @@ const CLAIMED: readonly NavRailPane[] = [
   "command-center",
   "loops",
   "context",
+  "classic",
+  "library",
+  "tools",
   "feeds",
 ];
 

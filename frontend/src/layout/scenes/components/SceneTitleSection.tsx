@@ -30,6 +30,7 @@ import { AnimatedSparkles } from 'scenes/max/components/AnimatedSparkles'
 import { UseMaxToolOptions, useMaxTool } from 'scenes/max/useMaxTool'
 import { sceneLogic } from 'scenes/sceneLogic'
 
+import { classicEmbedContext } from '~/layout/navigation-3000/classicEmbedContext'
 import { navigation3000Logic } from '~/layout/navigation-3000/navigationLogic'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
@@ -75,13 +76,13 @@ export function SceneTitlePanelButton({
     // Open Info tab if scene has panel content, otherwise default to PostHog AI
     const defaultTab = scenePanelIsPresent ? SidePanelTab.Info : SidePanelTab.Max
 
-    if (sidePanelOpen) {
+    if (sidePanelOpen || (classicEmbedContext && !scenePanelIsPresent)) {
         return null
     }
 
     return (
         <>
-            {!sceneMenuBarEnabled && (
+            {!sceneMenuBarEnabled && !classicEmbedContext && (
                 <ButtonPrimitive
                     className={cn(buttonClassName, maxButtonLabel && 'w-auto px-2')}
                     onClick={(e) => {

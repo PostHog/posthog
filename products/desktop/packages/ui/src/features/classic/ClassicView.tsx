@@ -1,0 +1,134 @@
+import { ArrowClockwiseIcon } from "@phosphor-icons/react";
+import { useServiceOptional } from "@posthog/di/react";
+import {
+  Button,
+  Empty,
+  EmptyContent,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyTitle,
+} from "@posthog/quill";
+import { getCloudUrlFromRegion } from "@posthog/shared";
+import { useAuthStateValue } from "@posthog/ui/features/auth/store";
+import { useMeQuery } from "@posthog/ui/features/auth/useMeQuery";
+import { LoadingState } from "@posthog/ui/primitives/LoadingState";
+import { type ReactElement, useCallback, useState } from "react";
+import {
+  CLASSIC_FRAME_COMPONENT,
+  type ClassicFrameComponent,
+  type ClassicFrameStatus,
+} from "./classicFrameHost";
+import { useClassicViewStore } from "./classicViewStore";
+
+export function ClassicContent({
+  Frame,
+  url,
+  accountId,
+}: {
+  Frame: ClassicFrameComponent;
+  url: string;
+  accountId: string;
+}): ReactElement {
+  const [status, setStatus] = useState<ClassicFrameStatus>("loading");
+  const [errorDetail, setErrorDetail] = useState<string>();
+  const onStatusChange = useCallback(
+    (next: ClassicFrameStatus, detail?: string): void => {
+      setStatus(next);
+      setErrorDetail(detail);
+    },
+    [],
+  );
+  const revision = useClassicViewStore((state) => state.revision);
+  const openDashboards = useClassicViewStore((state) => state.openDashboards);
+  const reload = (): void => {
+    setStatus("loading");
+    openDashboards();
+  };
+
+  return (
+    <section
+      className="flex h-full min-w-0 flex-col"
+      aria-label="PostHog web app"
+    >
+      <div className="relative min-h-0 flex-1">
+        <div
+          className={status === "ready" ? "size-full" : "invisible size-full"}
+        >
+          <Frame
+            key={revision}
+            url={url}
+            accountId={accountId}
+            onStatusChange={onStatusChange}
+          />
+        </div>
+        {status === "loading" && (
+          <div className="absolute inset-0 bg-background">
+            <LoadingState label="Loading PostHog" />
+          </div>
+        )}
+        {status === "error" && (
+          <div className="absolute inset-0 bg-background">
+            <Empty className="h-full rounded-none border-0">
+              <EmptyHeader>
+                <EmptyTitle>PostHog did not load</EmptyTitle>
+                <EmptyDescription>
+                  {errorDetail ?? "Check your connection, then select Reload."}
+                </EmptyDescription>
+              </EmptyHeader>
+              <EmptyContent>
+                <Button variant="primary" onClick={reload}>
+                  <ArrowClockwiseIcon />
+                  Reload
+                </Button>
+              </EmptyContent>
+            </Empty>
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
+
+export function ClassicView({
+  section = "library",
+}: {
+  section?: "library" | "tools";
+}): ReactElement {
+  const Frame = useServiceOptional<ClassicFrameComponent>(
+    CLASSIC_FRAME_COMPONENT,
+  );
+  const region = useAuthStateValue((state) => state.cloudRegion);
+  const projectId = useAuthStateValue((state) => state.currentProjectId);
+  const { data: user } = useMeQuery();
+
+  const cloudUrl = region ? getCloudUrlFromRegion(region) : "";
+  if (
+    !Frame ||
+    !cloudUrl ||
+    !(Frame.supportsUrl?.(cloudUrl) ?? (region === "us" || region === "eu"))
+  ) {
+    return (
+      <Empty>
+        <EmptyHeader>
+          <EmptyTitle>
+            Web pages are not available for this connection
+          </EmptyTitle>
+          <EmptyDescription>
+            Select a supported cloud connection, then try again.
+          </EmptyDescription>
+        </EmptyHeader>
+      </Empty>
+    );
+  }
+  if (!projectId || !user) return <LoadingState label="Loading project" />;
+
+  const url = `${cloudUrl}/project/${projectId}/home?__desktop_section=${section}`;
+  return (
+    <ClassicContent
+      key={`${user.uuid}:${url}`}
+      Frame={Frame}
+      url={url}
+      accountId={user.uuid}
+    />
+  );
+}

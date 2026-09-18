@@ -207,6 +207,8 @@ function RootLayout() {
     import.meta.env.DEV,
   );
   const channelsWorld = useChannelsWorld();
+  const showPostHogWeb =
+    channelsWorld && view.type !== "library" && view.type !== "tools";
   // The new channels layout has exactly one gate: its feature flag (no
   // sidebar toggle). When on it subsumes the channels alpha entirely.
   const channelsLayout = useChannelsLayout();
@@ -400,10 +402,10 @@ function RootLayout() {
           {/* Gated so an empty right-side group can't claim a no-drag rect
               in the title bar for nothing — every pixel without controls
               should drag the window. */}
-          {(billingEnabled || channelsWorld) && (
+          {(billingEnabled || showPostHogWeb) && (
             <Flex align="center" gap="2" className="no-drag ml-auto pr-3">
               <UsageButton />
-              {channelsWorld && (
+              {showPostHogWeb && (
                 <Button
                   variant="outline"
                   size="sm"

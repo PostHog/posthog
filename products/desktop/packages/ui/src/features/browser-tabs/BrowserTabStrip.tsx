@@ -759,6 +759,13 @@ function BrowserTabStripImpl() {
           case "loops":
             navigate({ to: "/loops", state });
             break;
+          case "classic":
+          case "library":
+            navigate({ to: "/library", state });
+            break;
+          case "tools":
+            navigate({ to: "/tools", state });
+            break;
           case "archived":
             navigate({ to: "/archived", state });
             break;

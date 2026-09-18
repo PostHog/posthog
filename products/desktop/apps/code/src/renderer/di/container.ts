@@ -94,6 +94,7 @@ import {
   BROWSER_TABS_CLIENT,
   type BrowserTabsClient,
 } from "@posthog/ui/features/browser-tabs/browserTabsClient";
+import { CLASSIC_FRAME_COMPONENT } from "@posthog/ui/features/classic/classicFrameHost";
 import {
   REVIEW_HOST,
   type ReviewHost,
@@ -154,6 +155,7 @@ import {
   reviewHost,
 } from "@renderer/features/code-review/reviewHost";
 import { ElectronArtifactHtmlFrame } from "@renderer/platform-adapters/electron-artifact-html-frame";
+import { ElectronClassicFrame } from "@renderer/platform-adapters/electron-classic-frame";
 import {
   taskDeletionHost,
   taskDeletionWorkspaceClient,
@@ -317,6 +319,8 @@ container.bind<ReviewHost>(REVIEW_HOST).toConstantValue(reviewHost);
 container
   .bind(ARTIFACT_HTML_FRAME_COMPONENT)
   .toConstantValue(ElectronArtifactHtmlFrame);
+
+container.bind(CLASSIC_FRAME_COMPONENT).toConstantValue(ElectronClassicFrame);
 
 // sessions MCP tool renderer slot
 container.bind(MCP_TOOL_BLOCK_COMPONENT).toConstantValue(McpToolBlock);

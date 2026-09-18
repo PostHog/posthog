@@ -24,6 +24,8 @@ import { cn } from 'lib/utils/css-classes'
 import { lazyWithRetry } from 'lib/utils/retryImport'
 import { urls } from 'scenes/urls'
 
+import { classicEmbedContext } from '~/layout/navigation-3000/classicEmbedContext'
+import { DesktopNavigation } from '~/layout/navigation-3000/DesktopNavigation'
 import {
     NavExperimentTab,
     PANEL_NAVBAR_COLLAPSE_THRESHOLD,
@@ -180,6 +182,7 @@ export function NavBar(): JSX.Element {
                 <div
                     className={cn(
                         'flex justify-between items-center',
+                        classicEmbedContext && !isLayoutNavCollapsed && 'hidden',
                         isLayoutNavCollapsed ? 'justify-center' : 'h-[var(--scene-layout-header-height)]'
                     )}
                 >
@@ -188,12 +191,12 @@ export function NavBar(): JSX.Element {
                             'flex-col items-center pt-2 pb-0': isLayoutNavCollapsed,
                         })}
                     >
-                        <NewAccountMenu isLayoutNavCollapsed={isLayoutNavCollapsed} />
+                        {!classicEmbedContext && <NewAccountMenu isLayoutNavCollapsed={isLayoutNavCollapsed} />}
 
                         {/* Collapsed nav has no room for the search bar, so it keeps the icon-only trigger */}
                         {isLayoutNavCollapsed && <NavSearchButton toggleCommand={toggleCommand} />}
 
-                        {isLayoutNavCollapsed && (
+                        {isLayoutNavCollapsed && !classicEmbedContext && (
                             <ButtonPrimitive
                                 className="group w-full justify-center"
                                 data-attr="nav-tab-chat-collapsed"
@@ -240,7 +243,11 @@ export function NavBar(): JSX.Element {
 
                 <Tabs.Root
                     className="z-[var(--z-main-nav)] flex flex-col flex-1 overflow-hidden"
-                    value={isLayoutNavCollapsed && navExperimentActiveTab === 'chat' ? 'home' : navExperimentActiveTab}
+                    value={
+                        classicEmbedContext || (isLayoutNavCollapsed && navExperimentActiveTab === 'chat')
+                            ? 'home'
+                            : navExperimentActiveTab
+                    }
                     onValueChange={(value) => {
                         posthog.capture('nav tab clicked', { tab: value })
                         setNavExperimentTab(value as NavExperimentTab)
@@ -250,9 +257,9 @@ export function NavBar(): JSX.Element {
                     }}
                     orientation={isLayoutNavCollapsed ? 'vertical' : 'horizontal'}
                 >
-                    <div className={cn('p-1', isLayoutNavCollapsed && 'hidden')}>
+                    <div className={cn('p-1', (isLayoutNavCollapsed || classicEmbedContext) && 'hidden')}>
                         <Tabs.List className="relative flex items-center gap-1 shrink-0 z-0 p-1 rounded-lg bg-(--color-bg-fill-highlight-50) dark:bg-surface-primary">
-                            {TAB_CONFIG.map((tab) => (
+                            {TAB_CONFIG.filter((tab) => !classicEmbedContext || tab.id !== 'chat').map((tab) => (
                                 <Tabs.Tab
                                     key={tab.id}
                                     value={tab.id}
@@ -291,12 +298,18 @@ export function NavBar(): JSX.Element {
 
                     <div className="flex-1 overflow-hidden relative">
                         <Tabs.Panel value="home" className="absolute inset-0 flex flex-col" keepMounted tabIndex={-1}>
-                            {isFlatNavEnabled ? <FlatNavBrowse /> : <NavTabBrowse />}
+                            {classicEmbedContext?.section ? (
+                                <DesktopNavigation />
+                            ) : isFlatNavEnabled ? (
+                                <FlatNavBrowse />
+                            ) : (
+                                <NavTabBrowse />
+                            )}
                         </Tabs.Panel>
                         {/* Lazy until first activated: the visited list only ever grows, so once
                             mounted the panel never unmounts — keepMounted then preserves it across
                             tab switches. Users who never open chat never pay for its chunk. */}
-                        {visitedNavTabs.includes('chat') && (
+                        {!classicEmbedContext && visitedNavTabs.includes('chat') && (
                             <Tabs.Panel
                                 value="chat"
                                 className="absolute inset-0 flex flex-col"
