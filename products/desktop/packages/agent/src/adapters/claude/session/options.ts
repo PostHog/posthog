@@ -49,6 +49,7 @@ import {
 } from "../machine-auth";
 import { type CodeExecutionMode, toSdkPermissionMode } from "../tools";
 import type { EffortLevel } from "../types";
+import type { RunBudgetGuard } from "./budget-guard";
 import { buildAppendedInstructions } from "./instructions";
 import { loadUserClaudeJsonMcpServers } from "./mcp-config";
 import { DEFAULT_MODEL, resolveFallbackModel } from "./models";
@@ -131,6 +132,7 @@ export interface BuildOptionsParams {
   machineAuth?: MachineClaudeAuth;
   /** Matched `bedrock-llm-gateway` variant; `test` serves this session from Bedrock. */
   bedrockGatewayVariant?: BedrockGatewayVariant;
+  budgetGuard?: RunBudgetGuard;
   /** Per-session context wiki mount — prevents global process.env mutation. */
   contextWiki?: ContextWikiEnv;
 }
@@ -377,6 +379,7 @@ function buildHooks(
   taskState: TaskState,
   onTaskStateChange: (() => Promise<void>) | undefined,
   rtkPrefix: string | undefined,
+  budgetGuard: RunBudgetGuard | undefined,
 ): Options["hooks"] {
   const postToolUseHooks = [
     createReadImageGuardHook(),
@@ -399,6 +402,9 @@ function buildHooks(
     preToolUseHooks.push(
       createSignedCommitGuardHook(logger, onEnsureLocalToolsConnected),
     );
+  }
+  if (budgetGuard) {
+    preToolUseHooks.push(budgetGuard.preToolUseHook());
   }
   // Registered last so the signed-commit guard evaluates the raw command first.
   if (rtkPrefix) {
@@ -695,6 +701,7 @@ export function buildSessionOptions(params: BuildOptionsParams): Options {
       params.taskState,
       params.onTaskStateChange,
       resolveRtkPrefix(process.env),
+      params.budgetGuard,
     ),
     outputFormat: params.outputFormat,
     abortController: getAbortController(

@@ -151,6 +151,7 @@ class TestGeneratePolicyYaml(TestCase):
             "AI_GATEWAY_PRODUCTS",
             "AI_GATEWAY_PRODUCT",
             "AI_GATEWAY_AI_STAGE",
+            "AI_GATEWAY_TOKEN_CAP_USD",
         ):
             self.assertIn(key, policy["env_policy"]["allow"])
 

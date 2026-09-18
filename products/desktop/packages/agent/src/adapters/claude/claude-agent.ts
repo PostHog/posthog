@@ -119,6 +119,11 @@ import {
   setMcpToolApprovalStates,
 } from "./mcp/tool-metadata";
 import { canUseTool } from "./permissions/permission-handlers";
+import {
+  type AssistantUsageLike,
+  type BudgetThresholdEvent,
+  RunBudgetGuard,
+} from "./session/budget-guard";
 import { getAvailableSlashCommands } from "./session/commands";
 import { SessionInitialization } from "./session/initialization";
 import { getSessionJsonlPath } from "./session/jsonl-hydration";
@@ -595,6 +600,45 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
     params: ListSessionsRequest,
   ): Promise<ListSessionsResponse> {
     return this.listSessions(params);
+  }
+
+  private async deliverBudgetSteer(
+    sessionId: string,
+    event: BudgetThresholdEvent,
+  ): Promise<void> {
+    const guard = this.session?.budgetGuard;
+    if (!guard) return;
+    const summary = `[BudgetGuard] ${event.stage}: $${event.spentUsd.toFixed(2)} of $${event.capUsd.toFixed(2)} spent, steering the turn`;
+    this.logger.warn(summary);
+    await this.client.extNotification(POSTHOG_NOTIFICATIONS.CONSOLE, {
+      sessionId,
+      level: "warn",
+      message: summary,
+    });
+    try {
+      const result = await this.prompt({
+        sessionId,
+        prompt: [
+          {
+            type: "text",
+            text: guard.steerText(event.stage),
+            _meta: { ui: { hidden: true }, budgetGuard: event.stage },
+          },
+        ],
+        _meta: { steer: true },
+      });
+      const meta = result._meta as
+        | { steer?: boolean; steerDeclineCause?: string }
+        | undefined;
+      if (meta?.steer !== true) {
+        this.logger.warn("[BudgetGuard] Steer not delivered", {
+          stage: event.stage,
+          cause: meta?.steerDeclineCause,
+        });
+      }
+    } catch (error) {
+      this.logger.warn("[BudgetGuard] Steer failed", { error });
+    }
   }
 
   async prompt(params: PromptRequest): Promise<PromptResponse> {
@@ -1270,6 +1314,14 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
             const isTaskNotification =
               (message as { origin?: { kind?: string } }).origin?.kind ===
               "task-notification";
+            const settledBudgetEvent = session.budgetGuard?.calibrate(
+              message.total_cost_usd,
+            );
+            if (settledBudgetEvent) {
+              this.logger.warn(
+                `[BudgetGuard] ${settledBudgetEvent.stage} at turn end: $${settledBudgetEvent.spentUsd.toFixed(2)} of $${settledBudgetEvent.capUsd.toFixed(2)} spent`,
+              );
+            }
 
             if (!isTaskNotification) {
               await this.syncFastModeState(
@@ -1575,6 +1627,12 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
 
             if (message.type === "assistant") {
               this.timeFirstModelOutput(session, sessionId);
+              const budgetEvent = session.budgetGuard?.recordAssistantMessage(
+                message.message as AssistantUsageLike,
+              );
+              if (budgetEvent) {
+                void this.deliverBudgetSteer(sessionId, budgetEvent);
+              }
               // Subagent output is a separate model context, so it is no
               // evidence the steer reached this turn's model.
               if (session.activeTurn && message.parent_tool_use_id === null) {
@@ -2710,6 +2768,12 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
     // Gate signed-commit wiring on cloud-run detection so the desktop (which
     // signs via CommitSaga) is untouched.
     const cloudRun = isCloudRun(meta);
+    const budgetGuard = cloudRun
+      ? RunBudgetGuard.fromEnv(process.env, this.logger)
+      : null;
+    if (budgetGuard) {
+      this.logger.info("[BudgetGuard] Armed", { capUsd: budgetGuard.capUsd });
+    }
     const effort = meta?.claudeCode?.options?.effort as EffortLevel | undefined;
 
     // We want to create a new session id unless it is resume,
@@ -2884,6 +2948,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       enrichmentDeps: this.enrichment?.deps,
       enrichedReadCache: this.enrichedReadCache,
       cloudMode: cloudRun,
+      budgetGuard: budgetGuard ?? undefined,
       onEnsureLocalToolsConnected: () =>
         this.ensureLocalToolsConnected("guard-hook"),
       taskState,
@@ -2922,6 +2987,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       cloudMode: cloudRun,
       posthogExecPermissionRegex,
       abortController,
+      budgetGuard: budgetGuard ?? undefined,
       accumulatedUsage: {
         inputTokens: 0,
         outputTokens: 0,

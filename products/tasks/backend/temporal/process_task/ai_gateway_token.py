@@ -222,7 +222,7 @@ def _cap_override(raw: str, key: str, setting_name: str) -> str | None:
     return f"{cap:f}"
 
 
-def _token_cap_usd(team_id: int, ai_product: str) -> str:
+def token_cap_usd(team_id: int, ai_product: str) -> str:
     """Per-run cap: the product override, else the team override, else the default.
 
     The product override wins because run cost tracks the kind of work, not who
@@ -255,7 +255,7 @@ def mint_scoped_token(*, ai_product: str, team_id: int, user: str | None = None)
         return None
 
     body: dict[str, Any] = {
-        "cap_usd": _token_cap_usd(team_id, ai_product),
+        "cap_usd": token_cap_usd(team_id, ai_product),
         "ttl_seconds": _token_ttl_seconds(ai_product),
         "product": ai_product,
         "obo": str(team_id),
