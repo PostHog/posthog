@@ -13,6 +13,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.circleci_i
     CIRCLECI_INSIGHTS_ENDPOINTS,
     DEFAULT_REPORTING_WINDOW,
     REPORTING_WINDOWS,
+    CircleciInsightsEndpointConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
@@ -22,10 +23,12 @@ CIRCLECI_BASE_URL = "https://circleci.com/api/v2"
 REQUEST_TIMEOUT_SECONDS = 60
 MAX_RETRIES = 5
 # Insights list endpoints return token-paginated pages (~250 runs / ~20 aggregates per page).
-# Aggregate listings are one row per workflow/job name so stay tiny; runs are bounded by
-# CircleCI's ~90-day Insights retention, so the caps below are generous runaway guards.
+# Aggregate listings are one row per workflow/job name so stay tiny; the row-level listings are
+# bounded by CircleCI's ~90-day Insights retention, so the caps below are generous runaway guards.
 MAX_METRIC_PAGES = 100
-MAX_RUN_PAGES_PER_WORKFLOW = 500
+MAX_ROW_PAGES_PER_WORKFLOW = 500
+# Endpoints whose rows are individual runs or interval buckets rather than one aggregate per name.
+ROW_LEVEL_FAN_OUT_ENDPOINTS = ("workflow_runs", "job_timeseries")
 # CircleCI rate-limits per token (not officially documented); 429s carry RateLimit-* headers
 # we honor before retrying.
 MAX_RATE_LIMIT_SLEEP_SECONDS = 120
@@ -256,6 +259,19 @@ def _branch_params(all_branches: bool) -> dict[str, Any]:
     return {"all-branches": "true"} if all_branches else {}
 
 
+def _endpoint_params(
+    config: CircleciInsightsEndpointConfig,
+    window: str,
+    all_branches: bool,
+) -> dict[str, Any]:
+    params: dict[str, Any] = dict(config.extra_params)
+    if config.takes_branch_params:
+        params.update(_branch_params(all_branches))
+    if config.takes_reporting_window:
+        params["reporting-window"] = window
+    return params
+
+
 def _discover_workflow_names(
     fetch_page: FetchPageFn,
     project_slug: str,
@@ -329,7 +345,7 @@ def get_rows(
             yield from _project_workflow_metrics_rows(
                 fetch_page, slug, window, all_branches, logger, resumable_source_manager, slug_resume
             )
-        elif endpoint in ("workflow_runs", "job_metrics"):
+        elif endpoint in ("workflow_runs", "job_metrics", "job_timeseries"):
             yield from _project_workflow_fan_out_rows(
                 fetch_page,
                 slug,
@@ -342,8 +358,14 @@ def get_rows(
                 should_use_incremental_field,
                 db_incremental_field_last_value,
             )
+        elif endpoint in ("workflow_summary", "workflow_test_metrics"):
+            yield from _project_workflow_object_fan_out_rows(
+                fetch_page, slug, endpoint, window, all_branches, logger, resumable_source_manager, slug_resume
+            )
         elif endpoint == "flaky_tests":
             yield from _project_flaky_tests_rows(fetch_page, slug, logger)
+        elif endpoint == "branches":
+            yield from _project_branches_rows(fetch_page, slug, logger)
         elif endpoint == "org_summary_metrics":
             yield from _org_summary_rows(fetch_page, slug, window, logger)
 
@@ -364,7 +386,7 @@ def _project_workflow_metrics_rows(
     for items, next_token in _iter_pages(
         fetch_page,
         f"/insights/{quote(project_slug, safe='/')}/workflows",
-        {"reporting-window": window, **_branch_params(all_branches)},
+        _endpoint_params(CIRCLECI_INSIGHTS_ENDPOINTS["workflow_metrics"], window, all_branches),
         logger,
         max_pages=MAX_METRIC_PAGES,
         resource=f"workflow metrics for {project_slug}",
@@ -395,17 +417,15 @@ def _project_workflow_fan_out_rows(
     config = CIRCLECI_INSIGHTS_ENDPOINTS[endpoint]
     workflow_names = _discover_workflow_names(fetch_page, project_slug, all_branches, logger)
 
-    params: dict[str, Any] = {**_branch_params(all_branches)}
-    if config.takes_reporting_window:
-        params["reporting-window"] = window
-    if endpoint == "workflow_runs" and should_use_incremental_field:
+    params: dict[str, Any] = _endpoint_params(config, window, all_branches)
+    if config.takes_start_date and should_use_incremental_field:
         start_date = _format_start_date(db_incremental_field_last_value)
         if start_date:
-            # Server-side filter: every page of the runs listing only returns runs created on
-            # or after this date (the filter rides along with the page token on later pages).
+            # Server-side filter: every page only returns rows dated on or after this date
+            # (the filter rides along with the page token on later pages).
             params["start-date"] = start_date
 
-    max_pages = MAX_RUN_PAGES_PER_WORKFLOW if endpoint == "workflow_runs" else MAX_METRIC_PAGES
+    max_pages = MAX_ROW_PAGES_PER_WORKFLOW if endpoint in ROW_LEVEL_FAN_OUT_ENDPOINTS else MAX_METRIC_PAGES
 
     resume_workflow = slug_resume.workflow_name if slug_resume is not None else None
     if resume_workflow is not None and resume_workflow not in workflow_names:
@@ -441,6 +461,74 @@ def _project_workflow_fan_out_rows(
                 )
 
 
+def _workflow_summary_row(data: dict[str, Any], project_slug: str, workflow_name: str) -> dict[str, Any]:
+    # `workflow_names` in the response lists every workflow in the project, so it describes the
+    # project rather than this row and is dropped.
+    return {
+        "project_slug": project_slug,
+        "workflow_name": workflow_name,
+        "metrics": data.get("metrics"),
+        "trends": data.get("trends"),
+    }
+
+
+def _workflow_test_metrics_rows(data: dict[str, Any], project_slug: str, workflow_name: str) -> list[dict[str, Any]]:
+    """Flatten the test-metrics response into one row per test. The API reports the same row shape
+    under both `most_failed_tests` and `slowest_tests`, and a test can appear in both, so the lists
+    are merged on test identity — the delta merge only dedupes across syncs, not within a batch."""
+    rows: dict[tuple[Any, ...], dict[str, Any]] = {}
+    for key in ("most_failed_tests", "slowest_tests"):
+        for item in data.get(key) or []:
+            if not isinstance(item, dict):
+                continue
+            identity = (item.get("job_name"), item.get("classname"), item.get("test_name"))
+            rows.setdefault(identity, {**item, "project_slug": project_slug, "workflow_name": workflow_name})
+    return list(rows.values())
+
+
+def _project_workflow_object_fan_out_rows(
+    fetch_page: FetchPageFn,
+    project_slug: str,
+    endpoint: str,
+    window: str,
+    all_branches: bool,
+    logger: FilteringBoundLogger,
+    resumable_source_manager: ResumableSourceManager[CircleciInsightsResumeConfig],
+    slug_resume: CircleciInsightsResumeConfig | None,
+) -> Iterator[list[dict[str, Any]]]:
+    """Fan out over a project's workflows for endpoints that return a single object per workflow
+    instead of a paginated listing, so resume granularity is one workflow."""
+    config = CIRCLECI_INSIGHTS_ENDPOINTS[endpoint]
+    workflow_names = _discover_workflow_names(fetch_page, project_slug, all_branches, logger)
+    params = _endpoint_params(config, window, all_branches)
+
+    resume_workflow = slug_resume.workflow_name if slug_resume is not None else None
+    if resume_workflow is not None and resume_workflow not in workflow_names:
+        # The workflow disappeared from the listing since the state was saved; walk them all.
+        resume_workflow = None
+
+    for workflow_name in workflow_names:
+        if resume_workflow is not None:
+            if workflow_name != resume_workflow:
+                # Workflows before the resume point were fully synced before the interruption.
+                continue
+            resume_workflow = None
+
+        path = config.path.format(slug=quote(project_slug, safe="/"), workflow_name=quote(workflow_name, safe=""))
+        data = fetch_page(_build_url(path, params))
+
+        if endpoint == "workflow_summary":
+            rows = [_workflow_summary_row(data, project_slug, workflow_name)]
+        else:
+            rows = _workflow_test_metrics_rows(data, project_slug, workflow_name)
+
+        if rows:
+            yield rows
+        resumable_source_manager.save_state(
+            CircleciInsightsResumeConfig(slug=project_slug, workflow_name=workflow_name)
+        )
+
+
 def _project_flaky_tests_rows(
     fetch_page: FetchPageFn,
     project_slug: str,
@@ -450,6 +538,32 @@ def _project_flaky_tests_rows(
     flaky_tests = data.get("flaky_tests") or []
     if flaky_tests:
         yield [{**item, "project_slug": project_slug} for item in flaky_tests]
+
+
+def _project_branches_rows(
+    fetch_page: FetchPageFn,
+    project_slug: str,
+    logger: FilteringBoundLogger,
+) -> Iterator[list[dict[str, Any]]]:
+    # The response is a bare list of branch names alongside the org and project ids, so each
+    # name becomes a row carrying those ids as the dimension's attributes.
+    data = fetch_page(_build_url(f"/insights/{quote(project_slug, safe='/')}/branches"))
+    branches = data.get("branches")
+    if not isinstance(branches, list):
+        logger.warning(f"CircleCI Insights: unexpected branches response shape for {project_slug}, syncing zero rows")
+        return
+    rows = [
+        {
+            "project_slug": project_slug,
+            "branch": branch,
+            "org_id": data.get("org_id"),
+            "project_id": data.get("project_id"),
+        }
+        for branch in branches
+        if isinstance(branch, str) and branch
+    ]
+    if rows:
+        yield rows
 
 
 def _org_summary_rows(
@@ -499,9 +613,7 @@ def circleci_insights_source(
             db_incremental_field_last_value=db_incremental_field_last_value,
         ),
         primary_keys=list(config.primary_keys),
-        # The runs listing returns newest-first with no sort param (verified live); the
-        # aggregate listings have no meaningful row order.
-        sort_mode="desc" if endpoint == "workflow_runs" else "asc",
+        sort_mode=config.sort_mode,
         partition_count=1 if partition_key else None,
         partition_size=1 if partition_key else None,
         partition_mode="datetime" if partition_key else None,

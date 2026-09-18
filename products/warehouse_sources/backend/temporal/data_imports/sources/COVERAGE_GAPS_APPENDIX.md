@@ -1501,17 +1501,17 @@ Note: The current v2 spec has no artifacts or test-metadata endpoints (those liv
 
 ## CircleciInsights — gaps
 
-Today (5): `flaky_tests`, `job_metrics`, `org_summary_metrics`, `workflow_metrics`, `workflow_runs`
+Today (9): `branches`, `flaky_tests`, `job_metrics`, `job_timeseries`, `org_summary_metrics`, `workflow_metrics`, `workflow_runs`, `workflow_summary`, `workflow_test_metrics`
 
 Diffed against: <https://circleci.com/api/v2/openapi.json>
 
-- [ ] `insights/{project-slug}/workflows/{workflow-name}/test-metrics` — per-test duration and failure metrics - the main test-health breakdown beyond flaky tests (high)
-- [ ] `insights/time-series/{project-slug}/workflows/{workflow-name}/jobs` — granular job timeseries, the only source of point-in-time job trends rather than window aggregates (high)
-- [ ] `insights/{project-slug}/branches` — branch dimension lookup for slicing every other insights metric (medium)
-- [ ] `insights/{project-slug}/workflows/{workflow-name}/summary` — workflow summary with trend deltas, complements the raw workflow metrics (medium)
+- [x] `insights/{project-slug}/workflows/{workflow-name}/test-metrics` — per-test duration and failure metrics - the main test-health breakdown beyond flaky tests (high)
+- [x] `insights/time-series/{project-slug}/workflows/{workflow-name}/jobs` — granular job timeseries, the only source of point-in-time job trends rather than window aggregates (high)
+- [x] `insights/{project-slug}/branches` — branch dimension lookup for slicing every other insights metric (medium)
+- [x] `insights/{project-slug}/workflows/{workflow-name}/summary` — workflow summary with trend deltas, complements the raw workflow metrics (medium)
 - [ ] `insights/pages/{project-slug}/summary` — project-level workflow rollup used by the Insights UI landing page (low)
 
-Note: All five Insights tables map cleanly onto spec paths; the gaps are the remaining Insights operations in the same spec.
+Note: All nine Insights tables map cleanly onto spec paths; the gap is the remaining Insights operation in the same spec.
 
 ## CiscoDuo — gaps
 
