@@ -255,7 +255,17 @@ export function SuggestedReviewersList({
           variant="link-muted"
           size="xs"
           className="w-full"
-          onClick={() => setShowAll((visible) => !visible)}
+          // The popover host can sit inside a clickable report row, and portal events still
+          // travel the React tree, so keep this press away from the row.
+          onClick={(event) => {
+            event.stopPropagation();
+            setShowAll((visible) => !visible);
+          }}
+          onKeyDown={(event) => {
+            if (event.key === "Enter" || event.key === " ") {
+              event.stopPropagation();
+            }
+          }}
         >
           {showAll ? "Show less" : `Show all (${items.length})`}
         </Button>
