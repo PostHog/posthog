@@ -37,6 +37,11 @@ export interface TicketPatternDismissApi {
     key: string
 }
 
+export interface TicketPatternDismissErrorApi {
+    /** Why the spike could not be dismissed. */
+    detail: string
+}
+
 /**
  * * `widget` - Widget
  * * `email` - Email

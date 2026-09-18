@@ -93442,6 +93442,11 @@ export namespace Schemas {
       key: string;
     }
 
+    export interface TicketPatternDismissError {
+      /** Why the spike could not be dismissed. */
+      detail: string;
+    }
+
     /**
      * Payload for posting a reply or internal note to a ticket.
      */

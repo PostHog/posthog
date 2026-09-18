@@ -36,6 +36,10 @@ class TicketPatternDismissSerializer(serializers.Serializer):
     )
 
 
+class TicketPatternDismissErrorSerializer(serializers.Serializer):
+    detail = serializers.CharField(help_text="Why the spike could not be dismissed.")
+
+
 class TicketPatternViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     """Spikes reported for this project in the last day.
 
@@ -69,12 +73,14 @@ class TicketPatternViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         spikes = recent_spikes(self.team_id)
         return Response(TicketPatternSerializer(spikes, many=True).data)
 
-    @action(detail=False, methods=["POST"])
+    # @validated_request must sit OUTSIDE @action: DRF's @action resets func.kwargs, wiping any
+    # schema annotation applied earlier, so the generated client would describe the wrong response.
     @validated_request(
         TicketPatternDismissSerializer,
-        responses={204: None},
+        responses={204: None, 404: TicketPatternDismissErrorSerializer},
         description="Dismiss one spike for everyone in the project, so the inbox banner stops showing it.",
     )
+    @action(detail=False, methods=["POST"])
     def dismiss(self, request: ValidatedRequest, **kwargs) -> Response:
         user = request.user
         name = getattr(user, "first_name", "") or getattr(user, "email", "") or "a teammate"
