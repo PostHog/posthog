@@ -202,8 +202,8 @@ def _resolve_items(
     Decagon renames and re-nests envelope fields between doc revisions (the conversations
     export alone documents three names for one cursor field), and a lookup that misses
     reads as an empty page, which fails the walk against the reported total. So search the
-    envelope for the list the rows moved to: the same key one object down, the response's
-    only list, or the only list whose items carry this endpoint's primary keys.
+    envelope for the list the rows moved to: the same key one object down, or the only
+    list whose items carry this endpoint's primary keys.
     """
     items = data.get(config.data_key)
     if isinstance(items, list):
@@ -212,10 +212,11 @@ def _resolve_items(
     candidates = _list_candidates(data)
     same_key = [found for found in candidates if found[0].rsplit(".", 1)[-1] == config.data_key]
     row_like = [found for found in candidates if _looks_like_rows(config, found[1])]
-    # Most specific first: the configured key one level down, then the envelope's only
-    # list, then the only list that carries the endpoint's primary keys. Anything that
-    # leaves more than one candidate is a guess, so it fails instead.
-    for shortlist in (same_key, candidates, row_like):
+    # A list qualifies on its name or on the endpoint's primary keys. Being the envelope's
+    # only list is not evidence: "the only list" also describes a list of warnings, and
+    # reading that one imports metadata as rows. Anything that leaves more than one
+    # candidate is a guess, so it fails instead.
+    for shortlist in (same_key, row_like):
         if len(shortlist) == 1:
             path, found_items = shortlist[0]
             logger.warning(
