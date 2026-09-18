@@ -162,9 +162,10 @@ export const RuleResourceEnumApi = {
 } as const
 
 /**
- * A rule for everyone in the project without a member or role rule of their own.
+ * The scope and level of one rule write. On its own it is the default rule, for everyone in the
+ * project without a member or role rule of their own. The subclasses add the subject.
  */
-export interface AccessControlDefaultRuleRequestApi {
+export interface AccessControlRuleRequestApi {
     /** The scope of the rule: `project` for the project itself (with the project id as `resource_id`), a resource type such as `dashboard` for the whole resource type or for one object of it, or `property_definition` for one person or event property.
      *
      * * `account` - account

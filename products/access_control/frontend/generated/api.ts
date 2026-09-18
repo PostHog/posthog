@@ -9,7 +9,6 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
-    AccessControlDefaultRuleRequestApi,
     AccessControlDefaultsResponseApi,
     AccessControlMemberRuleRequestApi,
     AccessControlMembersResponseApi,
@@ -17,6 +16,7 @@ import type {
     AccessControlPropertyRulesResponseApi,
     AccessControlRoleRuleRequestApi,
     AccessControlRolesResponseApi,
+    AccessControlRuleRequestApi,
     AccessControlRuleWriteResponseApi,
     OrganizationsProjectsAccessControlMemberObjectsRetrieveParams,
     OrganizationsProjectsAccessControlMemberPropertiesRetrieveParams,
@@ -86,7 +86,7 @@ export const getOrganizationsProjectsAccessControlDefaultRulesUpdateUrl = (organ
 export const organizationsProjectsAccessControlDefaultRulesUpdate = async (
     organizationId: string,
     id: number,
-    accessControlDefaultRuleRequestApi: AccessControlDefaultRuleRequestApi,
+    accessControlRuleRequestApi: AccessControlRuleRequestApi,
     options?: RequestInit
 ): Promise<AccessControlRuleWriteResponseApi> => {
     return apiMutator<AccessControlRuleWriteResponseApi>(
@@ -95,7 +95,7 @@ export const organizationsProjectsAccessControlDefaultRulesUpdate = async (
             ...options,
             method: 'PUT',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(accessControlDefaultRuleRequestApi),
+            body: JSON.stringify(accessControlRuleRequestApi),
         }
     )
 }
