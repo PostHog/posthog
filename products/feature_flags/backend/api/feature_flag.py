@@ -1703,15 +1703,6 @@ class FeatureFlagSerializer(
                 code="unsupported_config_version",
             )
 
-    def _validate_v2_filters(self, filters):
-        """Pass an admitted v2 replacement through untouched — no v1 merge, no normalization.
-
-        It is resolved, validated and compared against the state it actually replaces in
-        update(), under the row lock; there is nothing this side of the lock can decide.
-        """
-        self._reject_lossy_v2_request_json()
-        return filters
-
     def _reject_lossy_v2_request_json(self) -> None:
         """Reject request bytes that repeat a key, before JSON normalization hides it.
 
@@ -1784,7 +1775,11 @@ class FeatureFlagSerializer(
 
     def _validate_filters_inner(self, filters, operation: str):
         if self._v2_update_limits is not None:
-            return self._validate_v2_filters(filters)
+            # An admitted v2 replacement passes through untouched — no v1 merge, no
+            # normalization. It is resolved and validated in update(), against the locked
+            # state it actually replaces; nothing this side of the lock can decide it.
+            self._reject_lossy_v2_request_json()
+            return filters
 
         # Unknown keys survive normalization during the validation rollout. Reserve the
         # config discriminator before that path can store an unsupported format.
@@ -2512,7 +2507,9 @@ class FeatureFlagSerializer(
         # Opportunistically strip legacy keys on save, including on a write that sent no filters.
         # A caller that declares the exemption is spared: it would otherwise persist a rewritten
         # filters object for a change that never mentioned targeting.
-        if not getattr(request, "skip_opportunistic_filter_cleanup", False):
+        # Skipped for a v2 document: these are v1-only keys the strict validator rejects as
+        # unknown, so stripping them here would quietly turn a bad request into a valid one.
+        if self._v2_update_limits is None and not getattr(request, "skip_opportunistic_filter_cleanup", False):
             previous_filters = validated_data.get("filters") or instance.filters
             if previous_filters and ("holdout_groups" in previous_filters or "super_groups" in previous_filters):
                 validated_data["filters"] = {

@@ -511,3 +511,14 @@ class TestV2RequestBytes(V2UpdateTestCase):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         flag.refresh_from_db()
         assert flag.version == 3
+
+    def test_v1_only_keys_are_not_stripped_into_validity(self) -> None:
+        # The v1 write path opportunistically drops these keys on save; doing that to a v2
+        # document would turn a request the validator rejects into an accepted one.
+        flag = self.flag()
+        response = self.patch_flag(
+            flag, {"version": 3, "filters": config(targeted(), super_groups=[], holdout_groups=[])}
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        flag.refresh_from_db()
+        assert flag.version == 3
