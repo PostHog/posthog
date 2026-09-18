@@ -30,6 +30,7 @@ from posthog.temporal.weekly_digest.types import (
     WeeklyDigestInput,
 )
 from posthog.temporal.weekly_digest.workflows import (
+    MAX_CONCURRENT_GENERATION_ACTIVITIES,
     GenerateDigestDataWorkflow,
     SendWeeklyDigestWorkflow,
     WeeklyDigestWorkflow,
@@ -164,7 +165,7 @@ async def test_generate_digest_data_bounds_pending_activities(patched: bool) -> 
     }
     assert aggregated == [(0, 2), (2, 4)]
     if patched:
-        assert peak_pending < 2000
+        assert peak_pending <= MAX_CONCURRENT_GENERATION_ACTIVITIES < 2000
     else:
         assert peak_pending == 13 * len(team_ranges)
 
