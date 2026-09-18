@@ -147,11 +147,12 @@ class TestSnsSignature(SimpleTestCase):
     def setUp(self) -> None:
         self.allowed = frozenset({"arn:aws:sns:eu-west-1:1:ses-events"})
 
-    def _scheme(self, *, verified: bool = True, allowed: frozenset[str] | None = None) -> SnsSignature:
-        return SnsSignature(
-            verify_message=lambda message: verified,
-            allowed_topic_arns=lambda: self.allowed if allowed is None else allowed,
-        )
+    def _scheme(self, *, allowed: frozenset[str] | None = None) -> SnsSignature:
+        return SnsSignature(allowed_topic_arns=lambda: self.allowed if allowed is None else allowed)
+
+    def _verify(self, scheme: SnsSignature, *, body: bytes, verified: bool = True) -> VerificationOutcome:
+        with patch("posthog.ingress.verify.schemes.verify_sns_message", return_value=verified):
+            return scheme.verify(body=body, headers={}).outcome
 
     @parameterized.expand(
         [
@@ -164,19 +165,17 @@ class TestSnsSignature(SimpleTestCase):
         self, _name: str, topic_arn: str, verified: bool, expected: str
     ) -> None:
         body = f'{{"TopicArn": "{topic_arn}", "MessageId": "m1"}}'.encode()
-        self.assertEqual(
-            self._scheme(verified=verified).verify(body=body, headers={}).outcome, VerificationOutcome(expected)
-        )
+        self.assertEqual(self._verify(self._scheme(), body=body, verified=verified), VerificationOutcome(expected))
 
     def test_empty_allowlist_is_not_configured(self) -> None:
         body = b'{"TopicArn": "arn:aws:sns:eu-west-1:1:ses-events"}'
         self.assertEqual(
-            self._scheme(allowed=frozenset()).verify(body=body, headers={}).outcome,
+            self._verify(self._scheme(allowed=frozenset()), body=body),
             VerificationOutcome.NOT_CONFIGURED,
         )
 
     def test_unparseable_body_is_invalid_rather_than_raising(self) -> None:
-        self.assertEqual(self._scheme().verify(body=b"not json", headers={}).outcome, VerificationOutcome.INVALID)
+        self.assertEqual(self._verify(self._scheme(), body=b"not json"), VerificationOutcome.INVALID)
 
 
 JWKS_URI = "https://login.example.com/v1/.well-known/keys"

@@ -91,7 +91,12 @@ def build_webhook_view(provider: WebhookProvider) -> Callable[[HttpRequest], Htt
 
         verification = provider.verify(request)
         if verification.outcome is VerificationOutcome.NOT_CONFIGURED:
-            logger.error("ingress_webhook_not_configured", provider=provider.provider, app=provider.app)
+            # An incarnation that answers 404 stays off until an operator configures it, and its
+            # URL is public meanwhile, so what reaches this line is probe traffic. A warning still
+            # reaches an operator, and at error level an anonymous prober would decide how much of
+            # the error budget this endpoint spends.
+            log = logger.warning if provider.unconfigured_status == 404 else logger.error
+            log("ingress_webhook_not_configured", provider=provider.provider, app=provider.app)
             observe_delivery(provider=provider.provider, app=provider.app, outcome="not_configured")
             reason = "Webhook not configured" if provider.explains_rejections else ""
             return HttpResponse(reason, status=provider.unconfigured_status)

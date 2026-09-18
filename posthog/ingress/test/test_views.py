@@ -265,10 +265,13 @@ class TestWebhookView(SimpleTestCase):
         request = self._post(body, {"X-Hub-Signature-256": _github_signature(body), "X-GitHub-Event": "push"})
 
         with patch("posthog.ingress.github.provider.get_instance_setting", return_value=""):
-            response = build_webhook_view(build_github_provider("posthog"))(request)
+            with structlog.testing.capture_logs() as logs:
+                response = build_webhook_view(build_github_provider("posthog"))(request)
 
         self.assertEqual(response.status_code, 500)
         self.assertEqual(response.content, b"Webhook not configured")
+        missing = next(log for log in logs if log["event"] == "ingress_webhook_not_configured")
+        self.assertEqual(missing["log_level"], "error")
 
     @parameterized.expand(
         [
