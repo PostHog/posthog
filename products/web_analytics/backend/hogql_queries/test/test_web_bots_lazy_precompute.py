@@ -9,11 +9,13 @@ from parameterized import parameterized
 
 from posthog.schema import (
     CompareFilter,
-    CustomBotDefinition,
+    CustomBotCondition,
     CustomBotField,
     CustomBotMatcher,
+    CustomBotRule,
     DateRange,
     EventPropertyFilter,
+    FilterLogicalOperator,
     HogQLQueryModifiers,
     PropertyOperator,
     WebBotsBreakdown,
@@ -167,12 +169,18 @@ class TestWebBotsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         query = self.query()
         query.modifiers = HogQLQueryModifiers(
             customBotDefinitions=[
-                CustomBotDefinition(
+                CustomBotRule(
                     id="test-rule",
                     name="Example crawler",
-                    key=CustomBotField.FIELD_RAW_USER_AGENT,
-                    matcher=CustomBotMatcher.CONTAINS,
-                    pattern="ExampleCrawler",
+                    combiner=FilterLogicalOperator.AND_,
+                    items=[
+                        CustomBotCondition(
+                            id="test-condition",
+                            key=CustomBotField.FIELD_RAW_USER_AGENT,
+                            matcher=CustomBotMatcher.CONTAINS,
+                            pattern="ExampleCrawler",
+                        )
+                    ],
                     category="ai_search",
                 )
             ]
