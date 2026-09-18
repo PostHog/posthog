@@ -346,11 +346,6 @@ def test_clone_repository_uses_saved_branch_only_for_resumes(mocker, activity_en
         "products.tasks.backend.temporal.process_task.activities.provision_sandbox.get_sandbox_class_for_sandbox_id",
         return_value=mocker.Mock(get_by_id=mocker.Mock(return_value=sandbox)),
     )
-    mocker.patch(
-        "products.tasks.backend.temporal.process_task.activities.provision_sandbox.posthoganalytics.feature_enabled",
-        return_value=True,
-    )
-
     async_to_sync(activity_environment.run)(
         clone_repository_in_sandbox,
         CloneRepositoryInSandboxInput(
@@ -367,7 +362,6 @@ def test_clone_repository_uses_saved_branch_only_for_resumes(mocker, activity_en
         github_token="github-token",
         shallow=True,
         branch=expected_branch,
-        blobless=True,
     )
 
 
@@ -418,14 +412,12 @@ def test_resume_clone_falls_back_to_default_branch_when_saved_branch_is_missing(
             github_token="github-token",
             shallow=True,
             branch="branch-from-a-sibling-repository",
-            blobless=False,
         ),
         mocker.call(
             "posthog/posthog",
             github_token="github-token",
             shallow=True,
             branch=None,
-            blobless=False,
         ),
     ]
 

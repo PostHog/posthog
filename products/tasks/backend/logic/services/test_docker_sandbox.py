@@ -440,14 +440,13 @@ class TestDockerSandboxUnit:
                 assert shlex.quote(repo) in command
 
     @pytest.mark.parametrize(
-        "shallow,blobless,expected_in_command,not_expected_in_command",
+        "shallow,expected_in_command,not_expected_in_command",
         [
-            (True, False, "--depth 1", "--filter=blob:"),
-            (False, False, "--filter=blob:limit=128k", "--filter=blob:none"),
-            (False, True, "--filter=blob:none", "--filter=blob:limit=128k"),
+            (True, "--depth 1", "--filter=blob:"),
+            (False, "--filter=blob:limit=128k", "--depth"),
         ],
     )
-    def test_clone_repository_shallow_flag(self, shallow, blobless, expected_in_command, not_expected_in_command):
+    def test_clone_repository_shallow_flag(self, shallow, expected_in_command, not_expected_in_command):
         sandbox = DockerSandbox.__new__(DockerSandbox)
         sandbox._container_id = "abc123"
         sandbox.id = "abc123"
@@ -455,9 +454,7 @@ class TestDockerSandboxUnit:
 
         with patch.object(sandbox, "is_running", return_value=True):
             with patch.object(sandbox, "execute") as mock_execute:
-                sandbox.clone_repository(
-                    "PostHog/posthog", github_token="test-token", shallow=shallow, blobless=blobless
-                )
+                sandbox.clone_repository("PostHog/posthog", github_token="test-token", shallow=shallow)
                 command = mock_execute.call_args[0][0]
 
                 assert expected_in_command in command

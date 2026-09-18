@@ -870,13 +870,12 @@ class DockerSandbox(AgentServerLaunchMixin):
         github_token: str | None = "",
         shallow: bool = True,
         branch: str | None = None,
-        blobless: bool = False,
     ) -> ExecutionResult:
         mount_map = parse_sandbox_repo_mount_map()
         if repository.lower() in mount_map:
             logger.info(f"Repository {repository} is bind-mounted from host, skipping clone")
             return ExecutionResult(stdout="", stderr="", exit_code=0, error=None)
-        return super().clone_repository(repository, github_token, shallow, branch, blobless)
+        return super().clone_repository(repository, github_token, shallow, branch)
 
     def setup_repository(self, repository: str) -> ExecutionResult:
         """No-op: Repository setup is now handled by agent-server."""
