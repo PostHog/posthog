@@ -29,9 +29,8 @@ TOKEN_FIELD = "token"
 _APP_EVENT_TYPES: Mapping[str, str] = {
     "inbound": "message_received",
     "outbound": "message_sent",
-    # One route that carries both directions, because a single Mailgun catch-all serves them. The
-    # recipient local part is the only thing that tells them apart, and reading it is the
-    # consumer's job: the incarnation must not know what a product's addresses mean.
+    # A catch-all route carries both directions, so the consumer reads the recipient address to
+    # tell them apart.
     "capture": "message_received",
 }
 

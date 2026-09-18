@@ -1,5 +1,5 @@
 import json
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
@@ -568,6 +568,29 @@ class TestCustomerEmailIngestion(MailgunWebhookTestMixin, BaseTest):
 
     @parameterized.expand(
         [
+            ("inbound", "_channel_for_inbound_token", "_post_email"),
+            ("outbound", "_channel_for_outbound_sender", "_post_outbound_email"),
+        ]
+    )
+    def test_a_timed_out_ownership_lookup_asks_mailgun_to_redeliver(
+        self, _name: str, lookup: str, post_email: str
+    ) -> None:
+        with (
+            patch("posthog.regions.PRIMARY_REGION_DOMAIN", "testserver"),
+            patch("posthog.ingress.dispatch.forward.requests.request") as mock_forward,
+            patch(
+                f"products.conversations.backend.services.mailgun_events.{lookup}",
+                side_effect=OperationalError("canceling statement due to statement timeout"),
+            ),
+        ):
+            response = getattr(self, post_email)(message_id=f"<lookup-timeout-{_name}@example.com>")
+
+        assert response.status_code == 502
+        mock_forward.assert_not_called()
+        assert not EmailThread.objects.for_team(self.team.id).exists()
+
+    @parameterized.expand(
+        [
             # Channel uniqueness is per region, so a sender active in both would attach one team's
             # private outbound mail to the other team's thread.
             ("the sender is active in both regions", 204, None, 202, False),
@@ -778,40 +801,56 @@ class TestParseSentAt(SimpleTestCase):
         assert _parse_sent_at(request) == expected
 
 
+OUTBOUND_OWNERSHIP_DELIVERY = {
+    "recipient": "sent@mg.posthog.com",
+    "from": "Customer success <csm@example.com>",
+    "sender": "csm@example.com",
+    "message-headers": json.dumps(
+        [
+            ["X-Mailgun-Spf", "Fail"],
+            ["X-Mailgun-Dkim-Check-Result", "Pass"],
+            ["DKIM-Signature", "v=1; a=rsa-sha256; d=example.com; s=mail"],
+        ]
+    ),
+}
+
+
 class TestOwnershipOfATimedOutChannelLookup(SimpleTestCase):
     STATEMENT_TIMEOUT = OperationalError("canceling statement due to statement timeout")
 
-    def test_an_outbound_lookup_that_times_out_does_not_answer_elsewhere(self) -> None:
-        delivery = mailgun_delivery(
-            {
-                "recipient": "sent@mg.posthog.com",
-                "from": "Customer success <csm@example.com>",
-                "sender": "csm@example.com",
-                "message-headers": json.dumps(
-                    [
-                        ["X-Mailgun-Spf", "Fail"],
-                        ["X-Mailgun-Dkim-Check-Result", "Pass"],
-                        ["DKIM-Signature", "v=1; a=rsa-sha256; d=example.com; s=mail"],
-                    ]
-                ),
-            },
-            app="outbound",
-        )
+    @parameterized.expand(
+        [
+            (
+                "inbound",
+                "_channel_for_inbound_token",
+                {"recipient": "team-abc123@mg.posthog.com"},
+                "inbound",
+                mailgun_inbound_delivery_ownership,
+            ),
+            (
+                "outbound",
+                "_channel_for_outbound_sender",
+                OUTBOUND_OWNERSHIP_DELIVERY,
+                "outbound",
+                mailgun_outbound_delivery_ownership,
+            ),
+        ]
+    )
+    def test_a_lookup_that_times_out_never_answers_elsewhere(
+        self,
+        _name: str,
+        lookup: str,
+        fields: dict[str, str],
+        app: str,
+        ownership: Callable[..., DeliveryOwnership],
+    ) -> None:
+        delivery = mailgun_delivery(fields, app=app)
 
         with (
             patch(
-                "products.conversations.backend.services.mailgun_events._channel_for_outbound_sender",
+                f"products.conversations.backend.services.mailgun_events.{lookup}",
                 side_effect=self.STATEMENT_TIMEOUT,
             ),
             pytest.raises(OperationalError),
         ):
-            mailgun_outbound_delivery_ownership(delivery)
-
-    def test_an_inbound_lookup_that_times_out_still_answers_elsewhere(self) -> None:
-        delivery = mailgun_delivery({"recipient": "team-abc123@mg.posthog.com"})
-
-        with patch(
-            "products.conversations.backend.services.mailgun_events._channel_for_inbound_token",
-            side_effect=self.STATEMENT_TIMEOUT,
-        ):
-            assert mailgun_inbound_delivery_ownership(delivery) is DeliveryOwnership.ELSEWHERE
+            ownership(delivery)

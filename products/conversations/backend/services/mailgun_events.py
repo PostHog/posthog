@@ -20,7 +20,7 @@ from urllib.parse import urlparse
 
 from django.conf import settings
 from django.core.files.uploadedfile import UploadedFile
-from django.db import IntegrityError, OperationalError, transaction
+from django.db import IntegrityError, transaction
 from django.db.models import F
 from django.utils import timezone
 
@@ -29,7 +29,7 @@ import structlog
 from requests import RequestException
 
 from posthog.ingress.contracts import DeliveryOwnership, WebhookDelivery
-from posthog.ingress.dispatch.database import bounded_statement_timeout, is_statement_timeout
+from posthog.ingress.dispatch.database import bounded_statement_timeout
 from posthog.ingress.mailgun.provider import FILES_KEY
 from posthog.models.comment import Comment
 from posthog.models.organization import OrganizationMembership
@@ -773,8 +773,8 @@ def _has_external_recipient(*, config: EmailChannel, email: ParsedEmail) -> bool
 def _channel_for_inbound_token(inbound_token: str) -> EmailChannel | None:
     """The channel the inbound address belongs to, or None when no channel here holds it.
 
-    A cancelled statement raises, because a lookup that never finished is not an answer. Each
-    caller decides what to do with it.
+    A cancelled statement raises, because a lookup that never finished is not an answer. Callers
+    let it out rather than guessing past it.
     """
     with bounded_statement_timeout(_CHANNEL_LOOKUP_TIMEOUT_MS, models=[EmailChannel]):
         return EmailChannel.objects.select_related("team", "owner").filter(inbound_token=inbound_token).first()
@@ -884,22 +884,19 @@ def _ownership_of_channel(channel: EmailChannel | None) -> DeliveryOwnership:
 
 
 def mailgun_inbound_delivery_ownership(delivery: WebhookDelivery) -> DeliveryOwnership:
-    """Which region holds the channel this inbound address belongs to."""
+    """Which region holds the channel this inbound address belongs to.
+
+    A lookup that raised, the statement timeout included, propagates rather than answering
+    `ELSEWHERE`. Ingress turns that into Mailgun's retry status, so the message is asked for again
+    instead of being forwarded to a region that may not hold the channel either.
+    """
     request = MailgunRequest(delivery)
     inbound_token = _extract_inbound_token(request.POST.get("recipient", ""))
     if not inbound_token:
         # Nothing in the delivery names a channel, so no region can claim it.
         return DeliveryOwnership.UNDECIDED
 
-    try:
-        config = _channel_for_inbound_token(inbound_token)
-    except OperationalError as error:
-        if not is_statement_timeout(error):
-            raise
-        logger.warning("email_inbound_channel_lookup_timed_out", inbound_token=inbound_token)
-        return DeliveryOwnership.ELSEWHERE
-
-    return _ownership_of_channel(config)
+    return _ownership_of_channel(_channel_for_inbound_token(inbound_token))
 
 
 def mailgun_outbound_delivery_ownership(delivery: WebhookDelivery) -> DeliveryOwnership:
@@ -917,12 +914,10 @@ def mailgun_outbound_delivery_ownership(delivery: WebhookDelivery) -> DeliveryOw
     if not sender_email or not _outbound_sender_authenticated(request, sender_email):
         return DeliveryOwnership.UNDECIDED
 
-    # A lookup that raises is not caught here, unlike the inbound one. The same sender can be
-    # active in both regions, and forwarding on an unfinished lookup hands the capture to a region
-    # that ingests it at once, because only the primary runs the ambiguity probe. A failed lookup
-    # has to cost the receipt so Mailgun asks again. An inbox token is minted per channel rather
-    # than chosen, so the same token cannot be active in both regions and inbound is free to
-    # answer elsewhere on a timeout.
+    # A raised lookup costs the receipt here for one more reason than on the inbound route: the
+    # same sender can be active in both regions, so forwarding on an unfinished lookup hands the
+    # capture to a region that ingests it at once, because only the primary runs the ambiguity
+    # probe.
     return _ownership_of_channel(_channel_for_outbound_sender(sender_email))
 
 
