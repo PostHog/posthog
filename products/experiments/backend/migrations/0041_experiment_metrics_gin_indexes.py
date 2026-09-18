@@ -12,7 +12,9 @@ class Migration(migrations.Migration):
     operations = [
         SafeAddIndexConcurrently(
             model_name="experiment",
-            index=django.contrib.postgres.indexes.GinIndex(fields=["metrics"], name="exp_metrics_gin", fastupdate=False),
+            index=django.contrib.postgres.indexes.GinIndex(
+                fields=["metrics"], name="exp_metrics_gin", fastupdate=False
+            ),
         ),
         SafeAddIndexConcurrently(
             model_name="experiment",
