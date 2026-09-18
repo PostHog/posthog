@@ -1,0 +1,78 @@
+{
+    "MA1": {
+        "is_real": true,
+        "severity": "should_fix",
+        "cluster": 6,
+        "source": "adjudicated:3/3",
+        "adjudicated_from": "UA1",
+        "adjudication_reason": "Same engine draft-gate and machine-author framing claim: self_driving bypasses the gate without requiring bot authorship. This carries the human-authored draft sub-claim, not the additional claim about ready PRs."
+    },
+    "MA2": {
+        "is_real": false,
+        "severity": null,
+        "cluster": 18,
+        "source": "verified-3-skeptics:0/3"
+    },
+    "MA3": {
+        "is_real": false,
+        "severity": null,
+        "cluster": 3,
+        "source": "verified-3-skeptics:0/3"
+    },
+    "MA4": {
+        "is_real": false,
+        "severity": null,
+        "cluster": 74,
+        "source": "verified-3-skeptics:0/3"
+    },
+    "MA5": {
+        "is_real": false,
+        "severity": null,
+        "cluster": 9,
+        "source": "verified-3-skeptics:0/3"
+    },
+    "MA6": {
+        "is_real": true,
+        "severity": "should_fix",
+        "cluster": 2,
+        "source": "adjudicated:2/3",
+        "adjudicated_from": "UA7",
+        "adjudication_reason": "Same initial receiver provenance claim: process_inbox_pr_review stamps the self-driving marker without positively linking the fetched PR to the supplied task run or checking its author. The documentation anchor describes the same runtime omission."
+    },
+    "MA7": {
+        "is_real": true,
+        "severity": "should_fix",
+        "cluster": 2,
+        "source": "adjudicated:2/3",
+        "adjudicated_from": "UA7",
+        "adjudication_reason": "Same initial receiver provenance claim: caller-provided PR linkage is trusted without checking bot authorship, a repository-native head, or the implementation-run relationship before creating the inbox review."
+    },
+    "MA8": {
+        "is_real": false,
+        "severity": null,
+        "cluster": 58,
+        "source": "adjudicated:0/3",
+        "adjudicated_from": "UA6",
+        "adjudication_reason": "Same caught Celery broker-publication failure claim at the receiver dispatch. This is the panel's rejected broker-publish sub-claim, not the separate task-retry exhaustion or stranded-QUEUED sub-claims in cluster 58."
+    },
+    "MA9": {
+        "is_real": true,
+        "severity": "should_fix",
+        "cluster": 39,
+        "source": "adjudicated:3/3",
+        "adjudicated_from": "UA3",
+        "adjudication_reason": "Same unscoped task-run lookup followed by a team check: a foreign-team result can be selected first and then rejected, hiding the requested team's qualifying run."
+    },
+    "MA10": {
+        "is_real": false,
+        "severity": null,
+        "cluster": null,
+        "source": "verified-3-skeptics:0/3"
+    },
+    "MA11": {
+        "is_real": false,
+        "severity": null,
+        "cluster": 42,
+        "source": "verified-3-skeptics:0/3"
+    }
+}

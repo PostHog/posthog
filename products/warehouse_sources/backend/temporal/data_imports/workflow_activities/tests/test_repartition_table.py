@@ -674,6 +674,26 @@ class TestTransientObjectStoreFailure:
         skip_calls = [c for c in mock_capture_event.call_args_list if c.args[0] == "warehouse_repartition_skipped"]
         assert any(c.args[1].get("reason") == "transient_infra_error" for c in skip_calls)
 
+    @parameterized.expand(
+        [
+            (
+                "s3_permission_error",
+                # s3fs raises a bare PermissionError for a transient credential-resolution race
+                # against our own data-warehouse bucket.
+                PermissionError("Access Denied"),
+            ),
+            (
+                "generic_s3_timeout",
+                # delta-rs's Rust object_store crate raises a bare OSError with a "Generic S3 error"
+                # prefix for a PUT that timed out reaching our own data-warehouse bucket — the same
+                # blip `is_transient_maintenance_error` already recognizes for the maintenance path.
+                OSError(
+                    "Generic S3 error: Error performing PUT https://s3.example.com/bucket/path/_delta_log/"
+                    "00000000000000000143.json in 30.001s - HTTP error: error sending request: operation timed out"
+                ),
+            ),
+        ]
+    )
     @patch(f"{MODULE}.capture_exception")
     @patch(f"{MODULE}.capture_repartition_event")
     @patch(f"{MODULE}.HeartbeaterSync")
@@ -682,8 +702,10 @@ class TestTransientObjectStoreFailure:
     @patch(f"{MODULE}.is_auto_repartition_enabled", return_value=True)
     @patch(f"{MODULE}.ExternalDataJob")
     @patch(f"{MODULE}.ExternalDataSchema")
-    def test_s3_permission_error_stands_down_without_burning_an_attempt(
+    def test_object_store_blip_stands_down_without_burning_an_attempt(
         self,
+        _name: str,
+        error: Exception,
         mock_schema_model: MagicMock,
         _mock_job_model: MagicMock,
         _mock_enabled: MagicMock,
@@ -693,13 +715,12 @@ class TestTransientObjectStoreFailure:
         mock_capture_event: MagicMock,
         mock_capture_exception: MagicMock,
     ) -> None:
-        # s3fs raises a bare PermissionError for a transient credential-resolution race against our own
-        # data-warehouse bucket. It must stand down like the other infra blips, not burn an attempt or
-        # report a failure — otherwise a flagged table loses its whole retry budget to a self-healing
-        # blip and is abandoned at the cap.
+        # Each of these must stand down like the other infra blips, not burn an attempt or report a
+        # failure — otherwise a flagged table loses its whole retry budget to a self-healing blip and
+        # is abandoned at the cap.
         schema = _schema(name="public.usages", s3_folder_name="usages", pending={**PENDING_TARGET, "attempts": 0})
         mock_schema_model.objects.select_related.return_value.get.return_value = schema
-        mock_repartition.side_effect = PermissionError("Access Denied")
+        mock_repartition.side_effect = error
 
         _maybe_repartition_table(
             RepartitionActivityInputs(team_id=TEAM_ID, schema_id=SCHEMA_ID, job_id=JOB_ID, source_id=SOURCE_ID),

@@ -1,0 +1,27 @@
+{
+    "letter": "MB",
+    "id": "MB10",
+    "cluster": 58,
+    "is_real": true,
+    "severity": "should_fix",
+    "votes": [
+        {
+            "is_real": true,
+            "severity": "should_fix",
+            "evidence": "/tmp/frozen-75215/products/stamphog/backend/tasks/tasks.py:1109 permits three retries at five-second intervals; the writer config read at 1138-1146 retries without a countdown at 1148-1150, before any ReviewRun is persisted (1223-1229). This has a concrete short-outage failure: products/db_routing.yaml:2-3 routes stamphog to its product DB; posthog/product_db_router.py:37-40 chooses its writer, and posthog/settings/data_stores.py:177-184,212-215 enables the fail-fast backend with a 30-second circuit cooldown by default outside tests. posthog/db_backends/failopen/base.py:28-35 raises immediately while that circuit is open. A job arriving just after the shared circuit opens can therefore exhaust its original attempt plus all three retries within roughly 15 seconds, before the first recovery probe. No pending review row exists to restart. The receiver only dispatches on eligible output saves (products/review_hog/backend/receivers.py:85-89,126-138); initial opened/ready events cannot replace it (tasks.py:160-168).",
+            "refutation": "I first checked whether retry-after, downstream workflow retries, or repeated triggers make the finite retry count sufficient. GitHub rate limits DO get a minimum 60-second/server-directed delay at tasks.py:1160-1162, so a normal rate-limit window is not evidence of this bug. However, config/database failures use the five-second default, which is shorter in total than the configured 30-second circuit cooldown; workflow retries cannot help before ReviewRun creation. A later output save or push/reopen can recover the missing review, but is not scheduled after exhaustion, and status-only saves are explicitly ignored. This leaves a real initial-review omission during a short product-DB outage, with a manual/later-event workaround, hence should_fix rather than must_fix."
+        },
+        {
+            "is_real": true,
+            "severity": "should_fix",
+            "evidence": "products/stamphog/backend/tasks/tasks.py:1109 limits the initial worker to three retries with a five-second default delay. The config lookup fails before any ReviewRun exists (:1140-1150), and generic GitHub failures also use the default delay (:1163-1165). Four prompt failures during a short dependency outage can therefore exhaust this trigger before the durable review row is created at :1223-1229. With no later output save or push, the PR remains unreviewed after recovery: the webhook exception excludes opened and ready_for_review (:160-168). This is specifically a pre-ReviewRun exhaustion gap, not merely a slow running review.",
+            "refutation": "I checked rate-limit handling, task-failure telemetry, and the existing restart tests. Rate limits already honor retry_after with a minimum sixty-second wait (:1160-1162), so the simple five-second rate-limit premise is too broad. Task failures and retries already have counters (posthog/celery.py:265-274), refuting the suggestion that no failure metric exists. test_tasks.py:974-1001 covers restarting queued or failed runs on a later output refire, but does not reconcile a trigger exhausted before it creates any row. A config-DB outage causing prompt errors can still consume the three five-second retries, and subsequent status-only saves are ignored by the receiver. Later output updates/pushes provide a workaround, so the real missed-review gap is should_fix rather than must_fix."
+        },
+        {
+            "is_real": true,
+            "severity": "should_fix",
+            "evidence": "products/stamphog/backend/tasks/tasks.py:1109 limits the initial dispatch worker to three retries with a five-second default delay. Config lookup failures at :1148-1150 and non-rate-limit GitHub failures at :1163-1165 use that short policy before any ReviewRun exists; run creation is only at :1223-1229. An outage spanning those attempts exhausts the task without a persisted failed/pending review for recovery. The Temporal workflow and its failure record start only after that creation/on_commit at :1234, so their retries cannot recover this case. The registered Stamphog scheduled work in backend/tasks/schedules.py concerns the daily digest, not lost initial dispatches. Initial bot/draft opened/ready events are not a fallback at tasks.py:167-168,226-231, and status-only TaskRun saves are filtered at review_hog/backend/receivers.py:85-89.",
+            "refutation": "I first checked whether all failures really retry every five seconds, and whether another durable layer makes exhaustion harmless. Rate-limit errors actually honor retry_after with at least 60 seconds at tasks.py:1160-1162, so that part of the claim overstates the immediate risk. However, the pre-run database/non-rate-limit failure path still has only three short retries and no recovery record. Repeat output saves and later pushes can retrigger it but are not required after the final target write. This establishes a narrow outage-related missing-review defect; should_fix is appropriate rather than the claimed must_fix. A longer policy reduces the window, while persisted reconciliation would address eventual exhaustion."
+        }
+    ]
+}
