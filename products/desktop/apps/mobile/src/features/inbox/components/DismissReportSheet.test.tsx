@@ -127,9 +127,7 @@ function hasTextNode(
   renderer: ReturnType<typeof create>,
   content: string,
 ): boolean {
-  return (
-    renderer.root.findAll((n) => n.props?.children === content).length > 0
-  );
+  return renderer.root.findAll((n) => n.props?.children === content).length > 0;
 }
 
 describe("DismissReportSheet", () => {
