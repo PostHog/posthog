@@ -247,6 +247,21 @@ def test_retry_on_db_connection_drop_raises_after_second_failure(error):
     assert calls == 2
 
 
+def test_retry_on_db_connection_drop_does_not_retry_out_of_file_descriptors():
+    calls = 0
+
+    def operation():
+        nonlocal calls
+        calls += 1
+        raise OperationalError("[Errno 24] Too many open files")
+
+    with patch(CLOSE_DB_CONNECTIONS_TARGET) as mock_close, pytest.raises(OperationalError):
+        retry_on_db_connection_drop(operation)
+
+    assert calls == 1
+    mock_close.assert_not_called()
+
+
 def test_retry_on_db_connection_drop_does_not_retry_unrelated_errors():
     calls = 0
 

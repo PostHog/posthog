@@ -1,3 +1,5 @@
+import errno
+
 from django.db import InterfaceError, InternalError, OperationalError
 
 # Substrings identifying transient Postgres failures. pgbouncer kills queries that wait too long
@@ -50,6 +52,26 @@ _TRANSIENT_SQLSTATE_PREFIXES = ("57P",)
 _TRANSIENT_SQLSTATES = ("25006",)
 
 
+# EMFILE (this worker process's file-descriptor table is full) and ENFILE (the host's table is full),
+# as an `OSError` renders them. A connect attempt that cannot open a socket says nothing about the
+# database: a descriptor frees the moment another connection or file in the worker closes, so the
+# activity's own retry resolves it. The data-imports source-connect path already classifies the same
+# condition this way, in `sources/postgres/postgres.py::_is_too_many_open_files_error`.
+#
+# Matched on the rendered errno rather than an `errno` attribute, because no attribute survives the
+# trip: psycopg re-raises the original `OSError` as `OperationalError(str(error))` with no exception
+# chaining (see `psycopg/_conninfo_attempts.py`), and Django wraps that message again, so
+# "[Errno 24] Too many open files" is all that reaches here. A bare `OSError` renders identically,
+# so the same match covers one that arrives unwrapped.
+_FD_EXHAUSTION_MARKERS = (f"[Errno {errno.EMFILE}]", f"[Errno {errno.ENFILE}]")
+
+
+def is_out_of_file_descriptors_error(error: BaseException) -> bool:
+    """Whether `error` reports that this worker process, or its host, ran out of file descriptors."""
+    message = str(error)
+    return any(marker in message for marker in _FD_EXHAUSTION_MARKERS)
+
+
 def is_transient_db_error(error: BaseException) -> bool:
     if not isinstance(error, OperationalError | InterfaceError | InternalError):
         return False
@@ -57,6 +79,8 @@ def is_transient_db_error(error: BaseException) -> bool:
     if isinstance(sqlstate, str) and (
         sqlstate.startswith(_TRANSIENT_SQLSTATE_PREFIXES) or sqlstate in _TRANSIENT_SQLSTATES
     ):
+        return True
+    if is_out_of_file_descriptors_error(error):
         return True
     message = str(error)
     return any(marker in message for marker in _TRANSIENT_DB_ERROR_MARKERS)

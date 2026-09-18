@@ -13,6 +13,8 @@ from django.conf import settings
 from asgiref.sync import sync_to_async
 from temporalio import activity, workflow
 
+from posthog.temporal.common.db_errors import is_out_of_file_descriptors_error
+
 P = ParamSpec("P")
 T = TypeVar("T")
 
@@ -229,6 +231,12 @@ async def aretry_on_db_connection_drop(operation: Callable[[], Coroutine[Any, An
     instead of escaping as error-tracking noise. A second failure propagates — that's a
     genuinely degraded DB, left to the caller's retry posture.
 
+    A worker that has run out of file descriptors is the exception: the connect failed because this
+    process could not open a socket, so an immediate second connect on the same exhausted table
+    fails the same way. Re-raise instead, and leave it to the activity's retry policy, whose backoff
+    gives descriptors time to free. ``is_transient_db_error`` classifies the errno too, so the
+    escaping error is logged rather than reported as a defect.
+
     Pass a zero-arg callable that *produces* the awaitable (not the awaitable itself),
     so the retry can issue a fresh query:
 
@@ -241,7 +249,9 @@ async def aretry_on_db_connection_drop(operation: Callable[[], Coroutine[Any, An
             raise
         await sync_to_async(_close_db_connections)()
         return await operation()
-    except (django.db.OperationalError, django.db.InterfaceError):
+    except (django.db.OperationalError, django.db.InterfaceError) as e:
+        if is_out_of_file_descriptors_error(e):
+            raise
         await sync_to_async(_close_db_connections)()
         return await operation()
 
@@ -256,7 +266,8 @@ def retry_on_db_connection_drop(operation: Callable[[], T]) -> T:
     ``InterfaceError`` on first use — or, for a write, ``InternalError`` if the stale
     connection now points at a demoted standby (see ``is_stale_connection_read_only_error``).
     Evict the dead connection and retry once; a second failure propagates, left to the
-    caller's retry posture.
+    caller's retry posture. An out-of-file-descriptors connect failure is re-raised without the
+    retry, for the reason that function gives.
 
     The single retry leans on the activity's outer Temporal retry policy. Code without
     one (e.g. a Celery task) needs multi-attempt backoff instead; see
@@ -274,7 +285,9 @@ def retry_on_db_connection_drop(operation: Callable[[], T]) -> T:
             raise
         _close_db_connections()
         return operation()
-    except (django.db.OperationalError, django.db.InterfaceError):
+    except (django.db.OperationalError, django.db.InterfaceError) as e:
+        if is_out_of_file_descriptors_error(e):
+            raise
         _close_db_connections()
         return operation()
 
