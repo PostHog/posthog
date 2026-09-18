@@ -98,9 +98,11 @@ const mcpAnalyticsSessionsList = (): ToolBase<
             query: {
                 date_from: params.date_from,
                 date_to: params.date_to,
+                filter_test_accounts: params.filter_test_accounts,
                 limit: params.limit,
                 offset: params.offset,
                 order_by: params.order_by,
+                properties: params.properties,
                 search: params.search,
             },
         })
@@ -129,8 +131,10 @@ const mcpAnalyticsSessionsToolCalls = (): ToolBase<
             path: `/api/projects/${encodeURIComponent(String(projectId))}/mcp_analytics/sessions/${encodeURIComponent(String(params.id))}/tool_calls/`,
             query: {
                 date_from: params.date_from,
+                filter_test_accounts: params.filter_test_accounts,
                 limit: params.limit,
                 offset: params.offset,
+                properties: params.properties,
             },
         })
         return await withPostHogUrl(context, result, '/mcp-analytics')
