@@ -74223,9 +74223,35 @@ export namespace Schemas {
       id: string;
     }
 
+    /**
+     * * `weekdays` - Weekdays
+     * * `every_day` - Every day
+     */
+    export type TaskDigestCadenceEnum = typeof TaskDigestCadenceEnum[keyof typeof TaskDigestCadenceEnum];
+
+
+    export const TaskDigestCadenceEnum = {
+      Weekdays: 'weekdays',
+      EveryDay: 'every_day',
+    } as const;
+
+    export interface TaskDigestPreferencesUpdate {
+      /** Whether the task digest email is sent to this user. */
+      enabled?: boolean;
+      /** Time of day to send the digest, as HH:MM in the project timezone. */
+      send_time?: string;
+      /** How often the digest is sent.
+       *
+       * * `weekdays` - Weekdays
+       * * `every_day` - Every day */
+      cadence?: TaskDigestCadenceEnum;
+    }
+
     export interface PatchedUserCustomerAnalyticsConfigUpdate {
       /** Complete ordered list of account properties to pin. Omit to keep the current pins; pass an empty list to clear them. */
       pinned_properties?: PinnedAccountProperty[];
+      /** Task digest email preferences to change. Omit the object to keep them all; omit a field inside it to keep that one. */
+      task_digest?: TaskDigestPreferencesUpdate;
     }
 
     /**
@@ -91789,6 +91815,18 @@ export namespace Schemas {
       run_error?: string;
     }
 
+    export interface TaskDigestPreferences {
+      /** Whether the task digest email is sent to this user. */
+      enabled: boolean;
+      /** Time of day to send the digest, as HH:MM in the project timezone. */
+      send_time: string;
+      /** How often the digest is sent.
+       *
+       * * `weekdays` - Weekdays
+       * * `every_day` - Every day */
+      cadence: TaskDigestCadenceEnum;
+    }
+
     /**
      * Request body for handing a task off to a colleague: they become its owner.
      */
@@ -94271,6 +94309,8 @@ export namespace Schemas {
     export interface UserCustomerAnalyticsConfig {
       /** Account properties pinned in sidebar display order. */
       readonly pinned_properties: readonly PinnedAccountProperty[];
+      /** Task digest email preferences. Disabled until the user turns the digest on. */
+      readonly task_digest: TaskDigestPreferences;
     }
 
     export interface UserFacetSettings {
