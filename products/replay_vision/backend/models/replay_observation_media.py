@@ -21,7 +21,8 @@ class ReplayObservationMedia(TeamScopedRootMixin, UUIDModel):
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
 
     kind = models.CharField(max_length=16, choices=Kind.choices)
-    position = models.PositiveSmallIntegerField(default=0)
+    # No default: it is half of a unique constraint, so a silent 0 collides on the second row.
+    position = models.PositiveSmallIntegerField()
     description = models.TextField(null=True, blank=True)
 
     # Analysis-video time, for seeking the player the person is looking at.
@@ -32,6 +33,25 @@ class ReplayObservationMedia(TeamScopedRootMixin, UUIDModel):
     rec_end_ms = models.PositiveIntegerField(null=True, blank=True)
 
     created_at = models.DateTimeField(auto_now_add=True)
+
+    def save(self, *args, **kwargs) -> None:
+        # Tenant invariant, as on ReplayObservationLabel: the media, its observation and its asset are one
+        # team's. Nothing here comes from a request, so a mismatch is our own bug, and it would file a
+        # frame under the wrong tenant.
+        if self._state.adding:
+            observation_team_id = self.observation.team_id
+            if self.team_id and self.team_id != observation_team_id:
+                raise ValueError(
+                    f"ReplayObservationMedia.team_id ({self.team_id}) must match observation.team_id "
+                    f"({observation_team_id})"
+                )
+            self.team_id = observation_team_id
+            if self.asset.team_id != observation_team_id:
+                raise ValueError(
+                    f"ReplayObservationMedia.asset.team_id ({self.asset.team_id}) must match "
+                    f"observation.team_id ({observation_team_id})"
+                )
+        super().save(*args, **kwargs)
 
     class Meta:
         constraints = [
