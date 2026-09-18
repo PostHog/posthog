@@ -9,6 +9,7 @@ from django.db.models import F, OuterRef, Prefetch, Q, QuerySet, Subquery
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 
+from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import extend_schema, extend_schema_field, extend_schema_view
 from pydantic import ValidationError as PydanticValidationError
 from rest_framework import serializers, viewsets
@@ -163,6 +164,11 @@ class LogsAlertFiltersField(serializers.JSONField):
 @extend_schema_field(AlertScheduleRestriction)  # type: ignore[arg-type]
 class ScheduleRestrictionField(serializers.JSONField):
     pass
+
+
+@extend_schema_field(OpenApiTypes.OBJECT)
+class WebhookBodyField(serializers.JSONField):
+    """A whole JSON object, whose shape the destination's receiver decides."""
 
 
 class LogsAlertDestinationResponseSerializer(serializers.Serializer):
@@ -788,6 +794,22 @@ class LogsAlertCreateDestinationSerializer(serializers.Serializer):
         required=False,
         help_text="HTTPS endpoint to post to. Required for webhook and teams.",
     )
+    webhook_body = WebhookBodyField(
+        required=False,
+        help_text=(
+            "JSON body to post, for type=webhook only. Defaults to the PostHog alert payload. "
+            "Values may reference event data, for example {event.properties.alert_name}, so an "
+            "incident tool such as PagerDuty gets the payload shape it expects."
+        ),
+    )
+    webhook_headers = serializers.DictField(
+        child=serializers.CharField(allow_blank=True),
+        required=False,
+        help_text=(
+            "Extra HTTP headers to send, for type=webhook only. These are merged into the default "
+            "headers, and a header you set here replaces the default of the same name."
+        ),
+    )
 
     def validate(self, attrs: dict) -> dict:
         data = cast(AlertDestinationData, attrs)
@@ -1034,7 +1056,13 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         report_user_action(
             request.user,
             "logs alert destination created",
-            {"alert_id": str(alert.id), "type": data["type"], "event_kinds": list(EVENT_KINDS)},
+            {
+                "alert_id": str(alert.id),
+                "type": data["type"],
+                "event_kinds": list(EVENT_KINDS),
+                "has_custom_webhook_body": bool(data.get("webhook_body")),
+                "has_custom_webhook_headers": bool(data.get("webhook_headers")),
+            },
             request=request,
         )
         response = LogsAlertDestinationResponseSerializer({"hog_function_ids": list(hog_function_ids)})
