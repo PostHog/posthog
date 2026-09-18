@@ -25,7 +25,6 @@ from products.analytics_platform.backend.lazy_computation.lazy_computation_execu
 )
 from products.web_analytics.backend.hogql_queries.web_analytics_lazy_precompute import (
     CHANNEL_MAX_PRECOMPUTE_DAYS,
-    CHANNEL_TTL_SECONDS,
     LAZY_TTL_SECONDS,
     MAX_PRECOMPUTE_DAYS,
     SESSION_FORWARD_PAD_MINUTES,
@@ -34,6 +33,7 @@ from products.web_analytics.backend.hogql_queries.web_analytics_lazy_precompute 
     can_use_lazy_precompute as _can_use_lazy_precompute_shared,
     ceil_utc_day,
     channel_rules_shape_key,
+    channel_ttl_schedule,
     check_common_eligible,
     events_session_id_expr,
     floor_utc_day,
@@ -248,7 +248,7 @@ def ensure_web_overview_precomputed(
         insert_query=insert_query,
         time_range_start=time_range_start,
         time_range_end=time_range_end,
-        ttl_seconds=CHANNEL_TTL_SECONDS if has_channel_type_filter(runner) else LAZY_TTL_SECONDS,
+        ttl_seconds=channel_ttl_schedule(runner.team) if has_channel_type_filter(runner) else LAZY_TTL_SECONDS,
         table=LazyComputationTable.WEB_OVERVIEW_PREAGGREGATED,
         placeholders=placeholders,
         query_type="web_overview_lazy_insert",

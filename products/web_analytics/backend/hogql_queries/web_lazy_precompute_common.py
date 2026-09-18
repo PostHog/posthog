@@ -590,6 +590,24 @@ LAZY_TTL_SECONDS: dict[str, int] = {
     "default": 21 * 24 * 60 * 60,  # days 36+
 }
 
+# TTL schedule for channel-filtered shapes: same graded bands for recent days,
+# but old immutable days are held for 90 days instead of 21 — without the longer
+# hold, a year-long shape re-scans a year of events every three weeks per shape.
+CHANNEL_TTL_SECONDS: dict[str, int] = {**LAZY_TTL_SECONDS, "default": 90 * 24 * 60 * 60}
+
+# Job-width cap for channel shapes. `split_ranges_by_ttl` merges consecutive days
+# sharing one TTL band into a single job, so the 90-day band above would put a
+# year-long span's whole tail into ONE insert without this cap. Seven days keeps
+# each insert bounded (a 366-day backfill runs as ~53 jobs) while the reactive
+# OOM pin can still tighten a pathological team to 1-day windows.
+CHANNEL_MAX_WINDOW_DAYS = 7
+
+
+def channel_ttl_schedule(team: Team) -> TtlSchedule:
+    """The channel-filtered shapes' TTL schedule, with the job-width cap applied."""
+    return parse_ttl_schedule(CHANNEL_TTL_SECONDS, team.timezone, max_window_days=CHANNEL_MAX_WINDOW_DAYS)
+
+
 # MVP user-filter allowlist: only an EventPropertyFilter on `$host` with
 # operator `exact` is admitted. Test-account filters are always allowed
 # (their content is hashed into the cache key).

@@ -37,7 +37,6 @@ from products.analytics_platform.backend.lazy_computation.lazy_computation_execu
 )
 from products.web_analytics.backend.hogql_queries.web_analytics_lazy_precompute import (
     CHANNEL_MAX_PRECOMPUTE_DAYS,
-    CHANNEL_TTL_SECONDS,
     build_insert_select_ast,
     channel_rules_shape_key,
     has_channel_type_filter,
@@ -50,6 +49,7 @@ from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common imp
     SESSION_FORWARD_PAD_MINUTES,
     LazyPrecomputeIneligible,
     ceil_utc_day,
+    channel_ttl_schedule,
     check_common_eligibility,
     floor_utc_day,
     handle_stale_served,
@@ -663,7 +663,7 @@ def ensure_web_stats_paths_precomputed(
         insert_query=insert_query,
         time_range_start=time_range_start,
         time_range_end=time_range_end,
-        ttl_seconds=CHANNEL_TTL_SECONDS if channel else LAZY_TTL_SECONDS,
+        ttl_seconds=channel_ttl_schedule(runner.team) if channel else LAZY_TTL_SECONDS,
         table=LazyComputationTable.WEB_STATS_PATHS_PREAGGREGATED,
         placeholders=placeholders,
         query_type="web_stats_paths_lazy_insert",

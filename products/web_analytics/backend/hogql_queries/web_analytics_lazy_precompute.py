@@ -30,6 +30,7 @@ from posthog.models.team import Team
 from products.access_control.backend.facade.api import team_has_property_access_rules
 from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import (
     LAZY_TTL_SECONDS,  # noqa: F401 — re-exported; several runners import it from this module
+    channel_ttl_schedule,  # noqa: F401 — re-exported alongside the channel constants below
     is_precompute_enabled_for_team,
     is_team_above_volume_floor,
     set_lazy_precompute_ineligible_reason,
@@ -74,17 +75,11 @@ SUPPORTED_USER_FILTER_KEYS: set[str] = {"$host"}
 MAX_PRECOMPUTE_DAYS = 90
 
 # Channel-filtered shapes accept a full year (+leap): the whole point of admitting
-# the `$channel_type` filter is the long-range dashboards it appears on, and the
-# per-day jobs bound each insert regardless of span. Cold spans build behind the
-# live fallback, so the first request never burns the slots itself.
+# the `$channel_type` filter is the long-range dashboards it appears on, and
+# `channel_ttl_schedule`'s job-width cap bounds each insert regardless of span.
+# Cold spans build behind the live fallback, so the first request never burns
+# the slots itself.
 CHANNEL_MAX_PRECOMPUTE_DAYS = 366
-
-# TTL schedule for channel-filtered shapes: same graded bands as LAZY_TTL_SECONDS
-# for recent days, but old immutable days are held for 90 days instead of 21.
-# Without the longer hold, a year-long shape re-scans a year of events every three
-# weeks per shape; day buckets past the settling window never change, so holding
-# them longer costs storage only (the dimensional tables use the same policy).
-CHANNEL_TTL_SECONDS: dict[str, int] = {**LAZY_TTL_SECONDS, "default": 90 * 24 * 60 * 60}
 
 # Forward pad on the per-job event-scan window. The lazy_computation framework
 # chunks the precompute span into daily UTC jobs; each job covers
