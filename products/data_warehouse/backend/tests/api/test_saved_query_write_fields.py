@@ -32,6 +32,21 @@ class TestSavedQueryWriteFields(APIBaseTest):
         self.assertEqual(response.status_code, 400, response.content)
         self.assertFalse(DataWarehouseSavedQuery.objects.filter(team=self.team, name="event_view").exists())
 
+    @parameterized.expand([("supplied", True, 400), ("omitted", False, 201)])
+    def test_create_reports_a_discarded_dag_placement_only_when_asked_for(
+        self, _name: str, supply_dag_id: bool, expected_status: int
+    ) -> None:
+        dag = DAG.objects.create(team=self.team, name="Other")
+        fields = {"dag_id": str(dag.id)} if supply_dag_id else {}
+        with patch("products.data_modeling.backend.facade.api.sync_saved_query_to_dag", side_effect=RuntimeError):
+            response = self._create_view(**fields)
+        self.assertEqual(response.status_code, expected_status, response.content)
+        self.assertEqual(
+            DataWarehouseSavedQuery.objects.filter(team=self.team, name="event_view").exists(),
+            expected_status == 201,
+        )
+        self.assertFalse(Node.objects.filter(dag=dag).exists())
+
     def test_create_applies_the_requested_dag_and_cadence(self) -> None:
         dag = DAG.objects.create(team=self.team, name="Other")
         response = self._create_view(dag_id=str(dag.id), sync_frequency="6hour")

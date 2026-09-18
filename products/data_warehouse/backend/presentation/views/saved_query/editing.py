@@ -326,6 +326,7 @@ class DataWarehouseSavedQuerySerializer(
         validated_data["created_by"] = self.context["request"].user
         validated_data["origin"] = DataWarehouseSavedQuery.Origin.DATA_WAREHOUSE
         soft_update = validated_data.pop("soft_update", False)
+        dag_given = "dag_id" in validated_data
         dag_id = validated_data.pop("dag_id", None)
         has_description = "description" in validated_data
         description = validated_data.pop("description", None)
@@ -391,13 +392,16 @@ class DataWarehouseSavedQuerySerializer(
                     ],
                 ),
             )
-            # Keep unexpected DAG sync failures best-effort unless a cadence needs the node.
+            # Best-effort only when the caller left placement to us. A supplied dag_id is
+            # write-only, so the response cannot show that the placement was discarded.
             try:
                 with transaction.atomic():
                     modeling_api.sync_saved_query_to_dag(view, dag=dag_id)
             except Exception as e:
                 capture_exception(e)
                 logger.exception("Failed to sync saved query to DAG", saved_query_name=view.name)
+                if dag_given:
+                    raise serializers.ValidationError({"dag_id": "Could not place this view in the requested DAG."})
             if sync_frequency is not None:
                 if sync_frequency != "never":
                     assert_user_can_read_query(
