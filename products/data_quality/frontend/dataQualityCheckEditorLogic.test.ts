@@ -76,6 +76,7 @@ const SUBJECT_CATALOG = [
         display_name: '',
         time_column: '',
         columns: { order_id: 'string' },
+        editable: true,
     },
     {
         subject_type: 'table',
@@ -84,6 +85,7 @@ const SUBJECT_CATALOG = [
         display_name: '',
         time_column: '',
         columns: { customer_id: 'string', amount: 'decimal' },
+        editable: false,
     },
     {
         subject_type: 'metric',
@@ -92,6 +94,7 @@ const SUBJECT_CATALOG = [
         display_name: 'Daily signups',
         time_column: '',
         columns: {},
+        editable: true,
     },
     {
         subject_type: 'posthog_table',
@@ -100,6 +103,7 @@ const SUBJECT_CATALOG = [
         display_name: '',
         time_column: 'timestamp',
         columns: { distinct_id: 'string', timestamp: 'datetime' },
+        editable: true,
     },
 ]
 
@@ -968,7 +972,7 @@ describe('dataQualityCheckEditorLogic', () => {
         expect(logic.values.checkFormChanged).toBe(false)
     })
 
-    it('offers every kind of subject the project can check, PostHog tables included', async () => {
+    it('offers every editable subject as a parent and a read-only one only as a target', async () => {
         await mountLogic({ surface: 'overview' })
 
         logic.actions.openEditor(null, null)
@@ -976,7 +980,6 @@ describe('dataQualityCheckEditorLogic', () => {
 
         expect(logic.values.selectableSubjects).toEqual([
             { id: 'view-7', name: 'orders_view', type: 'view' },
-            { id: 'table-9', name: 'stripe_charges', type: 'table' },
             { id: 'metric-1', name: 'Daily signups', type: 'metric' },
             { id: 'events-1', name: 'events', type: 'posthog_table' },
         ])
