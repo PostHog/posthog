@@ -102,6 +102,19 @@ describe('metrics ingestion steps', () => {
             expectDrop(result, reason)
             expect(await counterValue(metricMessageDroppedCounter, { reason, team_id: 'unknown' })).toBe(1)
         })
+
+        it.each([['abc'], ['12abc'], ['-5'], ['1.5'], ['']])(
+            'sends a message with size header %p to the DLQ instead of poisoning the usage counters',
+            async (value) => {
+                const result = await step({
+                    message: createTestMessage({ headers: toHeaders({ token: 'tok', record_count: value }) }),
+                })
+                expect(isDlqResult(result) && result.reason).toBe('invalid_size_header')
+                expect(
+                    await counterValue(metricMessageDlqCounter, { reason: 'invalid_size_header', team_id: 'unknown' })
+                ).toBe(1)
+            }
+        )
     })
 
     describe('resolveMetricsTeamStep', () => {
