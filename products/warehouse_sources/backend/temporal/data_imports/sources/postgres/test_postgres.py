@@ -537,23 +537,25 @@ class TestPostgresSourceNonRetryableErrors:
         assert "db.example.com" not in matches[0]
 
     @pytest.mark.parametrize(
-        ("error_msg", "expected_word"),
+        ("error_msg", "reason_code", "expected_word"),
         [
             (
                 "Your account has restrictions: planLimitReached. Please contact your provider to resolve account restrictions.",
+                "planLimitReached",
                 "plan",
             ),
             # The billing reason code, carrying the libpq connect prefix the proxy's refusal arrives
             # with. Host and port are invented, not real values.
             (
                 'connection failed: connection to server at "203.0.113.7", port 5432 failed: Failed to identify your database: Your account has restrictions: unpaidPlanInvoice. Please contact your provider to resolve account restrictions.',
+                "unpaidPlanInvoice",
                 "invoice",
             ),
             # A reason code we don't recognise yet must still stop retrying and say who to contact.
-            ("Your account has restrictions: someFutureReason.", "restricted"),
+            ("Your account has restrictions: someFutureReason.", "someFutureReason", "restricted"),
         ],
     )
-    def test_account_restriction_surfaces_actionable_message(self, source, error_msg, expected_word):
+    def test_account_restriction_surfaces_actionable_message(self, source, error_msg, reason_code, expected_word):
         # A proxy account-restriction refusal must stop retrying and explain how to lift the
         # restriction, rather than storing the raw provider text (which libpq prefixes with the
         # customer's host and port). Mirror the finalizer's first-match selection so a reorder that
@@ -568,6 +570,7 @@ class TestPostgresSourceNonRetryableErrors:
             "an account restriction must surface an actionable message, not raw provider text"
         )
         assert expected_word in matches[0].lower()
+        assert reason_code not in matches[0], "the provider's reason code must stay out of the customer-facing message"
         assert "203.0.113.7" not in matches[0]
 
     @pytest.mark.parametrize(

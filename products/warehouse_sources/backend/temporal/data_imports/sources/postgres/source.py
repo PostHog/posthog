@@ -888,10 +888,10 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
             # contact the provider), so every retry re-hits the same refusal. Match the stable
             # camelCase reason code, which carries no host or account detail.
             "planLimitReached": (
-                "Your database provider has restricted the account because a plan limit was reached "
-                '("planLimitReached"), so PostHog can\'t connect. This usually comes from a database '
-                "proxy such as Prisma. Upgrade the plan or contact your provider to lift the "
-                "restriction, then re-enable the sync."
+                "Your database provider has restricted the account because a plan limit was reached, "
+                "so PostHog can't connect. This usually comes from a database proxy such as Prisma. "
+                "Upgrade the plan or contact your provider to lift the restriction, then re-enable "
+                "the sync."
             ),
             # The billing sibling of the code above, from the same restriction sentence: the proxy
             # refuses the connection because an invoice is unpaid. Only the customer's billing
