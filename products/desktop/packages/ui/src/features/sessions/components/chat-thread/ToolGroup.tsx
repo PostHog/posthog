@@ -1,18 +1,10 @@
-import { getPostHogExecDisplay } from "@posthog/core/sessions/posthogExecDisplay";
 import {
   ChatMarker,
   ChatMarkerContent,
   ChatMarkerIcon,
   cn,
 } from "@posthog/quill";
-import {
-  formatPiMcpToolName,
-  mcpToolKey,
-  readAgentToolName,
-  readMcpProxyCallDetails,
-  readMcpToolDescriptor,
-  readPiMcpCallDetails,
-} from "@posthog/shared";
+import { readAgentToolName } from "@posthog/shared";
 import type { ToolCall } from "@posthog/ui/features/sessions/types";
 import { Spinner } from "@posthog/ui/primitives/Spinner";
 import {
@@ -26,6 +18,7 @@ import { memo, useMemo } from "react";
 import type { ConversationItem } from "../buildConversationItems";
 import { summarizeMemo } from "../new-thread/buildThreadGroups";
 import { isSubagentSpawnTool } from "../session-update/collaborationTools";
+import { mcpToolDisplayName } from "../session-update/mcpToolDisplay";
 import { SessionUpdateView } from "../session-update/SessionUpdateView";
 import { iconForToolCall } from "../session-update/toolCallUtils";
 
@@ -80,37 +73,6 @@ function friendlyName(key: string): string {
     .replace(/[_-]+/g, " ")
     .replace(/([a-z\d])([A-Z])/g, "$1 $2");
   return spaced.charAt(0).toUpperCase() + spaced.slice(1).toLowerCase();
-}
-
-function mcpDisplayName(toolCall: ToolCall): string | undefined {
-  const details =
-    readPiMcpCallDetails(toolCall.details) ??
-    readMcpProxyCallDetails(toolCall._meta);
-  if (details?.kind === "search") {
-    return `Searching MCP tools for "${details.query}"`;
-  }
-  if (details?.kind === "tool") {
-    const posthogDisplay = getPostHogExecDisplay({
-      tool: details.name,
-      args: details.args,
-    });
-    const descriptor = readMcpToolDescriptor(toolCall._meta);
-    const label = posthogDisplay?.label ?? descriptor?.title;
-    return label
-      ? formatPiMcpToolName(details.name, label)
-      : formatPiMcpToolName(details.name);
-  }
-
-  const descriptor = readMcpToolDescriptor(toolCall._meta);
-  if (descriptor) {
-    return formatPiMcpToolName(mcpToolKey(descriptor), descriptor.title);
-  }
-
-  if (toolCall.title.startsWith("mcp_")) {
-    return formatPiMcpToolName(toolCall.title);
-  }
-
-  return toolCall.title === "mcp" ? "MCP" : undefined;
 }
 
 function isToolActive(item: SessionUpdateItem): boolean {
@@ -185,7 +147,7 @@ export const ToolGroup = memo(function ToolGroup({
   // thought-only run has to resolve to no current tool rather than throw on `undefined`.
   const currentItem = lastActiveTool(tools) ?? tools.at(-1);
   const current = currentItem ? resolveTool(currentItem) : null;
-  const mcpName = current ? mcpDisplayName(current.toolCall) : undefined;
+  const mcpName = current ? mcpToolDisplayName(current.toolCall) : undefined;
   const currentName = currentItem
     ? (mcpName ?? friendlyName(toolKey(currentItem)))
     : null;
