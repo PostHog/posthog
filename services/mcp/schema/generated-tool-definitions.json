@@ -6018,36 +6018,8 @@
             "readOnlyHint": false
         }
     },
-    "inbox-report-checks-create": {
-        "description": "Schedule a re-measurement of what a report claimed, so \"did the fix hold?\" becomes a verdict stored on the report instead of something a person re-derives weeks later. A check carries one expectation, one time to look, and how many times to look. The coordinator runs it when it comes due and appends the verdict to the report as a `check_result` entry people read in the inbox. Write one whenever the outcome is measurable; skip one for an observation with no \"fixed\" state to measure.\nChoose the `kind` by what settles the claim. A `metric_threshold` check measures one number and compares it, so it costs one query and no agent run. Its config takes a `comparison` (`lte`, `gte`, or `between`) plus either a `metric_id` the report already shows or your own `query` — never both. A supplied query is a bounded live InsightVizNode/TrendsQuery with one output series, the same shape a report metric carries. A named metric's query is copied onto the check as you create it, so the check keeps measuring what you saw. Pass the value you measured today as `baseline_value` to give the verdict context. An `agent` check runs a scout instead, for a claim no single number settles: \"did the exception stop?\" needs the issue looked up and its recent events read. Its config takes `instructions` saying what the run must establish, optional `probe_hints` naming where to look (an issue id, a service name, a query to repeat), and an optional `skill_name` for the scout that runs it — omit the name and the fleet's follow-up scout takes it.\nAllow for deploy and soak time, because unchanged numbers prove nothing before the fix is live. `next_run_at` defaults to a week out, and a recurring check may not re-measure more often than every 6 hours; anything faster is an alert and belongs in the alerts product. Leave `run_interval_minutes` out for a one-shot check. A report carries at most 5 active checks, so list them first and extend what is already watching the claim rather than adding a duplicate.",
-        "category": "Signals",
-        "feature": "signals",
-        "summary": "Schedule a follow-up check on a report",
-        "title": "Schedule a follow-up check on a report",
-        "required_scopes": ["task:write"],
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": false,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        }
-    },
-    "inbox-report-checks-delete": {
-        "description": "Stop one active check by its id, freeing a slot against the report's limit of 5. Verdicts it already recorded stay on the report. There is no update: a check is a claim about the future, and moving its threshold after a result would make the recorded verdict unreadable, so cancel the check and write a new one. A check that already finished cannot be cancelled.",
-        "category": "Signals",
-        "feature": "signals",
-        "summary": "Cancel a check",
-        "title": "Cancel a check",
-        "required_scopes": ["task:write"],
-        "annotations": {
-            "destructiveHint": true,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        }
-    },
     "inbox-report-checks-list": {
-        "description": "List the follow-up checks on one report, newest first. Each row carries the expectation and why it was written, its schedule (`next_run_at`, `run_interval_minutes`, `runs_remaining`, `expires_at`), its `status` (`active`, `passed`, `failed`, `errored`, `expired`, or `cancelled`) and its `last_outcome`. Read this before you write a check, so you extend or replace what already watches the claim. `query` and `baseline_value` read as null when you cannot read the data they describe.",
+        "description": "List the follow-up checks on one report, newest first. Each row carries the expectation and why it was written, its schedule (`next_run_at`, `run_interval_minutes`, `runs_remaining`, `expires_at`), its `status` (`pending`, `active`, `passed`, `failed`, `errored`, `expired`, or `cancelled`) and its `last_outcome`. A `pending` check waits for its report to resolve before its clock starts. Checks are written by scout runs and by the research pipeline, so this surface reads them and does not create them. `query` and `baseline_value` read as null when you cannot read the data they describe.",
         "category": "Signals",
         "feature": "signals",
         "summary": "List a report's checks",
@@ -10146,6 +10118,48 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false
+        }
+    },
+    "scout-report-check-cancel": {
+        "description": "Stop a check that is no longer worth running — the claim it re-measures has changed, or a better check replaces it. Results it already recorded stay on the report. A check that already finished cannot be cancelled, and the call says so.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "Cancel a follow-up check",
+        "title": "Cancel a follow-up check",
+        "required_scopes": ["signal_scout_report:write"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "scout-report-check-create": {
+        "description": "Schedule a re-measurement of a report's claim, so \"did the fix hold?\" becomes a stored fact instead of something a future run has to remember to look for. Write one when this run surfaces something whose fix would show up in data later. Use `metric_threshold` when a bounded query and a baseline exist: pass a `config` with a `metric_id` naming one of the report's own metrics (or your own bounded Trends `query`), a `comparison` (`lte` / `gte` / `between`) saying what the value must satisfy, and the `baseline_value` you measured now. Use `agent` for a claim no single number settles: pass `instructions` saying what a later run must establish and `probe_hints` naming the issue ids, services, or queries to look at; it runs on the scout you name in `skill_name`, or on the fleet's follow-up scout when you name none. `next_run_at` is when to first look, so allow deploy and soak time. The verdict lands on the report as a `check_result` entry people read in the inbox. Check `scout-report-check-list` first: a report holds at most five open checks, and a second check for the same claim is noise.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "Write a follow-up check on a report",
+        "title": "Write a follow-up check on a report",
+        "required_scopes": ["signal_scout_report:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "scout-report-check-list": {
+        "description": "Every follow-up check on one report, newest first, with its kind, status, next run and last verdict. Read this before writing a check: a report already carrying one for the same claim needs no second, and a report holds at most five open checks at a time. A `pending` check is waiting for the report to resolve before its clock starts; every status other than `pending` and `active` is terminal.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "List a report's follow-up checks",
+        "title": "List a report's follow-up checks",
+        "required_scopes": ["signal_scout_report:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
         }
     },
     "scout-run-now": {

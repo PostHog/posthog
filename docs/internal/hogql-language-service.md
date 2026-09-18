@@ -110,6 +110,11 @@ Aliases of the same relation share a cached field index and one candidate entry 
 Completion returns HTTP 400 when either limit is exceeded; validation returns a `query_limit` diagnostic.
 Derived qualified suggestions are sorted and deduplicated before pagination.
 
+An unfinished block comment returns a parser error instead of blocking completion or validation.
+For example, `WITH recent AS (SELECT uuid FROM events) SELECT recent.uuid FROM recent WHERE /* unfinished` produces a `syntax_error` validation diagnostic.
+Completion before that comment returns a `parseError` without recovering CTE field suggestions; completion inside the comment remains disabled.
+Closed block comments and line comments at end of input remain valid.
+
 ### Recovery and remaining work
 
 - Source-specific case-insensitive relation lookup remains unsupported. Python catalog nodes can opt in, for example for Snowflake, but the Go catalog payload does not carry that per-node flag. Supporting it requires publishing the metadata and implementing exact-match-first, opt-in fallback without merging distinct names. The service requires exact relation names until then; autocomplete prefix matching remains case-insensitive.
