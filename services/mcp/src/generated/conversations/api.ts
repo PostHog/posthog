@@ -150,6 +150,9 @@ export const ConversationsTicketsPartialUpdateParams = () => zod.object({
         ),
 })
 
+export const conversationsTicketsPartialUpdateBodyAwaitingDeletionIdMin = -2147483648
+export const conversationsTicketsPartialUpdateBodyAwaitingDeletionIdMax = 2147483647
+
 export const ConversationsTicketsPartialUpdateBody = () => zod
     .object({
         status: zod
@@ -194,6 +197,14 @@ export const ConversationsTicketsPartialUpdateBody = () => zod
             .datetime({ offset: true })
             .nullish()
             .describe('Time to reopen the ticket. Pass null to reopen it now.'),
+        awaiting_deletion_id: zod
+            .number()
+            .min(conversationsTicketsPartialUpdateBodyAwaitingDeletionIdMin)
+            .max(conversationsTicketsPartialUpdateBodyAwaitingDeletionIdMax)
+            .nullish()
+            .describe(
+                'Id of the queued data deletion this ticket is waiting on. Puts the ticket on hold; it reopens once the deletion is verified complete. Pass null to unlink and reopen it now.'
+            ),
         tags: zod.array(zod.string()).optional().describe('Tag names to set on the ticket.'),
     })
     .describe('Fields accepted when updating a ticket.')

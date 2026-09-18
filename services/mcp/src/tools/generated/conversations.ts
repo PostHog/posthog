@@ -275,6 +275,9 @@ const conversationsTicketsUpdate = (): ToolBase<
         if (params.snoozed_until !== undefined) {
             body['snoozed_until'] = params.snoozed_until
         }
+        if (params.awaiting_deletion_id !== undefined) {
+            body['awaiting_deletion_id'] = params.awaiting_deletion_id
+        }
         if (params.tags !== undefined) {
             body['tags'] = params.tags
         }

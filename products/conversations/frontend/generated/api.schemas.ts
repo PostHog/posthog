@@ -178,6 +178,14 @@ export interface TicketApi {
     sla_due_at?: string | null
     /** @nullable */
     snoozed_until?: string | null
+    /**
+     * @minimum -2147483648
+     * @maximum 2147483647
+     * @nullable
+     */
+    awaiting_deletion_id?: number | null
+    /** @nullable */
+    readonly awaiting_deletion_linked_at: string | null
     /** @nullable */
     readonly slack_channel_id: string | null
     /** @nullable */
@@ -301,6 +309,13 @@ export interface TicketUpdateRequestApi {
      * @nullable
      */
     snoozed_until?: string | null
+    /**
+     * Id of the queued data deletion this ticket is waiting on. Puts the ticket on hold; it reopens once the deletion is verified complete. Pass null to unlink and reopen it now.
+     * @minimum -2147483648
+     * @maximum 2147483647
+     * @nullable
+     */
+    awaiting_deletion_id?: number | null
     /** Tag names to set on the ticket. */
     tags?: string[]
 }
@@ -345,6 +360,13 @@ export interface PatchedTicketUpdateRequestApi {
      * @nullable
      */
     snoozed_until?: string | null
+    /**
+     * Id of the queued data deletion this ticket is waiting on. Puts the ticket on hold; it reopens once the deletion is verified complete. Pass null to unlink and reopen it now.
+     * @minimum -2147483648
+     * @maximum 2147483647
+     * @nullable
+     */
+    awaiting_deletion_id?: number | null
     /** Tag names to set on the ticket. */
     tags?: string[]
 }
