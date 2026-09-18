@@ -12,7 +12,6 @@ from rest_framework.viewsets import GenericViewSet
 
 from posthog.api.documentation import extend_schema
 from posthog.constants import AvailableFeature
-from posthog.dataclasses import frozen
 from posthog.models import User
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
@@ -248,23 +247,16 @@ class AccessControlSerializer(serializers.ModelSerializer):
         return data
 
 
-@frozen
-class RuleWriteResult:
-    """The row a write left behind, or None when it cleared the rule. `created` is False on an update or a clear."""
-
-    rule: AccessControl | None
-    created: bool
-
-
 def apply_access_control_rule(
     *,
     team: Team,
     user_access_control: UserAccessControl,
     build_serializer: Callable[[AccessControl | None], AccessControlSerializer],
-) -> RuleWriteResult:
+) -> AccessControl | None:
     """Apply one validated access control rule: a null level deletes the subject's rule, any other
-    level creates or updates it. Shared by the per-resource PUT actions and the settings page's
-    rule writes, so validation and cache behavior cannot drift between them."""
+    level creates or updates it. Returns the stored row, or None once the rule is gone. Shared by
+    the per-resource PUT actions and the settings page's rule writes, so validation and cache
+    behavior cannot drift between them."""
     serializer = build_serializer(None)
     serializer.is_valid(raise_exception=True)
     params = serializer.validated_data
@@ -279,11 +271,11 @@ def apply_access_control_rule(
 
     if params["access_level"] is None:
         if instance is None:
-            return RuleWriteResult(rule=None, created=False)
+            return None
         instance.delete()
         # Drop the preloaded access-control snapshot so later reads this request are fresh.
         user_access_control._clear_cache()
-        return RuleWriteResult(rule=None, created=False)
+        return None
 
     if instance:
         serializer = build_serializer(instance)
@@ -293,7 +285,7 @@ def apply_access_control_rule(
     # Drop the preloaded access-control snapshot so later reads this request are fresh.
     user_access_control._clear_cache()
 
-    return RuleWriteResult(rule=rule, created=instance is None)
+    return rule
 
 
 def upsert_access_control(
@@ -304,12 +296,12 @@ def upsert_access_control(
 ) -> Response:
     """The 200-or-204 form of `apply_access_control_rule` that the settings UI and the per-resource
     PUT actions expect."""
-    result = apply_access_control_rule(
+    rule = apply_access_control_rule(
         team=team, user_access_control=user_access_control, build_serializer=build_serializer
     )
-    if result.rule is None:
+    if rule is None:
         return Response(status=status.HTTP_204_NO_CONTENT)
-    return Response(AccessControlSerializer(result.rule).data, status=status.HTTP_200_OK)
+    return Response(AccessControlSerializer(rule).data, status=status.HTTP_200_OK)
 
 
 class AccessControlViewSetMixin(_GenericViewSet):

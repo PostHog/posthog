@@ -2693,7 +2693,7 @@ class TestAccessControlSubjectRuleWrites(BaseAccessControlTest):
             "object": {"resource": "dashboard", "resource_id": str(self.dashboard.id), "access_level": "viewer"},
         }[scope]
         res = self._put(subject, {**body, **self._subject(subject)})
-        assert res.status_code == status.HTTP_201_CREATED, res.json()
+        assert res.status_code == status.HTTP_200_OK, res.json()
 
         expected_resource_id = {"project": str(self.team.id), "resource": None, "object": str(self.dashboard.id)}[scope]
         row = AccessControl.objects.get(team=self.team, resource=body["resource"])
@@ -2711,7 +2711,7 @@ class TestAccessControlSubjectRuleWrites(BaseAccessControlTest):
 
     def test_null_level_clears_the_rule_and_clearing_again_is_idempotent(self):
         body = {"resource": "dashboard", "access_level": "viewer", **self._subject("member")}
-        assert self._put("member", body).status_code == status.HTTP_201_CREATED
+        assert self._put("member", body).status_code == status.HTTP_200_OK
         assert self._put("member", {**body, "access_level": "editor"}).status_code == status.HTTP_200_OK
 
         res = self._put("member", {**body, "access_level": None})
@@ -2817,7 +2817,7 @@ class TestAccessControlSubjectRuleWrites(BaseAccessControlTest):
         body = {"resource": "property_definition", "resource_id": str(prop.id), **self._subject(subject)}
 
         res = self._put(subject, {**body, "access_level": "none"})
-        assert res.status_code == status.HTTP_201_CREATED, res.json()
+        assert res.status_code == status.HTTP_200_OK, res.json()
         assert res.json()["access_level"] == "none"
         row = PropertyAccessControl.objects.get(team=self.team, property_definition=prop)
         assert str(row.organization_member_id or "") == self._subject(subject).get("member_id", "")
