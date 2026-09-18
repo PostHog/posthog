@@ -7,7 +7,9 @@ from parameterized import parameterized
 
 from posthog.models.scoping import team_scope
 
-from products.alerts.backend.models import WIPAlert, WIPAlertConfiguration
+from products.alerts.backend.facade.contracts import SourceBatchEvaluation
+from products.alerts.backend.facade.platform_alerts import record_outcomes
+from products.alerts.backend.models import PlatformAlert, PlatformAlertConfiguration
 from products.logs.backend.alert_check_query import BatchedBucketedResult, BucketedCount
 from products.logs.backend.alert_source_cycle import evaluate_logs_batch
 from products.logs.backend.models import LogsAlertConfiguration, LogsAlertEvent
@@ -21,11 +23,11 @@ class TestLogsAlertEvaluation(APIBaseTest):
         super().setUp()
         self.cutoff = datetime(2026, 9, 16, 10, tzinfo=UTC)
 
-    def _configuration(self, **overrides) -> WIPAlertConfiguration:
+    def _configuration(self, **overrides) -> PlatformAlertConfiguration:
         defaults = {
             "team": self.team,
             "name": "API errors",
-            "source_kind": WIPAlertConfiguration.SourceKind.LOGS,
+            "source_kind": PlatformAlertConfiguration.SourceKind.LOGS,
             "source_config": {},
             "threshold_count": 10,
             "threshold_operator": "above",
@@ -35,9 +37,9 @@ class TestLogsAlertEvaluation(APIBaseTest):
         }
         defaults.update(overrides)
         with team_scope(self.team.id):
-            return WIPAlertConfiguration.objects.create(**defaults)
+            return PlatformAlertConfiguration.objects.create(**defaults)
 
-    def _run(self, *configurations: WIPAlertConfiguration):
+    def _run(self, *configurations: PlatformAlertConfiguration):
         breaching = {str(c.id): [BucketedCount(timestamp=self.cutoff, count=500)] for c in configurations}
         with (
             patch(f"{_MODULE}.fetch_live_logs_checkpoint", return_value=None),
@@ -47,24 +49,59 @@ class TestLogsAlertEvaluation(APIBaseTest):
                 per_alert=breaching, query_duration_ms=1
             )
             slot = (configurations[0].next_check_at or self.cutoff).replace(second=0, microsecond=0).isoformat()
-            # Deliberately outside `team_scope`: the Temporal activity has no ambient scope, and
-            # these models are fail-closed, so a write here through a bare manager raises.
             return evaluate_logs_batch(self.team.id, slot, self.cutoff), query
+
+    def _record(self, evaluation: SourceBatchEvaluation) -> None:
+        """The write the platform's own activity runs after the evaluation returns.
+
+        Deliberately outside `team_scope`: that activity has no ambient scope, and these models
+        are fail-closed, so a write here through a bare manager raises.
+        """
+        record_outcomes(self.team.id, evaluation.outcomes, self.cutoff, team_timezone=self.team.timezone)
 
     def test_a_breaching_configuration_fires_and_records_its_own_state(self) -> None:
         configuration = self._configuration()
 
-        previews, _ = self._run(configuration)
+        evaluation, _ = self._run(configuration)
+        self._record(evaluation)
 
-        assert [t.notification for preview in previews for t in preview.transitions] == ["fire"]
+        assert [t.notification for preview in evaluation.previews for t in preview.transitions] == ["fire"]
         with team_scope(self.team.id):
-            alert = WIPAlert.objects.get(configuration=configuration, grouping_key="")
+            alert = PlatformAlert.objects.get(configuration=configuration, grouping_key="")
             configuration.refresh_from_db()
-        assert alert.state == WIPAlert.State.FIRING
+        assert alert.state == PlatformAlert.State.FIRING
         assert alert.last_notified_at is not None
         # The schedule advanced, so the next tick does not rediscover this configuration.
         assert configuration.next_check_at is not None
         assert configuration.next_check_at > self.cutoff
+
+    def test_the_evaluation_writes_nothing_until_its_outcomes_are_recorded(self) -> None:
+        configuration = self._configuration()
+
+        evaluation, _ = self._run(configuration)
+
+        assert evaluation.previews
+        with team_scope(self.team.id):
+            configuration.refresh_from_db()
+            assert not PlatformAlert.objects.filter(configuration=configuration).exists()
+        assert configuration.next_check_at == self.cutoff - timedelta(minutes=1)
+
+    def test_a_delivery_the_batch_cannot_carry_leaves_its_alert_due(self) -> None:
+        configurations = [self._configuration(), self._configuration()]
+
+        with patch(f"{_MODULE}.MAX_PREVIEWS_PER_CYCLE", 1):
+            evaluation, _ = self._run(*configurations)
+        self._record(evaluation)
+
+        # A firing alert does not fire again, so recording the second outcome would retire its
+        # breach with no delivery to announce it.
+        assert len(evaluation.previews) == 1
+        assert evaluation.omitted == 1
+        with team_scope(self.team.id):
+            still_due = PlatformAlertConfiguration.objects.filter(
+                id__in=[c.id for c in configurations], next_check_at__lte=self.cutoff
+            ).count()
+        assert still_due == 1
 
     def test_the_logs_product_rows_are_never_written(self) -> None:
         legacy = LogsAlertConfiguration.objects.create(
@@ -78,7 +115,8 @@ class TestLogsAlertEvaluation(APIBaseTest):
         )
         before = LogsAlertConfiguration.objects.values(*_LOGS_OWNED_FIELDS).get(id=legacy.id)
 
-        self._run(self._configuration(legacy_configuration_id=legacy.id))
+        evaluation, _ = self._run(self._configuration(legacy_configuration_id=legacy.id))
+        self._record(evaluation)
 
         # The logs fleet evaluates this same alert on its own queue. Writing its rows here would
         # transition an alert twice and notify a person twice for one breach.
@@ -99,6 +137,8 @@ class TestLogsAlertEvaluation(APIBaseTest):
     def test_the_evaluation_key_comes_from_the_tick_occasion_not_the_clock(self) -> None:
         configuration = self._configuration(next_check_at=None)
 
-        previews, _ = self._run(configuration)
+        evaluation, _ = self._run(configuration)
 
-        assert [p.evaluation_key for p in previews] == [f"{configuration.id}:window:{self.cutoff.isoformat()}"]
+        assert [p.evaluation_key for p in evaluation.previews] == [
+            f"{configuration.id}:window:{self.cutoff.isoformat()}"
+        ]

@@ -18,13 +18,20 @@ with workflow.unsafe.imports_passed_through():
 
     from posthog.sync import database_sync_to_async_pool
 
-    from products.alerts.backend.facade.contracts import AlertDeliveryPreview, SourceEvaluationInputs
+    from products.alerts.backend.facade.contracts import (
+        SourceBatchEvaluation,
+        SourceEvaluationInputs,
+        SourceOutcomeInputs,
+    )
 
 WORKFLOW_NAME = "logs-alert-evaluate"
 
+# The platform's own write, started by name so the two products stay apart.
+RECORD_OUTCOMES_ACTIVITY = "alerts_product_record_outcomes"
+
 
 @activity.defn
-async def evaluate_logs_alerts_activity(inputs: SourceEvaluationInputs) -> tuple[AlertDeliveryPreview, ...]:
+async def evaluate_logs_alerts_activity(inputs: SourceEvaluationInputs) -> SourceBatchEvaluation:
     # Imported in the activity body, not at module scope. The workflow class below forces
     # this module to evaluate inside Temporal's sandbox, which a Django model import trips.
     from products.logs.backend.alert_source_cycle import evaluate_logs_batch
@@ -36,20 +43,36 @@ async def evaluate_logs_alerts_activity(inputs: SourceEvaluationInputs) -> tuple
 
 @workflow.defn(name=WORKFLOW_NAME)
 class LogsAlertEvaluateWorkflow(PostHogWorkflow):
-    """Evaluates one batch key, then previews one delivery per notification.
-    Writes only the shared platform's own rows: the production logs fleet owns the logs tables."""
+    """Evaluates one batch key, records what it decided, then previews one delivery per
+    notification. Writes only the shared platform's own rows: the production logs fleet owns
+    the logs tables."""
 
     inputs_cls = SourceEvaluationInputs
 
     @workflow.run
     async def run(self, inputs: SourceEvaluationInputs) -> int:
-        previews = await workflow.execute_activity(
+        # The evaluation writes nothing, so a lost attempt costs its queries and the retry reads
+        # the same still-due batch. Its result reaches history before the write below runs.
+        evaluation = await workflow.execute_activity(
             evaluate_logs_alerts_activity,
             inputs,
             start_to_close_timeout=dt.timedelta(seconds=25),
             schedule_to_close_timeout=dt.timedelta(seconds=35),
             retry_policy=RetryPolicy(maximum_attempts=2),
         )
+
+        if evaluation.outcomes:
+            await workflow.execute_activity(
+                RECORD_OUTCOMES_ACTIVITY,
+                SourceOutcomeInputs(
+                    team_id=inputs.batch_key.team_id,
+                    cutoff=inputs.cutoff,
+                    outcomes=evaluation.outcomes,
+                ),
+                start_to_close_timeout=dt.timedelta(seconds=15),
+                schedule_to_close_timeout=dt.timedelta(seconds=45),
+                retry_policy=RetryPolicy(maximum_attempts=3),
+            )
 
         # The evaluation key names the alert and its window, so a re-run of the same occasion
         # reuses these ids. A reused id raises, so one already-started preview must not stop
@@ -64,7 +87,7 @@ class LogsAlertEvaluateWorkflow(PostHogWorkflow):
                     parent_close_policy=workflow.ParentClosePolicy.ABANDON,
                     execution_timeout=dt.timedelta(minutes=1),
                 )
-                for preview in previews
+                for preview in evaluation.previews
             ),
             return_exceptions=True,
         )

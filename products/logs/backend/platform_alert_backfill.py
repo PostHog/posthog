@@ -11,8 +11,8 @@ import structlog
 
 from posthog.dataclasses import frozen
 
-from products.alerts.backend.facade.contracts import SourceKind, WIPAlertUpsert
-from products.alerts.backend.facade.wip_alerts import upsert_configuration
+from products.alerts.backend.facade.contracts import PlatformAlertUpsert, SourceKind
+from products.alerts.backend.facade.platform_alerts import upsert_configuration
 from products.logs.backend.models import LogsAlertConfiguration
 
 logger = structlog.get_logger(__name__)
@@ -24,7 +24,7 @@ class BackfillCounts:
     updated: int
 
 
-def backfill_wip_alert_configurations(*, team_id: int | None = None) -> BackfillCounts:
+def backfill_platform_alert_configurations(*, team_id: int | None = None) -> BackfillCounts:
     """Copies every logs alert configuration, or one team's."""
     source = LogsAlertConfiguration.objects.all()
     if team_id is not None:
@@ -34,7 +34,7 @@ def backfill_wip_alert_configurations(*, team_id: int | None = None) -> Backfill
     updated = 0
     for configuration in source.iterator():
         was_created = upsert_configuration(
-            WIPAlertUpsert(
+            PlatformAlertUpsert(
                 legacy_configuration_id=configuration.id,
                 team_id=configuration.team_id,
                 name=configuration.name,
@@ -57,5 +57,5 @@ def backfill_wip_alert_configurations(*, team_id: int | None = None) -> Backfill
         else:
             updated += 1
 
-    logger.info("wip_alert_backfill.complete", created=created, updated=updated, team_id=team_id)
+    logger.info("platform_alert_backfill.complete", created=created, updated=updated, team_id=team_id)
     return BackfillCounts(created=created, updated=updated)

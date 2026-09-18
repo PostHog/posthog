@@ -17,6 +17,8 @@ from posthog.dataclasses import frozen
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.logger import get_write_only_logger
 
+from products.alerts.backend.temporal.metrics import increment_deliveries_previewed, safe_record
+from products.alerts.backend.temporal.outcomes import alerts_product_record_outcomes_activity
 from products.alerts.backend.temporal.sources import SOURCE_EVALUATION_WORKFLOWS
 
 LOGGER = get_write_only_logger(__name__)
@@ -96,6 +98,7 @@ async def alerts_product_deliver_preview_activity(preview: AlertDeliveryPreview)
             for transition in preview.transitions
         ],
     )
+    safe_record("deliveries_previewed_total", increment_deliveries_previewed, preview.source.value)
 
 
 @workflow.defn(name="alerts-product-deliver-preview")
@@ -322,7 +325,10 @@ class AlertsProductOrchestrateWorkflow(PostHogWorkflow):
 SHARED_ORCHESTRATION_WORKFLOWS: list[type[PostHogWorkflow]] = [AlertsProductOrchestrateWorkflow]
 SHARED_ORCHESTRATION_ACTIVITIES: list[Callable[..., object]] = [alerts_product_discover_demand_activity]
 EVALUATION_WORKFLOWS: list[type[PostHogWorkflow]] = [AlertsProductEvaluateWorkflow, AlertsProductSourceDispatchWorkflow]
-EVALUATION_ACTIVITIES: list[Callable[..., object]] = [alerts_product_probe_postgres_activity]
+EVALUATION_ACTIVITIES: list[Callable[..., object]] = [
+    alerts_product_probe_postgres_activity,
+    alerts_product_record_outcomes_activity,
+]
 DELIVERY_WORKFLOWS: list[type[PostHogWorkflow]] = [AlertsProductDeliverWorkflow, AlertsProductDeliverPreviewWorkflow]
 DELIVERY_ACTIVITIES: list[Callable[..., object]] = [
     alerts_product_deliver_activity,

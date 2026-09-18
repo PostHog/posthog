@@ -1,11 +1,11 @@
-"""Skeleton of the shared alert configuration and its runtime state.
+"""The shared alert configuration and its runtime state, for any source.
 
 Enough of the shape from the implementation RFC for a source adapter to stop reading its
 product's own configuration table, and no more. Fields land as adapters need them.
 
-These do not claim the `AlertConfiguration` and `Alert` names because the insight alert
-configuration already holds them. When insight alerts move onto the shared contract, these
-rows migrate into those tables and these models go away.
+`Platform` rather than the bare `AlertConfiguration` and `Alert`, which the insight alert
+configuration already holds in this app. The prefix names what the rows are for: an alert any
+source configures on the shared platform, rather than one product's own table.
 """
 
 from django.db import models
@@ -14,10 +14,10 @@ from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.utils import UUIDTModel
 
 
-class WIPAlertConfiguration(TeamScopedRootMixin, UUIDTModel):
+class PlatformAlertConfiguration(TeamScopedRootMixin, UUIDTModel):
     """What to evaluate, how often, and against what bound.
 
-    Evaluation-level state lives here rather than on `WIPAlert`, because a failed check
+    Evaluation-level state lives here rather than on `PlatformAlert`, because a failed check
     fails the whole evaluation rather than one group of its results.
     """
 
@@ -62,15 +62,15 @@ class WIPAlertConfiguration(TeamScopedRootMixin, UUIDTModel):
             # configuration is never discovered and does not belong in the index.
             models.Index(
                 fields=["next_check_at", "id"],
-                name="wip_alert_config_due_idx",
+                name="platform_alert_cfg_due_idx",
                 condition=models.Q(enabled=True),
             ),
             # One batch key's read, mirroring the shape the logs configuration already uses.
-            models.Index(fields=["team_id", "next_check_at", "enabled"], name="wip_alert_config_batch_idx"),
+            models.Index(fields=["team_id", "next_check_at", "enabled"], name="platform_alert_cfg_batch_idx"),
         ]
 
 
-class WIPAlert(TeamScopedRootMixin, UUIDTModel):
+class PlatformAlert(TeamScopedRootMixin, UUIDTModel):
     """Runtime state for one instance of a configuration.
 
     `grouping_key` is empty until a source groups its results. The unique constraint is what
@@ -85,7 +85,7 @@ class WIPAlert(TeamScopedRootMixin, UUIDTModel):
         BROKEN = "broken", "Broken"
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
-    configuration = models.ForeignKey(WIPAlertConfiguration, on_delete=models.CASCADE, related_name="alerts")
+    configuration = models.ForeignKey(PlatformAlertConfiguration, on_delete=models.CASCADE, related_name="alerts")
 
     grouping_key = models.CharField(max_length=255, default="", db_default="")
     state = models.CharField(max_length=32, choices=State.choices, default=State.NOT_FIRING, db_default="not_firing")
@@ -94,5 +94,5 @@ class WIPAlert(TeamScopedRootMixin, UUIDTModel):
 
     class Meta:
         constraints = [
-            models.UniqueConstraint(fields=["configuration", "grouping_key"], name="wip_alert_one_per_group")
+            models.UniqueConstraint(fields=["configuration", "grouping_key"], name="platform_alert_one_per_group")
         ]
