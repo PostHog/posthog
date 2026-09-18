@@ -658,6 +658,18 @@ class TestResolver(BaseTest):
         expr = self._print_hogql("with 1 as cte select cte from events")
         self.assertEqual(expr, "WITH 1 AS cte SELECT cte FROM events LIMIT 50000")
 
+    def test_ctes_column_alias_referencing_table_field(self):
+        self.assertEqual(
+            self._print_hogql("with timestamp as ts select ts from events"),
+            "WITH timestamp AS ts SELECT ts FROM events LIMIT 50000",
+        )
+
+    def test_ctes_column_alias_in_group_by(self):
+        self.assertEqual(
+            self._print_hogql("with upper(event) as ev select ev, count() from events group by ev"),
+            "WITH upper(event) AS ev SELECT ev, count() FROM events GROUP BY ev LIMIT 50000",
+        )
+
     def test_ctes_recursive_column(self):
         self.assertEqual(
             self._print_hogql("with 1 as cte, cte as soap select soap from events"),
@@ -665,9 +677,12 @@ class TestResolver(BaseTest):
         )
 
     def test_ctes_field_access(self):
-        with self.assertRaises(QueryError) as e:
-            self._print_hogql("with properties as cte select cte.$browser from events")
-        self.assertIn("No scope or CTE available", str(e.exception))
+        # A scalar WITH alias resolves after FROM, so field access through the alias
+        # substitutes the underlying expression, matching ClickHouse alias semantics
+        self.assertEqual(
+            self._print_hogql("with properties as cte select cte.$browser from events"),
+            "WITH properties AS cte SELECT cte.$browser FROM events LIMIT 50000",
+        )
 
     def test_ctes_subqueries(self):
         self.assertEqual(
