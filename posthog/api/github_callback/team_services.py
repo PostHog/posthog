@@ -31,6 +31,7 @@ from posthog.api.github_callback.types import (
     is_valid_github_installation_id,
 )
 from posthog.auth import SessionAuthentication
+from posthog.dataclasses import frozen
 from posthog.egress.github.transport import GitHubEgressBudgetExhausted
 from posthog.event_usage import report_user_action
 from posthog.models import Team
@@ -595,8 +596,14 @@ def link_existing_team_github_integration(
     return instance
 
 
-def _sibling_installation_account(integration: Integration) -> tuple[str | None, str | None]:
-    """Account name and type to show for an installation a project in the organization already has.
+@frozen
+class _InstallationAccount:
+    name: str | None
+    type: str | None
+
+
+def _sibling_installation_account(integration: Integration) -> _InstallationAccount:
+    """Account to show for an installation a project in the organization already has.
 
     The name must be the GitHub account the app is installed on, never the login of the person who
     connected it: a reader who sees a colleague's handle where an account belongs reads it as a
@@ -609,8 +616,8 @@ def _sibling_installation_account(integration: Integration) -> tuple[str | None,
     account = (integration.config or {}).get("account") or {}
     name = account.get("name")
     if not name or str(name) == str(github_integration.github_installation_id):
-        return None, account.get("type")
-    return str(name), account.get("type")
+        return _InstallationAccount(name=None, type=account.get("type"))
+    return _InstallationAccount(name=str(name), type=account.get("type"))
 
 
 def list_org_github_installations(
@@ -657,11 +664,11 @@ def list_org_github_installations(
             continue
         if installation_id in installations:
             continue
-        account_name, account_type = _sibling_installation_account(integration)
+        sibling_account = _sibling_installation_account(integration)
         installations[installation_id] = {
             "installation_id": installation_id,
-            "account_name": account_name,
-            "account_type": account_type,
+            "account_name": sibling_account.name,
+            "account_type": sibling_account.type,
             "source_team_id": integration.team_id,
             "source_team_name": integration.team.name,
         }

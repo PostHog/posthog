@@ -2024,21 +2024,21 @@ export interface eventUsageLogicActions {
         selfDriving: boolean | undefined
         surface: IntegrationConnectSurface
     }
-    reportIntegrationLinkExistingOffered: (
-        kind: string,
-        surface: IntegrationConnectSurface,
-        counts: IntegrationLinkExistingCounts
-    ) => {
-        kind: string
-        surface: IntegrationConnectSurface
-        counts: IntegrationLinkExistingCounts
-    }
     reportIntegrationConnectRejected: (
         kind: string,
         error: string
     ) => {
         error: string
         kind: string
+    }
+    reportIntegrationLinkExistingOffered: (
+        kind: string,
+        surface: IntegrationConnectSurface,
+        counts: IntegrationLinkExistingCounts
+    ) => {
+        counts: IntegrationLinkExistingCounts
+        kind: string
+        surface: IntegrationConnectSurface
     }
     reportInviteMembersButtonClicked: () => {
         value: true
