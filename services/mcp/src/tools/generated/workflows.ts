@@ -53,6 +53,9 @@ const workflowsCreate = (): ToolBase<ReturnType<typeof WorkflowsCreateSchema>, W
             if (params.variables !== undefined) {
                 body['variables'] = params.variables
             }
+            if (params.tags !== undefined) {
+                body['tags'] = params.tags
+            }
             const result = await context.api.request<Schemas.HogFlow>({
                 method: 'POST',
                 path: `/api/projects/${encodeURIComponent(String(projectId))}/hog_flows/`,
@@ -190,6 +193,8 @@ const workflowsList = (): ToolBase<
                     origin_product: params.origin_product,
                     search: params.search,
                     status: params.status,
+                    tags: params.tags,
+                    tags_match: params.tags_match,
                     trigger: params.trigger,
                     type: params.type,
                     updated_at: params.updated_at,
@@ -494,6 +499,9 @@ const workflowsUpdate = (): ToolBase<ReturnType<typeof WorkflowsUpdateSchema>, W
             }
             if (params.variables !== undefined) {
                 body['variables'] = params.variables
+            }
+            if (params.tags !== undefined) {
+                body['tags'] = params.tags
             }
             const result = await context.api.request<Schemas.HogFlowUpdate>({
                 method: 'PATCH',

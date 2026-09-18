@@ -118,6 +118,76 @@ class TestTaggedItemSerializerMixin(APIBaseTest):
         assert response.json()["next"] is not None
 
 
+class TestPinnedTags(APIBaseTest):
+    def _tags_url(self, suffix: str = "") -> str:
+        return f"/api/projects/{self.team.id}/tags/{suffix}"
+
+    def test_create_pins_a_normalized_tag_and_lists_it(self) -> None:
+        response = self.client.post(self._tags_url(), {"name": "  Marketing "})
+
+        assert response.status_code == status.HTTP_201_CREATED
+        assert response.json()["name"] == "marketing"
+        assert response.json()["pinned"] is True
+        assert [tag["name"] for tag in self.client.get(self._tags_url("pinned/")).json()] == ["marketing"]
+        assert self.client.get(self._tags_url()).json() == ["marketing"]
+
+    def test_create_pins_an_existing_inline_tag_instead_of_duplicating_it(self) -> None:
+        dashboard = Dashboard.objects.create(team_id=self.team.id, name="dashboard")
+        tag = Tag.objects.create(name="marketing", team_id=self.team.id)
+        dashboard.tagged_items.create(tag_id=tag.id)
+
+        response = self.client.post(self._tags_url(), {"name": "Marketing"})
+
+        assert response.status_code == status.HTTP_201_CREATED
+        assert response.json()["id"] == str(tag.id)
+        assert Tag.objects.filter(team_id=self.team.id).count() == 1
+        tag.refresh_from_db()
+        assert tag.pinned is True
+
+    @parameterized.expand([("", ""), ("whitespace", "   ")])
+    def test_create_rejects_a_blank_name(self, _name: str, raw_name: str) -> None:
+        response = self.client.post(self._tags_url(), {"name": raw_name})
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert Tag.objects.filter(team_id=self.team.id).count() == 0
+
+    def test_pinned_tag_survives_orphan_cleanup(self) -> None:
+        self.client.post(self._tags_url(), {"name": "marketing"})
+        dashboard = Dashboard.objects.create(team_id=self.team.id, name="dashboard")
+        inline_tag = Tag.objects.create(name="inline", team_id=self.team.id)
+        dashboard.tagged_items.create(tag_id=inline_tag.id)
+
+        # Clearing the dashboard's tags runs the orphan cleanup for the team.
+        response = self.client.patch(f"/api/projects/{self.team.id}/dashboards/{dashboard.id}", {"tags": []})
+
+        assert response.status_code == status.HTTP_200_OK
+        assert list(Tag.objects.filter(team_id=self.team.id).values_list("name", flat=True)) == ["marketing"]
+
+    def test_destroy_deletes_an_unused_tag_and_unpins_a_used_one(self) -> None:
+        unused = Tag.objects.create(name="unused", team_id=self.team.id, pinned=True)
+        used = Tag.objects.create(name="used", team_id=self.team.id, pinned=True)
+        dashboard = Dashboard.objects.create(team_id=self.team.id, name="dashboard")
+        dashboard.tagged_items.create(tag_id=used.id)
+
+        assert self.client.delete(self._tags_url(f"{unused.id}/")).status_code == status.HTTP_204_NO_CONTENT
+        assert self.client.delete(self._tags_url(f"{used.id}/")).status_code == status.HTTP_204_NO_CONTENT
+
+        assert not Tag.objects.filter(id=unused.id).exists()
+        used.refresh_from_db()
+        assert used.pinned is False
+        assert list(dashboard.tagged_items.values_list("tag__name", flat=True)) == ["used"]
+        assert self.client.get(self._tags_url("pinned/")).json() == []
+
+    def test_destroy_is_scoped_to_the_project(self) -> None:
+        other_team = Team.objects.create(organization=self.organization, name="other")
+        tag = Tag.objects.create(name="marketing", team_id=other_team.id, pinned=True)
+
+        response = self.client.delete(self._tags_url(f"{tag.id}/"))
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+        assert Tag.objects.filter(id=tag.id, pinned=True).exists()
+
+
 class TestBulkUpdateTags(APIBaseTest):
     def _bulk_update_url(self):
         return f"/api/projects/{self.team.id}/dashboards/bulk_update_tags/"

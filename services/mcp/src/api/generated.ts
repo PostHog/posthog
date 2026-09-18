@@ -45988,7 +45988,7 @@ export namespace Schemas {
     }
 
     /**
-     * Mixin for serializers to add user access control fields
+     * The full workflow definition, including its staged draft and email delivery state.
      */
     export interface HogFlow {
       readonly id: string;
@@ -46072,6 +46072,11 @@ export namespace Schemas {
          * @nullable
          */
       readonly email_sending_resumed_at: string | null;
+      /**
+         * Tags on this workflow. Names are trimmed and lowercased, and sending this field replaces the workflow's existing tags. Filter the list with `?tags=`.
+         * @items.maxLength 255
+         */
+      tags?: string[];
     }
 
     /**
@@ -46200,7 +46205,7 @@ export namespace Schemas {
     }
 
     /**
-     * Mixin for serializers to add user access control fields
+     * A workflow with its live configuration, as the workflows list returns it.
      */
     export interface HogFlowMinimal {
       readonly id: string;
@@ -46229,6 +46234,11 @@ export namespace Schemas {
          * @nullable
          */
       readonly user_access_level: string | null;
+      /**
+         * Tags on this workflow. Names are trimmed and lowercased, and sending this field replaces the workflow's existing tags. Filter the list with `?tags=`.
+         * @items.maxLength 255
+         */
+      tags?: string[];
     }
 
     export interface HogFlowPublishImpactMoveTarget {
@@ -46454,7 +46464,7 @@ export namespace Schemas {
     export type HogFlowUpdateActionRedirects = {[key: string]: string} | null;
 
     /**
-     * Mixin for serializers to add user access control fields
+     * The full workflow definition, including its staged draft and email delivery state.
      */
     export interface HogFlowUpdate {
       readonly id: string;
@@ -46538,6 +46548,11 @@ export namespace Schemas {
          * @nullable
          */
       readonly email_sending_resumed_at: string | null;
+      /**
+         * Tags on this workflow. Names are trimmed and lowercased, and sending this field replaces the workflow's existing tags. Filter the list with `?tags=`.
+         * @items.maxLength 255
+         */
+      tags?: string[];
     }
 
     /**
@@ -69057,7 +69072,7 @@ export namespace Schemas {
     export type PatchedHogFlowUpdateActionRedirects = {[key: string]: string} | null;
 
     /**
-     * Mixin for serializers to add user access control fields
+     * The full workflow definition, including its staged draft and email delivery state.
      */
     export interface PatchedHogFlowUpdate {
       readonly id?: string;
@@ -69141,6 +69156,11 @@ export namespace Schemas {
          * @nullable
          */
       readonly email_sending_resumed_at?: string | null;
+      /**
+         * Tags on this workflow. Names are trimmed and lowercased, and sending this field replaces the workflow's existing tags. Filter the list with `?tags=`.
+         * @items.maxLength 255
+         */
+      tags?: string[];
     }
 
     /**
@@ -91050,6 +91070,23 @@ export namespace Schemas {
       text: string;
     }
 
+    export interface Tag {
+      /** UUID of the tag. */
+      readonly id: string;
+      /** Tag name, trimmed and lowercased. */
+      readonly name: string;
+      /** True when the tag was created through this API, so it stays available while no object carries it. Tags typed inline while tagging an object are removed once the last object drops them. */
+      readonly pinned: boolean;
+    }
+
+    export interface TagCreate {
+      /**
+         * Tag name. Trimmed and lowercased before it is stored, so `Marketing` and `marketing` are one tag.
+         * @maxLength 255
+         */
+      name: string;
+    }
+
     export interface TaggerCreate {
       /** @maxLength 400 */
       name: string;
@@ -98985,7 +99022,7 @@ export namespace Schemas {
      */
     tags?: string;
     /**
-     * How to combine the `tags` filter. `all` (the default) returns projects carrying every listed tag; `any` returns projects carrying at least one.
+     * How to combine the `tags` filter. `all` (the default) returns objects carrying every listed tag; `any` returns objects carrying at least one.
      */
     tags_match?: OrganizationsProjectsListTagsMatch;
     };
@@ -104300,6 +104337,14 @@ export namespace Schemas {
      */
     status?: HogFlowsListStatus;
     /**
+     * Comma-separated tag names to filter by, for example `marketing,onboarding`. Names are trimmed and lowercased before matching. At most 20 distinct tags per request.
+     */
+    tags?: string;
+    /**
+     * How to combine the `tags` filter. `all` (the default) returns objects carrying every listed tag; `any` returns objects carrying at least one.
+     */
+    tags_match?: HogFlowsListTagsMatch;
+    /**
      * Filter by trigger config as a JSON object. Returns workflows whose trigger contains the given object, e.g. {"type": "event"}.
      */
     trigger?: string;
@@ -104324,6 +104369,14 @@ export namespace Schemas {
       Active: 'active',
       Archived: 'archived',
       Draft: 'draft',
+    } as const;
+
+    export type HogFlowsListTagsMatch = typeof HogFlowsListTagsMatch[keyof typeof HogFlowsListTagsMatch];
+
+
+    export const HogFlowsListTagsMatch = {
+      All: 'all',
+      Any: 'any',
     } as const;
 
     export type HogFlowsListType = typeof HogFlowsListType[keyof typeof HogFlowsListType];

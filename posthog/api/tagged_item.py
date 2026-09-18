@@ -47,8 +47,73 @@ def set_tags_on_object(tags: list[str], obj: Any) -> list[TaggedItem]:
 
 
 def cleanup_orphan_tags(team_id: int) -> None:
-    """Remove tags that are no longer referenced by any TaggedItem."""
-    Tag.objects.filter(Q(team_id=team_id) & Q(tagged_items__isnull=True)).delete()
+    """Remove tags that are no longer referenced by any TaggedItem.
+
+    Pinned tags were created on purpose, so they stay until someone removes them from the tag list.
+    """
+    Tag.objects.filter(Q(team_id=team_id) & Q(tagged_items__isnull=True) & Q(pinned=False)).delete()
+
+
+TAGS_FILTER_MATCH_MODES = ("all", "any")
+
+# "all" adds one join per tag, so an unbounded list would hand Postgres a query plan that grows
+# with whatever a caller puts in the query string.
+MAX_TAGS_PER_FILTER = 20
+
+
+def tags_filter_parameters(example: str) -> list[OpenApiParameter]:
+    """The `tags` / `tags_match` query parameters of a list endpoint, declared so they reach the generated clients."""
+    return [
+        OpenApiParameter(
+            name="tags",
+            type=OpenApiTypes.STR,
+            location=OpenApiParameter.QUERY,
+            description=(
+                f"Comma-separated tag names to filter by, for example `{example}`. "
+                f"Names are trimmed and lowercased before matching. At most {MAX_TAGS_PER_FILTER} "
+                "distinct tags per request."
+            ),
+        ),
+        OpenApiParameter(
+            name="tags_match",
+            type=OpenApiTypes.STR,
+            location=OpenApiParameter.QUERY,
+            enum=list(TAGS_FILTER_MATCH_MODES),
+            description=(
+                "How to combine the `tags` filter. `all` (the default) returns objects carrying "
+                "every listed tag; `any` returns objects carrying at least one."
+            ),
+        ),
+    ]
+
+
+def parse_tags_filter(query_params: Any) -> tuple[list[str], str] | None:
+    """Read the `tags` / `tags_match` query pair, or None when no tag filter was asked for."""
+    raw = query_params.get("tags")
+    if not raw:
+        return None
+    tags = sorted({tagify(tag) for tag in raw.split(",") if tag.strip()})
+    if not tags:
+        return None
+    if len(tags) > MAX_TAGS_PER_FILTER:
+        raise serializers.ValidationError({"tags": f"Filter by at most {MAX_TAGS_PER_FILTER} tags at a time."})
+    match = query_params.get("tags_match", "all")
+    if match not in TAGS_FILTER_MATCH_MODES:
+        raise serializers.ValidationError({"tags_match": f"Must be one of: {', '.join(TAGS_FILTER_MATCH_MODES)}."})
+    return tags, match
+
+
+def filter_queryset_by_tags(queryset: QuerySet, query_params: Any) -> QuerySet:
+    """Narrow a taggable model's queryset to rows carrying every requested tag, or any of them under `tags_match=any`."""
+    parsed = parse_tags_filter(query_params)
+    if parsed is None:
+        return queryset
+    tags, match = parsed
+    if match == "any":
+        return queryset.filter(tagged_items__tag__name__in=tags).distinct()
+    for tag in tags:
+        queryset = queryset.filter(tagged_items__tag__name=tag)
+    return queryset
 
 
 def normalize_tag_names(tags: Iterable[str]) -> set[str]:
@@ -448,10 +513,39 @@ class TaggedItemSerializer(serializers.Serializer):
         return obj.tag.name
 
 
+class TagSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Tag
+        fields = ["id", "name", "pinned"]
+        read_only_fields = fields
+        extra_kwargs = {
+            "id": {"help_text": "UUID of the tag."},
+            "name": {"help_text": "Tag name, trimmed and lowercased."},
+            "pinned": {
+                "help_text": "True when the tag was created through this API, so it stays available while no "
+                "object carries it. Tags typed inline while tagging an object are removed once the last object "
+                "drops them."
+            },
+        }
+
+
+class TagCreateSerializer(serializers.Serializer):
+    name = serializers.CharField(
+        max_length=TAG_NAME_MAX_LENGTH,
+        help_text="Tag name. Trimmed and lowercased before it is stored, so `Marketing` and `marketing` are one tag.",
+    )
+
+    def validate_name(self, value: str) -> str:
+        name = tagify(value)
+        if not name:
+            raise serializers.ValidationError("Enter a tag name.")
+        return name
+
+
 class TaggedItemViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
     scope_object = "INTERNAL"
     serializer_class = TaggedItemSerializer
-    queryset = Tag.objects.none()
+    queryset = Tag.objects.all()
 
     @extend_schema(
         parameters=[
@@ -475,3 +569,47 @@ class TaggedItemViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
         paginator.max_limit = 100
         page = paginator.paginate_queryset(tags, request, view=self)
         return paginator.get_paginated_response(page)
+
+    @extend_schema(
+        request=TagCreateSerializer,
+        responses={201: TagSerializer},
+        description="Create a pinned tag, or pin the existing tag with this name. A pinned tag stays available "
+        "for tagging while no object carries it.",
+        extensions={"x-product": "core"},
+    )
+    def create(self, request, *args, **kwargs) -> response.Response:
+        serializer = TagCreateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        tag, _ = Tag.objects.get_or_create(
+            name=serializer.validated_data["name"], team=self.team, defaults={"pinned": True}
+        )
+        if not tag.pinned:
+            tag.pinned = True
+            tag.save(update_fields=["pinned"])
+        return response.Response(TagSerializer(tag).data, status=status.HTTP_201_CREATED)
+
+    @extend_schema(
+        responses={204: None},
+        description="Remove a tag from the list of pinned tags. Objects that carry the tag keep it; the tag is "
+        "deleted once the last of them drops it, or right away when nothing carries it.",
+        extensions={"x-product": "core"},
+    )
+    def destroy(self, request, *args, **kwargs) -> response.Response:
+        tag = self.get_object()
+        if tag.tagged_items.exists():
+            tag.pinned = False
+            tag.save(update_fields=["pinned"])
+        else:
+            tag.delete()
+        return response.Response(status=status.HTTP_204_NO_CONTENT)
+
+    @extend_schema(
+        responses={200: TagSerializer(many=True)},
+        description="Pinned tags of the project, sorted by name. These are the tags created on purpose through "
+        "this API, so a picker can offer them before any object carries them.",
+        extensions={"x-product": "core"},
+    )
+    @action(methods=["GET"], detail=False, pagination_class=None)
+    def pinned(self, request, *args, **kwargs) -> response.Response:
+        tags = self.get_queryset().filter(pinned=True).order_by("name")
+        return response.Response(TagSerializer(tags, many=True).data)

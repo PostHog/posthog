@@ -420,6 +420,7 @@ export const hogFlowsCreateBodyActionsItemDescriptionDefault = ``
 export const hogFlowsCreateBodyActionsItemFiltersOneSourceDefault = `events`
 export const hogFlowsCreateBodyActionsItemConfigTwoConditionFiltersOneSourceDefault = `events`
 export const hogFlowsCreateBodyActionsItemConfigTwoEventsItemFiltersOneSourceDefault = `events`
+export const hogFlowsCreateBodyTagsItemMax = 255
 
 export const HogFlowsCreateBody = /* @__PURE__ */ zod
     .object({
@@ -801,8 +802,14 @@ export const HogFlowsCreateBody = /* @__PURE__ */ zod
             )
             .optional()
             .describe('Workflow vars (key, type, default). Total <5KB.'),
+        tags: zod
+            .array(zod.string().max(hogFlowsCreateBodyTagsItemMax))
+            .optional()
+            .describe(
+                "Tags on this workflow. Names are trimmed and lowercased, and sending this field replaces the workflow's existing tags. Filter the list with `?tags=`."
+            ),
     })
-    .describe('Mixin for serializers to add user access control fields')
+    .describe('The full workflow definition, including its staged draft and email delivery state.')
 
 export const hogFlowsUpdateBodyNameMax = 400
 
@@ -824,6 +831,7 @@ export const hogFlowsUpdateBodyActionsItemDescriptionDefault = ``
 export const hogFlowsUpdateBodyActionsItemFiltersOneSourceDefault = `events`
 export const hogFlowsUpdateBodyActionsItemConfigTwoConditionFiltersOneSourceDefault = `events`
 export const hogFlowsUpdateBodyActionsItemConfigTwoEventsItemFiltersOneSourceDefault = `events`
+export const hogFlowsUpdateBodyTagsItemMax = 255
 
 export const HogFlowsUpdateBody = /* @__PURE__ */ zod
     .object({
@@ -1199,8 +1207,14 @@ export const HogFlowsUpdateBody = /* @__PURE__ */ zod
             )
             .optional()
             .describe('Workflow vars (key, type, default). Total <5KB.'),
+        tags: zod
+            .array(zod.string().max(hogFlowsUpdateBodyTagsItemMax))
+            .optional()
+            .describe(
+                "Tags on this workflow. Names are trimmed and lowercased, and sending this field replaces the workflow's existing tags. Filter the list with `?tags=`."
+            ),
     })
-    .describe('Mixin for serializers to add user access control fields')
+    .describe('The full workflow definition, including its staged draft and email delivery state.')
 
 export const hogFlowsPartialUpdateBodyNameMax = 400
 
@@ -1224,6 +1238,7 @@ export const hogFlowsPartialUpdateBodyActionsItemDescriptionDefault = ``
 export const hogFlowsPartialUpdateBodyActionsItemFiltersOneSourceDefault = `events`
 export const hogFlowsPartialUpdateBodyActionsItemConfigTwoConditionFiltersOneSourceDefault = `events`
 export const hogFlowsPartialUpdateBodyActionsItemConfigTwoEventsItemFiltersOneSourceDefault = `events`
+export const hogFlowsPartialUpdateBodyTagsItemMax = 255
 
 export const HogFlowsPartialUpdateBody = /* @__PURE__ */ zod
     .object({
@@ -1605,8 +1620,14 @@ export const HogFlowsPartialUpdateBody = /* @__PURE__ */ zod
             )
             .optional()
             .describe('Workflow vars (key, type, default). Total <5KB.'),
+        tags: zod
+            .array(zod.string().max(hogFlowsPartialUpdateBodyTagsItemMax))
+            .optional()
+            .describe(
+                "Tags on this workflow. Names are trimmed and lowercased, and sending this field replaces the workflow's existing tags. Filter the list with `?tags=`."
+            ),
     })
-    .describe('Mixin for serializers to add user access control fields')
+    .describe('The full workflow definition, including its staged draft and email delivery state.')
 
 export const HogFlowsActionsEmailPartialUpdateBody = /* @__PURE__ */ zod.object({
     base_updated_at: zod.iso
@@ -1818,6 +1839,8 @@ export const hogFlowsInvocationsCreateBodyConfigurationOneActionsItemFiltersOneS
 export const hogFlowsInvocationsCreateBodyConfigurationOneActionsItemConfigTwoConditionFiltersOneSourceDefault = `events`
 export const hogFlowsInvocationsCreateBodyConfigurationOneActionsItemConfigTwoEventsItemFiltersOneSourceDefault = `events`
 export const hogFlowsInvocationsCreateBodyConfigurationOneSchedulesItemTimezoneMax = 64
+
+export const hogFlowsInvocationsCreateBodyConfigurationOneTagsItemMax = 255
 
 export const hogFlowsInvocationsCreateBodyMockAsyncFunctionsDefault = true
 export const hogFlowsInvocationsCreateBodyUseDraftDefault = false
@@ -2354,8 +2377,14 @@ export const HogFlowsInvocationsCreateBody = /* @__PURE__ */ zod.object({
                 .describe(
                     'When sending was last resumed. Every detector window starts after this, so resuming does not immediately re-trip on the feedback that caused the pause. Null if never paused.'
                 ),
+            tags: zod
+                .array(zod.string().max(hogFlowsInvocationsCreateBodyConfigurationOneTagsItemMax))
+                .optional()
+                .describe(
+                    "Tags on this workflow. Names are trimmed and lowercased, and sending this field replaces the workflow's existing tags. Filter the list with `?tags=`."
+                ),
         })
-        .describe('Mixin for serializers to add user access control fields')
+        .describe('The full workflow definition, including its staged draft and email delivery state.')
         .optional()
         .describe('Optional override; omit to use saved definition.'),
     globals: zod
@@ -2606,6 +2635,7 @@ export const hogFlowsBulkDeleteCreateBodyActionsItemDescriptionDefault = ``
 export const hogFlowsBulkDeleteCreateBodyActionsItemFiltersOneSourceDefault = `events`
 export const hogFlowsBulkDeleteCreateBodyActionsItemConfigTwoConditionFiltersOneSourceDefault = `events`
 export const hogFlowsBulkDeleteCreateBodyActionsItemConfigTwoEventsItemFiltersOneSourceDefault = `events`
+export const hogFlowsBulkDeleteCreateBodyTagsItemMax = 255
 
 export const HogFlowsBulkDeleteCreateBody = /* @__PURE__ */ zod
     .object({
@@ -2992,8 +3022,14 @@ export const HogFlowsBulkDeleteCreateBody = /* @__PURE__ */ zod
             )
             .optional()
             .describe('Workflow vars (key, type, default). Total <5KB.'),
+        tags: zod
+            .array(zod.string().max(hogFlowsBulkDeleteCreateBodyTagsItemMax))
+            .optional()
+            .describe(
+                "Tags on this workflow. Names are trimmed and lowercased, and sending this field replaces the workflow's existing tags. Filter the list with `?tags=`."
+            ),
     })
-    .describe('Mixin for serializers to add user access control fields')
+    .describe('The full workflow definition, including its staged draft and email delivery state.')
 
 export const hogFlowsUserBlastRadiusCreateBodySendsEmailDefault = true
 

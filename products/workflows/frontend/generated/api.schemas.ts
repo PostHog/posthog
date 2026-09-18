@@ -303,7 +303,7 @@ export interface UserBasicApi {
 }
 
 /**
- * Mixin for serializers to add user access control fields
+ * A workflow with its live configuration, as the workflows list returns it.
  */
 export interface HogFlowMinimalApi {
     readonly id: string
@@ -332,6 +332,11 @@ export interface HogFlowMinimalApi {
      * @nullable
      */
     readonly user_access_level: string | null
+    /**
+     * Tags on this workflow. Names are trimmed and lowercased, and sending this field replaces the workflow's existing tags. Filter the list with `?tags=`.
+     * @items.maxLength 255
+     */
+    tags?: string[]
 }
 
 export interface PaginatedHogFlowMinimalListApi {
@@ -572,7 +577,7 @@ export interface HogFlowScheduleApi {
 }
 
 /**
- * Mixin for serializers to add user access control fields
+ * The full workflow definition, including its staged draft and email delivery state.
  */
 export interface HogFlowApi {
     readonly id: string
@@ -656,6 +661,11 @@ export interface HogFlowApi {
      * @nullable
      */
     readonly email_sending_resumed_at: string | null
+    /**
+     * Tags on this workflow. Names are trimmed and lowercased, and sending this field replaces the workflow's existing tags. Filter the list with `?tags=`.
+     * @items.maxLength 255
+     */
+    tags?: string[]
 }
 
 /**
@@ -670,7 +680,7 @@ export type HogFlowUpdateApiVariablesItem = { [key: string]: string }
 export type HogFlowUpdateApiActionRedirects = { [key: string]: string } | null
 
 /**
- * Mixin for serializers to add user access control fields
+ * The full workflow definition, including its staged draft and email delivery state.
  */
 export interface HogFlowUpdateApi {
     readonly id: string
@@ -754,6 +764,11 @@ export interface HogFlowUpdateApi {
      * @nullable
      */
     readonly email_sending_resumed_at: string | null
+    /**
+     * Tags on this workflow. Names are trimmed and lowercased, and sending this field replaces the workflow's existing tags. Filter the list with `?tags=`.
+     * @items.maxLength 255
+     */
+    tags?: string[]
 }
 
 /**
@@ -768,7 +783,7 @@ export type PatchedHogFlowUpdateApiVariablesItem = { [key: string]: string }
 export type PatchedHogFlowUpdateApiActionRedirects = { [key: string]: string } | null
 
 /**
- * Mixin for serializers to add user access control fields
+ * The full workflow definition, including its staged draft and email delivery state.
  */
 export interface PatchedHogFlowUpdateApi {
     readonly id?: string
@@ -852,6 +867,11 @@ export interface PatchedHogFlowUpdateApi {
      * @nullable
      */
     readonly email_sending_resumed_at?: string | null
+    /**
+     * Tags on this workflow. Names are trimmed and lowercased, and sending this field replaces the workflow's existing tags. Filter the list with `?tags=`.
+     * @items.maxLength 255
+     */
+    tags?: string[]
 }
 
 /**
@@ -1802,6 +1822,14 @@ export type HogFlowsListParams = {
      */
     status?: HogFlowsListStatus
     /**
+     * Comma-separated tag names to filter by, for example `marketing,onboarding`. Names are trimmed and lowercased before matching. At most 20 distinct tags per request.
+     */
+    tags?: string
+    /**
+     * How to combine the `tags` filter. `all` (the default) returns objects carrying every listed tag; `any` returns objects carrying at least one.
+     */
+    tags_match?: HogFlowsListTagsMatch
+    /**
      * Filter by trigger config as a JSON object. Returns workflows whose trigger contains the given object, e.g. {"type": "event"}.
      */
     trigger?: string
@@ -1824,6 +1852,13 @@ export const HogFlowsListStatus = {
     Active: 'active',
     Archived: 'archived',
     Draft: 'draft',
+} as const
+
+export type HogFlowsListTagsMatch = (typeof HogFlowsListTagsMatch)[keyof typeof HogFlowsListTagsMatch]
+
+export const HogFlowsListTagsMatch = {
+    All: 'all',
+    Any: 'any',
 } as const
 
 export type HogFlowsListType = (typeof HogFlowsListType)[keyof typeof HogFlowsListType]

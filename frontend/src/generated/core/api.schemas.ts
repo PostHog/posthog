@@ -4195,6 +4195,23 @@ export interface BulkUpdateTagsResponseApi {
     skipped: BulkUpdateTagsErrorApi[]
 }
 
+export interface TagCreateApi {
+    /**
+     * Tag name. Trimmed and lowercased before it is stored, so `Marketing` and `marketing` are one tag.
+     * @maxLength 255
+     */
+    name: string
+}
+
+export interface TagApi {
+    /** UUID of the tag. */
+    readonly id: string
+    /** Tag name, trimmed and lowercased. */
+    readonly name: string
+    /** True when the tag was created through this API, so it stays available while no object carries it. Tags typed inline while tagging an object are removed once the last object drops them. */
+    readonly pinned: boolean
+}
+
 export interface UploadedMediaApi {
     readonly id: string
     /** The file's original name. */
@@ -5292,7 +5309,7 @@ export type OrganizationsProjectsListParams = {
      */
     tags?: string
     /**
-     * How to combine the `tags` filter. `all` (the default) returns projects carrying every listed tag; `any` returns projects carrying at least one.
+     * How to combine the `tags` filter. `all` (the default) returns objects carrying every listed tag; `any` returns objects carrying at least one.
      */
     tags_match?: OrganizationsProjectsListTagsMatch
 }

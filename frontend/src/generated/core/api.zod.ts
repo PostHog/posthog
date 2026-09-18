@@ -1097,6 +1097,18 @@ export const SessionRecordingsSharingRefreshCreateBody = /* @__PURE__ */ zod
     .describe('Mixin for serializers to add user access control fields')
 
 /**
+ * Create a pinned tag, or pin the existing tag with this name. A pinned tag stays available for tagging while no object carries it.
+ */
+export const tagsCreateBodyNameMax = 255
+
+export const TagsCreateBody = /* @__PURE__ */ zod.object({
+    name: zod
+        .string()
+        .max(tagsCreateBodyNameMax)
+        .describe('Tag name. Trimmed and lowercased before it is stored, so `Marketing` and `marketing` are one tag.'),
+})
+
+/**
  *
  *     When object storage is available this API allows upload of media which can be used, for example, in text cards on dashboards.
  *
