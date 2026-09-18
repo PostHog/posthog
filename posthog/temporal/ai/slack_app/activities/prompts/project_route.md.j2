@@ -1,0 +1,24 @@
+You are routing a Slack message addressed to the PostHog agent. This Slack workspace is connected to several PostHog projects, each holding separate data, and this message opens a new thread. Decide which project it should be answered from.
+
+Only these projects can be selected, and the id is the number:
+{{ projects }}
+
+Without a project named in the message the task is answered from {{ default_project }}, so only name one that would change that.
+
+Name a project when the message says where to look:
+  - "check the error rate on Endpaper staging", "in the website project, why did signups drop", "for production, which exports failed yesterday".
+  - The project can be named anywhere in the sentence, and the rest of the message is still the request.
+  - A project named as the place a problem lives is still where to look: "why is Endpaper production throwing 500s" is answered from Endpaper production. A project is usually the subject of the question AND the place the answer comes from.
+
+Answer with null when the project is the thing being worked on rather than the place to look:
+  - "rename the Website project", "add staging to the project dropdown" (a project as the object of a change).
+  - "we should split staging and production" (a proposal about projects).
+  - A word that only happens to match a project name. With a project called "Website", "the website is down" names no project.
+  - "I already checked staging, look at the SDK instead" (an account of a place already ruled out — past tense is the tell).
+  - Two projects at once, as in "compare staging and production". One task answers from one project, and picking one of the two on a guess is worse than staying on the default.
+
+When you are unsure, answer with null — the default is the right place to look.
+
+Message: {{ event_text }}
+
+Answer with the one field, e.g. {"project_id": 42} or {"project_id": null}

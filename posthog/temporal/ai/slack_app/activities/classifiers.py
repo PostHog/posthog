@@ -3,17 +3,20 @@ from pathlib import Path
 
 import structlog
 from openai.types.shared_params import ResponseFormatJSONSchema
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
 from temporalio import activity
 
 from posthog.llm.gateway_client import build_anthropic_client, build_openai_client
 from posthog.llm.semantic_enrichment import extract_json_object
 from posthog.models.integration import Integration, SlackIntegration
 from posthog.models.repo_routing_rule import RepoRoutingRule
+from posthog.models.user import User
 from posthog.temporal.ai.slack_app.types import (
     PostHogCodeSlackMentionWorkflowInputs,
     SlackAppModelOverride,
     SlackAppModelOverrideInput,
+    SlackAppProjectRoute,
+    SlackAppProjectRouteInput,
 )
 from posthog.temporal.common.utils import close_db_connections
 
@@ -25,6 +28,11 @@ from products.slack_app.backend.facade.run_preferences import (
 )
 from products.slack_app.backend.models import SlackThreadTaskMapping
 from products.slack_app.backend.prompt_templates import PromptTemplates
+from products.slack_app.backend.services.project_routing import (
+    ProjectChoice,
+    render_project_candidates,
+    routable_projects,
+)
 from products.slack_app.backend.services.slack_messages import SlackThreadMessage
 
 logger = structlog.get_logger(__name__)
@@ -50,6 +58,12 @@ MODEL_OVERRIDE_MAX_TOKENS = 2048
 # One call per `@PostHog`, on the mention text alone. Measured mean is ~1.7s per call.
 MODEL_OVERRIDE_TIMEOUT_SECONDS = 10.0
 MODEL_OVERRIDE_MAX_RETRIES = 1
+
+# Same shape of call as the model override, so it takes the same bounds.
+PROJECT_ROUTE_CLASSIFIER_MODEL = "gpt-5.6-luna"
+PROJECT_ROUTE_MAX_TOKENS = 2048
+PROJECT_ROUTE_TIMEOUT_SECONDS = 10.0
+PROJECT_ROUTE_MAX_RETRIES = 1
 
 AGENT_DIRECTED_CLASSIFIER_MODEL = "gpt-5.6-luna"
 AGENT_DIRECTED_MAX_TOKENS = 2048
@@ -525,3 +539,132 @@ def classify_slack_app_model_override_activity(input: SlackAppModelOverrideInput
         reasoning_effort=override.reasoning_effort,
     )
     return override
+
+
+def _project_route_response_format(projects: tuple[ProjectChoice, ...]) -> ResponseFormatJSONSchema:
+    """A strict JSON schema pinning the reply to one id from ``projects``.
+
+    The enum is what stops the classifier naming a project this mentioner cannot reach.
+    `routable_projects` bounds the list by access, and that bound only reaches the model
+    through this field.
+    """
+    return {
+        "type": "json_schema",
+        "json_schema": {
+            "name": "slack_app_project_route",
+            "strict": True,
+            "schema": {
+                "type": "object",
+                "properties": {
+                    "project_id": {"type": ["integer", "null"], "enum": [*(p.team_id for p in projects), None]},
+                },
+                "required": ["project_id"],
+                "additionalProperties": False,
+            },
+        },
+    }
+
+
+class _ProjectRouteReply(BaseModel):
+    project_id: int | None = None
+
+
+def classify_slack_app_project_route(
+    event_text: str,
+    projects: tuple[ProjectChoice, ...],
+    default_project_label: str,
+) -> ProjectChoice | None:
+    """Read the project a mention asked to be answered from, out of its text.
+
+    Returns ``None`` when the author named none, which is the overwhelming majority of
+    mentions and the answer on any parse, validation, or LLM failure. A miss leaves the
+    run on the project routing already resolved.
+
+    It takes the opposite rule to the model classifier: a model named as the subject of a
+    question is never an instruction, while a project named as the subject usually is
+    where the answer has to come from, because that is where the data lives. Quality on
+    that is measured by ``products/slack_app/evals/eval_project_classifier.py``.
+    """
+    prompt = prompts.render(
+        "project_route",
+        projects=render_project_candidates(projects),
+        default_project=default_project_label,
+        event_text=event_text,
+    )
+
+    try:
+        client = build_openai_client(product="slack_app_routing", ai_product="slack_app_routing").with_options(
+            timeout=PROJECT_ROUTE_TIMEOUT_SECONDS, max_retries=PROJECT_ROUTE_MAX_RETRIES
+        )
+        response = client.chat.completions.create(
+            model=PROJECT_ROUTE_CLASSIFIER_MODEL,
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=PROJECT_ROUTE_MAX_TOKENS,
+            response_format=_project_route_response_format(projects),
+        )
+        # Tolerant parse on top of the schema, matching the model-override classifier:
+        # the gateway does not honour a response format identically on every route.
+        parsed = extract_json_object(response.choices[0].message.content or "")
+        reply = _ProjectRouteReply.model_validate(parsed)
+    except (ValidationError, ValueError):
+        logger.info("slack_app_project_route_unusable_reply")
+        return None
+    except Exception:
+        logger.exception("slack_app_project_route_classify_failed")
+        return None
+
+    if reply.project_id is None:
+        return None
+    chosen = next((p for p in projects if p.team_id == reply.project_id), None)
+    if chosen is None:
+        # The classifier was told to copy an id from the list; anything else is a
+        # hallucination or a project this mentioner cannot open.
+        logger.info("slack_app_project_route_unknown_project", requested_team_id=reply.project_id)
+    return chosen
+
+
+@activity.defn
+@close_db_connections
+def classify_slack_app_project_route_activity(input: SlackAppProjectRouteInput) -> SlackAppProjectRoute | None:
+    """Resolve the project a mention asked for, or ``None`` to stay on the resolved one.
+
+    The workflow calls this only for a message that opens a thread. A task, its thread
+    mapping and its run all belong to one project, so a reply cannot move the thread.
+    """
+    if not input.event_text.strip():
+        return None
+
+    integration = Integration.objects.select_related("team", "team__organization").get(
+        id=input.integration_id,
+        kind="slack",
+        integration_id=input.slack_team_id,
+    )
+    user = User.objects.filter(id=input.user_id).first()
+    if user is None:
+        return None
+
+    projects = routable_projects(
+        slack_team_id=input.slack_team_id,
+        slack_user_id=input.slack_user_id,
+        user=user,
+        default=integration,
+    )
+    if not projects:
+        return None
+
+    chosen = classify_slack_app_project_route(
+        input.event_text,
+        projects,
+        default_project_label=f"{integration.team.organization.name} · {integration.team.name}",
+    )
+    # A message naming the project the run was already going to use asked for nothing.
+    if chosen is None or chosen.integration_id == integration.id:
+        return None
+
+    logger.info(
+        "slack_app_project_route_classified",
+        integration_id=integration.id,
+        routed_integration_id=chosen.integration_id,
+        project_candidate_count=len(projects),
+    )
+    return SlackAppProjectRoute(integration_id=chosen.integration_id)

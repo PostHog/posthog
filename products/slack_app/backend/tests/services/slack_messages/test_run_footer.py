@@ -38,6 +38,14 @@ class TestRunFooter(SimpleTestCase):
                 f"<{TASK_URL}|View on web> · <{DESKTOP_URL}|View on desktop>",
             ),
             ("model_without_effort", RunFooter(model="claude-opus-5"), None, "*Claude Opus 5*"),
+            # A workspace connected to several projects answers from one of them, and the
+            # answer looks the same whichever it was, so the footer has to name it.
+            (
+                "project_precedes_the_model",
+                RunFooter(model="claude-opus-5", project="Endpaper staging"),
+                None,
+                "Project: *Endpaper staging* · *Claude Opus 5*",
+            ),
             (
                 "configure_only",
                 RunFooter(),
@@ -54,6 +62,11 @@ class TestRunFooter(SimpleTestCase):
         block = reply_footer_block(footer, configure_url)
 
         assert block == {"type": "context", "elements": [{"type": "mrkdwn", "text": expected}]}
+
+    def test_a_project_alone_still_renders(self) -> None:
+        # `has_content` gates whether callers bother building a footer at all, so a run
+        # known only by its project must not read as nothing to say.
+        assert RunFooter(project="Endpaper staging").has_content()
 
     def test_contributes_no_block_when_there_is_nothing_to_say(self) -> None:
         # A context block with an empty `elements` list is rejected by Slack, which would
@@ -123,3 +136,46 @@ class TestViewerHasCodeAccess(SimpleTestCase):
     )
     def test_a_lookup_failure_withholds_the_links_rather_than_guessing(self, _mock_find) -> None:
         assert viewer_has_code_access(self._integration(), "U1") is False
+
+
+class TestFooterProject:
+    """The footer names the project a thread's task belongs to.
+
+    Covers what the `SimpleTestCase` classes above cannot: those run without a database,
+    so the mapping lookup takes its failure path there and the segment is always absent.
+    """
+
+    def test_names_the_project_the_thread_is_pinned_to(self, db):
+        from django.apps import apps
+
+        from posthog.models.organization import Organization
+        from posthog.models.team.team import Team
+
+        from products.slack_app.backend.models import SlackThreadTaskMapping
+
+        organization = Organization.objects.create(name="Org")
+        default_team = Team.objects.create(organization=organization, name="Production")
+        routed_team = Team.objects.create(organization=organization, name="Staging")
+        integration = Integration.objects.create(
+            team=routed_team, kind="slack", integration_id="T_WS", sensitive_config={"access_token": "xoxb"}
+        )
+        Task = apps.get_model("tasks", "Task")
+        TaskRun = apps.get_model("tasks", "TaskRun")
+        task = Task.objects.create(team=routed_team, title="t")
+        run = TaskRun.objects.create(team=routed_team, task=task)
+        SlackThreadTaskMapping.objects.create(
+            integration=integration,
+            team=routed_team,
+            slack_workspace_id="T_WS",
+            channel="C1",
+            thread_ts="1.1",
+            task=task,
+            task_run=run,
+            mentioning_slack_user_id="U1",
+        )
+
+        footer = load_run_footer(run.id)
+
+        # The routed project, not the one the workspace would otherwise have answered from.
+        assert footer.project == "Staging"
+        assert footer.project != default_team.name

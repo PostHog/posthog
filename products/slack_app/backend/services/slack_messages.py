@@ -739,6 +739,9 @@ class RunFooter:
     reasoning_effort: str | None = None
     run_id: str | None = None
     task_id: str | None = None
+    # The project the thread's task belongs to, so a reader can tell which project's
+    # data the answer was drawn from.
+    project: str | None = None
 
     def has_content(self) -> bool:
         """Whether this would render as anything.
@@ -748,7 +751,26 @@ class RunFooter:
         keeps meaning "None-coalesce" and cannot silently discard a partial instance.
         The ids are not part of the answer — they say nothing on their own.
         """
-        return any((self.task_url, self.desktop_url, self.model))
+        return any((self.task_url, self.desktop_url, self.model, self.project))
+
+
+def _thread_project_name(task_id: UUID | str) -> str | None:
+    """The project the task's Slack thread belongs to, or `None` when it has no mapping.
+
+    Read from the mapping rather than the run, because the mapping is what pins a thread
+    to one project: every run on the task answers from it, so the footer says the same
+    thing on the first answer and on every follow-up.
+    """
+    from products.slack_app.backend.models import SlackThreadTaskMapping  # noqa: PLC0415 — circular at module scope
+
+    try:
+        mapping = SlackThreadTaskMapping.objects.filter(task_id=task_id).select_related("team").first()
+    except Exception:
+        # Its own guard, not the caller's: a failed lookup must cost the reader one
+        # segment, not the links and the model with it.
+        logger.warning("slack_app_footer_project_lookup_failed", task_id=str(task_id))
+        return None
+    return mapping.team.name if mapping else None
 
 
 def load_run_footer(run_id: str | UUID | None) -> RunFooter:
@@ -784,6 +806,7 @@ def load_run_footer(run_id: str | UUID | None) -> RunFooter:
             desktop_url=_desktop_bridge_url(run.task_id),
             model=state.model,
             reasoning_effort=state.reasoning_effort,
+            project=_thread_project_name(run.task_id),
         )
     except Exception:
         logger.exception("slack_app_run_footer_load_failed", run_id=str(run_id))
@@ -802,6 +825,8 @@ def reply_footer_block(footer: RunFooter, configure_url: str | None = None) -> d
         segments.append(f"<{footer.task_url}|View on web>")
     if footer.desktop_url:
         segments.append(f"<{footer.desktop_url}|View on desktop>")
+    if footer.project:
+        segments.append(f"Project: *{footer.project}*")
     if footer.model:
         segments.append(describe_run_model(footer.model, footer.reasoning_effort))
     if configure_url:

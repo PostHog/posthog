@@ -1,0 +1,155 @@
+"""Does the project classifier pick the project a person in the thread would have?
+
+A Slack workspace connected to several PostHog projects answers every mention from one
+saved default, so a question about another project is answered from the wrong data. The
+classifier reads the project out of the message that opens a thread. The unit tests around
+`classify_slack_app_project_route` cover parsing and the schema; this suite covers the only
+part they can't, which is whether the model can tell "answer this from staging" from a
+sentence that merely says the word.
+
+A missed project falls back to the default, which is today's behavior, and the author
+rephrases. An invented project answers a different question in a shape that reads like an
+answer to this one. `NoUnaskedProjectSwitch` is therefore the number to watch, not the
+overall rate.
+
+The projects below are invented, and the phrasings with them. No customer's project names
+or messages appear here.
+
+To run:
+    hogli evals eval_project_classifier
+    hogli evals eval_project_classifier --eval project_named_in_a_config_value
+"""
+
+from __future__ import annotations
+
+import asyncio
+
+from posthog.temporal.ai.slack_app.activities import classifiers
+
+from products.posthog_ai.eval_harness.config import BaseEvalCase
+from products.posthog_ai.eval_harness.harness.context import EvalContext
+from products.posthog_ai.eval_harness.harness.requirements import SuiteKind
+from products.posthog_ai.eval_harness.one_shot import OneShotPublicEval
+from products.slack_app.backend.services.project_routing import ProjectChoice
+from products.slack_app.evals.scorers import PROJECT_ROUTE_KEY, NoUnaskedProjectSwitch, ProjectRouteMatch
+
+SUITE_KIND = SuiteKind.ONE_SHOT
+
+# An environment pair differing by one word, plus a project whose name is also an ordinary
+# noun: the two shapes that make the task hard. Team ids and integration ids differ so a
+# case fails if the two are ever swapped.
+STAGING = ProjectChoice(team_id=41, integration_id=410, label="Northwind · Staging")
+PRODUCTION = ProjectChoice(team_id=42, integration_id=420, label="Northwind · Production")
+WEBSITE = ProjectChoice(team_id=43, integration_id=430, label="Northwind · Website")
+PROJECTS = (STAGING, PRODUCTION, WEBSITE)
+
+DEFAULT_PROJECT_LABEL = PRODUCTION.label
+
+
+def _routes_to(project: ProjectChoice | None = None) -> dict:
+    return {PROJECT_ROUTE_KEY: {"integration_id": project.integration_id if project else None}}
+
+
+ROUTING_CASES = [
+    BaseEvalCase(
+        name="explicit_on_project",
+        prompt="@PostHog how many signups did we get on Northwind staging yesterday?",
+        expected=_routes_to(STAGING),
+    ),
+    BaseEvalCase(
+        name="project_as_a_prefix",
+        prompt="@PostHog in the website project, why did the signup funnel drop last week?",
+        expected=_routes_to(WEBSITE),
+    ),
+    # The rule that inverts the model classifier: a model named as the subject of a
+    # question is never an instruction, a project named as the subject is where the
+    # answer comes from.
+    BaseEvalCase(
+        name="project_is_the_subject_of_the_problem",
+        prompt="@PostHog why is Northwind production throwing 500s on checkout since this morning?",
+        expected=_routes_to(PRODUCTION),
+    ),
+    BaseEvalCase(
+        name="environment_word_alone",
+        prompt="@PostHog check staging for a spike in failed exports over the last day",
+        expected=_routes_to(STAGING),
+    ),
+    BaseEvalCase(
+        name="project_at_the_end",
+        prompt="@PostHog which feature flags haven't been evaluated in a month? staging please",
+        expected=_routes_to(STAGING),
+    ),
+]
+
+NO_ROUTE_CASES = [
+    BaseEvalCase(
+        name="project_as_the_object_of_a_change",
+        prompt="@PostHog rename the website project to Marketing site and update the docs that mention it",
+        expected=_routes_to(),
+    ),
+    BaseEvalCase(
+        name="project_in_a_proposal",
+        prompt="@PostHog we should split staging and production into separate orgs. Write up what that would take",
+        expected=_routes_to(),
+    ),
+    # One task answers from one project, so picking either silently answers half.
+    BaseEvalCase(
+        name="two_projects_at_once",
+        prompt="@PostHog compare weekly actives between Northwind staging and Northwind production",
+        expected=_routes_to(),
+    ),
+    BaseEvalCase(
+        name="project_name_as_an_ordinary_noun",
+        prompt="@PostHog add a link to our website in the survey footer copy",
+        expected=_routes_to(),
+    ),
+    BaseEvalCase(
+        name="project_named_in_a_config_value",
+        prompt="@PostHog our deploy script has PROJECT=northwind-staging hardcoded, make it an env var",
+        expected=_routes_to(),
+    ),
+    # Past tense is the tell, the same one the model classifier turns on.
+    BaseEvalCase(
+        name="project_already_ruled_out",
+        prompt="@PostHog I already checked Northwind staging and the data looked fine, dig into the SDK setup instead",
+        expected=_routes_to(),
+    ),
+    BaseEvalCase(
+        name="no_project_mentioned",
+        prompt="@PostHog the checkout funnel drops 40% between steps 2 and 3, can you work out why",
+        expected=_routes_to(),
+    ),
+]
+
+
+async def eval_project_classifier(ctx: EvalContext) -> None:
+    async def task(case: BaseEvalCase, task_ctx: EvalContext) -> dict:
+        classifier_model = classifiers.PROJECT_ROUTE_CLASSIFIER_MODEL
+        try:
+            # Sync, and blocking on the gateway — keep it off the event loop so cases
+            # still run concurrently under the harness's limiter.
+            chosen = await asyncio.to_thread(
+                classifiers.classify_slack_app_project_route,
+                case.prompt,
+                PROJECTS,
+                DEFAULT_PROJECT_LABEL,
+            )
+        except Exception as error:
+            return {
+                "classifier_model": classifier_model,
+                "route": None,
+                "error": f"{type(error).__name__}: {error}",
+            }
+        return {
+            "classifier_model": classifier_model,
+            "route": {"integration_id": chosen.integration_id} if chosen else None,
+            "last_message": f"{classifier_model}: {chosen.label if chosen else None}",
+        }
+
+    await OneShotPublicEval(
+        experiment_name="slack-app-project-classifier",
+        cases=[*ROUTING_CASES, *NO_ROUTE_CASES],
+        scorers=[ProjectRouteMatch(), NoUnaskedProjectSwitch()],
+        task=task,
+        ctx=ctx,
+    )
