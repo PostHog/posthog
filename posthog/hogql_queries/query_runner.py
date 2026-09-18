@@ -274,7 +274,6 @@ def _contains_user_hogql_label() -> str:
 
 EXTENDED_CACHE_AGE = timedelta(days=1)
 
-# Bumped when the hashing itself changes, so the tracker bridges a series across the change.
 QUERY_HASH_VERSION = 1
 
 
@@ -2257,7 +2256,6 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             self.user = user
             self._on_user_changed()
         start_time = perf_counter()
-        # Through the overridable method: some runners add state to the key or gate the query first.
         cache_key = self.get_cache_key()
         self._phase = RunPhase(name="prepare")
         self._timings_before_run: dict[str, float] = self.timings.to_dict()
@@ -2919,6 +2917,10 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                         # cached copy is not rewritten when the job finishes.
                         query_scan["analysis_requested"] = True
 
+            # Built before the cache entry and the single-flight signal go out, so a response that fails
+            # validation is a failed run that published nothing.
+            response = CachedResponse(**fresh_response_dict)
+
             if cacheable:
                 with self.timings.measure("cache_write"):
                     stored = cache_manager.store_result(
@@ -2937,11 +2939,9 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 # debug run doesn't cache its result but must still close the failure breaker.
                 cache_manager.clear_failure()
 
-            # Built and served before the event goes out, so a raise here reports the run as failed, and
-            # the response time covers the same work as on a cache hit.
-            response = CachedResponse(**fresh_response_dict)
             # A fresh run of a query analyzed earlier still has a done slot, so this is
-            # where its findings reach the recomputed response.
+            # where its findings reach the recomputed response. Served before the event, so the
+            # response time covers the same work as on a cache hit.
             self._serve_query_scan(response, user)
             phase_times = compute_phase_times(self.timings.to_dict(), before=self._timings_before_run)
             query_executed_props = {

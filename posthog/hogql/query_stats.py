@@ -112,9 +112,12 @@ _last_rows_read: ContextVar[int] = ContextVar("query_stats_last_rows_read", defa
 
 @contextlib.contextmanager
 def query_stats_scope(*, retain_ast: bool = False) -> Iterator[QueryStats]:
-    """Add up every ClickHouse query run inside this block. Nested in another scope, it adds to that one."""
+    """Add up every ClickHouse query run inside this block. Nested in another scope, it adds to that
+    one, and a retaining scope turns retention on for the shared totals from then on."""
     outer = _accumulator.get()
     if outer is not None:
+        if retain_ast:
+            outer.retain_ast = True
         yield outer
         return
     stats = QueryStats(retain_ast=retain_ast)

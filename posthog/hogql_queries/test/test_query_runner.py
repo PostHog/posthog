@@ -943,6 +943,28 @@ class TestQueryRunner(BaseTest):
         assert props["query_hash"] == plain.query_hash
         assert props["runtime_hash"] != plain.runtime_hash
 
+    def test_a_response_that_fails_validation_publishes_nothing(self) -> None:
+        TestQueryRunner = self.setup_test_query_runner_class()
+        runner = TestQueryRunner(query={"some_attr": "bla"}, team=self.team, user=self.user)
+
+        class RejectingResponse:
+            def __init__(self, **_kwargs: Any) -> None:
+                raise ValueError("invalid response")
+
+        with (
+            mock.patch.object(
+                TestQueryRunner, "cached_response_type", new_callable=mock.PropertyMock, return_value=RejectingResponse
+            ),
+            mock.patch.object(QueryCache, "store_result") as store_result,
+            mock.patch("posthog.hogql_queries.query_runner.report_user_or_team_action") as report,
+        ):
+            with self.assertRaises(ValueError):
+                runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+
+        store_result.assert_not_called()
+        assert [call.args[0] for call in report.call_args_list] == ["query execution failed"]
+        assert report.call_args.args[1]["failed_in"] == "finish"
+
     def test_a_failing_report_path_leaves_the_query_error_as_it_was(self) -> None:
         TestQueryRunner = self.setup_test_query_runner_class()
         runner = TestQueryRunner(query={"some_attr": "bla"}, team=self.team, user=self.user)

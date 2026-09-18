@@ -94,3 +94,8 @@ def test_record_execution_keeps_the_ast_only_when_retaining():
     with query_stats_scope(retain_ast=True) as retaining:
         retaining.record_execution(tree=tree, context=HogQLContext(), rows_read=7)
     assert len(retaining.executions) == 1
+
+    with query_stats_scope() as outer:
+        with query_stats_scope(retain_ast=True) as nested:
+            nested.record_execution(tree=tree, context=HogQLContext(), rows_read=7)
+    assert len(outer.executions) == 1
