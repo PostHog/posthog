@@ -453,7 +453,7 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
             self.team_2.require_evaluation_contexts = True
             self.team_2.save()
         else:
-            TeamFeatureFlagPolicyConfig.objects.create(team=self.team_2, require_tags=True)
+            TeamFeatureFlagPolicyConfig.objects.update_or_create(team=self.team_2, defaults={"require_tags": True})
 
         url = f"/api/organizations/{self.organization.id}/feature_flags/copy_flags"
         data = {
