@@ -39,9 +39,10 @@ export function NewTemplateAgent(): JSX.Element {
             belowComposer={
                 // Nothing to pick from is not an empty state worth a screen; the prompt cards are the page then.
                 !templatesLoading && startingPoints.length > 0 ? (
-                    // The bottom margin keeps the pick row apart from the prompt cards, which are a different kind of choice.
+                    // Same width as the composer, with no side padding, so four cards fit in one row and the
+                    // edges line up. The bottom margin keeps the pick row apart from the prompt cards.
                     <div
-                        className="flex flex-col gap-2 w-full max-w-2xl px-4 mb-4"
+                        className="flex flex-col gap-2 w-full max-w-2xl mb-4"
                         data-attr="new-template-agent-starting-points"
                     >
                         <span className="text-secondary text-xs font-semibold">Start from a template</span>
