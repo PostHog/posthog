@@ -893,6 +893,22 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                 "proxy such as Prisma. Upgrade the plan or contact your provider to lift the "
                 "restriction, then re-enable the sync."
             ),
+            # The billing sibling of the code above, from the same restriction sentence: the proxy
+            # refuses the connection because an invoice is unpaid. Only the customer's billing
+            # settles it, so every retry re-hits the refusal. Match the stable camelCase reason code.
+            "unpaidPlanInvoice": (
+                "Your database provider has restricted the account over an unpaid invoice, so PostHog "
+                "can't connect. Settle it with your provider, then re-enable the sync."
+            ),
+            # Any other restriction reason from that same sentence. The reason codes are the
+            # provider's own and open-ended, so without this catch-all the next one burns a job on
+            # every schedule and stores the raw refusal — which libpq prefixes with the customer's
+            # host and port. Placed after the two specific codes, whose guidance is more actionable,
+            # because finalization takes the first matching entry.
+            "Your account has restrictions": (
+                "Your database provider has restricted the account, so PostHog can't connect. Contact "
+                "your provider to lift the restriction, then re-enable the sync."
+            ),
             # The provider has put the cluster into read-only mode, so it rejects our read (the
             # server-side cursor runs its SELECT inside a read/write transaction). PlanetScale's
             # pg_readonly reports "invalid statement because cluster is read-only"; the cluster only
