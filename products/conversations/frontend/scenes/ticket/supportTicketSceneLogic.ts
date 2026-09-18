@@ -1294,6 +1294,8 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
             const revision = ++cache.messageRevision
             const ticketId = values.ticket.id
             const isLive = whileMounted(cache)
+            // The newest revision owns the shared loading flag and the message list, so a call that
+            // loses the race leaves both to whoever took it.
             const isSuperseded = (): boolean => cache.messageRevision !== revision || values.ticket?.id !== ticketId
             let response: CountedPaginatedResponse<CommentType>
             try {
@@ -1305,16 +1307,15 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 if (!isLive()) {
                     return
                 }
-                // A newer load owns the thread now, so this one's failure is neither worth telling
-                // the agent about nor worth counting against the surface.
-                if (!isSuperseded()) {
-                    captureSupportAgentLoadFailed({
-                        surface: 'ticket_scene',
-                        reason: 'thread_load_failed',
-                        error,
-                    })
-                    lemonToast.error('Failed to load messages')
+                if (isSuperseded()) {
+                    return
                 }
+                captureSupportAgentLoadFailed({
+                    surface: 'ticket_scene',
+                    reason: 'thread_load_failed',
+                    error,
+                })
+                lemonToast.error('Failed to load messages')
                 actions.setMessagesLoading(false)
                 return
             }
@@ -1324,7 +1325,6 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
             if (isSuperseded()) {
                 // setMessages replaces the list wholesale, so a poll that started before a
                 // newer load or a local write must not apply its older snapshot.
-                actions.setMessagesLoading(false)
                 return
             }
             // Reverse to show oldest first (bottom = newest)

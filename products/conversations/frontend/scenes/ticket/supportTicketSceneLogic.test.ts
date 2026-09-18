@@ -1150,6 +1150,41 @@ describe('supportTicketSceneLogic message load failures', () => {
         expect(captureMock).not.toHaveBeenCalledWith('support agent surface load failed', expect.anything())
     })
 
+    // messagesLoading is shared by every load, and the empty thread renders a spinner off it. A
+    // superseded call clearing it would drop the spinner while the newer load is still running.
+    it.each<['resolves' | 'rejects']>([['resolves'], ['rejects']])(
+        'leaves the loading state to the newer load when a superseded one %s',
+        async (outcome) => {
+            let settleStalePoll: (() => void) | undefined
+            commentsListMock.mockImplementationOnce(
+                () =>
+                    new Promise((resolve, reject) => {
+                        settleStalePoll = () =>
+                            outcome === 'resolves' ? resolve({ results: [] }) : reject(new Error('thread unavailable'))
+                    })
+            )
+            let resolveNewerPoll: ((value: { results: CommentType[] }) => void) | undefined
+            commentsListMock.mockImplementationOnce(
+                () =>
+                    new Promise((resolve) => {
+                        resolveNewerPoll = resolve
+                    })
+            )
+
+            logic.actions.loadMessages()
+            logic.actions.loadMessages()
+            settleStalePoll?.()
+            await new Promise((resolve) => setTimeout(resolve, 0))
+
+            expect(logic.values.messagesLoading).toBe(true)
+
+            resolveNewerPoll?.({ results: [] })
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.messagesLoading).toBe(false)
+        }
+    )
+
     it('reports a failed ticket load to the agent and to the failure rate', async () => {
         ticketGetMock.mockRejectedValueOnce(new Error('ticket unavailable'))
 
