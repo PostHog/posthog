@@ -121,6 +121,22 @@ SHOPIFY_STORE_NOT_FOUND_ERROR = (
 # The field name varies, so the match anchors on the stable leading phrase.
 SHOPIFY_GRAPHQL_ACCESS_DENIED_ERROR = "Access denied for"
 
+# Shopify gates customer PII behind protected customer data approval, separately from access
+# scopes: an app without it gets "This app is not approved to access the Customer object." even
+# when the token holds `read_customers`. Approval is granted in the app's Shopify settings, and
+# some fields also need a paid store plan, so no retry and no scope change can recover.
+# `ShopifySource.get_non_retryable_errors` matches the leading phrase, which stays the same
+# whichever object Shopify names.
+SHOPIFY_PROTECTED_CUSTOMER_DATA_ERROR_MATCH = "is not approved to access the"
+SHOPIFY_PROTECTED_CUSTOMER_DATA_REMEDY = (
+    "Request access to protected customer data in your Shopify app settings. Some customer "
+    "fields also need a paid Shopify store plan."
+)
+SHOPIFY_PROTECTED_CUSTOMER_DATA_ERROR_MESSAGE = (
+    "Shopify refused to return customer data because your Shopify app is not approved to read "
+    f"protected customer data. {SHOPIFY_PROTECTED_CUSTOMER_DATA_REMEDY}"
+)
+
 # Shopify's Admin API returns 402 Payment Required when the store is frozen for an unpaid
 # bill — the shop owner must settle their outstanding Shopify balance to unfreeze the store,
 # so retrying the import cannot recover. `requests.raise_for_status` renders this as
@@ -177,15 +193,32 @@ _REQUIRED_SCOPE_RE = re.compile(r"`(read_\w+|write_\w+)`")
 
 
 def missing_permissions_message(missing_permissions: dict[str, str]) -> str:
-    """User-facing summary naming each unreadable resource and the scope it needs."""
-    parts = []
+    """User-facing summary naming each unreadable resource and how to make it readable.
+
+    Shopify refuses protected customer data at the app-approval level, so granting access
+    scopes does not unblock those resources.
+    """
+    scope_gaps: list[str] = []
+    protected_resources: list[str] = []
     for resource, error in missing_permissions.items():
+        if SHOPIFY_PROTECTED_CUSTOMER_DATA_ERROR_MATCH in error:
+            protected_resources.append(resource)
+            continue
         scopes = _REQUIRED_SCOPE_RE.findall(error)
-        parts.append(f"{resource} (needs {', '.join(scopes)})" if scopes else resource)
-    return (
-        f"Your Shopify access token can't read {', '.join(parts)}. "
-        "Reconnect your Shopify integration and grant the listed access scopes."
-    )
+        scope_gaps.append(f"{resource} (needs {', '.join(scopes)})" if scopes else resource)
+
+    messages: list[str] = []
+    if scope_gaps:
+        messages.append(
+            f"Your Shopify access token can't read {', '.join(scope_gaps)}. "
+            "Reconnect your Shopify integration and grant the listed access scopes."
+        )
+    if protected_resources:
+        messages.append(
+            f"Your Shopify app is not approved to read {', '.join(protected_resources)}. "
+            f"{SHOPIFY_PROTECTED_CUSTOMER_DATA_REMEDY}"
+        )
+    return " ".join(messages)
 
 
 # Shopify's GraphQL Admin API rate-limits on a cost-based leaky bucket, so a single bucket

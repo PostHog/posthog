@@ -34,6 +34,27 @@ def test_graphql_access_denied_is_non_retryable(error_message):
 @pytest.mark.parametrize(
     "error_message",
     [
+        "Shopify GraphQL error: This app is not approved to access the Customer object. "
+        "See https://shopify.dev/docs/apps/launch/protected-customer-data for more details.",
+        "Shopify GraphQL error: This app is not approved to access the Order object.",
+    ],
+)
+def test_protected_customer_data_refusal_is_non_retryable(error_message):
+    # Shopify gates customer PII behind app approval, above access scopes, so every retry
+    # re-reads the same refusal and the user must ask Shopify for approval instead.
+    matched = [
+        message for pattern, message in ShopifySource().get_non_retryable_errors().items() if pattern in error_message
+    ]
+
+    assert matched, f"protected customer data refusal '{error_message}' should match a non-retryable pattern"
+    assert all("protected customer data" in (message or "") for message in matched), (
+        "the refusal should be explained as a protected customer data approval gap"
+    )
+
+
+@pytest.mark.parametrize(
+    "error_message",
+    [
         "Shopify GraphQL error: Throttled",
         "Shopify: internal error from request 500 Internal Server Error",
         "Unexpected graphql response format in Shopify rows read. Keys: ['extensions']",

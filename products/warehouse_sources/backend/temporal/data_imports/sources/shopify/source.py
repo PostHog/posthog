@@ -45,6 +45,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.shopify.sh
     SHOPIFY_MISSING_CREDENTIALS_ERROR,
     SHOPIFY_PAYMENT_REQUIRED_ERROR_MATCH,
     SHOPIFY_PAYMENT_REQUIRED_ERROR_MESSAGE,
+    SHOPIFY_PROTECTED_CUSTOMER_DATA_ERROR_MATCH,
+    SHOPIFY_PROTECTED_CUSTOMER_DATA_ERROR_MESSAGE,
     SHOPIFY_STORE_NOT_FOUND_ERROR,
     ShopifyPermissionError,
     ShopifyResumeConfig,
@@ -110,6 +112,11 @@ class ShopifySource(ResumableSource[ShopifySourceConfig, ShopifyResumeConfig]):
                 "Your Shopify access token is missing the permissions required to read some of your data. "
                 "Please reconnect your Shopify integration and grant the requested access scopes."
             ),
+            # GraphQL "This app is not approved to access the <Object> object" — Shopify's
+            # protected customer data gate, which sits above access scopes. Only app approval
+            # (and for some fields a paid store plan) opens it, so fail fast instead of
+            # retrying and telling the user to grant scopes they may already hold.
+            SHOPIFY_PROTECTED_CUSTOMER_DATA_ERROR_MATCH: SHOPIFY_PROTECTED_CUSTOMER_DATA_ERROR_MESSAGE,
             # 402 Payment Required from the Admin API — the store is frozen for an unpaid
             # bill. Retrying cannot recover; the shop owner must settle their Shopify balance.
             SHOPIFY_PAYMENT_REQUIRED_ERROR_MATCH: SHOPIFY_PAYMENT_REQUIRED_ERROR_MESSAGE,

@@ -119,6 +119,21 @@ def test_endpoint_permissions_reports_each_table_without_blocking():
     assert "read_product_listings" in result["collections"]
 
 
+def test_endpoint_permissions_distinguish_protected_customer_data():
+    # Shopify's protected customer data gate sits above access scopes, so telling the user to
+    # grant scopes sends them to a setting that cannot unblock the table.
+    refused = _access_denied(
+        "This app is not approved to access the Customer object. "
+        "See https://shopify.dev/docs/apps/launch/protected-customer-data for more details."
+    )
+    result = _endpoint_permissions(_post_returning({"customers": refused}), ["orders", "customers"])
+
+    assert result["orders"] is None
+    assert result["customers"] is not None
+    assert "protected customer data" in result["customers"]
+    assert "access scopes" not in result["customers"]
+
+
 def test_endpoint_permissions_survive_a_throttle_on_one_table():
     # A throttle on one endpoint must not abort the batch — otherwise it raises out of the whole
     # probe and the view blanks every table's status. The genuine denial on another table must
