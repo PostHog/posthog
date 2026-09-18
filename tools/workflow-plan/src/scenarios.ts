@@ -109,11 +109,11 @@ export function mergeQueue(options: Omit<PullRequestOptions, 'headRef' | 'draft'
     return pullRequest({ ...options, draft: true, headRef: 'trunk-merge/abc123' })
 }
 
-function branchContext(eventName: string, actor: string): Context {
+function branchContext(eventName: string, actor: string, branch: string = DEFAULT_BRANCH): Context {
     return {
         ...baseContext(eventName, actor),
-        ref: `refs/heads/${DEFAULT_BRANCH}`,
-        ref_name: DEFAULT_BRANCH,
+        ref: `refs/heads/${branch}`,
+        ref_name: branch,
         head_ref: '',
         base_ref: '',
     }
@@ -139,10 +139,10 @@ export function schedule(): Context {
     }
 }
 
-export function workflowDispatch(): Context {
+export function workflowDispatch(branch: string = DEFAULT_BRANCH): Context {
     return {
-        ...branchContext('workflow_dispatch', 'octocat'),
-        event: { inputs: {}, ref: `refs/heads/${DEFAULT_BRANCH}`, repository: repositoryPayload(REPOSITORY) },
+        ...branchContext('workflow_dispatch', 'octocat', branch),
+        event: { inputs: {}, ref: `refs/heads/${branch}`, repository: repositoryPayload(REPOSITORY) },
     }
 }
 
@@ -194,7 +194,10 @@ export const REPO_ROOT = fileURLToPath(new URL('../../../', import.meta.url))
 type ScriptStubs = Pick<Scenario, 'vars' | 'jobOutputs'>
 
 // Values only a script produces at runtime, without which a workflow's gates cannot be planned.
-const SCRIPT_STUBS: Record<string, ScriptStubs> = {
+export const SCRIPT_STUBS: Record<string, ScriptStubs> = {
+    '.github/workflows/build-deltalite.yml': {
+        jobOutputs: { 'check-version': { 'deltalite-release-needed': 'true' } },
+    },
     '.github/workflows/release.yml': {
         jobOutputs: {
             plan: {

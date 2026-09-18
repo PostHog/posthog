@@ -16,6 +16,7 @@ import {
 } from '../src/plan.ts'
 import {
     REPO_ROOT,
+    SCRIPT_STUBS,
     allFiltersChanged,
     defaultScenarios,
     mergeQueue,
@@ -67,20 +68,23 @@ type ExpectationBuilder = (
     rest: Omit<Expectation, 'file' | 'scenario'>
 ) => Expectation
 
-const suite = (file: string, selectors: Stubs): ExpectationBuilder => {
+const suite = (file: string, selectors: Stubs = {}): ExpectationBuilder => {
     const filters = allFiltersChanged(workflow(file))
+    const scripted = SCRIPT_STUBS[`.github/workflows/${file}`]
     return (overrides, rest) => ({
         file,
-        scenario: { github: pullRequest(), ...overrides, steps: { ...filters, ...selectors, ...overrides.steps } },
+        scenario: {
+            github: pullRequest(),
+            ...scripted,
+            ...overrides,
+            steps: { ...filters, ...selectors, ...overrides.steps },
+        },
         ...rest,
     })
 }
 const backend = suite('ci-backend.yml', backendSelectors)
 const frontend = suite('ci-frontend.yml', frontendSelectors)
-// `deltalite-release-needed` comes from a shell script the planner cannot run.
-const deltalite = suite('build-deltalite.yml', {
-    'check-version': { version: { outputs: { 'deltalite-release-needed': 'true' } } },
-})
+const deltalite = suite('build-deltalite.yml')
 const PINNED_WORKFLOWS = ['ci-backend.yml', 'ci-frontend.yml']
 
 const frontendOnlyFilters: Stubs = {
@@ -313,7 +317,7 @@ const EXPECTATIONS: Expectation[] = [
         { runs: ['check-version', 'build-wheels', 'publish'] }
     ),
     deltalite(
-        { name: 'branch dispatch', github: { ...workflowDispatch(), ref: 'refs/heads/feat/example' } },
+        { name: 'branch dispatch', github: workflowDispatch('feat/example') },
         { runs: ['check-version', 'build-wheels'], skipped: ['publish'] }
     ),
 ]

@@ -11,8 +11,7 @@ on:
         paths:
             - rust/deltalite/python/**
             - .github/workflows/build-deltalite.yml
-    # Publishing is manual and only from master. A pull request builds wheels as a check
-    # and cannot reach the publish job.
+    # Publishing is manual and only from master.
     workflow_dispatch:
 
 permissions:
@@ -52,17 +51,15 @@ jobs:
             - name: Check if version was bumped
               shell: bash
               id: version
+              if: github.event_name == 'pull_request'
               env:
                   GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-                  # A manual dispatch is already a release decision, so it checks the version
-                  # without asking which files changed.
-                  DELTALITE_CHANGED: ${{ github.event_name == 'workflow_dispatch' && 'true' || steps.changed-files.outputs.deltalite_any_changed }}
+                  DELTALITE_CHANGED: ${{ steps.changed-files.outputs.deltalite_any_changed }}
                   WORKFLOW_CHANGED: ${{ steps.changed-files.outputs.workflow_any_changed }}
                   IS_FORK: ${{ github.event.pull_request.head.repo.full_name != 'PostHog/posthog' }}
-                  IS_PULL_REQUEST: ${{ github.event_name == 'pull_request' }}
               run: |
                   deltalite_release_needed='false'
-                  # Local version from pyproject.toml — single source of truth, matches Cargo.toml.
+                  # Local version from pyproject.toml, the single source of truth, matches Cargo.toml.
                   local=$(grep -m1 '^version = ' rust/deltalite/python/pyproject.toml | sed -E 's/version = "(.*)"/\1/')
                   if [[ "$DELTALITE_CHANGED" == 'true' ]]; then
                       # 200 = version already on PyPI, 404 = needs release.
@@ -70,7 +67,7 @@ jobs:
                       if [[ "$http_code" == '404' ]]; then
                           deltalite_release_needed='true'
                           # Version was bumped — mark any reminder from an earlier push resolved.
-                          if [[ "$IS_PULL_REQUEST" == 'true' ]] && [ -f .github/scripts/post-reminder-section.mjs ]; then
+                          if [ -f .github/scripts/post-reminder-section.mjs ]; then
                               GITHUB_TOKEN="$GH_TOKEN" node .github/scripts/post-reminder-section.mjs deltalite --clear "version bumped to $local"
                           fi
                       elif [[ "$http_code" == '200' ]]; then
@@ -79,7 +76,7 @@ jobs:
                           if [[ "$IS_FORK" == 'true' ]]; then
                               message_body+=$'\n'"This needs to be performed on a branch created on the PostHog/posthog repo itself. A PostHog team member can assist with this."
                           fi
-                          if [[ "$IS_PULL_REQUEST" == 'true' ]] && [ -f .github/scripts/post-reminder-section.mjs ]; then
+                          if [ -f .github/scripts/post-reminder-section.mjs ]; then
                               BODY="$message_body" GITHUB_TOKEN="$GH_TOKEN" node .github/scripts/post-reminder-section.mjs deltalite warn "version bump needed"
                           else
                               echo "$message_body"
@@ -110,8 +107,8 @@ jobs:
         needs: check-version
         runs-on: ${{ matrix.os }}
         timeout-minutes: 30
-        if: needs.check-version.outputs.deltalite-release-needed == 'true' &&
-            (github.event_name == 'workflow_dispatch' ||
+        if: github.event_name == 'workflow_dispatch' ||
+            (needs.check-version.outputs.deltalite-release-needed == 'true' &&
             github.event.pull_request.head.repo.full_name == 'PostHog/posthog')
         strategy:
             fail-fast: false
@@ -177,10 +174,7 @@ jobs:
 
     publish:
         name: Publish on PyPI
-        needs: [check-version, build-wheels]
-        # The condition below is the branch control for an upload. PyPI's trusted publisher
-        # accepts only this environment, so restricting the environment's deployment branches
-        # to master adds a second control that a change to this file cannot remove.
+        needs: build-wheels
         if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/master' && github.repository == 'PostHog/posthog'
         environment: pypi-deltalite
         permissions:
