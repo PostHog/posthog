@@ -51,7 +51,7 @@ from posthog.exceptions import APIQueriesBudgetExceeded, ClickHouseQueryTimeOut
 from posthog.llm.completions import OpenAICompletion
 from posthog.models import PersonalAPIKey
 from posthog.models.utils import UUIDT, generate_random_token_personal, hash_key_value
-from posthog.query_scan.findings import build_warning
+from posthog.query_scan.findings import FindingCause, build_warning
 from posthog.query_scan.flag import QueryScanFlag, QueryScanMode
 from posthog.query_scan.test.slots import stored_slot
 
@@ -1361,7 +1361,13 @@ A_STORED_SCAN = stored_slot(
     QueryScanAnalysis(
         range_share=0.8,
         project_share=0.25,
-        findings=[build_warning(kind=QueryScanFindingKind.NO_EVENT_FILTER, query_kind="HogQLQuery")],
+        findings=[
+            build_warning(
+                kind=QueryScanFindingKind.NO_EVENT_FILTER,
+                cause=FindingCause.EVENT_FILTER_INSIDE_OR,
+                query_kind="HogQLQuery",
+            )
+        ],
     )
 )
 A_CLAIMED_SCAN = json.dumps({"pending": True})
@@ -1389,7 +1395,7 @@ class TestQueryScan(APIBaseTest):
         self.assertEqual(analysis["project_share"], 0.25)
         self.assertEqual([finding["kind"] for finding in analysis["findings"]], ["no_event_filter"])
         # "Fix with AI" sends this, so the endpoint builds it rather than the client.
-        self.assertIn("- no_event_filter:", analysis["assistant_prompt"])
+        self.assertIn("- no_event_filter (in_or):", analysis["assistant_prompt"])
 
     def test_answers_with_an_empty_body_while_the_job_runs(self):
         # A client polls until an analysis arrives, so "not yet" has to differ from the 404 that
