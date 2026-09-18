@@ -6,6 +6,7 @@ from posthog.models.user import User
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.experiments.backend.models.experiment import Experiment, ExperimentHoldout
+from products.experiments.backend.test.helpers import create_experiment_via_api
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 from ee.api.test.base import APILicensedTest
@@ -42,25 +43,7 @@ class TestExperimentHoldoutCRUD(APILicensedTest):
 
         # Generate experiment to be part of holdout
         ff_key = "a-b-tests"
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/experiments/",
-            {
-                "name": "Test Experiment",
-                "description": "",
-                "start_date": "2021-12-01T10:23",
-                "end_date": None,
-                "feature_flag_key": ff_key,
-                "parameters": None,
-                "filters": {
-                    "events": [
-                        {"order": 0, "id": "$pageview"},
-                        {"order": 1, "id": "$pageleave"},
-                    ],
-                    "properties": [],
-                },
-                "holdout_id": holdout_id,
-            },
-        )
+        response = create_experiment_via_api(self.client, self.team.id, ff_key, holdout_id=holdout_id)
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(response.json()["name"], "Test Experiment")

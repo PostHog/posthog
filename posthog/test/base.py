@@ -1396,11 +1396,7 @@ def also_test_with_materialized_columns(
         person_properties = []
     if event_properties is None:
         event_properties = []
-    try:
-        from posthog.clickhouse.materialized_columns.analyze import materialize
-    except:
-        # EE not available? Just run the main test
-        return lambda fn: fn
+    from posthog.clickhouse.materialized_columns.analyze import materialize
 
     def decorator(fn):
         @pytest.mark.ee
