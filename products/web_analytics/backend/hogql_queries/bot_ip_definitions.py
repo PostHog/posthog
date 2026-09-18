@@ -32,7 +32,7 @@ class BotIPDefinition:
 
     @property
     def agent_source_slug(self) -> str:
-        return derive_agent_source_slug(self.name, self.category, self.traffic_type, self.agent_source)
+        return derive_agent_source_slug(self.category, self.agent_source)
 
 
 # Some crawlers (e.g. Google's mobile rendering service) send real browser user agents
@@ -92,6 +92,7 @@ BOT_IP_DEFINITIONS: dict[str, BotIPDefinition] = {
         "OpenAI",
         networks=OPENAI_GPTBOT_NETWORKS,
         documentation_url="https://openai.com/gptbot.json",
+        agent_source="gptbot",
     ),
     "perplexity-user": BotIPDefinition(
         "Perplexity User",
@@ -100,6 +101,7 @@ BOT_IP_DEFINITIONS: dict[str, BotIPDefinition] = {
         "Perplexity",
         networks=PERPLEXITY_USER_NETWORKS,
         documentation_url="https://www.perplexity.com/perplexity-user.json",
+        agent_source="perplexity-user",
     ),
     "perplexitybot": BotIPDefinition(
         "Perplexity",
@@ -125,6 +127,7 @@ BOT_IP_DEFINITIONS: dict[str, BotIPDefinition] = {
         "Apple",
         networks=APPLEBOT_NETWORKS,
         documentation_url="https://support.apple.com/en-us/119829",
+        agent_source="applebot",
     ),
     "ahrefsbot": BotIPDefinition(
         "Ahrefs",

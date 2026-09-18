@@ -161,12 +161,13 @@ class TestTrafficTypeIntegration(BaseTest):
             if expected_is_bot:
                 matched_pattern = _find_matching_pattern(ua)
                 assert matched_pattern is not None, f"Bot UA should match a pattern: {ua[:60]}"
-                expected_traffic_type = BOT_DEFINITIONS[matched_pattern].traffic_type
+                bot_def = BOT_DEFINITIONS[matched_pattern]
+                expected_traffic_type = bot_def.traffic_type
                 assert traffic_type == expected_traffic_type, (
                     f"traffic_type mismatch for {ua[:60]}: got {traffic_type}, expected {expected_traffic_type}"
                 )
                 assert bot_name != "", f"bot_name should not be empty for bot UA: {ua[:60]}"
-                expected_agent_source = BOT_DEFINITIONS[matched_pattern].agent_source_slug
+                expected_agent_source = bot_def.agent_source_slug
                 assert agent_source == expected_agent_source, (
                     f"agent_source mismatch for {ua[:60]}: got {agent_source}, expected {expected_agent_source}"
                 )
