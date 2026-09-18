@@ -123,6 +123,30 @@ describe('sourceCatalogLogic', () => {
         expect(names).toContain('aws')
     })
 
+    // Fuse matches the whole search term as one pattern, so one extra word buries a term that
+    // matches on its own: each of these returned nothing at all, which sent the user to "request
+    // a source" for connectors we already have.
+    it.each(['source files', 'parquet file storage', 'amazon s3 bucket'])(
+        'retries a multi-word search word by word for "%s"',
+        (search) => {
+            const logic = sourceCatalogLogic()
+            logic.actions.setSearch(search)
+
+            expect(logic.values.filteredItems.some((item) => item.selfManaged)).toBe(true)
+        }
+    )
+
+    it('ranks a multi-word retry by how many words each source matches', () => {
+        const logic = sourceCatalogLogic()
+        logic.actions.setSearch('amazon gcs gcp')
+
+        // `google-cloud` matches "gcs" and "gcp"; `aws` only "amazon". The closer match must lead,
+        // even though the first word found `aws` and word order alone would keep it first.
+        const names = logic.values.filteredItems.map((item) => item.name)
+        expect(names).toContain('aws')
+        expect(names.indexOf('google-cloud')).toBeLessThan(names.indexOf('aws'))
+    })
+
     it('flags a cross-category match when a filtered search only hits another category', () => {
         const logic = sourceCatalogLogic()
         logic.actions.setSelectedCategory('Sales')
