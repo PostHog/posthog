@@ -21,7 +21,7 @@ const rejection = {
 
 const deleteRefusal = {
     type: 'validation_error',
-    code: 'invalid_input',
+    code: 'has_dependents',
     detail: "Can't delete orders yet. These read from it: orders_daily (view). Update or delete them first.",
     attr: null,
     extra: { node_id: 'node-7' },
