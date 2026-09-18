@@ -449,6 +449,8 @@ def team_api_test_factory():
             # `mock_capture` is patched.
             team: Team = Team.objects.create_with_data(initiating_user=self.user, organization=self.organization)
             team_pk = team.pk
+            # The 48 hour delay only applies to a project that has ingested data.
+            Team.objects.filter(pk=team_pk).update(ingested_event=True)
             # create_with_data fires capture events; clear them so we only assert delete-time events
             mock_capture.reset_mock()
 

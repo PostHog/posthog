@@ -1625,9 +1625,10 @@ class ProjectViewSet(
             if warehouse_block_reason:
                 raise exceptions.ValidationError(warehouse_block_reason)
 
-        from posthog.temporal.delete_teams.dispatch import PROJECT_DELETION_DELAY, start_delete_project_data_workflow
+        from posthog.temporal.delete_teams.dispatch import project_deletion_delay, start_delete_project_data_workflow
 
-        deletion_scheduled_at = timezone.now() + PROJECT_DELETION_DELAY
+        deletion_delay = project_deletion_delay(project)
+        deletion_scheduled_at = timezone.now() + (deletion_delay or timedelta())
         claimed_project = Project.objects.filter(pk=project.pk, is_pending_deletion=False).update(
             is_pending_deletion=True,
             deletion_scheduled_at=deletion_scheduled_at,
@@ -1646,7 +1647,9 @@ class ProjectViewSet(
                 project_id=project_id,
                 user_id=user.id,
                 project_name=project_name,
-                start_delay=max(deletion_scheduled_at - timezone.now(), timedelta()),
+                start_delay=(
+                    max(deletion_scheduled_at - timezone.now(), timedelta()) if deletion_delay is not None else None
+                ),
             )
         except Exception:
             Project.objects.filter(pk=project.pk, deletion_scheduled_at=deletion_scheduled_at).update(
