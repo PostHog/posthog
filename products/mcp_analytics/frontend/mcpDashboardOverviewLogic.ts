@@ -620,7 +620,7 @@ export interface mcpDashboardOverviewLogicMeta {
             feedbackLoadFailed: boolean,
             kpis: KPIData
         ) => boolean
-        feedbackContextKey: (currentTeam: TeamPublicType | TeamType | null, queryFilters: HogQLFilters) => string
+        feedbackContextKey: (currentTeam: TeamPublicType | TeamType | null) => string
         filterTestAccounts: (
             filterTestAccountsOverride: boolean | null,
             currentTeam: TeamPublicType | TeamType | null
@@ -911,9 +911,8 @@ export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
                 interacted && !loading && !failed && kpis.toolCalls.value > 0,
         ],
         feedbackContextKey: [
-            (s) => [s.currentTeam, s.queryFilters],
-            (team: TeamType | TeamPublicType | null, filters: HogQLFilters): string =>
-                JSON.stringify([team?.id, filters]),
+            (s) => [s.currentTeam],
+            (team: TeamType | TeamPublicType | null): string => String(team?.id),
         ],
         // Effective toggle state: the user's explicit override, else the team's default.
         filterTestAccounts: [

@@ -4,11 +4,13 @@ The session detail panel shows a thumbs question after 30 seconds with loaded to
 The dashboard also offers feedback after a user changes its date, property, or test-account filters and all refreshed queries finish successfully with tool-call data.
 Opening a dashboard link, including a filtered link, does not count as an interaction.
 The dashboard uses the same 30-second reading delay, thumbs question, and optional text, with dashboard-specific copy.
+Filter changes restart a pending delay, but an opened prompt and unfinished text stay available through refreshes.
 Refreshing feature flags keeps an already-pending delay when the same survey remains eligible.
 Leaving the panel or hiding the tab cancels the delay; returning starts a fresh delay.
 The SDK must return an active matching survey, and capture must be enabled for a signed-in, non-impersonated user.
-Showing the prompt starts a 30-day cooldown shared across placements for that user in this browser.
-Mounted placements share one cooldown per user and recheck it when their delay ends, so only one pending placement can show in the app.
+An impression requires at least half the prompt to enter the viewport while the browser tab is visible.
+Recording that impression starts a 30-day cooldown shared across placements for that user in this browser.
+Mounted placements share one cooldown per user and recheck it when their delay ends, so only one placement can record an impression; the others hide once it does.
 The cooldown remains browser-local; it does not synchronize across devices.
 Feedback is requested in context; the page header has no general Feedback button.
 
@@ -28,7 +30,7 @@ This change needs no update to the existing header survey configuration.
 
 ## Events and reporting
 
-- `survey shown` records the impression and starts the cooldown.
+- `survey shown` records the first viewport impression and starts the cooldown; rendering offscreen does neither.
 - `survey sent` records the first answer immediately with `$survey_completed: false`.
 - Done or Send feedback sends the same answer and optional text with `$survey_completed: true` and the same submission ID.
 - Navigating away does not emit a dismissal or abandonment event; any partial response already captured remains.

@@ -572,9 +572,11 @@ describe('mcpDashboardOverviewLogic', () => {
         })
 
         it('offers feedback only after an interaction and a successful nonempty refresh', async () => {
-            const populatedResponse = async (node: any): Promise<any> => ({
+            const populatedResponse = async (
+                node: Parameters<typeof api.query>[0]
+            ): Promise<{ results: (string | number)[][] }> => ({
                 results:
-                    typeof node?.query === 'string' && node.query.includes('AS bucket')
+                    'query' in node && typeof node.query === 'string' && node.query.includes('AS bucket')
                         ? [[dayjs().format('YYYY-MM-DD'), 2, 10, 0, 100]]
                         : [],
             })
@@ -593,17 +595,17 @@ describe('mcpDashboardOverviewLogic', () => {
             expect(logic.values.canShowFeedback).toBe(true)
             const previousContext = logic.values.feedbackContextKey
 
-            mockApi.query.mockImplementation(async (node: any) => {
+            mockApi.query.mockImplementation(async (node) => {
                 if (node.kind === 'MCPHarnessBreakdownQuery') {
                     throw new Error('Example query failure')
                 }
                 return populatedResponse(node)
             })
             await expectLogic(logic, () => logic.actions.setDateFilter('-7d', null)).toFinishAllListeners()
-            expect(logic.values.feedbackContextKey).not.toBe(previousContext)
+            expect(logic.values.feedbackContextKey).toBe(previousContext)
             expect(logic.values.canShowFeedback).toBe(false)
 
-            mockApi.query.mockResolvedValue({ results: [] } as any)
+            mockApi.query.mockResolvedValue({ results: [] })
             await expectLogic(logic, () => logic.actions.reloadAll()).toFinishAllListeners()
             expect(logic.values.canShowFeedback).toBe(false)
 

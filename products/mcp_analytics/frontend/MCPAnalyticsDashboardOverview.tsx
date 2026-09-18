@@ -103,12 +103,11 @@ export function MCPAnalyticsDashboardOverview(): JSX.Element {
                     />
                 }
             />
-            {canShowFeedback && (
-                <MCPAnalyticsFeedbackPrompt
-                    contextKey={feedbackContextKey}
-                    prompt={MCP_ANALYTICS_DASHBOARD_FEEDBACK_PROMPT}
-                />
-            )}
+            <MCPAnalyticsFeedbackPrompt
+                contextKey={feedbackContextKey}
+                eligible={canShowFeedback}
+                prompt={MCP_ANALYTICS_DASHBOARD_FEEDBACK_PROMPT}
+            />
             <MCPAnalyticsFirstLook />
             <section className="flex min-w-0 flex-col gap-4" data-quill>
                 <h2 className="mb-4 text-xl font-semibold text-primary">Key metrics</h2>
