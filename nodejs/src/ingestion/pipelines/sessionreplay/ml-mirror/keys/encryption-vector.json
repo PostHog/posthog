@@ -16,5 +16,15 @@
         },
         "nonce": "AwMDAwMDAwMDAwMD",
         "ciphertext": "VofNdzJNKisZYCoynzKNY51Zko7W/PgZW6enwYKcLNfQw1APuYhuzy8mpJ3qd2oMKRc="
+    },
+    "seal": {
+        "teamMonthKey": "CQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQk=",
+        "identity": {
+            "teamId": 7,
+            "sessionId": "01994569-4380-7000-8000-000000000007"
+        },
+        "sessionKey": "BAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQ=",
+        "nonce": "eeEJEciFIDqBWFNk",
+        "sealedKey": "vxp6SKFXDX5P4p/OXPmke/ahZKBw1+rUcA5OsFanqN665rxNb8kUZPLXQoafeWnv"
     }
 }
