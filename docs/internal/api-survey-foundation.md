@@ -33,6 +33,9 @@ This foundation does not submit partial answers or emit automatic dismissal even
 It calls `onChange` immediately with `1` for helpful or `2` for not helpful; clicking the selected rating again does nothing.
 The caller owns persistence, pending and error state, and any link between a quick rating and a detailed response.
 Pass `loading` while saving to prevent duplicate actions, and update `value` when the caller accepts the rating.
+Share more feedback appears after a rating is accepted, with a short fade that respects reduced-motion preferences.
+After a user selects a rating, focus moves to that action once saving finishes and the action is enabled.
+A preselected rating does not take focus on mount.
 The component does not load a survey or emit analytics events itself.
 
 Ratings and up to four short single-choice options use compact selectable buttons with native radio inputs.

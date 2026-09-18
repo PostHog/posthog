@@ -64,7 +64,9 @@ export const Dialog: Story = {
     render: (args, { parameters }) => {
         const [isOpen, setIsOpen] = useState(!!parameters.initiallyOpen)
         const titleId = useId()
-        const [rating, setRating] = useState<SurveyFeedbackRating | undefined>()
+        const [rating, setRating] = useState<SurveyFeedbackRating | undefined>(
+            parameters.initiallyOpen ? '1' : undefined
+        )
         return (
             <>
                 <SurveyFeedbackButtons

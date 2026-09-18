@@ -1,3 +1,5 @@
+import { useEffect, useRef } from 'react'
+
 import { IconThumbsDown, IconThumbsUp } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
@@ -18,6 +20,16 @@ export function SurveyFeedbackButtons({
     disabledReason?: string
     expanded?: boolean
 }): JSX.Element {
+    const moreFeedbackRef = useRef<HTMLButtonElement>(null)
+    const pendingFocusRating = useRef<SurveyFeedbackRating>()
+
+    useEffect(() => {
+        if (value && pendingFocusRating.current === value && !loading && !disabledReason && !expanded) {
+            moreFeedbackRef.current?.focus()
+            pendingFocusRating.current = undefined
+        }
+    }, [value, loading, disabledReason, expanded])
+
     return (
         <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Was this helpful?">
             <span className="text-secondary text-sm">Was this helpful?</span>
@@ -38,20 +50,29 @@ export function SurveyFeedbackButtons({
                     tooltip={option.label}
                     loading={loading}
                     disabledReason={disabledReason}
-                    onClick={() => value !== option.value && onChange(option.value)}
+                    onClick={() => {
+                        if (value !== option.value) {
+                            pendingFocusRating.current = option.value
+                            onChange(option.value)
+                        }
+                    }}
                     data-attr={option.value === '1' ? 'api-survey-thumbs-up' : 'api-survey-thumbs-down'}
                 />
             ))}
-            <LemonButton
-                size="small"
-                onClick={onMoreFeedback}
-                aria-haspopup="dialog"
-                aria-expanded={expanded}
-                disabledReason={loading ? 'Saving feedback' : disabledReason}
-                data-attr="api-survey-share-more-feedback"
-            >
-                Share more feedback
-            </LemonButton>
+            {value !== undefined && (
+                <LemonButton
+                    ref={moreFeedbackRef}
+                    className="motion-safe:animate-fade-in"
+                    size="small"
+                    onClick={onMoreFeedback}
+                    aria-haspopup="dialog"
+                    aria-expanded={expanded}
+                    disabledReason={loading ? 'Saving feedback' : disabledReason}
+                    data-attr="api-survey-share-more-feedback"
+                >
+                    Share more feedback
+                </LemonButton>
+            )}
         </div>
     )
 }

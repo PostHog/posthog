@@ -23,6 +23,6 @@ export const Default: Story = {}
 export const Helpful: Story = { args: { value: '1' } }
 export const NotHelpful: Story = { args: { value: '2' } }
 export const Saving: Story = {
-    args: { loading: true },
+    args: { value: '1', loading: true },
     parameters: { testOptions: { waitForLoadersToDisappear: false } },
 }
