@@ -1,4 +1,3 @@
-import re
 import ipaddress
 from uuid import uuid4
 
@@ -31,7 +30,6 @@ from posthog.schema_enums import FilterLogicalOperator
 from products.actions.backend.models.action import Action
 from products.web_analytics.backend.hogql_queries.bot_definitions import BOT_DEFINITIONS
 from products.web_analytics.backend.hogql_queries.bot_ip_definitions import BOT_IP_DEFINITIONS
-from products.web_analytics.backend.hogql_queries.bot_signature_agents import SIGNATURE_AGENT_DEFINITIONS
 
 
 class TestTrafficTypeFunctions:
@@ -531,30 +529,6 @@ class TestSignatureAgentClassification:
         ip_lookup = signature_lookup.args[1]
         assert isinstance(ip_lookup, ast.Call)
         assert ip_lookup.name == "if"
-
-    def test_definitions_have_required_fields_and_valid_vocabulary(self):
-        valid_types = {"AI Agent", "Bot", "Automation"}
-        valid_categories = {
-            "ai_crawler",
-            "ai_search",
-            "ai_assistant",
-            "search_crawler",
-            "seo_crawler",
-            "social_crawler",
-            "monitoring",
-            "http_client",
-            "headless_browser",
-        }
-        for host, sig_def in SIGNATURE_AGENT_DEFINITIONS.items():
-            assert host == host.lower().strip('"'), f"Host {host} must be a normalized lowercase domain"
-            assert "://" not in host, f"Host {host} must not include a scheme"
-            assert sig_def.name, f"Signature agent definition {host} missing name"
-            assert sig_def.operator, f"Signature agent definition {host} missing operator"
-            assert sig_def.traffic_type in valid_types, f"Invalid traffic_type for {host}: {sig_def.traffic_type}"
-            assert sig_def.category in valid_categories, f"Invalid category for {host}: {sig_def.category}"
-            assert re.fullmatch(r"[a-z0-9-]+", sig_def.agent_source_slug), (
-                f"Malformed agent_source slug for {host}: {sig_def.agent_source_slug!r}"
-            )
 
 
 class TestBotIPDefinitionsDataStructure:

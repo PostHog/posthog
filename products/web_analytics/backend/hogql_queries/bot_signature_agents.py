@@ -20,6 +20,14 @@ class SignatureAgentDefinition:
         return derive_agent_source_slug(self.name, self.category, self.traffic_type, self.agent_source)
 
 
+# Radar names an agent differently from our UA definition for the same software, and the
+# derived slug would then split one agent across two agent_source values depending on which
+# signal caught it. Keyed by the Radar name, valued by the slug the UA definition already uses.
+SIGNATURE_AGENT_SOURCE_OVERRIDES: dict[str, str] = {
+    "Amazon Bedrock AgentCore Browser": "amazon-bedrock-agentcore",
+}
+
+
 # Web Bot Auth (RFC 9421 HTTP Message Signatures): agents that sign their requests send a
 # Signature-Agent header naming the domain that publishes their public keys, e.g.
 # `Signature-Agent: "https://chatgpt.com"`. Servers that forward that header as the
@@ -40,6 +48,7 @@ SIGNATURE_AGENT_DEFINITIONS: dict[str, SignatureAgentDefinition] = {
         entry["traffic_type"],
         entry["operator"],
         documentation_url=entry["documentation_url"] or None,
+        agent_source=SIGNATURE_AGENT_SOURCE_OVERRIDES.get(entry["name"]),
     )
     for entry in SIGNATURE_AGENT_ENTRIES
 }
