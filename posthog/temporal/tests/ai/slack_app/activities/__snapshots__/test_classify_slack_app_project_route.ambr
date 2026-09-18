@@ -7,7 +7,7 @@
   • `41` — Northwind · Staging
   • `42` — Northwind · Production
   
-  Without a project named in the message the task is answered from Northwind · Production, so only name one that would change that.
+  Most messages name no project at all, and null is the answer for those. Only name one when the message points at it.
   
   Name a project when the message says where to look:
     - "check the error rate on Endpaper staging", "in the website project, why did signups drop", "for production, which exports failed yesterday".

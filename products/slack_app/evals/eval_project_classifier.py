@@ -55,8 +55,6 @@ PRODUCTION = _project(team_id=42, integration_id=420, name="Production")
 WEBSITE = _project(team_id=43, integration_id=430, name="Website")
 PROJECTS = [STAGING, PRODUCTION, WEBSITE]
 
-DEFAULT_PROJECT_LABEL = "Northwind · Production"
-
 
 def _routes_to(project: Integration | None = None) -> dict:
     return {PROJECT_ROUTE_KEY: {"integration_id": project.id if project else None}}
@@ -144,7 +142,6 @@ async def eval_project_classifier(ctx: EvalContext) -> None:
                 classifiers.classify_slack_app_project_route,
                 case.prompt,
                 PROJECTS,
-                DEFAULT_PROJECT_LABEL,
             )
         except Exception as error:
             return {

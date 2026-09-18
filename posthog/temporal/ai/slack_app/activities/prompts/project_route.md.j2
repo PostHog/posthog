@@ -3,7 +3,7 @@ You are routing a Slack message addressed to the PostHog agent. This Slack works
 Only these projects can be selected, and the id is the number:
 {{ projects }}
 
-Without a project named in the message the task is answered from {{ default_project }}, so only name one that would change that.
+Most messages name no project at all, and null is the answer for those. Only name one when the message points at it.
 
 Name a project when the message says where to look:
   - "check the error rate on Endpaper staging", "in the website project, why did signups drop", "for production, which exports failed yesterday".

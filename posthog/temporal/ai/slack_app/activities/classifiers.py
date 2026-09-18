@@ -29,11 +29,7 @@ from products.slack_app.backend.facade.run_preferences import (
 from products.slack_app.backend.feature_flags import is_slack_app_project_routing_enabled
 from products.slack_app.backend.models import SlackThreadTaskMapping
 from products.slack_app.backend.prompt_templates import PromptTemplates
-from products.slack_app.backend.services.integration_resolver import (
-    format_project_candidate_list,
-    project_label,
-    routable_projects,
-)
+from products.slack_app.backend.services.integration_resolver import format_project_candidate_list, routable_projects
 from products.slack_app.backend.services.slack_messages import SlackThreadMessage
 
 logger = structlog.get_logger(__name__)
@@ -572,11 +568,7 @@ class _ProjectRouteReply(BaseModel):
     project_id: int | None = None
 
 
-def classify_slack_app_project_route(
-    event_text: str,
-    projects: list[Integration],
-    default_project_label: str,
-) -> Integration | None:
+def classify_slack_app_project_route(event_text: str, projects: list[Integration]) -> Integration | None:
     """Read the project a mention asked to be answered from, out of its text.
 
     Returns ``None`` when the author named none, which is the overwhelming majority of
@@ -595,7 +587,6 @@ def classify_slack_app_project_route(
     prompt = prompts.render(
         "project_route",
         projects=format_project_candidate_list(projects),
-        default_project=default_project_label,
         event_text=event_text,
     )
 
@@ -663,11 +654,7 @@ def classify_slack_app_project_route_activity(input: SlackAppProjectRouteInput) 
         return None
 
     try:
-        chosen = classify_slack_app_project_route(
-            input.event_text,
-            projects,
-            default_project_label=project_label(integration),
-        )
+        chosen = classify_slack_app_project_route(input.event_text, projects)
     except Exception:
         # The fallback boundary: a mention we cannot classify stays on the project
         # routing already resolved, which is what it would have done anyway.

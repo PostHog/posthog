@@ -51,14 +51,14 @@ class TestClassifySlackAppProjectRoute:
         # on every negative case and report a healthy mean. The activity does the falling
         # back; this must not.
         with patch(CLASSIFIER, side_effect=RuntimeError("boom")), pytest.raises(RuntimeError):
-            classify_slack_app_project_route("check staging", PROJECTS, "Northwind · Production")
+            classify_slack_app_project_route("check staging", PROJECTS)
 
     def test_token_cap_uses_the_reasoning_model_parameter(self):
         # `gpt-5.6-luna` rejects `max_tokens` on chat completions, and the activity turns
         # that rejection into its fallback — a mention would silently never route.
         fake_client = self._fake_client('{"project_id": null}')
         with patch(CLASSIFIER, return_value=fake_client):
-            classify_slack_app_project_route("check staging", PROJECTS, "Northwind · Production")
+            classify_slack_app_project_route("check staging", PROJECTS)
 
         kwargs = fake_client.chat.completions.create.call_args.kwargs
         assert "max_tokens" not in kwargs
@@ -70,7 +70,7 @@ class TestClassifySlackAppProjectRoute:
         # bound only reaches the model through this field.
         fake_client = self._fake_client('{"project_id": null}')
         with patch(CLASSIFIER, return_value=fake_client):
-            classify_slack_app_project_route("check staging", PROJECTS, "Northwind · Production")
+            classify_slack_app_project_route("check staging", PROJECTS)
 
         schema = fake_client.chat.completions.create.call_args.kwargs["response_format"]["json_schema"]
         assert schema["strict"] is True
@@ -82,7 +82,7 @@ class TestClassifySlackAppProjectRoute:
         # taking the fallback this classifier is built around.
         fake_client = self._fake_client('{"project_id": null}')
         with patch(CLASSIFIER, return_value=fake_client):
-            classify_slack_app_project_route("check staging", PROJECTS, "Northwind · Production")
+            classify_slack_app_project_route("check staging", PROJECTS)
 
         options = fake_client.with_options.call_args.kwargs
         assert options["timeout"] < POSTHOG_CODE_SLACK_MENTION_TIMEOUT_SECONDS
@@ -97,9 +97,7 @@ class TestClassifySlackAppProjectRoute:
         """
         fake_client = self._fake_client('{"project_id": null}')
         with patch(CLASSIFIER, return_value=fake_client):
-            classify_slack_app_project_route(
-                "how many signups on staging yesterday", PROJECTS, "Northwind · Production"
-            )
+            classify_slack_app_project_route("how many signups on staging yesterday", PROJECTS)
         assert fake_client.chat.completions.create.call_args.kwargs["messages"][0]["content"] == snapshot
 
     def _fake_client(self, content: str) -> MagicMock:
@@ -114,4 +112,4 @@ class TestClassifySlackAppProjectRoute:
 
     def _classify(self, content: str):
         with patch(CLASSIFIER, return_value=self._fake_client(content)):
-            return classify_slack_app_project_route("check staging", PROJECTS, "Northwind · Production")
+            return classify_slack_app_project_route("check staging", PROJECTS)
