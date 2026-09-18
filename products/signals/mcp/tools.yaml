@@ -888,15 +888,15 @@ tools:
             (`lte` / `gte` / `between`) saying what the value must satisfy, and the `baseline_value` you measured now. A
             `query` you supply must keep `dateRange.date_from` relative (`-13d`) and `date_to` empty, so each run
             measures the days before it rather than the days before the check was written — absolute dates are refused.
-            The query must produce exactly one output series: use one event or action series, or combine up to ten
-            of them with exactly one formula. Use no breakdown and no compare mode. A `trendsFilter.display` of
-            `Metric` turns compare mode on, so `metricShowChange` is switched off for you unless `metricSummary` is
-            `latest`, which keeps compare mode off already. Use `agent` for a claim no single number settles: pass
-            `instructions` saying what a later run must establish and `probe_hints` naming the issue ids, services, or
-            queries to look at; it runs on the scout you name in `skill_name`, or on the fleet's follow-up scout when
-            you name none. `next_run_at` is when to first look, so allow deploy and soak time. The verdict lands on the
-            report as a `check_result` entry people read in the inbox. Check `scout-report-check-list` first: a report
-            holds at most five open checks, and a second check for the same claim is noise.
+            The query must produce exactly one output series: use one event or action series, or combine up to ten of
+            them with exactly one formula. Use no breakdown and no compare mode. A `trendsFilter.display` of `Metric`
+            turns compare mode on, so `metricShowChange` is switched off for you unless `metricSummary` is `latest`,
+            which keeps compare mode off already. Use `agent` for a claim no single number settles: pass `instructions`
+            saying what a later run must establish and `probe_hints` naming the issue ids, services, or queries to look
+            at; it runs on the scout you name in `skill_name`, or on the fleet's follow-up scout when you name none.
+            `next_run_at` is when to first look, so allow deploy and soak time. The verdict lands on the report as a
+            `check_result` entry people read in the inbox. Check `scout-report-check-list` first: a report holds at most
+            five open checks, and a second check for the same claim is noise.
     scout-report-check-list:
         operation: signals_scout_report_checks_list
         enabled: true
