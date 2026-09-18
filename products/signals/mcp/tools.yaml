@@ -260,21 +260,6 @@ tools:
             must be in this project, a report cannot link to itself, and links of one kind must stay acyclic, so a link
             that would close a dependency loop is rejected with 400. Reading a report's links is
             `inbox-report-artefacts-list` filtered to type `report_link`; removing one is `inbox-reports-unlink`.
-    inbox-reports-unlink:
-        operation: signals_reports_unlink
-        enabled: true
-        scopes:
-            - task:write
-        annotations:
-            readOnly: false
-            destructive: true
-            idempotent: true
-        enrich_url: '{id}'
-        title: Remove a link between two reports
-        description: >
-            Remove every `kind` link from the report in `id` to `report_id`, undoing an `inbox-reports-link` call.
-            `reason` is ignored. Removing a link that was never there is a 200 with `removed: 0`, so you do not have to
-            check first.
     inbox-reports-list:
         operation: signals_reports_list
         enabled: true
@@ -426,6 +411,21 @@ tools:
             artefact on the report so the rationale survives later transitions. Returns 409 if the transition is not
             allowed from the report's current status. To transition several reports at once, use
             `inbox-reports-bulk-set-state` instead of calling this per report.
+    inbox-reports-unlink:
+        operation: signals_reports_unlink
+        enabled: true
+        scopes:
+            - task:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        enrich_url: '{id}'
+        title: Remove a link between two reports
+        description: >
+            Remove every `kind` link from the report in `id` to `report_id`, undoing an `inbox-reports-link` call.
+            `reason` is ignored. Removing a link that was never there is a 200 with `removed: 0`, so you do not have to
+            check first.
     inbox-reports-update:
         operation: signals_reports_partial_update
         enabled: true
