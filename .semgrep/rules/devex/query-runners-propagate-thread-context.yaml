@@ -8,16 +8,21 @@ rules:
           a separate trace per series instead of a single request trace, and the request trace shows
           an unexplained gap where the query work should be. Losing the query tags means the
           worker's ClickHouse queries land in `system.query_log` with no product or feature
-          attribution.
+          attribution. A raw thread per work item is also unbounded, so one request can take a web
+          worker's threads and a large share of the shared Postgres connection pool.
 
-          Use `run_in_parallel_threads` from `posthog.hogql_queries.utils.parallel`, which copies the
-          caller's context into every worker. Pass thunks (`functools.partial`) instead of
-          `target=`/`args=`:
+          Use `run_in_parallel_threads` from `posthog.hogql_queries.utils.parallel`, which runs the
+          work in a bounded pool and copies the caller's context into every worker. Pass thunks
+          (`functools.partial`) instead of `target=`/`args=`:
 
               run_in_parallel_threads([partial(run, index, query) for index, query in enumerate(queries)])
 
-          A `ThreadPoolExecutor` loses the context the same way, and this rule does not detect that
-          form. Submit a fresh `contextvars.copy_context().run` per task, as
+          Use `map_in_caller_context` from `posthog.hogql_queries.utils.caller_context` instead when
+          the work returns values rather than writing into a shared result list. It runs serially
+          under `TEST`, so a test that must reach the pool cannot use it.
+
+          A hand-rolled `ThreadPoolExecutor` loses the context the same way, and this rule does not
+          detect that form. Submit a fresh `contextvars.copy_context().run` per task, as
           `posthog/hogql_queries/utils/timestamp_utils.py` does. One `Context` cannot be entered
           twice, so hoisting a single `copy_context()` above the loop raises `RuntimeError` on the
           second task.
@@ -38,9 +43,6 @@ rules:
           include:
               - '/posthog/hogql_queries/**'
               - '/products/*/backend/hogql_queries/**'
-          exclude:
-              # The helper this rule points callers to, which is the one place the bare thread is correct.
-              - '/posthog/hogql_queries/utils/parallel.py'
       pattern-either:
           - pattern: threading.Thread(...)
           - pattern: Thread(...)

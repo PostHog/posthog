@@ -367,7 +367,14 @@ export interface HogFlowConversionApi {
     /** Event-based conversion goals: [{filters: {events: [{id, name, type: 'events'}], ...}}]. */
     events?: HogFlowConversionEventApi[]
     /**
-     * Conversion window in minutes after a person enters the workflow. null = no explicit window.
+     * How long after entering the workflow a conversion still counts, as a duration string: '7d', '12h', '30m', '45s'. Same form the delay steps use. Maximum '365d'. Omit it to use the default window. Set this or 'window_minutes', not both.
+     * @maxLength 32
+     * @nullable
+     * @pattern ^(?:[0-9]+(?:\.[0-9]+)?|\.[0-9]+)[dhms]$
+     */
+    window?: string | null
+    /**
+     * DEPRECATED, use 'window' instead. Conversion window in MINUTES (not seconds) after a person enters the workflow. Maximum 129600 (90 days). null = use the default window. Set this or 'window', not both.
      * @nullable
      */
     window_minutes?: number | null
@@ -594,7 +601,7 @@ export interface HogFlowApi {
     readonly trigger: unknown
     /** Optional dedup/throttle on an already-matched trigger: {hash: <HogQL template>, ttl: <seconds, 60-94608000>, threshold?: <int>}. Without threshold: fire once per hash, then suppress repeats within ttl (hash '{person.id}' = once per person per ttl). With threshold N: fire once per N matches of the same hash — a sampler, the 1st then every Nth. Throttles an already-qualifying trigger; it doesn't decide who enters. Server compiles bytecode from hash; omit to disable. */
     trigger_masking?: HogFlowMaskingApi | null
-    /** Conversion goal. filters: ARRAY of property conditions [{key, value, operator, type: event|person|group}]; events: event-based goals [{filters: {events: [...]}}]; window_minutes: minutes after entry. Required for exit_on_conversion / exit_on_trigger_not_matched_or_conversion. bytecode compiled server-side. */
+    /** Conversion goal. filters: ARRAY of property conditions [{key, value, operator, type: event|person|group}]; events: event-based goals [{filters: {events: [...]}}]; window: how long after entry a conversion counts, as a duration string such as '7d' or '12h', maximum '365d' (window_minutes is the deprecated integer form, in MINUTES not seconds); set one, not both. Required for exit_on_conversion / exit_on_trigger_not_matched_or_conversion. bytecode compiled server-side. */
     conversion?: HogFlowConversionApi | null
     /** exit_only_at_end: only at exit node (default). exit_on_conversion: also on conversion (needs 'conversion'; silent no-op otherwise). exit_on_trigger_not_matched: also when trigger filter stops matching. exit_on_trigger_not_matched_or_conversion: both (needs 'conversion').
      *
@@ -633,6 +640,22 @@ export interface HogFlowApi {
      * @nullable
      */
     readonly action_redirects: HogFlowApiActionRedirects
+    /**
+     * When PostHog paused this workflow's email automatically because its spam complaint or hard bounce rate crossed a threshold. Null when sending is not paused. Read-only: only the resume_email_sending endpoint clears a pause, so a normal update or publish can't lift it.
+     * @nullable
+     */
+    readonly email_sending_paused_at: string | null
+    /** Plain-language reason for the pause, naming the signal and the window. Empty when not paused. */
+    readonly email_sending_paused_reason: string
+    /** Who paused it: "auto" for the deliverability detector, "staff" for PostHog staff. A staff pause can only be resumed by staff, so the resume endpoint refuses it. Empty when not paused. */
+    readonly email_sending_paused_by: string
+    /** True when only PostHog staff can lift the current pause: staff placed it, or it landed shortly after a resume, so another self-serve resume is not offered. False when not paused or when the resume endpoint would accept the caller. */
+    readonly email_sending_pause_requires_support: boolean
+    /**
+     * When sending was last resumed. Every detector window starts after this, so resuming does not immediately re-trip on the feedback that caused the pause. Null if never paused.
+     * @nullable
+     */
+    readonly email_sending_resumed_at: string | null
 }
 
 /**
@@ -676,7 +699,7 @@ export interface HogFlowUpdateApi {
     readonly trigger: unknown
     /** Optional dedup/throttle on an already-matched trigger: {hash: <HogQL template>, ttl: <seconds, 60-94608000>, threshold?: <int>}. Without threshold: fire once per hash, then suppress repeats within ttl (hash '{person.id}' = once per person per ttl). With threshold N: fire once per N matches of the same hash — a sampler, the 1st then every Nth. Throttles an already-qualifying trigger; it doesn't decide who enters. Server compiles bytecode from hash; omit to disable. */
     trigger_masking?: HogFlowMaskingApi | null
-    /** Conversion goal. filters: ARRAY of property conditions [{key, value, operator, type: event|person|group}]; events: event-based goals [{filters: {events: [...]}}]; window_minutes: minutes after entry. Required for exit_on_conversion / exit_on_trigger_not_matched_or_conversion. bytecode compiled server-side. */
+    /** Conversion goal. filters: ARRAY of property conditions [{key, value, operator, type: event|person|group}]; events: event-based goals [{filters: {events: [...]}}]; window: how long after entry a conversion counts, as a duration string such as '7d' or '12h', maximum '365d' (window_minutes is the deprecated integer form, in MINUTES not seconds); set one, not both. Required for exit_on_conversion / exit_on_trigger_not_matched_or_conversion. bytecode compiled server-side. */
     conversion?: HogFlowConversionApi | null
     /** exit_only_at_end: only at exit node (default). exit_on_conversion: also on conversion (needs 'conversion'; silent no-op otherwise). exit_on_trigger_not_matched: also when trigger filter stops matching. exit_on_trigger_not_matched_or_conversion: both (needs 'conversion').
      *
@@ -715,6 +738,22 @@ export interface HogFlowUpdateApi {
      * @nullable
      */
     readonly action_redirects: HogFlowUpdateApiActionRedirects
+    /**
+     * When PostHog paused this workflow's email automatically because its spam complaint or hard bounce rate crossed a threshold. Null when sending is not paused. Read-only: only the resume_email_sending endpoint clears a pause, so a normal update or publish can't lift it.
+     * @nullable
+     */
+    readonly email_sending_paused_at: string | null
+    /** Plain-language reason for the pause, naming the signal and the window. Empty when not paused. */
+    readonly email_sending_paused_reason: string
+    /** Who paused it: "auto" for the deliverability detector, "staff" for PostHog staff. A staff pause can only be resumed by staff, so the resume endpoint refuses it. Empty when not paused. */
+    readonly email_sending_paused_by: string
+    /** True when only PostHog staff can lift the current pause: staff placed it, or it landed shortly after a resume, so another self-serve resume is not offered. False when not paused or when the resume endpoint would accept the caller. */
+    readonly email_sending_pause_requires_support: boolean
+    /**
+     * When sending was last resumed. Every detector window starts after this, so resuming does not immediately re-trip on the feedback that caused the pause. Null if never paused.
+     * @nullable
+     */
+    readonly email_sending_resumed_at: string | null
 }
 
 /**
@@ -758,7 +797,7 @@ export interface PatchedHogFlowUpdateApi {
     readonly trigger?: unknown
     /** Optional dedup/throttle on an already-matched trigger: {hash: <HogQL template>, ttl: <seconds, 60-94608000>, threshold?: <int>}. Without threshold: fire once per hash, then suppress repeats within ttl (hash '{person.id}' = once per person per ttl). With threshold N: fire once per N matches of the same hash — a sampler, the 1st then every Nth. Throttles an already-qualifying trigger; it doesn't decide who enters. Server compiles bytecode from hash; omit to disable. */
     trigger_masking?: HogFlowMaskingApi | null
-    /** Conversion goal. filters: ARRAY of property conditions [{key, value, operator, type: event|person|group}]; events: event-based goals [{filters: {events: [...]}}]; window_minutes: minutes after entry. Required for exit_on_conversion / exit_on_trigger_not_matched_or_conversion. bytecode compiled server-side. */
+    /** Conversion goal. filters: ARRAY of property conditions [{key, value, operator, type: event|person|group}]; events: event-based goals [{filters: {events: [...]}}]; window: how long after entry a conversion counts, as a duration string such as '7d' or '12h', maximum '365d' (window_minutes is the deprecated integer form, in MINUTES not seconds); set one, not both. Required for exit_on_conversion / exit_on_trigger_not_matched_or_conversion. bytecode compiled server-side. */
     conversion?: HogFlowConversionApi | null
     /** exit_only_at_end: only at exit node (default). exit_on_conversion: also on conversion (needs 'conversion'; silent no-op otherwise). exit_on_trigger_not_matched: also when trigger filter stops matching. exit_on_trigger_not_matched_or_conversion: both (needs 'conversion').
      *
@@ -797,6 +836,22 @@ export interface PatchedHogFlowUpdateApi {
      * @nullable
      */
     readonly action_redirects?: PatchedHogFlowUpdateApiActionRedirects
+    /**
+     * When PostHog paused this workflow's email automatically because its spam complaint or hard bounce rate crossed a threshold. Null when sending is not paused. Read-only: only the resume_email_sending endpoint clears a pause, so a normal update or publish can't lift it.
+     * @nullable
+     */
+    readonly email_sending_paused_at?: string | null
+    /** Plain-language reason for the pause, naming the signal and the window. Empty when not paused. */
+    readonly email_sending_paused_reason?: string
+    /** Who paused it: "auto" for the deliverability detector, "staff" for PostHog staff. A staff pause can only be resumed by staff, so the resume endpoint refuses it. Empty when not paused. */
+    readonly email_sending_paused_by?: string
+    /** True when only PostHog staff can lift the current pause: staff placed it, or it landed shortly after a resume, so another self-serve resume is not offered. False when not paused or when the resume endpoint would accept the caller. */
+    readonly email_sending_pause_requires_support?: boolean
+    /**
+     * When sending was last resumed. Every detector window starts after this, so resuming does not immediately re-trip on the feedback that caused the pause. Null if never paused.
+     * @nullable
+     */
+    readonly email_sending_resumed_at?: string | null
 }
 
 /**
@@ -1273,6 +1328,26 @@ export interface HogInvocationRerunResponseApi {
     skipped_count: number
 }
 
+/**
+ * Whether PostHog paused this one workflow's email sending, and why.
+ */
+export interface WorkflowEmailPauseStatusApi {
+    /** True while this workflow's email is paused because its spam complaint or hard bounce rate crossed a threshold. Other workflows in the project keep sending. */
+    readonly email_sending_paused: boolean
+    /**
+     * When the pause started; null when not paused.
+     * @nullable
+     */
+    readonly email_sending_paused_at: string | null
+    /** Plain-language reason for the pause, naming the signal and the window. Empty when not paused. */
+    readonly email_sending_paused_reason: string
+    /**
+     * When sending was last resumed. Detector windows start after this, so resuming does not immediately re-trip on older feedback. Null if never paused.
+     * @nullable
+     */
+    readonly email_sending_resumed_at: string | null
+}
+
 export interface HogFlowRevisionBasicApi {
     /** Workflow version this snapshot was published as. */
     readonly version: number
@@ -1516,20 +1591,15 @@ export interface WorkflowEmailSendingRatesApi {
     readonly hog_flow_id: string
     /** Display name of the workflow; empty for unnamed workflows. */
     readonly hog_flow_name: string
-}
-
-/**
- * One bucket of a provider's sending history.
- */
-export interface IspDailyPointApi {
-    /** Bucket date, as an ISO 8601 calendar date. */
-    readonly date: string
-    /** Emails sent to this provider on this date. */
-    readonly emails_sent: number
-    /** Emails this provider accepted on this date, divided by emails sent to it (0-1). */
-    readonly delivery_rate: number
-    /** Hard bounces at this provider on this date, divided by emails sent to it (0-1). */
-    readonly bounce_rate: number
+    /** True when PostHog paused this workflow's email automatically because its complaint or hard bounce rate crossed a threshold. Independent of the AWS tenant verdict and of the project-wide suspension. */
+    readonly email_sending_paused: boolean
+    /**
+     * When the pause started; null when not paused.
+     * @nullable
+     */
+    readonly email_sending_paused_at: string | null
+    /** Plain-language reason for the pause, naming the signal and the window. Empty when not paused. */
+    readonly email_sending_paused_reason: string
 }
 
 /**
@@ -1551,14 +1621,19 @@ export interface IspSendingHealthApi {
      */
     readonly bounce_rate: number | null
     /**
+     * Soft (transient) bounces at this provider, divided by emails sent to it (0-1). These are deferrals the provider may accept on a retry, such as a full mailbox, greylisting or rate limiting, so they are counted apart from permanent bounces. Null when the underlying metric could not be loaded from AWS.
+     * @nullable
+     */
+    readonly transient_bounce_rate: number | null
+    /**
      * Spam complaints from this provider, divided by the deliveries it reports complaints for (0-1). Null when there is no rate to state — the provider runs no feedback loop, or nothing was delivered — and also when the metric could not be loaded from AWS.
      * @nullable
      */
     readonly complaint_rate: number | null
-    /** Rates AWS did not return for this provider, from `delivery`, `bounce` and `complaint`. A rate named here is missing, not zero, and the UI says so rather than showing a number. */
+    /** Deliveries the provider reports complaints for, which is what `complaint_rate` divides by. Far smaller than `emails_sent`, so a caller deciding whether the rate rests on enough volume has to weigh it against this. Zero when there is no base. */
+    readonly complaint_base: number
+    /** Rates AWS did not return for this provider, from `delivery`, `bounce`, `transient_bounce` and `complaint`. A rate named here is missing, not zero, and the UI says so rather than showing a number. */
     readonly unavailable: readonly string[]
-    /** Sending history for this provider, oldest first, so a drop can be dated rather than averaged into the window. Dates this provider received nothing are omitted. */
-    readonly daily: readonly IspDailyPointApi[]
 }
 
 /**
@@ -1731,7 +1806,7 @@ export type HogFlowsListParams = {
      */
     trigger?: string
     /**
-     * Filter by workflow type. `messaging` returns workflows with an email, SMS, or push action; `automation` returns the rest.
+     * Filter by workflow type. `loop` returns workflows owned by a Desktop loop; `messaging` returns the remaining workflows with an email, SMS, or push action; `automation` returns the rest.
      */
     type?: HogFlowsListType
     updated_at?: string
@@ -1755,6 +1830,7 @@ export type HogFlowsListType = (typeof HogFlowsListType)[keyof typeof HogFlowsLi
 
 export const HogFlowsListType = {
     Automation: 'automation',
+    Loop: 'loop',
     Messaging: 'messaging',
 } as const
 

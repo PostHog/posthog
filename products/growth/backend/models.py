@@ -189,10 +189,9 @@ class EnrichmentPromptConfig(UUIDModel):
     def __str__(self) -> str:
         return f"{self.name} {self.version}"
 
-    # Bumped whenever the set of fields below changes. Stored results keep the prefix they were
-    # stamped with, so adding a sixth behavior-defining field stays a readable migration rather
-    # than silently making every historical prompt_hash unrecomputable.
-    CONTENT_HASH_VERSION = "v1"
+    # Bumped whenever the set of fields below changes, or when this module changes how it
+    # interprets one of them without changing the row itself.
+    CONTENT_HASH_VERSION = "v2"
 
     @property
     def content_hash(self) -> str:

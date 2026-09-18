@@ -78,6 +78,24 @@ _RAW_COLUMNS = {
     "idfv": "Apple vendor identifier of the device.",
 }
 
+# Protect360 adds its fraud classification on top of the shared raw schema.
+_BLOCKED_COLUMNS = {
+    **_RAW_COLUMNS,
+    "blocked_reason": "Category of fraud the install or event was blocked for.",
+    "blocked_sub_reason": "More specific fraud classification within the blocked reason.",
+    "blocked_reason_value": "Value that triggered the fraud rule, such as the site id or IP address.",
+    "rejected_reason": "Reason the record was rejected, when it was rejected rather than blocked.",
+    "rejected_reason_value": "Value that triggered the rejection.",
+}
+
+_POST_ATTRIBUTION_COLUMNS = {
+    **_RAW_COLUMNS,
+    "detection_date": "Date AppsFlyer identified the install as fraudulent, after it had been attributed.",
+    "fraud_reason": "Category of fraud AppsFlyer assigned to the install.",
+    "rejected_reason": "Reason the install was rejected from attribution.",
+    "rejected_reason_value": "Value that triggered the rejection.",
+}
+
 _AD_REVENUE_COLUMNS = {
     **_RAW_COLUMNS,
     "monetization_network": "Ad network that paid for the impressions.",
@@ -114,6 +132,46 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         "description": "One row per in-app event from an attributed user, carrying the event name, value and revenue alongside the install's attribution.",
         "docs_url": "https://dev.appsflyer.com/hc/reference/get_app-id-in-app-events-report-v5",
         "columns": _RAW_COLUMNS,
+    },
+    "installs_organic": {
+        "description": "One row per organic install — users who found the app themselves, the baseline paid campaigns are measured against.",
+        "docs_url": "https://dev.appsflyer.com/hc/reference/get_app-id-organic-installs-report-v5",
+        "columns": _RAW_COLUMNS,
+    },
+    "installs_retargeting": {
+        "description": "One row per retargeting conversion, where an existing user was brought back by a retargeting campaign rather than newly acquired.",
+        "docs_url": "https://dev.appsflyer.com/hc/reference/get_app-id-installs-retarget-v5",
+        "columns": _RAW_COLUMNS,
+    },
+    "in_app_events_organic": {
+        "description": "One row per in-app event from an organic user, carrying the event name, value and revenue.",
+        "docs_url": "https://dev.appsflyer.com/hc/reference/get_app-id-organic-in-app-events-report-v5",
+        "columns": _RAW_COLUMNS,
+    },
+    "in_app_events_retargeting": {
+        "description": "One row per in-app event from a user attributed to a retargeting campaign.",
+        "docs_url": "https://dev.appsflyer.com/hc/reference/get_app-id-in-app-events-retarget-v5",
+        "columns": _RAW_COLUMNS,
+    },
+    "uninstall_events": {
+        "description": "One row per uninstall AppsFlyer measured, with the attribution of the install it ends.",
+        "docs_url": "https://dev.appsflyer.com/hc/reference/get_app-id-uninstall-events-report-v5",
+        "columns": _RAW_COLUMNS,
+    },
+    "blocked_installs": {
+        "description": "Protect360 installs blocked as fraud in real time, so they were never attributed. Explains part of the gap between gross and attributed installs.",
+        "docs_url": "https://dev.appsflyer.com/hc/reference/get_app-id-blocked-installs-report-v5",
+        "columns": _BLOCKED_COLUMNS,
+    },
+    "blocked_in_app_events": {
+        "description": "Protect360 in-app events blocked as fraud, with the rule that blocked each one.",
+        "docs_url": "https://dev.appsflyer.com/hc/reference/get_app-id-blocked-in-app-events-report-v5",
+        "columns": _BLOCKED_COLUMNS,
+    },
+    "post_attribution_installs": {
+        "description": "Protect360 installs that were attributed first and found to be fraudulent later, with the date the fraud was detected.",
+        "docs_url": "https://dev.appsflyer.com/hc/reference/get_app-id-detection-v5",
+        "columns": _POST_ATTRIBUTION_COLUMNS,
     },
     "ad_revenue": {
         "description": "Ad monetization revenue per user for attributed installs, aggregated by monetization network, ad unit and placement.",

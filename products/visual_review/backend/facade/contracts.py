@@ -150,6 +150,7 @@ class AddSnapshotsInput:
 
     snapshots: list[SnapshotManifestItem]
     baseline_hashes: dict[str, str] = field(default_factory=dict)
+    story_index_hash: str = ""
 
 
 @dataclass(frozen=True)
@@ -158,6 +159,7 @@ class AddSnapshotsResult:
 
     added: int
     uploads: list[UploadTarget]
+    story_index_upload: UploadTarget | None = None
 
 
 @dataclass(frozen=True)
@@ -448,6 +450,7 @@ class UpdateRepoRequestInput:
 
     baseline_file_paths: dict[str, str] | None = None
     enable_pr_comments: bool | None = None
+    debt_digest_enabled: bool | None = None
 
 
 @dataclass(frozen=True)
@@ -457,6 +460,7 @@ class UpdateRepoInput:
     repo_id: UUID
     baseline_file_paths: dict[str, str] | None = None
     enable_pr_comments: bool | None = None
+    debt_digest_enabled: bool | None = None
 
 
 @dataclass(frozen=True)
@@ -496,6 +500,7 @@ class Repo:
     repo_full_name: str
     baseline_file_paths: dict[str, str]
     enable_pr_comments: bool
+    debt_digest_enabled: bool
     created_at: datetime
 
 
@@ -709,6 +714,9 @@ class FlakinessEntry:
     # between extending it and lifting it.
     needs_decision: bool
     quarantine: BaselineQuarantineSummary | None = None
+    # Team that owns the story file, `UNOWNED_TEAM` when no entry covers it, and None when
+    # ownership is unknown.
+    owner_team: str | None = None
 
 
 @dataclass(frozen=True)

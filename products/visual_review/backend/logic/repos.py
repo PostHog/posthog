@@ -34,5 +34,7 @@ def update_repo(input: UpdateRepoInput, team_id: int) -> Repo:
         repo.baseline_file_paths = input.baseline_file_paths
     if input.enable_pr_comments is not None:
         repo.enable_pr_comments = input.enable_pr_comments
+    if input.debt_digest_enabled is not None:
+        repo.debt_digest_enabled = input.debt_digest_enabled
     repo.save()
     return repo

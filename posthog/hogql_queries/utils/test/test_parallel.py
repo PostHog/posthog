@@ -67,6 +67,21 @@ def test_exception_from_a_work_item_is_reraised_to_the_caller() -> None:
         run_in_parallel_threads([noop, boom])
 
 
+@pytest.mark.parametrize("item_count,max_workers", [(0, 10), (5, 1), (12, 3)])
+def test_every_item_runs_on_no_more_threads_than_the_limit(item_count: int, max_workers: int) -> None:
+    lock = threading.Lock()
+    thread_ids: list[int] = []
+
+    def work() -> None:
+        with lock:
+            thread_ids.append(threading.get_ident())
+
+    run_in_parallel_threads([work] * item_count, max_workers=max_workers)
+
+    assert len(thread_ids) == item_count
+    assert len(set(thread_ids)) <= max_workers
+
+
 def test_worker_mutating_query_tags_in_place_cannot_reach_a_sibling_or_the_caller() -> None:
     reset_query_tags()
     tag_queries(team_id=1)

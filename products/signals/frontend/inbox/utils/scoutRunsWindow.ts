@@ -90,6 +90,15 @@ export function stripScoutPrefix(skillName: string): string {
         : skillName
 }
 
+/** The prefix on a report-pipeline stage's writer identity, such as `pipeline:report-research`. A
+ * stage writes scout memory but is not a scout. */
+export const PIPELINE_WRITER_PREFIX = 'pipeline:'
+
+/** Whether a writer identity belongs to a report-pipeline stage rather than to a scout. */
+export function isPipelineWriter(skillName: string): boolean {
+    return skillName.startsWith(PIPELINE_WRITER_PREFIX)
+}
+
 /** "signals-scout-error-tracking" → "Error tracking" */
 export function prettifyScoutSkillName(skillName: string): string {
     const cleaned = stripScoutPrefix(skillName).replace(/[-_]/g, ' ').trim()
@@ -98,6 +107,9 @@ export function prettifyScoutSkillName(skillName: string): string {
     }
     return cleaned.charAt(0).toUpperCase() + cleaned.slice(1)
 }
+
+/** Mirrors `SignalScoutConfig.MAX_DISPLAY_NAME_LENGTH`, so the field reports the cap the server enforces. */
+export const MAX_SCOUT_DISPLAY_NAME_LENGTH = 200
 
 export function scoutDisplayName(config: Pick<SignalScoutConfig, 'skill_name' | 'display_name'>): string {
     return config.display_name || prettifyScoutSkillName(config.skill_name)

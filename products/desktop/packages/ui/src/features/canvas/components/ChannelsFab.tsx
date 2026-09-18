@@ -31,15 +31,22 @@ import { track } from "@posthog/ui/shell/analytics";
 import { useState } from "react";
 
 /**
- * The create affordance for the Channels space, floated over the bottom-right
- * of whichever sidebar pane is showing.
+ * The create button. Given a channel it creates inside it (task, canvas); from
+ * the list it creates a channel, which has no other entry point.
  *
- * The same button on both panes, so "create" is always the same corner: given a
- * channel it creates inside it (task, canvas); from the list it creates a
- * channel, which has no other entry point.
+ * On the spaces layout it sits in the nav rail (`placement="rail"`), which
+ * every destination keeps on screen whether or not it draws a sidebar. Off the
+ * layout it floats over the bottom-right of the channel list.
  */
-export function ChannelsFab({ channelId }: { channelId?: string }) {
+export function ChannelsFab({
+  channelId,
+  placement = "floating",
+}: {
+  channelId?: string;
+  placement?: "floating" | "rail";
+}) {
   const channelsLayout = useChannelsLayout();
+  const inRail = placement === "rail";
   const [modalOpen, setModalOpen] = useState(false);
   const hasDraft = useDraftStore((state) =>
     Object.entries(state.drafts).some(
@@ -51,7 +58,7 @@ export function ChannelsFab({ channelId }: { channelId?: string }) {
   const newTask = () => {
     track(ANALYTICS_EVENTS.CHANNEL_ACTION, {
       action_type: "new_task_open",
-      surface: "sidebar",
+      surface: inRail ? "nav" : "sidebar",
       channel_id: channelId,
     });
     // In a channel the task is filed there; from the list it's whatever the
@@ -86,18 +93,22 @@ export function ChannelsFab({ channelId }: { channelId?: string }) {
   const trigger = (
     <Button
       variant="primary"
-      size="icon-lg"
+      size={inRail ? "icon" : "icon-lg"}
       aria-label={label}
-      className="absolute right-3 bottom-3 z-10 rounded-full"
+      className={
+        inRail
+          ? "shrink-0 rounded-full"
+          : "absolute right-3 bottom-3 z-10 rounded-full"
+      }
       onClick={newTaskOnly ? newTask : undefined}
     >
-      <PlusIcon size={20} weight="bold" />
+      <PlusIcon size={inRail ? 16 : 20} weight="bold" />
       {draftDot}
     </Button>
   );
 
   const tooltip = (
-    <TooltipContent side="top" align="center">
+    <TooltipContent side={inRail ? "right" : "top"} align="center">
       {channelsLayout ? (
         <>
           {/* The draft dot needs saying out loud, and the button is where
@@ -128,8 +139,8 @@ export function ChannelsFab({ channelId }: { channelId?: string }) {
           {tooltip}
         </Tooltip>
         <DropdownMenuContent
-          align={channelId ? "end" : "center"}
-          side="top"
+          align={inRail || channelId ? "end" : "center"}
+          side={inRail ? "right" : "top"}
           sideOffset={6}
         >
           {/* Off the layout this is the list's only menu, and "New channel"

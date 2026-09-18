@@ -27,26 +27,29 @@ export function DashboardSubscribeNudgeToast({
                 <IconBell className="size-4 shrink-0 text-primary" />
                 <span>You keep coming back to {dashboardName || 'this dashboard'}</span>
             </div>
-            <div className="text-xs text-secondary leading-snug">
-                You've viewed it {viewCount7d} times in the last week. Get it delivered to your inbox every Monday
-                instead.
+            <div className="flex flex-col items-start gap-1.5 ml-5.5">
+                <div className="text-xs text-secondary leading-snug">
+                    You've viewed it {viewCount7d} times in the last week. Get it delivered to your inbox every Monday
+                    instead.
+                </div>
+                <LemonButton
+                    type="primary"
+                    size="small"
+                    className="!mx-0"
+                    data-attr="dashboard-subscribe-nudge-toast-cta"
+                    onClick={() =>
+                        openSubscriptionFromNudge(
+                            { dashboardId },
+                            {
+                                toastId: dashboardSubscribeNudgeToastId(dashboardId),
+                                via: SUBSCRIPTION_PREFILL_PARAMS.viaToast,
+                            }
+                        )
+                    }
+                >
+                    Set up subscription
+                </LemonButton>
             </div>
-            <LemonButton
-                type="primary"
-                size="small"
-                data-attr="dashboard-subscribe-nudge-toast-cta"
-                onClick={() =>
-                    openSubscriptionFromNudge(
-                        { dashboardId },
-                        {
-                            toastId: dashboardSubscribeNudgeToastId(dashboardId),
-                            via: SUBSCRIPTION_PREFILL_PARAMS.viaToast,
-                        }
-                    )
-                }
-            >
-                Set up subscription
-            </LemonButton>
         </div>
     )
 }

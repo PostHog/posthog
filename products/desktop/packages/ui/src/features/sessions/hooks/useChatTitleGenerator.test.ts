@@ -56,7 +56,8 @@ vi.mock("@posthog/ui/features/auth/useCurrentUser", () => ({
 }));
 
 vi.mock("@posthog/core/sessions/sessionEvents", () => ({
-  extractUserPromptsFromEvents: () => mockPrompts.value,
+  extractUserPromptsFromEvents: (events: { prompt: string }[]) =>
+    events.map((event) => event.prompt),
 }));
 
 vi.mock("@posthog/di/react", () => ({
@@ -92,7 +93,7 @@ vi.mock("@posthog/ui/features/sessions/sessionStore", () => {
     get sessions() {
       return {
         "run-1": {
-          events: mockPrompts.value,
+          events: mockPrompts.value.map((prompt) => ({ prompt })),
           conversationSummary: mockSessionSummary.value,
         },
       };

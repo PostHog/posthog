@@ -1,3 +1,4 @@
+import json
 from contextlib import AbstractContextManager
 from datetime import UTC, datetime
 
@@ -23,6 +24,7 @@ from products.signals.backend.artefact_schemas import (
     TitleChange,
 )
 from products.signals.backend.models import (
+    MAX_SCOUT_REPORT_NOTES,
     ArtefactAttribution,
     SignalReport,
     SignalReportArtefact,
@@ -37,10 +39,14 @@ from products.signals.backend.scout_report import (
     InvalidScoutReportError,
     ScoutReportAlreadyEmittedError,
     ScoutReportSignal,
+    append_report_note,
     create_scout_report,
+    record_content_revision,
     set_report_charts,
     set_report_metrics,
     set_report_suggested_prompts,
+    set_scout_report_inferred_repository,
+    set_scout_report_repository,
     set_scout_report_reviewers,
     soft_delete_scout_signal,
     update_scout_report,
@@ -247,6 +253,52 @@ class TestScoutReportPersistence(BaseTest):
         assert kwargs["source"] == "scout_edit"
         assert kwargs["github_logins"] == ["octocat"]
 
+    def test_set_reviewers_preserves_legacy_commit_with_oversized_reasons(self) -> None:
+        result = create_scout_report(
+            team_id=self.team.id,
+            title="Checkout API latency regressed",
+            summary="The checkout endpoint slowed after a deploy.",
+            signals=[ScoutReportSignal(description="Latency increased", source_id="obs-1", weight=1.0)],
+            attribution=ArtefactAttribution.system(),
+        )
+        SignalReportArtefact.objects.create(
+            team_id=self.team.id,
+            report_id=result.report_id,
+            type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS,
+            content=json.dumps(
+                [
+                    {
+                        "github_login": "octocat",
+                        "reason": "r" * 501,
+                        "relevant_commits": [
+                            {"sha": "abc123f", "url": "https://example.com/c/abc123f", "reason": "c" * 501}
+                        ],
+                    }
+                ]
+            ),
+        )
+
+        set_scout_report_reviewers(
+            team_id=self.team.id,
+            report_id=result.report_id,
+            suggested_reviewers=SuggestedReviewers(root=[SuggestedReviewerEntry(github_login="octocat")]),
+            attribution=ArtefactAttribution.system(),
+        )
+
+        latest = (
+            SignalReportArtefact.objects.filter(
+                report_id=result.report_id, type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS
+            )
+            .order_by("-created_at")
+            .first()
+        )
+        assert latest is not None
+        reviewer = json.loads(latest.content)[0]
+        assert reviewer["reason"] is None
+        assert reviewer["relevant_commits"] == [
+            {"sha": "abc123f", "url": "https://example.com/c/abc123f", "reason": ""}
+        ]
+
     @parameterized.expand(
         [
             ("empty_title", "", "summary", [ScoutReportSignal(description="d", source_id="s")]),
@@ -308,6 +360,60 @@ class TestScoutReportPersistence(BaseTest):
             ).count()
             == 1
         )
+
+    def test_note_appends_collapse_into_a_count_past_the_cap(self) -> None:
+        # A scout re-runs on its own schedule, so nothing about a report going quiet stops it
+        # appending "still there" notes. Without the cap the work log grows without bound and the
+        # entries that carry real work are buried under near-identical ones.
+        result = create_scout_report(
+            team_id=self.team.id,
+            title="t",
+            summary="s",
+            signals=[ScoutReportSignal(description="d", source_id="s")],
+            attribution=ArtefactAttribution.system(),
+        )
+        before = SignalReport.objects.get(id=result.report_id).updated_at
+        appended = [
+            append_report_note(
+                team_id=self.team.id,
+                report_id=result.report_id,
+                note=f"still there {index}",
+                corroboration_only=True,
+                attribution=ArtefactAttribution.system(),
+            )
+            for index in range(MAX_SCOUT_REPORT_NOTES + 2)
+        ]
+
+        assert [a.collapsed for a in appended] == [False] * MAX_SCOUT_REPORT_NOTES + [True, True]
+        assert [a.corroboration_count for a in appended] == list(range(1, MAX_SCOUT_REPORT_NOTES + 3))
+        report = SignalReport.objects.get(id=result.report_id)
+        assert report.corroboration_count == MAX_SCOUT_REPORT_NOTES + 2
+        written = SignalReportArtefact.objects.filter(
+            report_id=result.report_id, type=SignalReportArtefact.ArtefactType.NOTE
+        ).count()
+        # The creation provenance note is in there too, so the cap is what bounds the scout's own.
+        assert written == MAX_SCOUT_REPORT_NOTES + 1
+        # A re-confirmation has not changed the report, so it must not reorder the inbox or read as
+        # the report still moving.
+        assert report.updated_at == before
+
+    def test_content_revisions_count_per_report(self) -> None:
+        # The counter is what caps superseding, so it must not be shared between reports.
+        reports = [
+            create_scout_report(
+                team_id=self.team.id,
+                title=f"t{index}",
+                summary="s",
+                signals=[ScoutReportSignal(description="d", source_id=f"s{index}")],
+                attribution=ArtefactAttribution.system(),
+            )
+            for index in range(2)
+        ]
+        assert record_content_revision(team_id=self.team.id, report_id=reports[0].report_id) == 1
+        assert record_content_revision(team_id=self.team.id, report_id=reports[0].report_id) == 2
+        assert record_content_revision(team_id=self.team.id, report_id=reports[1].report_id) == 1
+        assert SignalReport.objects.get(id=reports[0].report_id).content_revision_count == 2
+        assert SignalReport.objects.get(id=reports[1].report_id).content_revision_count == 1
 
     def test_update_fails_closed_on_cross_team_report(self) -> None:
         # edit_report can target any inbox report (decision #2) — so the team scope is the only thing
@@ -701,6 +807,79 @@ class TestReportMetricsUnchanged:
 
     def test_a_malformed_stored_row_counts_as_changed(self) -> None:
         assert _report_metrics_unchanged([{"metric_id": "affected-users"}], [self._canonical()]) is False
+
+
+class TestScoutReportRepository(BaseTest):
+    _team_scope_cm: AbstractContextManager[None] | None = None
+
+    def setUp(self) -> None:
+        super().setUp()
+        cm = team_scope(self.team.id)
+        cm.__enter__()
+        self._team_scope_cm = cm
+        patcher = patch(f"{PERSISTENCE_MODULE}.emit_embedding_request")
+        self.emit_mock = patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def tearDown(self) -> None:
+        if self._team_scope_cm is not None:
+            self._team_scope_cm.__exit__(None, None, None)
+            self._team_scope_cm = None
+        super().tearDown()
+
+    def _create(self) -> str:
+        result = create_scout_report(
+            team_id=self.team.id,
+            title="Signups dropped",
+            summary="Signups fell 60% on the 6th.",
+            signals=[ScoutReportSignal(description="d", source_id="obs")],
+            attribution=ArtefactAttribution.system(),
+        )
+        return result.report_id
+
+    def _set(self, report_id: str, repository: str | None) -> bool:
+        return set_scout_report_repository(
+            team_id=self.team.id,
+            report_id=report_id,
+            repository=repository,
+            attribution=ArtefactAttribution.system(),
+            author="signals-scout-errors",
+        )
+
+    @parameterized.expand([("a_repository", "acme/widgets"), ("a_cleared_target", None)])
+    def test_resending_the_stored_repository_is_not_a_change(self, _name: str, repository: str | None) -> None:
+        # `edit_report` is non-idempotent, so the same correction can arrive twice. Reporting a
+        # re-send as a change leaves a second "Set repository" note on the work log, tallies an edit
+        # that moved nothing, and re-runs autostart for a target that never changed.
+        report_id = self._create()
+
+        assert self._set(report_id, repository) is True
+        assert self._set(report_id, repository) is False
+        assert self._set(report_id, "acme/other") is True
+
+    def test_naming_an_already_inferred_repository_is_a_change(self) -> None:
+        # An inferred selection names the repository the report links, and is stamped ineligible for
+        # autostart because the report never asked for a pull request. A scout naming the same one is
+        # the decision that lifts it, so comparing the repository alone would drop the correction and
+        # leave the report unable to open a draft pull request.
+        report_id = self._create()
+        set_scout_report_inferred_repository(
+            team_id=self.team.id,
+            report_id=report_id,
+            repository="acme/widgets",
+            attribution=ArtefactAttribution.system(),
+        )
+
+        assert self._set(report_id, "acme/widgets") is True
+        selection = (
+            SignalReportArtefact.objects.filter(
+                report_id=report_id, type=SignalReportArtefact.ArtefactType.REPO_SELECTION
+            )
+            .order_by("-created_at")
+            .first()
+        )
+        assert selection is not None
+        assert '"autostart_eligible":true' in selection.content
 
 
 class TestScoutReportSuggestedPrompts(BaseTest):

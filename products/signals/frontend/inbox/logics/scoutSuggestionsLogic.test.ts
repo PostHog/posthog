@@ -96,6 +96,7 @@ const CONFIG: SignalScoutConfigApi = {
     skill_name: CANONICAL_ITEM.skill_name,
     description: 'Watches web vitals.',
     scout_origin: 'canonical',
+    scout_role: 'specialist',
     owners: [],
     enabled: false,
     status: 'active',
