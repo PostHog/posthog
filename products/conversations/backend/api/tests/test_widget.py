@@ -6,6 +6,7 @@ from unittest.mock import patch
 
 from django.core.cache import cache
 from django.test import SimpleTestCase
+from django.utils import timezone
 
 from parameterized import parameterized
 from rest_framework import status
@@ -438,6 +439,34 @@ class TestWidgetAPI(BaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["count"], 1)
         self.assertEqual(response.json()["results"][0]["status"], Status.NEW)
+
+    def test_list_tickets_pages_are_stable_when_created_at_ties(self):
+        # Tied created_at values leave the page boundary to Postgres, so a ticket can
+        # repeat on one page and vanish from the next. Twelve rows are enough for the
+        # sort to reorder them. Four rows are not, so do not shrink this fixture.
+        ticket_ids = [uuid.UUID(int=index + 1) for index in range(12)]
+        for ticket_id in ticket_ids:
+            Ticket.objects.create_with_number(
+                id=ticket_id,
+                team=self.team,
+                widget_session_id=self.widget_session_id,
+                distinct_id=self.distinct_id,
+                channel_source="widget",
+                status=Status.NEW,
+            )
+        Ticket.objects.filter(id__in=ticket_ids).update(created_at=timezone.now())
+
+        paged_ids: list[str] = []
+        for offset in range(0, len(ticket_ids), 2):
+            page = self.client.get(
+                f"/api/conversations/v1/widget/tickets?widget_session_id={self.widget_session_id}"
+                f"&limit=2&offset={offset}",
+                **self._get_headers(),
+            )
+            self.assertEqual(page.status_code, status.HTTP_200_OK)
+            paged_ids.extend(ticket["id"] for ticket in page.json()["results"])
+
+        self.assertEqual(paged_ids, [str(ticket_id) for ticket_id in sorted(ticket_ids, reverse=True)])
 
     def test_list_tickets_limit_respected_after_default_page_cached(self):
         # Regression: the offset==0 cache key ignores limit, so a default-page

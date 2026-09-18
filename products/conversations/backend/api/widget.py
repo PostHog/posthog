@@ -686,7 +686,7 @@ class WidgetTicketsView(APIView):
         # message_count, last_message_at, last_message_text are now denormalized on Ticket model
 
         # Order and paginate
-        tickets = tickets_query.order_by("-created_at")[offset : offset + limit]
+        tickets = tickets_query.order_by("-created_at", "-id")[offset : offset + limit]
         total_count = tickets_query.count()
 
         # Serialize tickets
