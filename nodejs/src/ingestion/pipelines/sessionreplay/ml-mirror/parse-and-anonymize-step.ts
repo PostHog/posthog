@@ -24,7 +24,7 @@ import {
 } from '~/ingestion/pipelines/sessionreplay/parse-message-step'
 import { TeamForReplay } from '~/ingestion/pipelines/sessionreplay/teams/types'
 
-import { MlKeyBatchController } from './keys/batch-controller'
+import { MlSessionKeys } from './keys/key-store'
 import { MlMirrorMetrics } from './metrics'
 import {
     PSEUDONYM_IMAGE_CONTENT_KEY,
@@ -111,10 +111,9 @@ export interface ImageCollectionConfig {
  * unencrypted ML bucket. Failure classification matches the TS parse step so DLQ/drop behavior and
  * ingestion warnings are unchanged.
  */
-export function createParseAndAnonymizeMessageStep<T extends ParseMessageStepInput & { team: TeamForReplay }>(
-    imageCollection?: ImageCollectionConfig,
-    keyManager?: MlKeyBatchController
-): ProcessingStep<T, T & ParseAndAnonymizeStepOutput> {
+export function createParseAndAnonymizeMessageStep<
+    T extends ParseMessageStepInput & { team: TeamForReplay; mlKeys?: MlSessionKeys },
+>(imageCollection?: ImageCollectionConfig): ProcessingStep<T, T & ParseAndAnonymizeStepOutput> {
     const globalUrlKey =
         imageCollection?.collectUrls === true
             ? pseudonymize(imageCollection.pseudonymSecret, PSEUDONYM_IMAGE_URL_KEY, PSEUDONYM_IMAGE_URL_GLOBAL_VALUE)
@@ -173,7 +172,7 @@ export function createParseAndAnonymizeMessageStep<T extends ParseMessageStepInp
         )
 
         const teamKeys = teamKeysFor(input.team.teamId, headers.session_id)
-        const sessionKeys = keyManager?.keys(input.team.teamId, headers.session_id)
+        const sessionKeys = input.mlKeys
         let referenceNamespace: string | undefined
         let imageTeamId: string | undefined
         const t0 = performance.now()

@@ -84,6 +84,8 @@ fn invalid_v1_filter_documents_keep_ingress_errors() {
         json!(1),
         json!("filters"),
         json!([]),
+        json!([2]),
+        json!([1]),
         json!({"groups": null}),
         json!({"groups": [{"properties": [{"key": "missing-type"}]}]}),
     ] {
@@ -95,4 +97,51 @@ fn invalid_v1_filter_documents_keep_ingress_errors() {
     assert!(serde_json::from_value::<FeatureFlag>(missing).is_err());
     let empty: FeatureFlag = serde_json::from_value(flag(json!({}))).unwrap();
     assert!(empty.filters.groups.is_empty());
+}
+
+#[test]
+fn v2_ingress_counts_parse_outcomes_without_configuration_labels() {
+    use metrics_util::debugging::{DebugValue, DebuggingRecorder};
+    let recorder = DebuggingRecorder::new();
+    let valid =
+        json!({"version": 2, "return_type": "boolean", "default_value": false, "rules": []});
+    let mut malformed = valid.clone();
+    malformed["default_value"] = json!("invalid");
+    let mut unsupported = valid.clone();
+    unsupported["return_type"] = json!("string");
+    let mut oversized = valid.clone();
+    oversized["extra"] = json!("x".repeat(*config_v2::MAX_CONFIG_BYTES));
+    metrics::with_local_recorder(&recorder, || {
+        for document in [
+            valid,
+            malformed,
+            unsupported,
+            oversized,
+            json!({}),
+            json!({"version": 3}),
+        ] {
+            decode_filters(document).unwrap();
+        }
+    });
+    let outcomes: std::collections::BTreeSet<_> = recorder
+        .snapshotter()
+        .snapshot()
+        .into_vec()
+        .into_iter()
+        .filter(|(key, _, _, _)| key.key().name() == FLAG_V2_PARSE_COUNTER)
+        .map(|(key, _, _, value)| {
+            assert_eq!(value, DebugValue::Counter(1));
+            let labels: Vec<_> = key.key().labels().collect();
+            assert_eq!(labels.len(), 1);
+            assert_eq!(labels[0].key(), "outcome");
+            labels[0].value().to_owned()
+        })
+        .collect();
+    assert_eq!(
+        outcomes,
+        ["success", "malformed", "unsupported", "limit_exceeded"]
+            .into_iter()
+            .map(str::to_owned)
+            .collect()
+    );
 }

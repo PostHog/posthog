@@ -39,12 +39,13 @@ from products.signals.backend.report_generation.repo_activity import (
     repository_activity_needs_rebuild,
 )
 
-from ..models import SignalReportArtefact
+from ..models import SignalReportArtefact, SignalScoutConfig
 
 logger = logging.getLogger(__name__)
 
 MAX_SUGGESTED_REVIEWERS = 3
 MAX_COMMIT_LOOKUPS = 15
+MAX_REVIEWER_REASON_LENGTH = 500
 
 RECENCY_FULL_WEIGHT_DAYS = 30
 RECENCY_DECAY_FLOOR = 0.3
@@ -120,6 +121,7 @@ def enrich_reviewer_dicts_with_org_members(
     *,
     login_to_user: Mapping[str, User] | None = None,
     uuid_to_user: Mapping[str, User] | None = None,
+    scout_display_names: Mapping[str, str] | None = None,
 ) -> list[dict]:
     """Enrich reviewer dicts (from artefact content) with fresh PostHog user info.
 
@@ -132,6 +134,18 @@ def enrich_reviewer_dicts_with_org_members(
     """
     if not reviewer_dicts:
         return reviewer_dicts
+
+    skill_names = {r.get("source_skill") for r in reviewer_dicts if isinstance(r.get("source_skill"), str)}
+    if scout_display_names is None:
+        scout_display_names = (
+            dict(
+                SignalScoutConfig.objects.for_team(team_id)
+                .filter(skill_name__in=skill_names)
+                .values_list("skill_name", "display_name")
+            )
+            if skill_names
+            else {}
+        )
 
     resolved_map: Mapping[str, User]
     if login_to_user is not None:
@@ -156,7 +170,7 @@ def enrich_reviewer_dicts_with_org_members(
             # strip + lower matches the resolver's key normalization, so a legacy padded login
             # (stored before the schema stripped on write) still resolves.
             user = resolved_map.get(login.strip().lower())
-        enriched.append(_with_reviewer_presentation(r, user))
+        enriched.append(_with_reviewer_presentation(r, user, scout_display_names))
 
     return enriched
 
@@ -166,38 +180,53 @@ def _prettify_scout_name(skill_name: str) -> str:
     return cleaned[:1].upper() + cleaned[1:] if cleaned else "Scout"
 
 
+def bounded_reviewer_reason(reason: object) -> str | None:
+    return reason if isinstance(reason, str) and len(reason) <= MAX_REVIEWER_REASON_LENGTH else None
+
+
 def _commit_explanation(commits: list[object]) -> str:
     if len(commits) == 1 and isinstance(commits[0], dict):
         reason = commits[0].get("reason")
-        if isinstance(reason, str) and 0 < len(reason.split()) <= 12:
+        if isinstance(reason, str) and 0 < len(reason.split(maxsplit=12)) <= 12:
             return reason.strip()
     if len(commits) == 1:
         return "Authored a relevant change to the affected code."
     return f"Authored {len(commits)} relevant changes to the affected code."
 
 
-def _with_reviewer_presentation(reviewer: dict, user: User | None) -> dict:
+def _with_reviewer_presentation(reviewer: dict, user: User | None, scout_display_names: Mapping[str, str]) -> dict:
     commits = reviewer.get("relevant_commits")
     commit_list: list[object] = commits if isinstance(commits, list) else []
+    safe_commits = [
+        {**commit, "reason": bounded_reviewer_reason(commit.get("reason")) or ""}
+        if isinstance(commit, dict)
+        else commit
+        for commit in commit_list
+    ]
     source_skill = reviewer.get("source_skill")
     reason = reviewer.get("reason")
+    safe_reason = bounded_reviewer_reason(reason)
     explanation: str | None
 
-    if commit_list:
+    if safe_commits:
         source_label = "Code history"
-        explanation = _commit_explanation(commit_list)
+        explanation = _commit_explanation(safe_commits)
     elif isinstance(source_skill, str) and source_skill:
-        source_label = f"{_prettify_scout_name(source_skill)} scout"
-        explanation = reason if isinstance(reason, str) else None
-    elif isinstance(reason, str) and reason.startswith("Added as a reviewer by "):
+        source_label = (
+            scout_display_names.get(source_skill, "").strip() or f"{_prettify_scout_name(source_skill)} scout"
+        )
+        explanation = safe_reason
+    elif isinstance(safe_reason, str) and safe_reason.startswith("Added as a reviewer by "):
         source_label = "Added by teammate"
         explanation = None
     else:
         source_label = "Agent suggestion"
-        explanation = reason if isinstance(reason, str) else None
+        explanation = safe_reason
 
     return {
         **reviewer,
+        "reason": safe_reason,
+        "relevant_commits": safe_commits,
         "source_label": source_label,
         "explanation": explanation,
         "user": {
@@ -227,6 +256,23 @@ def normalized_github_logins_from_suggested_reviewer_artefacts(
             continue
         out.update(normalized_github_logins_from_reviewer_payloads(parsed_list))
     return frozenset(out)
+
+
+def source_skills_from_suggested_reviewer_artefacts(artefacts: Iterable[SignalReportArtefact]) -> frozenset[str]:
+    skills: set[str] = set()
+    for art in artefacts:
+        if art.type != SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS:
+            continue
+        try:
+            parsed_list = json.loads(art.content)
+        except (json.JSONDecodeError, TypeError, ValueError):
+            continue
+        if not isinstance(parsed_list, list):
+            continue
+        for row in parsed_list:
+            if isinstance(row, dict) and isinstance(row.get("source_skill"), str):
+                skills.add(row["source_skill"])
+    return frozenset(skills)
 
 
 def normalized_github_logins_from_reviewer_payloads(rows: Iterable[object]) -> frozenset[str]:
@@ -432,7 +478,9 @@ def resolve_suggested_reviewers_with_diagnostics(
         login = author_info.login.lower()
         weight = total - i
         login_weights[login] += weight
-        login_commits.setdefault(login, []).append(RelevantCommit(sha=sha, url=author_info.commit_url, reason=reason))
+        login_commits.setdefault(login, []).append(
+            RelevantCommit(sha=sha, url=author_info.commit_url, reason=bounded_reviewer_reason(reason) or "")
+        )
         if login not in login_names:
             login_names[login] = author_info.name
 
@@ -541,10 +589,11 @@ def _rank_scored_candidates(
                 RelevantCommit(
                     sha=activity.last_commit_sha,
                     url=activity.last_commit_url,
-                    reason=(
+                    reason=bounded_reviewer_reason(
                         f"Recently active in {_area_label(activity.area)} "
                         f"({activity.commit_count} commit(s) in the last {ACTIVITY_WINDOW_DAYS} days)."
-                    ),
+                    )
+                    or "Recently active in the affected code.",
                 )
             ]
         name = login_names.get(login)

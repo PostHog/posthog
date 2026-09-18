@@ -42,9 +42,24 @@ const sharedReasonSuggestions: EnrichedReviewer[] = [
     ['devon', 'Devon Clark'],
 ].map(([id, name]) =>
     reviewer(id, name, `${id}@example.com`, {
+        source_skill: 'signals-scout-runtime-ownership',
         source_label: 'Runtime ownership scout',
         explanation: sharedReason,
         reason: sharedReason,
+    })
+)
+
+const longReason =
+    'These reviewers maintain the request parser and retry handling. Review the long configuration path before release because it affects several report views.'
+
+const longReasonSuggestions: EnrichedReviewer[] = [
+    ['casey', 'Casey Morgan'],
+    ['jamie', 'Jamie Kim'],
+].map(([id, name]) =>
+    reviewer(id, name, `${id}@example.com`, {
+        source_skill: 'signals-scout-agent-feedback',
+        source_label: 'Agent feedback scout',
+        explanation: longReason,
     })
 )
 
@@ -97,5 +112,67 @@ export const MixedSources: Story = {
 
 export const NarrowPanel: Story = {
     parameters: { mockupWidth: 'narrow' },
-    args: { suggestions: [...sharedReasonSuggestions, ...codeHistorySuggestions.slice(0, 1)] },
+    args: {
+        suggestions: [
+            reviewer('unlinked', 'Unlinked author', '', {
+                user: null,
+                user_uuid: null,
+                source_label: 'Code history',
+                explanation:
+                    'Changed example.com/services/request-processing/a-very-long-path-without-spaces/or-identifiers.',
+            }),
+            reviewer('solo', 'Solo Scout', 'solo@example.com', {
+                source_skill: 'signals-scout-infrastructure-reliability',
+                source_label: 'Infrastructure reliability and request processing ownership scout',
+                explanation: 'Maintains the request path.',
+            }),
+            ...sharedReasonSuggestions.slice(0, 2).map((suggestion) => ({
+                ...suggestion,
+                source_label: 'Infrastructure reliability and request processing ownership scout',
+            })),
+        ],
+    },
+}
+
+export const NarrowPanelMixedSources: Story = {
+    parameters: { mockupWidth: 'narrow' },
+    args: {
+        suggestions: sharedReasonSuggestions.slice(0, 3).map((suggestion, index) => ({
+            ...suggestion,
+            source_skill: [
+                'signals-scout-infrastructure-reliability',
+                'signals-scout-application-request-lifecycle',
+                'signals-scout-platform-runtime-observability',
+            ][index],
+            source_label: [
+                'Infrastructure reliability and request processing ownership scout',
+                'Application request lifecycle and transport ownership scout',
+                'Platform runtime observability and incident response scout',
+            ][index],
+        })),
+    },
+}
+
+export const NarrowPanelMixedProvenance: Story = {
+    parameters: { mockupWidth: 'narrow' },
+    args: {
+        suggestions: [
+            ...sharedReasonSuggestions.slice(0, 2),
+            reviewer('maya', 'Maya Rivera', 'maya@example.com', {
+                relevant_commits: [{ sha: 'abc123f', url: 'https://example.com/c/abc123f', reason: sharedReason }],
+                source_label: 'Code history',
+                explanation: sharedReason,
+                reason: sharedReason,
+            }),
+        ],
+    },
+}
+
+export const WidePanelLongReason: Story = {
+    args: { suggestions: longReasonSuggestions },
+}
+
+export const NarrowPanelLongReason: Story = {
+    parameters: { mockupWidth: 'narrow' },
+    args: { suggestions: longReasonSuggestions },
 }

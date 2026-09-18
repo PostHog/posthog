@@ -206,6 +206,34 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
         assert [r["github_login"] for r in stored] == ["bob", "carol"]
         assert all(r["relevant_commits"] == [] for r in stored)
 
+    def test_put_keeps_legacy_reviewer_with_oversized_reasons(self):
+        report = self._create_report()
+        artefact = self._create_artefact(
+            report,
+            content=[
+                {
+                    "github_login": "alice",
+                    "reason": "x" * 501,
+                    "relevant_commits": [
+                        {"sha": "abc123f", "url": "https://example.com/c/abc123f", "reason": "y" * 501}
+                    ],
+                }
+            ],
+        )
+
+        response = self.client.put(
+            self._detail_url(str(report.id), str(artefact.id)),
+            data=json.dumps({"content": [{"github_login": "alice"}]}),
+            content_type="application/json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        reviewer = self._latest_reviewers(report)[0]
+        assert reviewer["reason"] is None
+        assert reviewer["relevant_commits"] == [
+            {"sha": "abc123f", "url": "https://example.com/c/abc123f", "reason": ""}
+        ]
+
     def test_put_appends_new_status_row_keeping_history(self):
         report = self._create_report()
         original = self._create_artefact(
