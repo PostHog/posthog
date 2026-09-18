@@ -7,8 +7,10 @@ import { lemonToast } from '@posthog/lemon-ui'
 import { ApiError } from 'lib/api-error'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { uuid } from 'lib/utils/dom'
+import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { projectLogic } from 'scenes/projectLogic'
 import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
+import { urls } from 'scenes/urls'
 
 import { codeInvitesCheckAccessRetrieve, tasksCreate, tasksRunCreate } from 'products/tasks/frontend/generated/api'
 import {
@@ -28,17 +30,19 @@ import type { IntegrationType } from '../../../../../frontend/src/types'
 import { attachedContextItemKey, attachedContextLogic, runStreamLogic } from '../../api/logics'
 import type { SuggestionGroup, SuggestionItem } from '../../api/primitives'
 import { DEFAULT_HEADLINES, pickHeadline } from '../../api/primitives'
+import { composerOverrideLogic } from '../../logics/composerOverrideLogic'
+import type { ComposerOverride } from '../../logics/composerOverrideLogic'
 import { composerSeedLogic } from '../../logics/composerSeedLogic'
 import type { ComposerSeed } from '../../logics/composerSeedLogic'
 import { modelCatalogueLogic } from '../../logics/modelCatalogueLogic'
 import { runCancellationLogic } from '../../logics/runCancellationLogic'
-import type { RunContinuationHandoff } from '../../logics/runInteractionLogic'
+import { runInteractionLogic, type RunContinuationHandoff } from '../../logics/runInteractionLogic'
 import { runnerPanelLogic } from '../../logics/runnerPanelLogic'
 import type { ActiveCreation } from '../../logics/runnerPanelLogic'
 import { taskRunDefaultsLogic } from '../../logics/taskRunDefaultsLogic'
 import { tasksLogic } from '../../logics/tasksLogic'
 import { taskWarmLogic } from '../../logics/taskWarmLogic'
-import type { WarmLease } from '../../logics/taskWarmLogic'
+import type { WarmLease, WarmSubmission } from '../../logics/taskWarmLogic'
 import { toolStreamEventsLogic } from '../../logics/toolStreamEventsLogic'
 import { welcomeOverrideLogic } from '../../logics/welcomeOverrideLogic'
 import type { AttachedContextItem } from '../../types/contextTypes'
@@ -81,6 +85,17 @@ export interface TaskTrackerSceneLogicProps {
 }
 
 const LAST_REPOSITORY_CONFIG_STORAGE_KEY = 'posthog_ai.tasks.lastRepositoryConfig'
+
+/**
+ * The page a pending creation belongs to, before the created task has an id to compare against.
+ *
+ * `/ai` selects a task or a chat through the query string, so the pathname alone can't tell that the user
+ * opened a different one. `ask` is deliberately left out: the composer seed strips it from the URL as the
+ * seeded creation starts, and reading that as navigation would release the creation it just opened.
+ */
+function creationRouteKey(pathname: string, searchParams: Record<string, any>): string {
+    return `${pathname}|${searchParams.task ?? ''}|${searchParams.chat ?? ''}`
+}
 
 /**
  * The warm request for the current composer selection, or `null` when this selection can't be warmed.
@@ -147,6 +162,7 @@ const EMPTY_TASK_FORM: TaskCreateForm = {
 export interface taskTrackerSceneLogicValues {
     dataProcessingAccepted: boolean // aiConsentLogic
     contextItems: AttachedContextItem[] // attachedContextLogic
+    composerOverride: ComposerOverride | null // composerOverrideLogic
     seed: ComposerSeed | null // composerSeedLogic
     integrations: IntegrationType[] | null // integrationsLogic
     catalogue: ModelChoiceApi[] // modelCatalogueLogic
@@ -169,6 +185,7 @@ export interface taskTrackerSceneLogicValues {
     displayEffort: ReasoningEffortEnumApi
     displayHeadline: string
     displayModel: string
+    effectiveRepositoryConfig: RepositoryConfig
     hasDesktopAccess: boolean
     headlineSeed: number
     isDefaultSelection: boolean
@@ -214,8 +231,12 @@ export interface taskTrackerSceneLogicActions {
     toggleHistory: () => {
         value: true
     } // runnerPanelLogic
-    consumeWarm: () => {
-        value: true
+    consumeWarm: (
+        submission: WarmSubmission,
+        runId: string | null
+    ) => {
+        runId: string | null
+        submission: WarmSubmission
     } // taskWarmLogic
     noteDraft: (
         hasText: boolean,
@@ -223,6 +244,9 @@ export interface taskTrackerSceneLogicActions {
     ) => {
         hasText: boolean
         request: import('../../logics/taskWarmLogic').TaskWarmRequest
+    } // taskWarmLogic
+    prepareSubmit: (submission: WarmSubmission) => {
+        submission: WarmSubmission
     } // taskWarmLogic
     releaseWarm: () => {
         value: true
@@ -323,6 +347,10 @@ export interface taskTrackerSceneLogicMeta {
             defaultRuntimeAdapter: string | null,
             catalogue: ModelChoiceApi[]
         ) => string
+        effectiveRepositoryConfig: (
+            newTaskData: TaskCreateForm,
+            composerOverride: ComposerOverride | null
+        ) => RepositoryConfig
         isDefaultSelection: (newTaskData: TaskCreateForm) => boolean
     }
 }
@@ -358,6 +386,8 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
             ['currentProjectId'],
             composerSeedLogic(props),
             ['seed'],
+            composerOverrideLogic,
+            ['composerOverride'],
             welcomeOverrideLogic,
             ['overrideHeadlines'],
             modelCatalogueLogic,
@@ -384,7 +414,7 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
             composerSeedLogic(props),
             ['consumeSeed', 'setSeed'],
             taskWarmLogic({ panelId: props.panelId }),
-            ['noteDraft', 'consumeWarm', 'releaseWarm'],
+            ['noteDraft', 'prepareSubmit', 'consumeWarm', 'releaseWarm'],
         ],
     })),
 
@@ -516,6 +546,12 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                     ? getRuntimeAdapterForModel(catalogue, displayModel)
                     : defaultRuntimeAdapter,
         ],
+        // The shared form may still hold a remembered repo while the picker is hidden. Drop it here, not from the form.
+        effectiveRepositoryConfig: [
+            (s) => [s.newTaskData, s.composerOverride],
+            (newTaskData: TaskCreateForm, composerOverride: ComposerOverride | null): RepositoryConfig =>
+                composerOverride?.hideRepositorySelector ? {} : newTaskData.repositoryConfig,
+        ],
         // Neither picker touched: submit omits the triple so the backend resolves it, which also
         // lets a warm run provisioned under the default match.
         isDefaultSelection: [
@@ -552,7 +588,7 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
             // accepts AI data processing.
             if (!values.activeCreation && values.dataProcessingAccepted) {
                 const request = buildWarmRequest(
-                    values.newTaskData,
+                    { ...values.newTaskData, repositoryConfig: values.effectiveRepositoryConfig },
                     values.catalogue,
                     values.displayModel,
                     values.displayEffort
@@ -606,7 +642,8 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                 return
             }
 
-            const { description, repositoryConfig, permissionMode } = values.newTaskData
+            const { description, permissionMode } = values.newTaskData
+            const repositoryConfig = values.effectiveRepositoryConfig
 
             if (!description.trim()) {
                 lemonToast.error('Description is required')
@@ -619,6 +656,9 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
             }
             const disposables = cache.disposables
             cache.submittingTask = disposables
+            const projectId = String(values.currentProjectId)
+            const warmSubmission: WarmSubmission = { projectId, lease: null }
+            actions.prepareSubmit(warmSubmission)
 
             // Optimistically open the thread on send: a `runStreamLogic` keyed by a client `streamKey`, seeded
             // with the typed message + provisioning indicator, rendered by the pending `RunSurface` (the
@@ -629,19 +669,33 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
             const seededContext = values.contextItems
             actions.claimApplyBackTargets(streamKey)
             const stream = runStreamLogic({ streamKey })
+            const interaction = runInteractionLogic({
+                taskId: '',
+                runId: '',
+                streamKey,
+                interactionKey: streamKey,
+                currentModel: values.displayModel,
+                currentEffort: values.displayEffort,
+                currentMode: permissionMode,
+                currentRuntimeAdapter:
+                    values.isDefaultSelection && !values.defaultRuntimeAdapter ? null : values.composerAdapter,
+            })
             cache.disposables.add(
                 () => {
                     const cancellation = runCancellationLogic({ streamKey })
                     const unmount = cancellation.mount()
+                    const unmountInteraction = interaction.mount()
                     return () => {
                         cancellation.actions.clearCancellation()
+                        unmountInteraction()
                         unmount()
                     }
                 },
                 'active-creation',
                 { pauseOnPageHidden: false }
             )
-            actions.setActiveCreation({ streamKey })
+            cache.creationRoute = creationRouteKey(router.values.location.pathname, router.values.searchParams)
+            actions.setActiveCreation({ streamKey, interactionKey: streamKey })
             stream.actions.startOptimisticRun(description)
 
             try {
@@ -695,14 +749,18 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                     pending_user_message: pendingUserMessage,
                 }
 
-                const projectId = String(values.currentProjectId)
                 const newTask = await submitWithWarmRunRetry(
                     (options) => tasksCreate(projectId, taskData, options),
                     disposables
                 )
-                // Whatever happened, this submit owns the warm now: drop the lease without cancelling it,
-                // since the Run it points at is the one the create just activated.
-                actions.consumeWarm()
+                actions.consumeWarm(warmSubmission, newTask.latest_run?.id ?? null)
+
+                if (!disposables.isDisposed && values.activeCreation?.streamKey === streamKey) {
+                    interaction.props.flushDraft?.()
+                    interaction.actions.hydrateTaskDraft(newTask.id)
+                    interaction.actions.beginTaskDraftDelivery(description)
+                    interaction.actions.persistTaskDraft()
+                }
 
                 // `latest_run` set means the create matched an idling warm Run and activated it in place,
                 // with `pending_user_message` as turn 1. Creating a second Run here would strand that warm
@@ -711,13 +769,15 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                 // Otherwise auto-run the task; the detail scene shows the latest run by default. The run
                 // checks out the chosen branch (server falls back to the repo's default branch if unset)
                 // and launches with the picked model / reasoning effort (clamped to one the model supports).
-                let runId = newTask.latest_run?.id
+                let createdRun = newTask.latest_run
+                let runId = createdRun?.id
                 if (!runId) {
                     const runResponse = await submitWithWarmRunRetry(
                         (options) => tasksRunCreate(projectId, newTask.id, runRequest, options),
                         disposables
                     )
-                    runId = runResponse.latest_run?.id
+                    createdRun = runResponse.latest_run
+                    runId = createdRun?.id
                 }
 
                 if (disposables.isDisposed) {
@@ -736,14 +796,37 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
 
                 const creationIsActive = values.activeCreation?.streamKey === streamKey
                 if (creationIsActive) {
+                    interaction.props.flushDraft?.()
+                    interaction.actions.finishTaskDraftDelivery()
+                    runInteractionLogic({
+                        ...interaction.props,
+                        taskId: newTask.id,
+                        runId,
+                        currentModel: createdRun?.model ?? interaction.props.currentModel,
+                        currentEffort: createdRun?.reasoning_effort ?? interaction.props.currentEffort,
+                        currentMode:
+                            typeof createdRun?.state?.initial_permission_mode === 'string'
+                                ? createdRun.state.initial_permission_mode
+                                : interaction.props.currentMode,
+                        currentRuntimeAdapter: createdRun?.runtime_adapter ?? interaction.props.currentRuntimeAdapter,
+                    })
                     // Attach the real ids to the optimistic creation so the detail page adopts this seeded stream
                     // (same `streamKey` + real `runId`) instead of cold-bootstrapping a fresh, skeleton-flashing one.
                     // Kept set across navigation; cleared by the `urlToAction` below once the user leaves this run.
-                    actions.setActiveCreation({ streamKey, taskId: newTask.id, runId })
+                    actions.setActiveCreation({
+                        streamKey,
+                        taskId: newTask.id,
+                        runId,
+                        composerWasFocused: interaction.values.composerFocused,
+                    })
                     // An embedded instance (`panelId` set) keeps the run in place because the host renders
                     // `activeCreation` instead of navigating the main app to the `/tasks/:id` detail page.
                     if (!props.panelId) {
-                        router.actions.push(`/tasks/${newTask.id}`)
+                        router.actions.push(
+                            removeProjectIdIfPresent(router.values.location.pathname) === urls.ai()
+                                ? urls.aiTask(newTask.id)
+                                : urls.taskDetail(newTask.id)
+                        )
                     }
                 } else {
                     actions.releaseApplyBackTargets(streamKey)
@@ -764,9 +847,16 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                 }
                 actions.releaseApplyBackTargets(streamKey)
                 if (values.activeCreation?.streamKey === streamKey) {
-                    const draft = values.activeCreation.draft
-                    if (draft) {
-                        actions.setNewTaskData({ description: [values.newTaskData.description, draft].join('\n\n') })
+                    interaction.props.flushDraft?.()
+                    const unsent = [
+                        ...interaction.values.queuedMessages.map((message) => message.content),
+                        interaction.values.composerForm.draft,
+                        values.activeCreation.draft,
+                    ].filter(Boolean)
+                    if (unsent.length > 0) {
+                        actions.setNewTaskData({
+                            description: [values.newTaskData.description, ...unsent].join('\n\n'),
+                        })
                     }
                     actions.clearActiveCreation()
                 }
@@ -799,6 +889,7 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
             }
             actions.setActiveCreation({
                 streamKey: handoff?.streamKey ?? values.activeCreation.streamKey,
+                interactionKey: undefined,
                 taskId: values.activeCreation.taskId,
                 runId,
                 draft: handoff?.draft ?? values.activeCreation.draft,
@@ -840,10 +931,9 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
         },
     })),
 
-    events(({ actions, values }) => ({
+    events(({ actions }) => ({
         afterMount: () => {
             actions.loadDesktopAccess()
-            actions.loadTasks(values.taskListParams)
             actions.loadRepositories()
             // Roll a headline seed once per mount (pickHeadline forces index 0 under Storybook for
             // stable snapshots regardless of seed).
@@ -858,21 +948,32 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
         },
     })),
 
-    urlToAction(({ actions, values, props }) => {
+    urlToAction(({ actions, values, props, cache }) => {
         // The optimistic creation is kept alive across the success navigation so the detail page can adopt
         // its seeded stream. Release it once the user lands anywhere other than the created task — another
-        // task, the list, or back to `/tasks/new`. Before attachment, only `/tasks/new` owns the creation.
+        // task, the list, or back to `/tasks/new`. Before attachment, the starting page owns the creation,
+        // including `/ai` when its URL prompt submits before this logic finishes mounting.
         const clearIfLeftCreatedTask = (taskId?: string): void => {
             const activeCreation = values.activeCreation
-            if (activeCreation && (activeCreation.taskId ? activeCreation.taskId !== taskId : taskId !== 'new')) {
+            if (
+                activeCreation &&
+                (activeCreation.taskId
+                    ? activeCreation.taskId !== taskId
+                    : creationRouteKey(router.values.location.pathname, router.values.searchParams) !==
+                      cache.creationRoute)
+            ) {
                 actions.clearActiveCreation()
             }
         }
         return {
             // An embedded instance never navigates the main app on its own creation (see `submitNewTask`), so
             // main-app URL changes are unrelated to its run — never release the side panel's active creation.
-            '/tasks': () => (props.panelId ? undefined : clearIfLeftCreatedTask()),
             '/tasks/:taskId': ({ taskId }) => (props.panelId ? undefined : clearIfLeftCreatedTask(taskId)),
+            [urls.ai()]: (_, search) =>
+                props.panelId
+                    ? undefined
+                    : clearIfLeftCreatedTask(typeof search.task === 'string' ? search.task : undefined),
+            '*': () => (props.panelId ? undefined : clearIfLeftCreatedTask()),
         }
     }),
 ])

@@ -469,6 +469,22 @@ class TestCSVExporter(APIBaseTest):
             assert b"abc" in exported_asset.content
 
     @patch("products.exports.backend.tasks.csv_exporter.logger")
+    def test_404_on_the_first_page_raises(self, _mock_logger: MagicMock) -> None:
+        # A stored path that no longer resolves 404s before any row is fetched. Breaking
+        # there would publish an empty file as a successful export.
+        with patch("products.exports.backend.tasks.csv_exporter.make_api_call") as patched_make_api_call:
+            exported_asset = self._create_asset()
+
+            not_found_error = HTTPError("404 Client Error")  # type: ignore[call-arg]
+            not_found_error.response = Mock()
+            not_found_error.response.status_code = 404
+            not_found_error.response.text = "Not found."
+            patched_make_api_call.side_effect = not_found_error
+
+            with pytest.raises(HTTPError):
+                csv_exporter.export_tabular(exported_asset)
+
+    @patch("products.exports.backend.tasks.csv_exporter.logger")
     def test_non_404_http_error_still_raises(self, _mock_logger: MagicMock) -> None:
         with patch("products.exports.backend.tasks.csv_exporter.make_api_call") as patched_make_api_call:
             exported_asset = self._create_asset()
@@ -1740,6 +1756,8 @@ class TestCSVExporter(APIBaseTest):
         assert _format_breakdown_value(["a", "b", "c"]) == "a::b::c"
         assert _format_breakdown_value(["single"]) == "single"
 
+
+class TestExcelWriter:
     def test_excel_writer_raises_column_limit_exceeded(self) -> None:
         writer = ExcelWriter()
         # Create more columns than openpyxl supports (18,278 max)
@@ -1752,15 +1770,37 @@ class TestCSVExporter(APIBaseTest):
         assert "18,278 columns" in str(exc_info.value)
         assert "CSV format" in str(exc_info.value)
 
-    def test_excel_writer_normal_column_count_works(self) -> None:
+    @pytest.mark.parametrize(
+        "answer",
+        [
+            'Please keep the "weekly" filter.\n' + "Long responses should wrap without widening every column. " * 8,
+            "Long answer.\n" * 2000,
+            "x" * 32767,
+        ],
+    )
+    def test_excel_writer_formats_readable_rows(self, answer: str) -> None:
         writer = ExcelWriter()
-        columns = ["col_a", "col_b", "col_c"]
+        columns = ["Respondent ID", "Email", "Q1: What could we improve about the report builder?"]
         writer.write_header(columns)
-        writer.write_row({"col_a": "1", "col_b": "2", "col_c": "3"})
+        writer.write_row(dict(zip(columns, ["anonymous-1", None, answer])))
         path = writer.finish()
-
-        assert os.path.exists(path)
-        os.unlink(path)
+        try:
+            workbook = load_workbook(path)
+            sheet = workbook.active
+            assert list(sheet.values) == [tuple(columns), ("anonymous-1", None, answer)]
+            assert sheet.freeze_panes == "A2"
+            assert sheet.auto_filter.ref == "A1:C2"
+            assert sheet["C1"].font.bold
+            assert sheet["C1"].alignment.wrap_text
+            assert sheet["C2"].alignment.wrap_text
+            assert sheet["C2"].alignment.vertical == "top"
+            assert 24 <= sheet.column_dimensions["C"].width <= 60
+            assert sheet.row_dimensions[2].height > sheet.sheet_format.defaultRowHeight
+            assert sheet.row_dimensions[2].height <= 409
+            if len(answer) > 2000:
+                assert sheet.row_dimensions[2].height == 409
+        finally:
+            os.unlink(path)
 
 
 @override_settings(SITE_URL="http://testserver")

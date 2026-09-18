@@ -7,7 +7,7 @@ import { urls } from 'scenes/urls'
 import { MessageTemplate } from '../../../messages/MessageTemplate'
 import { DataToolRow } from '../DataToolRow'
 import { GenericMcpToolRenderer } from '../GenericMcpToolRenderer'
-import { parseToolOutputRecord } from '../parseToolOutput'
+import { getToolOutputRecord } from '../getToolOutputRecord'
 import type { ToolRendererProps } from '../toolRegistry'
 
 /** The notebook fields the widget renders, pulled from the REST payload. */
@@ -25,7 +25,7 @@ export interface NotebookExtraction {
  * the generic card.
  */
 export function extractNotebook(message: ToolRendererProps['message']): NotebookExtraction | null {
-    const output = parseToolOutputRecord(message)
+    const output = getToolOutputRecord(message)
     if (!output) {
         return null
     }

@@ -1389,6 +1389,7 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
             or item_context.get("slack_author_name")
             or item_context.get("teams_author_name")
             or item_context.get("teams_author_email")
+            or item_context.get("github_login")
             or item_context.get("email_from_name")
         )
 

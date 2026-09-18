@@ -1,8 +1,8 @@
 import '@testing-library/jest-dom'
 
-import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { Provider } from 'kea'
+import { Provider, getContext } from 'kea'
 import posthog from 'posthog-js'
 
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -25,6 +25,7 @@ import { PropertyFilterType, PropertyOperator } from '~/types'
 import { clearApiCache } from './infiniteListLogic'
 import { recentTaxonomicFiltersLogic } from './recentTaxonomicFiltersLogic'
 import { TaxonomicFilter } from './TaxonomicFilter'
+import { taxonomicFilterCategoryLayoutLogic } from './taxonomicFilterCategoryLayoutLogic'
 import { TaxonomicFilterGroupType } from './types'
 
 jest.mock('~/queries/query', () => ({
@@ -32,8 +33,15 @@ jest.mock('~/queries/query', () => ({
 }))
 
 jest.mock('lib/components/AutoSizer', () => ({
-    AutoSizer: ({ renderProp }: { renderProp: (size: { height: number; width: number }) => React.ReactNode }) =>
-        renderProp({ height: 400, width: 400 }),
+    AutoSizer: ({ renderProp }: { renderProp: (size: { height: number; width: number }) => React.ReactNode }) => {
+        const { useState, useRef, useLayoutEffect } = jest.requireActual<typeof import('react')>('react')
+        const [visible, setVisible] = useState(false)
+        const ref = useRef<HTMLDivElement>(null)
+        useLayoutEffect(() => {
+            setVisible(!!ref.current && !ref.current.closest('.hidden'))
+        })
+        return <div ref={ref}>{renderProp({ height: visible ? 400 : 0, width: visible ? 400 : 0 })}</div>
+    },
 }))
 
 describe('TaxonomicFilter', () => {
@@ -70,6 +78,8 @@ describe('TaxonomicFilter', () => {
         // one's fixture. Same reset infiniteListLogic.test.ts does.
         clearApiCache()
         initKeaTests()
+        taxonomicFilterCategoryLayoutLogic.mount()
+        taxonomicFilterCategoryLayoutLogic.actions.setCategoryRailPinned(true)
         actionsModel.mount()
         groupsModel.mount()
     })
@@ -104,6 +114,79 @@ describe('TaxonomicFilter', () => {
             expect(screen.getByTestId(inactiveTestId)).not.toHaveClass('LemonTag--primary')
         }
     }
+
+    it('keeps dashboard search to one visible list and a bounded number of store updates', async () => {
+        const propertySearches: string[] = []
+        useMocks({
+            get: {
+                '/api/projects/:team/property_definitions': (info) => {
+                    const search = new URL(info.request.url).searchParams.get('search')
+                    if (search) {
+                        propertySearches.push(search)
+                    }
+                    return mockGetPropertyDefinitions(info)
+                },
+            },
+        })
+        const { container } = renderFilter({
+            taxonomicGroupTypes: [
+                TaxonomicFilterGroupType.EventProperties,
+                TaxonomicFilterGroupType.PersonProperties,
+                TaxonomicFilterGroupType.EventFeatureFlags,
+                TaxonomicFilterGroupType.EventMetadata,
+                TaxonomicFilterGroupType.PageviewUrls,
+                TaxonomicFilterGroupType.Screens,
+                TaxonomicFilterGroupType.EmailAddresses,
+                TaxonomicFilterGroupType.Cohorts,
+                TaxonomicFilterGroupType.Elements,
+                TaxonomicFilterGroupType.SessionProperties,
+                TaxonomicFilterGroupType.HogQLExpression,
+                TaxonomicFilterGroupType.DataWarehousePersonProperties,
+            ],
+        })
+        await screen.findByTestId('taxonomic-category-dropdown-trigger-pill')
+        expect(container.querySelectorAll(':not(.hidden) > .taxonomic-infinite-list')).toHaveLength(1)
+        let dispatches = 0
+        const unsubscribe = getContext().store.subscribe(() => dispatches++)
+        const searchField = screen.getByTestId('taxonomic-filter-searchfield')
+        jest.useFakeTimers()
+        try {
+            for (const query of ['p', 'pr', 'pro', 'prop', 'prop1']) {
+                dispatches = 0
+                fireEvent.change(searchField, { target: { value: query } })
+                expect(searchField).toHaveValue(query)
+                expect(dispatches).toBeLessThan(5)
+                await act(async () => {
+                    await jest.advanceTimersByTimeAsync(100)
+                })
+            }
+            expect(propertySearches).toEqual([])
+            await act(async () => {
+                await jest.advanceTimersByTimeAsync(399)
+            })
+            expect(propertySearches).toEqual([])
+            await act(async () => {
+                await jest.advanceTimersByTimeAsync(1)
+            })
+            expect(propertySearches).toEqual(['prop1', 'prop1', 'prop1'])
+        } finally {
+            unsubscribe()
+            jest.useRealTimers()
+        }
+        await screen.findAllByText('prop1')
+        expect(container.querySelectorAll(':not(.hidden) > .taxonomic-infinite-list')).toHaveLength(1)
+
+        await userEvent.click(screen.getByTestId('taxonomic-category-dropdown-trigger-pill'))
+        await userEvent.click(screen.getByTestId('taxonomic-category-dropdown-item-person_properties'))
+        await screen.findByTestId('prop-filter-person_properties-0')
+        expect(container.querySelectorAll(':not(.hidden) > .taxonomic-infinite-list')).toHaveLength(1)
+        await userEvent.click(screen.getByTestId('prop-filter-person_properties-0'))
+        expect(onChangeMock).toHaveBeenCalledWith(
+            expect.objectContaining({ type: TaxonomicFilterGroupType.PersonProperties }),
+            'prop1',
+            expect.objectContaining({ name: 'prop1' })
+        )
+    })
 
     // Search interactions pay taxonomicFilterLogic's real 500ms breakpoint (plus stacked
     // 100ms ones), which is what pushed these tests over CI's per-test timeout. Fake timers
@@ -318,8 +401,6 @@ describe('TaxonomicFilter', () => {
     })
 
     describe('no results - switch to all', () => {
-        // Every group type renders its list (active one visible, the rest hidden via CSS), so the
-        // empty-state button can appear in several hidden tabs at once. Scope queries to the visible tab.
         const inVisibleTab = (elements: HTMLElement[]): HTMLElement | undefined =>
             elements.find((el) => !el.closest('.hidden'))
 
@@ -382,34 +463,6 @@ describe('TaxonomicFilter', () => {
                 expect(inVisibleTab(screen.getAllByText(/No results for/))).toBeTruthy()
             })
             expect(screen.queryByTestId('taxonomic-switch-to-all')).not.toBeInTheDocument()
-        })
-
-        it('offers a per-category jump when matches live on another tab and there is no all section', async () => {
-            // No SuggestedFilters group (control variant), so the aggregated "all" jump is unavailable —
-            // the empty state must instead point at the specific tab that matched.
-            renderFilter({
-                taxonomicGroupTypes: [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.PersonProperties],
-            })
-
-            await activateGroupWithResults('taxonomic-tab-events')
-            // `purchase_value` exists only as a property, so the active Events tab comes up empty
-            await withoutDebounceDelay((user) =>
-                user.type(screen.getByTestId('taxonomic-filter-searchfield'), 'purchase_value')
-            )
-
-            let switchButton: HTMLElement | undefined
-            await waitFor(() => {
-                switchButton = inVisibleTab(screen.getAllByTestId('taxonomic-switch-to-person_properties'))
-                expect(switchButton).toBeTruthy()
-            })
-            expect(switchButton).toHaveTextContent(/See results in Person properties/i)
-            expect(screen.queryByTestId('taxonomic-switch-to-all')).not.toBeInTheDocument()
-
-            await userEvent.click(switchButton!)
-
-            await waitFor(() => {
-                expectActiveTab('taxonomic-tab-person_properties')
-            })
         })
 
         it('does not offer a jump to a render-backed group with no real matches', async () => {
@@ -528,6 +581,8 @@ describe('TaxonomicFilter', () => {
                 taxonomicGroupTypes: [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions],
             })
 
+            await userEvent.click(await screen.findByTestId('taxonomic-tab-events'))
+
             await waitFor(() => {
                 expect(screen.getByTestId('prop-filter-events-0')).toBeInTheDocument()
             })
@@ -561,6 +616,8 @@ describe('TaxonomicFilter', () => {
                 taxonomicGroupTypes: [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions],
             })
 
+            await userEvent.click(await screen.findByTestId('taxonomic-tab-events'))
+
             await waitFor(() => {
                 expect(screen.getByTestId('prop-filter-events-0')).toBeInTheDocument()
             })
@@ -592,6 +649,8 @@ describe('TaxonomicFilter', () => {
             renderFilter({
                 taxonomicGroupTypes: [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions],
             })
+
+            await userEvent.click(await screen.findByTestId('taxonomic-tab-events'))
 
             await waitFor(() => {
                 expect(screen.getByTestId('prop-filter-events-0')).toBeInTheDocument()
@@ -713,14 +772,39 @@ describe('TaxonomicFilter', () => {
                 interact: async () => {
                     await userEvent.type(screen.getByTestId('taxonomic-filter-searchfield'), 'event')
                 },
-                expected: { hadSelection: false },
+                expected: { hadSelection: false, categoryRailDocked: true },
             },
             {
                 name: 'fires when the user selected an item before closing',
                 interact: async () => {
                     await userEvent.click(screen.getByTestId('prop-filter-events-0'))
                 },
-                expected: { hadSelection: true },
+                expected: { hadSelection: true, categoryRailDocked: true },
+            },
+            {
+                name: 'fires with an undocked category rail',
+                interact: async () => {
+                    taxonomicFilterCategoryLayoutLogic.actions.setCategoryRailPinned(false)
+                    await userEvent.type(screen.getByTestId('taxonomic-filter-searchfield'), 'event')
+                },
+                expected: { hadSelection: false, categoryRailDocked: false },
+            },
+            {
+                name: 'fires after the user docks the category rail',
+                interact: async () => {
+                    taxonomicFilterCategoryLayoutLogic.actions.setCategoryRailPinned(false)
+                    await userEvent.click(screen.getByTestId('taxonomic-category-dropdown-trigger-pill'))
+                    await userEvent.click(screen.getByText('Dock categories'))
+                },
+                expected: { hadSelection: false, categoryRailDocked: true },
+            },
+            {
+                name: 'fires after the user opens the category menu',
+                interact: async () => {
+                    taxonomicFilterCategoryLayoutLogic.actions.setCategoryRailPinned(false)
+                    await userEvent.click(screen.getByTestId('taxonomic-category-dropdown-trigger-pill'))
+                },
+                expected: { hadSelection: false, categoryRailDocked: false },
             },
         ])('$name', async ({ interact, expected }) => {
             const captureSpy = jest.spyOn(posthog, 'capture')
@@ -809,53 +893,6 @@ describe('TaxonomicFilter', () => {
             })
             expect(onChangeMock.mock.calls[0][1]).toBe('event1')
         })
-
-        it('tab key switches to the next category tab', async () => {
-            renderFilter({
-                taxonomicGroupTypes: [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions],
-            })
-
-            await waitFor(() => {
-                expect(screen.getByTestId('prop-filter-events-0')).toBeInTheDocument()
-            })
-
-            const searchInput = screen.getByTestId('taxonomic-filter-searchfield')
-            await userEvent.click(searchInput)
-
-            await userEvent.keyboard('{Tab}')
-
-            await waitFor(() => {
-                expectActiveTab('taxonomic-tab-actions', 'taxonomic-tab-events')
-                expect(screen.getByTestId('prop-filter-actions-0')).toBeInTheDocument()
-            })
-        })
-
-        it('shift+tab switches to the previous category tab', async () => {
-            renderFilter({
-                taxonomicGroupTypes: [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions],
-            })
-
-            await waitFor(() => {
-                expect(screen.getByTestId('prop-filter-events-0')).toBeInTheDocument()
-            })
-
-            const searchInput = screen.getByTestId('taxonomic-filter-searchfield')
-            await userEvent.click(searchInput)
-
-            // Tab to actions, then shift+tab back to events
-            await userEvent.keyboard('{Tab}')
-
-            await waitFor(() => {
-                expectActiveTab('taxonomic-tab-actions')
-            })
-
-            await userEvent.keyboard('{Shift>}{Tab}{/Shift}')
-
-            await waitFor(() => {
-                expectActiveTab('taxonomic-tab-events', 'taxonomic-tab-actions')
-                expect(screen.getByTestId('prop-filter-events-0')).toBeInTheDocument()
-            })
-        })
     })
 
     describe('multiple group types', () => {
@@ -863,6 +900,8 @@ describe('TaxonomicFilter', () => {
             renderFilter({
                 taxonomicGroupTypes: [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.PersonProperties],
             })
+
+            await userEvent.click(await screen.findByTestId('taxonomic-tab-events'))
 
             await waitFor(() => {
                 expect(screen.getByTestId('prop-filter-events-0')).toBeInTheDocument()
@@ -913,6 +952,8 @@ describe('TaxonomicFilter', () => {
             renderFilter({
                 taxonomicGroupTypes: [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions],
             })
+
+            await userEvent.click(await screen.findByTestId('taxonomic-tab-events'))
 
             await waitFor(() => {
                 expect(screen.getByTestId('prop-filter-events-0')).toBeInTheDocument()
@@ -1001,17 +1042,6 @@ describe('TaxonomicFilter', () => {
                     </Provider>
                 )
             }).not.toThrow()
-        })
-
-        it('renders with a pre-selected groupType', async () => {
-            renderFilter({
-                taxonomicGroupTypes: [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions],
-                groupType: TaxonomicFilterGroupType.Actions,
-            })
-
-            await waitFor(() => {
-                expect(screen.getByTestId('prop-filter-actions-0')).toBeInTheDocument()
-            })
         })
 
         it('renders correctly when search matches no items', async () => {
@@ -1374,32 +1404,8 @@ describe('TaxonomicFilter', () => {
         })
     })
 
-    it('reopens on the selected category when no Suggested-filters surface is present (control)', async () => {
-        // Guards the activeTab fallback: hosts without a Suggested filters ("All") surface
-        // (control variant, or any picker that doesn't inject it) must still reopen on the
-        // selected item's own category rather than an absent All tab.
-        renderFilter({
-            groupType: TaxonomicFilterGroupType.Events,
-            value: '$pageview',
-            taxonomicGroupTypes: [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions],
-        })
-
-        await waitFor(() => expect(screen.getByTestId('taxonomic-tab-events')).toBeInTheDocument())
-        expectActiveTab('taxonomic-tab-events', 'taxonomic-tab-actions')
-    })
-
-    // Spec for the insight series picker in the pill variant: searching a term that matches
-    // pageview URLs should make ONE "url contains <query>" shortcut the first row of the
-    // aggregated Suggested filters ("All") tab — ahead of raw URL/event rows. Fails today
-    // because the series (PageviewEvents) group isn't collapsed and the shortcut never leads.
-    describe('series picker: pageview url-contains shortcut leads (pill variant)', () => {
-        let unmountFeatureFlagLogic: (() => void) | null = null
-
+    describe('series picker: pageview url-contains shortcut leads', () => {
         beforeEach(() => {
-            unmountFeatureFlagLogic = featureFlagLogic.mount()
-            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.TAXONOMIC_FILTER_CATEGORY_DROPDOWN], {
-                [FEATURE_FLAGS.TAXONOMIC_FILTER_CATEGORY_DROPDOWN]: 'pill',
-            })
             useMocks({
                 get: {
                     '/api/projects/:team/event_definitions': mockGetEventDefinitions,
@@ -1410,12 +1416,6 @@ describe('TaxonomicFilter', () => {
                     ],
                 },
             })
-        })
-
-        afterEach(() => {
-            featureFlagLogic.actions.setFeatureFlags([], {})
-            unmountFeatureFlagLogic?.()
-            unmountFeatureFlagLogic = null
         })
 
         it('reopens on the Data warehouse tab (its own picker), not All, for a data-warehouse selection', async () => {
@@ -1448,8 +1448,6 @@ describe('TaxonomicFilter', () => {
                 ],
             })
 
-            // In the pill variant the active category shows in the dropdown trigger; reopening
-            // on an existing event selection should read "All", not "Events".
             const trigger = await screen.findByTestId('taxonomic-category-dropdown-trigger-pill')
             // Wait for the dropdown trigger to paint its active-category label before asserting.
             await waitFor(() => expect(trigger.textContent || '').toMatch(/All|Events|Suggestions/))
@@ -1478,135 +1476,78 @@ describe('TaxonomicFilter', () => {
         })
     })
 
-    describe('category dropdown A/B test', () => {
-        let unmountFeatureFlagLogic: (() => void) | null = null
-
+    describe('category navigation', () => {
         beforeEach(() => {
-            unmountFeatureFlagLogic = featureFlagLogic.mount()
+            taxonomicFilterCategoryLayoutLogic.actions.setCategoryRailPinned(false)
         })
 
-        afterEach(() => {
-            featureFlagLogic.actions.setFeatureFlags([], {})
-            unmountFeatureFlagLogic?.()
-            unmountFeatureFlagLogic = null
-        })
-
-        function setVariant(variant: string): void {
-            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.TAXONOMIC_FILTER_CATEGORY_DROPDOWN], {
-                [FEATURE_FLAGS.TAXONOMIC_FILTER_CATEGORY_DROPDOWN]: variant,
-            })
-        }
-
-        it('control variant: renders the categories column and no in-input affordance', async () => {
-            setVariant('control')
+        it('shows the All category in the dropdown', async () => {
             renderFilter({
-                taxonomicGroupTypes: [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions],
+                taxonomicGroupTypes: [
+                    TaxonomicFilterGroupType.SuggestedFilters,
+                    TaxonomicFilterGroupType.Events,
+                    TaxonomicFilterGroupType.Actions,
+                ],
             })
 
-            await waitFor(() => {
-                expect(screen.getByText('Categories')).toBeInTheDocument()
-            })
+            await userEvent.click(await screen.findByTestId('taxonomic-category-dropdown-trigger-pill'))
 
-            expect(screen.queryByTestId(/taxonomic-category-dropdown-trigger-/)).not.toBeInTheDocument()
+            expect(await screen.findByTestId('taxonomic-category-dropdown-item-suggested_filters')).toHaveTextContent(
+                'All'
+            )
         })
 
-        it('pill variant with hideSearchInput: does not render the categories column or an in-filter dropdown; the host is expected to render CategoryDropdown inside its own input', async () => {
-            setVariant('pill')
+        it('keeps category controls out of an embedded filter without a search input', async () => {
             renderFilter({
                 taxonomicGroupTypes: [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions],
                 hideSearchInput: true,
             })
 
-            await waitFor(() => {
-                expect(screen.getByTestId('prop-filter-events-0')).toBeInTheDocument()
-            })
-
+            await screen.findAllByText('All')
             expect(screen.queryByText('Categories')).not.toBeInTheDocument()
-            expect(screen.queryByTestId(/taxonomic-category-dropdown-trigger-/)).not.toBeInTheDocument()
+            expect(screen.queryByTestId('taxonomic-category-dropdown-trigger-pill')).not.toBeInTheDocument()
         })
 
-        it('control variant: default suggested-filters label is "Suggestions"', async () => {
-            setVariant('control')
-            renderFilter({
-                // Two substantive groups so "All" survives (a single substantive group drops it)
-                taxonomicGroupTypes: [
-                    TaxonomicFilterGroupType.SuggestedFilters,
-                    TaxonomicFilterGroupType.Events,
-                    TaxonomicFilterGroupType.Actions,
-                ],
-            })
-
-            await waitFor(() => {
-                expect(screen.getByTestId('taxonomic-tab-suggested_filters')).toHaveTextContent('Suggestions')
-            })
-        })
-
-        it('pill variant: default suggested-filters label is "All" (seen in the dropdown items)', async () => {
-            setVariant('pill')
-            renderFilter({
-                // Two substantive groups so "All" survives (a single substantive group drops it)
-                taxonomicGroupTypes: [
-                    TaxonomicFilterGroupType.SuggestedFilters,
-                    TaxonomicFilterGroupType.Events,
-                    TaxonomicFilterGroupType.Actions,
-                ],
-            })
-
-            await waitFor(() => {
-                expect(screen.getByTestId('taxonomic-category-dropdown-trigger-pill')).toBeInTheDocument()
-            })
-
-            await userEvent.click(screen.getByTestId('taxonomic-category-dropdown-trigger-pill'))
-
-            const item = await screen.findByTestId('taxonomic-category-dropdown-item-suggested_filters')
-            expect(item).toHaveTextContent('All')
-        })
-
-        it('pill variant: hides the categories column and renders the in-input affordance', async () => {
-            setVariant('pill')
+        it('pins categories in a rail and restores the pill when unpinned', async () => {
             renderFilter({
                 taxonomicGroupTypes: [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions],
             })
 
-            await waitFor(() => {
-                expect(screen.getByTestId('taxonomic-category-dropdown-trigger-pill')).toBeInTheDocument()
-            })
+            await userEvent.click(await screen.findByTestId('taxonomic-category-dropdown-trigger-pill'))
+            await userEvent.click(await screen.findByTestId('taxonomic-category-rail-toggle'))
 
-            expect(screen.queryByText('Categories')).not.toBeInTheDocument()
+            expect(await screen.findByText('Categories')).toBeInTheDocument()
+            await waitFor(() => {
+                expect(screen.queryByTestId('taxonomic-category-rail-toggle')).not.toBeInTheDocument()
+            })
+            expect(screen.getByTestId('taxonomic-category-dropdown-trigger-pill')).toHaveClass('hidden')
+
+            await userEvent.click(screen.getByTestId('taxonomic-category-rail-unpin'))
+
+            await waitFor(() => {
+                expect(screen.getByTestId('taxonomic-category-dropdown-trigger-pill')).not.toHaveClass('hidden')
+            })
         })
 
-        it('pill variant: opening the dropdown and picking a category switches the visible results', async () => {
-            setVariant('pill')
+        it('switches the visible results when a category is selected', async () => {
             renderFilter({
                 taxonomicGroupTypes: [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions],
             })
 
-            await waitFor(() => {
-                expect(screen.getByTestId('prop-filter-events-0')).toBeInTheDocument()
-            })
-
-            await userEvent.click(screen.getByTestId('taxonomic-category-dropdown-trigger-pill'))
-
+            await userEvent.click(await screen.findByTestId('taxonomic-category-dropdown-trigger-pill'))
             await userEvent.click(await screen.findByTestId('taxonomic-category-dropdown-item-actions'))
 
             await waitFor(() => {
-                expect(screen.getByTestId('prop-filter-actions-0')).toBeInTheDocument()
+                expect(screen.getByTestId('prop-filter-actions-0').closest('.hidden')).toBeNull()
             })
         })
 
-        it('pill variant: pressing Tab in the search input does not switch category', async () => {
-            setVariant('pill')
+        it('does not switch categories when Tab moves focus from the search input', async () => {
             renderFilter({
                 taxonomicGroupTypes: [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions],
             })
 
-            await waitFor(() => {
-                expect(screen.getByTestId('prop-filter-events-0')).toBeInTheDocument()
-            })
-
-            // Pill auto-injects the "All" (SuggestedFilters) tab as the default for a
-            // multi-group picker, so that's the category showing before and after Tab.
-            const trigger = screen.getByTestId('taxonomic-category-dropdown-trigger-pill')
+            const trigger = await screen.findByTestId('taxonomic-category-dropdown-trigger-pill')
             expect(trigger).toHaveAttribute('aria-label', expect.stringContaining('All'))
 
             const input = screen.getByTestId('taxonomic-filter-searchfield') as HTMLInputElement

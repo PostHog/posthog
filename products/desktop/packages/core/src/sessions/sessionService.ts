@@ -69,6 +69,7 @@ import {
 } from "@posthog/shared/domain-types";
 import type { SendCommandOutput } from "../cloud-task/schemas";
 import type { CommentTarget } from "../comments/anchors";
+import { isGithubConnectionRequiredError } from "../integrations/connectErrors";
 import type {
   AgentSessionNotification,
   AgentSessionNotificationTrigger,
@@ -2256,10 +2257,12 @@ export class SessionService {
       session.editingQueuedId = previous.editingQueuedId;
       session.isPromptPending = previous.isPromptPending;
       session.promptStartedAt = previous.promptStartedAt;
+      session.currentPromptId = previous.currentPromptId;
       session.pausedDurationMs = previous.pausedDurationMs;
     }
 
     this.d.store.setSession(session);
+    this.updatePromptStateFromEvents(taskRunId, session.events);
     this.subscribeToChannel(taskRunId);
 
     try {
@@ -5154,6 +5157,32 @@ export class SessionService {
       }
       throw error;
     }
+  }
+
+  async retryGithubRequiredCloudRun(
+    taskId: string,
+    prompt: string,
+  ): Promise<void> {
+    const session = this.d.store.getSessionByTaskId(taskId);
+    if (!session?.isCloud || session.cloudStatus !== "failed") {
+      throw new Error("This task is not waiting for a GitHub connection");
+    }
+    // Reopening a failed task settles its status but not its reason, so the
+    // cached message is empty on the journey this recovery exists for: the
+    // user leaves while an owner approves access, then comes back.
+    let errorMessage = session.cloudErrorMessage;
+    if (!errorMessage) {
+      await this.refreshCloudRunStatus(session);
+      errorMessage =
+        this.d.store.getSessions()[session.taskRunId]?.cloudErrorMessage;
+    }
+    if (!isGithubConnectionRequiredError(errorMessage)) {
+      throw new Error("This task is not waiting for a GitHub connection");
+    }
+    await this.resumeCloudRun(
+      this.d.store.getSessionByTaskId(taskId) ?? session,
+      prompt,
+    );
   }
 
   /**
@@ -8724,7 +8753,9 @@ export class SessionService {
           taskRunId,
           expectedCount,
           currentCount,
-          newEntries: update.newEntries,
+          entryBatches: [
+            { endCount: expectedCount, entries: update.newEntries },
+          ],
           logUrl: session?.logUrl,
         });
       }

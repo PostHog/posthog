@@ -49,7 +49,19 @@ live-qualified** (e2e on its own PR #72074, 2026-07-18 — verdicts, findings, a
 `eval/experiments/2026-07-resolution-e2e/FINAL_REPORT.md`): `ResolvePRWorkflow` (`backend/temporal/resolution.py`) drives one warm writable sandbox
 session per PR (one thread per turn, humans → ReviewHog → other bots), persists per-thread `thread_verdict`
 artefacts on the living report, replies/resolves server-side from verdicts (bot threads only; humans keep the
-final word). A FIXED verdict's echoed commit SHA is verified server-side before delivery (`commit_on_branch`);
+final word). A reply has a fixed shape (`<reply_shape>` in `prompts/thread_resolution/prompt.jinja`): one verdict
+sentence, a `---` divider, then at most 3 short lines (5 for an escalation), in Simplified Technical English via
+the `writing-simplified-technical-english` skill the sandbox image carries. Test and lint output never enters the
+reply text: the driver posts the verdict's `verification` under it as a collapsed "How this was verified" block
+(`_verification_section`) after the commit link, and inserts the blank line GitHub needs before a `---` the model
+wrote directly under its verdict (`_normalize_reply_divider`). A reply past the shape (more than 5 support lines or
+150 visible words) is folded, not cut: the verdict and the first lines stay visible and the rest lands under a
+collapsed "More detail" block, with a warning logged (`_fold_overlong_reply`). The whole posted body is scrubbed of
+credential shapes last (`tools/redaction.py::redact_secrets`: PostHog secret key prefixes, GitHub token shapes, and
+`x-access-token` clone URLs), because the sandbox holds live tokens and the agent may paste command output into
+`verification`; the review stage runs the same scrub over the review body and every inline finding comment in
+`publish_review.py::_post_github_review`. A FIXED verdict's echoed commit SHA is verified
+server-side before delivery (`commit_on_branch`);
 an unproven SHA posts the reply without the commit link and never auto-resolves. A real commit is then checked
 against the hard-floor **path backstop** (`commit_restricted_paths`): one touching `.github/`, CODEOWNERS, or
 dependency manifests delivers a human-review warning instead of the link and never auto-resolves either.
@@ -112,13 +124,6 @@ decline-and-say-why on a disagreement, re-escalate with the new context otherwis
 work-list only fetches **unresolved** threads, so replies on already-resolved (FIXED) threads are invisible —
 the trigger should either unresolve-on-human-reply or the fetch must include threads with comments newer than
 their verdict watermark (see the resolution e2e's F-findings).
-
-**TODO — make resolution replies concise.** The e2e's escalation replies are three-paragraph walls no human
-will read (see the `/resolve` acting-user thread on #72074). The prompt asks for "a self-contained answer the
-author can act on without opening the code" and the model over-delivers; the deep detail already has a home in
-`reasoning` (the work log). Add a hard reply shape to `thread_resolution.py`'s prompt: verdict first in one
-sentence, then at most 2–3 short supporting lines (for an escalation: exactly what a human must decide);
-everything else stays in `reasoning`.
 
 **TODO (later thoughts, cost) — let the resolver lean on the validator's work.** For ReviewHog's own threads the
 report already holds a researched `validation_verdict` per finding (argumentation, category, adjusted priority) —
@@ -617,10 +622,14 @@ See [DECISIONS.md](./DECISIONS.md) for the "reuse the leaf, own the model" bound
   publishes the latest completed turn at its reviewed `head_sha` (DB-driven; no Temporal, no sandbox).
 - **Reset local state:** `DEBUG=1 python manage.py reset_review_hog [--dry-run] [--yes]` wipes all ReviewHog rows
   across every team (DEBUG-only; GitHub comments untouched).
-- **Enable inbox reviews for a whole team:** `python manage.py enable_inbox_reviews --team-id <id> [--dry-run]`
-  upserts every active org member's `ReviewUserSettings` with `review_inbox_prs` + `stamphog_review_inbox_prs` on.
-  A deliberate operator action because the per-user default stays off (the budget gate); members who join later
-  keep the default until a re-run.
+- **Turn a per-user toggle on or off in bulk:** `python manage.py {enable,disable}_inbox_reviews --team-id <id>
+[--user-ids <id> ...] [--dry-run]` sets `review_inbox_prs` on every active org member's `ReviewUserSettings`
+  (or only the listed users, each of whom must be an org member). `{enable,disable}_stamphog_inbox_reviews` is
+  the same pair for `stamphog_review_inbox_prs`, and `{enable,disable}_comment_resolution` for `resolve_comments`;
+  each command touches only its own toggle. A run creates rows only when the requested value differs from the
+  field's default (a missing row already reads as the default) and otherwise flips existing rows. A deliberate
+  operator action because the per-user defaults are the budget and posture gates; members who join later keep
+  the default until a re-run. Shared logic: `backend/settings_toggles.py`.
 - **Lint:** `ruff check products/review_hog/ --fix && ruff format products/review_hog/`
 - **Tests:** the product's `backend:test` script covers **both** `backend/tests` and `backend/reviewer/tests`
   (sandbox calls mocked, fixtures under `reviewer/tests/fixtures/`; persistence/model tests hit the test DB). Verify

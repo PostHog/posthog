@@ -9,8 +9,7 @@ from requests import Response, Session
 from structlog.types import FilteringBoundLogger
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.close.search import (
-    CloseSearchError,
-    fetch_custom_field_selectors,
+    ALL_CUSTOM_FIELDS_SELECTOR,
     iter_search_rows,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.close.settings import (
@@ -222,38 +221,19 @@ def close_search_source(
 
     def items() -> Iterator[list[dict[str, Any]]]:
         session = _make_search_session(api_key)
-        custom_fields = fetch_custom_field_selectors(session, CLOSE_BASE_URL, object_type, logger)
-        fields = [*config.search_fields, *custom_fields]
-
-        try:
-            yield from iter_search_rows(
-                session=session,
-                base_url=CLOSE_BASE_URL,
-                object_type=object_type,
-                fields=fields,
-                cursor_field=cursor_field,
-                start_anchor=start_anchor,
-                logger=logger,
-                on_checkpoint=save_checkpoint,
-            )
-        except CloseSearchError as exc:
-            if "list is too long" not in str(exc).lower() or not custom_fields:
-                raise
-            # Some orgs have enough custom fields that the combined _fields list exceeds Close's
-            # undocumented limit. Fall back to standard fields so the sync can complete.
-            logger.warning(
-                f"Close: _fields list too long ({len(fields)} fields), retrying with standard fields. object_type={object_type}"
-            )
-            yield from iter_search_rows(
-                session=session,
-                base_url=CLOSE_BASE_URL,
-                object_type=object_type,
-                fields=config.search_fields,
-                cursor_field=cursor_field,
-                start_anchor=start_anchor,
-                logger=logger,
-                on_checkpoint=save_checkpoint,
-            )
+        # One `custom` selector pulls every custom field, so the field list stays bounded no
+        # matter how many an org has. See ALL_CUSTOM_FIELDS_SELECTOR.
+        fields = [*config.search_fields, ALL_CUSTOM_FIELDS_SELECTOR]
+        yield from iter_search_rows(
+            session=session,
+            base_url=CLOSE_BASE_URL,
+            object_type=object_type,
+            fields=fields,
+            cursor_field=cursor_field,
+            start_anchor=start_anchor,
+            logger=logger,
+            on_checkpoint=save_checkpoint,
+        )
 
     return SourceResponse(
         name=endpoint,

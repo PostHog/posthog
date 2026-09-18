@@ -17,6 +17,7 @@ from jwt import PyJWTError
 
 from posthog.ph_client import ph_scoped_capture
 
+from products.tasks.backend.facade.api import signal_workflow_completion
 from products.tasks.backend.logic.services.connection_token import (
     SandboxEventIngestTokenPayload,
     validate_sandbox_event_ingest_token,
@@ -33,7 +34,7 @@ from products.tasks.backend.metrics import observe_stream_write_skipped
 from products.tasks.backend.models import TaskRun
 from products.tasks.backend.push_dispatcher import notify_task_run_turn_completed
 
-from ee.hogai.sandbox import is_turn_complete
+from ee.hogai.sandbox import PI_RUNTIME_ERROR_MESSAGE, is_turn_complete, pi_turn_error
 
 logger = structlog.get_logger(__name__)
 
@@ -394,7 +395,10 @@ async def _heartbeat_workflow_if_needed(redis_stream: TaskRunRedisStream, run_id
 
     if is_turn_complete(event):
         await redis_stream.set_agent_active(False)
-        await _dispatch_turn_completed_if_interactive(run_id)
+        if pi_turn_error(event):
+            await _dispatch_turn_failed(run_id)
+        else:
+            await _dispatch_turn_completed(run_id)
         return
 
     if _is_session_update(event):
@@ -445,11 +449,11 @@ def _signal_agent_boot_milestone(
     return task_run.signal_agent_boot_milestone(milestone)
 
 
-async def _dispatch_turn_completed_if_interactive(run_id: str) -> None:
-    await sync_to_async(_dispatch_turn_completed_if_interactive_sync, thread_sensitive=True)(run_id)
+async def _dispatch_turn_completed(run_id: str) -> None:
+    await sync_to_async(_dispatch_turn_completed_sync, thread_sensitive=True)(run_id)
 
 
-def _dispatch_turn_completed_if_interactive_sync(run_id: str) -> None:
+def _dispatch_turn_completed_sync(run_id: str) -> None:
     if not settings.TEST:
         close_old_connections()
 
@@ -459,10 +463,22 @@ def _dispatch_turn_completed_if_interactive_sync(run_id: str) -> None:
         logger.warning("task_run_event_ingest_turn_completed_run_missing", run_id=run_id)
         return
 
+    task_run.signal_agent_turn_completed()
     if task_run.mode != "interactive":
         return
 
     notify_task_run_turn_completed(task_run)
+
+
+async def _dispatch_turn_failed(run_id: str) -> None:
+    await sync_to_async(_dispatch_turn_failed_sync, thread_sensitive=True)(run_id)
+
+
+def _dispatch_turn_failed_sync(run_id: str) -> None:
+    if not settings.TEST:
+        close_old_connections()
+
+    signal_workflow_completion(run_id, "failed", PI_RUNTIME_ERROR_MESSAGE)
 
 
 def _is_session_update(event: dict) -> bool:

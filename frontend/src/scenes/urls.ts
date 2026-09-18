@@ -10,7 +10,7 @@ import {
     ProductKey,
     SharingConfigurationSettings,
 } from '~/queries/schema/schema-general'
-import { ActivityTab, AnnotationType, OnboardingStepKey, SDKKey } from '~/types'
+import { ActivityTab, OnboardingStepKey, SDKKey } from '~/types'
 
 import type { MetricFormPrefill } from 'products/data_catalog/frontend/common'
 
@@ -55,7 +55,6 @@ export const urls = {
     webScripts: (): string => '/web-scripts',
     webScriptsNew: (): string => '/web-scripts/new',
     destinations: (): string => '/data-management/destinations',
-    models: (): string => '/models',
     transformations: (): string => '/data-management/transformations',
     eventFiltering: (): string => '/data-management/event-filtering',
     activity: (tab: ActivityTab | ':tab' = ActivityTab.ExploreEvents): string => `/activity/${tab}`,
@@ -149,8 +148,6 @@ export const urls = {
         const hashString = hashParams.toString()
         return `/sql${queryString ? `?${queryString}` : ''}${hashString ? `#${hashString}` : ''}`
     },
-    annotations: (): string => '/data-management/annotations',
-    annotation: (id: AnnotationType['id'] | ':id'): string => `/data-management/annotations/${id}`,
     variables: (): string => '/data-management/variables',
     variable: (id: string | ':id'): string => `/data-management/variables/${id}`,
     variableEdit: (id: string | ':id'): string => `/data-management/variables/${id}/edit`,
@@ -169,11 +166,14 @@ export const urls = {
     projectRoot: (): string => '/',
     projectHomepage: (): string => '/home',
     ai: (chat?: string, ask?: string): string => combineUrl('/ai', { ask, chat }).url,
+    aiTask: (taskId: string): string => combineUrl('/ai', { task: taskId }).url,
     aiHistory: (): string => '/ai/history',
     settings: (section: SettingSectionId | SettingLevelId = 'project', setting?: SettingId): string =>
         combineUrl(`/settings/${section}`, undefined, setting).url,
-    identityProviderConfig: (feature: 'saml' | 'scim' | 'xaa' | ':feature', configId: string | ':configId'): string =>
-        `/settings/organization-authentication/${feature}/${configId}`,
+    identityProviderConfig: (
+        feature: 'saml' | 'oidc' | 'scim' | 'xaa' | ':feature',
+        configId: string | ':configId'
+    ): string => `/settings/organization-authentication/${feature}/${configId}`,
     featurePreview: (flagKey: string): string => combineUrl('/settings/user-feature-previews', {}, flagKey).url,
     organizationCreationConfirm: (): string => '/organization/confirm-creation',
     toolbarLaunch: (): string => '/toolbar',
@@ -269,6 +269,7 @@ export const urls = {
     codeChannelLink: (channelId: string, taskId?: string): string =>
         `/code/channel/${channelId}${taskId ? `/tasks/${taskId}` : ''}`,
     codeTaskLink: (taskId: string): string => `/code/task/${taskId}`,
+    codeLoopLink: (loopId: string): string => `/code/loop/${loopId}`,
     integration: (slug: string): string => `/integrations/${slug}`,
     integrationsRedirect: (kind: string): string => `/integrations/${kind}/callback`,
     stripeConfirmInstall: (): string => '/integrations/stripe/confirm-install',

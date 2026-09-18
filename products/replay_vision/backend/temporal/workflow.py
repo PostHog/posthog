@@ -1,6 +1,6 @@
 import asyncio
 import datetime as dt
-from typing import cast
+from typing import Any, cast
 from uuid import UUID
 
 import temporalio.workflow as wf
@@ -38,6 +38,7 @@ from products.replay_vision.backend.temporal.activities import (
     emit_observation_signal_activity,
     ensure_session_asset_activity,
     fetch_session_events_activity,
+    fetch_session_network_activity,
     mark_observation_failed_activity,
     mark_observation_ineligible_activity,
     mark_observation_running_activity,
@@ -70,6 +71,7 @@ from products.replay_vision.backend.temporal.types import (
     EnsureSessionAssetInputs,
     EnsureSessionAssetOutput,
     FetchSessionEventsInputs,
+    FetchSessionNetworkInputs,
     MarkObservationFailedInputs,
     MarkObservationIneligibleInputs,
     MarkObservationRunningInputs,
@@ -148,6 +150,19 @@ _SIDE_EFFECT_RETRY = common.RetryPolicy(
     maximum_interval=dt.timedelta(seconds=10),
     maximum_attempts=3,
 )
+
+
+async def _optional(task: Any) -> None:
+    """Await a side-input activity, absorbing its failure.
+
+    The activity handles its own errors, but a timeout or a spent retry chain is enforced by the server
+    and never reaches that handler. Without this the scan would fail over a side input it can run
+    without. `CancelledError` derives from `BaseException`, so workflow cancellation still propagates.
+    """
+    try:
+        await task
+    except Exception:
+        wf.logger.warning("replay_vision.side_input_failed", exc_info=True)
 
 
 def _has_embeddable_text(model_output: object) -> bool:
@@ -316,12 +331,14 @@ class ApplyScannerWorkflow(PostHogWorkflow):
                 CallScannerProviderInputs(
                     team_id=inputs.team_id,
                     observation_id=observation_id,
+                    exported_asset_id=asset_result.asset_id,
                     file_uri=uploaded.file_uri,
                     mime_type=uploaded.mime_type,
                 ),
                 # Multi-turn tool conversation (video + on-demand event lookups) needs more headroom than a single
-                # call, and must cover both mission passes: a second pass that overruns would surface as a Temporal
-                # timeout labeled provider_transient when the real problem is the scanner's prompt.
+                # call, and must cover both mission passes plus the one verify-positives draw: a pass that
+                # overruns would surface as a Temporal timeout labeled provider_transient when the real problem is
+                # the scanner's prompt.
                 start_to_close_timeout=dt.timedelta(minutes=20),
                 # Bounds the whole retry chain, so slow attempts can't overrun the workflow's own timeout.
                 schedule_to_close_timeout=dt.timedelta(minutes=25),
@@ -357,7 +374,11 @@ class ApplyScannerWorkflow(PostHogWorkflow):
                 MarkObservationSucceededInputs(
                     observation_id=observation_id,
                     scanner_type=scanner_type,
-                    scanner_result=ScannerResult(model_output=call_output.model_output, signals_count=signals_count),
+                    scanner_result=ScannerResult(
+                        model_output=call_output.model_output,
+                        signals_count=signals_count,
+                        verification=call_output.verification,
+                    ),
                 ),
                 start_to_close_timeout=dt.timedelta(seconds=30),
                 schedule_to_close_timeout=_STATE_ACTIVITY_SCHEDULE_TO_CLOSE,
@@ -421,7 +442,22 @@ class ApplyScannerWorkflow(PostHogWorkflow):
             schedule_to_close_timeout=_STATE_ACTIVITY_SCHEDULE_TO_CLOSE,
             retry_policy=_ENSURE_ASSET_RETRY,
         )
-        _, asset_result = await asyncio.gather(fetch_task, asset_task)
+        if wf.patched("replay-vision-session-network-2026-09"):
+            # Rides alongside the other two so the extra recording-block read costs no wall-clock.
+            network_task = wf.execute_activity(
+                fetch_session_network_activity,
+                FetchSessionNetworkInputs(
+                    observation_id=observation_id,
+                    team_id=inputs.team_id,
+                    session_id=inputs.session_id,
+                ),
+                start_to_close_timeout=dt.timedelta(minutes=2),
+                schedule_to_close_timeout=dt.timedelta(minutes=5),
+                retry_policy=_FETCH_RETRY,
+            )
+            _, asset_result, _ = await asyncio.gather(fetch_task, asset_task, _optional(network_task))
+        else:
+            _, asset_result = await asyncio.gather(fetch_task, asset_task)
         return asset_result
 
     async def _run_rasterize_child(self, inputs: ApplyScannerInputs, asset_id: int) -> None:

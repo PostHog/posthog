@@ -35,6 +35,7 @@ from products.tasks.backend.constants import (
 )
 from products.tasks.backend.exceptions import CredentialUnavailableError
 from products.tasks.backend.feature_flags import is_mcp_exec_skills_enabled
+from products.tasks.backend.logic.services.gateway_model_pin import GATEWAY_PRODUCT_STATE_KEY, PRODUCT_ALLOWED_MODELS
 from products.tasks.backend.logic.services.local_skills import ENV_DISABLE_BUNDLED_SKILLS
 from products.tasks.backend.logic.services.mcp_url import resolve_mcp_url as _resolve_mcp_url
 
@@ -49,7 +50,9 @@ from products.tasks.backend.logic.services.run_actor import (
 )
 from products.tasks.backend.redis import get_tasks_cache
 from products.tasks.backend.temporal.process_task.ai_gateway_token import (
+    AI_GATEWAY_TOKEN_MINTS,
     MINTABLE_PRODUCTS,
+    mint_refusal,
     mint_scoped_token,
     resolve_sandbox_ai_product,
     sandbox_product_routed,
@@ -59,6 +62,9 @@ if TYPE_CHECKING:
     from posthog.models.user import User
 
     from products.tasks.backend.models import SandboxSnapshot, Task, TaskRun
+    from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import (
+        TaskProcessingContext,
+    )
 
 logger = logging.getLogger(__name__)
 
@@ -78,6 +84,7 @@ class GitHubCredentialSource(StrEnum):
 class RunSource(StrEnum):
     MANUAL = "manual"
     SIGNAL_REPORT = "signal_report"
+    AGENT = "agent"
 
 
 # Origins whose runs are meant to carry a human git identity; everything else is bot-authored.
@@ -598,7 +605,9 @@ def get_user_mcp_server_configs(
         allowed_gateway_server_ids=allowed_gateway_server_ids,
     )
     api_base = get_sandbox_api_url().rstrip("/")
-    consumer = _resolve_mcp_consumer(interaction_origin, slack_reply_context=slack_reply_context)
+    consumer = _resolve_mcp_consumer(
+        interaction_origin, slack_reply_context=slack_reply_context, origin_product=origin_product
+    )
 
     configs: list[McpServerConfig] = []
     for installation in installations:
@@ -714,12 +723,16 @@ def get_imported_mcp_server_configs(task_run: TaskRun, existing_names: Iterable[
     return build_imported_mcp_server_configs(task_run.imported_mcp_servers, existing_names)
 
 
-def _resolve_mcp_consumer(interaction_origin: str | None, *, slack_reply_context: bool = False) -> str:
+def _resolve_mcp_consumer(
+    interaction_origin: str | None, *, slack_reply_context: bool = False, origin_product: str | None = None
+) -> str:
     """Map the task's reply context to the `x-posthog-mcp-consumer` value.
 
     Slack reply contexts send `"slack"`, posthog_ai (Max) runs send `"posthog_ai"`,
     and eval harness runs send `"eval"`; everything else (the PostHog Desktop UI,
-    API callers, missing origin) is treated as PostHog Desktop. Only `"posthog-code"` is a UI-apps host
+    API callers, missing origin) is treated as PostHog Desktop. Browser-created
+    PostHog AI runs can lack an interaction origin, so their task origin selects
+    the consumer that retains native widget data. Only `"posthog-code"` is a UI-apps host
     on the MCP server — it gates UI-apps payload emission, so `"posthog_ai"` and
     `"slack"` deliberately don't get UI apps. Keep the `"posthog-code"` literal
     in sync with `POSTHOG_CODE_CONSUMER` in
@@ -727,21 +740,21 @@ def _resolve_mcp_consumer(interaction_origin: str | None, *, slack_reply_context
     """
     if slack_reply_context or interaction_origin == "slack":
         return "slack"
-    if interaction_origin == "posthog_ai":
+    if interaction_origin == "posthog_ai" or (not interaction_origin and origin_product == "posthog_ai"):
         return "posthog_ai"
     if interaction_origin == EVAL_INTERACTION_ORIGIN:
         return EVAL_INTERACTION_ORIGIN
     return "posthog-code"
 
 
-def mcp_exec_skills_env_vars(ctx) -> dict[str, str]:
+def mcp_exec_skills_env_vars(ctx: TaskProcessingContext) -> dict[str, str]:
     """Env that launches the sandbox without bundled product skills when this run gets them
     through the MCP `learn` command instead.
 
     Desktop runs keep their bundled skills: the MCP server excludes the `posthog-code`
     consumer from `learn`, so stripping them there would leave the agent with no skills.
     """
-    if _resolve_mcp_consumer(ctx.interaction_origin) == "posthog-code":
+    if _resolve_mcp_consumer(ctx.interaction_origin, origin_product=ctx.origin_product) == "posthog-code":
         return {}
     if not is_mcp_exec_skills_enabled(ctx.organization_id, ctx.distinct_id):
         return {}
@@ -794,7 +807,9 @@ def get_sandbox_ph_mcp_configs(
         {"name": "x-posthog-read-only", "value": str(read_only).lower()},
         {
             "name": "x-posthog-mcp-consumer",
-            "value": _resolve_mcp_consumer(interaction_origin, slack_reply_context=slack_reply_context),
+            "value": _resolve_mcp_consumer(
+                interaction_origin, slack_reply_context=slack_reply_context, origin_product=origin_product
+            ),
         },
     ]
     if task_id:
@@ -845,13 +860,13 @@ def can_mint_readonly_github_token(team_id: int) -> bool:
     connected GitHub from one that did. Same team-level-only rule as the mint itself; never raises.
     """
     try:
-        return _resolve_mintable_team_integration(team_id) is not None
+        return resolve_readonly_github_integration(team_id) is not None
     except Exception:
         logger.warning("Failed to resolve GitHub integration for team %d", team_id, exc_info=True)
         return False
 
 
-def _resolve_mintable_team_integration(team_id: int) -> GitHubIntegration | None:
+def resolve_readonly_github_integration(team_id: int) -> GitHubIntegration | None:
     """The team-level integration a read-only mint may use, or None.
 
     Refuses the resolver's org-owner personal-integration fallback (its installation can span
@@ -883,7 +898,7 @@ def get_readonly_github_token(team_id: int) -> Optional[str]:
     nicety, and its absence must not fail the run.
     """
     try:
-        integration = _resolve_mintable_team_integration(team_id)
+        integration = resolve_readonly_github_integration(team_id)
         if integration is None:
             logger.info("No mintable team-level GitHub integration for team %d, skipping read-only token", team_id)
             return None
@@ -1312,13 +1327,48 @@ def run_gateway_env_vars(ctx, task) -> dict[str, str]:
     """
     if ctx.claude_model_access == "own-subscription":
         return {}
-    return ai_gateway_env_vars(
-        team_id=ctx.team_id,
-        origin_product=ctx.origin_product,
-        ai_stage=(ctx.state or {}).get("ai_stage"),
-        internal=task.internal,
-        distinct_id=ctx.distinct_id,
-    )
+    try:
+        env_vars = ai_gateway_env_vars(
+            team_id=ctx.team_id,
+            origin_product=ctx.origin_product,
+            ai_stage=(ctx.state or {}).get("ai_stage"),
+            internal=task.internal,
+            distinct_id=ctx.distinct_id,
+            state=ctx.state,
+            model=ctx.model,
+            runtime=ctx.task_runtime,
+        )
+    except Exception:
+        # Degrading to the Python gateway beats failing the provisioning activity and the run.
+        AI_GATEWAY_TOKEN_MINTS.labels(result="error").inc()
+        logger.warning(
+            "ai_gateway_token: routing failed, run stays on the Python gateway",
+            extra={"run_id": ctx.run_id},
+            exc_info=True,
+        )
+        return {}
+    if not _record_pinned_gateway_product(ctx.run_id, ctx.state, env_vars.get("AI_GATEWAY_PRODUCT")):
+        # The model-change guard reads that stamp; unstamped, a run can move off its pin with no fallback.
+        env_vars.pop("AI_GATEWAY_TOKEN", None)
+    return env_vars
+
+
+def _record_pinned_gateway_product(run_id: str, state: dict | None, minted_product: str | None) -> bool:
+    """Stamp the run with the pinned product of its token. False leaves a pinned run unstamped."""
+    from products.tasks.backend.models import TaskRun  # noqa: PLC0415
+
+    pinned = minted_product if minted_product in PRODUCT_ALLOWED_MODELS else None
+    if pinned == (state or {}).get(GATEWAY_PRODUCT_STATE_KEY):
+        return True
+    try:
+        if pinned:
+            TaskRun.update_state_atomic(run_id, updates={GATEWAY_PRODUCT_STATE_KEY: pinned})
+        else:
+            TaskRun.update_state_atomic(run_id, remove_keys=[GATEWAY_PRODUCT_STATE_KEY])
+    except Exception:
+        logger.warning("ai_gateway_token: failed to record the pinned product", extra={"run_id": run_id}, exc_info=True)
+        return pinned is None
+    return True
 
 
 def ai_gateway_env_vars(
@@ -1328,6 +1378,9 @@ def ai_gateway_env_vars(
     ai_stage: str | None = None,
     internal: bool = False,
     distinct_id: str | None = None,
+    state: dict[str, Any] | None = None,
+    model: str | None = None,
+    runtime: str | None = None,
 ) -> dict[str, str]:
     """Env vars routing listed products to the Go ai-gateway, shared by every
     injection site so the both-or-nothing guard cannot drift per site. Both
@@ -1354,6 +1407,14 @@ def ai_gateway_env_vars(
         if ai_product in MINTABLE_PRODUCTS and sandbox_product_routed(
             ai_product, ai_stage, settings.SANDBOX_AI_GATEWAY_PRODUCTS
         ):
+            refusal = mint_refusal(ai_product, team_id=team_id, state=state, model=model, runtime=runtime)
+            if refusal:
+                AI_GATEWAY_TOKEN_MINTS.labels(result="skipped").inc()
+                logger.info(
+                    "ai_gateway_token: mint skipped, run stays on the Python gateway",
+                    extra={"ai_product": ai_product, "team_id": team_id, "reason": refusal},
+                )
+                return env_vars
             token = mint_scoped_token(ai_product=ai_product, team_id=team_id, user=distinct_id)
             if token:
                 env_vars["AI_GATEWAY_TOKEN"] = token

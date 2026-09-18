@@ -22,6 +22,7 @@ GitHub Releases in `PostHog/posthog` remain the human-facing changelog and downl
 **macOS**: DMG + zip artifacts are uploaded; the merged `latest-mac.yml` covers both arm64 and x64 so the correct build is selected per architecture.
 
 **Windows**: A single NSIS installer is shipped and updated through electron-updater via `latest.yml`. The legacy Squirrel.Windows installer is no longer built; anyone still on an old Squirrel install must reinstall once via the NSIS installer to keep receiving updates.
+Release builds are signed through Azure Artifact Signing, and the certificate subject ships in `app-update.yml` as `publisherName`, so electron-updater rejects a downloaded installer that is not signed by the same publisher.
 
 **Linux**: No auto-update. AppImage, deb and rpm packages are manual downloads from the GitHub Release, also mirrored to the S3 feed.
 
@@ -60,6 +61,10 @@ git push origin desktop-v0.16
 ```
 
 The next `desktop-tag.yml` run releases `desktop-v0.16.N`.
+
+A tag ruleset protects `desktop-v*` and `agent-v*` tags, because pushing one publishes a release.
+Only a repository admin can push a base tag.
+`desktop-tag.yml` and `desktop-agent-tag.yml` push release tags through the Releaser GitHub App, which the ruleset allows.
 
 ## Checking current version
 

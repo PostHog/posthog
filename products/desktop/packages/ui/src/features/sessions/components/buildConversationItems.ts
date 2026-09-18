@@ -305,6 +305,22 @@ export interface BuildConversationOptions {
   showDebugLogs?: boolean;
 }
 
+export function hasSetupProgressForRun(
+  events: AcpMessage[],
+  runId?: string,
+): boolean {
+  if (!runId) return false;
+  const group = `setup:${runId}`;
+
+  return events.some(({ message }) => {
+    return (
+      isJsonRpcNotification(message) &&
+      isNotification(message.method, POSTHOG_NOTIFICATIONS.PROGRESS) &&
+      (message.params as { group?: unknown } | undefined)?.group === group
+    );
+  });
+}
+
 /**
  * The single ordering policy every conversation builder reads events in:
  * ascending timestamp, ties keeping arrival order (`Array.sort` is stable).
@@ -418,7 +434,7 @@ export function buildAgentConversationItems(
   };
 }
 
-function processAgentConversationEvent(
+export function processAgentConversationEvent(
   b: ItemBuilder,
   event: AgentConversationEvent,
 ): void {
