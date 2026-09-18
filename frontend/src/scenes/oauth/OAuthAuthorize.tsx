@@ -3,7 +3,7 @@ import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { useMemo, useState } from 'react'
 
-import { IconCheck, IconCheckCircle, IconPlus, IconWarning } from '@posthog/icons'
+import { IconCheck, IconCheckCircle, IconLock, IconPlus, IconWarning } from '@posthog/icons'
 
 import { ScopeAccessRow } from 'lib/components/ScopeAccessRow/ScopeAccessRow'
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
@@ -146,6 +146,7 @@ export const OAuthAuthorize = (): JSX.Element => {
         redirectUrl,
         scopesWereDefaulted,
         isMcpResource,
+        accessControlsApply,
         showCreateProject,
         newProjectLoading,
         selectedOrganization,
@@ -469,6 +470,13 @@ export const OAuthAuthorize = (): JSX.Element => {
                                                 />
                                             ))}
                                         </div>
+                                    )}
+                                    {accessControlsApply && (
+                                        <LemonBanner type="info" icon={<IconLock className="LemonBanner__icon" />}>
+                                            <strong className="block">Access controls still apply.</strong>
+                                            {appName} can only do what both your access level and these permissions
+                                            allow.
+                                        </LemonBanner>
                                     )}
                                 </div>
                             </div>
