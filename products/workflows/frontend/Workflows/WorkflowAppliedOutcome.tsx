@@ -173,7 +173,7 @@ export function WorkflowAppliedOutcome({
                                     {[...charted].reverse().map((version, index) => (
                                         <div
                                             key={version.version}
-                                            className={`flex flex-col gap-2 py-3 ${index > 0 ? 'border-t' : 'pt-0'}`}
+                                            className={`flex flex-col gap-2 ${index > 0 ? 'pt-4' : ''}`}
                                         >
                                             <div className="flex flex-col gap-0.5">
                                                 <span className="flex items-center gap-2 flex-wrap">
