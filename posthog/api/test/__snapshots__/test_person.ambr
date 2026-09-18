@@ -11,7 +11,7 @@
      WHERE and(equals(person.team_id, 99999), in(id,
                                                    (SELECT where_optimization.id AS id
                                                     FROM person AS where_optimization
-                                                    WHERE and(equals(where_optimization.team_id, 99999), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, 'email'), ''), 'null'), '^"|"$', ''), 'another@gmail.com'), 0)))))
+                                                    WHERE and(equals(where_optimization.team_id, 99999), and(multiSearchAny(where_optimization.properties, ['another@gmail.com']), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, 'email'), ''), 'null'), '^"|"$', ''), 'another@gmail.com'), 0))))))
      GROUP BY person.id
      HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))) AS persons
   WHERE ifNull(equals(persons.properties___email, 'another@gmail.com'), 0)
@@ -46,7 +46,7 @@
      WHERE and(equals(person.team_id, 99999), in(id,
                                                    (SELECT where_optimization.id AS id
                                                     FROM person AS where_optimization
-                                                    WHERE and(equals(where_optimization.team_id, 99999), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, 'email'), ''), 'null'), '^"|"$', ''), 'another@gmail.com'), 0)))))
+                                                    WHERE and(equals(where_optimization.team_id, 99999), and(multiSearchAny(where_optimization.properties, ['another@gmail.com']), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, 'email'), ''), 'null'), '^"|"$', ''), 'another@gmail.com'), 0))))))
      GROUP BY person.id
      HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))) AS persons
   WHERE ifNull(equals(persons.properties___email, 'another@gmail.com'), 0)
@@ -81,7 +81,7 @@
      WHERE and(equals(person.team_id, 99999), in(id,
                                                    (SELECT where_optimization.id AS id
                                                     FROM person AS where_optimization
-                                                    WHERE and(equals(where_optimization.team_id, 99999), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, 'email'), ''), 'null'), '^"|"$', ''), 'inexistent'), 0)))))
+                                                    WHERE and(equals(where_optimization.team_id, 99999), and(multiSearchAny(where_optimization.properties, ['inexistent']), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, 'email'), ''), 'null'), '^"|"$', ''), 'inexistent'), 0))))))
      GROUP BY person.id
      HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))) AS persons
   WHERE ifNull(equals(persons.properties___email, 'inexistent'), 0)
@@ -116,7 +116,7 @@
      WHERE and(equals(person.team_id, 99999), in(id,
                                                    (SELECT where_optimization.id AS id
                                                     FROM person AS where_optimization
-                                                    WHERE and(equals(where_optimization.team_id, 99999), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, 'some_prop'), ''), 'null'), '^"|"$', ''), 'some_value'), 0)))))
+                                                    WHERE and(equals(where_optimization.team_id, 99999), and(multiSearchAny(where_optimization.properties, ['some_value']), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, 'some_prop'), ''), 'null'), '^"|"$', ''), 'some_value'), 0))))))
      GROUP BY person.id
      HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))) AS persons
   WHERE ifNull(equals(persons.properties___some_prop, 'some_value'), 0)
@@ -385,7 +385,7 @@
      WHERE and(equals(person.team_id, 99999), in(id,
                                                    (SELECT where_optimization.id AS id
                                                     FROM person AS where_optimization
-                                                    WHERE and(equals(where_optimization.team_id, 99999), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, 'email'), ''), 'null'), '^"|"$', ''), 'another@gmail.com'), 0)))))
+                                                    WHERE and(equals(where_optimization.team_id, 99999), and(multiSearchAny(where_optimization.properties, ['another@gmail.com']), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, 'email'), ''), 'null'), '^"|"$', ''), 'another@gmail.com'), 0))))))
      GROUP BY person.id
      HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))) AS persons
   WHERE ifNull(equals(persons.properties___email, 'another@gmail.com'), 0)
@@ -420,7 +420,7 @@
      WHERE and(equals(person.team_id, 99999), in(id,
                                                    (SELECT where_optimization.id AS id
                                                     FROM person AS where_optimization
-                                                    WHERE and(equals(where_optimization.team_id, 99999), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, 'email'), ''), 'null'), '^"|"$', ''), 'another@gmail.com'), 0)))))
+                                                    WHERE and(equals(where_optimization.team_id, 99999), and(multiSearchAny(where_optimization.properties, ['another@gmail.com']), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, 'email'), ''), 'null'), '^"|"$', ''), 'another@gmail.com'), 0))))))
      GROUP BY person.id
      HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))) AS persons
   WHERE ifNull(equals(persons.properties___email, 'another@gmail.com'), 0)
@@ -455,7 +455,7 @@
      WHERE and(equals(person.team_id, 99999), in(id,
                                                    (SELECT where_optimization.id AS id
                                                     FROM person AS where_optimization
-                                                    WHERE and(equals(where_optimization.team_id, 99999), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, 'email'), ''), 'null'), '^"|"$', ''), 'inexistent'), 0)))))
+                                                    WHERE and(equals(where_optimization.team_id, 99999), and(multiSearchAny(where_optimization.properties, ['inexistent']), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, 'email'), ''), 'null'), '^"|"$', ''), 'inexistent'), 0))))))
      GROUP BY person.id
      HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))) AS persons
   WHERE ifNull(equals(persons.properties___email, 'inexistent'), 0)
@@ -490,7 +490,7 @@
      WHERE and(equals(person.team_id, 99999), in(id,
                                                    (SELECT where_optimization.id AS id
                                                     FROM person AS where_optimization
-                                                    WHERE and(equals(where_optimization.team_id, 99999), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, 'some_prop'), ''), 'null'), '^"|"$', ''), 'some_value'), 0)))))
+                                                    WHERE and(equals(where_optimization.team_id, 99999), and(multiSearchAny(where_optimization.properties, ['some_value']), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, 'some_prop'), ''), 'null'), '^"|"$', ''), 'some_value'), 0))))))
      GROUP BY person.id
      HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))) AS persons
   WHERE ifNull(equals(persons.properties___some_prop, 'some_value'), 0)

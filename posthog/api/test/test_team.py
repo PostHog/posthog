@@ -448,6 +448,8 @@ def team_api_test_factory():
             # `mock_capture` is patched.
             team: Team = Team.objects.create_with_data(initiating_user=self.user, organization=self.organization)
             team_pk = team.pk
+            # The 48 hour delay only applies to a project that has ingested data.
+            Team.objects.filter(pk=team_pk).update(ingested_event=True)
             # create_with_data fires capture events; clear them so we only assert delete-time events
             mock_capture.reset_mock()
 
@@ -477,13 +479,14 @@ def team_api_test_factory():
                     send_feature_flags=False,
                 ),
             ]
-            mock_start_workflow.assert_called_once_with(
-                team_ids=[team_pk],
-                project_id=team_pk,
-                user_id=self.user.id,
-                # The org's first project already holds the plain default name, so the second one gets a suffix
-                project_name="Default project 2",
-            )
+            mock_start_workflow.assert_called_once()
+            workflow_kwargs = mock_start_workflow.call_args.kwargs
+            self.assertEqual(workflow_kwargs["team_ids"], [team_pk])
+            self.assertEqual(workflow_kwargs["project_id"], team_pk)
+            self.assertEqual(workflow_kwargs["user_id"], self.user.id)
+            self.assertEqual(workflow_kwargs["project_name"], "Default project 2")
+            self.assertGreater(workflow_kwargs["start_delay"], timedelta(hours=47))
+            self.assertLessEqual(workflow_kwargs["start_delay"], timedelta(hours=48))
             assert mock_capture.call_args_list == expected_capture_calls
 
         @patch("posthog.temporal.delete_teams.dispatch.start_delete_project_data_workflow")
@@ -825,6 +828,43 @@ def team_api_test_factory():
                     },
                 ]
             )
+
+        def test_rotate_heatmaps_screenshot_secret(self):
+            self.organization_membership.level = OrganizationMembership.Level.ADMIN
+            self.organization_membership.save()
+            self.assertIsNone(self.team.heatmaps_screenshot_secret)
+
+            response = self.client.patch(f"/api/environments/{self.team.id}/rotate_heatmaps_screenshot_secret/")
+            self.team.refresh_from_db()
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            first_secret = response.json()["heatmaps_screenshot_secret"]
+            self.assertTrue(first_secret.startswith("phh_"))
+            self.assertEqual(first_secret, self.team.heatmaps_screenshot_secret)
+
+            response = self.client.patch(f"/api/environments/{self.team.id}/rotate_heatmaps_screenshot_secret/")
+            self.assertNotEqual(response.json()["heatmaps_screenshot_secret"], first_secret)
+            changes = [
+                change
+                for log in ActivityLog.objects.filter(team_id=self.team.id, scope="Team").order_by("created_at")
+                for change in (log.detail or {}).get("changes", [])
+                if change["field"] == "heatmaps_screenshot_secret"
+            ]
+            self.assertEqual([change["action"] for change in changes], ["created", "changed"])
+            self.assertNotIn(first_secret, str(changes))
+            self.assertNotIn(response.json()["heatmaps_screenshot_secret"], str(changes))
+
+            self.client.patch(f"/api/environments/{self.team.id}/", {"heatmaps_screenshot_secret": "phh_chosen"})
+            self.team.refresh_from_db()
+            self.assertNotEqual(self.team.heatmaps_screenshot_secret, "phh_chosen")
+
+        def test_rotate_heatmaps_screenshot_secret_insufficient_privileges(self):
+            self.organization_membership.level = OrganizationMembership.Level.MEMBER
+            self.organization_membership.save()
+
+            response = self.client.patch(f"/api/environments/{self.team.id}/rotate_heatmaps_screenshot_secret/")
+            self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+            self.team.refresh_from_db()
+            self.assertIsNone(self.team.heatmaps_screenshot_secret)
 
         def test_rotate_secret_token_insufficient_privileges(self):
             self.organization_membership.level = OrganizationMembership.Level.MEMBER
@@ -2048,6 +2088,65 @@ def team_api_test_factory():
             )
             assert response.status_code == status.HTTP_400_BAD_REQUEST
             assert "logs_settings must be an object" in response.json()["detail"]
+
+        def test_logs_settings_custom_retention_requires_flag(self):
+            self._grant_logs_retention_features(AvailableFeature.LOGS_RETENTION_30D)
+
+            response = self.client.patch(
+                "/api/environments/@current/",
+                {"logs_settings": {"retention_days": 90}},
+            )
+            assert response.status_code == status.HTTP_400_BAD_REQUEST
+            assert "retention_days must be one of" in response.json()["detail"]
+
+            with patch("posthoganalytics.feature_enabled", return_value=True):
+                for valid_days in [90, 360, 2580]:
+                    response = self.client.patch(
+                        "/api/environments/@current/",
+                        {"logs_settings": {"retention_days": valid_days}},
+                    )
+                    assert response.status_code == status.HTTP_200_OK, response.json()
+                    assert response.json()["logs_settings"]["retention_days"] == valid_days
+                    # Reset so the next update is not blocked by the 24-hour throttle.
+                    self.team.logs_settings = {}
+                    self.team.save()
+
+                for invalid_days in [45, 2610, 0, -30]:
+                    response = self.client.patch(
+                        "/api/environments/@current/",
+                        {"logs_settings": {"retention_days": invalid_days}},
+                    )
+                    assert response.status_code == status.HTTP_400_BAD_REQUEST, (
+                        f"Expected 400 for retention_days={invalid_days}"
+                    )
+                    assert "multiple of 30" in response.json()["detail"]
+
+        def test_logs_settings_unchanged_custom_retention_kept_when_flag_off(self):
+            self._grant_logs_retention_features(AvailableFeature.LOGS_RETENTION_30D)
+            with patch("posthoganalytics.feature_enabled", return_value=True):
+                response = self.client.patch(
+                    "/api/environments/@current/",
+                    {"logs_settings": {"retention_days": 90}},
+                )
+                assert response.status_code == status.HTTP_200_OK, response.json()
+
+            # Settings switches send the whole object back, including the stored period.
+            response = self.client.patch(
+                "/api/environments/@current/",
+                {"logs_settings": {"retention_days": 90, "json_parse_logs": True}},
+            )
+            assert response.status_code == status.HTTP_200_OK, response.json()
+            assert response.json()["logs_settings"]["retention_days"] == 90
+            assert response.json()["logs_settings"]["json_parse_logs"] is True
+
+        def test_logs_settings_custom_retention_requires_paid_feature(self):
+            with patch("posthoganalytics.feature_enabled", return_value=True):
+                response = self.client.patch(
+                    "/api/environments/@current/",
+                    {"logs_settings": {"retention_days": 90}},
+                )
+            assert response.status_code == status.HTTP_403_FORBIDDEN
+            assert "90 days" in response.json()["detail"]
 
         def test_logs_settings_retention_requires_matching_feature(self):
             response = self.client.patch(
@@ -3690,6 +3789,32 @@ class TestTeamAdminFieldAuthorization(APIBaseTest):
         assert self.team.timezone != "Europe/Lisbon"
         # Even the safe field must not be applied when the request is rejected.
         assert self.team.surveys_opt_in is not True
+
+    def test_member_cannot_read_heatmaps_screenshot_secret(self) -> None:
+        self.team.rotate_heatmaps_screenshot_secret_and_save(user=self.user, is_impersonated_session=False)
+        self.team.refresh_from_db()
+        assert self.team.heatmaps_screenshot_secret
+
+        for url in (f"/api/environments/{self.team.id}/", f"/api/projects/{self.project.id}/"):
+            response = self.client.get(url)
+            assert response.status_code == status.HTTP_200_OK
+            assert response.json()["heatmaps_screenshot_secret"] is None, (
+                f"MEMBER read the admin-only screenshot secret via {url}"
+            )
+
+    def test_admin_can_read_heatmaps_screenshot_secret(self) -> None:
+        self.team.rotate_heatmaps_screenshot_secret_and_save(user=self.user, is_impersonated_session=False)
+        self.team.refresh_from_db()
+        secret = self.team.heatmaps_screenshot_secret
+
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        for url in (f"/api/environments/{self.team.id}/", f"/api/projects/{self.project.id}/"):
+            response = self.client.get(url)
+            assert response.json()["heatmaps_screenshot_secret"] == secret, (
+                f"ADMIN could not read the screenshot secret via {url}"
+            )
 
     def _enable_access_control_with_member_level(self) -> None:
         self.organization.available_product_features = [

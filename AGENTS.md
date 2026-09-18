@@ -37,7 +37,7 @@
 ## Commits and Pull Requests
 
 - Use [conventional commits](https://www.conventionalcommits.org/en/v1.0.0/) for all commit messages and PR titles.
-- When a change touches user-facing behavior, an API, a config/setting, or a documented workflow, update the matching doc under `docs/` **in the same PR** — treat a stale doc as part of the breakage, not a follow-up.
+- When a change touches user-facing behavior, an API, a config/setting, or a documented workflow, update the existing doc under `docs/` **in the same PR** — a stale doc is part of the breakage. **Never add a new doc unless a person asks**; PR context goes in the PR description.
 
 ### Commit types
 

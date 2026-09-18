@@ -8,6 +8,7 @@ import {
 } from '@opentelemetry/sdk-metrics'
 
 import {
+    recordJsonEnrichmentSkipped,
     recordLogMessageDlq,
     recordLogMessageDropped,
     recordLogProcessingDuration,
@@ -51,6 +52,13 @@ describe('ingestion-otel-metrics', () => {
             .flatMap((m) => m.dataPoints as unknown as readonly DataPoint<T>[])
 
     it.each([
+        [
+            'recordJsonEnrichmentSkipped',
+            'logs_ingestion_json_enrichment_skipped_total',
+            () => recordJsonEnrichmentSkipped('output_size'),
+            { reason: 'output_size' },
+            1,
+        ],
         [
             'recordLogsReceived bytes',
             'logs_ingestion_bytes_received_total',

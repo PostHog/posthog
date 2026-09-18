@@ -255,7 +255,7 @@ describe('sqlEditorLogic', () => {
                     }
                     return [200, { results: [] }]
                 },
-                '/api/environments/:team_id/warehouse_saved_queries/': { results: [MOCK_VIEW] },
+                '/api/projects/:team_id/warehouse_saved_queries/': { results: [MOCK_VIEW] },
                 '/api/environments/:team_id/warehouse_saved_queries/:id/': ({ params }) => {
                     if (params.id === MOCK_VIEW.id) {
                         return [
@@ -280,6 +280,7 @@ describe('sqlEditorLogic', () => {
                     200,
                     {
                         id: 'created-view-id',
+                        columns: [],
                         name: 'Materialized view',
                         query: { kind: NodeKind.HogQLQuery, query: 'SELECT 1' },
                         is_materialized: false,
@@ -1500,6 +1501,34 @@ describe('sqlEditorLogic', () => {
                 })
         })
 
+        it('preserves view details when a metadata list refresh updates the active tab', async () => {
+            logic = sqlEditorLogic({ tabId: TAB_ID, monaco: createMockMonaco(), editor: createMockEditor() })
+            logic.mount()
+            editorRootLogic = editorSceneLogic({ tabId: TAB_ID })
+            editorRootLogic.mount()
+            const columns = [{ name: 'count', type: 'integer', hogql_value: 'count', schema_valid: true }]
+            logic.actions.createTab('SELECT 1', { ...MOCK_VIEW, columns })
+            await expectLogic(logic).toDispatchActions(['createTab', 'updateTab'])
+
+            await expectLogic(logic, () =>
+                dataWarehouseViewsLogic.actions.loadDataWarehouseSavedQueriesSuccess([
+                    {
+                        id: MOCK_VIEW.id,
+                        name: MOCK_VIEW.name,
+                        latest_error: null,
+                        managed_viewset_kind: null,
+                        is_materialized: true,
+                    },
+                ])
+            ).toDispatchActions(['updateTab'])
+
+            expect(logic.values.activeTab?.view).toMatchObject({
+                query: MOCK_VIEW.query,
+                columns,
+                is_materialized: true,
+            })
+        })
+
         it('switches the active tab into the created view immediately after create success', async () => {
             logic = sqlEditorLogic({
                 tabId: TAB_ID,
@@ -1517,6 +1546,7 @@ describe('sqlEditorLogic', () => {
                 [
                     {
                         id: 'created-view-id',
+                        columns: [],
                         name: 'Created view',
                         query: {
                             kind: NodeKind.HogQLQuery,
@@ -1545,6 +1575,7 @@ describe('sqlEditorLogic', () => {
                 .toMatchValues({
                     editingView: partial({
                         id: 'created-view-id',
+                        columns: [],
                         name: 'Created view',
                     }),
                 })
@@ -2993,6 +3024,7 @@ describe('sqlEditorLogic', () => {
                             200,
                             {
                                 id: 'created-view-id',
+                                columns: [],
                                 name: 'Incremental view',
                                 query: { kind: NodeKind.HogQLQuery, query: 'SELECT 1' },
                                 is_materialized: false,
@@ -3112,7 +3144,9 @@ describe('sqlEditorLogic', () => {
             })
             logic.mount()
 
-            await expectLogic(logic).toDispatchActions([logic.actionCreators.loadDatabase({ force: true })])
+            await expectLogic(logic).toDispatchActions([
+                logic.actionCreators.loadDatabase({ force: true, shallow: true }),
+            ])
         })
     })
 

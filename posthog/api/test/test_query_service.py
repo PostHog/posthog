@@ -39,6 +39,8 @@ from posthog.api.services.query import _language_service_eligible, process_query
 from posthog.exceptions import DatabaseSchemaUnavailable
 from posthog.models import Team, User
 
+from products.data_tools.backend.models.expression import DataWarehouseExpression
+from products.data_tools.backend.models.join import DataWarehouseJoin
 from products.warehouse_sources.backend.facade.models import (
     DataWarehouseCredential,
     DataWarehouseTable,
@@ -283,6 +285,73 @@ class TestQueryService(APIBaseTest):
 
         assert set(filtered.tables.keys()) == {"events"}
         assert filtered.tables["events"] == full.tables["events"]
+
+    @parameterized.expand(
+        [
+            ("dotted", "postgres.shop.orders", None),
+            ("alias", "shop_postgres_orders", None),
+            ("join", "postgres.shop.orders", "join"),
+            ("expression", "postgres.shop.orders", "expression"),
+        ]
+    )
+    def test_filtered_warehouse_schema_preserves_related_fields(
+        self, _label: str, requested: str, dependency: str | None
+    ) -> None:
+        credential = DataWarehouseCredential.objects.create(access_key="key", access_secret="secret", team=self.team)
+        source = ExternalDataSource.objects.create(
+            team=self.team, source_type=ExternalDataSourceType.POSTGRES, prefix="shop"
+        )
+        for name, columns in {
+            "customers": ["id"],
+            "orders": ["id", "customer_id"],
+            "items": ["id", "order_id"],
+        }.items():
+            DataWarehouseTable.objects.create(
+                team=self.team,
+                name=f"shop_postgres_{name}",
+                external_data_source=source,
+                credential=credential,
+                format="Parquet",
+                url_pattern="https://example.com/data/*",
+                columns={column: {"hogql": "StringDatabaseField", "clickhouse": "String"} for column in columns},
+            )
+        DataWarehouseTable.objects.create(
+            team=self.team,
+            name="external_lookup",
+            credential=credential,
+            format="Parquet",
+            url_pattern="https://example.com/lookup/*",
+            columns={"id": {"hogql": "StringDatabaseField", "clickhouse": "String"}},
+        )
+        if dependency == "join":
+            DataWarehouseJoin.objects.create(
+                team=self.team,
+                source_table_name="postgres.shop.orders",
+                source_table_key="id",
+                joining_table_name="external_lookup",
+                joining_table_key="id",
+                field_name="lookup",
+            )
+        elif dependency == "expression":
+            DataWarehouseExpression.objects.for_team(self.team.pk).create(
+                team_id=self.team.pk,
+                table_name="postgres.shop.orders",
+                field_name="lookup",
+                expression="(SELECT id FROM external_lookup LIMIT 1)",
+            )
+
+        full = cast(DatabaseSchemaQueryResponse, process_query_model(self.team, DatabaseSchemaQuery()))
+        filtered = cast(
+            DatabaseSchemaQueryResponse, process_query_model(self.team, DatabaseSchemaQuery(tables=[requested]))
+        )
+
+        assert set(filtered.tables) == {"postgres.shop.orders"}
+        table = filtered.tables["postgres.shop.orders"]
+        assert table == full.tables["postgres.shop.orders"]
+        assert table.fields["customer"].fields == ["id", "properties", "orders"]
+        assert table.fields["items"].fields == ["id", "order_id", "properties", "order"]
+        if dependency:
+            assert "lookup" in table.fields
 
     @parameterized.expand(
         [

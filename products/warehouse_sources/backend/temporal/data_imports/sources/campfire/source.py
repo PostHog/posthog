@@ -13,9 +13,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.campfire.c
     validate_credentials as validate_campfire_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.campfire.settings import (
-    CAMPFIRE_ENDPOINTS,
     ENDPOINTS,
     INCREMENTAL_FIELDS,
+    probe_path,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
@@ -103,8 +103,8 @@ Create an API user and key on the [API keys page](https://app.meetcampfire.com/v
         schema_name: Optional[str] = None,
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
-        endpoint_config = CAMPFIRE_ENDPOINTS.get(schema_name) if schema_name else None
-        if validate_campfire_credentials(config.api_key, path=endpoint_config.path if endpoint_config else None):
+        path = probe_path(schema_name) if schema_name else None
+        if validate_campfire_credentials(config.api_key, path=path):
             return True, None
 
         return False, "Invalid Campfire API key"
@@ -128,4 +128,5 @@ Create an API user and key on the [API keys page](https://app.meetcampfire.com/v
             db_incremental_field_last_value=inputs.db_incremental_field_last_value
             if inputs.should_use_incremental_field
             else None,
+            incremental_field=inputs.incremental_field,
         )

@@ -66,6 +66,7 @@ import {
 } from 'products/customer_analytics/frontend/scenes/CustomerAnalyticsConfigurationScene/account/WarehousePersonPropertiesSetting'
 import { CalendarSyncConfig } from 'products/customer_analytics/frontend/scenes/CustomerAnalyticsConfigurationScene/calendar/CalendarSyncConfig'
 import { CustomerAnalyticsDashboardEvents } from 'products/customer_analytics/frontend/scenes/CustomerAnalyticsConfigurationScene/events/CustomerAnalyticsDashboardEvents'
+import { DataQualityGateToggle } from 'products/data_quality/frontend/settings/DataQualityGateToggle'
 import { ExceptionAutocaptureToggle } from 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/exception_autocapture/ExceptionAutocaptureSettings'
 import { SuppressionRules } from 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/suppression_rules/SuppressionRules'
 import { MAX_LOOKBACK_DAYS, MIN_LOOKBACK_DAYS } from 'products/experiments/frontend/constants'
@@ -74,6 +75,7 @@ import { LogsMetricRulesSection } from 'products/logs/frontend/components/LogsMe
 import { LogsRetentionSection } from 'products/logs/frontend/components/LogsRetention/LogsRetentionSection'
 import { LogsSamplingSection } from 'products/logs/frontend/components/LogsSampling/LogsSamplingSection'
 import { LogsFeatureFlagKeys } from 'products/logs/frontend/logsFeatureFlagKeys'
+import { HeatmapScreenshotCookieSettings } from 'products/web_analytics/frontend/heatmaps/components/HeatmapScreenshotCookieSettings'
 import { WorkflowsEmailTrackingConsentSettings } from 'products/workflows/frontend/scenes/settings/WorkflowsEmailTrackingConsentSettings'
 import { WorkflowsEngagementEventsSettings } from 'products/workflows/frontend/scenes/settings/WorkflowsEngagementEventsSettings'
 import { WorkflowsTaskLimitsSettings } from 'products/workflows/frontend/scenes/settings/WorkflowsTaskLimitsSettings'
@@ -476,6 +478,23 @@ export const SETTINGS_MAP: SettingSection[] = [
     },
     {
         level: 'environment',
+        id: 'environment-data-quality',
+        title: 'Data quality',
+        flag: 'DATA_QUALITY_CHECKS',
+        group: 'Products',
+        settings: [
+            {
+                id: 'data-quality-materialization-gate',
+                title: 'Materialization on failing checks',
+                description:
+                    'When an error-severity check fails, the materialized view keeps serving its previous version instead of being replaced. Applies to every materialized view in this project.',
+                component: <DataQualityGateToggle />,
+                keywords: ['data quality', 'check', 'materialization', 'materialized view', 'block', 'gate'],
+            },
+        ],
+    },
+    {
+        level: 'environment',
         id: 'environment-customer-analytics',
         title: 'Customer analytics',
         flag: 'CUSTOMER_ANALYTICS',
@@ -865,6 +884,24 @@ export const SETTINGS_MAP: SettingSection[] = [
                 platformSupport: FEATURE_SUPPORT.heatmaps,
                 component: <HeatmapsSettings />,
                 keywords: ['click map', 'scroll', 'rage click', 'mouse', 'touch'],
+            },
+            {
+                id: 'heatmap-screenshot-cookie',
+                title: 'Screenshot request cookie',
+                description:
+                    'Heatmap backgrounds are screenshots of your site. Generate a value your screenshots send as a cookie, so bot protection can tell them apart from other headless browsers and allow them.',
+                docsUrl: 'https://posthog.com/docs/toolbar/heatmaps',
+                component: <HeatmapScreenshotCookieSettings />,
+                keywords: [
+                    'waf',
+                    'bot protection',
+                    'firewall',
+                    'cloudflare',
+                    'screenshot',
+                    'blocked',
+                    'allowlist',
+                    'cookie',
+                ],
             },
         ],
     },
@@ -1976,6 +2013,14 @@ export const SETTINGS_MAP: SettingSection[] = [
                 component: <IdentityProviderFeatureSection configScope={ConfigScopeEnumApi.Saml} />,
                 flag: 'SSO_SETTINGS_REDESIGN',
                 keywords: ['sso', 'saml', 'single sign-on', 'identity provider'],
+            },
+            {
+                id: 'oidc-configuration',
+                title: 'OIDC single sign-on',
+                description: 'Authenticate members through your identity provider with OpenID Connect (OIDC).',
+                component: <IdentityProviderFeatureSection configScope={ConfigScopeEnumApi.Oidc} />,
+                flag: 'SSO_SETTINGS_REDESIGN',
+                keywords: ['sso', 'oidc', 'openid connect', 'single sign-on', 'identity provider'],
             },
             {
                 id: 'scim-configuration',
