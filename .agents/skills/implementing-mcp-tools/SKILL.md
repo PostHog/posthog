@@ -187,8 +187,9 @@ Flags are evaluated in parallel at init via `evaluateFeatureFlags`. If a flag ca
 
 ### Enabling or renaming a tool
 
-The MCP server and Django deploy separately, so a tool name that reaches clients before its route
-does returns 404 on every call until the Django deploy lands. That hits a whole agent fleet at once.
+The MCP server and Django deploy separately.
+A tool that reaches clients before its route lands returns 404 on every call until the Django deploy catches up.
+That hits a whole agent fleet at once.
 
 - **Land the route first.** Ship the endpoint, then enable the tool in a later change. A tool with
   `enabled: true` in the same commit as a brand-new route is live in clients as soon as the MCP
