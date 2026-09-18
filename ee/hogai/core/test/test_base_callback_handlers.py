@@ -3,6 +3,8 @@ from uuid import uuid4
 from posthog.test.base import BaseTest
 from unittest.mock import Mock, patch
 
+from django.test import SimpleTestCase
+
 import posthoganalytics
 from langchain_core.messages import AIMessage, HumanMessage
 from langchain_core.outputs import ChatGeneration, LLMResult
@@ -317,7 +319,7 @@ class TestSubagentCallbackHandler(BaseTest):
         self.assertEqual(root_props["$ai_parent_id"], self.parent_span_id)
 
 
-class TestMaxCallbackHandler(BaseTest):
+class TestMaxCallbackHandler(SimpleTestCase):
     def _captured_events(
         self, client: Mock, handler: MaxCallbackHandler, output: LLMResult | BaseException
     ) -> list[str]:
