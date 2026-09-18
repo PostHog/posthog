@@ -6,6 +6,8 @@ from unittest.mock import patch
 from django.core.management import call_command
 from django.core.management.base import CommandError
 
+from posthog.models.team.team import Team
+
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction, HogFunctionType
 
 TASK = "posthog.management.commands.notify_uncompilable_hog_function_filters.send_hog_function_filters_uncompilable"
@@ -13,9 +15,13 @@ TASK = "posthog.management.commands.notify_uncompilable_hog_function_filters.sen
 
 class TestNotifyUncompilableHogFunctionFilters(BaseTest):
     def _broken(
-        self, name: str = "Broken", enabled: bool = True, type: str = HogFunctionType.DESTINATION
+        self,
+        name: str = "Broken",
+        enabled: bool = True,
+        type: str = HogFunctionType.DESTINATION,
+        team: Team | None = None,
     ) -> HogFunction:
-        hog_function = HogFunction.objects.create(team=self.team, name=name, enabled=enabled, type=type)
+        hog_function = HogFunction.objects.create(team=team or self.team, name=name, enabled=enabled, type=type)
         # Past save(), which recompiles the filters and clears the error. This is the shape the row
         # has in the database.
         HogFunction.objects.filter(id=hog_function.id).update(
@@ -72,6 +78,21 @@ class TestNotifyUncompilableHogFunctionFilters(BaseTest):
 
         task.delay.assert_not_called()
         assert "0 enabled function(s)" in out.getvalue()
+
+    def test_scopes_to_one_team_and_selects_nothing_for_a_zero(self) -> None:
+        other_team = Team.objects.create(organization=self.organization, name="Other project")
+        mine = self._broken()
+        self._broken(team=other_team)
+        out = StringIO()
+
+        with patch(TASK) as scoped:
+            call_command("notify_uncompilable_hog_function_filters", "--apply", "--team-id", self.team.id, stdout=out)
+        # `if team_id:` read a mistyped 0 as "every team" and would hand the whole fleet to --apply.
+        with patch(TASK) as zero:
+            call_command("notify_uncompilable_hog_function_filters", "--apply", "--team-id", 0, stdout=out)
+
+        scoped.delay.assert_called_once_with(str(mine.id))
+        zero.delay.assert_not_called()
 
     def test_rejects_a_limit_below_one(self) -> None:
         # `if limit:` read 0 as "no limit" and would hand the whole fleet to --apply.

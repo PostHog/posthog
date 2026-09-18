@@ -48,8 +48,11 @@ class Command(BaseCommand):
         queryset = HogFunction.objects.filter(deleted=False, enabled=True, type=HogFunctionType.DESTINATION).exclude(
             filters__bytecode_error__isnull=True
         )
-        if options["team_id"]:
-            queryset = queryset.filter(team_id=options["team_id"])
+        team_id = options["team_id"]
+        if team_id is not None:
+            # `if team_id:` would read a mistyped 0 as "every team" and hand the whole fleet to
+            # --apply. No team has id 0, so the filter reports nothing instead.
+            queryset = queryset.filter(team_id=team_id)
         queryset = queryset.select_related("team", "created_by").order_by("team_id", "id")
         limit = options["limit"]
         if limit is not None:
