@@ -45443,6 +45443,11 @@ export namespace Schemas {
          * @nullable
          */
       readonly pending_suggestions: number | null;
+      /**
+         * Whether someone turned suggestions on for this workflow. Read on the list only.
+         * @nullable
+         */
+      readonly suggestions_enabled: boolean | null;
     }
 
     export interface HogFlowOptimisation {

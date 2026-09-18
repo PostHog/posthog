@@ -1,13 +1,20 @@
+import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
 import { LemonButton, LemonTag } from '@posthog/lemon-ui'
 
+import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { TZLabel } from 'lib/components/TZLabel'
 import { urls } from 'scenes/urls'
 
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
+
 import type { WorkflowProposalApi } from '../generated/api.schemas'
+import { workflowLogic } from './workflowLogic'
 
 export function WorkflowStagedSuggestion({ id, proposal }: { id: string; proposal: WorkflowProposalApi }): JSX.Element {
+    const { draftActionPending, publishDisabledReason, workflowUserAccessLevel } = useValues(workflowLogic({ id }))
+    const { publishDraft } = useActions(workflowLogic({ id }))
     const approver = proposal.resolved_by?.first_name || proposal.resolved_by?.email
     return (
         <div className="border rounded p-3 bg-surface-primary flex items-center gap-3 flex-wrap">
@@ -30,6 +37,25 @@ export function WorkflowStagedSuggestion({ id, proposal }: { id: string; proposa
             >
                 Open draft
             </LemonButton>
+            <AccessControlAction
+                resourceType={AccessControlResourceType.Workflow}
+                minAccessLevel={AccessControlLevel.Editor}
+                userAccessLevel={workflowUserAccessLevel ?? undefined}
+            >
+                {({ disabledReason }) => (
+                    <LemonButton
+                        type="primary"
+                        size="small"
+                        data-attr="workflow-suggestion-publish"
+                        loading={draftActionPending === 'publish'}
+                        disabledReason={disabledReason ?? publishDisabledReason}
+                        // The same publish the header runs, preview and confirm included.
+                        onClick={() => publishDraft()}
+                    >
+                        Publish
+                    </LemonButton>
+                )}
+            </AccessControlAction>
         </div>
     )
 }

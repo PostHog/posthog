@@ -109,6 +109,7 @@ export interface HogFlow extends z.infer<typeof HogFlowSchema> {
     email_sending_resumed_at?: string | null
     // Suggested changes waiting for a person. Only the list endpoint counts it.
     pending_suggestions?: number | null
+    suggestions_enabled?: boolean | null
 }
 
 export interface HogFlowEdge extends z.infer<typeof HogFlowEdgeSchema> {}

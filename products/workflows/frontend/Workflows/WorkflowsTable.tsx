@@ -190,10 +190,10 @@ export function WorkflowsTable(): JSX.Element {
                                 {item.name}
                                 {selfOptimisingEnabled &&
                                     item.status === 'active' &&
-                                    !!item.pending_suggestions && (
+                                    item.suggestions_enabled && (
                                         // A tag with its own click rather than a link: the row is already a link.
                                         <LemonTag
-                                            type="completion"
+                                            type={item.pending_suggestions ? 'completion' : 'muted'}
                                             data-attr="workflow-list-suggestions"
                                             onClick={(event) => {
                                                 event.preventDefault()
@@ -201,9 +201,11 @@ export function WorkflowsTable(): JSX.Element {
                                                 router.actions.push(urls.workflow(item.id, 'suggestions'))
                                             }}
                                         >
-                                            {item.pending_suggestions === 1
-                                                ? '1 suggestion'
-                                                : `${item.pending_suggestions} suggestions`}
+                                            {!item.pending_suggestions
+                                                ? 'Suggestions on'
+                                                : item.pending_suggestions === 1
+                                                  ? '1 suggestion'
+                                                  : `${item.pending_suggestions} suggestions`}
                                         </LemonTag>
                                     )}
                             </span>

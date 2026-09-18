@@ -270,6 +270,10 @@ class TestWorkflowProposals(APIBaseTest):
         counts = {item["id"]: item["pending_suggestions"] for item in listed}
         assert counts[flow_id] == 2
         assert counts[other_id] == 0
+        # A workflow with suggestions on but none waiting still reads as self-improving in the list.
+        enabled = {item["id"]: item["suggestions_enabled"] for item in listed}
+        assert enabled[flow_id] is True
+        assert enabled[other_id] is True
         detail = self.client.get(f"/api/projects/{self.team.id}/hog_flows/{flow_id}").json()
         assert "pending_suggestions" not in detail
 
