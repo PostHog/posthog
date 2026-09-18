@@ -249,15 +249,15 @@ export function ObservationSearch({ className }: { className?: string }): JSX.El
                 {idle && <div className="w-full border border-primary rounded-lg bg-surface-primary">{palette}</div>}
             </div>
             {results?.length === 0 && !searching && (
-                <div className="rounded bg-surface-secondary px-3 py-3 flex items-center gap-4">
-                    <HedgehogResearch className="w-20 h-20 shrink-0" />
-                    <div className="flex flex-col gap-3 min-w-0">
+                <div className="rounded bg-surface-secondary px-3 py-6 flex flex-col items-center gap-3 text-center">
+                    <HedgehogResearch className="w-24 h-24" />
+                    <div className="flex flex-col items-center gap-3 min-w-0 max-w-2xl">
                         <div className="text-sm text-secondary">
                             {scannerId
                                 ? `No matches in ${selectedScanner?.name ?? 'this scanner'} for "${searchedQuery}".`
                                 : `No matches for "${searchedQuery}". Only sessions a scanner has analyzed are searchable, so nothing found can also mean no scanner is watching for this yet.`}
                         </div>
-                        <div className="flex flex-wrap items-center gap-2">
+                        <div className="flex flex-wrap items-center justify-center gap-2">
                             {scannerId ? (
                                 <LemonButton
                                     type="secondary"
