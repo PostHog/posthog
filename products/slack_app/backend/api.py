@@ -106,11 +106,7 @@ from products.slack_app.backend.services.slack_user_oauth import (
     find_linked_posthog_user,
     post_link_invite_message,
 )
-from products.slack_app.backend.services.slack_welcome_messages import (
-    build_channel_welcome,
-    build_install_welcome,
-    build_team_join_welcome,
-)
+from products.slack_app.backend.services.slack_welcome_messages import build_channel_welcome, build_team_join_welcome
 from products.slack_app.backend.slack_link_unfurl import (
     handle_posthog_link_unfurl,
     link_url_region,
@@ -1865,26 +1861,6 @@ def _post_assistant_unavailable(slack: SlackIntegration, channel_id: str, thread
         slack.client.chat_postMessage(channel=channel_id, thread_ts=thread_ts, text=_ASSISTANT_UNAVAILABLE)
     except Exception:
         logger.warning("assistant_unavailable_post_failed", exc_info=True)
-
-
-def send_assistant_install_welcome(integration: Integration) -> None:
-    """DM the installing user the moment the app is added, when the assistant is enabled for their team.
-
-    Dispatched from the ``Integration`` post-save receiver in ``signals.py``, which fires
-    only on a first install, so this needs no dedupe of its own.
-    """
-    if not is_slack_app_assistant_enabled(integration):
-        return
-    slack_user_id = ((integration.config or {}).get("authed_user") or {}).get("id")
-    if not slack_user_id:
-        return
-    text, blocks = build_install_welcome(integration)
-    try:
-        SlackIntegration(integration).client.chat_postMessage(
-            channel=slack_user_id, text=text, blocks=blocks, unfurl_links=False, unfurl_media=False
-        )
-    except Exception:
-        logger.warning("assistant_install_welcome_failed", exc_info=True)
 
 
 def _handle_assistant_dm_message(

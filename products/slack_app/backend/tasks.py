@@ -7,9 +7,9 @@ from posthog.models.integration import Integration
 from products.slack_app.backend.api import (
     SLACK_INTEGRATION_KIND,
     does_other_region_claim_workspace,
-    send_assistant_install_welcome,
     send_region_proxy_request,
 )
+from products.slack_app.backend.services.slack_welcome_messages import send_install_welcome
 
 
 @shared_task(ignore_result=True)
@@ -40,9 +40,9 @@ def send_slack_install_welcome(*, integration_id: int) -> None:
 
     Off the OAuth callback's request path because the installer is waiting on a redirect.
     No retries: a welcome that arrives late is worth less than a duplicate would cost, and
-    the post is already best-effort inside ``send_assistant_install_welcome``.
+    the post is already best-effort inside ``send_install_welcome``.
     """
     integration = Integration.objects.filter(id=integration_id, kind=SLACK_INTEGRATION_KIND).first()
     if integration is None:
         return
-    send_assistant_install_welcome(integration)
+    send_install_welcome(integration)
