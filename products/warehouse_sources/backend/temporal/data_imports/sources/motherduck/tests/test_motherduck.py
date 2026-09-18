@@ -8,6 +8,10 @@ import pyarrow as pa
 
 from products.warehouse_sources.backend.facade.source_config import ReleaseStatus, SourceFieldInputConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.predicates import (
+    ColumnTypeCategory,
+    ValidatedRowFilter,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.motherduck import (
     MotherduckSourceConfig,
@@ -390,9 +394,10 @@ class TestMotherDuck:
     # build_pipeline
     # ------------------------------------------------------------------
 
-    def _pipeline_mocks(self, primary_key_rows, rows_to_sync, batches):
+    def _pipeline_mocks(self, primary_key_rows, rows_to_sync, batches, column_rows=None):
         metadata_conn = _conn()
-        metadata_conn.fetchall.return_value = primary_key_rows
+        # First fetchall is the declared-PK lookup, second the column listing.
+        metadata_conn.fetchall.side_effect = [primary_key_rows, [("id",)] if column_rows is None else column_rows]
         metadata_conn.fetchone.return_value = (rows_to_sync,)
 
         streaming_conn = _conn()
@@ -437,6 +442,232 @@ class TestMotherDuck:
         # `sort_mode` defaults to ascending, so the query must actually order that way.
         assert sql.endswith('ORDER BY "updated_at" ASC')
         assert params == ["2026-01-01T00:00:00"]
+
+    def test_build_pipeline_falls_back_to_id_and_flags_duplicate_keys(self, impl):
+        # No declared primary key: the pipeline assumes `id`, and the duplicate probe
+        # finding a repeated value must surface on the response so the incremental
+        # guard refuses the sync instead of merging on the non-unique key.
+        batches = [pa.RecordBatch.from_pydict({"id": [1, 1]})]
+        metadata_conn, streaming_conn = self._pipeline_mocks([], 2, batches)
+        metadata_conn.fetchone.side_effect = [(1,), (2,)]
+
+        with patch(_CONNECT_PATH, side_effect=[metadata_conn, streaming_conn]):
+            response = impl.build_pipeline(_make_config(), _make_inputs(schema_name="users"))
+
+        assert response.primary_keys == ["id"]
+        assert response.has_duplicate_primary_keys is True
+        # A probe that found duplicates proves nothing, so the key stays unverified.
+        assert response.verified_primary_keys is None
+
+    def test_build_pipeline_id_fallback_passes_clean_when_ids_are_unique(self, impl):
+        batches = [pa.RecordBatch.from_pydict({"id": [1, 2]})]
+        metadata_conn, streaming_conn = self._pipeline_mocks([], 2, batches)
+        metadata_conn.fetchone.side_effect = [None, (2,)]
+
+        with patch(_CONNECT_PATH, side_effect=[metadata_conn, streaming_conn]):
+            response = impl.build_pipeline(_make_config(), _make_inputs(schema_name="users"))
+
+        assert response.primary_keys == ["id"]
+        assert response.has_duplicate_primary_keys is False
+        # A clean full scan proves the key, so later runs only probe the rows they read.
+        assert response.verified_primary_keys == ["id"]
+
+    def test_build_pipeline_without_id_column_stays_keyless(self, impl):
+        batches = [pa.RecordBatch.from_pydict({"v": ["a"]})]
+        metadata_conn, streaming_conn = self._pipeline_mocks([], 1, batches, column_rows=[("v",)])
+        metadata_conn.fetchone.side_effect = [(1,)]
+
+        with patch(_CONNECT_PATH, side_effect=[metadata_conn, streaming_conn]):
+            response = impl.build_pipeline(_make_config(), _make_inputs(schema_name="users"))
+
+        assert response.primary_keys is None
+        assert response.has_duplicate_primary_keys is False
+        assert response.verified_primary_keys is None
+
+    def test_build_pipeline_declared_primary_key_skips_the_probe(self, impl):
+        batches = [pa.RecordBatch.from_pydict({"id": [1, 2]})]
+        metadata_conn, streaming_conn = self._pipeline_mocks([(["id"],)], 2, batches)
+
+        with patch(_CONNECT_PATH, side_effect=[metadata_conn, streaming_conn]):
+            response = impl.build_pipeline(_make_config(), _make_inputs(schema_name="users"))
+
+        assert response.primary_keys == ["id"]
+        assert response.has_duplicate_primary_keys is False
+        # Only the row-count probe runs: no column probe, no duplicate probe.
+        assert metadata_conn.fetchone.call_count == 1
+
+    def test_duplicate_probe_assumes_duplicates_when_the_probe_fails(self, impl):
+        conn = _conn()
+        conn.execute.side_effect = Exception("connection lost")
+
+        assert impl._has_duplicate_primary_keys(conn, "analytics", "users", ["id"]) is True
+
+    def test_duplicate_probe_groups_on_the_quoted_key(self, impl):
+        conn = _conn()
+        conn.fetchone.return_value = None
+
+        assert impl._has_duplicate_primary_keys(conn, "analytics", "users", ["id"]) is False
+        sql, params = conn.execute.call_args.args
+        assert sql == 'SELECT "id" FROM "analytics"."users" GROUP BY "id" HAVING COUNT(*) > 1 LIMIT 1'
+        assert params == []
+
+    def _probe_call(self, metadata_conn):
+        """The duplicate-key probe among the metadata connection's calls."""
+        return next(call for call in metadata_conn.execute.call_args_list if "GROUP BY" in call.args[0])
+
+    def test_build_pipeline_probes_a_persisted_custom_key(self, impl):
+        # The customer's stored key is what the merge runs on, so it is what gets probed.
+        batches = [pa.RecordBatch.from_pydict({"email": ["a", "a"]})]
+        metadata_conn, streaming_conn = self._pipeline_mocks([], 2, batches, column_rows=[("id",), ("email",)])
+        metadata_conn.fetchone.side_effect = [("a",), (2,)]
+
+        with patch(_CONNECT_PATH, side_effect=[metadata_conn, streaming_conn]):
+            response = impl.build_pipeline(_make_config(), _make_inputs(schema_name="users", primary_keys=["email"]))
+
+        assert response.primary_keys == ["email"]
+        assert response.has_duplicate_primary_keys is True
+        sql, _params = self._probe_call(metadata_conn).args
+        assert 'GROUP BY "email"' in sql
+
+    def test_build_pipeline_probes_a_persisted_override_of_a_declared_key(self, impl):
+        # A declared key is enforced, but the merge uses the override, which is not.
+        batches = [pa.RecordBatch.from_pydict({"id": [1, 2], "email": ["a", "b"]})]
+        metadata_conn, streaming_conn = self._pipeline_mocks(
+            [(["id"],)], 2, batches, column_rows=[("id",), ("email",)]
+        )
+        metadata_conn.fetchone.side_effect = [None, (2,)]
+
+        with patch(_CONNECT_PATH, side_effect=[metadata_conn, streaming_conn]):
+            response = impl.build_pipeline(_make_config(), _make_inputs(schema_name="users", primary_keys=["email"]))
+
+        assert response.primary_keys == ["email"]
+        assert response.has_duplicate_primary_keys is False
+        assert response.verified_primary_keys == ["email"]
+        sql, _params = self._probe_call(metadata_conn).args
+        assert 'GROUP BY "email"' in sql
+
+    def test_build_pipeline_persisted_key_matching_the_declared_key_skips_the_probe(self, impl):
+        batches = [pa.RecordBatch.from_pydict({"id": [1, 2]})]
+        metadata_conn, streaming_conn = self._pipeline_mocks([(["id"],)], 2, batches)
+
+        with patch(_CONNECT_PATH, side_effect=[metadata_conn, streaming_conn]):
+            response = impl.build_pipeline(_make_config(), _make_inputs(schema_name="users", primary_keys=["id"]))
+
+        assert response.primary_keys == ["id"]
+        assert response.has_duplicate_primary_keys is False
+        # The enforced key needs no probe: only the row-count lookup runs.
+        assert metadata_conn.fetchone.call_count == 1
+
+    def test_build_pipeline_id_fallback_preserves_the_stored_casing(self, impl):
+        batches = [pa.RecordBatch.from_pydict({"ID": [1, 2]})]
+        metadata_conn, streaming_conn = self._pipeline_mocks([], 2, batches, column_rows=[("ID",), ("updated_at",)])
+        metadata_conn.fetchone.side_effect = [None, (2,)]
+
+        with patch(_CONNECT_PATH, side_effect=[metadata_conn, streaming_conn]):
+            response = impl.build_pipeline(_make_config(), _make_inputs(schema_name="users"))
+
+        # The merge indexes batches by the real name, so the probe must quote it too.
+        assert response.primary_keys == ["ID"]
+        sql, _params = self._probe_call(metadata_conn).args
+        assert 'GROUP BY "ID"' in sql
+
+    def test_build_pipeline_full_refresh_scans_the_whole_table_even_when_verified(self, impl):
+        # A run with no stored cursor re-reads everything, so a window would be wrong.
+        batches = [pa.RecordBatch.from_pydict({"id": [1, 2]})]
+        metadata_conn, streaming_conn = self._pipeline_mocks([], 2, batches)
+        metadata_conn.fetchone.side_effect = [None, (2,)]
+
+        with patch(_CONNECT_PATH, side_effect=[metadata_conn, streaming_conn]):
+            response = impl.build_pipeline(
+                _make_config(), _make_inputs(schema_name="users", verified_primary_keys=["id"])
+            )
+
+        assert response.has_duplicate_primary_keys is False
+        assert response.verified_primary_keys == ["id"]
+        sql, params = self._probe_call(metadata_conn).args
+        assert "EXISTS" not in sql
+        assert params == []
+
+    def test_build_pipeline_repeat_run_probes_only_the_incremental_window(self, impl):
+        batches = [pa.RecordBatch.from_pydict({"id": [3], "updated_at": ["2026-01-02"]})]
+        metadata_conn, streaming_conn = self._pipeline_mocks([], 1, batches, column_rows=[("id",), ("updated_at",)])
+        metadata_conn.fetchone.side_effect = [None, (1,)]
+
+        with patch(_CONNECT_PATH, side_effect=[metadata_conn, streaming_conn]):
+            response = impl.build_pipeline(
+                _make_config(),
+                _make_inputs(
+                    schema_name="users",
+                    should_use_incremental_field=True,
+                    incremental_field="updated_at",
+                    incremental_field_type=IncrementalFieldType.Timestamp,
+                    db_incremental_field_last_value="2026-01-01T00:00:00",
+                    verified_primary_keys=["id"],
+                ),
+            )
+
+        assert response.has_duplicate_primary_keys is False
+        # A windowed probe proves nothing new, so the stored verification stands.
+        assert response.verified_primary_keys is None
+        sql, params = self._probe_call(metadata_conn).args
+        assert "EXISTS" in sql
+        assert '"updated_at" > ?' in sql
+        # Each candidate key is still counted across the whole table, NULL-safely.
+        assert '(t."id" = c."id" OR (t."id" IS NULL AND c."id" IS NULL))' in sql
+        assert params == ["2026-01-01T00:00:00"]
+
+    def test_build_pipeline_unverified_repeat_run_scans_the_whole_table(self, impl):
+        # An incremental cursor without a proven key still owes a full scan.
+        batches = [pa.RecordBatch.from_pydict({"id": [3], "updated_at": ["2026-01-02"]})]
+        metadata_conn, streaming_conn = self._pipeline_mocks([], 1, batches, column_rows=[("id",), ("updated_at",)])
+        metadata_conn.fetchone.side_effect = [None, (1,)]
+
+        with patch(_CONNECT_PATH, side_effect=[metadata_conn, streaming_conn]):
+            response = impl.build_pipeline(
+                _make_config(),
+                _make_inputs(
+                    schema_name="users",
+                    should_use_incremental_field=True,
+                    incremental_field="updated_at",
+                    incremental_field_type=IncrementalFieldType.Timestamp,
+                    db_incremental_field_last_value="2026-01-01T00:00:00",
+                ),
+            )
+
+        assert response.has_duplicate_primary_keys is False
+        assert response.verified_primary_keys == ["id"]
+        sql, _params = self._probe_call(metadata_conn).args
+        assert "EXISTS" not in sql
+
+    def test_window_probe_applies_row_filters_on_both_sides(self, impl):
+        batches = [pa.RecordBatch.from_pydict({"id": [3], "updated_at": ["2026-01-02"], "tenant": ["acme"]})]
+        metadata_conn, streaming_conn = self._pipeline_mocks(
+            [], 1, batches, column_rows=[("id",), ("updated_at",), ("tenant",)]
+        )
+        metadata_conn.fetchone.side_effect = [None, (1,)]
+        row_filters = [
+            ValidatedRowFilter(column="tenant", operator="=", value="acme", category=ColumnTypeCategory.STRING)
+        ]
+
+        with patch(_CONNECT_PATH, side_effect=[metadata_conn, streaming_conn]):
+            response = impl.build_pipeline(
+                _make_config(),
+                _make_inputs(
+                    schema_name="users",
+                    should_use_incremental_field=True,
+                    incremental_field="updated_at",
+                    incremental_field_type=IncrementalFieldType.Timestamp,
+                    db_incremental_field_last_value="2026-01-01T00:00:00",
+                    verified_primary_keys=["id"],
+                    row_filters=row_filters,
+                ),
+            )
+
+        assert response.has_duplicate_primary_keys is False
+        sql, params = self._probe_call(metadata_conn).args
+        # The key only has to be unique among the rows extraction actually reads.
+        assert sql.count('"tenant" = ?') == 2
+        assert params == ["acme", "2026-01-01T00:00:00", "acme"]
 
     def test_build_pipeline_projection_retains_the_primary_key(self, impl):
         # Dropping the PK from the projection would break the Delta merge on every later sync.
