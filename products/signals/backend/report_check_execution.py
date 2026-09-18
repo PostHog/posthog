@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import time
 from datetime import datetime, timedelta
+from functools import partial
 
 from django.db import transaction
 from django.db.models import F, Window
@@ -45,6 +46,7 @@ from products.alerts.backend.facade.evaluation import (
 from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.artefact_schemas import CheckResult
 from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalReportCheck
+from products.signals.backend.report_check_telemetry import capture_report_check_resolved
 from products.signals.backend.report_checks import (
     MAX_CONSECUTIVE_CHECK_ERRORS,
     CheckComparison,
@@ -325,6 +327,12 @@ def record_check_verdict(
             ),
             attribution=attribution or ArtefactAttribution.system(),
         )
+        # Post-commit, so a rolled-back verdict is never counted as one, and after the artefact so
+        # the event describes a result a reader can already see on the report. The team comes off
+        # the caller's row, where both call paths already select it with its organization; the
+        # locked row selects neither, and widening the lock to reach them would take `FOR UPDATE`
+        # on `Team`.
+        transaction.on_commit(partial(capture_report_check_resolved, check.team, current, run_id=run_id))
 
 
 def expire_overdue_checks(now: datetime) -> int:
@@ -357,7 +365,7 @@ def collect_due_checks(now: datetime, *, limit: int = MAX_CHECK_RUNS_PER_TICK) -
             expires_at__gt=now,
             report__status__in=CHECKABLE_REPORT_STATUSES,
         )
-        .select_related("report", "report__team")
+        .select_related("report", "report__team", "team__organization")
         # Rank each team's rows against its own, then read those ranks in order, so every team's
         # oldest check sorts ahead of any team's second. Ordering by `next_run_at` alone would let
         # one team's backlog fill the whole prefix and starve every other team behind it.
