@@ -379,6 +379,248 @@ describe('getNextDeliveryDate', () => {
         })
         expect(result).toBeNull()
     })
+
+    it('keeps the local wall time across a DST transition', () => {
+        // Weekly Monday 8am US/Central created in summer (stored 13:00 UTC). After the
+        // Nov 1 transition to CST the delivery must stay at 8am local = 14:00 UTC.
+        jest.setSystemTime(new Date('2026-11-10T12:00:00Z'))
+        const result = getNextDeliveryDate(
+            {
+                frequency: 'weekly',
+                interval: 1,
+                start_date: '2026-06-01T13:00:00Z',
+                byweekday: ['monday'],
+            },
+            'US/Central'
+        )
+        expect(result).toEqual(new Date('2026-11-16T14:00:00Z'))
+    })
+
+    it('keeps the local wall time across spring forward', () => {
+        // 8am US/Central in winter (14:00 UTC) becomes 13:00 UTC after the Mar 2027 transition.
+        jest.setSystemTime(new Date('2027-03-15T00:00:00Z'))
+        const result = getNextDeliveryDate(
+            {
+                frequency: 'weekly',
+                interval: 1,
+                start_date: '2027-01-04T14:00:00Z',
+                byweekday: ['monday'],
+            },
+            'US/Central'
+        )
+        expect(result).toEqual(new Date('2027-03-15T13:00:00Z'))
+    })
+
+    it('keeps the fixed UTC behavior when no timezone is given', () => {
+        jest.setSystemTime(new Date('2026-11-10T12:00:00Z'))
+        const result = getNextDeliveryDate({
+            frequency: 'weekly',
+            interval: 1,
+            start_date: '2026-06-01T13:00:00Z',
+            byweekday: ['monday'],
+        })
+        expect(result).toEqual(new Date('2026-11-16T13:00:00Z'))
+    })
+
+    it('handles half-hour offset timezones without DST', () => {
+        const result = getNextDeliveryDate(
+            { frequency: 'daily', interval: 1, start_date: '2024-01-01T03:30:00Z' },
+            'Asia/Kolkata'
+        )
+        expect(result).toEqual(new Date('2024-01-16T03:30:00Z'))
+    })
+
+    it('resolves an ambiguous wall time to the earlier (pre-transition) occurrence', () => {
+        // Daily 1:30am US/Central: on Nov 1 2026 the wall time happens twice (CDT, then CST).
+        // Both backend (zoneinfo fold=0) and this mirror pick the earlier occurrence,
+        // 1:30am CDT = 06:30 UTC.
+        jest.setSystemTime(new Date('2026-10-31T12:00:00Z'))
+        const result = getNextDeliveryDate(
+            { frequency: 'daily', interval: 1, start_date: '2026-10-20T06:30:00Z' },
+            'US/Central'
+        )
+        expect(result).toEqual(new Date('2026-11-01T06:30:00Z'))
+    })
+
+    it('returns the first fold occurrence while it is still ahead', () => {
+        // Daily 1:30am US/Central, computed at 1:15am CDT (06:15 UTC) on transition day.
+        jest.setSystemTime(new Date('2026-11-01T06:15:00Z'))
+        const result = getNextDeliveryDate(
+            { frequency: 'daily', interval: 1, start_date: '2026-10-20T06:30:00Z' },
+            'US/Central'
+        )
+        expect(result).toEqual(new Date('2026-11-01T06:30:00Z'))
+    })
+
+    it('returns the second fold occurrence once the first is past', () => {
+        // Same schedule computed during the repeated hour, at 1:15am CST (07:15 UTC):
+        // the first 1:30am (06:30 UTC) is already past, so the delivery is the second
+        // occurrence of that wall time: 1:30am CST = 07:30 UTC.
+        jest.setSystemTime(new Date('2026-11-01T07:15:00Z'))
+        const result = getNextDeliveryDate(
+            { frequency: 'daily', interval: 1, start_date: '2026-10-20T06:30:00Z' },
+            'US/Central'
+        )
+        expect(result).toEqual(new Date('2026-11-01T07:30:00Z'))
+    })
+
+    it('returns the second fold when the first-fold wall time has already passed', () => {
+        // Daily 1:30am US/Central at 1:45am CDT (06:45 UTC): the 1:30 wall time is behind on
+        // the wall clock, but its second occurrence (1:30am CST = 07:30 UTC) is still ahead.
+        jest.setSystemTime(new Date('2026-11-01T06:45:00Z'))
+        const result = getNextDeliveryDate(
+            { frequency: 'daily', interval: 1, start_date: '2026-10-20T06:30:00Z' },
+            'US/Central'
+        )
+        expect(result).toEqual(new Date('2026-11-01T07:30:00Z'))
+    })
+
+    it('treats the current instant as already past at an exact occurrence', () => {
+        // Exactly at the first-fold 1:30am (06:30 UTC): strictly-after semantics move to the
+        // second occurrence at 1:30am CST (07:30 UTC).
+        jest.setSystemTime(new Date('2026-11-01T06:30:00Z'))
+        const result = getNextDeliveryDate(
+            { frequency: 'daily', interval: 1, start_date: '2026-10-20T06:30:00Z' },
+            'US/Central'
+        )
+        expect(result).toEqual(new Date('2026-11-01T07:30:00Z'))
+    })
+
+    it('handles half-hour backward transitions', () => {
+        // Australia/Lord_Howe falls back 30 minutes on Apr 4 2027: daily 1:45am exists at
+        // 14:45 UTC (+11) and 15:15 UTC (+10:30). At 14:50 UTC only the second is ahead.
+        jest.setSystemTime(new Date('2027-04-03T14:50:00Z'))
+        const result = getNextDeliveryDate(
+            { frequency: 'daily', interval: 1, start_date: '2027-03-20T14:45:00Z' },
+            'Australia/Lord_Howe'
+        )
+        expect(result).toEqual(new Date('2027-04-03T15:15:00Z'))
+    })
+
+    it('normalizes a nonexistent wall time forward', () => {
+        // Daily 2:30am US/Central: on Mar 14 2027 that wall time never happens (spring
+        // forward 02:00 -> 03:00). The recurrence normalizes forward to the next valid
+        // instant: 2:30am in the pre-transition offset = 08:30 UTC = 3:30am CDT.
+        jest.setSystemTime(new Date('2027-03-13T12:00:00Z'))
+        const result = getNextDeliveryDate(
+            { frequency: 'daily', interval: 1, start_date: '2027-03-01T08:30:00Z' },
+            'US/Central'
+        )
+        expect(result).toEqual(new Date('2027-03-14T08:30:00Z'))
+    })
+
+    it('keeps an early wall time across a positive-offset spring transition', () => {
+        // Daily 1:00am Australia/Sydney: on the Oct 4 2026 spring-forward day (02:00 ->
+        // 03:00) 1:00am still exists, ahead of the gap, so the delivery is 15:00 UTC
+        // Oct 3 with the pre-transition offset. The next day moves to 14:00 UTC (+11).
+        // Parity with Subscription._compute_next_delivery_date.
+        jest.setSystemTime(new Date('2026-10-03T12:00:00Z'))
+        const onTransitionDay = getNextDeliveryDate(
+            { frequency: 'daily', interval: 1, start_date: '2026-09-01T15:00:00Z' },
+            'Australia/Sydney'
+        )
+        expect(onTransitionDay).toEqual(new Date('2026-10-03T15:00:00Z'))
+
+        jest.setSystemTime(new Date('2026-10-04T12:00:00Z'))
+        const after = getNextDeliveryDate(
+            { frequency: 'daily', interval: 1, start_date: '2026-09-01T15:00:00Z' },
+            'Australia/Sydney'
+        )
+        expect(after).toEqual(new Date('2026-10-04T14:00:00Z'))
+    })
+
+    it('keeps an early wall time across a half-hour spring forward', () => {
+        // Daily 12:15am Australia/Lord_Howe: the Oct 4 2026 spring forward (02:00 ->
+        // 02:30) leaves 12:15am intact at 13:45 UTC (+10:30); the next day is 13:15 UTC.
+        jest.setSystemTime(new Date('2026-10-03T12:00:00Z'))
+        const onTransitionDay = getNextDeliveryDate(
+            { frequency: 'daily', interval: 1, start_date: '2026-09-01T13:45:00Z' },
+            'Australia/Lord_Howe'
+        )
+        expect(onTransitionDay).toEqual(new Date('2026-10-03T13:45:00Z'))
+
+        jest.setSystemTime(new Date('2026-10-04T12:00:00Z'))
+        const after = getNextDeliveryDate(
+            { frequency: 'daily', interval: 1, start_date: '2026-09-01T13:45:00Z' },
+            'Australia/Lord_Howe'
+        )
+        expect(after).toEqual(new Date('2026-10-04T13:15:00Z'))
+    })
+
+    it('returns both occurrences of a two-hour fold', () => {
+        // Antarctica/Troll falls back two hours on Oct 25 2026 (03:00 -> 01:00), so daily
+        // 2:00am exists at 00:00 UTC (+2) and again at 02:00 UTC (+0).
+        jest.setSystemTime(new Date('2026-10-24T23:00:00Z'))
+        const before = getNextDeliveryDate(
+            { frequency: 'daily', interval: 1, start_date: '2026-10-20T00:00:00Z' },
+            'Antarctica/Troll'
+        )
+        expect(before).toEqual(new Date('2026-10-25T00:00:00Z'))
+
+        jest.setSystemTime(new Date('2026-10-25T00:30:00Z'))
+        const between = getNextDeliveryDate(
+            { frequency: 'daily', interval: 1, start_date: '2026-10-20T00:00:00Z' },
+            'Antarctica/Troll'
+        )
+        expect(between).toEqual(new Date('2026-10-25T02:00:00Z'))
+
+        jest.setSystemTime(new Date('2026-10-25T02:30:00Z'))
+        const after = getNextDeliveryDate(
+            { frequency: 'daily', interval: 1, start_date: '2026-10-20T00:00:00Z' },
+            'Antarctica/Troll'
+        )
+        expect(after).toEqual(new Date('2026-10-26T02:00:00Z'))
+    })
+
+    it('normalizes a nonexistent wall time across a positive-offset gap', () => {
+        // Daily 2:30am Australia/Sydney does not exist on Oct 4 2026 (02:00 -> 03:00):
+        // deliver at the pre-transition offset, 16:30 UTC Oct 3, matching the backend.
+        jest.setSystemTime(new Date('2026-10-03T12:00:00Z'))
+        const result = getNextDeliveryDate(
+            { frequency: 'daily', interval: 1, start_date: '2026-09-01T16:30:00Z' },
+            'Australia/Sydney'
+        )
+        expect(result).toEqual(new Date('2026-10-03T16:30:00Z'))
+    })
+
+    it('matches the backend at sub-second boundaries', () => {
+        // dateutil's rrule works at whole-second precision and the preview mirrors it: a
+        // 9:00:00.500 start produces 9:00:00 occurrences on both stacks, and an occurrence
+        // is only next while it is strictly ahead.
+        const subscription = { frequency: 'daily', interval: 1, start_date: '2026-09-01T13:00:00.500Z' }
+
+        jest.setSystemTime(new Date('2026-10-15T12:59:59.950Z'))
+        expect(getNextDeliveryDate(subscription, 'America/New_York')).toEqual(new Date('2026-10-15T13:00:00Z'))
+
+        jest.setSystemTime(new Date('2026-10-15T13:00:00.000Z'))
+        expect(getNextDeliveryDate(subscription, 'America/New_York')).toEqual(new Date('2026-10-16T13:00:00Z'))
+
+        jest.setSystemTime(new Date('2026-10-15T13:00:00.050Z'))
+        expect(getNextDeliveryDate(subscription, 'America/New_York')).toEqual(new Date('2026-10-16T13:00:00Z'))
+    })
+
+    it('handles second-precision historical offset transitions', () => {
+        // America/Argentina/Catamarca sprang forward 16m48s on May 1 1920 (00:00 ->
+        // 00:16:48): daily 00:01:20 never happens that day and delivers at the
+        // pre-transition offset, matching Subscription._compute_next_delivery_date.
+        jest.setSystemTime(new Date('1920-04-30T12:00:00Z'))
+        const result = getNextDeliveryDate(
+            { frequency: 'daily', interval: 1, start_date: '1920-04-29T04:18:08Z' },
+            'America/Argentina/Catamarca'
+        )
+        expect(result).toEqual(new Date('1920-05-01T04:18:08Z'))
+    })
+
+    it('handles sub-minute historical gaps', () => {
+        // America/Bahia_Banderas sprang forward 60 seconds on Jan 1 1922 (23:59 -> 00:00):
+        // daily 23:59:30 never happens, delivering at the pre-transition offset.
+        jest.setSystemTime(new Date('1921-12-31T12:00:00Z'))
+        const result = getNextDeliveryDate(
+            { frequency: 'daily', interval: 1, start_date: '1921-12-30T07:00:30Z' },
+            'America/Bahia_Banderas'
+        )
+        expect(result).toEqual(new Date('1922-01-01T07:00:30Z'))
+    })
 })
 
 describe('getAiSubscriptionGate', () => {
