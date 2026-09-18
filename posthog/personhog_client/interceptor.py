@@ -206,30 +206,42 @@ class RetryInterceptor(grpc.UnaryUnaryClientInterceptor):
         delay_ms = self._initial_backoff_ms
 
         while True:
+            # grpc's blocking unary path catches the RpcError inside ``continuation`` and hands it
+            # back as the return value, so a failed call arrives here as an RpcError instance and
+            # is only raised later, by ``call.result()`` outside this interceptor. The except
+            # branch covers the future-based path and test doubles, which raise instead.
+            raised = False
             try:
-                return continuation(client_call_details, request)
+                outcome = continuation(client_call_details, request)
             except grpc.RpcError as exc:
-                code = exc.code()
-                error_type = _grpc_error_type(code) if code else "Unknown"
-                retryable = code in _RETRYABLE_CODES if code else False
+                outcome = exc
+                raised = True
+            if not isinstance(outcome, grpc.RpcError):
+                return outcome
 
-                if not retryable or attempt == self._max_retries:
-                    PERSONHOG_TERMINAL_ERRORS_TOTAL.labels(
-                        method=method, client=self._client_name, error_type=error_type
-                    ).inc()
-                    raise
+            code = outcome.code()
+            error_type = _grpc_error_type(code) if code else "Unknown"
+            retryable = code in _RETRYABLE_CODES if code else False
 
-                PERSONHOG_RETRIES_TOTAL.labels(method=method, client=self._client_name, error_type=error_type).inc()
+            if not retryable or attempt == self._max_retries:
+                PERSONHOG_TERMINAL_ERRORS_TOTAL.labels(
+                    method=method, client=self._client_name, error_type=error_type
+                ).inc()
+                if raised:
+                    raise outcome
+                return outcome
 
-                logger.warning(
-                    "personhog_grpc_retry",
-                    method=method,
-                    attempt=attempt + 1,
-                    max_retries=self._max_retries,
-                    error_type=error_type,
-                )
+            PERSONHOG_RETRIES_TOTAL.labels(method=method, client=self._client_name, error_type=error_type).inc()
 
-                base = delay_ms / 2
-                time.sleep((base + random.uniform(0, base)) / 1000)
-                delay_ms = min(delay_ms * 2, self._max_backoff_ms)
-                attempt += 1
+            logger.warning(
+                "personhog_grpc_retry",
+                method=method,
+                attempt=attempt + 1,
+                max_retries=self._max_retries,
+                error_type=error_type,
+            )
+
+            base = delay_ms / 2
+            time.sleep((base + random.uniform(0, base)) / 1000)
+            delay_ms = min(delay_ms * 2, self._max_backoff_ms)
+            attempt += 1
