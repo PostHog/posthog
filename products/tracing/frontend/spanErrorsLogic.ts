@@ -29,7 +29,11 @@ export type SpanErrorTier = 'span' | 'trace' | 'session'
 export interface SpanErrorBadge {
     tier: SpanErrorTier
     count: number
-    /** The session's total, when the row matched on a narrower tier and that total is higher. */
+    /**
+     * The session's own total, when the row matched on a narrower tier. It is a separate count
+     * over a separate set, not a remainder: the session query matches `$session_id` and the trace
+     * query matches `$trace_id`, so a backend exception can be in one and not the other.
+     */
     alsoInSession?: number
 }
 
@@ -396,18 +400,24 @@ export const spanErrorsLogic = kea<spanErrorsLogicType>([
                     const { spanCount, traceCount } = exactCountsFor(span, errorCounts)
                     const sessionId = sessionIdByRow.get(span.uuid)
                     const sessionCount = sessionId ? (errorCounts.session[sessionId] ?? 0) : 0
-                    const tier: SpanErrorTier | null =
-                        spanCount > 0 ? 'span' : traceCount > 0 ? 'trace' : sessionCount > 0 ? 'session' : null
-                    if (!tier) {
+                    // One chain, so the tier and the count it names cannot drift apart.
+                    const match =
+                        spanCount > 0
+                            ? { tier: 'span' as const, count: spanCount }
+                            : traceCount > 0
+                              ? { tier: 'trace' as const, count: traceCount }
+                              : sessionCount > 0
+                                ? { tier: 'session' as const, count: sessionCount }
+                                : null
+                    if (!match) {
                         continue
                     }
-                    const count = tier === 'span' ? spanCount : tier === 'trace' ? traceCount : sessionCount
-                    byRow.set(span.uuid, {
-                        tier,
-                        count,
-                        // The narrower tier stays the label, because it names what threw.
-                        ...(tier !== 'session' && sessionCount > count ? { alsoInSession: sessionCount } : {}),
-                    })
+                    // The narrower tier stays the label, because it names what threw. The two
+                    // counts are never compared, for the reason on `alsoInSession`.
+                    byRow.set(
+                        span.uuid,
+                        match.tier !== 'session' && sessionCount > 0 ? { ...match, alsoInSession: sessionCount } : match
+                    )
                 }
                 return byRow
             },

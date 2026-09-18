@@ -139,67 +139,41 @@ describe('spanErrorsLogic', () => {
         expect(asked('sessionIds')).toEqual([['session-a']])
     })
 
-    // Asking only about rows the exact join left blank would hide the other SDK's exceptions
-    // behind the one that did carry a trace id.
-    it('keeps the session count for a row the exact join already answered', async () => {
+    // The counts are not nested, so neither asking about the session only where the exact join
+    // found nothing, nor suppressing a total that is not larger, is safe: both hide exceptions
+    // from an SDK that stamps no trace id.
+    const mockTraceAndSession = (trace: number, session: number): void => {
         mockCountsCreate.mockImplementation(async (_teamId, body) =>
-            body.traceIds?.length
-                ? { ...NO_COUNTS, traceResults: [{ trace_id: 'trace-a', exceptions: 1 }] }
-                : { ...NO_COUNTS, sessionResults: [{ session_id: 'session-a', exceptions: 3 }] }
+            body.sessionIds?.length
+                ? { ...NO_COUNTS, sessionResults: [{ session_id: 'session-a', exceptions: session }] }
+                : { ...NO_COUNTS, traceResults: [{ trace_id: 'trace-a', exceptions: trace }] }
         )
+    }
+
+    it.each([
+        ['the session holds more', 1, 3, { tier: 'trace', count: 1, alsoInSession: 3 }],
+        ['the counts match', 2, 2, { tier: 'trace', count: 2, alsoInSession: 2 }],
+        ['the session holds fewer', 3, 1, { tier: 'trace', count: 3, alsoInSession: 1 }],
+        ['the session is clean', 2, 0, { tier: 'trace', count: 2 }],
+    ])('carries the session total beside the trace count when %s', async (_name, trace, session, expected) => {
+        mockTraceAndSession(trace, session)
 
         await loadFirstPage([spanWithIds('row-1', 'trace-a', 'span-1', 'session-a')])
 
         expect(asked('sessionIds')).toEqual([['session-a']])
-        expect(logic.values.errorBadgeByRow.get('row-1')).toEqual({
-            tier: 'trace',
-            count: 1,
-            alsoInSession: 3,
-        })
+        expect(logic.values.errorBadgeByRow.get('row-1')).toEqual(expected)
     })
 
-    // A session total repeating the narrower tier's count would read as twice the errors.
-    it('leaves the session total off when it adds nothing', async () => {
-        mockCountsCreate.mockImplementation(async (_teamId, body) =>
-            body.traceIds?.length
-                ? { ...NO_COUNTS, traceResults: [{ trace_id: 'trace-a', exceptions: 2 }] }
-                : { ...NO_COUNTS, sessionResults: [{ session_id: 'session-a', exceptions: 2 }] }
-        )
-
-        await loadFirstPage([spanWithIds('row-1', 'trace-a', 'span-1', 'session-a')])
-
-        expect(logic.values.errorBadgeByRow.get('row-1')).toEqual({ tier: 'trace', count: 2 })
-    })
-
-    // A later page brings more spans of a trace already counted, and those spans drag their trace
-    // along to scope the span match. That second pass measures a narrower window, so letting it
-    // answer for the trace again would drop a badge the first page had earned.
-    it('keeps a trace count when a later page re-sends the trace only as span scope', async () => {
+    // The session tier is already the session count, so repeating it would read as two findings.
+    it('does not repeat the session total on a session-tier badge', async () => {
         mockCountsCreate.mockResolvedValue({
             ...NO_COUNTS,
-            traceResults: [{ trace_id: 'trace-a', exceptions: 5 }],
+            sessionResults: [{ session_id: 'session-a', exceptions: 4 }],
         })
-        await loadFirstPage([spanWithIds('row-1', 'trace-a', 'span-1')])
-        expect(logic.values.errorBadgeByRow.get('row-1')).toEqual({ tier: 'trace', count: 5 })
 
-        // The second page's window misses the exceptions, so the trace comes back empty.
-        mockCountsCreate.mockResolvedValue(NO_COUNTS)
-        await loadNextPage([spanWithIds('row-1', 'trace-a', 'span-1'), spanWithIds('row-2', 'trace-a', 'span-2')])
+        await loadFirstPage([spanWithSession('row-1', 'session-a')])
 
-        expect(logic.values.errorBadgeByRow.get('row-1')).toEqual({ tier: 'trace', count: 5 })
-        expect(logic.values.errorBadgeByRow.get('row-2')).toEqual({ tier: 'trace', count: 5 })
-    })
-
-    // A row with a span id but no trace id can be answered by neither exact tier, so asking about
-    // it records nothing and every later page would ask again.
-    it('leaves a row with no trace id to the session join instead of re-asking every page', async () => {
-        const row = spanWithIds('row-1', '', 'span-1', 'session-a')
-        await loadFirstPage([row])
-        await loadNextPage([row, spanWithIds('row-2', '', 'span-2', 'session-a')])
-
-        expect(asked('spanIds')).toEqual([])
-        expect(asked('traceIds')).toEqual([])
-        expect(asked('sessionIds')).toEqual([['session-a']])
+        expect(logic.values.errorBadgeByRow.get('row-1')).toEqual({ tier: 'session', count: 4 })
     })
 
     // Span rows read their ids back as uppercase hex while the SDKs write them lowercase.

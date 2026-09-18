@@ -23,14 +23,19 @@ const TIERS: Record<SpanErrorTier, { iconClass: string; noun: string; where: str
 
 export function SpanErrorsBadge({ tier, errorCount, alsoInSession, onClick }: SpanErrorsBadgeProps): JSX.Element {
     const { iconClass, noun, where } = TIERS[tier]
-    const label = `${pluralize(errorCount, noun)} ${where}`
-    const sessionLine = alsoInSession ? ` ${pluralize(alsoInSession, 'error occurrence')} in this session.` : ''
+    const session = TIERS.session
+    // Each count names its own scope, because they are not summable. See `alsoInSession`.
+    const sentences = [
+        `${pluralize(errorCount, noun)} ${where}.`,
+        alsoInSession ? `${pluralize(alsoInSession, session.noun)} ${session.where}.` : null,
+    ].filter(Boolean)
+    const label = sentences.join(' ')
 
     return (
         <LemonButton
             size="xsmall"
             icon={<IconWarning className={iconClass} />}
-            tooltip={`${label}.${sessionLine} Click to see them.`}
+            tooltip={`${label} Click to see them.`}
             aria-label={label}
             data-attr="tracing-row-errors"
             onMouseDown={(e) => e.stopPropagation()}
