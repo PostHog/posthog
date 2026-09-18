@@ -16,7 +16,6 @@ import { RAW_TIME_SERIES_DISPLAYS, deriveChartPreview } from './chartPreviewData
 export interface ChartPreview {
     option: ChartDisplayOption
     suggested: boolean
-    loading: boolean
     query: InsightVizNode
     response: AnyResponseType | null
     sample: boolean
@@ -284,7 +283,6 @@ export const chartPreviewsLogic = kea<chartPreviewsLogicType>([
                     return {
                         option,
                         suggested: suggestedDisplays.has(option.display),
-                        loading: !option.disabledReason && insightDataLoading,
                         query: previewVizNode(trendsSource, option.display),
                         response: derived?.response ?? null,
                         sample: derived?.sample ?? false,

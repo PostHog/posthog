@@ -101,7 +101,7 @@ describe('chartPreviewsLogic', () => {
         chartAlternativesLogic(logicProps).actions.openGallery()
 
         await expectLogic(chartPreviewsLogic(logicProps)).toFinishAllListeners()
-        expect(lineTile()).toMatchObject({ response: null, loading: false })
+        expect(lineTile()).toMatchObject({ response: null })
     })
 
     it('shows no time series preview, and queries nothing, when a total value chart has none remembered', async () => {
@@ -110,7 +110,7 @@ describe('chartPreviewsLogic', () => {
         chartAlternativesLogic(logicProps).actions.openGallery()
 
         await expectLogic(chartPreviewsLogic(logicProps)).toFinishAllListeners()
-        expect(lineTile()).toMatchObject({ response: null, loading: false })
+        expect(lineTile()).toMatchObject({ response: null })
         expect(refreshModes).toHaveLength(queriesBeforeOpen)
     })
 })

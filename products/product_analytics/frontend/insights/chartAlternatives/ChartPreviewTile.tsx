@@ -1,7 +1,6 @@
 import clsx from 'clsx'
 
 import { IconInfo } from '@posthog/icons'
-import { LemonSkeleton } from '@posthog/lemon-ui'
 
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
@@ -20,19 +19,13 @@ export function ChartPreviewTile({
     onSelect: () => void
     preview: ChartPreview
 }): JSX.Element {
-    const { loading, option, query, response, sample, uniqueKey } = preview
+    const { option, query, response, sample, uniqueKey } = preview
     const reason = disabledReason ?? option.disabledReason
     const disabled = !!reason
 
     let body: JSX.Element
     if (response) {
         body = <ChartPreviewCanvas uniqueKey={uniqueKey} query={query} response={response} />
-    } else if (loading) {
-        body = (
-            <div className="flex flex-1 p-2">
-                <LemonSkeleton className="h-full w-full" />
-            </div>
-        )
     } else {
         body = (
             <div className="flex flex-1 flex-col items-center justify-center gap-2 px-4 text-center text-secondary">
