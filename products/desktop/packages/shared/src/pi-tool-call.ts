@@ -96,7 +96,7 @@ export function formatMcpToolLabel(value: string): string {
   ]);
   const hasAllSuffix = parts.at(-1) === "all";
   let verbIndex = -1;
-  if (hasAllSuffix) {
+  if (hasAllSuffix && verbs.has(parts.at(-2) ?? "")) {
     verbIndex = parts.length - 2;
   } else if (verbs.has(parts.at(-1) ?? "")) {
     verbIndex = parts.length - 1;

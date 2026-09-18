@@ -49,6 +49,13 @@ describe("getPostHogExecDisplay", () => {
     });
   });
 
+  it("does not infer an action from an unknown `all` suffix", () => {
+    expect(getPostHogExecDisplay({ command: "call foo-bar-all" })).toEqual({
+      label: "Foo bar all",
+      input: undefined,
+    });
+  });
+
   it("formats `schema <tool> <field_path>` as a dotted locator", () => {
     expect(
       getPostHogExecDisplay({
