@@ -251,10 +251,17 @@ Two shapes that already exist and are worth copying rather than re-deriving:
 
 ## Dedup
 
-Dedup is per `(provider, consumer, delivery_id)` in the Django cache, for 24 hours.
+Dedup is per `(provider, consumer, delivery_id)` in the Django cache.
 The mark is set before the consumer runs and released when it raises, so a failure does not burn the delivery for a day.
 Because it is set before the work finishes, it carries a state rather than a bare flag: a claim answers `CLAIMED`, `IN_PROGRESS` or `DONE`, and the consumer settles it to done when it returns.
 Only `DONE` counts as accepted, so a delivery that meets a run still in flight is skipped with outcome `in_flight` and is not receipted, and a provider with `retry_status` sends it again once the first run settled rather than trusting a run that can still fail.
+A settled mark therefore lives for 24 hours, but an unsettled one is a lease and lives for the request's delivery budget plus a minute.
+The lease exists because a process that dies mid-run leaves its mark behind and nothing settles it afterwards: a mark that outlived its run would answer every redelivery `in_flight` until the provider gave up, and the delivery would be lost.
+Its cost is that a redelivery arriving after the lease ran out can run beside a first attempt that overran the budget, which is the exposure a provider without dedup has on every retry.
+Because two runs can overlap, a second key (`<key>:holder`) names the run that holds the lease, and a run only deletes its own claim: a late failure from the first run cannot drop the second run's claim, nor the done mark a finished run wrote.
+The token lives in its own key so that the mark itself stays the plain value every deployed version reads as in flight, which keeps a rolling deploy from receipting a delivery the new worker can still fail.
+That fence reads the cache primary rather than a read replica, because a replica can still serve a token the primary already replaced.
+Settling to done is not fenced that way, because a consumer that ran the delivery and returned makes the mark true whoever wrote the value it replaces; a run drops the mark only while it is still a lease, so a late failure cannot delete a mark another run settled.
 Keying per consumer rather than per delivery matters: one delivery legitimately fans out to several consumers, and a delivery-wide key would starve every consumer but the first.
 A cache error fails **open** — dropping deliveries during a cache outage is worse than running a consumer twice, and consumers carry their own idempotency underneath this.
 
