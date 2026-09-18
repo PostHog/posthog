@@ -3,14 +3,19 @@ rules:
       message: |
           Scope taxonomy reads with `Model.objects.for_project(project_id)`, not `team=` / `team_id=`.
 
-          Every index on `posthog_eventdefinition`, `posthog_propertydefinition` and `posthog_eventproperty`
-          that carries `name` / `event` / `property` leads with `COALESCE(project_id, team_id)`
-          (`event_definition_proj_uniq`, `posthog_propdef_proj_uniq`,
-          `posthog_event_property_unique_proj_event_property`). A plain `team_id` predicate matches none of
-          them, so Postgres range-walks every row of the team, or falls back to the global trigram index for
-          an equality. Measured in production: the same lookup is 0.02 ms through the project key and 300+ ms
-          through `team_id`. Definitions are also unique per project, so a team-scoped read can miss rows
-          written under a sibling environment.
+          Rows on `posthog_eventdefinition`, `posthog_propertydefinition` and `posthog_eventproperty` are
+          unique per project (`event_definition_proj_uniq`, `posthog_propdef_proj_uniq`,
+          `posthog_event_property_unique_proj_event_property`), and each row keeps the `team_id` of the
+          environment that wrote it first. A team-scoped read therefore misses the rows a sibling
+          environment owns. That is the reason to convert, and it holds whatever the plan looks like.
+
+          The project key is usually faster too, because those unique indexes lead with
+          `COALESCE(project_id, team_id)`. Measured in production: the same lookup is 0.02 ms through the
+          project key and 300+ ms through `team_id`, which range-walks the team or falls back to the global
+          trigram index. It does not win everywhere. `posthog_eventdef_team_name_idx`, the `(team_id, event)`
+          index on `posthog_eventproperty` and `index_property_def_query` lead with `team_id` and carry the
+          searched column, so check the plan of an ordered or limited read before you convert it: the
+          planner can mis-estimate how many rows sit behind the sort.
 
           Replace:
               PropertyDefinition.objects.filter(team=team, name__in=names)
