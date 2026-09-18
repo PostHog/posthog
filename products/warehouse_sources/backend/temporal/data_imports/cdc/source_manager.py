@@ -556,8 +556,13 @@ def _parse_timestamps(column: pa.ChunkedArray, target: pa.DataType) -> pa.Chunke
     the comparison has to parse it the same way."""
     if not isinstance(target, pa.TimestampType):
         return None
+    values = list(column)
+    parsed = [safe_parse_datetime(value) for value in values]
+    # Text the parser rejects would land as null and match a stored null it never came from.
+    if any(value.is_valid and when is None for value, when in zip(values, parsed)):
+        return None
     try:
-        return pa.chunked_array([pa.array([safe_parse_datetime(value) for value in column], type=target)])
+        return pa.chunked_array([pa.array(parsed, type=target)])
     except (pa.ArrowInvalid, pa.ArrowNotImplementedError, pa.ArrowTypeError):
         return None
 

@@ -511,6 +511,21 @@ class TestReplayFilter:
 
         assert replay.apply(as_text).num_rows == 0
 
+    def test_timestamp_text_the_parser_rejects_is_still_compared_as_text(self):
+        held = {(1, "I"): [{"id": 1, "label": "v1", "created_at": None}]}
+        schema = (
+            _ops([1], [20])
+            .select(["id", "label"])
+            .append_column("created_at", pa.array([None], pa.timestamp("us")))
+            .schema
+        )
+        replay = ReplayFilter(
+            LanePosition(position=20, applied=held, key_columns=("id", CDC_OP_COLUMN), content_schema=schema)
+        )
+        garbage = _ops([1], [20], ["I"]).append_column("created_at", pa.array(["not-a-date"], pa.string()))
+
+        assert replay.apply(garbage).num_rows == 1
+
     def test_above_the_cap_the_batch_content_is_never_materialized(self):
         # The table side carried no content, so reading the batch's would cost what the cap avoids.
         replay = ReplayFilter(
