@@ -368,12 +368,11 @@ def dri_candidate_logins(
 
 
 def assign_reviewers_to_pull_request(*, team_id: int, report_id: str, pr_url: str) -> list[str]:
-    """Put the report's opted-in reviewers, and one DRI when they do not own the code, on its pull request.
+    """Assign the report's pull request: one DRI under the flag, else every opted-in reviewer.
 
-    Returns the pull request's assignees after the last call GitHub accepted. Never unassigns:
-    GitHub's add-assignees endpoint is additive, so a person somebody assigned by hand stays on the
-    pull request, and a pull request that somebody assigned or unassigned by hand gets no DRI.
-    Returns an empty list when there is nothing to do or the call failed, and raises nothing.
+    Returns the assignees GitHub accepted. Never unassigns: the add-assignees endpoint is additive,
+    so a person somebody assigned by hand stays on the pull request. Returns an empty list when
+    there is nothing to do or the call failed, and raises nothing.
     """
     if not SignalReport.objects.filter(id=report_id, team_id=team_id).exists():
         return []
