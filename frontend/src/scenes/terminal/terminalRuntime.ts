@@ -69,7 +69,7 @@ export class TerminalRuntime {
                 signal
             ),
             verifiedImage(jqUrl, 'ba996e8ce436973e2f39e2639405a37e8c81ba8c722b71c83996278ad0af16dd', signal),
-            verifiedImage(toolsUrl, '8e02b805b83b4c41b2b17f2e9b53719ead625331180ffed9f65bcbe3ddd2fb97', signal),
+            verifiedImage(toolsUrl, '50c8d847c3811249d512245b0b506cfab5cc4b625cc5fa6079cb605a7681b2cc', signal),
         ])
         if (signal.aborted || this.disposed) {
             return
@@ -137,7 +137,7 @@ export class TerminalRuntime {
                         "export PS1='\\[\\033[32m\\]posthog\\[\\033[0m\\]:\\[\\033[34m\\]\\w\\[\\033[0m\\] $ '",
                         'cd /posthog/files',
                         'clear',
-                        "printf 'PostHog terminal\\n\\nTry:\\n  tree -C -L 3\\n  nano Unfiled/Notebooks/Foobar.md\\n  vi Unfiled/Notebooks/Foobar.md\\n  ncdu -r /posthog/files\\n  mkdir Research\\n  ph tools\\n  ph notebooks-list --limit 10 | jq .\\n  cat /posthog/README.txt\\n\\nUse your own notebook path. In nano, Ctrl+S saves and Ctrl+X exits.\\nIn vi, save with :wq; quit with :q!. Selecting text copies it.\\nFolder creation and moves update PostHog.\\n\\n'",
+                        "printf 'PostHog terminal\\n\\nTry:\\n  mc\\n  tree -C -L 3\\n  nano Unfiled/Notebooks/Foobar.md\\n  vi Unfiled/Notebooks/Foobar.md\\n  ncdu -r /posthog/files\\n  mkdir Research\\n  ph tools\\n  ph notebooks-list --limit 10 | jq .\\n  cat /posthog/README.txt\\n\\nUse your own notebook path. In nano, Ctrl+S saves and Ctrl+X exits.\\nIn vi, save with :wq; quit with :q!. Selecting text copies it.\\nFolder creation and moves update PostHog.\\n\\n'",
                         'stty echo',
                         "printf '\\036' > /dev/ttyS1",
                     ].join('\n') + '\n'

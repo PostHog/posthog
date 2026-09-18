@@ -44,17 +44,28 @@ def build() -> None:
         for source in manifest["sources"]:
             data = download(source["url"], "sha512", source["sha512"])
             with tarfile.open(fileobj=io.BytesIO(data)) as archive:
-                license_file = archive.extractfile(source["license_file"])
-                if license_file is None:
-                    raise ValueError(f"Missing license: {source['name']}")
-                (licenses / f"{source['name']}.txt").write_bytes(license_file.read())
-        (licenses / "tools-manifest.json").write_bytes((ASSETS / "tools-manifest.json").read_bytes())
+                notices = []
+                for filename in source["license_files"]:
+                    license_file = archive.extractfile(filename)
+                    if license_file is None:
+                        raise ValueError(f"Missing license: {filename}")
+                    notices.append(filename.encode() + b"\n\n" + license_file.read())
+                (licenses / f"{source['name']}.txt").write_bytes(b"\n\n".join(notices))
+        (licenses / "tools-manifest.json").write_text(json.dumps(manifest, indent=4) + "\n")
         (tools / "etc/nanorc").write_text(f'include "/{PREFIX}/usr/share/nano/*.nanorc"\n')
+        for directory in ("etc/mc", "usr/share/mc", "usr/lib/mc"):
+            link = root / directory
+            link.parent.mkdir(parents=True, exist_ok=True)
+            link.symlink_to(f"/{PREFIX}/{directory}")
 
         wrappers = root / "usr/bin"
-        wrappers.mkdir(parents=True)
-        for command in ("nano", "tree", "ncdu"):
-            arguments = f"--rcfile=/{PREFIX}/etc/nanorc " if command == "nano" else ""
+        wrappers.mkdir(parents=True, exist_ok=True)
+        for command in ("nano", "tree", "ncdu", "mc", "mcview", "mcedit", "mcdiff"):
+            arguments = ""
+            if command == "nano":
+                arguments = f"--rcfile=/{PREFIX}/etc/nanorc "
+            elif command.startswith("mc"):
+                arguments = "-u "
             wrapper = wrappers / command
             # Isolate musl and ncurses from the guest's existing uClibc programs.
             wrapper.write_text(
