@@ -19,8 +19,17 @@
 #   local action a depot workflow uses needs a mirror even when it is identical to
 #   canonical: Depot resolves ./.github/actions/<x> from .depot/actions/<x>, so a missing
 #   mirror fails the step at setup with "action manifest not found".
-# - permissions: pull-requests:read (no comment/auto-commit side effects)
-# - Stripped side effects: CI report section posters (canonical
+# - permissions: pull-requests:read, so the ambient token never writes. A ported poster mints
+#   its own App token.
+# - backend-coverage-report posts its CI report section with a tests-posthog token minted with
+#   pull-requests: write only, so a report comment it creates is authored by tests-posthog[bot],
+#   not github-actions[bot]. It posts only when the checkout's
+#   frontend/bin/ci-report/update-ci-report.mjs adopts that login, because an older writer
+#   would add a new report comment on every write. The job sets up Node from .nvmrc, which
+#   canonical takes from the GitHub-hosted image. The comment's patch-coverage link is built
+#   from GITHUB_RUN_ID, which on Depot is not a GitHub run id, so that link and its
+#   `gh run download` hint do not resolve for a Depot run.
+# - Stripped side effects: the other CI report section posters (canonical
 #   additionally skips these on trunk-merge/** branches to save GITHUB_TOKEN budget;
 #   the shadow strips them entirely, so that gating has nothing to mirror), snapshot
 #   auto-commit (handle-snapshots), posthog-github-action telemetry (including the
@@ -3318,3 +3327,123 @@ jobs:
 
                   echo "All backend and product checks passed."
     # calculate-running-time is omitted so Depot runs are not recorded as canonical CI data.
+    backend-coverage-report:
+        name: Backend coverage report
+        needs: [wait-for-handoff, changes, turbo-tests, django_tests, turbo-discover]
+        runs-on: depot-ubuntu-24.04
+        continue-on-error: true # report-only, never block a PR
+        timeout-minutes: 10
+        # Pinned job-level to the workflow's read-only grants. The ambient token is the Depot
+        # Code Access installation token that every Depot job shares, so it never writes here;
+        # the comment write uses the App token minted below.
+        permissions:
+            contents: read
+            actions: read
+            pull-requests: read
+        # In-repo PRs only — fork PRs get a read-only token that can't comment. Runs when either
+        # the product (turbo-tests) or core (django_tests) suite ran, so a core-only PR still
+        # gets a comment; both skip on drafts, leaving nothing to report.
+        # A narrowed run measures only the selected tests, so patch coverage would report
+        # gaps that the full suite covers. Report only when the Django matrix ran full.
+        # Security invariant: this job runs PR-head-controlled scripts (coverage_report.py,
+        # post-coverage-section.mjs). Their only token that can write is the report token below,
+        # narrowed to pull-requests: write, the grant canonical gives github.token. Never give
+        # this job a token that can write anything else.
+        if: >-
+            !cancelled() &&
+            needs.wait-for-handoff.outputs.handed_off == 'true' &&
+            github.event_name == 'pull_request' &&
+            github.event.pull_request.draft == false &&
+            needs.turbo-discover.outputs.mode != 'selected' &&
+            github.event.pull_request.head.repo.full_name == 'PostHog/posthog' &&
+            (needs.turbo-tests.result != 'skipped' || needs.django_tests.result != 'skipped')
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  # Default pull_request checkout = the synthetic merge ref — the same tree the
+                  # coverage runs measured, so diff line numbers match. Full history for diff-cover;
+                  # blob:none keeps it light (commit graph only, blobs fetched on demand).
+                  fetch-depth: 0
+                  filter: blob:none
+            - name: Check for coverage reporter
+              id: reporter
+              shell: bash
+              run: |
+                  if [[ -f .github/scripts/coverage_report.py ]]; then
+                      echo "available=true" >> "$GITHUB_OUTPUT"
+                  else
+                      echo "available=false" >> "$GITHUB_OUTPUT"
+                      echo "Coverage reporter not present on this ref; skipping (branch may predate the check)."
+                  fi
+            - name: Download coverage artifacts
+              if: steps.reporter.outputs.available == 'true'
+              continue-on-error: true # a run where no shard emitted coverage.xml is not a failure
+              uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v6.0.0
+              with:
+                  path: ./cov-artifacts
+                  pattern: coverage-xml-*
+            - name: Download core coverage artifacts
+              if: steps.reporter.outputs.available == 'true'
+              continue-on-error: true # core coverage only present once the Core segment ran with --cov
+              uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v6.0.0
+              with:
+                  path: ./core-artifacts
+                  pattern: coverage-core-*
+            - uses: ./.depot/actions/setup-uv
+              with:
+                  enable-cache: false
+              if: steps.reporter.outputs.available == 'true'
+            - name: Build coverage report
+              # diff-cover is declared inline (PEP 723) in coverage_report.py; uv provisions it.
+              if: steps.reporter.outputs.available == 'true'
+              run: |
+                  mkdir -p cov-artifacts core-artifacts
+                  git fetch --no-tags --filter=blob:none --quiet origin master
+                  uv run --script .github/scripts/coverage_report.py \
+                      --artifacts cov-artifacts \
+                      --core-artifacts core-artifacts \
+                      --combined-out combined-coverage.xml \
+                      --compare-branch origin/master \
+                      --patch-json-out patch-coverage.json \
+                      --out coverage-comment.md
+            - name: Mint CI report comment token
+              id: report-token
+              if: steps.reporter.outputs.available == 'true'
+              continue-on-error: true
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ secrets.GH_APP_POSTHOG_TESTS_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_TESTS_PRIVATE_KEY }}
+                  permission-pull-requests: write
+            - name: Set up Node.js
+              if: steps.report-token.outputs.token != ''
+              uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+              with:
+                  node-version-file: .nvmrc
+                  token: ${{ steps.report-token.outputs.token }}
+            - name: Post to CI report comment
+              # Runs only with the minted token. With an empty GITHUB_TOKEN, update-ci-report.mjs
+              # falls back to GH_TOKEN, and no other token may write from a Depot job.
+              if: steps.report-token.outputs.token != ''
+              env:
+                  GITHUB_TOKEN: ${{ steps.report-token.outputs.token }}
+              run: |
+                  # A report writer that predates tests-posthog[bot] authorship does not adopt the
+                  # comment this token creates, so it would add a new report comment on every write.
+                  if [ -f .github/scripts/post-coverage-section.mjs ] && grep -qF 'tests-posthog[bot]' frontend/bin/ci-report/update-ci-report.mjs; then
+                      node .github/scripts/post-coverage-section.mjs coverage-comment.md patch-coverage.json
+                  else
+                      echo "Skipping the coverage section: the poster is missing, or update-ci-report.mjs predates tests-posthog[bot] authorship."
+                  fi
+            - name: Upload patch coverage payload
+              if: ${{ always() && steps.reporter.outputs.available == 'true' }}
+              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              with:
+                  name: patch-coverage
+                  path: |
+                      patch-coverage.json
+                      combined-coverage.xml
+                      coverage-comment.md
+                  if-no-files-found: ignore
+                  retention-days: 2
+                  overwrite: true # artifacts are immutable per run; re-run shards would 409 otherwise
