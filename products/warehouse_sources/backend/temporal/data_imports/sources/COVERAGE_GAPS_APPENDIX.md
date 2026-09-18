@@ -1585,15 +1585,15 @@ The chat entry stays open on purpose: those endpoints exist only on ClickUp's v3
 
 ## Clockify — gaps
 
-Today (7): `clients`, `projects`, `tags`, `tasks`, `time_entries`, `users`, `workspaces`
+Today (13): `clients`, `custom_fields`, `expense_categories`, `expenses`, `invoice_payments`, `invoices`, `projects`, `tags`, `tasks`, `time_entries`, `time_off_requests`, `users`, `workspaces`
 
 Diffed against: <https://docs.clockify.me/>
 
-- [ ] `GET /v1/workspaces/{workspaceId}/expenses (+ /expenses/categories)` — expense transactions and their category lookup - the cost side of project profitability (high)
-- [ ] `GET /v1/workspaces/{workspaceId}/invoices (+ /items, /payments)` — invoice headers, line items and payments, the billing fact tables for revenue reporting (high)
-- [ ] `GET /v1/workspaces/{workspaceId}/time-off/requests` — time off requests - required to separate absence from unlogged time in capacity analysis (high)
+- [x] `GET /v1/workspaces/{workspaceId}/expenses (+ /expenses/categories)` — expense transactions and their category lookup - the cost side of project profitability (high)
+- [x] `GET /v1/workspaces/{workspaceId}/invoices (+ /payments)` — invoice headers and payments, the billing fact tables for revenue reporting (high)
+- [x] `POST /v1/workspaces/{workspaceId}/time-off/requests` — time off requests - required to separate absence from unlogged time in capacity analysis (high)
 - [ ] `GET /v1/workspaces/{workspaceId}/projects/{projectId}/memberships` — project-to-user membership join table; today projects and users cannot be linked (high)
-- [ ] `GET /v1/workspaces/{workspaceId}/custom-fields` — custom field definitions resolving the custom field IDs stored on time entries and projects (high)
+- [x] `GET /v1/workspaces/{workspaceId}/custom-fields` — custom field definitions resolving the custom field IDs stored on time entries and projects (high)
 - [ ] `GET /v1/workspaces/{workspaceId}/approval-requests` — timesheet approval state and history per user and period (medium)
 - [ ] `GET /v1/workspaces/{workspaceId}/user-groups (+ /{userGroupId}/users)` — team grouping and its membership rows for rolling time up by team (medium)
 - [ ] `GET /v1/workspaces/{workspaceId}/time-off/policies` — policy lookup that resolves the policy IDs on time off requests and balances (medium)
@@ -1602,7 +1602,7 @@ Diffed against: <https://docs.clockify.me/>
 - [ ] `GET /v1/workspaces/{workspaceId}/scheduling/assignments/all` — planned/scheduled assignments to compare planned against tracked time (medium)
 - [ ] `GET /v1/workspaces/{workspaceId}/audit-log` — workspace audit event stream for admin and compliance reporting (medium)
 
-Note: Also present but below the cut: POST reports (detailed, summary, weekly, attendance), hourly/cost rate endpoints, and /entities/created|updated|deleted change feeds. Webhooks, addons, templates and shared reports excluded as plumbing/config.
+Note: Also present but below the cut: POST reports (detailed, summary, weekly, attendance), hourly/cost rate endpoints, and /entities/created|updated|deleted change feeds. Webhooks, addons, templates and shared reports excluded as plumbing/config. Invoice line items have no list endpoint — `/invoices/{invoiceId}/items` serves POST and DELETE only, and the items are embedded in the single-invoice response, so no `invoice_items` table. The time off listing is a POST whose filters travel in the request body, not the GET the diff assumed.
 
 ## Clockodo — gaps
 
