@@ -137,8 +137,11 @@ describe('materializationJobsLogic', () => {
             })
         )
 
-        const refreshModeHeader = screen.queryByRole('columnheader', { name: 'Refresh mode' })
-        expect(!!refreshModeHeader).toBe(showsRefreshMode)
+        // The settings section carries the same heading text, so match the table header cell itself.
+        const showsRefreshModeColumn = Array.from(document.querySelectorAll('th')).some(
+            (header) => header.textContent?.trim() === 'Refresh mode'
+        )
+        expect(showsRefreshModeColumn).toBe(showsRefreshMode)
         if (fullRefreshReason === 'first run') {
             expect(screen.getByLabelText('Full refresh. Reason: first run.')).toBeTruthy()
         }
