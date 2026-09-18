@@ -1,0 +1,27 @@
+{
+    "letter": "GA",
+    "id": "GA15",
+    "cluster": null,
+    "is_real": false,
+    "severity": null,
+    "votes": [
+        {
+            "evidence": "The finding describes the code correctly, but nothing in it is a defect. products/review_hog/backend/receivers.py:72-140 `handle_task_run_saved` does run on TaskRun saves where `output.pr_url` is set, and it does re-fire on purpose (docstring at 76-80). The Stamphog side does dedupe on the PR's current head (products/stamphog/backend/tasks/tasks.py:1125-1127). products/stamphog/README.md:14 is a one-paragraph overview. Saying the receiver acts \"when a run opens its PR\" is a fair summary of how it behaves in practice. The paragraph also points readers to AGENTS.md for the details. Anyone debugging the trigger lands on two docstrings that spell out the re-fire and dedupe mechanics: receivers.py:1-40 (module doc) and tasks.py:1116-1127. No reader can reach wrong behavior through this wording.",
+            "refutation": "The claimed defect is only that an overview README is less detailed than the code. There is no correctness, security or data-loss effect. The detailed trigger semantics already live in the receiver module docstring (receivers.py:1-40, 76-80) and the process_inbox_pr_review docstring (stamphog tasks.py:1125-1127). The README sends readers to AGENTS.md for more. This is a style and wording preference, not a real issue.",
+            "is_real": false,
+            "severity": null
+        },
+        {
+            "is_real": false,
+            "severity": null,
+            "evidence": "products/stamphog/README.md:14 is a one-paragraph overview. It says that when a signals implementation run opens its PR, review_hog's inbox receiver calls `queue_inbox_pr_review`. The code does match that at summary level. In products/review_hog/backend/receivers.py:72-140, `handle_task_run_saved` skips created saves, saves that don't touch `output`, and failed or cancelled runs. It also needs `output.pr_url`, a non-internal task with a signal report, and the `stamphog_review_inbox_prs` toggle before it calls `_start_stamphog_review` on commit. Repeated firing is on purpose and is written down where it happens: the receiver docstring at receivers.py:75-79 and the module docstring at receivers.py:20. The stamphog task side is described at products/stamphog/backend/tasks/tasks.py:1115. The README also points to AGENTS.md for the carve-out details. So a debugger would find the real trigger right away, and the README's statement does not mislead anyone about behavior.",
+            "refutation": "The finding itself says the behavior is correct and only the wording is narrow. An overview README that says the review is triggered \"when the run opens its PR\" is accurate at that level of detail. The receiver's own docstring (receivers.py:75-79) already covers the re-firing and deduping on every save. This is a doc-wording preference, not a defect."
+        },
+        {
+            "is_real": false,
+            "severity": null,
+            "evidence": "products/stamphog/README.md:14 is a high-level overview paragraph: \"When a PostHog Code signals implementation run opens its (bot-authored, draft) PR, review_hog's inbox receiver calls the `queue_inbox_pr_review` facade\". products/review_hog/backend/receivers.py:72-131 `handle_task_run_saved` does fire on every non-created TaskRun save whose output carries pr_url (lines 81-96, 126-131). Its docstring at lines 75-79 says repeat saves re-fire deliberately and duplicates collapse. So the README omits the re-fire detail, and the finding itself says the behavior is correct.",
+            "refutation": "This is a wording preference in an overview doc, not a defect. In production, the first save that records pr_url happens when the run opens its PR, so \"when the run opens its PR, the receiver calls the facade\" is accurate for the event that matters. Later re-fires are an internal idempotency detail that is documented where it belongs: the receiver docstring (receivers.py:75-79) and the \"See AGENTS.md \u00a7 the self-driving carve-out\" pointer at the end of the same README paragraph. No user-facing or runtime behavior depends on this sentence, and a debugger reading receivers.py sees the re-fire rule at once. By the rubric, a documentation style preference with no reachable effect is not a real finding."
+        }
+    ]
+}

@@ -660,7 +660,7 @@ export const getNotebooksSqlV2RunCreateUrl = (projectId: string, shortId: string
 }
 
 /**
- * Dispatch an asynchronous run of a notebook SQL or Python cell. Returns a run_id immediately; poll the run result endpoint until the status is terminal. One run at a time per notebook. Flag-gated (revamped-py-notebooks).
+ * Dispatch an asynchronous run of a notebook SQL or Python cell. Returns a run_id immediately; poll the run result endpoint until the status is terminal. One run at a time per notebook. Python notebooks enable all run types. Generated widgets enable HogQL runs without a connection or kernel.
  */
 export const notebooksSqlV2RunCreate = async (
     projectId: string,
@@ -681,7 +681,7 @@ export const getNotebooksSqlV2RunsRetrieveUrl = (projectId: string, shortId: str
 }
 
 /**
- * Read a run's durable state: its status, and — once done or interrupted — the result envelope (columns, first rows, stdout/stderr, media, error). Poll until terminal. Flag-gated (revamped-py-notebooks).
+ * Read a run's durable state: its status, and — once done or interrupted — the result envelope (columns, first rows, stdout/stderr, media, error). Poll until terminal. Requires notebook and query read access, including after a notebook feature flag is disabled.
  */
 export const notebooksSqlV2RunsRetrieve = async (
     projectId: string,

@@ -363,6 +363,14 @@ tools:
             own user-scoped entries, never another user's. Use this with canvas-source-retrieve when collaborative
             progress, checklist selections, filters, or other runtime values live outside the source. Only scopes
             declared by the live canvas version are readable. Optionally filter to `user` or `shared` with `scope`.
+            Returns a key inventory by default. Keep filters unchanged and follow next_offset until complete is true.
+            Set key or key_prefix and keys_only=false for small selected values. Use canvas-state-value-retrieve for
+            long values. This reads persisted state directly; no composition storage tool is needed.
+        param_overrides:
+            limit:
+                input_schema: CanvasStateReadLimitSchema
+            keys_only:
+                input_schema: CanvasStateKeysOnlySchema
     canvas-state-set:
         operation: canvases_state_set
         enabled: true
@@ -378,6 +386,24 @@ tools:
             only the authenticated user's private state; `shared` updates the state every viewer sees. The scope must be
             declared by the live canvas version. Read the current entries with canvas-state-retrieve before changing
             progress or other existing values.
+    canvas-state-value-retrieve:
+        operation: canvases_state_value_retrieve
+        enabled: true
+        scopes:
+            - canvas:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Read a canvas state value
+        description: >
+            Read one exact scope and key as bounded JSON text chunks. Start at offset zero, then pass next_offset and
+            revision until complete is true. Join value_json chunks in order before parsing the JSON. If the value
+            changes, the read returns 409; discard earlier chunks and restart at zero. On a 404, read the error detail:
+            "No readable value for this scope and key" means the entry is absent and broader permissions would not help,
+            while any other 404 means the canvas is not available to this caller.
+        validators:
+            - validateCanvasStateValueContinuation
     canvas-validate-create:
         operation: canvases_validate_create
         enabled: true

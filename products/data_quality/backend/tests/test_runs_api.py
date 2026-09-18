@@ -10,6 +10,8 @@ from django.utils import timezone
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.hogql.database.database import Database
+
 from posthog.constants import AvailableFeature
 from posthog.models import OrganizationMembership, PersonalAPIKey
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
@@ -615,6 +617,21 @@ class TestDataQualityRunAPI(APIBaseTest):
         assert {row["id"] for row in listed.json()["results"]} == {str(mine.id)}
         assert self.client.get(f"{self.url}{denied.id}/").status_code == status.HTTP_404_NOT_FOUND
         assert self.client.get(f"{self.url}{sweep.id}/").status_code == status.HTTP_404_NOT_FOUND
+
+    def test_history_never_builds_the_callers_warehouse_database(self) -> None:
+        self._check(self.orders)
+        denied = DataQualitySuiteRun.objects.for_team(self.team.id).create(
+            team=self.team, trigger="materialization", subject_type=SubjectType.VIEW, subject_uuid=self.orders.id
+        )
+        self._deny_orders()
+
+        with patch.object(Database, "create_for", side_effect=Database.create_for) as build:
+            listed = self.client.get(self.url)
+            retrieved = self.client.get(f"{self.url}{denied.id}/")
+
+        build.assert_not_called()
+        assert [row["id"] for row in listed.json()["results"]] == []
+        assert retrieved.status_code == status.HTTP_404_NOT_FOUND
 
     def test_history_withholds_a_suite_whose_run_read_a_denied_subject(self) -> None:
         # The run sits on the allowed subject, so its own uuid clears the filter. What it read is in

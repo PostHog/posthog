@@ -694,6 +694,7 @@ class HogQLQueryExecutor:
                 raise
 
     def _prepare_execution(self, *, embedded_select: bool = False) -> _PreparedExecution:
+        self.context.referenced_saved_query_ids.clear()
         self._parse_query()
 
         if embedded_select:
@@ -785,6 +786,7 @@ class HogQLQueryExecutor:
                 has_joins="JOIN" in self.clickhouse_sql,
                 has_json_operations="JSONExtract" in self.clickhouse_sql or "JSONHas" in self.clickhouse_sql,
                 hogql_features=hogql_features,
+                saved_query_ids=sorted(self.context.referenced_saved_query_ids) or None,
                 timings=timings_dict,
                 modifiers=(
                     {k: v for k, v in self.modifiers.model_dump().items() if v is not None} if self.modifiers else {}

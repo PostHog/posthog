@@ -195,7 +195,8 @@ class AnnotationsViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.Mo
 
     def safely_get_queryset(self, queryset) -> QuerySet:
         if self.action == "list":
-            queryset = queryset.order_by("-date_marker")
+            # `date_marker` alone is not a total order, so limit-offset pages can repeat or drop rows.
+            queryset = queryset.order_by("-date_marker", "-id")
         if self.action != "partial_update":
             # We never want deleted items to be included in the queryset… except when we want to restore an annotation
             # That's because annotations are restored with a PATCH request setting `deleted` to `False`

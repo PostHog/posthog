@@ -82,7 +82,8 @@ import type {
 import { QueryContext } from '~/queries/types'
 
 import { AlertType } from 'products/alerts/frontend/types'
-import type { NodeApiSuspended } from 'products/data_modeling/frontend/generated/api.schemas'
+import type { CohortRealtimeReadinessApi } from 'products/cohorts/frontend/generated/api.schemas'
+import type { NodeApiSuspended, NodeEndpointApi } from 'products/data_modeling/frontend/generated/api.schemas'
 import type {
     DataWarehouseSavedQueryApi,
     DataWarehouseSavedQueryApiSuspended,
@@ -94,7 +95,10 @@ import type { CommentSlackThreadRefApi } from 'products/platform_features/fronte
 import type { InsightFilterOverrideContextApi } from 'products/product_analytics/frontend/generated/api.schemas'
 import type { AIPromptConfigApi, DeliveryConfigApi } from 'products/subscriptions/frontend/generated/api.schemas'
 import type { TaskRuntimeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
-import type { ExternalDataSourceTypeEnumApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
+import type {
+    ExternalDataSourceTypeEnumApi,
+    IncrementalSyncBlockedReasonEnumApi,
+} from 'products/warehouse_sources/frontend/generated/api.schemas'
 import { CyclotronInputType } from 'products/workflows/frontend/Workflows/hogflows/steps/types'
 import type { HogFlow } from 'products/workflows/frontend/Workflows/hogflows/types'
 
@@ -164,6 +168,7 @@ export enum AvailableFeature {
     ROLE_BASED_ACCESS = 'role_based_access',
     SOCIAL_SSO = 'social_sso',
     SAML = 'saml',
+    OIDC = 'oidc',
     SCIM = 'scim',
     SSO_ENFORCEMENT = 'sso_enforcement',
     XAA_AUTHENTICATION = 'xaa_authentication',
@@ -268,7 +273,7 @@ export enum Region {
     DEV = 'DEV',
 }
 
-export type SSOProvider = 'google-oauth2' | 'github' | 'gitlab' | 'saml'
+export type SSOProvider = 'google-oauth2' | 'github' | 'gitlab' | 'saml' | 'oidc'
 export type LoginMethod = SSOProvider | 'password' | 'passkey' | null
 
 export interface AuthBackends {
@@ -276,6 +281,7 @@ export interface AuthBackends {
     gitlab?: boolean
     github?: boolean
     saml?: boolean
+    oidc?: boolean
 }
 
 export type ColumnChoice = string[] | 'DEFAULT'
@@ -608,6 +614,7 @@ export interface OrganizationType extends OrganizationBasicType {
     default_experiment_stats_method: ExperimentStatsMethod
     default_anonymize_ips?: boolean
     default_role_id?: string | null
+    uses_most_specific_access_resolution?: boolean | null
 }
 
 export interface OrganizationDomainType {
@@ -727,6 +734,7 @@ export interface CorrelationConfigType {
 export interface ProjectType extends ProjectBasicType {
     created_at: string
     is_pending_deletion: boolean
+    deletion_scheduled_at: string | null
     tags?: string[]
 }
 
@@ -797,11 +805,14 @@ export interface ConversationsSettings {
     ai_diagnostics_enabled?: boolean
     ai_resolution_channels?: string[] | null
     ai_reply_modes?: Record<string, Record<string, 'private_note' | 'bot_reply'>> | null
+    ai_reply_custom_instructions?: string | null
+    docs_source?: 'posthog' | null
 }
 
 export interface LogsSettings {
     capture_console_logs?: boolean
     json_parse_logs?: boolean
+    json_parse_logs_attribute_key?: string
     pii_scrub_logs?: boolean
     retention_days?: number
     retention_last_updated?: string
@@ -842,6 +853,7 @@ export interface TeamType extends TeamBasicType {
     session_recording_trigger_groups?: SessionRecordingTriggerGroupsConfig | null
     surveys_opt_in?: boolean
     heatmaps_opt_in?: boolean
+    heatmaps_screenshot_secret?: string | null
     conversations_enabled?: boolean
     conversations_settings?: ConversationsSettings | null
     web_analytics_pre_aggregated_tables_enabled?: boolean
@@ -1468,18 +1480,12 @@ export type RecordingSnapshot = _RecordingSnapshot
 export type SessionRecordingSnapshotSource = _SessionRecordingSnapshotSource
 export type SessionRecordingSnapshotSourceResponse = _SessionRecordingSnapshotSourceResponse
 
-export type SessionRecordingSnapshotParams = (
-    | {
-          source: 'blob_v2_lts'
-          blob_key?: string
-      }
-    | {
-          source: 'blob_v2'
-          start_blob_key?: string
-          end_blob_key?: string
-          blob_key?: string
-      }
-) & {
+export type SessionRecordingSnapshotParams = {
+    source: 'blob_v2'
+    start_blob_key?: string
+    end_blob_key?: string
+    blob_key?: string
+} & {
     decompress?: false
 }
 
@@ -1915,6 +1921,9 @@ export interface CohortType {
         filterTestAccounts?: boolean
     }
     experiment_set?: number[]
+    /** Whether feature flags can target this cohort, and the progress of the history build that
+     * gets it there. Null on projects the realtime pipeline does not cover. */
+    realtime?: CohortRealtimeReadinessApi | null
     _create_in_folder?: string | null
     _create_static_person_ids?: string[]
 }
@@ -6296,6 +6305,8 @@ export interface DataModelingNode {
     last_run_error?: string | null
     sync_interval?: DataModelingSyncInterval
     suspended?: NodeApiSuspended
+    /** Set on endpoint nodes stamped at materialization enable; older nodes carry only the name */
+    endpoint?: NodeEndpointApi | null
 }
 
 export interface DataModelingEdge {
@@ -6347,6 +6358,8 @@ export interface DataWarehouseSavedQuery {
     user_access_level?: AccessControlLevel
     incremental?: DataWarehouseSavedQueryIncremental | null
     incremental_state?: DataWarehouseSavedQueryIncrementalState | null
+    /** Whether incremental settings participated in any materialization run. */
+    has_incremental_history?: boolean
 }
 
 export interface DataWarehouseSavedQueryIncremental {
@@ -6585,6 +6598,7 @@ export type SchemaIncrementalFieldsResponse = {
     supports_webhooks: boolean
     available_columns: AvailableColumn[]
     detected_primary_keys: string[] | null
+    primary_key_detection_supported?: boolean
     cdc_available?: boolean
     xmin_available?: boolean
 }
@@ -6628,6 +6642,7 @@ export interface ExternalDataSourceSyncSchema {
     primary_key_columns: string[] | null
     available_columns: AvailableColumn[]
     detected_primary_keys: string[] | null
+    primary_key_detection_supported?: boolean
     /**
      * For sources that gate read access by scope (e.g. Stripe restricted API keys), the
      * reason this endpoint is currently unreachable. `null`/undefined = endpoint is
@@ -6652,6 +6667,9 @@ export interface ExternalDataSourceSyncSchema {
     row_filters?: RowFilter[] | null
 }
 
+/** Why the last sync run could not merge rows on a table's primary key. */
+export type IncrementalSyncBlockedReason = IncrementalSyncBlockedReasonEnumApi
+
 export interface ExternalDataSourceSchema extends SimpleExternalDataSourceSchema {
     table?: SimpleDataWarehouseTable
     incremental: boolean
@@ -6669,6 +6687,11 @@ export interface ExternalDataSourceSchema extends SimpleExternalDataSourceSchema
     should_sync_default?: boolean
     primary_key_columns: string[] | null
     cdc_table_mode?: 'consolidated' | 'cdc_only' | 'both'
+    /**
+     * Why the last sync run could not merge rows on this table's primary key, or `null` when no such
+     * failure is current. A later run that succeeds, or fails for another reason, clears it.
+     */
+    incremental_sync_blocked?: IncrementalSyncBlockedReason | null
     /**
      * User-selected source columns to sync. `null` means "sync all columns".
      * Primary-key + active incremental columns are always retained even if not listed.
@@ -6815,18 +6838,13 @@ export type BatchExportServicePostgres = {
     }
 }
 
+// Credentials live on the linked `snowflake` integration, not in the config.
 export type BatchExportServiceSnowflake = {
     type: 'Snowflake'
-    integration?: number
+    integration: number
     config: {
-        account: string
         database: string
         warehouse: string
-        user: string
-        authentication_type: 'password' | 'keypair'
-        password: string | null
-        private_key: string | null
-        private_key_passphrase: string | null
         schema: string
         table_name: string
         role: string | null

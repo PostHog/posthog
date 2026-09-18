@@ -167,6 +167,13 @@ class AlertState(StrEnum):
     SNOOZED = "Snoozed"
 
 
+class AnnotationScope(StrEnum):
+    DASHBOARD_ITEM = "dashboard_item"
+    DASHBOARD = "dashboard"
+    PROJECT = "project"
+    ORGANIZATION = "organization"
+
+
 class ApprovalDecisionStatus(StrEnum):
     PENDING = "pending"
     APPROVED = "approved"
@@ -700,6 +707,11 @@ class LegendPosition(StrEnum):
 class Curve(StrEnum):
     LINEAR = "linear"
     SMOOTH = "smooth"
+
+
+class SeriesColorMode(StrEnum):
+    PALETTE = "palette"
+    OPACITY = "opacity"
 
 
 class ColorMode(StrEnum):
@@ -2099,6 +2111,7 @@ class NodeKind(StrEnum):
     LOG_ATTRIBUTES_QUERY = "LogAttributesQuery"
     LOG_VALUES_QUERY = "LogValuesQuery"
     METRICS_QUERY = "MetricsQuery"
+    METRICS_HISTOGRAM_QUERY = "MetricsHistogramQuery"
     TRACE_SPANS_QUERY = "TraceSpansQuery"
     TRACE_SPANS_AGGREGATION_QUERY = "TraceSpansAggregationQuery"
     TRACE_SPANS_TREE_QUERY = "TraceSpansTreeQuery"
@@ -2145,6 +2158,7 @@ class NodeKind(StrEnum):
     EXPERIMENT_TRENDS_QUERY = "ExperimentTrendsQuery"
     EXPERIMENT_FUNNELS_QUERY = "ExperimentFunnelsQuery"
     EXPERIMENT_DATA_WAREHOUSE_NODE = "ExperimentDataWarehouseNode"
+    EXPERIMENT_EXPOSURE_NODE = "ExperimentExposureNode"
     DATABASE_SCHEMA_QUERY = "DatabaseSchemaQuery"
     SUGGESTED_QUESTIONS_QUERY = "SuggestedQuestionsQuery"
     TEAM_TAXONOMY_QUERY = "TeamTaxonomyQuery"
@@ -3012,6 +3026,7 @@ class WebStatsBreakdown(StrEnum):
     FIRST_PAGEVIEW_UTM_CONTENT = "FirstPageviewUTMContent"
     FIRST_PAGEVIEW_UTM_SOURCE_MEDIUM_CAMPAIGN = "FirstPageviewUTMSourceMediumCampaign"
     BROWSER = "Browser"
+    IN_APP_BROWSER = "InAppBrowser"
     OS = "OS"
     VIEWPORT = "Viewport"
     DEVICE_TYPE = "DeviceType"
