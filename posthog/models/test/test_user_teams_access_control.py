@@ -391,19 +391,23 @@ class TestUserTeamsAccessControl(BaseTest):
 
     def test_user_teams_caching(self):
         """Test that the teams property is cached correctly."""
-        # Get teams once
-        teams_1 = self.user.teams.all()
-        initial_count = teams_1.count()
+        # The property is cached, so repeated access returns the same queryset.
+        teams_1 = self.user.teams
+        self.assertIs(self.user.teams, teams_1)
 
-        # Create a new team
         new_team = Team.objects.create(organization=self.organization, name="New Team")
 
-        # Teams should still be cached (same result)
-        teams_2 = self.user.teams.all()
-        self.assertEqual(teams_2.count(), initial_count)
+        # The cached value is a queryset, not a snapshot of ids, so it stays current.
+        self.assertIn(new_team, self.user.teams.all())
 
-        # Clear cache and check again
         del self.user.teams  # Clear cached property
-        teams_3 = self.user.teams.all()
-        self.assertEqual(teams_3.count(), initial_count + 1)
-        self.assertIn(new_team, teams_3)
+        self.assertIn(new_team, self.user.teams.all())
+
+    def test_user_teams_resolves_in_a_single_team_read(self):
+        for name in ["Team A", "Team B", "Team C"]:
+            Team.objects.create(organization=self.organization, name=name)
+
+        # One read for the organization's product features, one for the teams themselves.
+        with self.assertNumQueries(2):
+            teams = list(self.user.teams)
+        self.assertEqual(len(teams), 4)
