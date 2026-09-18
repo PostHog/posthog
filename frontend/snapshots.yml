@@ -7048,6 +7048,10 @@ snapshots:
         hash: v1.k794b7964.225c993f2a01b2b7740a519f2e7aa4d672c2e36aaf0938d770ecf5e893adf96b.q5tkLTRzuzGhGj8QUAT2pNhJSte7YCW4wengZTGYw3M
     scenes-app-batchexports--backfills-with-estimates--light:
         hash: v1.k794b7964.bdb71e856369ccdaacaf893d0e9427b9bfeb6513333c4af98ca37cb9fb687896.kQuW_-2hLUIZa0vOFnn_FuNuy3d7ALzGXm5P7zamdVc
+    scenes-app-batchexports--existing-aws-s-3-export-with-legacy-parquet-extension--dark:
+        hash: v1.k794b7964.7fdfa490dcc0c090eaef0d5af01c499967eafb9a97ce220b98d26dbb46c01239.-IZXjJ0KvKGGlCoT8oNMDj7RS9wPwvUS7nBgBFMUvs8
+    scenes-app-batchexports--existing-aws-s-3-export-with-legacy-parquet-extension--light:
+        hash: v1.k794b7964.f91575942a28d9009dcb75df44bf5e0d3ccb7b8fabe53b5a69d8bacb94121548.DvrIRXFa2_Bq5-aBrq-g3p8JmFdVPlU2A6Fco3hJZMw
     scenes-app-batchexports--existing-big-query-export--dark:
         hash: v1.k794b7964.158bb2510d66c6fe81f144c86fd612bac8c95cc95f56186e4465e8995a1e38b8.YJ_6q5QuNZQJsomF5fYIADEUdgz670SCVgfQtUCRL6Y
     scenes-app-batchexports--existing-big-query-export--light:
