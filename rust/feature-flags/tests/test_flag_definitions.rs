@@ -1746,7 +1746,7 @@ async fn test_etag_returns_304_when_matching() {
         .unwrap();
 
     let etag_value = "a1b2c3d4e5f6g7h8";
-    context
+    let etag_value = context
         .populate_cache_for_team_with_etag(team.id, etag_value)
         .await
         .unwrap();
@@ -1787,7 +1787,7 @@ async fn test_etag_304_includes_etag_and_cache_control_headers() {
         .unwrap();
 
     let etag_value = "abcdef1234567890";
-    context
+    let etag_value = context
         .populate_cache_for_team_with_etag(team.id, etag_value)
         .await
         .unwrap();
@@ -1835,7 +1835,7 @@ async fn test_etag_returns_200_when_not_matching() {
         .await
         .unwrap();
 
-    context
+    let etag_value = context
         .populate_cache_for_team_with_etag(team.id, "current_etag_value")
         .await
         .unwrap();
@@ -1862,7 +1862,7 @@ async fn test_etag_returns_200_when_not_matching() {
 
     assert_eq!(
         response.headers().get("etag").unwrap().to_str().unwrap(),
-        "W/\"current_etag_value\""
+        format!("W/\"{etag_value}\"")
     );
     assert_eq!(
         response
@@ -1889,7 +1889,7 @@ async fn test_etag_200_includes_etag_header_without_if_none_match() {
         .unwrap();
 
     let etag_value = "freshdata12345678";
-    context
+    let etag_value = context
         .populate_cache_for_team_with_etag(team.id, etag_value)
         .await
         .unwrap();
@@ -1996,7 +1996,7 @@ async fn test_dedicated_redis_serves_payload_and_etag() {
 
     let etag_value = "dedicated_etag_01";
     let dedicated = setup_redis_client(Some(DEDICATED_REDIS_URL.to_string())).await;
-    context
+    let etag_value = context
         .populate_cache_for_team_with_etag_on(dedicated, team.id, etag_value)
         .await
         .unwrap();
@@ -2049,11 +2049,11 @@ async fn test_dedicated_redis_ignores_shared_etag() {
     let dedicated_etag = "dedicated_etag_1";
     let shared = setup_redis_client(Some(config.redis_url.clone())).await;
     let dedicated = setup_redis_client(Some(DEDICATED_REDIS_URL.to_string())).await;
-    context
+    let shared_etag = context
         .populate_cache_for_team_with_etag_on(shared, team.id, shared_etag)
         .await
         .unwrap();
-    context
+    let dedicated_etag = context
         .populate_cache_for_team_with_etag_on(dedicated, team.id, dedicated_etag)
         .await
         .unwrap();
@@ -2827,7 +2827,6 @@ async fn test_flag_definitions_billing_counter(#[case] skip_writes: bool) {
     use feature_flags::flags::flag_analytics::{current_bucket, get_team_request_key};
     use feature_flags::flags::flag_request::FlagRequestType;
     use feature_flags::utils::test_utils::{setup_redis_client, TestContext};
-    use serde_json::json;
 
     let mut config = feature_flags::config::Config::default_test_config();
     config.skip_writes = FlexBool(skip_writes);
@@ -2838,17 +2837,8 @@ async fn test_flag_definitions_billing_counter(#[case] skip_writes: bool) {
         .await
         .unwrap();
 
-    // Seed the HyperCache with a billable flag (a non-survey, non-product-tour
-    // key) so `has_billable_flags` returns true and `record()` actually fires.
-    context
-        .populate_cache_for_team_with_flags(
-            team.id,
-            json!({
-                "flags": [{"key": "billable-flag", "active": true}],
-                "group_type_mapping": {},
-                "cohorts": {},
-            }),
-        )
+    let etag = context
+        .populate_cache_for_team_with_etag(team.id, "billable-flag")
         .await
         .unwrap();
 
@@ -2878,6 +2868,17 @@ async fn test_flag_definitions_billing_counter(#[case] skip_writes: bool) {
         "Response body: {}",
         response.text().await.unwrap()
     );
+    let unchanged = http
+        .get(format!(
+            "http://{}/flags/definitions?token={}",
+            server.addr, team.api_token
+        ))
+        .header("Authorization", format!("Bearer {secret_token}"))
+        .header("If-None-Match", format!("W/\"{etag}\""))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(unchanged.status(), 304);
     let bucket_after = current_bucket();
 
     if skip_writes {
@@ -3065,4 +3066,158 @@ async fn test_cache_miss_does_not_enqueue_rebuild_when_self_heal_disabled() {
         "team {} must not be enqueued when self-heal is disabled",
         team.id
     );
+}
+
+#[rstest::rstest]
+#[case("visible_target")]
+#[case("omitted_target")]
+#[case("malformed_envelope")]
+#[tokio::test]
+async fn test_unverified_definitions_never_304_and_rebuilt_aliases_are_stable(#[case] scenario: &str) {
+    use feature_flags::{
+        config::{Config, FlexBool},
+        utils::test_utils::{dummy_s3_client, setup_redis_client, TestContext},
+    };
+    use serde_json::json;
+
+    let mut config = Config::default_test_config();
+    config.flag_definitions_self_heal_enabled = FlexBool(true);
+    let context = TestContext::new(Some(&config)).await;
+    let (team, secret, _) = context
+        .create_team_with_secret_token(None, None, None)
+        .await
+        .unwrap();
+    let redis = setup_redis_client(Some(config.redis_url.clone())).await;
+    let server =
+        common::ServerHandle::for_config_with_s3(config.clone(), Some(dummy_s3_client())).await;
+    let client = reqwest::Client::new();
+    let cache_key = format!(
+        "posthog:1:cache/teams/{}/feature_flags/flags_with_cohorts.json",
+        team.id
+    );
+    let proof_key = format!(
+        "posthog:1:cache/teams/{}/feature_flags/flags_with_cohorts.provenance.json",
+        team.id
+    );
+    let mut unsafe_body = json!({"flags": [
+        {"key": "unsupported", "filters": {"version": 2, "groups": []}},
+        {"key": "dependent", "filters": {"groups": [{"properties": [{"type": "flag", "key": "unsupported", "value": false, "dependency_chain": []}]}]}},
+        {"key": "healthy", "filters": {"groups": []}}
+    ], "cohorts": {}, "group_type_mapping": {}});
+    if scenario == "omitted_target" {
+        unsafe_body["flags"].as_array_mut().unwrap().remove(0);
+    } else if scenario == "malformed_envelope" {
+        unsafe_body = serde_json::Value::Null;
+    }
+    let unsafe_body = unsafe_body.to_string();
+    let old_etag = common_hypercache::writer::compute_etag(&unsafe_body);
+    for path in [
+        "/flags/definitions",
+        "/flags/definitions/",
+        "/api/feature_flag/local_evaluation",
+        "/api/feature_flag/local_evaluation/",
+    ] {
+        redis.del(proof_key.clone()).await.unwrap();
+        redis
+            .set(cache_key.clone(), unsafe_body.clone())
+            .await
+            .unwrap();
+        redis
+            .set_bytes(
+                format!("{cache_key}:etag"),
+                serde_pickle::to_vec(&old_etag, Default::default()).unwrap(),
+                None,
+            )
+            .await
+            .unwrap();
+        let url = format!("http://{}{path}?token={}&v=2", server.addr, team.api_token);
+        let request = || {
+            client
+                .get(&url)
+                .header("Authorization", format!("Bearer {secret}"))
+        };
+        let response = request()
+            .header("If-None-Match", format!("W/\"{old_etag}\""))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), 503);
+        assert!(response.headers().get("etag").is_none());
+        assert!(poll_for_rebuild_enqueue(&config.redis_url, team.id).await);
+
+        let etag = context
+            .populate_cache_for_team_with_etag(team.id, "healthy")
+            .await
+            .unwrap();
+        let response = request()
+            .header("If-None-Match", format!("W/\"{old_etag}\""))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), 200);
+        assert_eq!(response.headers()["etag"], format!("W/\"{etag}\""));
+        assert_eq!(response.headers()["x-posthog-legacy-definitions"], "1");
+        let body: serde_json::Value = response.json().await.unwrap();
+        assert_eq!(body["flags"].as_array().unwrap().len(), 1);
+        assert_eq!(body["flags"][0]["key"], "healthy");
+        assert!(body.get("unsupported_flags").is_none());
+        let response = request()
+            .header("If-None-Match", format!("\"{etag}\""))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), 304);
+        assert_eq!(response.headers()["etag"], format!("W/\"{etag}\""));
+        assert_eq!(response.headers()["x-posthog-legacy-definitions"], "1");
+    }
+}
+
+#[tokio::test]
+async fn test_object_storage_definitions_require_matching_provenance() {
+    use common_s3::{MockS3Client, S3Error};
+    use feature_flags::{config::Config, utils::test_utils::TestContext};
+    use serde_json::json;
+    use std::sync::Arc;
+
+    let config = Config::default_test_config();
+    let context = TestContext::new(Some(&config)).await;
+    let (team, secret, _) = context
+        .create_team_with_secret_token(None, None, None)
+        .await
+        .unwrap();
+    let payload = json!({"flags": [{"key": "healthy", "filters": {"groups": []}}], "cohorts": {}, "group_type_mapping": {}}).to_string();
+    for verified in [false, true] {
+        let mut s3 = MockS3Client::new();
+        let payload = payload.clone();
+        let etag = common_hypercache::writer::compute_etag(&payload);
+        s3.expect_get_string().returning(move |_, key| {
+            let result = if key.ends_with("flags_with_cohorts.json") {
+                Ok(payload.clone())
+            } else if verified && key.ends_with("flags_with_cohorts.provenance.json") {
+                Ok(json!({"etag": etag}).to_string())
+            } else {
+                Err(S3Error::NotFound(key.to_string()))
+            };
+            Box::pin(async move { result })
+        });
+        let server =
+            common::ServerHandle::for_config_with_s3(config.clone(), Some(Arc::new(s3))).await;
+        let response = reqwest::Client::new()
+            .get(format!(
+                "http://{}/flags/definitions?token={}",
+                server.addr, team.api_token
+            ))
+            .header("Authorization", format!("Bearer {secret}"))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), if verified { 200 } else { 503 });
+        if verified {
+            assert_eq!(response.headers()["x-posthog-legacy-definitions"], "1");
+            assert_eq!(
+                response.json::<serde_json::Value>().await.unwrap()["flags"][0]["key"],
+                "healthy"
+            );
+        }
+    }
 }

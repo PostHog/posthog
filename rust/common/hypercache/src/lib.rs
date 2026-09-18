@@ -323,6 +323,19 @@ pub struct HyperCacheReader {
 }
 
 impl HyperCacheReader {
+    pub fn companion(&self, object_name: &str) -> Self {
+        let mut config = self.config.clone();
+        config.object_name = object_name.to_owned();
+        config.enable_etag = false;
+        config.expiry_sorted_set_key = None;
+        config.read_repair_ttl_seconds = None;
+        Self {
+            redis_client: self.redis_client.clone(),
+            s3_client: self.s3_client.clone(),
+            config,
+        }
+    }
+
     /// Read repair is a stampede damper, not a writer. A TTL beyond this would outlive the
     /// refresh cycle and widen how long a `HyperCacheWriter::delete` race can resurrect a
     /// deleted key for. Caps a misconfigured env var (e.g. seconds vs. milliseconds) instead
