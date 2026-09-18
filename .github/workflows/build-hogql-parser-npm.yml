@@ -114,6 +114,7 @@ jobs:
         # A version must not ship before the code that produces it lands, so a release
         # is a manual dispatch on master and never a pull request run.
         if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/master' && github.repository == 'PostHog/posthog'
+        environment: npm-hogql-parser
         runs-on: ubuntu-24.04
         timeout-minutes: 10
         permissions:
