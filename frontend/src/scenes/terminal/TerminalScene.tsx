@@ -24,6 +24,14 @@ const moreExamples = [
     { title: 'Explore files', commands: ['ls -lh /posthog/api', 'du -ah /posthog/files', 'pwd', 'busybox'] },
     { title: 'PostHog tools', commands: ['ph tools', 'ph tools notebook', 'ph help notebooks-retrieve', 'ph refresh'] },
     {
+        title: 'Edit and organize',
+        commands: [
+            'vi Unfiled/Notebooks/Foobar.md',
+            'mkdir -p Research/Archive',
+            'mv Unfiled/Notebooks/Foobar.md Research/Archive/',
+        ],
+    },
+    {
         title: 'Read and filter',
         commands: [
             'ph notebooks-list --limit 10 | jq .',
@@ -104,7 +112,12 @@ export function TerminalScene(): JSX.Element {
             }
             return true
         })
-        const selection = view.onSelectionChange(() => setHasSelection(view.hasSelection()))
+        const selection = view.onSelectionChange(() => {
+            setHasSelection(view.hasSelection())
+            if (view.hasSelection()) {
+                void copyToClipboard(view.getSelection(), 'terminal selection', { silent: true })
+            }
+        })
         const input = view.onData((data) => runtime.current?.write(data))
         const resize = view.onResize(({ cols, rows }) => runtime.current?.resize(cols, rows))
         const observer = new ResizeObserver(() => fitAddon.fit())
@@ -240,8 +253,9 @@ export function TerminalScene(): JSX.Element {
                 </LemonMenu>
             </div>
             <p className="text-secondary text-sm mb-0">
-                Click an example to insert it, then press Enter. Tab completes paths. Ctrl+C interrupts. Copy/paste with
-                ⌘C/⌘V on macOS or Ctrl+Shift+C/V on Linux and Windows. Scroll up for history.
+                Click an example to insert it, then press Enter. Selecting text copies it. Tab completes paths. Ctrl+C
+                interrupts. Copy/paste with ⌘C/⌘V on macOS or Ctrl+Shift+C/V on Linux and Windows. Scroll up for
+                history.
             </p>
         </SceneContent>
     )

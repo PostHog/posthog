@@ -77,6 +77,13 @@ export class TerminalRuntime {
         }))
         let boot = ''
         let configured = false
+        emulator.add_listener('serial1-output-byte', (byte: number) => {
+            if (configured && !this.ready && byte === 30) {
+                this.ready = true
+                this.resize(this.columns, this.rows)
+                onReady()
+            }
+        })
         emulator.add_listener('serial0-output-byte', (byte: number) => {
             const data = Uint8Array.of(byte)
             this.output = (this.output + this.decoder.decode(data, { stream: true })).slice(-1_000_000)
@@ -105,16 +112,11 @@ export class TerminalRuntime {
                         "export PS1='\\[\\033[32m\\]posthog\\[\\033[0m\\]:\\[\\033[34m\\]\\w\\[\\033[0m\\] $ '",
                         'cd /posthog/files',
                         'clear',
-                        "printf 'PostHog terminal. Run cat /posthog/README.txt for help.\\n\\n'",
+                        'printf \'PostHog terminal\\n\\nTry:\\n  ls --color=auto\\n  find . -name "*.md"\\n  vi Unfiled/Notebooks/Foobar.md\\n  mkdir Research\\n  ph tools\\n  ph notebooks-list --limit 10 | jq .\\n  cat /posthog/README.txt\\n\\nUse your own notebook path with vi. Save with :wq; quit with :q!.\\nSelecting text copies it. Folder creation and moves update PostHog.\\n\\n\'',
                         'stty echo',
-                        "printf '\\n__POSTHOG_READY__\\n'",
+                        "printf '\\036' > /dev/ttyS1",
                     ].join('; ') + '\n'
                 )
-            }
-            if (configured && boot.includes('\r\n__POSTHOG_READY__\r\n')) {
-                this.ready = true
-                this.resize(this.columns, this.rows)
-                onReady()
             }
         })
     }
