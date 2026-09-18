@@ -264,6 +264,66 @@ class TestUserTeamsAccessControl(BaseTest):
         self.assertIn(self.team, user_teams)
         self.assertIn(private_team, user_teams)
 
+    def test_user_teams_ignores_explicit_access_granted_to_another_member(self):
+        """Test that a grant on someone else's membership stays with that member."""
+        private_team = Team.objects.create(organization=self.organization, name="Private Team")
+        AccessControl.objects.create(
+            team=private_team,
+            resource="project",
+            resource_id=str(private_team.id),
+            access_level="none",
+            organization_member=None,
+            role=None,
+        )
+
+        other_user = self._create_user("other@posthog.com")
+        other_membership = OrganizationMembership.objects.get(organization=self.organization, user=other_user)
+        AccessControl.objects.create(
+            team=private_team,
+            resource="project",
+            resource_id=str(private_team.id),
+            access_level="member",
+            organization_member=other_membership,
+            role=None,
+        )
+
+        self.assertNotIn(private_team, self.user.teams.all())
+        self.assertIn(private_team, other_user.teams.all())
+
+    def test_organization_admin_does_not_see_private_teams_in_another_organization(self):
+        """Test that admin level in one organization grants no access in another."""
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        other_organization = Organization.objects.create(name="Other Organization")
+        # Both organizations carry the feature, because the gate reads whichever
+        # membership comes back first.
+        other_organization.available_product_features = self.organization.available_product_features
+        other_organization.save()
+        OrganizationMembership.objects.create(
+            organization=other_organization,
+            user=self.user,
+            level=OrganizationMembership.Level.MEMBER,
+        )
+
+        own_private_team = Team.objects.create(organization=self.organization, name="Own Private Team")
+        other_private_team = Team.objects.create(organization=other_organization, name="Other Private Team")
+        for team in [own_private_team, other_private_team]:
+            AccessControl.objects.create(
+                team=team,
+                resource="project",
+                resource_id=str(team.id),
+                access_level="none",
+                organization_member=None,
+                role=None,
+            )
+
+        del self.user.teams  # Clear cached property
+
+        user_teams = self.user.teams.all()
+        self.assertIn(own_private_team, user_teams)
+        self.assertNotIn(other_private_team, user_teams)
+
     def test_user_teams_multiple_organizations(self):
         """Test that user only sees teams from organizations they belong to."""
         # Create another organization with teams
