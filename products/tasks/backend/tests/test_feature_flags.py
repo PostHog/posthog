@@ -53,10 +53,26 @@ class TestIsDevStackImageBakeEnabled:
         feature_enabled_mock.assert_not_called()
 
 
+GATED_MODEL_FLAG = "tasks-test-model-gate"
+
+
 class TestGetModelAccessError:
+    # The open-weights models run on the claude harness and are offered to everyone. They
+    # were gated while their rollout ran, and a caller whose flags could not be evaluated
+    # lost them, so each id is named here.
     @pytest.mark.parametrize(
         "model",
-        ["claude-sonnet-5", "gpt-5.6-luna", "", None],
+        [
+            "claude-sonnet-5",
+            "gpt-5.6-luna",
+            "deepseek-ai/deepseek-v4-flash-0731",
+            "moonshotai/kimi-k3",
+            "zai-org/glm-5.3",
+            "zai-org/glm-5.3-flash",
+            "@cf/zai-org/glm-5.2",
+            "",
+            None,
+        ],
     )
     def test_ungated_model_is_allowed_without_consulting_the_flag(self, model):
         with (
@@ -70,30 +86,23 @@ class TestGetModelAccessError:
 
         feature_enabled_mock.assert_not_called()
 
-    @pytest.mark.parametrize(
-        "model, flag_key",
-        [
-            ("moonshotai/kimi-k3", "tasks-kimi-k3"),
-            ("  MoonshotAI/Kimi-K3  ", "tasks-kimi-k3"),
-            ("deepseek-ai/deepseek-v4-flash-0731", "posthog-code-deepseek-model"),
-            # Gated on the desktop app before this was one definition, and ungated on the
-            # server, so the same model was reachable through the web composer and the API.
-            ("@cf/zai-org/glm-5.2", "posthog-code-glm-model"),
-            ("zai-org/glm-5.3", "posthog-code-glm-53-model"),
-            ("zai-org/glm-5.3-flash", "posthog-code-glm-53-flash-model"),
-        ],
-    )
-    def test_gated_model_is_allowed_when_the_flag_is_on(self, model, flag_key):
+    # No catalog model is behind a rollout right now, so the gate itself is exercised with a
+    # stand-in flag instead of with whichever model happens to be mid-rollout.
+    def test_gated_model_is_allowed_when_the_flag_is_on(self):
         with (
             override_settings(DEBUG=False),
+            patch(
+                "products.tasks.backend.feature_flags.get_required_model_flag",
+                return_value=GATED_MODEL_FLAG,
+            ),
             patch(
                 "products.tasks.backend.feature_flags.posthoganalytics.feature_enabled",
                 return_value=True,
             ) as feature_enabled_mock,
         ):
-            assert get_model_access_error(model, distinct_id="d-1") is None
+            assert get_model_access_error("moonshotai/kimi-k3", distinct_id="d-1") is None
 
-        assert feature_enabled_mock.call_args.args[0] == flag_key
+        assert feature_enabled_mock.call_args.args[0] == GATED_MODEL_FLAG
         assert feature_enabled_mock.call_args.kwargs["distinct_id"] == "d-1"
 
     @pytest.mark.parametrize(
@@ -103,6 +112,10 @@ class TestGetModelAccessError:
     def test_gated_model_is_rejected_without_entitlement(self, flag_value, distinct_id):
         with (
             override_settings(DEBUG=False),
+            patch(
+                "products.tasks.backend.feature_flags.get_required_model_flag",
+                return_value=GATED_MODEL_FLAG,
+            ),
             patch(
                 "products.tasks.backend.feature_flags.posthoganalytics.feature_enabled",
                 return_value=flag_value,
@@ -117,6 +130,10 @@ class TestGetModelAccessError:
         # rather than opening it to every caller.
         with (
             override_settings(DEBUG=False),
+            patch(
+                "products.tasks.backend.feature_flags.get_required_model_flag",
+                return_value=GATED_MODEL_FLAG,
+            ),
             patch(
                 "products.tasks.backend.feature_flags.posthoganalytics.feature_enabled",
                 side_effect=RuntimeError("flag service failed"),
