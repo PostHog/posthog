@@ -33,6 +33,7 @@ from posthog.models.utils import uuid7
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import LazyComputationResult
 from products.analytics_platform.backend.models.preaggregation_job import PreaggregationJob
 from products.web_analytics.backend.hogql_queries import web_overview_lazy_precompute as overview_precompute
+from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import ORG_FEATURE_FLAG_KEY
 from products.web_analytics.backend.hogql_queries.web_overview import WebOverviewQueryRunner
 
 
@@ -51,9 +52,12 @@ class TestWebOverviewLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         # Mock the org-level feature flag check to True so the gate accepts our test
         # team. Outside this context manager the default `posthoganalytics.feature_enabled`
         # returns False (no API key in tests), which models a flag-disabled org.
+        # Scoped to the precompute rollout flag: `posthoganalytics` is one shared
+        # module, so an unscoped True would also enable result-changing flags
+        # (first-pageview attribution), which makes channel filters ineligible.
         return patch(
             "products.web_analytics.backend.hogql_queries.web_lazy_precompute_common.posthoganalytics.feature_enabled",
-            return_value=True,
+            side_effect=lambda key, *args, **kwargs: key == ORG_FEATURE_FLAG_KEY,
         )
 
     def _seed_two_sessions(self) -> None:

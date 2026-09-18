@@ -372,7 +372,15 @@ def is_constant_true(expr: ast.Expr) -> bool:
 
 
 def has_channel_type_filter(runner: LazyPrecomputeRunner) -> bool:
-    """True when the query carries the one admitted session filter, `$channel_type`."""
+    """True when the query carries the one admitted session filter, `$channel_type`.
+
+    False when first-pageview attribution rewrites the filter: the live path then
+    serves first-pageview semantics while the insert would apply raw session
+    attribution, so the query must stay live rather than diverge. The rewritten
+    list is empty unless the team's flag is on, so this is a no-op elsewhere.
+    """
+    if getattr(runner, "rewritten_first_pageview_filters", None):
+        return False
     return any(
         get_property_type(prop) == "session" and get_property_key(prop) == "$channel_type"
         for prop in runner.query.properties or []

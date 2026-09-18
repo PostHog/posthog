@@ -1,5 +1,6 @@
 import uuid
 import dataclasses
+from datetime import UTC, datetime
 
 import unittest
 import time_machine
@@ -29,7 +30,7 @@ from posthog.schema import (
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
 
-from posthog.clickhouse.query_tagging import reset_query_tags, tag_queries
+from posthog.clickhouse.query_tagging import reset_query_tags, tag_queries, tags_context
 from posthog.models.utils import uuid7
 
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import LazyComputationResult
@@ -38,6 +39,7 @@ from products.web_analytics.backend.hogql_queries.stats_table import WebStatsTab
 
 # Aliased so pytest doesn't collect this `test_`-prefixed helper as a test case.
 from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import (
+    ORG_FEATURE_FLAG_KEY,
     SESSION_FORWARD_PAD_MINUTES,
     host_filter_expr,
     test_account_filter_expr as _test_account_filter_expr,
@@ -48,6 +50,7 @@ from products.web_analytics.backend.hogql_queries.web_stats_paths_lazy_precomput
     _entry_breakdown_value_expr,
     _events_session_id_expr,
     _top_k_ranking_expr,
+    ensure_web_stats_paths_precomputed,
 )
 
 
@@ -58,9 +61,12 @@ class TestWebStatsPathsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         PreaggregationJob.objects.filter(team_id=self.team.pk).delete()
 
     def _enable_lazy(self):
+        # Scoped to the precompute rollout flag: `posthoganalytics` is one shared
+        # module, so an unscoped True would also enable result-changing flags
+        # (first-pageview attribution), which makes channel filters ineligible.
         return patch(
             "products.web_analytics.backend.hogql_queries.web_lazy_precompute_common.posthoganalytics.feature_enabled",
-            return_value=True,
+            side_effect=lambda key, *args, **kwargs: key == ORG_FEATURE_FLAG_KEY,
         )
 
     def _seed_two_sessions(self) -> None:
@@ -326,14 +332,6 @@ class TestWebStatsPathsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         # Driven through the warmer's ensure (inline inserts allowed) so job
         # creation is deterministic; the user path defers builds to a debounced
         # background enqueue that this test must not depend on.
-        from datetime import UTC, datetime
-
-        from posthog.clickhouse.query_tagging import tags_context
-
-        from products.web_analytics.backend.hogql_queries.web_stats_paths_lazy_precompute import (
-            ensure_web_stats_paths_precomputed,
-        )
-
         props = [SessionPropertyFilter(key="$channel_type", value="Direct", operator=PropertyOperator.EXACT)]
         start, end = datetime(2024, 1, 1, tzinfo=UTC), datetime(2024, 1, 8, tzinfo=UTC)
         self._seed_two_sessions()

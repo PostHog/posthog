@@ -264,6 +264,23 @@ class TestWebStatsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         with self._enable_lazy():
             assert not can_use_stats_lazy_precompute(unfiltered), "the 366-day cap is channel-scoped, not general"
 
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
+    def test_rewritten_first_pageview_channel_filter_stays_live(self):
+        # With first-pageview attribution on, the live path rewrites the channel
+        # filter to first-pageview semantics; the insert would apply raw session
+        # attribution, so the gate must refuse rather than serve diverging rows.
+        props = [SessionPropertyFilter(key="$channel_type", value="Direct", operator=PropertyOperator.EXACT)]
+        runner = WebStatsTableQueryRunner(team=self.team, query=self._build_query(properties=props))
+        with (
+            self._enable_lazy(),
+            patch.object(
+                WebStatsTableQueryRunner,
+                "rewritten_first_pageview_filters",
+                new_callable=lambda: property(lambda self: props),
+            ),
+        ):
+            assert not can_use_stats_lazy_precompute(runner)
+
     @parameterized.expand(PARITY_BREAKDOWNS)
     @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_lazy_matches_raw_with_compare(self, _name: str, breakdown_by: WebStatsBreakdown):
