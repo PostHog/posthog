@@ -35,7 +35,6 @@ from products.feature_flags.backend.facade.filters import (
     restrict_groups_to_cohort,
     roll_out_to_everyone,
     set_feature_enrollment,
-    set_first_release_condition_rollout,
     set_holdout,
     set_release_condition_rollout,
     strip_group_cohort_restriction,
@@ -713,46 +712,6 @@ class TestSetFeatureEnrollment:
 
 
 class TestReleaseConditionTransforms:
-    @parameterized.expand(
-        [
-            (
-                "survey_sampling_shape",
-                {"groups": [{"variant": "", "rollout_percentage": 100, "properties": []}]},
-            ),
-            (
-                "multi_group_with_multivariate_and_payloads",
-                {
-                    "groups": [
-                        {"variant": "", "rollout_percentage": 100, "properties": [{"key": "email", "type": "person"}]},
-                        {"properties": [], "rollout_percentage": 50},
-                    ],
-                    "multivariate": {"variants": [{"key": "control", "rollout_percentage": 100}]},
-                    "payloads": {"control": "{}"},
-                    "aggregation_group_type_index": 1,
-                },
-            ),
-        ]
-    )
-    def test_set_first_release_condition_rollout_only_changes_first_group_rollout(self, _name, filters):
-        original = deepcopy(filters)
-
-        result = set_first_release_condition_rollout(filters, 20)
-
-        assert result["groups"][0]["rollout_percentage"] == 20
-        result["groups"][0]["rollout_percentage"] = original["groups"][0]["rollout_percentage"]
-        assert result == original
-        assert filters == original  # input not mutated
-
-    @parameterized.expand(
-        [
-            ("missing_groups", {}, KeyError),
-            ("empty_groups", {"groups": []}, IndexError),
-        ]
-    )
-    def test_set_first_release_condition_rollout_raises_without_a_group(self, _name, filters, expected_error):
-        with pytest.raises(expected_error):
-            set_first_release_condition_rollout(filters, 20)
-
     @parameterized.expand([("first", 0), ("second", 1), ("last", 2)])
     def test_set_release_condition_rollout_changes_only_the_indexed_condition(self, _name, condition_index):
         filters: dict[str, Any] = {

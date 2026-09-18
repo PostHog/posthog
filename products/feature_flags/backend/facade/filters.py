@@ -125,19 +125,6 @@ def replace_variant_distribution(current_filters: dict, variants: list[dict]) ->
     return {**current_filters, "multivariate": {"variants": deepcopy(variants)}}
 
 
-def set_first_release_condition_rollout(current_filters: dict, rollout_percentage: int) -> dict:
-    """Set ``groups[0].rollout_percentage``, preserving everything else byte-for-byte.
-
-    Assumes at least one release group exists and raises (KeyError/IndexError) otherwise —
-    callers such as survey adaptive sampling only maintain flags they created with a
-    release condition in place, so a missing group is a broken invariant, not a case
-    to paper over.
-    """
-    new_filters = deepcopy(current_filters)
-    new_filters["groups"][0]["rollout_percentage"] = rollout_percentage
-    return new_filters
-
-
 def replace_release_conditions(current_filters: dict, groups: list[dict]) -> dict:
     """Replace the release ``groups`` wholesale.
 
