@@ -670,6 +670,53 @@ class TestResolver(BaseTest):
             "WITH upper(event) AS ev SELECT ev, count() FROM events GROUP BY ev LIMIT 50000",
         )
 
+    def test_ctes_column_alias_in_join_on(self):
+        # JOIN constraints resolve during the FROM visit, so a scalar alias that needs the
+        # table scope must be registered lazily by then, not only after the whole FROM visit
+        self.assertEqual(
+            self._print_hogql(
+                "with toStartOfDay(timestamp) as day select event from events join persons on toStartOfDay(persons.created_at) = day"
+            ),
+            "WITH toStartOfDay(timestamp) AS day SELECT event FROM events JOIN persons ON equals(toStartOfDay(persons.created_at), day) LIMIT 50000",
+        )
+
+    def test_ctes_column_alias_referencing_joined_table_in_join_on(self):
+        self.assertEqual(
+            self._print_hogql(
+                "with toStartOfDay(persons.created_at) as pday select event from events join persons on toStartOfDay(timestamp) = pday"
+            ),
+            "WITH toStartOfDay(persons.created_at) AS pday SELECT event FROM events JOIN persons ON equals(toStartOfDay(timestamp), pday) LIMIT 50000",
+        )
+
+    def test_ctes_column_alias_in_join_on_of_last_join(self):
+        # An alias that needs the last-joined table resolves in that table's own ON clause
+        self.assertEqual(
+            self._print_hogql(
+                "with toStartOfDay(p2.created_at) as pday select event from events join persons on persons.id is not null join persons as p2 on toStartOfDay(persons.created_at) = pday"
+            ),
+            "WITH toStartOfDay(p2.created_at) AS pday SELECT event FROM events JOIN persons ON notEquals(persons.id, NULL) JOIN persons AS p2 ON equals(toStartOfDay(persons.created_at), pday) LIMIT 50000",
+        )
+
+    def test_ctes_column_alias_in_join_on_needs_later_join_errors(self):
+        # A join's ON clause can only use aliases that resolve from the tables written up to
+        # that join, matching ClickHouse's left-to-right JOIN scoping
+        expr = self._select(
+            "with toStartOfDay(persons.created_at) as pday select event from events as e join persons as p2 on toStartOfDay(p2.created_at) = pday join persons on persons.id is not null"
+        )
+        with self.assertRaises(QueryError) as ctx:
+            resolve_types(expr, self.context, dialect="clickhouse")
+        self.assertIn("Unable to resolve field: pday", str(ctx.exception))
+
+    def test_ctes_column_alias_not_resolved_by_subquery_join_scope(self):
+        # A pending alias belongs to its own SELECT level: a subquery's join tree must not
+        # resolve it against the subquery's tables
+        expr = self._select(
+            "with toStartOfDay(persons.created_at) as pday select event from events join (select created_at from persons) sub on sub.created_at is not null"
+        )
+        with self.assertRaises(QueryError) as ctx:
+            resolve_types(expr, self.context, dialect="clickhouse")
+        self.assertIn("Unable to resolve field", str(ctx.exception))
+
     def test_ctes_recursive_column(self):
         self.assertEqual(
             self._print_hogql("with 1 as cte, cte as soap select soap from events"),
