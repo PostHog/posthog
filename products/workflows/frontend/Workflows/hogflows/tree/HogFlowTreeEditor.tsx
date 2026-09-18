@@ -44,6 +44,12 @@ export function HogFlowTreeEditor(): JSX.Element {
         setScrollTarget(actionId)
     }
 
+    const selectContinuation = (actionId: string): void => {
+        setSelectedBranch(null)
+        setSelectedNodeId(actionId)
+        returnToWorkflow(actionId)
+    }
+
     useEffect(() => {
         if (scrollTarget) {
             document.getElementById(`workflow-tree-step-${scrollTarget}`)?.scrollIntoView({ block: 'center' })
@@ -224,7 +230,7 @@ export function HogFlowTreeEditor(): JSX.Element {
                             type="secondary"
                             size="small"
                             className="self-start max-w-full mt-3"
-                            onClick={() => returnToWorkflow(focused.node.joinAction!.id)}
+                            onClick={() => selectContinuation(focused.node.joinAction!.id)}
                             data-attr="workflow-tree-focus-continuation"
                         >
                             <span className="break-words whitespace-normal">{`Continue to: ${focused.node.joinAction.name}`}</span>
