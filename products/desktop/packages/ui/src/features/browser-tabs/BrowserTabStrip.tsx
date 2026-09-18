@@ -566,7 +566,7 @@ function BrowserTabStripImpl() {
     }
     const viewFor = (t: BrowserTab): TabView => {
       const pinned = pinnedSet.has(t.id);
-      const isActive = t.id === activeTabId;
+      const isActive = t.id === (settledTabId ?? activeTabId);
       const taskId = isActive ? (activeSession.taskId ?? null) : t.taskId;
       const dashId = isActive ? (params.dashboardId ?? null) : t.dashboardId;
       const channelId = isActive
@@ -702,6 +702,7 @@ function BrowserTabStripImpl() {
     allTasks,
     activeTaskRecord,
     activeTabId,
+    settledTabId,
     params.channelId,
     params.dashboardId,
     activeSession.taskId,
