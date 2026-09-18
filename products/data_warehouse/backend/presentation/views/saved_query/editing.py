@@ -113,12 +113,12 @@ def _move_to_dag(view: DataWarehouseSavedQuery, dag: DAG) -> None:
             raise serializers.ValidationError(
                 {"dag_id": "This view cannot move while its DAG is managed or other views depend on it."}
             )
-        previous_dag = node.dag
+        previous_dag_id = node.dag_id
         # Rebuild parents in the destination without discarding the node's targets or job history.
         Edge.objects.filter(team_id=view.team_id, target=node).delete()
         node.dag = dag
         node.save(update_fields=["dag"])
-        modeling_api.maybe_reconcile_dag(previous_dag)
+        modeling_api.reconcile_dag_by_id(view.team_id, previous_dag_id)
     modeling_api.sync_saved_query_to_dag(view, dag=dag)
 
 

@@ -44,7 +44,7 @@ _LAZY = {
     "latest_saved_query_materialization_job": "logic.saved_query_freshness",
     "is_materialization_fresh": "logic.saved_query_freshness",
     "start_node_materialization": "logic.node_materialization",
-    "maybe_reconcile_dag": "logic.schedule_reconcile",
+    "reconcile_dag_by_id": "logic.schedule_reconcile",
     "delete_dag_schedules": "logic.schedule_reconcile",
     "delete_team_data_modeling_schedules": "logic.schedule_reconcile",
     "apply_saved_query_frequency_anchor": "logic.schedule_reconcile",
