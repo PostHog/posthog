@@ -184,7 +184,7 @@ tools:
             idempotent: true
         title: List what a data quality check can be authored on
         description: >
-            Every table, view and metric in this project you can read, with each one's columns and whether you can put
-            a check on it. Start here: a check names its subject by the subject_type and id this returns, and a
+            Every table, view and metric in this project you can read, with each one's columns and whether you can put a
+            check on it. Start here: a check names its subject by the subject_type and id this returns, and a
             relationships check can point at a subject you can only read.
         feature_flag: data-quality-checks
