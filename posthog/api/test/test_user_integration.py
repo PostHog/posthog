@@ -18,6 +18,7 @@ from posthog.api.github_callback.state import (
 )
 from posthog.api.github_callback.types import FlowKind, GitHubAuthorizeState
 from posthog.models import OrganizationMembership, Team, User
+from posthog.models.github_integration_base import GitHubTokenRefreshUnavailable
 from posthog.models.integration import (
     GitHubInstallationAccess,
     GitHubIntegrationError,
@@ -26,7 +27,6 @@ from posthog.models.integration import (
 )
 from posthog.models.user_integration import (
     GitHubInstallRequest,
-    GitHubTokenRefreshUnavailable,
     ReauthorizationRequired,
     UserGitHubIntegration,
     UserIntegration,

@@ -14,7 +14,8 @@ from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
 from posthog.dataclasses import frozen
-from posthog.models.user_integration import GitHubTokenRefreshUnavailable, ReauthorizationRequired
+from posthog.models.github_integration_base import GitHubTokenRefreshUnavailable
+from posthog.models.user_integration import ReauthorizationRequired
 from posthog.temporal.common.utils import asyncify
 
 from products.context_layer.backend.facade import api as context_layer_facade
@@ -421,12 +422,12 @@ def _resolve_sandbox_github_token(
             cause=e,
         )
     except GitHubTokenRefreshUnavailable as e:
-        # The mint never reached GitHub, so nothing about the user's link is wrong. Without this
+        # The mint never reached GitHub, so nothing about the credential is wrong. Without this
         # branch it falls to the catch-all below and a shed proxy call ends the run for good,
         # telling the user to re-link an account that still works.
         increment_credential_resolution_failure("github", "unavailable")
         raise GitHubTokenRefreshUnavailableError(
-            "Could not reach GitHub to refresh the user token for this run",
+            "Could not reach GitHub to mint a token for this run",
             {"github_integration_id": ctx.github_integration_id, "task_id": ctx.task_id},
             cause=e,
         )
@@ -1268,7 +1269,7 @@ def inject_fresh_tokens_on_resume(input: InjectFreshTokensOnResumeInput) -> None
             except GitHubTokenRefreshUnavailable as e:
                 increment_credential_resolution_failure("github", "unavailable")
                 raise GitHubTokenRefreshUnavailableError(
-                    "Could not reach GitHub to refresh the user token for this resumed run",
+                    "Could not reach GitHub to mint a token for this resumed run",
                     {"github_integration_id": ctx.github_integration_id, "task_id": ctx.task_id},
                     cause=e,
                 )

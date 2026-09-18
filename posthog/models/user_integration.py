@@ -11,7 +11,7 @@ import structlog
 from posthog.egress.github.transport import github_request, raise_if_github_rate_limited
 from posthog.egress.limiter.policies import Priority
 from posthog.helpers.encrypted_fields import EncryptedJSONField
-from posthog.models.github_integration_base import GitHubIntegrationBase
+from posthog.models.github_integration_base import GitHubIntegrationBase, raise_if_github_unreachable
 from posthog.models.integration import github_account_type, invalidate_github_repository_caches_for_installation
 from posthog.models.utils import UUIDModel
 
@@ -148,15 +148,6 @@ class GitHubInstallRequest(UUIDModel):
 
 class ReauthorizationRequired(Exception):
     """The stored GitHub tokens cannot produce a usable access token; user must re-authorize."""
-
-
-class GitHubTokenRefreshUnavailable(Exception):
-    """A transport failure stopped the refresh call from reaching GitHub for an answer.
-
-    GitHub never rejected anything, and the stored tokens are untouched, so a caller can
-    resolve again later. Distinct from :class:`ReauthorizationRequired`, which means the
-    user must re-link their account.
-    """
 
 
 class UserGitHubIntegration(GitHubIntegrationBase):
@@ -304,7 +295,7 @@ class UserGitHubIntegration(GitHubIntegrationBase):
             self._discard("no user refresh token stored")
             raise ReauthorizationRequired("No refresh token stored for this GitHub integration.")
 
-        try:
+        with raise_if_github_unreachable():
             response = requests.post(
                 "https://github.com/login/oauth/access_token",
                 json={
@@ -316,9 +307,6 @@ class UserGitHubIntegration(GitHubIntegrationBase):
                 headers={"Accept": "application/json"},
                 timeout=10,
             )
-        # Covers a refused or timed-out egress proxy tunnel too: `ProxyError` is a `ConnectionError`.
-        except (requests.exceptions.ConnectionError, requests.exceptions.Timeout) as e:
-            raise GitHubTokenRefreshUnavailable(f"Could not reach GitHub to refresh the user token: {e}") from e
         try:
             payload = response.json()
         except ValueError:

@@ -8,7 +8,8 @@ operations that are shared between :class:`GitHubIntegration` (team-scoped) and
 import json
 import time
 import uuid
-from collections.abc import Collection, Iterable, Mapping
+import contextlib
+from collections.abc import Collection, Iterable, Iterator, Mapping
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Literal, TypedDict, cast
@@ -146,6 +147,28 @@ class GitHubIntegrationError(Exception):
         super().__init__(message)
         # Needed, so retry wrappers can make decisions without reparsing the response.
         self.status_code = status_code
+
+
+class GitHubTokenRefreshUnavailable(Exception):
+    """A transport failure stopped a token mint from reaching GitHub for an answer.
+
+    GitHub never rejected anything and the stored credentials are untouched, so a caller can
+    resolve the token again later. Distinct from a refusal, which needs the user to re-authorize.
+    """
+
+
+@contextlib.contextmanager
+def raise_if_github_unreachable() -> Iterator[None]:
+    """Re-raise a `requests` transport failure as :class:`GitHubTokenRefreshUnavailable`.
+
+    Wrap a token mint in this, so a caller can tell "the call never landed" apart from "GitHub
+    said no" and retry instead of discarding a link that still works.
+    """
+    try:
+        yield
+    # A refused or timed-out egress proxy tunnel lands here too: `ProxyError` is a `ConnectionError`.
+    except (requests.exceptions.ConnectionError, requests.exceptions.Timeout) as e:
+        raise GitHubTokenRefreshUnavailable(f"Could not reach GitHub to refresh a token: {e}") from e
 
 
 def _jsonb_merge(column: str, patch: dict[str, Any]) -> Func:
@@ -468,10 +491,14 @@ class GitHubIntegrationBase:
         is responsible for persisting any error state it needs.  On success the
         hook is called *before* ``save()`` so it can mutate extra fields that
         will be included in a single write.
+
+        Raises :class:`GitHubTokenRefreshUnavailable` when the call never reached GitHub,
+        which leaves the stored token usable until it really expires.
         """
         # client_request records the call via the egress transport — no manual recording here,
         # or every refresh would count twice.
-        response = self.client_request(f"installations/{self.github_installation_id}/access_tokens", method="POST")
+        with raise_if_github_unreachable():
+            response = self.client_request(f"installations/{self.github_installation_id}/access_tokens", method="POST")
         try:
             data = response.json()
         except ValueError:

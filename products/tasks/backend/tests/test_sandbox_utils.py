@@ -5,13 +5,9 @@ from django.test import override_settings
 
 from parameterized import parameterized
 
-from posthog.models.github_integration_base import GitHubIntegrationError
+from posthog.models.github_integration_base import GitHubIntegrationError, GitHubTokenRefreshUnavailable
 from posthog.models.integration import GitHubIntegration
-from posthog.models.user_integration import (
-    GitHubTokenRefreshUnavailable,
-    ReauthorizationRequired,
-    UserGitHubIntegration,
-)
+from posthog.models.user_integration import ReauthorizationRequired, UserGitHubIntegration
 
 from products.tasks.backend.exceptions import CredentialUnavailableError, GitHubTokenRefreshUnavailableError
 from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import TaskProcessingContext
