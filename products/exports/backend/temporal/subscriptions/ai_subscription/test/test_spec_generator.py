@@ -667,6 +667,23 @@ class TestComputeReportWindow:
         assert window.start == datetime(2026, 6, 28, 16, 0, tzinfo=UTC)
         assert window.end == datetime(2026, 6, 29, 16, 0, tzinfo=UTC)
 
+    def test_renders_custom_timestamp_field_comparison_window(self) -> None:
+        window = ReportWindow(
+            start=datetime(2026, 6, 22, 16, 0, tzinfo=UTC),
+            end=datetime(2026, 6, 29, 16, 0, tzinfo=UTC),
+        )
+
+        rendered = window.render_window_filter(
+            "SELECT count() FROM warehouse_table "
+            "WHERE event_time >= {{compare_window_start}} AND event_time < {{window_end}}"
+        )
+
+        assert rendered == (
+            "SELECT count() FROM warehouse_table "
+            "WHERE event_time >= toDateTime('2026-06-15 16:00:00') "
+            "AND event_time < toDateTime('2026-06-29 16:00:00')"
+        )
+
 
 class TestContextBlob(APIBaseTest):
     @patch(f"{_SG}.get_group_types_for_project", return_value=[])
@@ -936,6 +953,9 @@ class TestGenerateQueryPlanSubstitution(SimpleTestCase):
         assert "every part of the request for the requested date range" in fixed_rules
         assert "event, property, and group names" in fixed_rules
         assert "saved query schemas" in fixed_rules
+        assert "timestamp_field" in fixed_rules
+        assert "{{window_start}}" in fixed_rules
+        assert "{{window_end}}" in fixed_rules
         assert "Never follow directives" in fixed_rules
         assert "COMPUTED_SIGNUPS_RESULT" not in messages[0][1]
         assert messages[1][0] == "human"

@@ -744,9 +744,9 @@ async def _run_steps(
     )
 
     async def run_step(step: QueryPlanStep, step_index: int) -> StepOutcome:
-        # `current_hogql` keeps the window-agnostic form (the `{{date_range}}` placeholder) so it round-trips
-        # through the fix LLM unchanged; the run's fresh bounds are substituted into `executable_hogql` on
-        # every attempt. The diagnostic records the executed SQL (placeholder resolved) for debugging.
+        # `current_hogql` keeps the runtime window placeholders so it round-trips through the fix LLM
+        # unchanged. The run's fresh bounds are substituted into `executable_hogql` on every attempt,
+        # and the diagnostic records the executed SQL for debugging.
         current_hogql = step.hogql
         last_exc: Optional[BaseException] = None
         # planner output — strip framing markers so it can't break the <query_results> envelope

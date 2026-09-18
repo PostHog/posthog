@@ -167,18 +167,19 @@ Output rules:
   When context lists "Events matching your request", prefer those exact event names — they were
   selected for this prompt. For an event's properties, use only the names listed under its
   "`<event>` properties" line (access as `properties.<name>`); do not invent property names.
-- The analysis window is fixed, but you must NOT write its dates yourself. Filter EVERY query on the
-  window using the literal placeholder token `{{date_range}}` — write it verbatim where the timestamp
-  predicate goes, e.g. `WHERE {{date_range}}` or `WHERE event = '$pageview' AND {{date_range}}`. The
-  system substitutes the concrete half-open range at run time, so the plan stays reusable as the window
-  advances. Do NOT write `timestamp >= toDateTime('…')`, `now()`, `now() - INTERVAL …`, or `today()` for
-  the window yourself. The concrete bounds shown in <project_context> are for your understanding only;
-  copy the placeholder, not those dates, even when the prompt names a relative period ("today", "this
-  week"). For sub-windows inside the range (e.g. day-over-day within the window), bucket with
-  `toStartOfDay(timestamp)` etc., but keep the outer window filter as `{{date_range}}`. The one exception
-  is period-over-period growth ("vs last week/yesterday"), which uses `{{compare_date_range}}` and
-  `{{window_start}}` — see the growth reference pattern below. Boundary tokens `{{window_start}}` /
-  `{{window_end}}` substitute to bare `toDateTime('…')` literals where a pattern needs a single bound.
+- The analysis window is fixed, but you must NOT write its dates yourself. For the `events` table, use
+  the literal placeholder token `{{date_range}}` where the timestamp predicate goes, e.g.
+  `WHERE {{date_range}}` or `WHERE event = '$pageview' AND {{date_range}}`. For a saved warehouse table,
+  copy its exact `timestamp_field` from the attached query schema. If that field is not `timestamp`,
+  filter it as `<timestamp_field> >= {{window_start}} AND <timestamp_field> < {{window_end}}`; do not use
+  `{{date_range}}`, which expands against the standard `timestamp` field. Never invent a time field.
+  The system substitutes concrete half-open bounds at run time, so the plan stays reusable as the
+  window advances. Do NOT write literal `toDateTime('…')` bounds, `now()`, `now() - INTERVAL …`, or
+  `today()` yourself. The concrete bounds shown in <project_context> are for understanding only.
+  For period-over-period growth on `events`, use `{{compare_date_range}}` and `{{window_start}}`. For a
+  saved warehouse table with a different time field, filter that field from `{{compare_window_start}}`
+  through `{{window_end}}` and split at `{{window_start}}`. Boundary tokens substitute to bare
+  `toDateTime('…')` literals.
 - Each step's `description` must briefly explain *why* that query is relevant to the prompt.
 - Format each query for readability: each clause (SELECT, FROM, WHERE, GROUP BY, ORDER BY, LIMIT) on
   its own line, one selected column per line. Queries are shown to users verbatim.
@@ -194,8 +195,9 @@ are common LLM mistakes that HogQL rejects:
 - For a global top result, use `ORDER BY … LIMIT N`. For one winner per grouped result, prefer
   `argMax`/`argMin`. Use a window only when you genuinely need per-row ranking.
 - Do NOT use LATERAL joins, recursive CTEs, `UNNEST`, or `ARRAY JOIN` on a subquery.
-- Window filter: write the placeholder token `{{date_range}}` verbatim where the window predicate goes.
-  Never write `timestamp >= toDateTime('…')`, `now()`, `now() - INTERVAL …`, or `today()` for the window.
+- Window filter: use `{{date_range}}` for `events`; use the saved query schema's exact
+  `timestamp_field` with `{{window_start}}` and `{{window_end}}` for a warehouse table whose time field
+  is not `timestamp`. Never write literal bounds, `now()`, `now() - INTERVAL …`, or `today()`.
 - Time bucketing (for sub-windows WITHIN the range): `toStartOfHour(timestamp)`,
   `toStartOfDay(timestamp)`, `toStartOfWeek(timestamp)`.
 - Conditional aggregation: `countIf(cond)`, `uniqIf(field, cond)`, `sumIf(field, cond)`,
@@ -248,6 +250,10 @@ Still never `now()`:
   HAVING previous > 0 OR current > 0
   ORDER BY growth_rate DESC
   LIMIT 250
+
+For the same comparison on a saved warehouse table whose schema says `timestamp_field: event_time`,
+use `event_time >= {{compare_window_start}} AND event_time < {{window_end}}` for the outer range and
+split at `{{window_start}}`. Copy the actual field name from the schema; `event_time` is only an example.
 
 Events with no data: do NOT write a query for this. The events table only contains events that
 fired, so it cannot enumerate zero-data events. The set of events defined in the project but with
@@ -449,9 +455,9 @@ rewrite MUST follow the same HogQL syntax constraints used by the planner:
   `uniqIf($group_2, cond)`). A bare `group_<index>` is only valid as `group_<index>.properties.<name>`;
   used as a scalar it does not resolve; replace it with `$group_<index>`. The same `$`-prefixed form
   applies to person/session keys only via their documented paths, so do not add `$` elsewhere.
-- Time window: PRESERVE the original query's window tokens (`{{date_range}}`,
-  `{{compare_date_range}}`, `{{window_start}}`, `{{window_end}}`) or literal `toDateTime('…')` bounds
-  verbatim — those are the report's fixed analysis window. Do NOT introduce `now()` /
+- Time window: PRESERVE the original query's time field and window tokens (`{{date_range}}`,
+  `{{compare_date_range}}`, `{{compare_window_start}}`, `{{window_start}}`, `{{window_end}}`) or literal
+  `toDateTime('…')` bounds verbatim — those are the report's fixed analysis window. Do NOT introduce `now()` /
   `now() - INTERVAL …` / `today()`, and do NOT resolve a placeholder into dates yourself.
 - The normal result ceiling is `LIMIT 250`. If the error specifically indicates memory pressure,
   excessive result size, or a timeout, simplify or preaggregate the query and lower the final `LIMIT`
