@@ -15,7 +15,7 @@ To keep a PR in draft, add the `keep-draft` label. Create this label in each rep
 - All reported draft checks must pass. Missing, pending, failed, or unknown checks prevent the transition.
 - GitHub must confirm that the PR has no merge conflict. No unresolved review thread or changes-requested review can remain.
 - The monitor must have delivered all new review feedback. It does not treat delivery alone as resolution of a review thread.
-- The activity reads the PR again. Its state, commit, and feedback must match the monitor's snapshot, and its branch and repository must match the task run.
+- The activity reads the PR again. Its state, commit, and feedback must match the monitor's snapshot, and its repository must match the task run. The branch must match the stored task branch. If no task branch was stored, it must match the branch in the monitor's snapshot.
 - The existing GitHub helper checks the commit, labels, and draft history again before the ready mutation. Repeated attempts do not repeat a completed transition.
 
 GitHub does not provide an atomic ready mutation conditional on a commit. A change can arrive between the final read and mutation. Required checks and human approval still apply to the final commit.
