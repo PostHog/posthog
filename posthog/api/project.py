@@ -651,6 +651,12 @@ class ProjectBackwardCompatSerializer(
         if "widget_domains" in value and value["widget_domains"] is not None:
             value["widget_domains"] = [domain for domain in value["widget_domains"] if domain]
             validate_authorized_url_wildcards(value["widget_domains"])
+        from products.conversations.backend.api.ai_reply_playbook import validate_playbook_conversations_settings
+
+        # conversations_settings lives on the passthrough Team, not on Project, so a partial
+        # update that omits docs_source still normalizes against the saved source.
+        existing = self.instance.passthrough_team.conversations_settings if self.instance is not None else None
+        validate_playbook_conversations_settings(value, existing=existing if isinstance(existing, dict) else None)
         return value
 
     class Meta:
@@ -1619,9 +1625,10 @@ class ProjectViewSet(
             if warehouse_block_reason:
                 raise exceptions.ValidationError(warehouse_block_reason)
 
-        from posthog.temporal.delete_teams.dispatch import PROJECT_DELETION_DELAY, start_delete_project_data_workflow
+        from posthog.temporal.delete_teams.dispatch import project_deletion_delay, start_delete_project_data_workflow
 
-        deletion_scheduled_at = timezone.now() + PROJECT_DELETION_DELAY
+        deletion_delay = project_deletion_delay(project)
+        deletion_scheduled_at = timezone.now() + (deletion_delay or timedelta())
         claimed_project = Project.objects.filter(pk=project.pk, is_pending_deletion=False).update(
             is_pending_deletion=True,
             deletion_scheduled_at=deletion_scheduled_at,
@@ -1640,7 +1647,9 @@ class ProjectViewSet(
                 project_id=project_id,
                 user_id=user.id,
                 project_name=project_name,
-                start_delay=max(deletion_scheduled_at - timezone.now(), timedelta()),
+                start_delay=(
+                    max(deletion_scheduled_at - timezone.now(), timedelta()) if deletion_delay is not None else None
+                ),
             )
         except Exception:
             Project.objects.filter(pk=project.pk, deletion_scheduled_at=deletion_scheduled_at).update(

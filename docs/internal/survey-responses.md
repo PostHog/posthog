@@ -23,3 +23,16 @@ Use **Export responses** on the Summary tab to download answers as CSV or Excel.
 The export includes all responses matching the current filters, across all table pages.
 The Responses tab has an export control in the table.
 The same export remains available in the action sidebar.
+
+CSV and Excel downloads from all three locations use the same format.
+Each row contains a respondent ID, email when available, a UTC submission timestamp, response status, and one column per answerable question.
+Email comes from the person's `$email` property, falling back to `email` when `$email` is empty.
+Responses without an email retain their respondent ID and have a blank email cell.
+Question headings include their position and full text, so repeated questions remain distinct.
+Link questions are omitted, multiple-choice answers are comma-separated, and two-point ratings use **Thumbs up** or **Thumbs down**.
+Unanswered questions have blank cells.
+Downloads exclude the internal response payload and table action column.
+
+Excel downloads include bold, wrapped headings, readable column widths, wrapped answers, column filters, and a frozen header row.
+Row heights expand for multiline answers up to Excel's row-height limit; longer answers remain available in the cell.
+These layout settings also apply to other tabular Excel downloads through the shared exporter.

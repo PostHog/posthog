@@ -56,7 +56,7 @@ function EditableNotebookGeneratedWidgetRunButton({
         prompt: typeof node.props.prompt === 'string' ? node.props.prompt : '',
         model,
         isEditable: canEditNotebook,
-        prepareInsightDataframes: () => prepareNotebookInsightDataframes(mountedNotebookLogic),
+        prepareInsightDataframes: (names?: string[]) => prepareNotebookInsightDataframes(mountedNotebookLogic, names),
         persistNotebook: async (): Promise<void> => {
             await mountedNotebookLogic.asyncActions.saveNotebook({
                 content: mountedNotebookLogic.values.content,

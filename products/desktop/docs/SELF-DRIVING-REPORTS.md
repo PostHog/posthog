@@ -15,6 +15,7 @@ Marking a draft ready does not approve or merge it. Existing merge checks still 
 Eligible pull requests show Refund in the header. The existing feature flag, billing checks, and confirmation dialog still apply.
 
 The report ends with feedback after its evidence, reviewers, and other supporting sections.
+The suggested reviewer views show each reviewer source and reason. Reviewers with the same reason appear in one compact group.
 The recommendation keeps its boxed layout and its Ask about it and Dismiss controls.
 
 Informational recommendations, including Likely already fixed, use a blue callout. Decisions use an amber callout.

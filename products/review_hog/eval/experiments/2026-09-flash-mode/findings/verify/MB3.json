@@ -1,0 +1,27 @@
+{
+    "letter": "MB",
+    "id": "MB3",
+    "cluster": 4,
+    "is_real": false,
+    "severity": null,
+    "votes": [
+        {
+            "is_real": false,
+            "severity": null,
+            "evidence": "The hosted caller already suppresses familiarity input for inbox runs. /tmp/frozen-75215/products/stamphog/backend/temporal/activities.py:237-238 sets author_pr_numbers=[] whenever persisted inbox_review is present, writes it at :256, and passes it with the self-driving flag at :442-451. /tmp/frozen-75215/tools/pr-approval-agent/review_pr.py:474 initializes classification.familiarity to None. The actual hosted entrypoint calls _attach_familiarity, whose empty-list guard returns before computation at /tmp/frozen-75215/tools/pr-approval-agent/review_local.py:299-308. Consequently /tmp/frozen-75215/tools/pr-approval-agent/reviewer.py:644-646 renders an empty familiarity block. The integration test at /tmp/frozen-75215/products/stamphog/backend/tests/test_integration.py:1412-1415 explicitly asserts self_driving_review=True together with author_pr_numbers=[]. The separate Action caller never sets self_driving (/tmp/frozen-75215/tools/pr-approval-agent/review_pr.py:973-985).",
+            "refutation": "I first traced the source of author_pr_numbers and the real hosted call to _attach_familiarity. Its T1 check is not the only guard: empty input stops it, and the server deliberately supplies empty input for every inbox review. _maybe_compute_familiarity belongs to Pipeline.run in the Action path, which does not enable the carve-out. Thus neither alleged combination occurs through the production callers; manually injecting familiarity alongside the flag would bypass the existing server contract. The proposed suppression already occurs upstream."
+        },
+        {
+            "is_real": false,
+            "severity": null,
+            "evidence": "products/stamphog/backend/temporal/activities.py:237-238 explicitly supplies author_pr_numbers=[] for inbox reviews, and persists that value at :256. tools/pr-approval-agent/review_local.py:301-303 returns before computing or attaching familiarity when that list is empty. reviewer.py:644-646 renders no familiarity block for the resulting absent value. The hosted integration test at products/stamphog/backend/tests/test_integration.py:1412-1415 verifies both self_driving_review is True and author_pr_numbers is empty in the delivered sandbox context. The Action CLI at review_pr.py:984 never enables self_driving, so its _maybe_compute_familiarity path does not produce the alleged combination either.",
+            "refutation": "I traced the actual classification inputs instead of inferring that calling _format_familiarity necessarily renders a signal. The server already skips the machine user's merged-PR lookup, and the offline adapter's empty-list guard prevents familiarity computation. An explicitly populated familiarity object combined with a self-driving flag would reproduce the prompt text in an artificial direct call, but no shipping producer creates it. An existing integration assertion protects precisely this trust adaptation. The stated simultaneous strong/moderate familiarity signal is contradicted by the hosted producer and guard."
+        },
+        {
+            "is_real": false,
+            "severity": null,
+            "evidence": "The hosted producer already suppresses the input needed to compute familiarity. products/stamphog/backend/temporal/activities.py:237-238 detects inbox provenance and sets author_pr_numbers=[] instead of fetching merged PRs; :246-256 overwrites the saved context with that empty list. The same provenance enables self_driving_review at :451. tools/pr-approval-agent/review_local.py:299-303 returns from _attach_familiarity when that list is empty, so its assignment at :307 is unreachable for the hosted self-driving context. reviewer.py:644-646 returns an empty familiarity block when the classification has no signal. The Action constructor at review_pr.py:984 never enables self_driving, so its _maybe_compute_familiarity method does not produce the alleged production combination either.",
+            "refutation": "I first traced both purported familiarity producers to their actual entrypoints and inputs. The shared rendering function can render a manually supplied familiarity value alongside self_driving, but production's hosted fetch deliberately removes author history before _attach_familiarity runs. The hosted entrypoint does not call Pipeline.run/_maybe_compute_familiarity; the Action entrypoint that does call it leaves the exception flag off. Thus the finding overlooks an upstream suppression safeguard and demonstrates only an artificially assembled classification/context, not a reachable contradiction in a self-driving review."
+        }
+    ]
+}
