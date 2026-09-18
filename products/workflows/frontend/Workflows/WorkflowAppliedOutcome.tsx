@@ -18,6 +18,16 @@ const ROW_LABELS: Record<string, string> = {
     'unsubscribe rate': 'Unsubscribed',
 }
 
+// Roughly 6rem a bar, so a workflow with three versions does not get three bars the width of the card.
+const CHART_WIDTHS = [
+    'max-w-[8rem]',
+    'max-w-[8rem]',
+    'max-w-[14rem]',
+    'max-w-[20rem]',
+    'max-w-[26rem]',
+    'max-w-[32rem]',
+]
+
 function percent(reading: WorkflowProposalMetricApi | undefined): number {
     return reading?.value ? Math.round(reading.value * 1000) / 10 : 0
 }
@@ -68,18 +78,29 @@ export function WorkflowAppliedOutcome({
                         Open rate of this step on each published version, over the time that version was live. Other
                         edits ship in these versions too, so read a move as a signal to look closer, not as proof.
                     </p>
-                    <div data-attr="workflow-suggestion-outcome" className="flex flex-col gap-1">
+                    <div
+                        data-attr="workflow-suggestion-outcome"
+                        className={`flex flex-col gap-1 ${CHART_WIDTHS[Math.min(charted.length, CHART_WIDTHS.length - 1)]}`}
+                    >
                         <Sparkline
                             className="w-full h-28"
                             type="bar"
                             labels={labels}
+                            // Two series so the version the suggestion shipped as is its own colour. Every other
+                            // index is zero, and stacked bars put one value per version either way.
                             data={[
                                 {
+                                    name: 'Applied',
+                                    values: charted.map((version) => (version.applied ? percent(version.target) : 0)),
+                                    color: 'warning',
+                                },
+                                {
                                     name: 'Opened',
-                                    values: charted.map((version) => percent(version.target)),
+                                    values: charted.map((version) => (version.applied ? 0 : percent(version.target))),
                                     color: 'success',
                                 },
                             ]}
+                            hideZerosInTooltip
                             renderTooltipValue={(value) => `${value}%`}
                             // From zero, so a bar's height is the rate rather than its distance from the lowest version.
                             valueDomain={{ min: 0 }}
@@ -90,7 +111,7 @@ export function WorkflowAppliedOutcome({
                                     <span className="font-semibold">
                                         {formatValue(version.target.value, 'rate') ?? 'No data'}
                                     </span>
-                                    <span className="text-secondary">
+                                    <span className={version.applied ? 'font-semibold text-warning' : 'text-secondary'}>
                                         v{version.version}
                                         {version.applied ? ' · applied' : ''}
                                     </span>
