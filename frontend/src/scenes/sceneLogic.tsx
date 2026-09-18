@@ -92,6 +92,15 @@ const tabToPersistableSnapshot = (tab: SceneTab): SceneTab => {
     }
 }
 
+// `/` and `/home` both resolve the configured homepage through this, so anything asking whether a
+// location is the homepage has to derive it the same way.
+const homepageTargetPathname = (homepage: SceneTab): string => {
+    const targetPathname = addProjectIdIfMissing(homepage.pathname || urls.projectHomepage())
+    return removeProjectIdIfPresent(targetPathname) === '/'
+        ? addProjectIdIfMissing(urls.projectHomepage())
+        : targetPathname
+}
+
 // Bootstrapped by Django into APP_CONTEXT so the configured homepage is known on first paint,
 // before any async fetch — otherwise urlToAction runs with a null homepage and /home can't redirect.
 const getBootstrappedHomepage = (): SceneTab | null => {
@@ -307,6 +316,9 @@ export interface sceneLogicActions {
     reloadBrowserDueToImportError: () => {
         value: true
     }
+    resetUnavailableHomepage: (pathname: string) => {
+        pathname: string
+    }
     setExportedScene: (
         exportedScene: SceneExport,
         sceneId: string,
@@ -445,6 +457,7 @@ export const sceneLogic = kea<sceneLogicType>([
         reloadBrowserDueToImportError: true,
 
         setHomepage: (tab: SceneTab | null) => ({ tab }),
+        resetUnavailableHomepage: (pathname: string) => ({ pathname }),
     }),
     reducers({
         sceneId: [
@@ -692,6 +705,19 @@ export const sceneLogic = kea<sceneLogicType>([
         ],
     }),
     listeners(({ values, actions, cache, props, selectors }) => ({
+        // A homepage pointing at a deleted object answers every `/` and Home with a not-found screen,
+        // and the picker that would change it sits behind that screen. Drop the setting instead.
+        resetUnavailableHomepage: ({ pathname }) => {
+            const target = addProjectIdIfMissing(pathname)
+            if (!values.homepage || homepageTargetPathname(values.homepage) !== target) {
+                return
+            }
+            actions.setHomepage(null)
+            lemonToast.info('Your home pointed to something that no longer exists, so we reset it.')
+            if (addProjectIdIfMissing(router.values.currentLocation.pathname) === target) {
+                router.actions.replace(urls.projectHomepage())
+            }
+        },
         setHomepage: ({ tab }) => {
             if (isSharedView()) {
                 return
@@ -1023,10 +1049,7 @@ export const sceneLogic = kea<sceneLogicType>([
             if (!homepage) {
                 return false
             }
-            let targetPathname = addProjectIdIfMissing(homepage.pathname || urls.projectHomepage())
-            if (removeProjectIdIfPresent(targetPathname) === '/') {
-                targetPathname = addProjectIdIfMissing(urls.projectHomepage())
-            }
+            const targetPathname = homepageTargetPathname(homepage)
             // Forward the incoming hash and allow-listed params (e.g. modal) onto the homepage, and
             // compare against that final target so a forwarded param can't loop.
             const target = withForwardedHashAndSearchParams(
