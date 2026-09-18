@@ -3,7 +3,7 @@
 These base subqueries follow the product's curated builders
 (`products/engineering_analytics/backend/logic/views/`), so the recipes below report what the dashboard and MCP tools do.
 Both bases are simplified: neither carries the fork-network and merge-queue attribution rules the builders apply.
-Read the caveat under each base before you compose it into a query of your own.
+Read the caveat under each base and each recipe before you compose a query of your own.
 Replace every `github_*` table name (`github_pull_requests`, `github_workflow_runs`, `github_workflow_jobs`, `github_reviews`, `github_team_members`) with the team's real table name from `engineering-analytics-sources` (`prefix` + `github_<endpoint>`).
 The `engineering_analytics_*` views used below have fixed names — no prefix, no discovery.
 
@@ -148,6 +148,10 @@ ORDER BY week, runs DESC
 The success rate counts `failure`, `timed_out`, `startup_failure`, and `stale` as failures.
 It excludes skipped, cancelled, neutral, and action-required runs because they did not reach a pass-or-fail verdict.
 The duration percentile uses successful runs because cancelled and failed runs end early.
+The dashboard's Workflows table drops successful runs under 10 seconds from its run percentiles, because a path-gated workflow that succeeds in seconds without doing real work would otherwise report seconds-long percentiles on every surface.
+It falls back to every successful run when a workflow has no slower sample, because duration alone cannot tell a gate no-op from a fast workflow.
+This recipe keeps those runs, so its `p95_seconds` reads lower than the dashboard's wherever gated runs are a large share of the successes.
+Take `run_duration_percentile_expr` from `logic/queries/_workflow_filters.py` if you need the two to agree.
 For a single-workflow tile, add `AND workflow_name = 'CI'` and drop the group.
 
 The `run_started_at` filter above is the exact boundary, and it cannot prune the parquet scan, because the base computes that column.
