@@ -257,16 +257,26 @@ def _multivariate_results_agree(flag: FeatureFlag) -> bool:
 
     Boolean flags are constant by this test, because every condition that matches returns true.
     """
-    filters = flag.filters or {}
-    variants = ((filters.get("multivariate") or {}).get("variants")) or []
+    variants = ((flag.filters or {}).get("multivariate") or {}).get("variants") or []
     if not variants:
         return True
+    return _sole_served_variant(flag) is not None
+
+
+def _sole_served_variant(flag: FeatureFlag) -> str | None:
+    """The one variant that every reachable path serves, or None when the paths disagree.
+
+    A boolean flag carries no variants and returns None, so a caller must not read None as "the
+    flag is not constant". `_multivariate_results_agree` holds that distinction.
+    """
+    filters = flag.filters or {}
+    variants = ((filters.get("multivariate") or {}).get("variants")) or []
 
     groups = filters.get("groups") or []
     checker = FeatureFlagStatusChecker(feature_flag=flag)
     decider = next((index for index, group in enumerate(groups) if checker.is_group_fully_rolled_out(group)), None)
     if decider is None:
-        return False
+        return None
 
     distributed = _sole_reachable_variant(variants)
     variant_keys = {variant.get("key") for variant in variants}
@@ -281,7 +291,10 @@ def _multivariate_results_agree(flag: FeatureFlag) -> bool:
         override = group.get("variant")
         results.add(override if override in variant_keys else distributed)
     # `None` is in the set when a path falls through to a distribution that is not itself constant.
-    return len(results) == 1 and None not in results
+    if len(results) != 1:
+        return None
+    (served,) = results
+    return served
 
 
 def _sole_reachable_variant(variants: list[dict]) -> str | None:
@@ -388,6 +401,14 @@ def _build_result(flag: FeatureFlag, now: datetime, stale_threshold: datetime) -
     checker = FeatureFlagStatusChecker(feature_flag=flag)
     summary = checker.get_rollout_summary(flag)
     rollout_state, winning_variant = checker.rollout_state_and_variant(flag, summary)
+
+    # The checker returns a condition's `variant` override without testing it against the variants
+    # the flag configures, so a legacy row naming an absent key reaches the payload and the
+    # remediation then names a variant nobody receives. Prefer the variant the matcher serves. A
+    # flag whose reachable paths disagree has no such variant, so it keeps the checker's value.
+    served_variant = _sole_served_variant(flag)
+    if served_variant is not None:
+        winning_variant = served_variant
 
     # Read off the flag rather than off the query that found it, so the payload describes the row
     # a reader opens. Every candidate is old enough and serves a fixed result or went cold, so the

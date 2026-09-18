@@ -575,6 +575,28 @@ class TestStaleFlagsDetect(BaseTest):
                     "winning_variant": "control",
                 },
             ),
+            # The matcher ignores the override and serves the distribution, so the payload must
+            # name `control` and not the key the condition carries.
+            (
+                "multivariate_override_names_an_absent_variant",
+                {
+                    **constant_and_called(),
+                    "filters": {
+                        "multivariate": {
+                            "variants": [
+                                {"key": "control", "rollout_percentage": 100},
+                                {"key": "test", "rollout_percentage": 0},
+                            ]
+                        },
+                        "groups": [{"properties": [], "rollout_percentage": 100, "variant": "ghost"}],
+                    },
+                },
+                {
+                    "evidence_class": EVIDENCE_EFFECTIVELY_FULL_ROLLOUT,
+                    "rollout_state": ROLLOUT_FULLY_ROLLED_OUT,
+                    "winning_variant": "control",
+                },
+            ),
         ]
     )
     def test_payload_evidence_and_rollout(
