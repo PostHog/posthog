@@ -32,16 +32,8 @@ export const AllVariants: Story = {
     ),
 }
 
-/**
- * The real insight-detail page doesn't wrap the chart in a fixed-height div like the stories above -
- * it renders inside `.InsightVizDisplay > .TrendsInsight`, which derives its height from a CSS custom
- * property rather than a fixed one. A fixed-height wrapper (like `AllVariants` uses) hands
- * `.SampleDataState` a definite height either way, so it can't catch a regression in how `__chart`
- * fills that height. This story reuses the real container classes instead.
- */
+/** Uses the real `.InsightVizDisplay > .TrendsInsight` container instead of a fixed-height div, so it can catch height regressions the other stories can't. */
 export const InTrendsInsightContainer: Story = {
-    // Loaded here rather than at module scope so only this story pays for and applies
-    // InsightVizDisplay's page-level styles, not every other story in this file.
     loaders: [async () => void (await import('~/queries/nodes/InsightViz/InsightViz.scss'))],
     render: () => (
         <div className="InsightVizDisplay border rounded w-160">

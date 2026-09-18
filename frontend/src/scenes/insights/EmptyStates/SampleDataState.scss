@@ -34,9 +34,6 @@
     &__chart {
         display: flex;
         flex-direction: column;
-        // The quill chart root stretches via flex-1, so it needs a flex column parent
-        // align-self: stretch opts this item out of __viz's align-items: center, which otherwise
-        // leaves its height at content-size and breaks the flex-1 child's percentage sizing
         align-self: stretch;
         width: 100%;
 
