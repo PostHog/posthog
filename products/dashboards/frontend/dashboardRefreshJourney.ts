@@ -238,13 +238,13 @@ export class DashboardRefreshJourneyController {
             return false
         }
         active.failed[tileId] = true
-        this.scope.finish('failed', { error_type: errorType })
+        this.scope.finish(errorType === 'timeout' ? 'timed_out' : 'failed', { error_type: errorType })
         return true
     }
 
     public failLoad(attemptId: string, errorType: DashboardJourneyErrorType): void {
         if (this.scope.current?.attemptId === attemptId) {
-            this.scope.finish('failed', { error_type: errorType })
+            this.scope.finish(errorType === 'timeout' ? 'timed_out' : 'failed', { error_type: errorType })
         }
     }
 
