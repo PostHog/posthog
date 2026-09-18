@@ -9,6 +9,7 @@ import { urls } from 'scenes/urls'
 
 import { ConfigScopeEnumApi } from '~/generated/core/api.schemas'
 import { mswDecorator } from '~/mocks/browser'
+import { billingJson } from '~/mocks/fixtures/_billing'
 import preflightJson from '~/mocks/fixtures/_preflight.json'
 import { AvailableFeature, BillingFeatureType, OrganizationDomainType } from '~/types'
 
@@ -195,6 +196,20 @@ export const BoostNeedsUpgrade: Story = {
 export const RedesignedNeedsUpgrade: Story = {
     ...BoostNeedsUpgrade,
     parameters: { featureFlags: STORYBOOK_FEATURE_FLAGS },
+}
+
+// The paygate around the whole scene only renders when billing knows the feature, so an
+// organization whose billing response omits it reaches the table without the entitlement.
+export const UnentitledPastThePayGate: Story = {
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/users/@me': () => [200, mockUserWithFeatures(AvailableFeature.SSO_ENFORCEMENT)],
+                '/api/organizations/:id/domains': domainsResponse([VERIFIED_DOMAIN_NO_SAML_SCIM]),
+                '/api/billing/': { ...billingJson, products: [] },
+            },
+        }),
+    ],
 }
 
 export const EnterpriseMixed: Story = {

@@ -72,6 +72,14 @@ function IntegrationBadge({
     )
 }
 
+function UpgradeToEnableLink(): JSX.Element {
+    return (
+        <Link to={urls.organizationBilling([ProductKey.PLATFORM_AND_SUPPORT])} className="flex items-center gap-1">
+            <IconLock className="text-warning text-lg" /> Upgrade to enable
+        </Link>
+    )
+}
+
 export function VerifiedDomains(): JSX.Element {
     const { verifiedDomainsLoading, updatingDomainLoading } = useValues(verifiedDomainsLogic)
     const { showAddDomainModal } = useActions(verifiedDomainsLogic)
@@ -107,6 +115,7 @@ function VerifiedDomainsTable(): JSX.Element {
         verifiedDomainsLoading,
         identityProviderConfigsLoading,
         updatingDomainLoading,
+        isAutomaticProvisioningAvailable,
         isSSOEnforcementAvailable,
         isSAMLAvailable,
         isOIDCAvailable,
@@ -174,6 +183,11 @@ function VerifiedDomainsTable(): JSX.Element {
                 </div>
             ),
             render: function AutomaticProvisioning(_, { jit_provisioning_enabled, id }) {
+                // The API refuses only turning provisioning on, so a domain that already has it on keeps
+                // the switch. Otherwise an admin who lost the feature cannot stop SSO logins creating accounts.
+                if (!isAutomaticProvisioningAvailable && !jit_provisioning_enabled) {
+                    return <UpgradeToEnableLink />
+                }
                 return (
                     <div className="flex items-center">
                         <LemonSwitch
@@ -203,14 +217,7 @@ function VerifiedDomainsTable(): JSX.Element {
                     getIdentityProviderConfigForDomain(identityProviderConfigs, id, ConfigScopeEnumApi.Saml)?.has_saml
                 )
                 if (!isSSOEnforcementAvailable) {
-                    return (
-                        <Link
-                            to={urls.organizationBilling([ProductKey.PLATFORM_AND_SUPPORT])}
-                            className="flex items-center gap-1"
-                        >
-                            <IconLock className="text-warning text-lg" /> Upgrade to enable
-                        </Link>
-                    )
+                    return <UpgradeToEnableLink />
                 }
                 return (
                     <SSOSelect

@@ -103,6 +103,14 @@ const HANDLED_AUTH_GATE_CODES: ReadonlySet<string> = new Set([
 ])
 
 /**
+ * The DRF `code`s a serializer answers with when the organization's plan does not cover what the
+ * request would enable. The status is 400 because these are validation errors on a field, but the
+ * cause is the plan rather than the input, and the surface that sent the request already paywalls
+ * the control and toasts the reason.
+ */
+const ENTITLEMENT_REJECTION_CODES: ReadonlySet<string> = new Set(['feature_not_available', 'payment_required'])
+
+/**
  * How each browser engine words a `fetch` that never reached the server. Chromium says "Failed to
  * fetch", WebKit "Load failed", and Gecko "NetworkError when attempting to fetch resource.".
  */
@@ -163,6 +171,9 @@ export function isBrowserNetworkFailure(error: unknown): boolean {
  * - 403 `permission_denied` — the sceneLogic gates render the AccessDenied scene.
  * - 403 auth gates — `apiStatusLogic` opens 2FA setup, re-verification, or a re-auth prompt.
  * - 409 carrying a `change_request_id` — the approvals UI shows the change request it created.
+ * - 400 `feature_not_available` / `payment_required` — the organization's plan does not cover the
+ *   feature, which is a billing state rather than an application bug. The paywall on the surface
+ *   tells the user what to do.
  * - 404 `Project not found.` / `Organization not found.` — the scope in the URL is gone, so every
  *   request under it fails the same way. The scene routing takes the user off that URL, and until
  *   it does, a poll on the dead scope would otherwise file one exception per tick.
@@ -206,6 +217,9 @@ export function shouldReportApiFailure(error: unknown): boolean {
         return false
     }
     if (status === 403 && failure.code != null && HANDLED_AUTH_GATE_CODES.has(failure.code)) {
+        return false
+    }
+    if (status === 400 && failure.code != null && ENTITLEMENT_REJECTION_CODES.has(failure.code)) {
         return false
     }
     return !isApprovalRequiredError(failure)
