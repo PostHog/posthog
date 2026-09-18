@@ -10,7 +10,7 @@ import { parseImageRef } from '~/ingestion/pipelines/sessionreplay/ml-mirror-ima
 import { ML_IMAGE_FETCH_OUTPUT, MlImageFetchOutput } from '~/ingestion/pipelines/sessionreplay/shared/outputs'
 import { RefDedupCache } from '~/ingestion/pipelines/sessionreplay/shared/ref-dedup-cache'
 
-import { MlKeyBatchController } from './keys/batch-controller'
+import { MlSessionKeys } from './keys/key-store'
 import { mlKafkaRecord, mlWireVersion, validateImageOwner } from './keys/transport'
 import { MlMirrorMetrics } from './metrics'
 import { CollectedUrl } from './parse-and-anonymize-step'
@@ -62,7 +62,6 @@ export interface CollectedUrlsMessage {
 }
 
 export interface ProduceCollectedUrlsOptions {
-    keyManager?: MlKeyBatchController
     producedRefCacheMax?: number
     producedRefCacheWindowMs?: number
     crawlHistory?: Pick<CrawlHistoryStore, 'read'>
@@ -145,6 +144,7 @@ export function createProduceCollectedUrlsStep<
         headers?: { session_id: string }
         collectedUrls?: CollectedUrl[]
         message: { timestamp?: number }
+        mlKeys?: MlSessionKeys
     },
 >(
     outputs: IngestionOutputs<MlImageFetchOutput>,
@@ -169,10 +169,7 @@ export function createProduceCollectedUrlsStep<
 
     return async function produceCollectedUrlsStep(input) {
         const sessionId = input.headers?.session_id
-        const key =
-            sessionId && usesRawSessionIdentifiers(sessionId) && input.team
-                ? options.keyManager?.keys(input.team.teamId, sessionId)?.session
-                : undefined
+        const key = sessionId && usesRawSessionIdentifiers(sessionId) ? input.mlKeys?.session : undefined
         const collected = input.collectedUrls
         if (!collected?.length) {
             return ok(input)

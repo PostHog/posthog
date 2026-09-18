@@ -275,9 +275,17 @@ jobs:
         # gate on the gateway config being present: if the POSTHOG_CODE_E2E_*
         # secret/vars are missing, the fail-loud guard
         # (products/desktop/packages/agent/e2e/guard.e2e.test.ts) REDS the run rather than
-        # skipping to green. Only fork PRs are skipped, since they never receive the
+        # skipping to green. Fork PRs are skipped, since they never receive the
         # gateway secret and would red spuriously.
-        if: ${{ (needs.changes.outputs.packages == 'true' || needs.changes.outputs.workflow == 'true') && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
+        #
+        # The merge queue is skipped as well. Trunk bases its shadow PR on a stale
+        # master, so the paths filter sees every file merged since that base and
+        # reports `packages` true for a PR that touches no packages file. These tests
+        # drive live models, so they measure model behavior rather than whether this
+        # batch merges cleanly, which is what a queue run is for. A model timeout there
+        # removes a PR that changes no desktop code from the queue. The PR's own run
+        # still covers every branch that really changes products/desktop/packages/.
+        if: ${{ (needs.changes.outputs.packages == 'true' || needs.changes.outputs.workflow == 'true') && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && !startsWith(github.head_ref, 'trunk-merge/') }}
         runs-on: depot-ubuntu-24.04-4
         timeout-minutes: 30
         permissions:
