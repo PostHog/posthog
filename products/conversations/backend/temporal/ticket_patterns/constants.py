@@ -15,7 +15,13 @@ LOOKBACK_MINUTES_RANGE = (30, 1440)
 MIN_TICKETS_RANGE = (2, 50)
 MIN_REQUESTERS_RANGE = (2, 50)
 
-# Overflow rolls to the next tick rather than being dropped.
+# Overflow rolls to the next tick rather than being dropped, so a team waits up to
+# ceil(eligible / MAX_TEAMS_PER_RUN) ticks between scans. The detection window is anchored to the
+# scan, not to a cursor, so coverage is only gapless while that wait stays inside the team's
+# lookback: MAX_TEAMS_PER_RUN * lookback / COORDINATOR_INTERVAL_MINUTES teams, which is 100 at the
+# 30 minute floor and 600 at the default. Past that a team on a short window can miss tickets
+# between scans, so raise this cap (more calls in flight per tick) or shorten the interval before
+# the rollout gets there.
 MAX_TEAMS_PER_RUN = 50
 MAX_TICKETS_PER_TEAM = 150
 MAX_MESSAGE_CHARS = 500
