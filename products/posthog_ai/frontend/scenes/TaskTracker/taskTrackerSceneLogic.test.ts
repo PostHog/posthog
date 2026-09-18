@@ -322,6 +322,24 @@ describe('taskTrackerSceneLogic', () => {
         expect(router.values.location.pathname).toContain('/tasks/new-task')
     })
 
+    // The backend strips `pending_user_message` and echoes the stripped text. An optimistic bubble that keeps
+    // the trailing whitespace never matches that echo, so the first message rendered twice.
+    it('sends and echoes the first message without surrounding whitespace', async () => {
+        logic.mount()
+        logic.actions.setNewTaskData({ description: '  do the thing \n' })
+        logic.actions.submitNewTask()
+        const streamKey = logic.values.activeCreation!.streamKey
+        expect(runStreamLogic({ streamKey }).values.threadItems).toEqual([
+            expect.objectContaining({ type: 'human_message', text: 'do the thing' }),
+        ])
+
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(createBody).toMatchObject({ description: 'do the thing' })
+        expect(runBody).toMatchObject({ pending_user_message: 'do the thing' })
+        expect(logic.values.newTaskData.description).toBe('')
+    })
+
     // A warm sandbox is adopted inside `tasks/create`, which returns the activated Run as `latest_run`.
     // Issuing the usual run-create on top would strand that warm sandbox and cold-boot a second one —
     // exactly the ~16s the warm existed to avoid. The create must also carry the warm-reuse hints, since
