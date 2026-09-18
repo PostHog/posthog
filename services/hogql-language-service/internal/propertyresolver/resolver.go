@@ -18,19 +18,19 @@ func Resolve(parts []string, bindings map[string]string) (string, bool) {
 		return "", false
 	}
 	if propertyIndex > 0 {
-		owner := strings.ToLower(parts[propertyIndex-1])
+		owner := parts[propertyIndex-1]
 		if namespace, ok := namespaceForOwner(owner); ok {
 			return namespace, true
 		}
 		if tableName, ok := bindings[owner]; ok {
-			return namespaceForOwner(strings.ToLower(tableName))
+			return namespaceForOwner(tableName)
 		}
 		return "", false
 	}
 
 	namespaces := map[string]bool{}
 	for _, tableName := range bindings {
-		if namespace, ok := namespaceForOwner(strings.ToLower(tableName)); ok {
+		if namespace, ok := namespaceForOwner(tableName); ok {
 			namespaces[namespace] = true
 		}
 	}

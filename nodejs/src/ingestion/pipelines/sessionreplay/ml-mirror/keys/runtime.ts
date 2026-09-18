@@ -6,7 +6,7 @@ import { MlKeyEncryption } from './crypto'
 import { MlKeyDynamoDB } from './dynamodb'
 import { MlSessionKeyStore } from './key-store'
 import { MlKeyReader } from './reader'
-import { MlKafkaEncryption } from './transport'
+import { MlKafkaTransport } from './transport'
 
 export interface MlKeyManagerConfig {
     AI_RESEARCH_REPLAY_KEY_TABLE: string
@@ -14,6 +14,8 @@ export interface MlKeyManagerConfig {
     AI_RESEARCH_REPLAY_AWS_REGION: string
     AI_RESEARCH_REPLAY_KEY_CACHE_MAX: number
     AI_RESEARCH_REPLAY_KEY_CACHE_LIFETIME_MS: number
+    AI_RESEARCH_REPLAY_ROW_CACHE_MAX: number
+    AI_RESEARCH_REPLAY_ROW_CACHE_LIFETIME_MS: number
     AI_RESEARCH_REPLAY_KMS_REQUESTS_PER_SECOND: number
     SESSION_RECORDING_DYNAMODB_ENDPOINT?: string
 }
@@ -22,7 +24,8 @@ export class MlKeyManager {
     public readonly encryption: MlKeyEncryption
     public readonly reader: MlKeyReader
     public readonly controller: MlKeyBatchController
-    public readonly kafka: MlKafkaEncryption
+    public readonly kafka: MlKafkaTransport
+    private readonly db: MlKeyDynamoDB
     private readonly dynamo: DynamoDBClient
     private readonly kms: KMSClient
 
@@ -36,7 +39,14 @@ export class MlKeyManager {
             maxAttempts: 3,
         })
         this.kms = new KMSClient({ region: config.AI_RESEARCH_REPLAY_AWS_REGION, maxAttempts: 3 })
-        const db = new MlKeyDynamoDB(this.dynamo, config.AI_RESEARCH_REPLAY_KEY_TABLE)
+        this.db = new MlKeyDynamoDB(
+            this.dynamo,
+            config.AI_RESEARCH_REPLAY_KEY_TABLE,
+            undefined,
+            undefined,
+            config.AI_RESEARCH_REPLAY_ROW_CACHE_MAX,
+            config.AI_RESEARCH_REPLAY_ROW_CACHE_LIFETIME_MS
+        )
         this.encryption = new MlKeyEncryption(
             this.kms,
             config.AI_RESEARCH_REPLAY_KMS_KEY_ARN,
@@ -45,17 +55,18 @@ export class MlKeyManager {
             8,
             config.AI_RESEARCH_REPLAY_KMS_REQUESTS_PER_SECOND
         )
-        this.reader = new MlKeyReader(db, this.encryption)
-        this.controller = new MlKeyBatchController(new MlSessionKeyStore(db, this.encryption), this.encryption)
-        this.kafka = new MlKafkaEncryption(this.reader)
+        this.reader = new MlKeyReader(this.db, this.encryption)
+        this.controller = new MlKeyBatchController(new MlSessionKeyStore(this.db, this.encryption), this.encryption)
+        this.kafka = new MlKafkaTransport(this.reader)
     }
 
     public start(): Promise<void> {
-        return this.encryption.start()
+        return Promise.resolve()
     }
 
     public stop(): void {
         this.encryption.clear()
+        this.db.clear()
         this.dynamo.destroy()
         this.kms.destroy()
     }

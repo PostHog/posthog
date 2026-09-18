@@ -1,5 +1,5 @@
 import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
-import { actionToUrl } from 'kea-router'
+import { actionToUrl, router } from 'kea-router'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -70,6 +70,7 @@ export type NativeSourceHierarchyStatus = {
 export enum MarketingAnalyticsTab {
     DASHBOARD = 'dashboard',
     AD_PERFORMANCE = 'ad-performance',
+    PAGE_VISIBILITY = 'page-visibility',
     ATTRIBUTION = 'attribution',
     RETENTION = 'retention',
     // Still the tab key when Setup's flag is off, which is everywhere until it rolls
@@ -888,9 +889,6 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
         drillDownLevel: [
             (s) => [s._drillDownLevel, s.featureFlags],
             (level: MarketingAnalyticsDrillDownLevel, featureFlags: Record<string, boolean | string>) => {
-                if (!featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_DRILL_DOWN]) {
-                    return MarketingAnalyticsDrillDownLevel.Campaign
-                }
                 if (
                     EXTENDED_DRILL_DOWN_LEVELS.has(level) &&
                     !featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_EXTENDED_DRILL_DOWN]
@@ -1321,6 +1319,12 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
     }),
     actionToUrl(({ values }) => {
         const buildUrl = (): [string, string] => {
+            if (values.activeTab === MarketingAnalyticsTab.PAGE_VISIBILITY) {
+                const searchParams = new URLSearchParams(router.values.location.search)
+                searchParams.set('tab', MarketingAnalyticsTab.PAGE_VISIBILITY)
+                searchParams.delete('section')
+                return [router.values.location.pathname, searchParams.toString()]
+            }
             const searchParams = new URLSearchParams()
 
             // Tab
@@ -1376,7 +1380,7 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
                 searchParams.set('drill_down_level', values.drillDownLevel)
             }
 
-            return [window.location.pathname, searchParams.toString()]
+            return [router.values.location.pathname, searchParams.toString()]
         }
 
         return {
@@ -1492,7 +1496,7 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
     }),
     afterMount(({ actions }) => {
         // Read URL params on initial mount (one-time sync from URL)
-        const searchParams = new URLSearchParams(window.location.search)
+        const searchParams = new URLSearchParams(router.values.location.search)
         const params: Parameters<typeof actions.syncFromUrl>[0] = {}
 
         const rawTab = searchParams.get('tab')

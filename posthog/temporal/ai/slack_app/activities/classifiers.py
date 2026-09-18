@@ -6,7 +6,7 @@ from openai.types.shared_params import ResponseFormatJSONSchema
 from pydantic import ValidationError
 from temporalio import activity
 
-from posthog.llm.gateway_client import get_llm_client
+from posthog.llm.gateway_client import build_anthropic_client, build_openai_client
 from posthog.llm.semantic_enrichment import extract_json_object
 from posthog.models.integration import Integration, SlackIntegration
 from posthog.models.repo_routing_rule import RepoRoutingRule
@@ -38,7 +38,8 @@ CLASSIFIER_MODEL = "claude-haiku-4-5-20251001"
 # The model-override and agent-directed classifiers both run on a reasoning model, which
 # draws its reasoning from the same token budget as the reply. The reply is one short JSON
 # object; the headroom is for the thinking in front of it, and a truncated turn falls back
-# to the safe answer.
+# to the safe answer. Reasoning-class is also why the cap rides on `max_completion_tokens`:
+# the chat-completions route rejects `max_tokens` outright.
 #
 # The gateway client defaults to a 600s read and two retries, which is the right shape for
 # a generation call and the wrong one here. Left unbounded these never get to fall back,
@@ -46,13 +47,13 @@ CLASSIFIER_MODEL = "claude-haiku-4-5-20251001"
 # as the timeout: the activity is sync, so a thread Temporal has stopped waiting on keeps
 # blocking until the client itself returns.
 MODEL_OVERRIDE_CLASSIFIER_MODEL = "gpt-5.6-luna"
-MODEL_OVERRIDE_MAX_TOKENS = 2048
+MODEL_OVERRIDE_MAX_COMPLETION_TOKENS = 2048
 # One call per `@PostHog`, on the mention text alone. Measured mean is ~1.7s per call.
 MODEL_OVERRIDE_TIMEOUT_SECONDS = 10.0
 MODEL_OVERRIDE_MAX_RETRIES = 1
 
 AGENT_DIRECTED_CLASSIFIER_MODEL = "gpt-5.6-luna"
-AGENT_DIRECTED_MAX_TOKENS = 2048
+AGENT_DIRECTED_MAX_COMPLETION_TOKENS = 2048
 # One call per reply in every thread the agent is working in, and its prompt carries the
 # thread the override classifier's does not. The eval suite sees 3-9s on that shape, close
 # enough to a 10s ceiling that the tail would drop instructions rather than misread them.
@@ -176,14 +177,16 @@ def classify_task_needs_repo(
         event_text=event_text,
     )
     try:
-        client = get_llm_client("slack_app_routing")
-        response = client.chat.completions.create(
+        # The Go gateway refuses a Claude model on chat completions.
+        client = build_anthropic_client(product="slack_app_routing", ai_product="slack_app_routing")
+        response = client.messages.create(
             model=CLASSIFIER_MODEL,
             messages=[{"role": "user", "content": prompt}],
             max_tokens=64,
             temperature=0,
         )
-        parsed = extract_json_object(response.choices[0].message.content or "") or {}
+        reply = "".join(block.text for block in response.content if block.type == "text")
+        parsed = extract_json_object(reply) or {}
         # Haiku occasionally stringifies the bool ({"needs_repo": "false"}).
         # bool("false") is True, which would flip the defensive bias — handle
         # strings explicitly and treat any other unexpected shape as False.
@@ -288,13 +291,13 @@ def classify_message_is_agent_directed(
         event_text=event_text,
     )
     try:
-        client = get_llm_client("slack_app_routing").with_options(
+        client = build_openai_client(product="slack_app_routing", ai_product="slack_app_routing").with_options(
             timeout=AGENT_DIRECTED_TIMEOUT_SECONDS, max_retries=AGENT_DIRECTED_MAX_RETRIES
         )
         response = client.chat.completions.create(
             model=AGENT_DIRECTED_CLASSIFIER_MODEL,
             messages=[{"role": "user", "content": prompt}],
-            max_tokens=AGENT_DIRECTED_MAX_TOKENS,
+            max_completion_tokens=AGENT_DIRECTED_MAX_COMPLETION_TOKENS,
             response_format=_agent_directed_response_format(),
         )
         # Tolerant parse on top of the schema on purpose: the gateway fronts several
@@ -442,13 +445,13 @@ def classify_slack_app_model_override(
     )
 
     try:
-        client = get_llm_client("slack_app_routing").with_options(
+        client = build_openai_client(product="slack_app_routing", ai_product="slack_app_routing").with_options(
             timeout=MODEL_OVERRIDE_TIMEOUT_SECONDS, max_retries=MODEL_OVERRIDE_MAX_RETRIES
         )
         response = client.chat.completions.create(
             model=MODEL_OVERRIDE_CLASSIFIER_MODEL,
             messages=[{"role": "user", "content": prompt}],
-            max_tokens=MODEL_OVERRIDE_MAX_TOKENS,
+            max_completion_tokens=MODEL_OVERRIDE_MAX_COMPLETION_TOKENS,
             response_format=_model_override_response_format(choices),
         )
         # Tolerant parse on top of the schema on purpose: the gateway fronts several

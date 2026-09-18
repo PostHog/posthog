@@ -30,6 +30,9 @@ class SignalSourceProduct(StrEnum):
     ENDPOINTS = "endpoints"
     PGANALYZE = "pganalyze"
     SIGNALS_SCOUT = "signals_scout"
+    # A report check that failed after its report was resolved. Not a source a team connects:
+    # the inbox emits it to itself so a fix that stopped holding starts a fresh report.
+    SIGNALS_CHECK = "signals_check"
     LOGS = "logs"
     HEALTH_CHECKS = "health_checks"
     REPLAY_VISION = "replay_vision"
@@ -100,6 +103,7 @@ class SignalSourceType(StrEnum):
     CI_BROKEN_DEFAULT_BRANCH = "ci_broken_default_branch"
     CI_DURATION_REGRESSION = "ci_duration_regression"
     SEARCH_OPPORTUNITY = "search_opportunity"
+    CHECK_FAILED = "check_failed"
 
 
 # Plain value lists for ENUM_NAME_OVERRIDES in web.py — drf-spectacular hashes ChoiceField
@@ -120,6 +124,7 @@ SIGNAL_SOURCE_PRODUCT_LABELS: dict[SignalSourceProduct, str] = {
     SignalSourceProduct.ERROR_TRACKING: "Error tracking",
     SignalSourceProduct.PGANALYZE: "pganalyze",
     SignalSourceProduct.SIGNALS_SCOUT: "Signals scout",
+    SignalSourceProduct.SIGNALS_CHECK: "Report check",
     SignalSourceProduct.LOGS: "Logs",
     SignalSourceProduct.HEALTH_CHECKS: "Health checks",
     SignalSourceProduct.ENDPOINTS: "Endpoints",

@@ -46,6 +46,7 @@ jobs:
                   filters: |
                       agent_proxy:
                         - 'services/agent-proxy/**'
+                        - 'ee/hogai/sandbox/turn_event_contract.json'
                         - '.github/workflows/ci-agent-proxy.yml'
 
     agent-proxy:

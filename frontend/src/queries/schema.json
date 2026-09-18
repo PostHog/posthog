@@ -1711,6 +1711,9 @@
                     "$ref": "#/definitions/MetricsQuery"
                 },
                 {
+                    "$ref": "#/definitions/MetricsHistogramQuery"
+                },
+                {
                     "$ref": "#/definitions/TraceSpansQuery"
                 },
                 {
@@ -2156,6 +2159,31 @@
         "AssistantArrayPropertyFilterOperator": {
             "enum": ["exact", "is_not"],
             "type": "string"
+        },
+        "AssistantBareHogQLQuery": {
+            "additionalProperties": {},
+            "properties": {
+                "kind": {
+                    "const": "HogQLQuery",
+                    "type": "string"
+                },
+                "query": {
+                    "description": "The HogQL query to run.",
+                    "type": "string"
+                }
+            },
+            "required": ["kind", "query"],
+            "type": "object"
+        },
+        "AssistantBareInsightQuery": {
+            "additionalProperties": {},
+            "properties": {
+                "kind": {
+                    "$ref": "#/definitions/InsightNodeKind"
+                }
+            },
+            "required": ["kind"],
+            "type": "object"
         },
         "AssistantBaseMultipleBreakdownFilter": {
             "additionalProperties": false,
@@ -12365,6 +12393,13 @@
                     },
                     "type": "array"
                 },
+                "summary": {
+                    "description": "Only populated in summary mode. Rates use the corresponding eligible population.",
+                    "items": {
+                        "$ref": "#/definitions/MarketingAnalyticsRetentionSummaryRow"
+                    },
+                    "type": "array"
+                },
                 "timezone": {
                     "type": "string"
                 },
@@ -12544,6 +12579,132 @@
                 "last_refresh",
                 "next_allowed_client_refresh",
                 "results",
+                "timezone"
+            ],
+            "type": "object"
+        },
+        "CachedMetricsHistogramQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "bounds": {
+                    "description": "Upper bound per row (y axis), ascending.",
+                    "items": {
+                        "type": "number"
+                    },
+                    "type": "array"
+                },
+                "cache_key": {
+                    "type": "string"
+                },
+                "cache_target_age": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "calculation_trigger": {
+                    "description": "What triggered the calculation of the query, leave empty if user/immediate",
+                    "type": "string"
+                },
+                "counts": {
+                    "description": "Observation count per cell: counts[row][column], row = bound, column = time.",
+                    "items": {
+                        "items": {
+                            "type": "number"
+                        },
+                        "type": "array"
+                    },
+                    "type": "array"
+                },
+                "error": {
+                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                    "type": "string"
+                },
+                "hogql": {
+                    "description": "Generated HogQL query.",
+                    "type": "string"
+                },
+                "is_cached": {
+                    "type": "boolean"
+                },
+                "last_refresh": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "next_allowed_client_refresh": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "query_metadata": {
+                    "type": "object"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "resolved_compare_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The resolved previous/comparison period date range, when comparing against another period"
+                },
+                "resolved_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The date range used for the query"
+                },
+                "results": {},
+                "times": {
+                    "description": "Bucket start per column (x axis), ISO 8601, ascending.",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "timezone": {
+                    "type": "string"
+                },
+                "timings": {
+                    "description": "Measured timings for different parts of the query generation process",
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                },
+                "used_data_warehouse_sources": {
+                    "description": "Connector-synced data warehouse sources referenced by this query, if any.",
+                    "items": {
+                        "$ref": "#/definitions/DataWarehouseSourceUsage"
+                    },
+                    "type": "array"
+                },
+                "warnings": {
+                    "description": "Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access.",
+                    "items": {
+                        "anyOf": [
+                            {
+                                "$ref": "#/definitions/DataWarehouseSyncWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/AccessControlFilterWarning"
+                            }
+                        ]
+                    },
+                    "type": "array"
+                }
+            },
+            "required": [
+                "bounds",
+                "cache_key",
+                "counts",
+                "is_cached",
+                "last_refresh",
+                "next_allowed_client_refresh",
+                "results",
+                "times",
                 "timezone"
             ],
             "type": "object"
@@ -16939,6 +17100,11 @@
                 "curve": {
                     "description": "Line interpolation: straight segments or a smoothed curve through the points.",
                     "enum": ["linear", "smooth"],
+                    "type": "string"
+                },
+                "seriesColorMode": {
+                    "description": "How series are told apart: one color per series, or one color at stepped opacities.",
+                    "enum": ["palette", "opacity"],
                     "type": "string"
                 }
             },
@@ -28715,6 +28881,10 @@
                 "convertToProjectTimezone": {
                     "type": "boolean"
                 },
+                "cookielessTrafficIsRegular": {
+                    "description": "Do not treat a missing user agent as automation on cookieless events. Positive bot signals and custom project rules still apply. Resolved server-side; not intended to be set by clients.",
+                    "type": ["boolean", "null"]
+                },
                 "customBotDefinitions": {
                     "items": {
                         "$ref": "#/definitions/CustomBotRule"
@@ -29398,6 +29568,12 @@
                 },
                 {
                     "$ref": "#/definitions/AssistantDataVisualizationNode"
+                },
+                {
+                    "$ref": "#/definitions/AssistantBareInsightQuery"
+                },
+                {
+                    "$ref": "#/definitions/AssistantBareHogQLQuery"
                 }
             ]
         },
@@ -34575,6 +34751,10 @@
                     "$ref": "#/definitions/integer",
                     "description": "Breakdown values kept before the rest roll into 'Other'. Defaults to 20."
                 },
+                "comparePreviousPeriod": {
+                    "description": "Include the previous acquisition period in summary mode. Defaults to false.",
+                    "type": "boolean"
+                },
                 "dataColorTheme": {
                     "description": "Colors used in the insight's visualization - not used in Web Analytics but required for type compatibility",
                     "type": ["number", "null"]
@@ -34622,6 +34802,10 @@
                 "retentionInterval": {
                     "$ref": "#/definitions/MarketingAnalyticsRetentionInterval",
                     "description": "Period for both the cohort rows and the return columns. Defaults to week."
+                },
+                "summary": {
+                    "description": "Return session-based 7/30-day metrics instead of the cohort matrix. Defaults to false.",
+                    "type": "boolean"
                 },
                 "tags": {
                     "$ref": "#/definitions/QueryLogTags"
@@ -34690,6 +34874,13 @@
                 "results": {
                     "items": {
                         "$ref": "#/definitions/MarketingAnalyticsRetentionRow"
+                    },
+                    "type": "array"
+                },
+                "summary": {
+                    "description": "Only populated in summary mode. Rates use the corresponding eligible population.",
+                    "items": {
+                        "$ref": "#/definitions/MarketingAnalyticsRetentionSummaryRow"
                     },
                     "type": "array"
                 },
@@ -34769,6 +34960,52 @@
                 }
             },
             "required": ["breakdownValue", "cohortDate", "cohortIndex", "cohortSize", "values"],
+            "type": "object"
+        },
+        "MarketingAnalyticsRetentionSummaryRow": {
+            "additionalProperties": false,
+            "properties": {
+                "acquired": {
+                    "$ref": "#/definitions/integer"
+                },
+                "breakdownValue": {
+                    "type": "string"
+                },
+                "eligible30d": {
+                    "$ref": "#/definitions/integer"
+                },
+                "eligible7d": {
+                    "$ref": "#/definitions/integer"
+                },
+                "medianReturnDays": {
+                    "description": "Median elapsed days to a second session within 30 days, among observed returners.",
+                    "type": ["number", "null"]
+                },
+                "previous": {
+                    "type": "boolean"
+                },
+                "returned30d": {
+                    "$ref": "#/definitions/integer"
+                },
+                "returned7d": {
+                    "$ref": "#/definitions/integer"
+                },
+                "returners": {
+                    "$ref": "#/definitions/integer",
+                    "description": "People with an observed second session within 30 days, including incomplete windows."
+                }
+            },
+            "required": [
+                "breakdownValue",
+                "previous",
+                "acquired",
+                "eligible7d",
+                "returned7d",
+                "eligible30d",
+                "returned30d",
+                "medianReturnDays",
+                "returners"
+            ],
             "type": "object"
         },
         "MarketingAnalyticsSchemaField": {
@@ -37025,6 +37262,137 @@
             "enum": ["eq", "neq", "regex", "not_regex"],
             "type": "string"
         },
+        "MetricsHistogramQuery": {
+            "additionalProperties": false,
+            "description": "Histogram bucket counts per time bucket, for a latency-over-time heatmap. A separate node from `MetricsQuery` because the response is a grid, not series — a display type must not change what the runner reads (the cache key excludes display).",
+            "properties": {
+                "dateRange": {
+                    "$ref": "#/definitions/DateRange",
+                    "description": "Defaults to the last 24 hours when omitted; dashboard date filters override it"
+                },
+                "filters": {
+                    "items": {
+                        "$ref": "#/definitions/MetricsQueryFilter"
+                    },
+                    "type": "array"
+                },
+                "interval": {
+                    "description": "Bucket size; auto-picked from the range when omitted",
+                    "type": "string"
+                },
+                "kind": {
+                    "const": "MetricsHistogramQuery",
+                    "type": "string"
+                },
+                "metricName": {
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "response": {
+                    "$ref": "#/definitions/MetricsHistogramQueryResponse"
+                },
+                "tags": {
+                    "$ref": "#/definitions/QueryLogTags"
+                },
+                "unit": {
+                    "description": "UCUM unit for the y-axis bounds, e.g. \"s\", \"ms\". Presentation only.",
+                    "type": "string"
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
+                }
+            },
+            "required": ["kind", "metricName"],
+            "type": "object"
+        },
+        "MetricsHistogramQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "bounds": {
+                    "description": "Upper bound per row (y axis), ascending.",
+                    "items": {
+                        "type": "number"
+                    },
+                    "type": "array"
+                },
+                "counts": {
+                    "description": "Observation count per cell: counts[row][column], row = bound, column = time.",
+                    "items": {
+                        "items": {
+                            "type": "number"
+                        },
+                        "type": "array"
+                    },
+                    "type": "array"
+                },
+                "error": {
+                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                    "type": "string"
+                },
+                "hogql": {
+                    "description": "Generated HogQL query.",
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "resolved_compare_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The resolved previous/comparison period date range, when comparing against another period"
+                },
+                "resolved_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The date range used for the query"
+                },
+                "results": {},
+                "times": {
+                    "description": "Bucket start per column (x axis), ISO 8601, ascending.",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "timings": {
+                    "description": "Measured timings for different parts of the query generation process",
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                },
+                "used_data_warehouse_sources": {
+                    "description": "Connector-synced data warehouse sources referenced by this query, if any.",
+                    "items": {
+                        "$ref": "#/definitions/DataWarehouseSourceUsage"
+                    },
+                    "type": "array"
+                },
+                "warnings": {
+                    "description": "Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access.",
+                    "items": {
+                        "anyOf": [
+                            {
+                                "$ref": "#/definitions/DataWarehouseSyncWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/AccessControlFilterWarning"
+                            }
+                        ]
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["bounds", "counts", "results", "times"],
+            "type": "object"
+        },
         "MetricsNullMode": {
             "description": "How a null bucket renders on a time-series chart.",
             "enum": ["gap", "zero", "connect"],
@@ -37655,6 +38023,7 @@
                 "LogAttributesQuery",
                 "LogValuesQuery",
                 "MetricsQuery",
+                "MetricsHistogramQuery",
                 "TraceSpansQuery",
                 "TraceSpansAggregationQuery",
                 "TraceSpansTreeQuery",
@@ -39552,6 +39921,10 @@
             "properties": {
                 "name": {
                     "description": "Name of the query, preferably unique. For example web_analytics_vitals",
+                    "type": "string"
+                },
+                "presetId": {
+                    "description": "Short id of the saved Web analytics filter preset this query was run under, if any.",
                     "type": "string"
                 },
                 "productKey": {
@@ -42462,6 +42835,13 @@
                             },
                             "type": "array"
                         },
+                        "summary": {
+                            "description": "Only populated in summary mode. Rates use the corresponding eligible population.",
+                            "items": {
+                                "$ref": "#/definitions/MarketingAnalyticsRetentionSummaryRow"
+                            },
+                            "type": "array"
+                        },
                         "timings": {
                             "description": "Measured timings for different parts of the query generation process",
                             "items": {
@@ -45345,6 +45725,90 @@
                 {
                     "additionalProperties": false,
                     "properties": {
+                        "bounds": {
+                            "description": "Upper bound per row (y axis), ascending.",
+                            "items": {
+                                "type": "number"
+                            },
+                            "type": "array"
+                        },
+                        "counts": {
+                            "description": "Observation count per cell: counts[row][column], row = bound, column = time.",
+                            "items": {
+                                "items": {
+                                    "type": "number"
+                                },
+                                "type": "array"
+                            },
+                            "type": "array"
+                        },
+                        "error": {
+                            "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                            "type": "string"
+                        },
+                        "hogql": {
+                            "description": "Generated HogQL query.",
+                            "type": "string"
+                        },
+                        "modifiers": {
+                            "$ref": "#/definitions/HogQLQueryModifiers",
+                            "description": "Modifiers used when performing the query"
+                        },
+                        "query_status": {
+                            "$ref": "#/definitions/QueryStatus",
+                            "description": "Query status indicates whether next to the provided data, a query is still running."
+                        },
+                        "resolved_compare_date_range": {
+                            "$ref": "#/definitions/ResolvedDateRangeResponse",
+                            "description": "The resolved previous/comparison period date range, when comparing against another period"
+                        },
+                        "resolved_date_range": {
+                            "$ref": "#/definitions/ResolvedDateRangeResponse",
+                            "description": "The date range used for the query"
+                        },
+                        "results": {},
+                        "times": {
+                            "description": "Bucket start per column (x axis), ISO 8601, ascending.",
+                            "items": {
+                                "type": "string"
+                            },
+                            "type": "array"
+                        },
+                        "timings": {
+                            "description": "Measured timings for different parts of the query generation process",
+                            "items": {
+                                "$ref": "#/definitions/QueryTiming"
+                            },
+                            "type": "array"
+                        },
+                        "used_data_warehouse_sources": {
+                            "description": "Connector-synced data warehouse sources referenced by this query, if any.",
+                            "items": {
+                                "$ref": "#/definitions/DataWarehouseSourceUsage"
+                            },
+                            "type": "array"
+                        },
+                        "warnings": {
+                            "description": "Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access.",
+                            "items": {
+                                "anyOf": [
+                                    {
+                                        "$ref": "#/definitions/DataWarehouseSyncWarning"
+                                    },
+                                    {
+                                        "$ref": "#/definitions/AccessControlFilterWarning"
+                                    }
+                                ]
+                            },
+                            "type": "array"
+                        }
+                    },
+                    "required": ["bounds", "counts", "results", "times"],
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
                         "error": {
                             "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                             "type": "string"
@@ -48206,6 +48670,9 @@
                     "$ref": "#/definitions/MetricsQuery"
                 },
                 {
+                    "$ref": "#/definitions/MetricsHistogramQuery"
+                },
+                {
                     "$ref": "#/definitions/TraceSpansQuery"
                 },
                 {
@@ -49077,6 +49544,10 @@
                         }
                     ],
                     "description": "The selected interval to display across all cohorts (null = show all intervals for each cohort)"
+                },
+                "showMeanLine": {
+                    "description": "Draw the mean across cohorts as one line on the retention graph.",
+                    "type": "boolean"
                 },
                 "showTrendLines": {
                     "type": "boolean"
@@ -51368,6 +51839,7 @@
                     "items": {
                         "$ref": "#/definitions/StickinessQuerySeriesNode"
                     },
+                    "maxItems": 200,
                     "type": "array"
                 },
                 "stickinessFilter": {
@@ -54069,6 +54541,7 @@
                     "items": {
                         "$ref": "#/definitions/TrendsQuerySeriesNode"
                     },
+                    "maxItems": 200,
                     "type": "array"
                 },
                 "tags": {
@@ -56328,6 +56801,7 @@
                 "FirstPageviewUTMContent",
                 "FirstPageviewUTMSourceMediumCampaign",
                 "Browser",
+                "InAppBrowser",
                 "OS",
                 "Viewport",
                 "DeviceType",

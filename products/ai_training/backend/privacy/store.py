@@ -15,15 +15,18 @@ from botocore.config import Config
 
 from products.ai_training.backend.config import key_table_name
 from products.ai_training.backend.models import AITrainingDeletionRequest
-from products.ai_training.backend.privacy.reader import KEY_READ_LEASE_SECONDS
 
 logger = structlog.get_logger(__name__)
 
 KEY_SHARDS = 32
+# Readers may use a key for this long after they read it, so deletion completes only after the lease has run out.
+KEY_READ_LEASE_SECONDS = 300
 # Equals ML_SESSION_MAX_AGE_DAYS in nodejs/src/ingestion/pipelines/sessionreplay/ml-mirror/session-identifier-format.ts: ingestion drops sessions that started earlier than that, so no key for a month can appear after the month end plus this period.
 MONTH_DELETE_GRACE_DAYS = 14
 # A batch admitted just inside the grace period still commits within its 45 s budget, so deletion stays behind that too.
 MONTH_DELETE_IN_FLIGHT_MARGIN = timedelta(hours=1)
+# A per-session deletion keeps the team month key, so it must also remove the seal that the month key opens.
+KEY_MATERIAL_ATTRIBUTES = ("wrapped_key", "sealed_key", "key_nonce")
 DynamoItem = dict[str, dict[str, str | bool | bytes]]
 
 
@@ -132,7 +135,7 @@ class AITrainingPrivacyStore:
                         "Update": {
                             "TableName": self.table_name,
                             "Key": {"pk": key["pk"], "sk": key["sk"]},
-                            "UpdateExpression": "SET deleted = :deleted REMOVE wrapped_key",
+                            "UpdateExpression": "SET deleted = :deleted REMOVE " + ", ".join(KEY_MATERIAL_ATTRIBUTES),
                             "ExpressionAttributeValues": {":deleted": {"BOOL": True}},
                         },
                     }

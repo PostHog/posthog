@@ -6,7 +6,7 @@ import { ML_BLOCK_METADATA_OUTPUT, MlBlockMetadataOutput } from '~/ingestion/pip
 import { toBlockMetadataRow } from './block-metadata-row'
 import { MlKeyReader } from './keys/reader'
 import { MlWireVersion, sessionKeyId, tableKeyString } from './keys/schema'
-import { encryptedKafkaValue, mlWireVersion } from './keys/transport'
+import { mlKafkaRecord, mlWireVersion } from './keys/transport'
 import { MlMirrorMetrics } from './metrics'
 import { usesRawSessionIdentifiers } from './session-identifier-format'
 
@@ -36,7 +36,7 @@ export class MlBlockMetadataSink implements SessionMetadataSink {
             }
             const version = mlWireVersion(key)
             producedByVersion.set(version, (producedByVersion.get(version) ?? 0) + 1)
-            return [{ key: row.session_id, ...encryptedKafkaValue(key, 'metadata', Buffer.from(JSON.stringify(row))) }]
+            return [{ key: row.session_id, ...mlKafkaRecord(version, Buffer.from(JSON.stringify(row))) }]
         })
         await this.outputs.queueMessages(ML_BLOCK_METADATA_OUTPUT, messages)
         for (const [version, count] of producedByVersion) {
