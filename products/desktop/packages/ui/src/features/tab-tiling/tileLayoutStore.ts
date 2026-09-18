@@ -17,6 +17,7 @@ interface TileLayoutStore {
   groups: TileGroup[];
   activeByGroup: Record<string, string>;
   names: Record<string, string>;
+  nextSplitNumber: number;
   tileTab: (tabId: string, targetTabId: string, edge: TileEdge) => void;
   renameGroup: (groupId: string, name: string) => void;
   untileTab: (tabId: string) => void;
@@ -31,11 +32,30 @@ function withGroups(
   groups: TileGroup[],
 ): Partial<TileLayoutStore> {
   if (groups === state.groups) return state;
+  const named = nameNewGroups(
+    groups,
+    pruneNames(groups, state.names),
+    state.nextSplitNumber,
+  );
   return {
     groups,
     activeByGroup: pruneActiveByGroup(groups, state.activeByGroup),
-    names: pruneNames(groups, state.names),
+    names: named.names,
+    nextSplitNumber: named.next,
   };
+}
+
+function nameNewGroups(
+  groups: TileGroup[],
+  names: Record<string, string>,
+  next: number,
+): { names: Record<string, string>; next: number } {
+  const unnamed = groups.filter((g) => !names[g.id]);
+  if (unnamed.length === 0) return { names, next };
+  const out = { ...names };
+  let n = next;
+  for (const g of unnamed) out[g.id] = `Split ${n++}`;
+  return { names: out, next: n };
 }
 
 function pruneNames(
@@ -53,11 +73,18 @@ export const useTileLayoutStore = create<TileLayoutStore>()(
       groups: [],
       activeByGroup: {},
       names: {},
+      nextSplitNumber: 1,
       renameGroup: (groupId, name) =>
         set((state) => {
           const trimmed = name.trim();
-          const { [groupId]: _previous, ...rest } = state.names;
-          return { names: trimmed ? { ...rest, [groupId]: trimmed } : rest };
+          if (trimmed) return { names: { ...state.names, [groupId]: trimmed } };
+          return {
+            names: {
+              ...state.names,
+              [groupId]: `Split ${state.nextSplitNumber}`,
+            },
+            nextSplitNumber: state.nextSplitNumber + 1,
+          };
         }),
       tileTab: (tabId, targetTabId, edge) =>
         set((state) =>
@@ -94,6 +121,20 @@ export const useTileLayoutStore = create<TileLayoutStore>()(
           withGroups(state, pruneGroups(state.groups, liveTabIds)),
         ),
     }),
-    { name: STORAGE_KEY },
+    {
+      name: STORAGE_KEY,
+      merge: (persisted, current) => {
+        const merged = {
+          ...current,
+          ...(persisted as Partial<TileLayoutStore>),
+        };
+        const named = nameNewGroups(
+          merged.groups,
+          merged.names ?? {},
+          merged.nextSplitNumber ?? 1,
+        );
+        return { ...merged, names: named.names, nextSplitNumber: named.next };
+      },
+    },
   ),
 );

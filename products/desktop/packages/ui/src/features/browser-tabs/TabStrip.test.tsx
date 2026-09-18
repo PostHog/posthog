@@ -14,7 +14,6 @@ function setup(overrides?: Partial<Parameters<typeof TabStrip>[0]>) {
     tabs,
     activeTabId: "t1",
     onSelect: vi.fn(),
-    onSelectMember: vi.fn(),
     onClose: vi.fn(),
     onNewTab: vi.fn(),
     onTogglePin: vi.fn(),

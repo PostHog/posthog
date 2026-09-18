@@ -48,7 +48,7 @@ function TilePill({
 }) {
   const label = tileLabel(tab);
   const icon = tileIcon(tab);
-  const { ref, isDragSource } = useTileDrag(tab.id);
+  const { ref } = useTileDrag(tab.id);
   return (
     <button
       ref={ref}
@@ -62,7 +62,7 @@ function TilePill({
         isActive
           ? "font-medium"
           : "text-muted-foreground hover:text-foreground",
-        isDragSource && "bg-background shadow-lg ring-1 ring-border",
+        "data-[dnd-dragging]:bg-background data-[dnd-dragging]:shadow-lg data-[dnd-dragging]:ring-1 data-[dnd-dragging]:ring-border",
       )}
     >
       <DotsSixVerticalIcon

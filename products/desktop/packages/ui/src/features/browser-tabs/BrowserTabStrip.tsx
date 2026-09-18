@@ -50,6 +50,7 @@ import {
   groupForTab,
   lastActiveIn,
   tabIdsIn,
+  untileTab,
 } from "@posthog/ui/features/tab-tiling/tileTree";
 import { useFocusTab } from "@posthog/ui/features/tab-tiling/useFocusTab";
 import { getTaskInputSessionId } from "@posthog/ui/features/task-detail/taskInputSession";
@@ -231,6 +232,9 @@ function BrowserTabStripImpl() {
   const tileGroups = useTileLayoutStore((s) => s.groups);
   const activeByGroup = useTileLayoutStore((s) => s.activeByGroup);
   const groupNames = useTileLayoutStore((s) => s.names);
+  const stripPreviewTabId = useTabReorderStore((s) =>
+    s.overStrip && s.dragSource === "tile" ? s.draggingTabId : null,
+  );
   const separateGroup = useTileLayoutStore((s) => s.separate);
   const renameGroup = useTileLayoutStore((s) => s.renameGroup);
   // Drop pins for tabs that no longer exist (closed here or in another
@@ -661,9 +665,12 @@ function BrowserTabStripImpl() {
       };
     };
 
+    const previewGroups = stripPreviewTabId
+      ? untileTab(tileGroups, stripPreviewTabId)
+      : tileGroups;
     const { ids, groupByAnchor } = collapseSplits(
       partitionPinnedFirst(base, pinnedTabIds),
-      tileGroups,
+      previewGroups,
     );
     return ids.flatMap((id): TabView[] => {
       const anchor = byId.get(id);
@@ -702,6 +709,7 @@ function BrowserTabStripImpl() {
     pinnedTabIds,
     previewOrder,
     tileGroups,
+    stripPreviewTabId,
     activeByGroup,
     groupNames,
     channelName,
@@ -745,17 +753,6 @@ function BrowserTabStripImpl() {
       if (target) focusTab(target);
     },
     [focusTab, windowId, tileGroups, activeByGroup],
-  );
-
-  const handleSelectMember = useCallback(
-    (tabId: string) => {
-      if (!windowId || tabId === activeTabId) return;
-      const target = readMirror().tabs.find(
-        (tab) => tab.windowId === windowId && tab.id === tabId,
-      );
-      if (target) focusTab(target);
-    },
-    [focusTab, windowId, activeTabId],
   );
 
   // Navigate to the close's survivor, or — when the last tab was closed — to the
@@ -951,7 +948,6 @@ function BrowserTabStripImpl() {
       tabs={tabs}
       activeTabId={activeTabId}
       onSelect={handleSelect}
-      onSelectMember={handleSelectMember}
       onClose={handleClosePill}
       onTogglePin={handleTogglePin}
       onCloseOthers={handleCloseOthers}

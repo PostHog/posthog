@@ -35,6 +35,7 @@ function resetDragState(): void {
   store.setDraggingTabId(null);
   store.setDragSource(null);
   store.setDetached(false);
+  store.setOverStrip(false);
 }
 
 function tileBeside(tabId: string, targetTabId: string, edge: TileEdge): void {
@@ -107,39 +108,66 @@ export function BrowserTabsDndProvider({ children }: { children: ReactNode }) {
     );
   };
 
-  const dropTileOnStrip = (tabId: string, besideTabId: string | null) => {
+  const dropTileOnStrip = (tabId: string, previewed: string[] | null) => {
     useTileLayoutStore.getState().untileTab(tabId);
     const snapshot = browserTabsStore.getState().snapshot;
     const win = primaryWindow(snapshot);
-    if (besideTabId && besideTabId !== tabId && win) {
+    if (previewed && win) {
       const order = storedOrderIds(snapshot, win.id);
-      const pinnedTabIds = usePinnedTabsStore.getState().pinnedTabIds;
-      const next = reorderWithinGroup(order, pinnedTabIds, tabId, besideTabId);
-      if (!sameOrder(next, order)) persistOrder(next);
+      if (!sameOrder(previewed, order)) persistOrder(previewed);
     }
     const tab = readMirror().tabs.find((t) => t.id === tabId);
     if (tab) goToTab(tab);
     track(ANALYTICS_EVENTS.BROWSER_TAB_UNTILED, { tile_count: 0 });
   };
 
-  const dropTile = (tabId: string, target: unknown) => {
+  const dropTile = (
+    tabId: string,
+    target: unknown,
+    previewed: string[] | null,
+  ) => {
     if (isTileDropData(target)) {
       if (target.tabId !== tabId) tileBeside(tabId, target.tabId, target.edge);
       return;
     }
-    if (isStripDropData(target)) {
-      dropTileOnStrip(tabId, null);
+    const pill = target as { type?: unknown } | undefined;
+    if (isStripDropData(target) || pill?.type === "browser-tab") {
+      dropTileOnStrip(tabId, previewed);
+    }
+  };
+
+  const previewTileOverStrip = (tabId: string, target: unknown) => {
+    const store = useTabReorderStore.getState();
+    const pill = target as { type?: unknown; tabId?: unknown } | undefined;
+    const pillId = pill?.type === "browser-tab" ? pill.tabId : undefined;
+    const onStrip = typeof pillId === "string" || isStripDropData(target);
+    store.setOverStrip(onStrip);
+    if (!onStrip) {
+      if (store.previewOrder) store.setPreviewOrder(null);
       return;
     }
-    const pill = target as { type?: unknown; tabId?: unknown } | undefined;
-    if (pill?.type === "browser-tab" && typeof pill.tabId === "string") {
-      dropTileOnStrip(tabId, pill.tabId);
+    const snapshot = browserTabsStore.getState().snapshot;
+    const win = primaryWindow(snapshot);
+    if (!win) return;
+    const cur = store.previewOrder ?? storedOrderIds(snapshot, win.id);
+    if (typeof pillId !== "string" || pillId === tabId) {
+      if (!store.previewOrder) store.setPreviewOrder(cur);
+      return;
+    }
+    const pinnedTabIds = usePinnedTabsStore.getState().pinnedTabIds;
+    const next = reorderWithinGroup(cur, pinnedTabIds, tabId, pillId);
+    if (!sameOrder(next, cur) || !store.previewOrder) {
+      store.setPreviewOrder(next);
     }
   };
 
   const onDragOver: DragDropEvents["dragover"] = (event) => {
     const src = event.operation.source?.data;
     const tgt = event.operation.target?.data;
+    if (isTileTabDragData(src)) {
+      previewTileOverStrip(src.tabId, tgt);
+      return;
+    }
     if (
       useTabReorderStore.getState().detached ||
       src?.type !== "browser-tab" ||
@@ -175,7 +203,7 @@ export function BrowserTabsDndProvider({ children }: { children: ReactNode }) {
       resetDragState();
       if (event.canceled) return;
       if (isTileTabDragData(src)) {
-        dropTile(src.tabId, tgt);
+        dropTile(src.tabId, tgt, order);
         return;
       }
       if (src?.type !== "browser-tab") return;

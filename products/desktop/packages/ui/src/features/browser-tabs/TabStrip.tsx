@@ -64,7 +64,6 @@ export interface TabStripProps {
   tabs: TabView[];
   activeTabId: string | null;
   onSelect: (tabId: string) => void;
-  onSelectMember: (tabId: string) => void;
   onClose: (tabId: string) => void;
   /** When omitted, the trailing new-tab button is hidden. The app always passes
    * it: `+` opens the space index, which has nothing to do with what the
@@ -89,7 +88,6 @@ export function TabStrip({
   tabs,
   activeTabId,
   onSelect,
-  onSelectMember,
   onClose,
   onNewTab,
   onTogglePin,
@@ -147,7 +145,6 @@ export function TabStrip({
             isActive={(tab.split?.activeId ?? tab.id) === activeTabId}
             closable={closable[index]}
             onSelect={onSelect}
-            onSelectMember={onSelectMember}
             onClose={onClose}
             onTogglePin={onTogglePin}
             onCloseOthers={onCloseOthers}
@@ -226,74 +223,22 @@ function SplitTooltip({ split }: { split: SplitView }) {
   );
 }
 
-function SplitPill({
-  tab,
-  split,
-  isActive,
-  renaming,
-  onSelectMember,
-  onRename,
-}: {
-  tab: TabView;
-  split: SplitView;
-  isActive: boolean;
-  renaming: boolean;
-  onSelectMember: (tabId: string) => void;
-  onRename: (name: string | null) => void;
-}) {
+function MemberCluster({ members }: { members: SplitMember[] }) {
   return (
-    <div
-      role="tab"
-      tabIndex={-1}
-      aria-selected={isActive}
-      aria-label={`${split.name ?? tab.label} (split, ${split.members.length} tabs)`}
-      className={cn(
-        "flex h-6 max-w-[280px] items-stretch overflow-hidden rounded-md border border-border bg-background transition-[padding] group-hover:pr-5",
-        !isActive && "opacity-60 hover:opacity-100",
-      )}
-    >
-      {renaming ? (
-        <input
-          // biome-ignore lint/a11y/noAutofocus: the field opens from an explicit menu action
-          autoFocus
-          defaultValue={split.name ?? ""}
-          placeholder="Name this split"
-          aria-label="Split name"
-          className="h-full w-36 min-w-0 border-border border-r bg-background px-2 text-xs outline-none"
-          onKeyDown={(event) => {
-            if (event.key === "Enter") onRename(event.currentTarget.value);
-            if (event.key === "Escape") onRename(null);
-          }}
-          onBlur={(event) => onRename(event.currentTarget.value)}
-        />
-      ) : split.name ? (
-        <span className="flex min-w-0 items-center truncate border-border border-r px-2 font-medium text-xs">
-          {split.name}
+    <span aria-hidden className="-space-x-px flex shrink-0 items-center">
+      {members.slice(0, 4).map((member) => (
+        <span
+          key={member.id}
+          className="flex size-3.5 items-center justify-center [&>span>svg]:size-3 [&>svg]:size-3"
+        >
+          {member.icon ?? (
+            <span className="flex size-3 items-center justify-center rounded-xs bg-foreground/10 font-medium text-[8px] uppercase leading-none">
+              {member.label.trim().charAt(0) || "?"}
+            </span>
+          )}
         </span>
-      ) : null}
-      <span className="flex items-stretch gap-px bg-border/60 p-px">
-        {split.members.map((member) => {
-          const shown = member.id === split.activeId;
-          return (
-            <button
-              key={member.id}
-              type="button"
-              title={member.label}
-              aria-current={shown && isActive ? "true" : undefined}
-              onClick={() => onSelectMember(member.id)}
-              className={cn(
-                "flex w-6 shrink-0 items-center justify-center rounded-[3px] transition-colors",
-                shown
-                  ? "bg-accent-3 text-accent-11"
-                  : "bg-background text-muted-foreground hover:bg-muted hover:text-foreground",
-              )}
-            >
-              <MemberGlyph member={member} />
-            </button>
-          );
-        })}
-      </span>
-    </div>
+      ))}
+    </span>
   );
 }
 
@@ -303,7 +248,6 @@ function SortableTabPill({
   isActive,
   closable,
   onSelect,
-  onSelectMember,
   onClose,
   onTogglePin,
   onCloseOthers,
@@ -319,7 +263,6 @@ function SortableTabPill({
 } & Pick<
   TabStripProps,
   | "onSelect"
-  | "onSelectMember"
   | "onClose"
   | "onTogglePin"
   | "onCloseOthers"
@@ -342,6 +285,7 @@ function SortableTabPill({
   const [renaming, setRenaming] = useState(false);
 
   const split = tab.split;
+  const label = split ? (split.name ?? tab.label) : tab.label;
   const closeLabel = split
     ? `Close split (${split.members.length} tabs)`
     : `Close ${tab.label}`;
@@ -360,22 +304,29 @@ function SortableTabPill({
       className={cn(
         tab.pinned
           ? "no-drag flex shrink-0 items-center"
-          : split
-            ? "no-drag group relative flex shrink-0 items-center overflow-hidden"
-            : "no-drag group relative flex min-w-0 max-w-[200px] flex-1 basis-[200px] items-center overflow-hidden",
+          : "no-drag group relative flex min-w-0 max-w-[200px] flex-1 basis-[200px] items-center overflow-hidden",
         detached && "rounded-md bg-background shadow-lg ring-1 ring-border",
       )}
     >
-      {split ? (
-        <SplitPill
-          tab={tab}
-          split={split}
-          isActive={isActive}
-          renaming={renaming}
-          onSelectMember={onSelectMember}
-          onRename={(name) => {
+      {renaming && split ? (
+        <input
+          // biome-ignore lint/a11y/noAutofocus: the field opens from an explicit menu action
+          autoFocus
+          defaultValue={split.name ?? ""}
+          placeholder="Name this split"
+          aria-label="Split name"
+          className="h-6 w-full min-w-0 rounded-md bg-background px-2 text-xs outline-none ring-1 ring-accent-8"
+          onKeyDown={(event) => {
+            if (event.key === "Enter") {
+              onRenameSplit(tab.id, event.currentTarget.value);
+            }
+            if (event.key === "Enter" || event.key === "Escape") {
+              setRenaming(false);
+            }
+          }}
+          onBlur={(event) => {
+            onRenameSplit(tab.id, event.currentTarget.value);
             setRenaming(false);
-            if (name !== null) onRenameSplit(tab.id, name);
           }}
         />
       ) : (
@@ -384,7 +335,13 @@ function SortableTabPill({
           size="sm"
           role="tab"
           aria-selected={isActive}
-          aria-label={tab.pinned ? `${tab.label} (pinned)` : undefined}
+          aria-label={
+            tab.pinned
+              ? `${tab.label} (pinned)`
+              : split
+                ? `${label} (split, ${split.members.length} tabs)`
+                : undefined
+          }
           onClick={() => onSelect(tab.id)}
           className={`h-6 px-2 ${
             tab.pinned
@@ -392,7 +349,9 @@ function SortableTabPill({
               : "w-full justify-start gap-1 transition-[padding] group-hover:pr-6"
           } ${isActive ? "" : "opacity-60 hover:opacity-100"}`}
         >
-          {tab.icon || tab.pinned ? (
+          {split ? (
+            <MemberCluster members={split.members} />
+          ) : tab.icon || tab.pinned ? (
             <span className="flex shrink-0 items-center [&>svg]:size-3.5">
               {tab.icon ?? <PushPinIcon size={14} weight="fill" />}
             </span>
@@ -402,7 +361,7 @@ function SortableTabPill({
             close button. */}
           {tab.pinned ? null : (
             <span className="min-w-0 flex-1 overflow-hidden whitespace-nowrap text-left [-webkit-mask-image:linear-gradient(to_right,#000,#000_calc(100%-0.75rem),#0000)] [mask-image:linear-gradient(to_right,#000,#000_calc(100%-0.75rem),#0000)]">
-              {tab.label}
+              {label}
             </span>
           )}
         </Button>
