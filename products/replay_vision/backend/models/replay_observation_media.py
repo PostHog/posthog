@@ -36,21 +36,22 @@ class ReplayObservationMedia(TeamScopedRootMixin, UUIDModel):
 
     def save(self, *args, **kwargs) -> None:
         # Tenant invariant, as on ReplayObservationLabel: the media, its observation and its asset are one
-        # team's. Nothing here comes from a request, so a mismatch is our own bug, and it would file a
-        # frame under the wrong tenant.
-        if self._state.adding:
-            observation_team_id = self.observation.team_id
-            if self.team_id and self.team_id != observation_team_id:
-                raise ValueError(
-                    f"ReplayObservationMedia.team_id ({self.team_id}) must match observation.team_id "
-                    f"({observation_team_id})"
-                )
+        # team's. Checked on every write, not only the insert, because the render's update_or_create can
+        # point an existing row at a different asset. Nothing here comes from a request, so a mismatch is
+        # our own bug filing a frame under the wrong tenant.
+        observation_team_id = self.observation.team_id
+        if self._state.adding and not self.team_id:
             self.team_id = observation_team_id
-            if self.asset.team_id != observation_team_id:
-                raise ValueError(
-                    f"ReplayObservationMedia.asset.team_id ({self.asset.team_id}) must match "
-                    f"observation.team_id ({observation_team_id})"
-                )
+        if self.team_id != observation_team_id:
+            raise ValueError(
+                f"ReplayObservationMedia.team_id ({self.team_id}) must match observation.team_id "
+                f"({observation_team_id})"
+            )
+        if self.asset.team_id != observation_team_id:
+            raise ValueError(
+                f"ReplayObservationMedia.asset.team_id ({self.asset.team_id}) must match "
+                f"observation.team_id ({observation_team_id})"
+            )
         super().save(*args, **kwargs)
 
     class Meta:

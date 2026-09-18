@@ -53,6 +53,21 @@ class TestReplayObservationMediaTenancy(BaseTest):
 
         assert media.team_id == self.observation.team_id
 
+    def test_moving_an_existing_row_onto_another_teams_asset_is_refused(self) -> None:
+        # The render's update_or_create repoints an existing row at a freshly created asset, so the
+        # invariant has to hold on the update too, not only the insert.
+        media = ReplayObservationMedia.objects.for_team(self.team.id).create(
+            observation=self.observation,
+            asset=self._asset(self.team),
+            kind=ReplayObservationMedia.Kind.THUMBNAIL,
+            position=0,
+            video_start_ms=1000,
+        )
+        media.asset = self._asset(self.other_team)
+
+        with pytest.raises(ValueError):
+            media.save(update_fields=["asset"])
+
     def test_an_asset_from_another_team_is_refused(self) -> None:
         # Nothing here comes from a request, so this is a guard against our own bug filing a frame under
         # the wrong tenant.
