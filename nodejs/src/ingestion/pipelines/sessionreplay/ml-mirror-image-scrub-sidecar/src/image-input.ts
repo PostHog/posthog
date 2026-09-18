@@ -5,8 +5,10 @@ import { imageMetadataProhibitsAiTraining } from './xmp.ts'
 // One libvips thread per operation and no shared cache bound CPU and memory to the request concurrency limit.
 sharp.concurrency(1)
 sharp.cache(false)
-// The accepted image types do not need TIFF or native VIPS loaders, so blocking them removes unnecessary decoder paths.
-sharp.block({ operation: ['VipsForeignLoadTiff', 'VipsForeignLoadVips'] })
+// The accepted image types do not need the TIFF, HEIF or native VIPS loaders, so blocking them removes unnecessary
+// decoder paths. Blocking VipsForeignLoadHeif also blocks its buffer, file and source subclasses, so AVIF and HEIC
+// input fails as an unsupported format.
+sharp.block({ operation: ['VipsForeignLoadTiff', 'VipsForeignLoadHeif', 'VipsForeignLoadVips'] })
 
 // Compressed image bytes can expand many times in memory, so every decoder applies this pixel limit before allocation.
 export const LIMIT_INPUT_PIXELS = 50_000_000
@@ -60,7 +62,7 @@ export async function inspectImage(input: Buffer): Promise<ImageDescription> {
     return {
         width: metadata.width,
         height: metadata.height,
-        format: metadata.format === 'heif' ? 'avif' : (metadata.format ?? 'unknown'),
+        format: metadata.format ?? 'unknown',
     }
 }
 

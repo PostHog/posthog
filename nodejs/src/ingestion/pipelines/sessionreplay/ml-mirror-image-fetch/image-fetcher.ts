@@ -12,8 +12,11 @@ import { WebBotAuthRequestSigner } from './web-bot-auth'
  *
  * SVG is absent on purpose. It is a text format that can carry the page's own data, so its redaction
  * belongs on the inline path rather than on an image model.
+ *
+ * AVIF is absent because the image scrubber blocks the HEIF loader (`sharp.block` in the sidecar's
+ * image-input.ts), so it would reject every AVIF image that this lane fetched.
  */
-const ALLOWED_CONTENT_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp', 'image/avif'] as const
+const ALLOWED_CONTENT_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'] as const
 
 export type ImageContentType = (typeof ALLOWED_CONTENT_TYPES)[number]
 
