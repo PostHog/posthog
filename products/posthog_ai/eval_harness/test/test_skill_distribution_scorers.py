@@ -6,6 +6,7 @@ import pytest
 
 from braintrust_core.score import Score, Scorer
 
+from products.posthog_ai.evals.cli_mcp.call_budget import MCPCallBudget
 from products.posthog_ai.evals.cli_mcp.skill_distribution_scorers import (
     ExpectedSkillDiscovered,
     ExpectedSkillLoaded,
@@ -72,6 +73,42 @@ def _happy_path() -> dict[str, object]:
         _exec("load", f"learn {QUALIFIED_SKILL}", "# Querying data"),
         _exec("query", "call execute-sql {}", "[]"),
     )
+
+
+@pytest.mark.parametrize("budget,expected_score", [(None, None), (4, 1.0), (3, 0.0)])
+def test_mcp_call_budget_counts_attempts_without_counting_other_tools(
+    budget: int | None, expected_score: float | None
+) -> None:
+    output = _output(
+        _exec("search", "learn -s revenue"),
+        _tool_call("failed", "mcp__posthog__exec", {"command": "info execute-sql", "context": "first"}, failed=True),
+        _tool_call("retry", "mcp__posthog__exec", {"command": "info execute-sql", "context": "retry"}),
+        _exec("query", 'call execute-sql {"query":"SELECT 1"}'),
+        _tool_call("shell", "Bash", {"command": "pwd"}),
+        _tool_call("slack", "mcp__slack__exec", {"command": "search revenue"}),
+    )
+    expected = {} if budget is None else {"mcp_call_budget": {"max_calls": budget}}
+    score = MCPCallBudget()._run_eval_sync(output, expected=expected)
+    assert score.score == expected_score
+    assert score.metadata == {
+        "attempted_calls": 4,
+        "failed_calls": 1,
+        "repeated_calls": 1,
+        "max_calls": budget,
+    }
+
+
+@pytest.mark.parametrize("budget", [-1, True, "3", None])
+def test_mcp_call_budget_rejects_invalid_limits(budget: object) -> None:
+    with pytest.raises(ValueError, match="nonnegative integer"):
+        MCPCallBudget()._run_eval_sync(_happy_path(), expected={"mcp_call_budget": {"max_calls": budget}})
+
+
+@pytest.mark.parametrize("output", [None, {"raw_log": ""}])
+def test_mcp_call_budget_does_not_pass_missing_logs(output: dict[str, object] | None) -> None:
+    score = MCPCallBudget()._run_eval_sync(output, expected={"mcp_call_budget": {"max_calls": 5}})
+    assert score.score == 0.0
+    assert score.metadata == {"reason": "No raw log"}
 
 
 @pytest.mark.parametrize(

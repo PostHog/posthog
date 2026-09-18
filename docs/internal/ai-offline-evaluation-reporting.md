@@ -4,6 +4,13 @@ The sandboxed evaluation harness in `products/posthog_ai/eval_harness/` reports 
 With the Braintrust engine, each suite runs once and the harness sends the resulting scores to PostHog when uploads are enabled.
 Reporting does not run the agent or scorers again.
 
+The MCP skill distribution and usage suites attach attempted, failed, and repeated PostHog call counts to the `mcp_call_budget` scorer metadata.
+Counts include failed attempts; a wrapped `exec call` counts once, and unrelated tools are excluded.
+Repeated calls have the same parsed tool name and arguments, ignoring `context` and `llm_model`; repeats are diagnostic because a retry can be justified.
+To grade a case against a call limit, set `expected["mcp_call_budget"] = {"max_calls": 12}` with a budget calibrated for that case.
+The score is 1 at or below the budget and 0 above it, separately from answer correctness.
+Without a budget, the scorer records counts with `score=None`, which does not affect the aggregate score.
+
 ## Capture settings
 
 Evaluation result uploads to Braintrust and PostHog share the `no_send_logs` setting.
