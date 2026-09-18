@@ -10,6 +10,10 @@ describe('sceneLogic', () => {
             ['/project/492200/verify_email/some-uuid/some-token', true],
             ['/account/credential-review', true],
             ['/project/492200/account/credential-review', true],
+            // A user mid-setup who opens org/project creation must land on it, not be sent back to step one.
+            ['/create-organization', true],
+            ['/organization/create-project', true],
+            ['/project/492200/organization/create-project', true],
             ['/project/492200/dashboard/1', false],
         ])('isOnboardingNotRequiredForPath(%s) === %s', (path, expected) => {
             expect(isOnboardingNotRequiredForPath(path)).toBe(expected)
