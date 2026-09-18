@@ -157,7 +157,6 @@ class GroupTransition:
 
     grouping_key: str
     notification: str
-    value: float | None = None
 
 
 @frozen
@@ -185,6 +184,11 @@ class SourceBatchEvaluation:
     # Pairs the payload bound left out. They keep their due time and a later tick re-evaluates
     # them, the way a truncated cohort already behaves.
     omitted: int = 0
+
+
+# The platform's write, which a source's evaluation workflow starts by name. One definition,
+# because a rename that misses a source breaks it at runtime and nothing else would catch it.
+RECORD_OUTCOMES_ACTIVITY: Final[str] = "alerts_product_record_outcomes"
 
 
 @frozen

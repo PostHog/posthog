@@ -19,6 +19,7 @@ with workflow.unsafe.imports_passed_through():
     from posthog.sync import database_sync_to_async_pool
 
     from products.alerts.backend.facade.contracts import (
+        RECORD_OUTCOMES_ACTIVITY,
         SourceBatchEvaluation,
         SourceEvaluationInputs,
         SourceOutcomeInputs,
@@ -26,8 +27,13 @@ with workflow.unsafe.imports_passed_through():
 
 WORKFLOW_NAME = "logs-alert-evaluate"
 
-# The platform's own write, started by name so the two products stay apart.
-RECORD_OUTCOMES_ACTIVITY = "alerts_product_record_outcomes"
+# The dispatcher gives this workflow 40 seconds. Both activities have to fit inside that with
+# room to start the delivery children, so a slow evaluation cannot leave the write no budget and
+# hand the whole batch back to the next tick.
+EVALUATE_START_TO_CLOSE = dt.timedelta(seconds=20)
+EVALUATE_SCHEDULE_TO_CLOSE = dt.timedelta(seconds=24)
+RECORD_START_TO_CLOSE = dt.timedelta(seconds=8)
+RECORD_SCHEDULE_TO_CLOSE = dt.timedelta(seconds=12)
 
 
 @activity.defn
@@ -56,8 +62,8 @@ class LogsAlertEvaluateWorkflow(PostHogWorkflow):
         evaluation = await workflow.execute_activity(
             evaluate_logs_alerts_activity,
             inputs,
-            start_to_close_timeout=dt.timedelta(seconds=25),
-            schedule_to_close_timeout=dt.timedelta(seconds=35),
+            start_to_close_timeout=EVALUATE_START_TO_CLOSE,
+            schedule_to_close_timeout=EVALUATE_SCHEDULE_TO_CLOSE,
             retry_policy=RetryPolicy(maximum_attempts=2),
         )
 
@@ -69,8 +75,8 @@ class LogsAlertEvaluateWorkflow(PostHogWorkflow):
                     cutoff=inputs.cutoff,
                     outcomes=evaluation.outcomes,
                 ),
-                start_to_close_timeout=dt.timedelta(seconds=15),
-                schedule_to_close_timeout=dt.timedelta(seconds=45),
+                start_to_close_timeout=RECORD_START_TO_CLOSE,
+                schedule_to_close_timeout=RECORD_SCHEDULE_TO_CLOSE,
                 retry_policy=RetryPolicy(maximum_attempts=3),
             )
 

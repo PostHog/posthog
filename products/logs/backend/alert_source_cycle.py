@@ -72,10 +72,10 @@ logger = structlog.get_logger(__name__)
 # the preview it belongs to, so a breach this batch cannot announce keeps its due time.
 MAX_PREVIEWS_PER_CYCLE = 500
 
-# Cohorts run one after another in a single activity, so the batch caps how many it evaluates
-# to finish inside its start-to-close timeout. An unbounded batch would time out and return
-# nothing, which costs every alert in it.
-MAX_COHORTS_PER_CYCLE = 60
+# Cohorts run one after another inside a twenty-second activity, and the production runner
+# measures about four seconds each. A higher bound times out and returns nothing, which costs
+# every alert in the batch; a cohort left out keeps its due time.
+MAX_COHORTS_PER_CYCLE = 4
 
 _NOTIFICATION_EVENT_KINDS: dict[NotificationAction, EventKind] = {
     NotificationAction.FIRE: "firing",
@@ -148,19 +148,13 @@ def _evaluate_one(
         consecutive_failures=outcome.consecutive_failures,
         disable=outcome.disable,
     )
-    safe_record("checks_total", increment_checks, SourceKind.LOGS.value, outcome.notification.value)
+    safe_record(increment_checks, SourceKind.LOGS.value, outcome.notification.value)
     if check.state != outcome.new_state.value:
-        safe_record(
-            "state_transitions_total",
-            increment_state_transition,
-            SourceKind.LOGS.value,
-            check.state,
-            outcome.new_state.value,
-        )
+        safe_record(increment_state_transition, SourceKind.LOGS.value, check.state, outcome.new_state.value)
     if check.next_check_at is not None:
         lag_ms = int((now - check.next_check_at).total_seconds() * 1000)
         if lag_ms > 0:
-            safe_record("scheduler_lag_ms", record_scheduler_lag, SourceKind.LOGS.value, lag_ms)
+            safe_record(record_scheduler_lag, SourceKind.LOGS.value, lag_ms)
     if outcome.notification == NotificationAction.NONE:
         return recorded, None
 
@@ -283,11 +277,6 @@ def evaluate_logs_batch(team_id: int, slot: str, cutoff: datetime) -> SourceBatc
             delivered=len(previews),
             deferred=omitted,
         )
-        safe_record("deliveries_deferred_total", increment_deliveries_deferred, SourceKind.LOGS.value, omitted)
-    safe_record(
-        "batch_duration_ms",
-        record_batch_duration,
-        SourceKind.LOGS.value,
-        int((time.monotonic() - started_at) * 1000),
-    )
+        safe_record(increment_deliveries_deferred, SourceKind.LOGS.value, omitted)
+    safe_record(record_batch_duration, SourceKind.LOGS.value, int((time.monotonic() - started_at) * 1000))
     return SourceBatchEvaluation(outcomes=tuple(outcomes), previews=tuple(previews), omitted=omitted)

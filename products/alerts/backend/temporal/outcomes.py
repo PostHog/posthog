@@ -13,13 +13,11 @@ import datetime as dt
 
 from temporalio import activity
 
-from products.alerts.backend.facade.contracts import SourceOutcomeInputs
+from products.alerts.backend.facade.contracts import RECORD_OUTCOMES_ACTIVITY, SourceOutcomeInputs
 from products.alerts.backend.temporal.metrics import increment_outcomes_recorded, safe_record
 
-ACTIVITY_NAME = "alerts_product_record_outcomes"
 
-
-@activity.defn(name=ACTIVITY_NAME)
+@activity.defn(name=RECORD_OUTCOMES_ACTIVITY)
 async def alerts_product_record_outcomes_activity(inputs: SourceOutcomeInputs) -> int:
     """Records one batch's decisions. Returns how many reached the tables."""
     # Imported in the activity body, not at module scope: a Django model import trips Temporal's
@@ -33,17 +31,16 @@ async def alerts_product_record_outcomes_activity(inputs: SourceOutcomeInputs) -
         return 0
 
     def _record() -> int:
-        team = Team.objects.filter(id=inputs.team_id).first()
-        if team is None:
+        timezone = Team.objects.filter(id=inputs.team_id).values_list("timezone", flat=True).first()
+        if timezone is None:
             return 0
-        record_outcomes(
+        return record_outcomes(
             inputs.team_id,
             inputs.outcomes,
             dt.datetime.fromisoformat(inputs.cutoff),
-            team_timezone=team.timezone,
+            team_timezone=timezone,
         )
-        return len(inputs.outcomes)
 
     recorded = await database_sync_to_async_pool(_record)()
-    safe_record("outcomes_recorded_total", increment_outcomes_recorded, recorded)
+    safe_record(increment_outcomes_recorded, recorded)
     return recorded

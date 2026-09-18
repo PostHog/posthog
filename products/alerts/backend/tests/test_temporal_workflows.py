@@ -59,6 +59,7 @@ from products.alerts.backend.temporal.workflows import (
     AlertsProductEvaluateWorkflow,
     AlertsProductInputs,
     AlertsProductOrchestrateWorkflow,
+    alerts_product_discover_demand_activity,
 )
 
 
@@ -490,6 +491,13 @@ class TestDemandDiscovery(APIBaseTest):
     def test_discovery_rejects_invalid_cutoff(self, cutoff: str) -> None:
         with pytest.raises(ValueError):
             demand.discover_demand(cutoff)
+
+    async def test_discovery_runs_off_the_event_loop(self) -> None:
+        # The activity is async and discovery reads Postgres, so calling it inline raises
+        # SynchronousOnlyOperation and takes the whole tick down. No mock catches that.
+        result = await alerts_product_discover_demand_activity(DemandDiscoveryInputs(cutoff=self.tick.isoformat()))
+
+        assert result.batch_keys_by_source == {}
 
     def test_discovery_rejects_a_limit_below_one(self) -> None:
         with pytest.raises(ValueError):

@@ -20,6 +20,12 @@ from products.alerts.backend.facade.scheduling import (
 from products.alerts.backend.models import PlatformAlert, PlatformAlertConfiguration
 
 
+def due_q(moment: datetime) -> Q:
+    """Configurations a check is owed at `moment`. The read and the write share it, because the
+    write skips a row already advanced past it and that is what makes a replay safe."""
+    return Q(next_check_at__lte=moment) | Q(next_check_at__isnull=True)
+
+
 def _existing_alerts(team_id: int, configurations: Sequence[PlatformAlertConfiguration]) -> dict[str, PlatformAlert]:
     """The runtime rows that exist. A configuration with none has never been evaluated.
 
@@ -54,7 +60,7 @@ def due_checks(team_id: int, source_kind: str, slot: str, cutoff: datetime) -> t
     configurations = list(
         PlatformAlertConfiguration.objects.for_team(team_id)
         .filter(enabled=True, source_kind=source_kind)
-        .filter(Q(next_check_at__lte=cutoff) | Q(next_check_at__isnull=True))
+        .filter(due_q(cutoff))
         # Ordered so a retried attempt keeps the same alerts under any downstream cap.
         .order_by("id")
     )
@@ -63,28 +69,29 @@ def due_checks(team_id: int, source_kind: str, slot: str, cutoff: datetime) -> t
         return ()
 
     alerts = _existing_alerts(team_id, configurations)
-    return tuple(
-        PlatformAlertCheck(
-            id=c.id,
-            team_id=c.team_id,
-            name=c.name,
-            source_config=c.source_config,
-            threshold_count=c.threshold_count,
-            threshold_operator=c.threshold_operator,
-            window_minutes=c.window_minutes,
-            check_interval_minutes=c.check_interval_minutes,
-            evaluation_periods=c.evaluation_periods,
-            datapoints_to_alarm=c.datapoints_to_alarm,
-            cooldown_minutes=c.cooldown_minutes,
-            schedule_restriction=c.schedule_restriction,
-            next_check_at=c.next_check_at,
-            consecutive_failures=c.consecutive_failures,
-            legacy_configuration_id=c.legacy_configuration_id,
-            state=alerts[str(c.id)].state if str(c.id) in alerts else PlatformAlert.State.NOT_FIRING.value,
-            last_notified_at=alerts[str(c.id)].last_notified_at if str(c.id) in alerts else None,
-            snooze_until=alerts[str(c.id)].snooze_until if str(c.id) in alerts else None,
-        )
-        for c in configurations
+    return tuple(_check(c, alerts.get(str(c.id))) for c in configurations)
+
+
+def _check(c: PlatformAlertConfiguration, alert: PlatformAlert | None) -> PlatformAlertCheck:
+    return PlatformAlertCheck(
+        id=c.id,
+        team_id=c.team_id,
+        name=c.name,
+        source_config=c.source_config,
+        threshold_count=c.threshold_count,
+        threshold_operator=c.threshold_operator,
+        window_minutes=c.window_minutes,
+        check_interval_minutes=c.check_interval_minutes,
+        evaluation_periods=c.evaluation_periods,
+        datapoints_to_alarm=c.datapoints_to_alarm,
+        cooldown_minutes=c.cooldown_minutes,
+        schedule_restriction=c.schedule_restriction,
+        next_check_at=c.next_check_at,
+        consecutive_failures=c.consecutive_failures,
+        legacy_configuration_id=c.legacy_configuration_id,
+        state=alert.state if alert else PlatformAlert.State.NOT_FIRING.value,
+        last_notified_at=alert.last_notified_at if alert else None,
+        snooze_until=alert.snooze_until if alert else None,
     )
 
 
@@ -100,7 +107,7 @@ def slot_of(next_check_at: datetime | None, cutoff: datetime) -> str:
 
 def record_outcomes(
     team_id: int, outcomes: Sequence[PlatformAlertOutcome], now: datetime, *, team_timezone: str
-) -> None:
+) -> int:
     """Persists a batch's decisions and advances each configuration's schedule.
 
     Two statements rather than two per alert, in one transaction, so a crash between them cannot
@@ -111,19 +118,19 @@ def record_outcomes(
     Safe to run twice on the same batch. An attempt that commits leaves every configuration due
     after `now`, and a replay of that attempt skips those rows rather than advancing them a second
     time and skipping a cycle.
+    Returns how many configurations it wrote, which is fewer than it was given when a replay
+    finds rows an earlier attempt already advanced.
     """
     if not outcomes:
-        return
+        return 0
     by_id = {str(o.configuration_id): o for o in outcomes}
 
     with transaction.atomic():
-        configurations = [
-            configuration
-            for configuration in PlatformAlertConfiguration.objects.for_team(team_id).filter(id__in=by_id)
-            if configuration.next_check_at is None or configuration.next_check_at <= now
-        ]
+        configurations = list(
+            PlatformAlertConfiguration.objects.for_team(team_id).filter(id__in=by_id).filter(due_q(now))
+        )
         if not configurations:
-            return
+            return 0
         alerts = _alerts_for_write(team_id, configurations)
 
         for configuration in configurations:
@@ -153,6 +160,7 @@ def record_outcomes(
         PlatformAlertConfiguration.objects.for_team(team_id).bulk_update(
             configurations, ["consecutive_failures", "enabled", "next_check_at"]
         )
+        return len(configurations)
 
 
 def upsert_configuration(upsert: PlatformAlertUpsert) -> bool:

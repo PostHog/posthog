@@ -65,8 +65,12 @@ class PlatformAlertConfiguration(TeamScopedRootMixin, UUIDTModel):
                 name="platform_alert_cfg_due_idx",
                 condition=models.Q(enabled=True),
             ),
-            # One batch key's read, mirroring the shape the logs configuration already uses.
-            models.Index(fields=["team_id", "next_check_at", "enabled"], name="platform_alert_cfg_batch_idx"),
+            # One batch key's read. Equalities first, then the range, which is the order
+            # `due_checks` filters in and the only order that lets all four columns be used.
+            models.Index(
+                fields=["team_id", "enabled", "source_kind", "next_check_at"],
+                name="platform_alert_cfg_batch_idx",
+            ),
         ]
 
 
