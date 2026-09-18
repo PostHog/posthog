@@ -2962,6 +2962,7 @@ def update_task_run(
     *,
     validated_data: dict,
     only_if_non_terminal: bool = False,
+    only_if_not_started: bool = False,
     caller_is_agent: bool = False,
 ) -> contracts.TaskRunDetailDTO | None:
     """Apply a PATCH to a run: merge output/state, set completion, then dispatch side effects.
@@ -3023,8 +3024,16 @@ def update_task_run(
     update_fields: set[str] = set()
 
     with transaction.atomic():
-        if has_output_merge or has_state_mutation or only_if_non_terminal or "status" in validated_data:
+        if (
+            has_output_merge
+            or has_state_mutation
+            or only_if_non_terminal
+            or only_if_not_started
+            or "status" in validated_data
+        ):
             run = TaskRun.objects.select_for_update().get(pk=run.pk)
+        if only_if_not_started and run.status != TaskRun.Status.NOT_STARTED:
+            return None
         if only_if_non_terminal and run.is_terminal:
             if validated_data.get("status") == run.status:
                 transaction.on_commit(lambda: resume_workflow_step_for_run(run))

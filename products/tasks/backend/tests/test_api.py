@@ -9546,11 +9546,17 @@ class TestTaskRunCancelAPI(BaseTaskAPITest):
         return TaskRun.objects.create(task=task, team=self.team, **kwargs)
 
     @time_machine.travel("2026-09-18T12:00:00Z", tick=False)
+    @patch("products.tasks.backend.models.posthoganalytics.capture")
+    @patch("products.tasks.backend.push_dispatcher.notify_task_run_cancelled")
     @patch("posthog.temporal.common.client.sync_connect")
     @patch("products.tasks.backend.facade.cancellation._signal_complete_task")
     @patch("products.tasks.backend.facade.api.send_cancel")
-    def test_cancel_scheduled_run_before_dispatch(self, mock_send_cancel, mock_signal, mock_connect):
+    def test_cancel_scheduled_run_before_dispatch(
+        self, mock_send_cancel, mock_signal, mock_connect, mock_notify, mock_capture
+    ):
         task = self.create_task()
+        transaction_depth = len(connection.atomic_blocks)
+        mock_notify.side_effect = lambda _run: self.assertEqual(len(connection.atomic_blocks), transaction_depth)
         run = task.create_run(
             scheduled_at=django_timezone.now() + timedelta(days=1),
             extra_state={"pending_dispatch": {"user_id": self.user.id, "posthog_mcp_scopes": "read_only"}},
@@ -9565,9 +9571,36 @@ class TestTaskRunCancelAPI(BaseTaskAPITest):
         mock_send_cancel.assert_not_called()
         mock_signal.assert_not_called()
         mock_connect.assert_not_called()
+        mock_notify.assert_called_once()
+        events = [c for c in mock_capture.call_args_list if c.kwargs.get("event") == "task_run_cancel_requested"]
+        assert len(events) == 1
+        assert events[0].kwargs["properties"]["workflow_signal_outcome"] == "not_needed"
         with time_machine.travel("2026-09-20T12:00:00Z", tick=False):
             assert materialize_due_scheduled_task_runs(100) == 0
         assert not TaskWorkflowDispatch.objects.for_team(self.team.id).filter(task_run=run).exists()
+
+    @patch("products.tasks.backend.facade.api.create_sandbox_connection_token", return_value="token")
+    @patch("products.tasks.backend.facade.api.send_cancel")
+    @patch("products.tasks.backend.facade.cancellation._signal_complete_task", return_value="signaled")
+    def test_cancel_scheduled_run_signals_workflow_if_dispatch_wins(self, mock_signal, _mock_send_cancel, _mock_token):
+        task = self.create_task()
+        run = task.create_run(scheduled_at=django_timezone.now() + timedelta(days=1))
+        update_run = tasks_facade.update_task_run
+
+        def dispatch_then_update(
+            run_id: str | uuid.UUID, task_id: str | uuid.UUID, team_id: int, **kwargs: Any
+        ) -> None:
+            TaskRun.objects.filter(id=run.id).update(status=TaskRun.Status.QUEUED, queued_at=django_timezone.now())
+            assert update_run(run_id, task_id, team_id, **kwargs) is None
+
+        with patch("products.tasks.backend.facade.api.update_task_run", side_effect=dispatch_then_update):
+            response = self.client.post(self._cancel_url(task, run), {}, format="json")
+
+        assert response.status_code == status.HTTP_202_ACCEPTED
+        run.refresh_from_db()
+        assert run.status == TaskRun.Status.QUEUED
+        mock_signal.assert_called_once()
+        assert mock_signal.call_args.args[0].status == TaskRun.Status.QUEUED
 
     @patch("products.tasks.backend.models.posthoganalytics.capture")
     @patch("products.tasks.backend.facade.api.create_sandbox_connection_token", return_value="token")

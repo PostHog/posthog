@@ -762,7 +762,6 @@ const tasksList = (): ToolBase<
                     'latest_run.error_message',
                     'latest_run.created_at',
                     'latest_run.completed_at',
-                    'latest_run.scheduled_at',
                     'created_at',
                     'updated_at',
                 ])
