@@ -1525,6 +1525,7 @@ export const ReferenceTypeEnumApi = {
  * * `experiment` - experiment
  * * `survey` - survey
  * * `ticket` - ticket
+ * * `report` - report
  * * `trace` - trace
  * * `eval` - eval
  * * `event` - event
@@ -1544,6 +1545,7 @@ export const ObjectKindEnumApi = {
     Experiment: 'experiment',
     Survey: 'survey',
     Ticket: 'ticket',
+    Report: 'report',
     Trace: 'trace',
     Eval: 'eval',
     Event: 'event',
@@ -1568,6 +1570,7 @@ export interface TaskRunPostHogReferenceMetadataApi {
      * * `experiment` - experiment
      * * `survey` - survey
      * * `ticket` - ticket
+     * * `report` - report
      * * `trace` - trace
      * * `eval` - eval
      * * `event` - event
@@ -3910,6 +3913,7 @@ export interface TaskRunPostHogReferenceApi {
      * * `experiment` - experiment
      * * `survey` - survey
      * * `ticket` - ticket
+     * * `report` - report
      * * `trace` - trace
      * * `eval` - eval
      * * `event` - event
@@ -4672,6 +4676,11 @@ export interface ModelChoiceApi {
     display_name: string
     /** Reasoning efforts this model accepts, in ascending order. Empty for a model with no effort control. */
     supported_efforts: ReasoningEffortEnumApi[]
+    /**
+     * Per-token cost against the catalogue baseline, ready to display, such as '2.5x' or '~0.55x'. Prefixed when the input and output rates diverge enough that one number flatters either. Null for a model the catalogue quotes no rate for.
+     * @nullable
+     */
+    cost_multiplier?: string | null
 }
 
 export interface ModelCatalogueResponseApi {
@@ -5790,6 +5799,13 @@ export type TasksRunsStreamRetrieveParams = {
      * Set to `latest` to skip the event backlog and only receive events published after connecting.
      */
     start?: string
+}
+
+export type TasksRunsStreamTokenRetrieveParams = {
+    /**
+     * Set to true when the client can rebuild the run from its durable log after the agent-proxy reports a trimmed stream cursor. Without it, runs that keep only a short live tail in Redis are read from the Django endpoint, which replays the durable backlog itself.
+     */
+    resync?: boolean
 }
 
 export type TasksThreadMessagesListParams = {

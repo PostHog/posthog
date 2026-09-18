@@ -1,0 +1,150 @@
+{
+    "XA1": {
+        "is_real": true,
+        "severity": "must_fix",
+        "cluster": 75,
+        "source": "verified-3-skeptics:3/3"
+    },
+    "XA2": {
+        "is_real": true,
+        "severity": "should_fix",
+        "cluster": 6,
+        "source": "adjudicated:3/3",
+        "adjudicated_from": "UA1",
+        "adjudication_reason": "Same engine-side bot/draft gate claim: self_driving enables the carve-out without requiring bot authorship. This carries the human-authored draft sub-claim, not the additional assertion that ready PRs must be refused."
+    },
+    "XA3": {
+        "is_real": true,
+        "severity": "consider",
+        "cluster": 18,
+        "source": "verified-3-skeptics:3/3"
+    },
+    "XA4": {
+        "is_real": false,
+        "severity": null,
+        "cluster": 4,
+        "source": "verified-3-skeptics:0/3"
+    },
+    "XA5": {
+        "is_real": false,
+        "severity": null,
+        "cluster": 58,
+        "source": "adjudicated:0/3",
+        "adjudicated_from": "UA6",
+        "adjudication_reason": "Same caught initial Celery broker-publication failure before the task enters the queue. This is the panel's rejected broker-publish sub-claim, not its separate retry-exhaustion or stranded-QUEUED sub-claims."
+    },
+    "XA6": {
+        "is_real": true,
+        "severity": "must_fix",
+        "cluster": null,
+        "source": "verified-3-skeptics:3/3"
+    },
+    "XA7": {
+        "is_real": true,
+        "severity": "should_fix",
+        "cluster": 2,
+        "source": "adjudicated:2/3",
+        "adjudicated_from": "UA7",
+        "adjudication_reason": "Same initial receiver provenance omission despite the documentation anchor: caller-provided task and PR identifiers are stamped without positively checking the task-to-PR linkage, expected bot author, or repository-native head."
+    },
+    "XA8": {
+        "is_real": false,
+        "severity": null,
+        "cluster": null,
+        "source": "verified-3-skeptics:0/3"
+    },
+    "XA9": {
+        "is_real": true,
+        "severity": "should_fix",
+        "cluster": 2,
+        "source": "adjudicated:2/3",
+        "adjudicated_from": "UA7",
+        "adjudication_reason": "Same process_inbox_pr_review trust boundary: a caller-writable TaskRun PR URL becomes inbox provenance without validating implementation-run linkage, expected bot authorship, or a repository-native head."
+    },
+    "XA10": {
+        "is_real": false,
+        "severity": null,
+        "cluster": 31,
+        "source": "adjudicated:0/3",
+        "adjudicated_from": "UB8",
+        "adjudication_reason": "Same enqueue-time toggle snapshot claim: the initial Celery task does not re-resolve the opt-in before creating the run after a delay or retry. This matches the panel's rejected execution-time toggle recheck claim."
+    },
+    "XA11": {
+        "is_real": true,
+        "severity": "must_fix",
+        "cluster": null,
+        "source": "verified-3-skeptics:3/3"
+    },
+    "XA12": {
+        "is_real": true,
+        "severity": "should_fix",
+        "cluster": 39,
+        "source": "adjudicated:3/3",
+        "adjudicated_from": "UA3",
+        "adjudication_reason": "Same unscoped task-run lookup followed by a team check: selecting a foreign-team match first can hide the requested team's qualifying run. The additional implementation predicates describe the same filter-after-selection problem."
+    },
+    "XA13": {
+        "is_real": true,
+        "severity": "should_fix",
+        "cluster": 2,
+        "source": "adjudicated:2/3",
+        "adjudicated_from": "UA7",
+        "adjudication_reason": "Same initial receiver provenance omission: a caller-writable task PR URL receives the self-driving marker without validating task-to-PR linkage, bot author, or a repository-native head. This carries that receiver sub-claim, not the secondary boolean-parsing recommendation or assertion about ready PRs."
+    },
+    "XA14": {
+        "is_real": false,
+        "severity": null,
+        "cluster": 9,
+        "source": "verified-3-skeptics:0/3"
+    },
+    "XA15": {
+        "is_real": true,
+        "severity": "consider",
+        "cluster": null,
+        "source": "verified-3-skeptics:3/3"
+    },
+    "XA16": {
+        "is_real": false,
+        "severity": null,
+        "cluster": null,
+        "source": "verified-3-skeptics:0/3"
+    },
+    "XA17": {
+        "is_real": true,
+        "severity": "should_fix",
+        "cluster": 36,
+        "source": "verified-3-skeptics:3/3"
+    },
+    "XA18": {
+        "is_real": true,
+        "severity": "consider",
+        "cluster": 58,
+        "source": "adjudicated:2/3",
+        "adjudicated_from": "SA5",
+        "adjudication_reason": "Same exhausted post-commit Temporal-start retries leaving a committed QUEUED ReviewRun without a workflow or reconciliation. This carries the stranded-QUEUED sub-claim, not the initial broker-publish or generic pre-run retry sub-claims in cluster 58."
+    },
+    "XA19": {
+        "is_real": false,
+        "severity": null,
+        "cluster": null,
+        "source": "verified-3-skeptics:0/3"
+    },
+    "XA20": {
+        "is_real": false,
+        "severity": null,
+        "cluster": null,
+        "source": "verified-3-skeptics:0/3"
+    },
+    "XA21": {
+        "is_real": false,
+        "severity": null,
+        "cluster": 76,
+        "source": "verified-3-skeptics:0/3"
+    },
+    "XA22": {
+        "is_real": true,
+        "severity": "should_fix",
+        "cluster": null,
+        "source": "verified-3-skeptics:3/3"
+    }
+}

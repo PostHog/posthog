@@ -48,6 +48,11 @@ from google.oauth2 import service_account
 from structlog.types import FilteringBoundLogger
 
 from posthog.exceptions_capture import capture_exception
+from posthog.models.integration.google_cloud import (
+    GOOGLE_SERVICE_ACCOUNT_INVALID_TOKEN_URI_ERROR,
+    InvalidGoogleTokenUriError,
+    require_google_token_uri,
+)
 
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import DEFAULT_TABLE_SIZE_BYTES
@@ -173,18 +178,8 @@ BIGQUERY_INVALID_KEY_FILE_ERROR = (
     "corrupted. Please download a fresh service account key from Google Cloud and re-upload the JSON file."
 )
 
-# `token_uri` comes from the uploaded key file, and google-auth posts the service-account grant to
-# whatever URL it names, so the field decides where a worker sends an outbound request. Google
-# issues service-account keys with only these two endpoints, so any other value is hand-edited.
-GOOGLE_SERVICE_ACCOUNT_TOKEN_URIS = frozenset(
-    {"https://oauth2.googleapis.com/token", "https://accounts.google.com/o/oauth2/token"}
-)
-
 # Matched in `BigQuerySource.get_non_retryable_errors`, so it must stay free of volatile data.
-BIGQUERY_INVALID_TOKEN_URI_ERROR = (
-    "The token_uri in your Google Cloud JSON key file is not Google's OAuth token endpoint. Please download "
-    "a fresh service account key from Google Cloud and re-upload the JSON file without editing it."
-)
+BIGQUERY_INVALID_TOKEN_URI_ERROR = GOOGLE_SERVICE_ACCOUNT_INVALID_TOKEN_URI_ERROR
 
 
 class BigQueryInvalidTokenUriError(Exception):
@@ -192,10 +187,10 @@ class BigQueryInvalidTokenUriError(Exception):
 
 
 def _require_google_token_uri(token_uri: str) -> str:
-    token_uri = token_uri.strip()
-    if token_uri not in GOOGLE_SERVICE_ACCOUNT_TOKEN_URIS:
+    try:
+        return require_google_token_uri(token_uri)
+    except InvalidGoogleTokenUriError:
         raise BigQueryInvalidTokenUriError(BIGQUERY_INVALID_TOKEN_URI_ERROR)
-    return token_uri
 
 
 # Onboarding-time messages. Unlike the sync-path classifier these are only reached during credential
@@ -628,6 +623,19 @@ def delete_all_temp_destination_tables(
             # non-actionable condition that would otherwise fire on every sync for an affected source.
             if logger:
                 logger.warning(f"Skipping temp table cleanup for dataset {dataset_id}: {e}")
+        except BadRequest as e:
+            if "Invalid resource name" in str(e):
+                # A dataset/project ID containing characters BigQuery's resource-name validation
+                # rejects (e.g. a Dataset ID field mistakenly set to "project.dataset") makes
+                # `bq.dataset(...)` build an invalid path for this REST call, distinct from the
+                # "Invalid project ID"/"Invalid dataset ID" wording query jobs raise for the same
+                # misconfiguration (see `BigQuerySource.get_non_retryable_errors`). It's
+                # deterministic and already surfaces non-retryably elsewhere in the sync, so log
+                # quietly here too rather than capturing noise on every run for an affected source.
+                if logger:
+                    logger.warning(f"Skipping temp table cleanup for dataset {dataset_id}: {e}")
+            else:
+                capture_exception(e)
         except Exception as e:
             capture_exception(e)
 
@@ -715,6 +723,7 @@ def validate_bigquery_credentials(
             "Invalid project ID" in message
             or "Invalid dataset ID" in message
             or "ProjectId must be non-empty" in message
+            or "Invalid resource name" in message
         ):
             return False, BIGQUERY_INVALID_IDENTIFIER_ERROR
         if "was not found in location" in message or "Not found: Dataset" in message:

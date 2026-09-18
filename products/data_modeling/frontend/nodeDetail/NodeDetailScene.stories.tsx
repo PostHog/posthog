@@ -98,6 +98,30 @@ export const NarrowView: Story = {
     ],
 }
 
+export const PaginatedColumns: Story = {
+    parameters: {
+        msw: {
+            mocks: {
+                get: {
+                    '/api/environments/:team_id/data_modeling_nodes/:id/': () => [200, node],
+                    '/api/environments/:team_id/warehouse_saved_queries/:id/': () => [
+                        200,
+                        {
+                            ...savedQuery,
+                            columns: Array.from({ length: 11 }, (_, index) => ({
+                                name: `column_${index + 1}`,
+                                hogql_value: `column_${index + 1}`,
+                                type: 'string',
+                                schema_valid: true,
+                            })),
+                        },
+                    ],
+                },
+            },
+        },
+    },
+}
+
 export const MaterializedView: Story = {
     parameters: {
         msw: {
