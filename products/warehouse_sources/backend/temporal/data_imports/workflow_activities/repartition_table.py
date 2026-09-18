@@ -39,6 +39,7 @@ from products.warehouse_sources.backend.models.external_data_job import External
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.errors import (
     is_transient_maintenance_error,
+    is_transient_object_store_error,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.table import DeltaTableRef
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.repartition import (
@@ -165,6 +166,12 @@ def _is_transient_infra_error(error: Exception) -> bool:
     # delta.table._is_retryable_purge_error — not a customer credential problem. Retrying on the next
     # sync self-heals it; burning an attempt and reporting it instead abandons the table after the cap.
     if isinstance(error, PermissionError):
+        return True
+    # Same object-store blips (`Generic S3 error`, SlowDown, S3's internal-error response) that
+    # `is_transient_maintenance_error` already recognizes for the maintenance path — the rewrite hits
+    # the same data-warehouse bucket the same way, so an OSError/DeltaError matching one of those
+    # needles here is exactly as transient.
+    if is_transient_object_store_error(error):
         return True
     message = str(error).lower()
     return any(snippet in message for snippet in _TRANSIENT_ERROR_SNIPPETS)
