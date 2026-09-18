@@ -63,6 +63,16 @@ def _bump_org_serializer_cache_version(organization_id: str) -> None:
         pass
 
 
+def invalidate_organization_serializer_cache(organization_id: str) -> None:
+    """Drop the cached payload of an organization no write of its own touched.
+
+    The receivers below key off the row they are saving, so an organization that loses a row to
+    another organization is never invalidated by the move itself.
+    """
+    _bump_org_serializer_cache_version(organization_id)
+    transaction.on_commit(lambda: _bump_org_serializer_cache_version(organization_id))
+
+
 def _instance_org_id(instance: Any) -> str | None:
     organization_id = getattr(instance, "organization_id", None)
     return str(organization_id) if organization_id is not None else None
