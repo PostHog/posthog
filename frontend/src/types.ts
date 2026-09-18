@@ -5230,8 +5230,8 @@ export interface AppContext {
     oauth_application?: OAuthApplicationPublicMetadata
     /** Server-resolved MCP scopes for OAuth consent when the client omits `scope`. */
     oauth_mcp_consent?: OAuthMcpConsentContext
-    /** Whether access rules in one of the user's organizations can narrow what a granted scope reaches. */
-    oauth_consent_access_controls?: OAuthConsentAccessControls
+    /** One of the user's organizations has the access-control feature and at least one rule, so a granted scope can reach less. */
+    oauth_consent_access_controls_apply?: boolean
     /** The user's configured homepage for the current team, bootstrapped so navigation can honor it on first paint. */
     homepage?: SceneTab | null
 }
@@ -7907,11 +7907,6 @@ export interface ProjectTreeRef {
      * "null" opens the "new" page
      */
     ref: string | null
-}
-
-export type OAuthConsentAccessControls = {
-    /** One of the user's organizations has the access-control feature and at least one rule. */
-    applies: boolean
 }
 
 export type OAuthMcpConsentContext = {

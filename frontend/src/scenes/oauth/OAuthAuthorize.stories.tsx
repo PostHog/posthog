@@ -202,12 +202,12 @@ const withAccessControls: Decorator = function AccessControlsDecorator(Story): J
     const appContext = (window as any).POSTHOG_APP_CONTEXT
     const original = useRef<{ value: unknown } | null>(null)
     if (!original.current) {
-        original.current = { value: appContext.oauth_consent_access_controls }
-        appContext.oauth_consent_access_controls = { applies: true }
+        original.current = { value: appContext.oauth_consent_access_controls_apply }
+        appContext.oauth_consent_access_controls_apply = true
     }
     useEffect(
         () => () => {
-            appContext.oauth_consent_access_controls = original.current?.value
+            appContext.oauth_consent_access_controls_apply = original.current?.value
         },
         [appContext]
     )

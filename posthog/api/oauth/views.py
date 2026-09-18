@@ -1588,9 +1588,9 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
         # Scopes cap what the token may do; access rules cap what the user may do. The grant can
         # reach any organization the user belongs to, so when any of them has rules the consent
         # screen says so, because a granted scope can still meet a 403.
-        template_context["oauth_consent_access_controls"] = {
-            "applies": user_organizations_use_access_controls(user_id=request.user.id),
-        }
+        template_context["oauth_consent_access_controls_apply"] = user_organizations_use_access_controls(
+            user_id=request.user.id
+        )
 
         requested_scope = (request.query_params.get("scope") or "").strip()
         if not requested_scope:

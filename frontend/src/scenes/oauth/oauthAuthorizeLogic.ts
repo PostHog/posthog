@@ -277,9 +277,6 @@ export interface oauthAuthorizeLogicActions {
     resetOauthAuthorization: (values?: OAuthAuthorizationFormValues) => {
         values?: OAuthAuthorizationFormValues
     }
-    setAccessControlsApply: (accessControlsApply: boolean) => {
-        accessControlsApply: boolean
-    }
     setAllScopeAccess: (level: ScopeAccessLevel) => {
         level: ScopeAccessLevel
     }
@@ -418,7 +415,6 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
         setTeamHint: (teamId: number | null) => ({ teamId }),
         setScopesWereDefaulted: (scopesWereDefaulted: boolean) => ({ scopesWereDefaulted }),
         setIsMcpResource: (isMcpResource: boolean) => ({ isMcpResource }),
-        setAccessControlsApply: (accessControlsApply: boolean) => ({ accessControlsApply }),
         cancel: () => ({}),
         setCanceling: (canceling: boolean) => ({ canceling }),
         setAuthorizationComplete: (complete: boolean) => ({ complete }),
@@ -548,12 +544,8 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
                 setIsMcpResource: (_, { isMcpResource }) => isMcpResource,
             },
         ],
-        accessControlsApply: [
-            false,
-            {
-                setAccessControlsApply: (_, { accessControlsApply }) => accessControlsApply,
-            },
-        ],
+        // The server sets this flag once for the page. The function reads it when the logic mounts.
+        accessControlsApply: [(): boolean => getAppContext()?.oauth_consent_access_controls_apply ?? false, {}],
         isCanceling: [
             false,
             {
@@ -919,7 +911,6 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
             const teamHint = Number.isInteger(teamIdParam) && teamIdParam > 0 ? teamIdParam : null
 
             actions.setScopesWereDefaulted(scopesWereDefaulted)
-            actions.setAccessControlsApply(getAppContext()?.oauth_consent_access_controls?.applies ?? false)
             actions.setTeamHint(teamHint)
             actions.setRequiredAccessLevel(requiredAccessLevel || null)
             actions.loadOAuthApplication()

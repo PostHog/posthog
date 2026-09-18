@@ -287,7 +287,7 @@ class TestOAuthAPI(APIBaseTest):
         def applies() -> bool:
             response = self.client.get(self.base_authorization_url)
             self.assertEqual(response.status_code, status.HTTP_200_OK)
-            return json.loads(response.context["posthog_app_context"])["oauth_consent_access_controls"]["applies"]
+            return json.loads(response.context["posthog_app_context"])["oauth_consent_access_controls_apply"]
 
         access_control_feature = [{"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}]
         self.assertFalse(applies())
