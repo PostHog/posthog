@@ -4011,6 +4011,16 @@ class WorkflowProposalMetricSerializer(serializers.Serializer):
     )
 
 
+class WorkflowVersionChangeSerializer(serializers.Serializer):
+    step_name = serializers.CharField(
+        allow_null=True, help_text="Step the field belongs to, or null for a workflow field."
+    )
+    field = serializers.CharField(help_text="What changed, as a person reads it, e.g. 'email > subject'.")
+    before = serializers.CharField(allow_null=True, help_text="Value in the version before this one.")
+    after = serializers.CharField(allow_null=True, help_text="Value this version published.")
+    from_suggestion = serializers.BooleanField(help_text="Whether the suggestion is what changed this field.")
+
+
 class WorkflowProposalVersionOutcomeSerializer(serializers.Serializer):
     version = serializers.IntegerField(help_text="Workflow version these numbers belong to.")
     applied = serializers.BooleanField(required=False, help_text="Whether the suggestion went live as this version.")
@@ -4024,6 +4034,11 @@ class WorkflowProposalVersionOutcomeSerializer(serializers.Serializer):
         required=False,
         help_text="Whether this version also changed something the suggestion did not, which the numbers cannot separate.",
     )
+    changes = WorkflowVersionChangeSerializer(
+        many=True, required=False, help_text="What this version changed against the version before it."
+    )
+    published_at = serializers.DateTimeField(allow_null=True, required=False, help_text="When this version went live.")
+    published_by = UserBasicSerializer(allow_null=True, required=False, help_text="Who published this version.")
     versions = serializers.ListField(
         child=serializers.IntegerField(),
         required=False,
@@ -4246,6 +4261,75 @@ def proposal_changes(proposal: WorkflowProposal, base_content: dict | None) -> d
 
 
 _ABSENT = object()
+
+
+# Wrapper keys every step input carries. A person reads "email > subject", not the path to it.
+SILENT_PATH_SEGMENTS = frozenset({"config", "inputs", "value"})
+
+# Long bodies and HTML would drown the list; the field name plus a taste of the value is the point.
+CHANGE_VALUE_LIMIT = 120
+
+
+def _describe_value(value: Any) -> Optional[str]:
+    if value is _ABSENT or value is None:
+        return None
+    text = value if isinstance(value, str) else json.dumps(value, default=str)
+    return text if len(text) <= CHANGE_VALUE_LIMIT else f"{text[:CHANGE_VALUE_LIMIT]}…"
+
+
+def _describe_path(path: Sequence[str]) -> str:
+    spoken = [segment for segment in path if segment not in SILENT_PATH_SEGMENTS]
+    return " › ".join(spoken or list(path))
+
+
+def describe_version_changes(previous: dict, current: dict, proposed: Mapping) -> list[dict]:
+    """Every field this version published differently from the one before it.
+
+    Derived keys are skipped: publishing recompiles inputs, and nobody edited those.
+    """
+    changes: list[dict] = []
+    was_steps = {_item_id(item): item for item in previous.get("actions") or []}
+    for step in current.get("actions") or []:
+        was = was_steps.get(_item_id(step))
+        if was is None:
+            changes.append(
+                {
+                    "step_name": step.get("name") or _item_id(step),
+                    "field": "step added",
+                    "before": None,
+                    "after": _describe_value(step.get("type")),
+                    "from_suggestion": False,
+                }
+            )
+            continue
+        for path in _patch_paths({key: value for key, value in step.items() if key != "id"}):
+            if path[-1] in DERIVED_STEP_KEYS:
+                continue
+            after, before = _leaf(step, path), _leaf(was, path)
+            if after == before:
+                continue
+            changes.append(
+                {
+                    "step_name": step.get("name") or _item_id(step),
+                    "field": _describe_path(path),
+                    "before": _describe_value(before),
+                    "after": _describe_value(after),
+                    "from_suggestion": proposed.get((_item_id(step), path), _ABSENT) == after,
+                }
+            )
+    for field, value in current.items():
+        if field in PROPOSAL_MERGE_BY_ID_FIELDS or value == previous.get(field):
+            continue
+        changes.append(
+            {
+                "step_name": None,
+                "field": _describe_path([field]),
+                "before": _describe_value(previous.get(field, _ABSENT)),
+                "after": _describe_value(value),
+                "from_suggestion": proposed.get((None, (field,)), _ABSENT) == value,
+            }
+        )
+    return changes
 
 
 def _outcome_from_totals(totals: Mapping[str, float], version: int) -> dict:
@@ -5884,14 +5968,14 @@ class HogFlowViewSet(
         carrying, ended_at = self._versions_carrying_change(instance, proposal)
         charted = self._outcome_versions(instance, proposal)
         totals = self._version_totals(instance, charted, proposal.step_id)
-        other_changes = self._versions_with_other_changes(instance, proposal, charted)
+        history = self._version_history(instance, proposal, charted)
         versions = [
             {
                 **_outcome_from_totals(counts, version),
                 "applied": version == proposal.applied_version,
                 "proposed_against": version == proposal.base_version,
                 "carries_change": version in carrying,
-                "other_changes": version in other_changes,
+                **history.get(version, {"other_changes": False, "changes": []}),
             }
             for version, counts in sorted(totals.items())
         ]
@@ -5921,50 +6005,45 @@ class HogFlowViewSet(
         oldest = min(proposal.base_version, proposal.applied_version or proposal.base_version)
         return sorted({*range(max(oldest, newest - OUTCOME_VERSION_LIMIT + 1), newest + 1), oldest})
 
-    def _versions_with_other_changes(
-        self, hog_flow: HogFlow, proposal: WorkflowProposal, versions: list[int]
-    ) -> set[int]:
-        """Versions that changed something the suggestion did not.
+    def _version_history(self, hog_flow: HogFlow, proposal: WorkflowProposal, versions: list[int]) -> dict[int, dict]:
+        """What each version changed against the one before it, and who published it.
 
-        Their numbers hold more than one change, and no window separates the two. Saying so is the
-        honest half of a comparison that is two periods rather than two arms.
+        A version's numbers hold every change that shipped in it, and no window separates them, so
+        the card says what else was in there rather than leaving a move unexplained.
         """
         if not versions:
-            return set()
-        contents = self._version_contents(hog_flow, range(min(versions) - 1, max(versions) + 1))
-        changed_paths = {
-            (_item_id(item), path)
-            for item in proposal_changes(proposal, base_content_of(hog_flow, proposal)).get("actions") or []
-            for path in _patch_paths({key: value for key, value in item.items() if key != "id"})
+            return {}
+        revisions = {
+            revision.version: revision
+            for revision in HogFlowRevision.objects.filter(
+                hog_flow=hog_flow, version__in=list(range(min(versions) - 1, max(versions) + 1))
+            ).select_related("created_by")
         }
-        noisy: set[int] = set()
-        # Publishing recompiles inputs, so a version differs from the one before it in derived keys
-        # that nobody edited. Comparing those would flag every version as carrying another change.
-        for version in versions:
-            previous, current = contents.get(version - 1), contents.get(version)
-            if previous is None or current is None:
-                continue
-            for step in current.get("actions") or []:
-                was = next((item for item in previous.get("actions") or [] if _item_id(item) == _item_id(step)), None)
-                if was is None:
-                    noisy.add(version)
-                    break
-                for path in _patch_paths({key: value for key, value in step.items() if key != "id"}):
-                    if (_item_id(step), path) in changed_paths or path[-1] in DERIVED_STEP_KEYS:
-                        continue
-                    if _leaf(step, path) != _leaf(was, path):
-                        noisy.add(version)
-                        break
-        return noisy
-
-    def _version_contents(self, hog_flow: HogFlow, versions: Any) -> dict[int, dict]:
-        contents = {
-            revision.version: revision.content
-            for revision in HogFlowRevision.objects.filter(hog_flow=hog_flow, version__in=list(versions))
-        }
+        contents = {version: revision.content for version, revision in revisions.items()}
         if hog_flow.version in versions:
             contents.setdefault(hog_flow.version, snapshot_flow_content(hog_flow))
-        return contents
+        changed = proposal_changes(proposal, base_content_of(hog_flow, proposal))
+        proposed = {
+            (_item_id(item), path): _leaf(item, path)
+            for item in changed.get("actions") or []
+            for path in _patch_paths({key: value for key, value in item.items() if key != "id"})
+        } | {(None, (field,)): value for field, value in changed.items() if field not in PROPOSAL_MERGE_BY_ID_FIELDS}
+        history: dict[int, dict] = {}
+        for version in versions:
+            previous, current = contents.get(version - 1), contents.get(version)
+            changes = (
+                describe_version_changes(previous, current, proposed)
+                if previous is not None and current is not None
+                else []
+            )
+            revision = revisions.get(version)
+            history[version] = {
+                "changes": changes,
+                "other_changes": any(not change["from_suggestion"] for change in changes),
+                "published_at": revision.created_at if revision else None,
+                "published_by": revision.created_by if revision else None,
+            }
+        return history
 
     def _version_totals(self, hog_flow: HogFlow, versions: list[int], step_id: Optional[str]) -> dict[int, dict]:
         """Raw metric counts per version, in one grouped query. Each version's series only ever
@@ -5998,7 +6077,14 @@ class HogFlowViewSet(
         if applied is None:
             return [], None
         changes = proposal_changes(proposal, base_content_of(hog_flow, proposal))
-        contents = self._version_contents(hog_flow, range(applied, (hog_flow.version or applied) + 1))
+        contents = {
+            revision.version: revision.content
+            for revision in HogFlowRevision.objects.filter(hog_flow=hog_flow, version__gte=applied)[
+                :OUTCOME_VERSION_LIMIT
+            ]
+        }
+        if (hog_flow.version or applied) >= applied:
+            contents.setdefault(hog_flow.version, snapshot_flow_content(hog_flow))
         carrying: list[int] = []
         for version in sorted(contents):
             if not carries_proposal_change(contents[version], changes):

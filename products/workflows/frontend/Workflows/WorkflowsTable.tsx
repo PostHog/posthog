@@ -198,7 +198,7 @@ export function WorkflowsTable(): JSX.Element {
                                             onClick={(event) => {
                                                 event.preventDefault()
                                                 event.stopPropagation()
-                                                router.actions.push(urls.workflow(item.id, 'suggestions'))
+                                                router.actions.push(urls.workflow(item.id, 'self-driving'))
                                             }}
                                         >
                                             {!item.pending_suggestions

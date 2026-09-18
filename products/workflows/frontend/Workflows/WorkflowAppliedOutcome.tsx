@@ -1,6 +1,8 @@
-import { LemonTag, Tooltip } from '@posthog/lemon-ui'
+import { LemonCollapse, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { Sparkline } from 'lib/components/Sparkline'
+import { TZLabel } from 'lib/components/TZLabel'
+import { LemonTable } from 'lib/lemon-ui/LemonTable'
 
 import type {
     WorkflowProposalApi,
@@ -149,6 +151,85 @@ export function WorkflowAppliedOutcome({
                         </div>
                     )}
                 </>
+            )}
+            {charted.some((version) => version.changes?.length) && (
+                <LemonCollapse
+                    size="small"
+                    panels={[
+                        {
+                            key: 'changes',
+                            header: 'What changed in each version',
+                            content: (
+                                <div className="flex flex-col gap-3">
+                                    {[...charted].reverse().map((version) => (
+                                        <div key={version.version} className="flex flex-col gap-1">
+                                            <span className="flex items-center gap-2 flex-wrap text-sm">
+                                                <span className="font-semibold">v{version.version}</span>
+                                                {version.applied && <LemonTag type="warning">the suggestion</LemonTag>}
+                                                {version.published_by && (
+                                                    <span className="text-secondary">
+                                                        published by{' '}
+                                                        {version.published_by.first_name || version.published_by.email}
+                                                    </span>
+                                                )}
+                                                {version.published_at && <TZLabel time={version.published_at} />}
+                                            </span>
+                                            {version.changes?.length ? (
+                                                <LemonTable
+                                                    size="small"
+                                                    embedded
+                                                    columns={[
+                                                        {
+                                                            title: 'Field',
+                                                            key: 'field',
+                                                            render: (_, change) => (
+                                                                <span className="flex items-center gap-1 flex-wrap">
+                                                                    {change.step_name && (
+                                                                        <span className="text-secondary">
+                                                                            {change.step_name} ›
+                                                                        </span>
+                                                                    )}
+                                                                    <span>{change.field}</span>
+                                                                    {change.from_suggestion && (
+                                                                        <LemonTag type="warning" size="small">
+                                                                            suggested
+                                                                        </LemonTag>
+                                                                    )}
+                                                                </span>
+                                                            ),
+                                                        },
+                                                        {
+                                                            title: 'Was',
+                                                            key: 'before',
+                                                            render: (_, change) => (
+                                                                <span className="text-secondary">
+                                                                    {change.before ?? 'not set'}
+                                                                </span>
+                                                            ),
+                                                        },
+                                                        {
+                                                            title: 'Became',
+                                                            key: 'after',
+                                                            render: (_, change) => (
+                                                                <span>{change.after ?? 'removed'}</span>
+                                                            ),
+                                                        },
+                                                    ]}
+                                                    dataSource={version.changes}
+                                                    rowKey={(change) => `${change.step_name}:${change.field}`}
+                                                />
+                                            ) : (
+                                                <span className="text-xs text-secondary">
+                                                    Nothing recorded for this version.
+                                                </span>
+                                            )}
+                                        </div>
+                                    ))}
+                                </div>
+                            ),
+                        },
+                    ]}
+                />
             )}
             {outcome.unavailable_guardrails.length > 0 && (
                 <span className="text-xs text-secondary">

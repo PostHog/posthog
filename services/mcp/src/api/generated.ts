@@ -94949,6 +94949,28 @@ export namespace Schemas {
       below_minimum_sample: boolean;
     }
 
+    export interface WorkflowVersionChange {
+      /**
+         * Step the field belongs to, or null for a workflow field.
+         * @nullable
+         */
+      step_name: string | null;
+      /** What changed, as a person reads it, e.g. 'email > subject'. */
+      field: string;
+      /**
+         * Value in the version before this one.
+         * @nullable
+         */
+      before: string | null;
+      /**
+         * Value this version published.
+         * @nullable
+         */
+      after: string | null;
+      /** Whether the suggestion is what changed this field. */
+      from_suggestion: boolean;
+    }
+
     export interface WorkflowProposalVersionOutcome {
       /** Workflow version these numbers belong to. */
       version: number;
@@ -94960,6 +94982,15 @@ export namespace Schemas {
       carries_change?: boolean;
       /** Whether this version also changed something the suggestion did not, which the numbers cannot separate. */
       other_changes?: boolean;
+      /** What this version changed against the version before it. */
+      changes?: WorkflowVersionChange[];
+      /**
+         * When this version went live.
+         * @nullable
+         */
+      published_at?: string | null;
+      /** Who published this version. */
+      published_by?: UserBasic | null;
       /** Every version summed into these numbers. The after side runs on while later versions keep the change. */
       versions?: number[];
       /** The metric the suggestion aimed at. */

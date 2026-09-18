@@ -596,6 +596,11 @@ class TestWorkflowProposals(APIBaseTest):
         assert outcome["before"]["versions"] == [1]
         # v3 renamed the trigger on top of the suggestion, so its numbers hold both changes.
         assert [version["version"] for version in outcome["versions"] if version["other_changes"]] == [3]
+        applied = next(version for version in outcome["versions"] if version["applied"])
+        assert [(change["field"], change["after"], change["from_suggestion"]) for change in applied["changes"]] == [
+            ("url", "https://proposed.example.com", True)
+        ]
+        assert applied["published_by"]["email"] == self.user.email
 
         self.client.patch(
             f"/api/projects/{self.team.id}/hog_flows/{flow_id}/graph",

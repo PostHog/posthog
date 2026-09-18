@@ -20,7 +20,7 @@ export function WorkflowSuggestionsNotice({ id }: { id: string }): JSX.Element |
             action={{
                 children: 'Review',
                 'data-attr': 'workflow-suggestions-review',
-                onClick: () => router.actions.push(urls.workflow(id, 'suggestions')),
+                onClick: () => router.actions.push(urls.workflow(id, 'self-driving')),
             }}
         >
             {pendingProposals.length === 1
