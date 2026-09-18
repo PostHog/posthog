@@ -7,6 +7,7 @@ from rest_framework import serializers, viewsets
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.api.documentation import PostHogAutoSchema
 from posthog.api.routing import TeamAndOrgViewSetMixin
 
 from products.conversations.backend.playbook import (
@@ -51,7 +52,18 @@ class AIReplyPlaybookSerializer(serializers.Serializer):
     )
 
 
+class _SingletonSchema(PostHogAutoSchema):
+    """Prevents drf-spectacular from wrapping the ``list`` response in an array.
+
+    A project has one playbook, not a collection of them.
+    """
+
+    def _is_list_view(self, serializer: object = None) -> bool:
+        return False
+
+
 class AIReplyPlaybookViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
+    schema = _SingletonSchema()
     scope_object = "project"
     pagination_class = None
     serializer_class = AIReplyPlaybookSerializer

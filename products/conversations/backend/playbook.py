@@ -127,7 +127,7 @@ def _as_custom_addendum(custom: str, inherited_text: str) -> str | None:
     return custom
 
 
-def _normalize_custom_instructions(custom_instructions: str | None) -> tuple[str | None, tuple[str, ...]]:
+def _normalize_custom_instructions(custom_instructions: object) -> tuple[str | None, tuple[str, ...]]:
     if custom_instructions is None:
         return None, ()
     if not isinstance(custom_instructions, str):
@@ -144,7 +144,7 @@ def _normalize_custom_instructions(custom_instructions: str | None) -> tuple[str
 def compose_support_playbook(
     *,
     docs_source: str | None = None,
-    custom_instructions: str | None = None,
+    custom_instructions: object = None,
 ) -> PlaybookComposition:
     """Compose the effective playbook: generic default, optional PostHog overlay, then team custom.
 

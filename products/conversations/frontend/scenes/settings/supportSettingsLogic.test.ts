@@ -452,52 +452,68 @@ describe('supportSettingsLogic', () => {
             }).toDispatchActions(['setPlaybookSaving', 'updateCurrentTeam'])
         })
 
-        it('toasts and reloads after a successful playbook save', async () => {
-            const successToastSpy = jest.spyOn(lemonToast, 'success').mockImplementation((() => '') as any)
+        it('clears the saving guard and reloads once its own request finishes', async () => {
+            useMocks({
+                get: {
+                    '/api/conversations/v1/email/status': { configs: [] },
+                    '/api/projects/:team_id/conversations/ai_reply_playbook/': PLAYBOOK_GET,
+                },
+                patch: {
+                    '/api/environments/:team_id/': async ({ request }) => [200, await request.json()],
+                },
+            })
             logic = supportSettingsLogic()
             logic.mount()
             await expectLogic(logic).toFinishAllListeners()
-            logic.cache.savingPlaybook = true
-            logic.actions.setPlaybookSaving(true)
+            logic.actions.setPlaybookDraft('Always greet first.')
 
             await expectLogic(logic, () => {
-                logic.actions.updateCurrentTeamSuccess({
-                    conversations_settings: { ai_reply_custom_instructions: 'Always greet first.' },
-                } as unknown as TeamType)
-            }).toDispatchActions(['loadPlaybook'])
+                logic.actions.savePlaybook()
+            }).toDispatchActions(['setPlaybookSaving', 'updateCurrentTeam', 'loadPlaybook'])
+            await expectLogic(logic).toFinishAllListeners()
 
-            expect(successToastSpy).toHaveBeenCalledWith('Support playbook saved')
             expect(logic.values.playbookSaving).toBe(false)
-            successToastSpy.mockRestore()
         })
 
-        it('does not treat an unrelated team update as a playbook save', async () => {
-            const successToastSpy = jest.spyOn(lemonToast, 'success').mockImplementation((() => '') as any)
+        it('keeps the draft when the save fails', async () => {
+            useMocks({
+                get: {
+                    '/api/conversations/v1/email/status': { configs: [] },
+                    '/api/projects/:team_id/conversations/ai_reply_playbook/': PLAYBOOK_GET,
+                },
+                patch: {
+                    '/api/environments/:team_id/': () => [400, { detail: 'Nope' }],
+                },
+            })
             logic = supportSettingsLogic()
             logic.mount()
             await expectLogic(logic).toFinishAllListeners()
-            logic.actions.setPlaybookSaving(true)
+            logic.actions.setPlaybookDraft('Always greet first.')
+
+            await expectLogic(logic, () => {
+                logic.actions.savePlaybook()
+            }).toDispatchActions(['updateCurrentTeamFailure'])
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.playbookSaving).toBe(false)
+            expect(logic.values.playbookDraft).toBe('Always greet first.')
+        })
+
+        it('leaves a playbook save in flight when an unrelated team update settles', async () => {
+            logic = supportSettingsLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            logic.actions.setPlaybookDraft('Always greet first.')
+
+            logic.actions.savePlaybook()
+            expect(logic.values.playbookSaving).toBe(true)
 
             logic.actions.updateCurrentTeamSuccess({} as TeamType)
-
-            expect(successToastSpy).not.toHaveBeenCalledWith('Support playbook saved')
+            logic.actions.updateCurrentTeamFailure('unrelated failure')
             expect(logic.values.playbookSaving).toBe(true)
-            successToastSpy.mockRestore()
-        })
 
-        it('toasts on playbook save failure', async () => {
-            const errorToastSpy = jest.spyOn(lemonToast, 'error').mockImplementation((() => '') as any)
-            logic = supportSettingsLogic()
-            logic.mount()
             await expectLogic(logic).toFinishAllListeners()
-            logic.cache.savingPlaybook = true
-            logic.actions.setPlaybookSaving(true)
-
-            logic.actions.updateCurrentTeamFailure('update failed')
-            expect(errorToastSpy).toHaveBeenCalledWith("Couldn't save the support playbook. Try again.")
-            expect(logic.cache.savingPlaybook).toBe(false)
             expect(logic.values.playbookSaving).toBe(false)
-            errorToastSpy.mockRestore()
         })
     })
 })

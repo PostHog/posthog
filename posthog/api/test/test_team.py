@@ -1979,6 +1979,27 @@ def team_api_test_factory():
             assert prefixed.status_code == status.HTTP_200_OK
             assert prefixed.json()["conversations_settings"]["ai_reply_custom_instructions"] == "Always greet first."
 
+            # A later PATCH that omits docs_source has to normalize against the saved source, or
+            # the PostHog overlay the editor displayed gets stored as custom text and stacks twice.
+            assert (
+                self.client.patch(
+                    "/api/environments/@current/",
+                    {"conversations_settings": {"docs_source": "posthog"}},
+                ).status_code
+                == status.HTTP_200_OK
+            )
+            posthog_inherited = compose_support_playbook(docs_source="posthog").inherited_text
+            overlay = self.client.patch(
+                "/api/environments/@current/",
+                {
+                    "conversations_settings": {
+                        "ai_reply_custom_instructions": f"{posthog_inherited}\n\nAlways greet first."
+                    }
+                },
+            )
+            assert overlay.status_code == status.HTTP_200_OK
+            assert overlay.json()["conversations_settings"]["ai_reply_custom_instructions"] == "Always greet first."
+
         def test_conversations_docs_source_validation(self):
             ok = self.client.patch(
                 "/api/environments/@current/",

@@ -88,7 +88,7 @@ class TestComposeSupportPlaybook(SimpleTestCase):
         assert playbook.warnings == (WARNING_CUSTOM_OVERSIZED,)
 
     def test_invalid_custom_falls_back(self):
-        playbook = compose_support_playbook(custom_instructions=["not", "a", "string"])  # type: ignore[arg-type]
+        playbook = compose_support_playbook(custom_instructions=["not", "a", "string"])
         assert LAYER_CUSTOM not in playbook.layers
         assert playbook.warnings == (WARNING_CUSTOM_INVALID,)
 

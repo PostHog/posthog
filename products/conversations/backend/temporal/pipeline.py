@@ -235,6 +235,10 @@ class SupportReplyWorkflow:
                 return True
             return posted
 
+        # `finally` reads this on every exit path, including the branches that return
+        # before the draft loop starts.
+        last_draft: DraftOutput | None = None
+
         try:
             # Input safety gate: block prompt-injection / exfiltration attempts before any LLM
             # draft work. Mirrored from the signals product's safety_filter_activity pattern.
@@ -291,7 +295,6 @@ class SupportReplyWorkflow:
             best_citations: list[str] = []
             best_sources: list[dict[str, str]] = []
             best_missing: list[str] = []
-            last_draft = None
             last_validate = None
             attempts_used = 0
             blocker_aware = workflow.patched(BLOCKER_AWARE_LOOP_PATCH)

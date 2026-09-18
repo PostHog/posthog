@@ -53,18 +53,18 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
       }
     : DistributeReadOnlyOverUnions<T>
 
-export const getConversationsAiReplyPlaybookListUrl = (projectId: string) => {
+export const getConversationsAiReplyPlaybookRetrieveUrl = (projectId: string) => {
     return `/api/projects/${projectId}/conversations/ai_reply_playbook/`
 }
 
 /**
  * Inherited support-reply playbook for this project, plus the team's custom addendum if any.
  */
-export const conversationsAiReplyPlaybookList = async (
+export const conversationsAiReplyPlaybookRetrieve = async (
     projectId: string,
     options?: RequestInit
-): Promise<AIReplyPlaybookApi[]> => {
-    return apiMutator<AIReplyPlaybookApi[]>(getConversationsAiReplyPlaybookListUrl(projectId), {
+): Promise<AIReplyPlaybookApi> => {
+    return apiMutator<AIReplyPlaybookApi>(getConversationsAiReplyPlaybookRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
     })

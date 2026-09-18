@@ -55,16 +55,6 @@ export type AITriageStatus = 'in_progress' | 'done' | 'awaiting_clarification'
 export type AITriageFilterValue = AiTriageResultEnumApi
 export type AITriageResult = Exclude<AiTriageResultEnumApi, 'in_progress'>
 
-export interface SupportPlaybook {
-    inherited_instructions: string
-    custom_instructions: string | null
-    is_customized: boolean
-    default_version: number
-    posthog_overlay_version: number | null
-    docs_source: string | null
-    max_chars: number
-}
-
 export interface AITriage {
     schema_version?: number
     status?: AITriageStatus

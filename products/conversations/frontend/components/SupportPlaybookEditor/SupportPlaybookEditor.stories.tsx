@@ -42,6 +42,8 @@ export const Customized: Story = {
 }
 
 export const Loading: Story = {
+    // The skeleton is the point of this story, so the snapshot cannot wait for it to go.
+    parameters: { testOptions: { waitForLoadersToDisappear: false } },
     args: {
         inheritedInstructions: '',
         draft: '',
