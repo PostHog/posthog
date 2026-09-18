@@ -81,7 +81,7 @@ export const fingerprintSamplesLogic = kea<fingerprintSamplesLogicType>([
         samples: [
             {} as FingerprintSampleMap,
             {
-                loadSamples: async (_, breakpoint) => {
+                loadSamples: async (_: void, breakpoint) => {
                     const { issue, issueFingerprints } = values
                     if (!issue || issueFingerprints.length === 0) {
                         return {}
