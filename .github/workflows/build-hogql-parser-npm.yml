@@ -67,7 +67,7 @@ jobs:
                   if [ -f .github/scripts/post-reminder-section.mjs ]; then
                     BODY="$message_body" GITHUB_TOKEN="$GH_TOKEN" node .github/scripts/post-reminder-section.mjs hogql-parser-npm warn "version bump needed"
                   else
-                    echo "Skipping hogql-parser-npm section — script not present on this checkout"
+                    echo "$message_body"
                   fi
 
             # Version was bumped — mark any reminder from an earlier push resolved.
@@ -111,9 +111,8 @@ jobs:
     publish-npm:
         name: Publish on npm
         needs: build-wasm
-        # Only a manual dispatch from master publishes. npm's trusted publisher for this
-        # package carries no environment claim, so this condition is the whole rule until
-        # an npm admin rebinds the connection to an environment.
+        # A version must not ship before the code that produces it lands, so a release
+        # is a manual dispatch on master and never a pull request run.
         if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/master' && github.repository == 'PostHog/posthog'
         runs-on: ubuntu-24.04
         timeout-minutes: 10

@@ -79,18 +79,54 @@ const backend = suite('ci-backend.yml', backendSelectors)
 const frontend = suite('ci-frontend.yml', frontendSelectors)
 const PINNED_WORKFLOWS = ['ci-backend.yml', 'ci-frontend.yml']
 
+interface ReleaseWorkflow {
+    file: string
+    // The job that decides whether the version needs a release, plus the step and output carrying
+    // that verdict. Naming them rather than deriving them keeps a renamed job a test failure.
+    check: string
+    step: string
+    output: string
+    build: string
+    publish: string
+}
+
+// The two PyPI parsers share a job layout; the npm one names everything differently.
+const PYPI_PARSER_JOBS = {
+    check: 'check-version',
+    step: 'version',
+    output: 'parser-release-needed',
+    build: 'build-wheels',
+    publish: 'publish',
+} as const
+
+const RELEASE_WORKFLOWS: ReleaseWorkflow[] = [
+    { file: 'build-hogql-parser.yml', ...PYPI_PARSER_JOBS },
+    { file: 'build-hogql-parser-rs.yml', ...PYPI_PARSER_JOBS },
+    {
+        file: 'build-hogql-parser-npm.yml',
+        check: 'check-package-version',
+        step: 'check-package-version',
+        output: 'is-new-version',
+        build: 'build-wasm',
+        publish: 'publish-npm',
+    },
+]
+
 // A release workflow builds its artifacts on a pull request as a check. Only a manual dispatch
-// from master reaches the job that uploads to a registry.
-const release = (file: string, job: string, step: string, output: string): ExpectationBuilder =>
-    suite(file, { [job]: { [step]: { outputs: { [output]: 'true' } } } })
-const cppParser = release('build-hogql-parser.yml', 'check-version', 'version', 'parser-release-needed')
-const rustParser = release('build-hogql-parser-rs.yml', 'check-version', 'version', 'parser-release-needed')
-const npmParser = release(
-    'build-hogql-parser-npm.yml',
-    'check-package-version',
-    'check-package-version',
-    'is-new-version'
-)
+// from master reaches the job that uploads to a registry. The version verdict is stubbed true,
+// so the publish job is held back by the event and the ref alone.
+const releaseExpectations = ({ file, check, step, output, build, publish }: ReleaseWorkflow): Expectation[] => {
+    const release = suite(file, { [check]: { [step]: { outputs: { [output]: 'true' } } } })
+    return [
+        release({ name: 'ready PR' }, { runs: [check, build], skipped: [publish] }),
+        release({ name: 'fork PR', github: pullRequest({ fork: true }) }, { runs: [check], skipped: [build, publish] }),
+        release({ name: 'master dispatch', github: workflowDispatch() }, { runs: [check, build, publish] }),
+        release(
+            { name: 'branch dispatch', github: workflowDispatch({ branch: 'feat/example' }) },
+            { runs: [check, build], skipped: [publish] }
+        ),
+    ]
+}
 
 const frontendOnlyFilters: Stubs = {
     changes: {
@@ -312,45 +348,7 @@ const EXPECTATIONS: Expectation[] = [
             results: { frontend_tests: 'cancelled' },
         }
     ),
-    cppParser({ name: 'ready PR' }, { runs: ['check-version', 'build-wheels'], skipped: ['publish'] }),
-    cppParser(
-        { name: 'fork PR', github: pullRequest({ fork: true }) },
-        { runs: ['check-version'], skipped: ['build-wheels', 'publish'] }
-    ),
-    cppParser(
-        { name: 'master dispatch', github: workflowDispatch() },
-        { runs: ['check-version', 'build-wheels', 'publish'] }
-    ),
-    rustParser({ name: 'ready PR' }, { runs: ['check-version', 'build-wheels'], skipped: ['publish'] }),
-    rustParser(
-        { name: 'fork PR', github: pullRequest({ fork: true }) },
-        { runs: ['check-version'], skipped: ['build-wheels', 'publish'] }
-    ),
-    rustParser(
-        { name: 'master dispatch', github: workflowDispatch() },
-        { runs: ['check-version', 'build-wheels', 'publish'] }
-    ),
-    npmParser({ name: 'ready PR' }, { runs: ['check-package-version', 'build-wasm'], skipped: ['publish-npm'] }),
-    npmParser(
-        { name: 'fork PR', github: pullRequest({ fork: true }) },
-        { runs: ['check-package-version'], skipped: ['build-wasm', 'publish-npm'] }
-    ),
-    npmParser(
-        { name: 'master dispatch', github: workflowDispatch() },
-        { runs: ['check-package-version', 'build-wasm', 'publish-npm'] }
-    ),
-    cppParser(
-        { name: 'branch dispatch', github: { ...workflowDispatch(), ref: 'refs/heads/feat/example' } },
-        { runs: ['check-version', 'build-wheels'], skipped: ['publish'] }
-    ),
-    rustParser(
-        { name: 'branch dispatch', github: { ...workflowDispatch(), ref: 'refs/heads/feat/example' } },
-        { runs: ['check-version', 'build-wheels'], skipped: ['publish'] }
-    ),
-    npmParser(
-        { name: 'branch dispatch', github: { ...workflowDispatch(), ref: 'refs/heads/feat/example' } },
-        { runs: ['check-package-version', 'build-wasm'], skipped: ['publish-npm'] }
-    ),
+    ...RELEASE_WORKFLOWS.flatMap(releaseExpectations),
 ]
 
 interface StepExpectation {
