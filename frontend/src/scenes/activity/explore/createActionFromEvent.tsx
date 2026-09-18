@@ -1,4 +1,9 @@
-import { CLICK_TARGETS, containsUnstableGeneratedId, elementToSelector, matchesDataAttribute } from 'lib/utils/actions'
+import {
+    CLICK_TARGETS,
+    containsUnstableGeneratedId,
+    elementToSelector,
+    matchesStableDataAttribute,
+} from 'lib/utils/actions'
 
 import { ActionStepType, ElementType, PropertyFilterType, PropertyOperator } from '~/types'
 
@@ -38,9 +43,7 @@ export function applyDataAttributeSelector(
     }
     for (let i = 0; i < elements.length; i++) {
         const element = elements[i]
-        const dataAttribute = matchesDataAttribute(element, dataAttributes)
-        const hasStableDataAttribute =
-            !!dataAttribute && !containsUnstableGeneratedId(element.attributes?.[`attr__${dataAttribute}`] ?? '')
+        const hasStableDataAttribute = !!matchesStableDataAttribute(element, dataAttributes)
         const hasStableId = !!element.attr_id && !containsUnstableGeneratedId(element.attr_id)
         if (hasStableDataAttribute || hasStableId) {
             let selector = elementToSelector(element, dataAttributes)
