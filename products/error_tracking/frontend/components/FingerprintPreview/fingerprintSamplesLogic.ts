@@ -38,7 +38,7 @@ export interface fingerprintSamplesLogicActions {
         issueFingerprints: ErrorTrackingFingerprint[]
         payload?: any
     } // errorTrackingIssueSceneLogic
-    loadSamples: () => any
+    loadSamples: (_: void) => void
     loadSamplesFailure: (
         error: string,
         errorObject?: any
@@ -48,10 +48,10 @@ export interface fingerprintSamplesLogicActions {
     }
     loadSamplesSuccess: (
         samples: FingerprintSampleMap,
-        payload?: any
+        payload?: void
     ) => {
         samples: FingerprintSampleMap
-        payload?: any
+        payload?: void
     }
 }
 
