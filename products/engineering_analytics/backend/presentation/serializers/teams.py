@@ -72,8 +72,9 @@ class TeamCIHealthListSerializer(DataclassSerializer):
     items = TeamCIHealthItemSerializer(
         many=True,
         help_text="Owning teams ranked by current flaky + failure signal, heaviest first, capped at `limit`. "
-        "Teams are organizational owners of code surfaces; this never aggregates by author. Failures from a CI "
-        "setup break are left out: a run attempt whose tests errored in 3 or more jobs or for 3 or more owning teams.",
+        "Teams are organizational owners of code surfaces; this never aggregates by author. A CI setup break "
+        "(a run attempt whose tests errored in 3 or more jobs or for 3 or more owning teams) excludes every "
+        "trial of that attempt, not only its failures.",
     )
 
     class Meta:

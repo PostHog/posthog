@@ -674,7 +674,7 @@ export interface FlakyTestItemApi {
 }
 
 export interface FlakyTestListApi {
-    /** Tests worth acting on now, ranked by blast radius: master failures, then PRs hit, then runs. Failures from a CI setup break are left out: a run attempt whose tests errored in 3 or more jobs or for 3 or more owning teams. */
+    /** Tests worth acting on now, ranked by blast radius: master failures, then PRs hit, then runs. A CI setup break (a run attempt whose tests errored in 3 or more jobs or for 3 or more owning teams) excludes every trial of that attempt, not only its failures. */
     items: FlakyTestItemApi[]
     /** True when more tests qualified than the cap; `items` is the highest-ranked `limit` rows. */
     truncated: boolean
@@ -1831,7 +1831,7 @@ export interface TeamCIHealthItemApi {
 }
 
 export interface TeamCIHealthListApi {
-    /** Owning teams ranked by current flaky + failure signal, heaviest first, capped at `limit`. Teams are organizational owners of code surfaces; this never aggregates by author. Failures from a CI setup break are left out: a run attempt whose tests errored in 3 or more jobs or for 3 or more owning teams. */
+    /** Owning teams ranked by current flaky + failure signal, heaviest first, capped at `limit`. Teams are organizational owners of code surfaces; this never aggregates by author. A CI setup break (a run attempt whose tests errored in 3 or more jobs or for 3 or more owning teams) excludes every trial of that attempt, not only its failures. */
     items: TeamCIHealthItemApi[]
     /** True when more teams had signal than the cap. */
     truncated: boolean

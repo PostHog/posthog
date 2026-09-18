@@ -94,7 +94,7 @@ export function EngineeringAnalyticsTeamScene(): JSX.Element {
             width: 140,
             align: 'right',
             tooltip:
-                'Runs where this test failed, errored, or a retry recovered it. Fixed window; the picker above does not move this list.',
+                'Runs where this test failed, errored, or a retry recovered it. Failures from a CI setup break are left out. Fixed window; the picker above does not move this list.',
             sorter: (a, b) => a.signalCount - b.signalCount,
             render: (_, row) => <CountCell value={row.signalCount} />,
         },
