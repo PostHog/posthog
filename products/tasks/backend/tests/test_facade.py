@@ -572,6 +572,304 @@ class TestFacadeReadsAndMappers(TestCase):
 
         self.assertEqual(facade.get_latest_pr_url_by_task([]), {})
 
+    def test_get_prior_pr_output_by_task_picks_the_newest_pr_carrying_run(self):
+        task = self._make_task()
+        TaskRun.objects.create(
+            task=task, team=self.team, status=TaskRun.Status.COMPLETED, output={"pr_url": "https://x/pull/1"}
+        )
+        TaskRun.objects.create(
+            task=task, team=self.team, status=TaskRun.Status.COMPLETED, output={"pr_urls": ["https://x/pull/2"]}
+        )
+        # A resume opens no PR of its own, so it must not hide the run that did.
+        TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.COMPLETED)
+        no_pr_task = self._make_task()
+        TaskRun.objects.create(task=no_pr_task, team=self.team, status=TaskRun.Status.COMPLETED)
+
+        prior = facade.get_prior_pr_output_by_task(self.team.id, [task.id, no_pr_task.id])
+
+        self.assertEqual(prior, {str(task.id): {"pr_urls": ["https://x/pull/2"]}})
+        self.assertEqual(facade.get_prior_pr_output_by_task(self.team.id, []), {})
+
+    def test_task_detail_keeps_the_pr_on_latest_run_across_a_resume(self):
+        task = self._make_task()
+        TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            status=TaskRun.Status.COMPLETED,
+            output={
+                "pr_url": "https://x/pull/7",
+                "pr_urls": ["https://x/pull/7"],
+                "pr_state": "open",
+                "commit_push": {"repository": "posthog/posthog"},
+            },
+        )
+        TaskRun.objects.create(
+            task=task, team=self.team, status=TaskRun.Status.COMPLETED, output={"final_message": "done"}
+        )
+
+        # The runs this path prefetches already carry the earlier PR, so finding it costs
+        # no second trip to the database.
+        with self.assertNumQueries(3):
+            dto = facade.get_task_detail(task.id, self.team.id, self.user.id)
+
+        assert dto is not None and dto.latest_run is not None and dto.latest_run.output is not None
+        output = dto.latest_run.output
+        self.assertEqual(output["pr_url"], "https://x/pull/7")
+        self.assertEqual(output["pr_urls"], ["https://x/pull/7"])
+        self.assertEqual(output["pr_state"], "open")
+        self.assertEqual(output["final_message"], "done")
+        # Only the PR travels; the rest of an earlier run's output stays where it was written.
+        self.assertNotIn("commit_push", output)
+
+    def test_task_detail_leaves_a_run_that_opened_its_own_pr_alone(self):
+        task = self._make_task()
+        TaskRun.objects.create(
+            task=task, team=self.team, status=TaskRun.Status.COMPLETED, output={"pr_url": "https://x/pull/1"}
+        )
+        TaskRun.objects.create(
+            task=task, team=self.team, status=TaskRun.Status.COMPLETED, output={"pr_url": "https://x/pull/2"}
+        )
+
+        dto = facade.get_task_detail(task.id, self.team.id, self.user.id)
+
+        assert dto is not None and dto.latest_run is not None and dto.latest_run.output is not None
+        self.assertEqual(dto.latest_run.output["pr_url"], "https://x/pull/2")
+
+    def test_get_prior_pr_output_by_task_skips_an_empty_pr_urls_entry(self):
+        task = self._make_task()
+        TaskRun.objects.create(
+            task=task, team=self.team, status=TaskRun.Status.COMPLETED, output={"pr_url": "https://x/pull/1"}
+        )
+        # Storable, carries no PR, and so must not shadow the older run that has one.
+        TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.COMPLETED, output={"pr_urls": [""]})
+
+        prior = facade.get_prior_pr_output_by_task(self.team.id, [task.id])
+
+        self.assertEqual(prior, {str(task.id): {"pr_url": "https://x/pull/1"}})
+
+    def test_get_prior_pr_output_by_task_matches_a_later_non_empty_pr_url(self):
+        task = self._make_task()
+        # `read_pr_urls` drops the empty entry and still yields a usable URL, so the SQL
+        # predicate has to agree with it rather than looking only at the first entry.
+        TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            status=TaskRun.Status.COMPLETED,
+            output={"pr_urls": ["", "https://x/pull/2"]},
+        )
+
+        prior = facade.get_prior_pr_output_by_task(self.team.id, [task.id])
+
+        self.assertEqual(prior, {str(task.id): {"pr_urls": ["", "https://x/pull/2"]}})
+
+    def test_list_tasks_pr_state_filter_matches_a_later_non_empty_pr_url(self):
+        task = self._make_task(title="empty first entry")
+        TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            status=TaskRun.Status.COMPLETED,
+            output={"pr_urls": ["", "https://x/pull/2"], "pr_state": "open"},
+        )
+        TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.COMPLETED)
+
+        open_ids = [dto.id for dto in facade.list_tasks(self.team.id, self.user.id, filters={"pr_state": "open"})]
+
+        self.assertEqual(open_ids, [task.id])
+
+    def test_task_detail_fills_pr_url_from_an_array_only_prior_output(self):
+        task = self._make_task()
+        TaskRun.objects.create(
+            task=task, team=self.team, status=TaskRun.Status.COMPLETED, output={"pr_urls": ["https://x/pull/9"]}
+        )
+        TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.COMPLETED)
+
+        dto = facade.get_task_detail(task.id, self.team.id, self.user.id)
+
+        # Readers that look only at `pr_url` (the feed's `has_pr`, `get_latest_pr_url_by_task`)
+        # have to see the PR too.
+        assert dto is not None and dto.latest_run is not None and dto.latest_run.output is not None
+        self.assertEqual(dto.latest_run.output["pr_url"], "https://x/pull/9")
+        self.assertEqual(dto.latest_run.output["pr_urls"], ["https://x/pull/9"])
+
+    def test_list_tasks_pr_state_filter_matches_an_inherited_pr(self):
+        resumed = self._make_task(title="resumed open pr")
+        TaskRun.objects.create(
+            task=resumed,
+            team=self.team,
+            status=TaskRun.Status.COMPLETED,
+            output={"pr_url": "https://x/pull/1", "pr_state": "open"},
+        )
+        TaskRun.objects.create(task=resumed, team=self.team, status=TaskRun.Status.COMPLETED)
+        merged = self._make_task(title="resumed merged pr")
+        TaskRun.objects.create(
+            task=merged,
+            team=self.team,
+            status=TaskRun.Status.COMPLETED,
+            # Legacy merge: the pr_merged flag, no pr_state.
+            output={"pr_url": "https://x/pull/2", "pr_merged": True},
+        )
+        TaskRun.objects.create(task=merged, team=self.team, status=TaskRun.Status.COMPLETED)
+
+        # The filter and `latest_run.output` have to answer the same way about the same task.
+        open_ids = [dto.id for dto in facade.list_tasks(self.team.id, self.user.id, filters={"pr_state": "open"})]
+        merged_ids = [dto.id for dto in facade.list_tasks(self.team.id, self.user.id, filters={"pr_state": "merged"})]
+
+        self.assertEqual(open_ids, [resumed.id])
+        self.assertEqual(merged_ids, [merged.id])
+
+    @patch("products.tasks.backend.facade.api._task_run_log_url", return_value="https://presigned/log")
+    def test_task_detail_inherits_a_pr_without_restoring_a_suppressed_log_url(self, _mock_log_url):
+        """The degraded `start_task_run` fallback omits the log URL, and inheriting a PR must keep it out.
+
+        The backfill rebuilds the run DTO, so the caller's gate has to be applied where that DTO is
+        built rather than at the `latest_run` keyword, or the fallback silently regains the
+        presigned-URL I/O it exists to avoid.
+        """
+        task = self._make_task()
+        TaskRun.objects.create(
+            task=task, team=self.team, status=TaskRun.Status.COMPLETED, output={"pr_url": "https://x/pull/4"}
+        )
+        latest = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.COMPLETED)
+
+        suppressed = facade._task_detail_to_dto(task, latest_run=latest, include_latest_run_log_url=False)
+        allowed = facade._task_detail_to_dto(task, latest_run=latest)
+
+        assert suppressed.latest_run is not None and suppressed.latest_run.output is not None
+        self.assertIsNone(suppressed.latest_run.log_url)
+        self.assertEqual(suppressed.latest_run.output["pr_url"], "https://x/pull/4")
+        # The open-gate call proves the assertion above isn't passing for want of a URL to begin with.
+        assert allowed.latest_run is not None
+        self.assertEqual(allowed.latest_run.log_url, "https://presigned/log")
+
+    def test_get_prior_pr_output_by_task_skips_a_non_string_pr_url(self):
+        task = self._make_task()
+        TaskRun.objects.create(
+            task=task, team=self.team, status=TaskRun.Status.COMPLETED, output={"pr_url": "https://x/pull/real"}
+        )
+        # `output` is free-form JSON, and `read_pr_urls` reads only strings. A newest run whose
+        # `pr_url` is a number must not win the pick and strand the older run that holds the PR.
+        TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.COMPLETED, output={"pr_url": 123})
+
+        prior = facade.get_prior_pr_output_by_task(self.team.id, [task.id])
+
+        self.assertEqual(prior, {str(task.id): {"pr_url": "https://x/pull/real"}})
+
+    def test_list_tasks_never_reports_a_non_string_pr_url(self):
+        task = self._make_task(title="junk pr_url")
+        TaskRun.objects.create(
+            task=task, team=self.team, status=TaskRun.Status.COMPLETED, output={"pr_url": "https://x/pull/real"}
+        )
+        TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.COMPLETED, output={"pr_url": True})
+
+        listed = next(dto for dto in facade.list_tasks(self.team.id, self.user.id, filters={}) if dto.id == task.id)
+
+        # The list and the detail response have to agree, and neither may hand a client a
+        # non-string where a URL belongs.
+        assert listed.latest_run is not None and listed.latest_run.output is not None
+        self.assertEqual(listed.latest_run.output["pr_url"], "https://x/pull/real")
+
+    def test_get_latest_pr_url_by_task_reads_an_array_only_output(self):
+        array_only = self._make_task(title="array only")
+        TaskRun.objects.create(
+            task=array_only,
+            team=self.team,
+            status=TaskRun.Status.COMPLETED,
+            output={"pr_urls": ["https://x/pull/7"]},
+        )
+        junk = self._make_task(title="junk only")
+        TaskRun.objects.create(task=junk, team=self.team, status=TaskRun.Status.COMPLETED, output={"pr_url": 5})
+
+        urls = facade.get_latest_pr_url_by_task([array_only.id, junk.id])
+
+        # Slack App Home reads this helper, so a run that recorded only `pr_urls` still has a link.
+        self.assertEqual(urls, {str(array_only.id): "https://x/pull/7"})
+
+    def test_task_summaries_inherit_the_pr_across_a_resume(self):
+        task = self._make_task(title="resumed")
+        TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            status=TaskRun.Status.COMPLETED,
+            output={"pr_url": "https://x/pull/9", "pr_state": "open"},
+        )
+        TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.COMPLETED)
+        own_pr = self._make_task(title="own pr")
+        TaskRun.objects.create(
+            task=own_pr,
+            team=self.team,
+            status=TaskRun.Status.COMPLETED,
+            output={"pr_url": "https://x/pull/1", "pr_state": "closed"},
+        )
+
+        dtos, _ = facade.get_task_summaries(self.team.id, self.user.id, ids=[task.id, own_pr.id])
+        summaries = {dto.title: dto.latest_run for dto in dtos}
+
+        # The sidebar reads summaries while the task view reads the detail DTO; both have to show
+        # the same PR for the same task.
+        assert summaries["resumed"] is not None
+        self.assertEqual(summaries["resumed"].pr_url, "https://x/pull/9")
+        self.assertEqual(summaries["resumed"].pr_state, "open")
+        # A run that opened its own PR keeps it rather than inheriting an older one.
+        assert summaries["own pr"] is not None
+        self.assertEqual(summaries["own pr"].pr_url, "https://x/pull/1")
+        self.assertEqual(summaries["own pr"].pr_state, "closed")
+
+    def test_task_summaries_read_an_array_only_pr_url(self):
+        own = self._make_task(title="own array")
+        TaskRun.objects.create(
+            task=own,
+            team=self.team,
+            status=TaskRun.Status.COMPLETED,
+            output={"pr_urls": ["https://x/pull/3"], "pr_state": "open"},
+        )
+        inherited = self._make_task(title="inherited array")
+        TaskRun.objects.create(
+            task=inherited, team=self.team, status=TaskRun.Status.COMPLETED, output={"pr_urls": ["https://x/pull/4"]}
+        )
+        TaskRun.objects.create(task=inherited, team=self.team, status=TaskRun.Status.COMPLETED)
+
+        dtos, _ = facade.get_task_summaries(self.team.id, self.user.id, ids=[own.id, inherited.id])
+        summaries = {dto.title: dto.latest_run for dto in dtos}
+
+        # `pr_url` is the flat field clients read, so a run that recorded only the array still
+        # reports its first usable entry there — whether that run is the latest or an earlier one.
+        assert summaries["own array"] is not None and summaries["inherited array"] is not None
+        self.assertEqual(summaries["own array"].pr_url, "https://x/pull/3")
+        self.assertEqual(summaries["own array"].pr_state, "open")
+        self.assertEqual(summaries["inherited array"].pr_url, "https://x/pull/4")
+
+    def test_task_summaries_report_no_pr_when_the_task_never_opened_one(self):
+        task = self._make_task(title="no pr")
+        TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.COMPLETED)
+
+        dtos, _ = facade.get_task_summaries(self.team.id, self.user.id, ids=[task.id])
+        summary = dtos[0].latest_run
+
+        assert summary is not None
+        self.assertIsNone(summary.pr_url)
+        self.assertIsNone(summary.pr_state)
+
+    def test_list_tasks_resolves_inherited_prs_in_one_query(self):
+        tasks = [self._make_task(title=f"pr-task-{i}") for i in range(4)]
+        for index, task in enumerate(tasks):
+            TaskRun.objects.create(
+                task=task,
+                team=self.team,
+                status=TaskRun.Status.COMPLETED,
+                output={"pr_url": f"https://x/pull/{index}"},
+            )
+            TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.COMPLETED)
+
+        # The page costs one inherited-PR query, whatever the number of tasks on it.
+        with self.assertNumQueries(6):
+            dtos = facade.list_tasks(self.team.id, self.user.id, filters={})
+
+        by_title = {dto.title: dto for dto in dtos}
+        for index, task in enumerate(tasks):
+            latest_run = by_title[task.title].latest_run
+            assert latest_run is not None and latest_run.output is not None
+            self.assertEqual(latest_run.output["pr_url"], f"https://x/pull/{index}")
+
     def test_get_conversation_task_dtos_carries_latest_run_id_not_nested_run(self):
         task = self._make_task(title="Conversation task")
         TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.QUEUED)
