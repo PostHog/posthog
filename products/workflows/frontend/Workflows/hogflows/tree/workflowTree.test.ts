@@ -212,15 +212,22 @@ describe('buildWorkflowTree', () => {
     })
 
     it.each([
-        [false, false, 'branch', 'Condition matched'],
-        [false, true, 'branch', 'Event received'],
-        [true, false, 'branch', 'Condition matched'],
-        [true, true, 'branch', 'Condition or event matched'],
-        [false, false, 'continue', 'No match within 2d'],
-        [false, true, 'continue', 'No match within 2d'],
+        [false, 'none', 'branch', 'Condition matched'],
+        [false, 'targetless', 'branch', 'Condition matched'],
+        [false, 'targeted', 'branch', 'Event received'],
+        [true, 'none', 'branch', 'Condition matched'],
+        [true, 'targetless', 'branch', 'Condition matched'],
+        [true, 'targeted', 'branch', 'Condition or event matched'],
+        [false, 'none', 'continue', 'No match within 2d'],
+        [false, 'targeted', 'continue', 'No match within 2d'],
     ] as const)(
         'labels wait outcomes for condition=%s events=%s and edge=%s',
-        (hasCondition, hasEvents, edgeType, label) => {
+        (hasCondition, events, edgeType, label) => {
+            const eventConfigs = {
+                none: [],
+                targetless: [{ filters: { events: [], actions: [] } }],
+                targeted: [{ filters: { events: [{ id: 'activated' }] } }],
+            }
             const waitAction: HogFlowAction = {
                 id: 'wait',
                 type: 'wait_until_condition',
@@ -229,7 +236,7 @@ describe('buildWorkflowTree', () => {
                 config: {
                     condition: hasCondition ? { filters: { properties: [{ key: 'plan', value: 'pro' }] } } : {},
                     max_wait_duration: '2d',
-                    events: hasEvents ? [{ name: 'activated' }] : [],
+                    events: eventConfigs[events],
                 },
             }
             expect(getWorkflowBranchLabel(waitAction, edge('wait', 'next', edgeType, 0))).toBe(label)

@@ -35,7 +35,14 @@ export function getWorkflowBranchLabel(action: HogFlowAction | undefined, edge: 
         if (condition?.name) {
             return condition.name
         }
-        if (!events?.length) {
+        // The editor leaves an entry behind when the last event is removed, and the runtime skips
+        // an entry that targets no event and no action. Such an entry cannot resolve the wait, so
+        // it must not name an event here.
+        const waitsForEvent = events?.some(
+            (eventConfig) =>
+                (eventConfig.filters?.events?.length ?? 0) > 0 || (eventConfig.filters?.actions?.length ?? 0) > 0
+        )
+        if (!waitsForEvent) {
             return 'Condition matched'
         }
         // The property condition and the events resolve the wait through this same edge, so a wait
