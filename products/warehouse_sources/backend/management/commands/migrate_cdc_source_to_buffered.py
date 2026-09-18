@@ -304,6 +304,11 @@ class Command(BaseCommand):
             # the schedules onto a state that is genuinely unchanged, not a half-flipped one.
             self.stdout.write("6/7 setting cdc_ingest_mode=buffered and marking the schemas served")
             with transaction.atomic():
+                # Re-read under the row lock rather than merging onto the copy loaded at the top
+                # of `handle`: the drain above can run for minutes, during which a CDC activity's
+                # own read-modify-write of `job_inputs` (resource_fields) commits and would
+                # otherwise be clobbered by saving our stale in-memory copy.
+                source = ExternalDataSource.objects.select_for_update().get(pk=source.pk)
                 source.job_inputs = {
                     **(source.job_inputs or {}),
                     "cdc_ingest_mode": "buffered",
@@ -381,6 +386,10 @@ class Command(BaseCommand):
             self.stdout.write("5/6 setting cdc_ingest_mode=legacy and unmarking the schemas")
             with transaction.atomic():
                 self._mark_schemas(eligible, served=False)
+                # Re-read under the row lock for the same reason as the flip: the drains above can
+                # run for minutes, during which a CDC activity's own read-modify-write of
+                # `job_inputs` commits and would otherwise be clobbered by our stale copy.
+                source = ExternalDataSource.objects.select_for_update().get(pk=source.pk)
                 source.job_inputs = {
                     **(source.job_inputs or {}),
                     "cdc_ingest_mode": "legacy",

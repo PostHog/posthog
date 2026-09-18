@@ -108,6 +108,7 @@ class Command(BaseCommand):
                 and not s.admin_paused
                 and s.has_sync_interval
                 and not s.cdc_streaming
+                and not s.cdc_halted
             )
         ]
         actionable_ids = {s.schema_id for s in actionable}
@@ -173,6 +174,8 @@ class Command(BaseCommand):
             return "no sync_frequency_interval set"
         if schema.cdc_streaming:
             return "streaming CDC schema, use repair_cdc"
+        if schema.cdc_halted:
+            return "CDC halted, use repair_cdc"
         return "buffered CDC source"
 
     def _confirm(self, prompt: str, yes: bool) -> None:

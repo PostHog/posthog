@@ -91,6 +91,10 @@ class TestStalledSchedules(BaseTest):
                 {"sync_type": ExternalDataSchema.SyncType.CDC, "sync_type_config": {"cdc_mode": "streaming"}},
                 {},
             ),
+            # cdc_halted is a configuration marker independent of should_sync and status: a
+            # broken source's schema can still read should_sync=True and a self-reporting status.
+            ("cdc broken source", {"sync_type_config": {"cdc_broken": True}}, {}),
+            ("cdc extraction paused", {"sync_type_config": {"cdc_extraction_paused": True}}, {}),
         ]
     )
     def test_schemas_without_a_stalled_schedule_are_not_reported(
@@ -257,6 +261,21 @@ class TestStalledSchedules(BaseTest):
         stalled = next(s for s in find_stalled_schemas() if s.schema_id == str(schema.id))
 
         schema.sync_type_config = {"cdc_mode": "streaming"}
+        schema.save(update_fields=["sync_type_config"])
+
+        with patch("products.data_warehouse.backend.facade.api.sync_external_data_job_workflow") as mock_sync:
+            repair_stalled_schema(stalled)
+
+        mock_sync.assert_not_called()
+
+    def test_repair_skips_a_schema_marked_cdc_broken_since_it_was_discovered(self) -> None:
+        # The halt marker exists precisely to stop anything else from touching the schedule
+        # until repair_cdc clears it, so it is re-checked for the same staleness reason as the
+        # other guards even though the queryset already excludes it up front.
+        schema = self._schema(synced_ago=timedelta(days=5), sync_type=ExternalDataSchema.SyncType.CDC)
+        stalled = next(s for s in find_stalled_schemas() if s.schema_id == str(schema.id))
+
+        schema.sync_type_config = {"cdc_broken": True}
         schema.save(update_fields=["sync_type_config"])
 
         with patch("products.data_warehouse.backend.facade.api.sync_external_data_job_workflow") as mock_sync:

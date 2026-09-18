@@ -17,7 +17,7 @@ periodic sweep that reports them and the management command that repairs them.
 
 from datetime import timedelta
 
-from django.db.models import DateTimeField, DurationField, ExpressionWrapper, F, QuerySet, Value
+from django.db.models import DateTimeField, DurationField, ExpressionWrapper, F, Q, QuerySet, Value
 from django.db.models.functions import Coalesce, Greatest
 from django.utils import timezone
 
@@ -89,6 +89,12 @@ class StalledSchema:
     # source; this field backs `repairable_here` for the window between discovery and repair,
     # where a schema can flip to streaming after being read as `no_runs`.
     cdc_streaming: bool
+    # Mirrors `ExternalDataSchema.cdc_halted`: true while the source is marked `cdc_broken`, or
+    # its extraction schedule was paused after a non-retryable error. This is a configuration
+    # marker independent of `should_sync` and `status`, so a halted schema can still read
+    # should_sync=True and a non-self-reporting status. Cleared only by repair, resume, disable,
+    # or a successful extraction run — not by anything this tool does.
+    cdc_halted: bool
 
     @property
     def repairable_here(self) -> bool:
@@ -108,6 +114,9 @@ class StalledSchema:
         A streaming CDC schema is excluded because its own workflow paces the schedule; unpausing
         it does not restart a sync, it just races that workflow into re-pausing it. Those go back
         through `repair_cdc`.
+
+        A halted CDC schema is excluded for the same reason, one step earlier: the marker exists
+        precisely to stop anything else from touching the schema until `repair_cdc` clears it.
         """
         return (
             self.kind == "no_runs"
@@ -115,6 +124,7 @@ class StalledSchema:
             and not self.admin_paused
             and self.has_sync_interval
             and not self.cdc_streaming
+            and not self.cdc_halted
         )
 
 
@@ -158,6 +168,10 @@ def stalled_schema_queryset(
         # status away from FAILED (see mark_initial_sync_complete / the streaming completion
         # path), so SELF_REPORTING_STATUSES above cannot be relied on to catch every one.
         .exclude(sync_type=ExternalDataSchema.SyncType.CDC, sync_type_config__cdc_mode="streaming")
+        # `cdc_halted`: the source is marked cdc_broken, or its extraction schedule was paused
+        # after a non-retryable error. Neither flips should_sync or status, so this predicate
+        # would otherwise catch a schema the halt marker already means to leave alone.
+        .exclude(Q(sync_type_config__cdc_broken=True) | Q(sync_type_config__cdc_extraction_paused=True))
         .annotate(
             stalled_after=ExpressionWrapper(
                 F("last_synced_at") + stall_window,
@@ -219,6 +233,7 @@ def find_stalled_schemas(
                 admin_paused=bool((schema.sync_type_config or {}).get("admin_unpause_schedule_after_run")),
                 has_sync_interval=schema.sync_frequency_interval is not None,
                 cdc_streaming=schema.is_cdc and schema.cdc_mode == "streaming",
+                cdc_halted=schema.cdc_halted,
             )
         )
     return stalled
@@ -285,6 +300,16 @@ def repair_stalled_schema(stalled: StalledSchema) -> None:
     if schema.is_cdc and schema.cdc_mode == "streaming":
         logger.info(
             "repair_stalled_schema_schedules_skipped_cdc_streaming",
+            schema_id=str(schema.id),
+            team_id=schema.team_id,
+        )
+        return
+
+    # The halt marker exists precisely to stop anything else from touching the schedule until
+    # `repair_cdc` clears it. Re-checked for the same staleness reason as the guards above.
+    if schema.cdc_halted:
+        logger.info(
+            "repair_stalled_schema_schedules_skipped_cdc_halted",
             schema_id=str(schema.id),
             team_id=schema.team_id,
         )
