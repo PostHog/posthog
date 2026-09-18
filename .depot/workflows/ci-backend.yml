@@ -19,10 +19,9 @@
 #   local action a depot workflow uses needs a mirror even when it is identical to
 #   canonical: Depot resolves ./.github/actions/<x> from .depot/actions/<x>, so a missing
 #   mirror fails the step at setup with "action manifest not found".
-# - permissions: pull-requests:read (no comment/auto-commit side effects)
-# - Stripped side effects: CI report section posters (canonical
-#   additionally skips these on trunk-merge/** branches to save GITHUB_TOKEN budget;
-#   the shadow strips them entirely, so that gating has nothing to mirror), snapshot
+# - permissions: pull-requests:read, so the ambient token never writes. A ported poster mints
+#   its own App token.
+# - Stripped side effects: the backend coverage CI report section, snapshot
 #   auto-commit (handle-snapshots), posthog-github-action telemetry (including the
 #   capture-test-selection job — turbo-discover still emits its telemetry outputs to
 #   stay apples-to-apples, they just have no consumer here; canonical mints the
@@ -54,11 +53,6 @@
 #   cache. This job and the mig_schema_key output that feeds it remain depot-exempt.
 # - OpenAPI types: validation remains a separate job like canonical, but its
 #   auto-commit side effect is dropped
-# - sqlmigrate SQL preview: canonical's check-migrations resolves changed migration files
-#   to full names, skips generated squash files by content, and degrades a sqlmigrate
-#   failure to a placeholder before posting the SQL preview comment. The shadow strips
-#   comment side effects (above) and runs no sqlmigrate loop, so those changes need no
-#   depot bump.
 # - Deterministic-failure self-cancel remains omitted: the injected Depot job token
 #   cannot authorize the CLI's run lookup. Workflow-name expressions also remain
 #   literal, so the role cannot switch names through a variable; the cutover renames
@@ -84,6 +78,19 @@
 #   only consumer is a stripped side effect (OpenAPI auto-commit, snapshot commit,
 #   telemetry) are stripped with it. The migration-risk check run is published here
 #   because stamphog waits for it on every pull request.
+# - CI report sections from check-migrations (Django migration SQL, migration risk,
+#   ClickHouse migration SQL) post with a posthog-tests token scoped to pull-requests:write,
+#   so a report comment they create is authored by tests-posthog[bot], not
+#   github-actions[bot]. They post only when the PR head's
+#   frontend/bin/ci-report/update-ci-report.mjs adopts that login, because an older writer
+#   would add a new report comment on every write. With no token, the SQL preview step is
+#   skipped and the risk analysis still runs. The job sets up Node from .nvmrc, which
+#   canonical takes from the GitHub-hosted image.
+# - Workflow-command annotations (::error, ::warning) stay in the Depot job log. Depot CI
+#   does not attach them to the job's GitHub check run (as of 2026-09-18, the Repo checks
+#   check run 105649963153 has no annotations although its job logged a ::warning). So the
+#   file annotations from `hogli lint:migration-deletions` have no GitHub counterpart here;
+#   the failing Repo checks run carries the verdict.
 # - `depot ci run` fires with event_name `api`; the hand-off wait treats it like
 #   workflow_dispatch: it runs only when GitHub Actions already handed the commit off.
 #   Depot caps an inline workflow at 64 KiB, which this file exceeds, so
@@ -175,8 +182,10 @@ env:
     # Depot CI runners expose OTEL_SERVICE_NAME=ci-worker ambient; GitHub Actions test steps do not.
     # Left set, it leaks into settings.OTEL_SERVICE_NAME (personhog metric client_name label) and
     # diverges from test assertions. Blank it to match the GHA environment. (GITHUB_TOKEN is also
-    # injected ambient and leaks into plugin download auth headers, but GITHUB_-prefixed vars are
-    # reserved and cannot be overridden via env: — it is unset inside the test run scripts instead.)
+    # injected ambient and leaks into plugin download auth headers. A workflow-level
+    # `GITHUB_TOKEN: ''` did not clear it, so it is unset inside the test run scripts instead,
+    # and no step relies on an empty value clearing it. A non-empty step-level value does
+    # replace it, which the App-token steps below rely on.)
     OTEL_SERVICE_NAME: ''
     CLICKHOUSE_SERVER_IMAGE_VERSION: ${{ github.event.inputs.clickhouseServerVersion || '' }}
     CLICKHOUSE_COMPAT_PYTEST_TARGETS: 'posthog/clickhouse ee/clickhouse'
@@ -1440,6 +1449,20 @@ jobs:
                   enable-cache: false
             - name: Install Python dependencies
               run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
+            # Block deleting historical migration files (see safe-django-migrations.md).
+            # Two steps, so a failed PR-files read fails the job instead of handing the
+            # check an empty list. The read uses the ambient token, which only reads here.
+            - name: Fetch deleted migration paths
+              id: fetch-deleted-migrations
+              if: github.event_name == 'pull_request' && needs.changes.outputs.migrations_any == 'true'
+              env:
+                  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                  REPO: ${{ github.repository }}
+                  PR_NUMBER: ${{ github.event.pull_request.number }}
+              run: .github/scripts/list-removed-renamed-paths.sh > "$RUNNER_TEMP/deleted-migration-paths.txt"
+            - name: Check deleted migrations
+              if: steps.fetch-deleted-migrations.outcome == 'success'
+              run: ./bin/hogli lint:migration-deletions < "$RUNNER_TEMP/deleted-migration-paths.txt"
             - name: Bootstrap scaffold product
               run: ./bin/hogli product:bootstrap spline_reticulator --non-interactive
             - name: Lint product structure
@@ -1484,15 +1507,6 @@ jobs:
                         else
                             pytest -p no:cacheprovider posthog/test/test_startup_import_budget.py posthog/test/test_dataclass_defaults.py
                         fi
-            # Block deleting historical migration files (see safe-django-migrations.md).
-            # GITHUB_ACTIONS=false suppresses the command's PR annotations on the shadow.
-            - name: Check deleted migrations
-              if: github.event_name == 'pull_request' && needs.changes.outputs.migrations_any == 'true'
-              env:
-                  GITHUB_ACTIONS: 'false'
-                  REPO: ${{ github.repository }}
-                  PR_NUMBER: ${{ github.event.pull_request.number }}
-              run: .github/scripts/list-removed-renamed-paths.sh | ./bin/hogli lint:migration-deletions
 
     validate-product-yamls:
         needs: [changes]
@@ -1715,14 +1729,195 @@ jobs:
             - name: Install python dependencies for this PR
               run: |
                   UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
-            # The migration SQL preview and the CI report section stay stripped (see the
-            # header). The check run is published, because stamphog waits for it on every
-            # pull request and a routed PR would otherwise never get a verdict.
-            - name: Run migration risk analysis
+            - name: Check the CI report writer on this checkout
+              # The report writer comes from the PR checkout. One that predates tests-posthog[bot]
+              # authorship adopts only github-actions[bot] comments, so every write as the app
+              # would add a new report comment.
+              id: ci-report-writer
+              if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+              run: |
+                  grep -qsF 'tests-posthog[bot]' frontend/bin/ci-report/update-ci-report.mjs || { echo "Skipping the migration CI report sections: update-ci-report.mjs predates tests-posthog[bot] authorship."; exit 0; }
+                  echo "adopts=true" >> "$GITHUB_OUTPUT"
+            - name: Get app token for CI report
+              # continue-on-error: an empty token skips the CI report sections, not the validation.
+              if: steps.ci-report-writer.outputs.adopts == 'true'
+              id: ci-report-app-token
+              continue-on-error: true
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ secrets.GH_APP_POSTHOG_TESTS_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_TESTS_PRIVATE_KEY }}
+                  permission-pull-requests: write
+            - name: Set up Node.js
+              if: steps.ci-report-app-token.outputs.token != ''
+              uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+              with:
+                  node-version-file: .nvmrc
+                  token: ${{ steps.ci-report-app-token.outputs.token }}
+
+            - name: Check migrations and post SQL to CI report
+              # Runs only with the minted token. The step only builds and posts the SQL preview.
+              if: github.event_name == 'pull_request' && needs.changes.outputs.migrations == 'true' && steps.ci-report-app-token.outputs.token != ''
+              env:
+                  GITHUB_TOKEN: ${{ steps.ci-report-app-token.outputs.token }}
+                  CHANGED_FILES: ${{ needs.changes.outputs.migrations_files }}
+                  BASE_SHA: ${{ github.event.pull_request.base.sha }}
+              run: |
+                  post_migration_section() {
+                    node .github/scripts/post-django-migration-section.mjs "$@"
+                  }
+
+                  # If no migration files changed, exit
+                  if [ -z "$CHANGED_FILES" ]; then
+                    echo "No migration files changed"
+                    echo "No new Django migrations need SQL review." > /tmp/django-migration-sql.md
+                    post_migration_section sql clear ok "no new migrations" /tmp/django-migration-sql.md
+                    exit 0
+                  fi
+
+                  if [ -z "$BASE_SHA" ]; then
+                    echo "::warning::BASE_SHA is empty — all changed migrations will be treated as new"
+                  else
+                    # Ensure the base commit is available for comparison
+                    git fetch --no-tags --prune --depth=1 origin "$BASE_SHA" || echo "::warning::Could not fetch base SHA $BASE_SHA — all changed migrations will be shown as new"
+                  fi
+
+                  # Initialize comment body for SQL changes
+                  COMMENT_BODY="We've detected new migrations on this PR. Review the SQL output for each migration:\n\n"
+                  HAS_NEW_MIGRATIONS=false
+                  MIGRATION_COUNT=0
+
+                  # Process each changed migration file (excluding Rust migrations)
+                  for file in $CHANGED_FILES; do
+                    # Skip Rust migrations as they're handled separately by sqlx
+                    if [[ $file =~ rust/persons_migrations ]]; then
+                      continue
+                    fi
+                    # Full migration name, not the bare numeric prefix: squash
+                    # files (0001_squash_*) share prefixes with the historical
+                    # files they replace, and sqlmigrate errors on an ambiguous
+                    # prefix.
+                    if [[ $file =~ migrations/([0-9]+_[^/]+)\.py$ ]]; then
+                      migration_number="${BASH_REMATCH[1]}"
+                      # Get app name by looking at the directory structure
+                      # For new structure products/user_interviews/backend/migrations, we want user_interviews
+                      # For old structure products/user_interviews/migrations, we want user_interviews
+                      if [[ $file =~ products/([^/]+)/backend/migrations/ ]]; then
+                        app_name="${BASH_REMATCH[1]}"
+                      else
+                        app_name=$(echo $file | sed -E 's|^([^/]+/)*([^/]+)/migrations/.*|\2|')
+                      fi
+
+                      # Only show SQL for new migrations, not modifications to existing ones
+                      if git cat-file -e "$BASE_SHA:$file" 2>/dev/null; then
+                        echo "Skipping $file (already exists on base branch)"
+                        continue
+                      fi
+
+                      # Generated squash files carry replaces= lists thousands
+                      # of names long; their SQL dump is unreviewable and the
+                      # state replay per file adds up across an entire squash
+                      # PR. Detect by content, not by name, so the check can't
+                      # go stale.
+                      if grep -q "replaces = \[" "$file"; then
+                        echo "Skipping $file (squash migration)"
+                        continue
+                      fi
+
+                      HAS_NEW_MIGRATIONS=true
+                      MIGRATION_COUNT=$((MIGRATION_COUNT + 1))
+                      echo "Checking migration $migration_number for app $app_name"
+
+                      # Get SQL output. A sqlmigrate failure degrades to a
+                      # placeholder — this comment is informational, and the
+                      # real migrate step below still gates the job.
+                      if ! SQL_OUTPUT=$(python manage.py sqlmigrate $app_name $migration_number 2>&1); then
+                        echo "::warning::sqlmigrate failed for $app_name $migration_number — see job log"
+                        SQL_OUTPUT="-- sqlmigrate failed for this migration (see the Validate migrations job log)"
+                      fi
+
+                      # Add to comment body
+                      COMMENT_BODY+="#### [\`$file\`](https://github.com/${{ github.repository }}/blob/${{ github.sha }}/$file)\n\`\`\`sql\n$SQL_OUTPUT\n\`\`\`\n\n"
+                    fi
+                  done
+
+                  if [ "$HAS_NEW_MIGRATIONS" = false ]; then
+                      echo "No new migrations to show (all changed files already exist on base branch)"
+                      echo "No new Django migrations need SQL review." > /tmp/django-migration-sql.md
+                      post_migration_section sql clear ok "no new migrations" /tmp/django-migration-sql.md
+                      exit 0
+                  fi
+
+                  # Add timestamp and commit SHA to SQL changes
+                  TIMESTAMP=$(date -u '+%Y-%m-%d %H:%M UTC')
+                  COMMIT_SHA="${{ github.event.pull_request.head.sha }}"
+                  COMMIT_SHORT="${COMMIT_SHA:0:7}"
+                  COMMENT_BODY+="\n*Last updated: $TIMESTAMP ([${COMMIT_SHORT}](https://github.com/${{ github.repository }}/commit/${COMMIT_SHA}))*"
+
+                  # Convert \n into actual newlines
+                  COMMENT_BODY=$(printf '%b' "$COMMENT_BODY")
+                  printf '%s' "$COMMENT_BODY" > /tmp/django-migration-sql.md
+                  if [ "$MIGRATION_COUNT" -eq 1 ]; then
+                    MIGRATION_SUMMARY="1 new migration to review"
+                  else
+                    MIGRATION_SUMMARY="$MIGRATION_COUNT new migrations to review"
+                  fi
+                  post_migration_section sql post warn "$MIGRATION_SUMMARY" /tmp/django-migration-sql.md
+
+            - name: Run migration risk analysis and update CI report
               if: github.event_name == 'pull_request'
               # A hang fails this step, which the publish below still reports as a verdict.
               timeout-minutes: 5
-              run: python manage.py analyze_migration_risk --fail-on-blocked --output-json migration_analysis.json > migration_analysis.md 2>/dev/null
+              env:
+                  CI_REPORT_TOKEN: ${{ steps.ci-report-app-token.outputs.token }}
+              run: |
+                  # The analysis always runs, so the token cannot gate this step. It travels as
+                  # CI_REPORT_TOKEN because an empty `GITHUB_TOKEN:` may leave the ambient Depot
+                  # token in place (see the workflow env note).
+                  post_migration_section() {
+                    if [ -n "$CI_REPORT_TOKEN" ]; then
+                      GITHUB_TOKEN="$CI_REPORT_TOKEN" node .github/scripts/post-django-migration-section.mjs "$@"
+                    fi
+                  }
+
+                  # Get risk analysis for all unapplied migrations (including third-party).
+                  # --output-json gives downstream consumers (the check-run step
+                  # below, and any other tool) a stable structured shape to read.
+                  set +e  # Don't exit immediately on error
+                  RISK_ANALYSIS=$(python manage.py analyze_migration_risk --fail-on-blocked --output-json migration_analysis.json 2>/dev/null)
+                  EXIT_CODE=$?
+                  set -e  # Re-enable exit on error
+
+                  # Save analysis to file for artifact upload
+                  if [ -n "$RISK_ANALYSIS" ]; then
+                    echo "$RISK_ANALYSIS" > migration_analysis.md
+                  fi
+
+                  if [ -n "$RISK_ANALYSIS" ] && echo "$RISK_ANALYSIS" | grep -q "Summary:"; then
+                    # Add timestamp and commit SHA to analysis
+                    TIMESTAMP=$(date -u '+%Y-%m-%d %H:%M UTC')
+                    COMMIT_SHA="${{ github.event.pull_request.head.sha }}"
+                    COMMIT_SHORT="${COMMIT_SHA:0:7}"
+                    RISK_COMMENT="We've analyzed your migrations for potential risks.\n\n$RISK_ANALYSIS\n\n*Last updated: $TIMESTAMP ([${COMMIT_SHORT}](https://github.com/${{ github.repository }}/commit/${COMMIT_SHA}))*"
+                    RISK_COMMENT=$(printf '%b' "$RISK_COMMENT")
+                    printf '%s' "$RISK_COMMENT" > /tmp/django-migration-risk.md
+                    if [ $EXIT_CODE -ne 0 ]; then
+                      post_migration_section risk post fail "blocked migration detected" /tmp/django-migration-risk.md
+                    else
+                      post_migration_section risk post ok "migration analysis complete" /tmp/django-migration-risk.md
+                    fi
+                  elif [ $EXIT_CODE -ne 0 ]; then
+                    echo "Migration risk analysis failed. Check the workflow logs for details." > /tmp/django-migration-risk.md
+                    post_migration_section risk post fail "migration analysis failed" /tmp/django-migration-risk.md
+                  else
+                    echo "No Django migrations need risk analysis." > /tmp/django-migration-risk.md
+                    post_migration_section risk clear ok "no migrations to analyze" /tmp/django-migration-risk.md
+                  fi
+
+                  # Fail the job if there were blocked migrations
+                  if [ $EXIT_CODE -ne 0 ]; then
+                    exit $EXIT_CODE
+                  fi
 
             - name: Get app token for Migration risk check
               # The posthog-tests app owns the check, so it lands in that app's own check
@@ -1781,7 +1976,7 @@ jobs:
                   # classified, so the marker stays first and survives truncation.
                   ANALYZED_PATHS=$(jq -c '[.migrations[].file_path | select(. != null)]' migration_analysis.json 2>/dev/null || echo '[]')
                   MARKER="<!-- stamphog:v1 ${ANALYZED_PATHS} -->"
-                  REPORT_BODY=$([ -s migration_analysis.md ] && head -c 59000 migration_analysis.md || echo "See the workflow log")
+                  REPORT_BODY=$(head -c 59000 migration_analysis.md 2>/dev/null || echo "See the CI report")
                   SUMMARY=$(printf '%s\n%s' "$MARKER" "$REPORT_BODY")
 
                   jq -n \
@@ -1794,6 +1989,17 @@ jobs:
                       conclusion: $conclusion,
                       output: {title: $title, summary: $summary}}' \
                     | gh api "repos/$REPO/check-runs" --method POST --input -
+
+            - name: Upload migration analysis artifact
+              if: ${{ needs.wait-for-handoff.outputs.handed_off == 'true' && (always() && github.event_name == 'pull_request') }}
+              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              with:
+                  name: migration-analysis
+                  path: |
+                      migration_analysis.md
+                      migration_analysis.json
+                  if-no-files-found: ignore
+
             - name: Run migrations for this PR
               run: |
                   # Run Django migrations first (excluding managed=False models)
@@ -1907,6 +2113,87 @@ jobs:
                   fi
                   # Same as above, except now for CH looking at files that were added in posthog/clickhouse/migrations/
                   git diff --name-status "$DIFF_BASE"..HEAD | grep "A\sposthog/clickhouse/migrations/" | grep -v README | awk '{print $2}' | python manage.py test_ch_migrations_are_safe
+
+            - name: Render CH migration SQL per cloud environment
+              # CH migrations can build different `operations` lists at import time depending on
+              # `settings.CLOUD_DEPLOYMENT` (e.g. cloud-only Kafka tables). Render the SQL each
+              # environment will execute so reviewers can spot per-env divergence and verify gated
+              # branches don't sneak in ON CLUSTER or other forbidden patterns. We render once per
+              # environment and reuse the output both for the Actions log groups and the CI report
+              # (environment -> node type(s) -> SQL). Environments that render identically are
+              # grouped together; if all environments match, the environment level is collapsed.
+              id: render_ch_sql
+              if: github.event_name == 'pull_request'
+              run: |
+                  CHANGED=$(git diff --name-only --diff-filter=AM upstream/master..HEAD | grep '^posthog/clickhouse/migrations/[0-9]' | grep -v __pycache__ || true)
+                  if [ -z "$CHANGED" ]; then
+                      echo "No ClickHouse migrations changed."
+                      echo "has_changes=false" >> "$GITHUB_OUTPUT"
+                      exit 0
+                  fi
+                  echo "has_changes=true" >> "$GITHUB_OUTPUT"
+                  echo "migration_count=$(echo "$CHANGED" | grep -c .)" >> "$GITHUB_OUTPUT"
+                  {
+                      echo '<!-- ch-migration-sql -->'
+                      echo '## ClickHouse migration SQL per cloud environment'
+                      echo ''
+                  } > ch_migration_sql_comment.md
+                  mkdir -p ch_sql_env
+                  DEPLOYMENTS=('' US EU DEV)
+                  LABELS=(unset US EU DEV)
+                  # Bucket environments by identical rendered output (parallel indexed arrays;
+                  # avoids bash 4 associative arrays) so divergent SQL prints once.
+                  BUCKET_HASH=()
+                  BUCKET_LABEL=()
+                  BUCKET_FILE=()
+                  for idx in "${!DEPLOYMENTS[@]}"; do
+                      file="ch_sql_env/${idx}.md"
+                      # Render once per environment; the same output feeds both the log group and the comment.
+                      # On failure (e.g. an import error in the migration) write a visible marker rather than
+                      # silently dropping the environment — stderr still shows in the step log for debugging.
+                      if ! CLOUD_DEPLOYMENT="${DEPLOYMENTS[$idx]}" python manage.py print_ch_migration_sql --format markdown ${CHANGED} > "$file"; then
+                          echo '- _⚠️ failed to render SQL for this environment — see the workflow logs_' > "$file"
+                      fi
+                      echo "::group::CLOUD_DEPLOYMENT=${LABELS[$idx]}"
+                      cat "$file"
+                      echo "::endgroup::"
+                      h=$(sha1sum "$file" | cut -d' ' -f1)
+                      found=-1
+                      for b in "${!BUCKET_HASH[@]}"; do
+                          if [ "${BUCKET_HASH[$b]}" = "$h" ]; then found=$b; break; fi
+                      done
+                      if [ "$found" -ge 0 ]; then
+                          BUCKET_LABEL[$found]="${BUCKET_LABEL[$found]}, ${LABELS[$idx]}"
+                      else
+                          BUCKET_HASH+=("$h")
+                          BUCKET_LABEL+=("${LABELS[$idx]}")
+                          BUCKET_FILE+=("$file")
+                      fi
+                  done
+                  if [ "${#BUCKET_HASH[@]}" -eq 1 ]; then
+                      # Every environment renders the same SQL — collapse the environment level.
+                      echo '_Identical across all cloud environments (unset, US, EU, DEV)._' >> ch_migration_sql_comment.md
+                      echo '' >> ch_migration_sql_comment.md
+                      cat "${BUCKET_FILE[0]}" >> ch_migration_sql_comment.md
+                  else
+                      for b in "${!BUCKET_HASH[@]}"; do
+                          echo "- **${BUCKET_LABEL[$b]}**" >> ch_migration_sql_comment.md
+                          sed 's/^/  /' "${BUCKET_FILE[$b]}" >> ch_migration_sql_comment.md
+                      done
+                  fi
+
+            - name: Post CH migration SQL to CI report comment
+              # Sticky section in the shared CI report comment so pushes don't spam the PR.
+              # Skipped on trunk-merge/** branches: merge-queue draft PRs are ephemeral and
+              # unread. Runs only with the minted token.
+              if: github.event_name == 'pull_request' && !startsWith(github.head_ref, 'trunk-merge/') && steps.ci-report-app-token.outputs.token != ''
+              env:
+                  HAS_CHANGES: ${{ steps.render_ch_sql.outputs.has_changes }}
+                  CH_MIGRATION_COUNT: ${{ steps.render_ch_sql.outputs.migration_count }}
+                  GITHUB_TOKEN: ${{ steps.ci-report-app-token.outputs.token }}
+              run: |
+                  node .github/scripts/post-ch-migration-section.mjs
+                  node frontend/bin/ci-report/delete-legacy-comments.mjs
 
     check-openapi-types:
         needs: [changes]
