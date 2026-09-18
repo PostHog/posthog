@@ -158,6 +158,22 @@ class TestMigrateCDCSourceToBuffered(BaseTest):
         assert mocks["pause_schema"].call_count == 2
         assert {c.args[0] for c in mocks["unpause_schema"].call_args_list} == {str(first.id), str(second.id)}
 
+    def test_flip_restores_schedules_and_the_mode_when_marking_schemas_served_fails(self):
+        # `source.save` and `_mark_schemas` run inside one transaction specifically so a failure
+        # partway through marking rolls `job_inputs` back to legacy too, instead of leaving the
+        # source buffered with only some schemas marked served and every schedule still paused.
+        source = self._source()
+        schema = self._schema(source, "users")
+
+        with _mocked_side_effects() as mocks:
+            with patch(f"{_CMD}.update_sync_type_config_keys", side_effect=Exception("boom")):
+                with pytest.raises(Exception, match="boom"):
+                    self._run(source)
+
+        source.refresh_from_db()
+        assert "cdc_ingest_mode" not in source.job_inputs
+        mocks["unpause_schema"].assert_called_once_with(str(schema.id))
+
     def test_rollback_drains_the_buffer_then_pauses_the_consumer_before_the_mode_flips(self):
         source = self._source(ingest_mode="buffered")
         schema = self._schema(source, "users")
@@ -251,6 +267,21 @@ class TestMigrateCDCSourceToBuffered(BaseTest):
         source.refresh_from_db()
         assert source.job_inputs["cdc_ingest_mode"] == "legacy"
         assert source.job_inputs["cdc_buffered_before"]
+
+    def test_rollback_restores_schedules_even_when_the_extraction_unpause_fails(self):
+        # The per-schema restore runs before the single Temporal call that unpauses extraction, so
+        # a raise from that call does not also strand the per-schema schedules a second time.
+        source = self._source(ingest_mode="buffered")
+        schema = self._schema(source, "users")
+
+        with _mocked_side_effects() as mocks:
+            mocks["unpause"].side_effect = Exception("boom")
+            with pytest.raises(Exception, match="boom"):
+                self._run(source, rollback=True)
+
+        source.refresh_from_db()
+        assert source.job_inputs["cdc_ingest_mode"] == "legacy"
+        mocks["unpause_schema"].assert_called_once_with(str(schema.id))
 
     def test_a_flip_after_a_rollback_is_not_refused_for_our_own_column(self):
         # Rollback leaves `_ph_cdc_seq` in the warehouse table and puts the source back on legacy,

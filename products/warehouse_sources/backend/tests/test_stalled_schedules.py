@@ -122,6 +122,32 @@ class TestStalledSchedules(BaseTest):
         assert stalled[str(schema.id)].kind == "no_runs"
         assert stalled[str(schema.id)].repairable_here is False
 
+    def test_a_schema_with_no_sync_interval_is_reported_but_not_repairable_here(self) -> None:
+        # get_sync_schedule passes sync_frequency_interval straight into ScheduleIntervalSpec,
+        # where a null value raises. Reporting it is still useful; repairing it would just fail.
+        schema = self._schema(synced_ago=timedelta(days=5), sync_frequency_interval=None)
+
+        stalled = {s.schema_id: s for s in find_stalled_schemas()}
+
+        assert stalled[str(schema.id)].kind == "no_runs"
+        assert stalled[str(schema.id)].has_sync_interval is False
+        assert stalled[str(schema.id)].repairable_here is False
+
+    def test_a_schema_paused_for_an_admin_run_is_reported_but_not_repairable_here(self) -> None:
+        # ad_hoc_sync.py and the admin action pause the schedule and set this marker for an
+        # in-flight non-scheduled run, clearing it themselves once that run completes
+        # successfully. It surviving to a stall check means unpausing here could race that run.
+        schema = self._schema(
+            synced_ago=timedelta(days=5),
+            sync_type_config={"admin_unpause_schedule_after_run": True},
+        )
+
+        stalled = {s.schema_id: s for s in find_stalled_schemas()}
+
+        assert stalled[str(schema.id)].kind == "no_runs"
+        assert stalled[str(schema.id)].admin_paused is True
+        assert stalled[str(schema.id)].repairable_here is False
+
     def test_repair_clears_a_stale_running_status_and_reschedules_without_billing_a_run(self) -> None:
         schema = self._schema(synced_ago=timedelta(days=5), status=ExternalDataSchema.Status.RUNNING)
         stalled = next(s for s in find_stalled_schemas() if s.schema_id == str(schema.id))
@@ -138,6 +164,25 @@ class TestStalledSchedules(BaseTest):
         assert mock_sync.call_args.kwargs["trigger_immediately"] is False
         assert mock_sync.call_args.kwargs["should_sync"] is True
 
+    def test_repair_stamps_last_error_notified_at_to_avoid_a_stale_renotify(self) -> None:
+        # get_team_ids_with_recent_sync_failures renotifies once last_error_notified_at is more
+        # than seven days old, with no newer failed job required. Without a fresh stamp here, a
+        # schema that failed and was notified long ago, then recovered, would have this repaint
+        # read as "still failing" and send the failure digest instead of the informational message.
+        old_notification = timezone.now() - timedelta(days=30)
+        schema = self._schema(
+            synced_ago=timedelta(days=5),
+            status=ExternalDataSchema.Status.RUNNING,
+            last_error_notified_at=old_notification,
+        )
+        stalled = next(s for s in find_stalled_schemas() if s.schema_id == str(schema.id))
+
+        with patch("products.data_warehouse.backend.facade.api.sync_external_data_job_workflow"):
+            repair_stalled_schema(stalled)
+
+        schema.refresh_from_db()
+        assert schema.last_error_notified_at > old_notification
+
     def test_repair_skips_a_schema_disabled_since_it_was_discovered(self) -> None:
         # The confirmation prompt in the management command alone can put minutes between
         # discovery and this call. A schema a user disabled in that window must stay paused,
@@ -147,6 +192,47 @@ class TestStalledSchedules(BaseTest):
 
         schema.should_sync = False
         schema.save(update_fields=["should_sync"])
+
+        with patch("products.data_warehouse.backend.facade.api.sync_external_data_job_workflow") as mock_sync:
+            repair_stalled_schema(stalled)
+
+        mock_sync.assert_not_called()
+
+    def test_repair_skips_a_schema_deleted_since_it_was_discovered(self) -> None:
+        # Deleting a schema does not itself flip should_sync, so a schema deleted in the window
+        # between discovery and repair can still read should_sync=True here.
+        schema = self._schema(synced_ago=timedelta(days=5))
+        stalled = next(s for s in find_stalled_schemas() if s.schema_id == str(schema.id))
+
+        schema.deleted = True
+        schema.save(update_fields=["deleted"])
+
+        with patch("products.data_warehouse.backend.facade.api.sync_external_data_job_workflow") as mock_sync:
+            repair_stalled_schema(stalled)
+
+        mock_sync.assert_not_called()
+
+    def test_repair_skips_a_schema_paused_for_an_admin_run_since_it_was_discovered(self) -> None:
+        # Same window as should_sync above: an admin-triggered run can pause the schedule and set
+        # this marker after discovery. Unpausing here would race the admin run's own workflow.
+        schema = self._schema(synced_ago=timedelta(days=5))
+        stalled = next(s for s in find_stalled_schemas() if s.schema_id == str(schema.id))
+
+        schema.sync_type_config = {"admin_unpause_schedule_after_run": True}
+        schema.save(update_fields=["sync_type_config"])
+
+        with patch("products.data_warehouse.backend.facade.api.sync_external_data_job_workflow") as mock_sync:
+            repair_stalled_schema(stalled)
+
+        mock_sync.assert_not_called()
+
+    def test_repair_skips_a_schema_whose_sync_interval_is_null(self) -> None:
+        # get_sync_schedule crashes on a null interval; skip rather than fail every time.
+        schema = self._schema(synced_ago=timedelta(days=5))
+        stalled = next(s for s in find_stalled_schemas() if s.schema_id == str(schema.id))
+
+        schema.sync_frequency_interval = None
+        schema.save(update_fields=["sync_frequency_interval"])
 
         with patch("products.data_warehouse.backend.facade.api.sync_external_data_job_workflow") as mock_sync:
             repair_stalled_schema(stalled)

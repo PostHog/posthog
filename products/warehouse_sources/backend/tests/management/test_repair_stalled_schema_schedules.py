@@ -74,6 +74,18 @@ class TestRepairStalledSchemaSchedules(BaseTest):
         mock_repair.assert_not_called()
         assert "unstick_external_data_jobs" in output
 
+    def test_include_buffered_does_not_override_an_admin_paused_schema(self) -> None:
+        # --include-buffered only overrides the buffered-CDC exclusion. A schema still carrying
+        # admin_unpause_schedule_after_run is deferred to whatever cleared it, not to this flag.
+        schema = self._stalled_schema(sync_type_config={"admin_unpause_schedule_after_run": True})
+
+        with patch(f"{_CMD}.repair_stalled_schema") as mock_repair:
+            output = self._run(live_run=True, include_buffered=True)
+
+        mock_repair.assert_not_called()
+        assert str(schema.id) in output
+        assert "admin-triggered run" in output
+
     def test_the_cap_stops_an_unexpectedly_wide_repair(self) -> None:
         for name in ("users", "events", "orgs"):
             self._stalled_schema(name=name)

@@ -96,7 +96,16 @@ class Command(BaseCommand):
                 "Narrow the targeting or raise --max-schemas explicitly."
             )
 
-        actionable = [s for s in stalled if s.repairable_here or (include_buffered and s.kind == "no_runs")]
+        # --include-buffered only overrides the buffered-CDC exclusion; admin_paused and a
+        # missing sync interval stay excluded either way — neither is what that flag is for.
+        actionable = [
+            s
+            for s in stalled
+            if s.kind == "no_runs"
+            and not s.admin_paused
+            and s.has_sync_interval
+            and (s.cdc_ingest_mode != "buffered" or include_buffered)
+        ]
         actionable_ids = {s.schema_id for s in actionable}
         skipped = [s for s in stalled if s.schema_id not in actionable_ids]
 
@@ -154,6 +163,10 @@ class Command(BaseCommand):
     def _skip_reason(self, schema: StalledSchema) -> str:
         if schema.kind == "stuck_job":
             return "wedged run, use unstick_external_data_jobs"
+        if schema.admin_paused:
+            return "paused for an in-flight admin-triggered run"
+        if not schema.has_sync_interval:
+            return "no sync_frequency_interval set"
         return "buffered CDC source"
 
     def _confirm(self, prompt: str, yes: bool) -> None:

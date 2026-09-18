@@ -73,6 +73,17 @@ class StalledSchema:
     kind: str
     stalled_for: timedelta
     cdc_ingest_mode: str
+    # `ad_hoc_sync.py` and the admin action set this on the schema it pauses for an in-flight
+    # non-scheduled run, and clear it themselves once that run finishes successfully. It surviving
+    # to a stall check means the run's own cleanup has not (yet, or ever) run, so the pause may
+    # still be deliberate — unpausing here would race it against the admin-triggered workflow.
+    admin_paused: bool
+    # The stall window tolerates a null `sync_frequency_interval` (falls back to
+    # FALLBACK_SYNC_INTERVAL for the window calculation only), but the schedule builder does not:
+    # it passes the column straight into `ScheduleIntervalSpec`, where `timedelta(...) % None`
+    # raises. Repairing would fail every time with the same error, so this is excluded rather
+    # than left to fail — rewriting the schema's own cadence is not this tool's job.
+    has_sync_interval: bool
 
     @property
     def repairable_here(self) -> bool:
@@ -82,8 +93,19 @@ class StalledSchema:
         the mode is flipped, restarting the schedule out of sequence merges files against a
         table the buffered lane already writes. Those go back through
         `migrate_cdc_source_to_buffered`.
+
+        A schema still carrying `admin_unpause_schedule_after_run` is excluded because its pause
+        may belong to an in-flight admin-triggered run rather than to the outage this repairs.
+
+        A schema with no `sync_frequency_interval` is excluded because the schedule builder
+        cannot turn a null interval into a cadence.
         """
-        return self.kind == "no_runs" and self.cdc_ingest_mode != "buffered"
+        return (
+            self.kind == "no_runs"
+            and self.cdc_ingest_mode != "buffered"
+            and not self.admin_paused
+            and self.has_sync_interval
+        )
 
 
 def stalled_schema_queryset(
@@ -177,6 +199,8 @@ def find_stalled_schemas(
                 kind="stuck_job" if schema.id in schemas_with_running_jobs else "no_runs",
                 stalled_for=now - schema.last_synced_at,
                 cdc_ingest_mode=(schema.source.job_inputs or {}).get("cdc_ingest_mode", "legacy"),
+                admin_paused=bool((schema.sync_type_config or {}).get("admin_unpause_schedule_after_run")),
+                has_sync_interval=schema.sync_frequency_interval is not None,
             )
         )
     return stalled
@@ -203,12 +227,34 @@ def repair_stalled_schema(stalled: StalledSchema) -> None:
     schema = ExternalDataSchema.objects.select_related("source").get(id=stalled.schema_id, team_id=stalled.team_id)
 
     # `stalled` is a discovery-time snapshot, and the management command's confirmation prompt
-    # alone can put minutes between discovery and this call. Re-check should_sync against the
-    # reloaded row rather than assuming the snapshot still holds — a schema a user disabled in
-    # that window must stay paused, not get rescheduled out from under them.
-    if not schema.should_sync:
+    # alone can put minutes between discovery and this call. Re-check should_sync and deleted
+    # against the reloaded row rather than assuming the snapshot still holds — deleting a schema
+    # does not itself flip should_sync, so a schema deleted in that window can still read
+    # should_sync=True here. Either one must stay paused, not get rescheduled out from under it.
+    if not schema.should_sync or schema.deleted:
         logger.info(
             "repair_stalled_schema_schedules_skipped_now_ineligible",
+            schema_id=str(schema.id),
+            team_id=schema.team_id,
+        )
+        return
+
+    # Same reasoning as should_sync above: an admin-triggered run can pause the schedule and set
+    # this marker after discovery. Unpausing here would race the admin run's own workflow, which
+    # relies on nothing else touching the schedule until it clears the marker itself.
+    if (schema.sync_type_config or {}).get("admin_unpause_schedule_after_run"):
+        logger.info(
+            "repair_stalled_schema_schedules_skipped_admin_paused",
+            schema_id=str(schema.id),
+            team_id=schema.team_id,
+        )
+        return
+
+    # A null interval crashes the schedule builder below, so skip rather than fail. Re-checked
+    # for the same staleness reason as the two guards above.
+    if schema.sync_frequency_interval is None:
+        logger.info(
+            "repair_stalled_schema_schedules_skipped_no_sync_interval",
             schema_id=str(schema.id),
             team_id=schema.team_id,
         )
@@ -222,6 +268,16 @@ def repair_stalled_schema(stalled: StalledSchema) -> None:
             schema.team_id,
             REPAIRED_SCHEMA_ERROR,
             logger,
+        )
+        # get_team_ids_with_recent_sync_failures renotifies a FAILED schema once
+        # last_error_notified_at is more than RENOTIFY_STILL_FAILING_AFTER old, with no newer
+        # failed job required. A schema that failed long ago, was notified, and has since been
+        # healthy for a while still carries that old stamp, so this repaint would otherwise read
+        # as "still failing" and send the failure digest instead of the informational message
+        # above. Stamping it here starts that window fresh; a genuinely new failure still notifies,
+        # because its job's finished_at is newer than this stamp.
+        ExternalDataSchema.objects.filter(id=schema.id, team_id=schema.team_id).update(
+            last_error_notified_at=timezone.now()
         )
 
     sync_external_data_job_workflow(
