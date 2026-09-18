@@ -33,6 +33,7 @@ from products.signals.backend.slack_inbox_notifications import (
     dispatch_inbox_item_notifications,
     dispatch_reviewer_added_notifications,
 )
+from products.signals.backend.slack_report_threads import report_id_for_slack_thread
 from products.signals.backend.tasks import send_reviewer_added_slack_notifications
 
 
@@ -400,6 +401,25 @@ def test_dispatch_posts_to_team_channel_without_per_user_config(org_and_team):
     call_kwargs = fake_client.chat_postMessage.call_args.kwargs
     assert call_kwargs["channel"] == "CTEAM"
     assert "<@U_TEAM>" in call_kwargs["blocks"][2]["elements"][0]["text"]
+
+
+@pytest.mark.django_db
+def test_dispatch_records_the_notification_thread_for_the_report(org_and_team):
+    # The message invites a reply mentioning PostHog, which starts a task. Dropping the posted
+    # `ts` on the floor leaves that task with no way back to the report it discusses.
+    org, team = org_and_team
+    creator = _make_reviewer_user(org, "thread-creator@example.com", "thread-bot")
+    _make_slack_integration(team, creator)
+    _set_team_channel(team, "CTEAM|#posthog-signals")
+    report = _make_ready_report(team, priority=AutonomyPriority.P2)
+
+    fake_client = MagicMock()
+    fake_client.chat_postMessage.return_value = {"ok": True, "ts": "1700000000.000100"}
+    with patch("products.signals.backend.slack_inbox_notifications.SlackIntegration") as slack_cls:
+        slack_cls.return_value.client = fake_client
+        dispatch_inbox_item_notifications(str(report.id), team.id)
+
+    assert report_id_for_slack_thread(team_id=team.id, channel="CTEAM", thread_ts="1700000000.000100") == str(report.id)
 
 
 @pytest.mark.django_db

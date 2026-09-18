@@ -1446,6 +1446,41 @@ class TestFacadeReadsAndMappers(TestCase):
         assert created.latest_run is not None
         self.assertEqual(created.latest_run.task_id, created.task_id)
 
+    @parameterized.expand(
+        [
+            ("without_relationship", None, 0),
+            ("as_discussion", "discussion", 1),
+        ]
+    )
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_create_and_run_task_records_the_report_work_log_only_when_labelled(
+        self, _name, relationship, expected_artefacts, _mock_workflow
+    ):
+        # The Slack mention handler is the caller with a report but a non-report origin. Gating the
+        # work-log write on the origin again would drop its task from the report's Runs section.
+        from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalReportTask
+
+        report = SignalReport.objects.create(
+            team=self.team, status=SignalReport.Status.READY, title="R", summary="S", total_weight=1.0
+        )
+        created = facade.create_and_run_task(
+            team=self.team,
+            title="Started from a Slack thread",
+            description="desc",
+            origin_product=facade.TaskOriginProduct.SLACK,
+            user_id=self.user.id,
+            signal_report_id=str(report.id),
+            signal_report_task_relationship=relationship,
+        )
+
+        artefacts = SignalReportArtefact.objects.filter(
+            report_id=report.id, type=SignalReportArtefact.ArtefactType.TASK_RUN, task_id=created.task_id
+        )
+        self.assertEqual(artefacts.count(), expected_artefacts)
+        # Never the implementation gate row: that holds the report's one pull request slot and its
+        # auto-start spend gate, and a Slack conversation must claim neither.
+        self.assertFalse(SignalReportTask.objects.filter(report_id=report.id).exists())
+
     @patch("products.tasks.backend.logic.services.title_generator.generate_task_title")
     def test_create_task_names_from_naming_source_keeping_description_bare(self, mock_title):
         # When a client pastes text (stored as an attachment), it sends the pasted content as

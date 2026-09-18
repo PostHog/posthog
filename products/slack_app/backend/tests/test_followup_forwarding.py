@@ -254,6 +254,58 @@ class TestCreatePostHogCodeTaskForRepoActivity(TestCase):
         assert mapping.task_id == task.id
         assert mapping.task_run_id == task.latest_run.id
 
+    @parameterized.expand(
+        [
+            ("report_notification_thread", True),
+            ("ordinary_thread", False),
+        ]
+    )
+    @patch("products.tasks.backend.facade.temporal.dispatch_task_processing_workflow")
+    @patch("posthog.models.integration.SlackIntegration")
+    def test_task_from_a_report_notification_thread_lands_on_the_report(
+        self, _name, from_report_thread, mock_slack_cls, _mock_execute_workflow
+    ):
+        from products.signals.backend.models import SignalReport, SignalReportArtefact
+        from products.signals.backend.slack_report_threads import record_report_slack_thread
+
+        mock_slack_instance = MagicMock()
+        mock_slack_instance.client.chat_getPermalink.return_value = {
+            "ok": True,
+            "permalink": "https://slack.example.com/thread",
+        }
+        mock_slack_cls.return_value = mock_slack_instance
+        report = SignalReport.objects.create(
+            team=self.team, status=SignalReport.Status.READY, title="R", summary="S", total_weight=1.0
+        )
+        if from_report_thread:
+            record_report_slack_thread(
+                team_id=self.team.id,
+                report_id=str(report.id),
+                integration_id=self.integration.id,
+                channel="C123",
+                thread_ts="1234.5678",
+            )
+
+        inputs = _make_inputs(self.integration.id, self.user.id)
+        create_posthog_code_task_for_repo_activity(
+            inputs,
+            "C123",
+            "1234.5678",
+            "U_ALICE",
+            self.user.id,
+            inputs.event,
+            [SlackThreadMessage(user="U_ALICE", text="look into this")],
+            None,
+        )
+
+        task = self.Task.objects.get(team=self.team)
+        assert task.origin_product == self.Task.OriginProduct.SLACK
+        assert task.signal_report_id == (report.id if from_report_thread else None)
+        work_log = SignalReportArtefact.objects.filter(
+            report_id=report.id, type=SignalReportArtefact.ArtefactType.TASK_RUN, task_id=task.id
+        )
+        assert work_log.exists() is from_report_thread
+
     @patch("products.tasks.backend.facade.temporal.dispatch_task_processing_workflow")
     @patch("posthog.models.integration.SlackIntegration")
     def test_initial_task_uploads_slack_attachment_to_pending_prompt(

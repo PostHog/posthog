@@ -1591,6 +1591,33 @@ def collect_task_run_state_metrics(
 # --- Writes ---
 
 
+def _record_report_task_association(*, team_id: int, report_id: str, task_id: str, relationship: str) -> None:
+    """Put a created task on its report's work log, without letting that failure lose the task.
+
+    The report link is observability: it is how the report's Runs section, the lifecycle
+    dashboards and the inactivity sweep see the work. A task the person is waiting on must still
+    reach them when the write fails, so this logs instead of raising.
+
+    No cap or quota is enforced here. Both are creation gates for work started *from* a report in
+    PostHog, where refusing is the point; here the person is already talking in Slack, and one
+    report notified to several people produces one thread each, so a cap would refuse the fourth
+    reader's conversation for reasons they cannot see.
+    """
+    from products.signals.backend.task_run_artefacts import (  # noqa: PLC0415 — cross-product write kept off the api import path
+        record_report_task,
+    )
+
+    try:
+        record_report_task(team_id=team_id, report_id=report_id, task_id=task_id, relationship=relationship)
+    except Exception:
+        logger.exception(
+            "Failed to record task %s on signal report %s",
+            task_id,
+            report_id,
+            extra={"team_id": team_id, "relationship": relationship},
+        )
+
+
 def create_and_run_task(
     *,
     team,
@@ -1605,6 +1632,7 @@ def create_and_run_task(
     scheduled_at: datetime | None = None,
     branch: str | None = None,
     signal_report_id: str | None = None,
+    signal_report_task_relationship: str | None = None,
     free_trial_enabled: bool | None = None,
     internal: bool = False,
     sandbox_environment_id: str | None = None,
@@ -1627,6 +1655,12 @@ def create_and_run_task(
 
     ``scheduled_at`` creates the run in NOT_STARTED and defers its workflow until the dispatcher
     materializes it at or after that time. The run still stores its complete execution settings.
+
+    ``signal_report_task_relationship`` records the task on the report's work log under that
+    relationship, for a caller whose ``origin_product`` is something other than
+    ``SIGNAL_REPORT`` — the Slack mention handler, whose tasks start from a report notification
+    thread. Callers that leave it unset record their own association (auto-start writes the
+    implementation gate row itself), so this changes nothing for them.
     """
     # create_pr=False sessions (research, repo selection, custom agents) can never open the
     # billable PR, so the quota gate must not block them.
@@ -1659,6 +1693,13 @@ def create_and_run_task(
         sandbox_environment_id=sandbox_environment_id,
         **extra,
     )
+    if signal_report_id and signal_report_task_relationship:
+        _record_report_task_association(
+            team_id=task.team_id,
+            report_id=str(signal_report_id),
+            task_id=str(task.id),
+            relationship=signal_report_task_relationship,
+        )
     latest = task.latest_run
     return contracts.CreatedTaskDTO(
         task_id=task.id,

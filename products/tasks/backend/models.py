@@ -643,6 +643,8 @@ class Task(DeletedMetaFields, models.Model):
                 all_properties["origin_key"] = self.origin_key
             if self.channel_id:
                 all_properties["channel_id"] = str(self.channel_id)
+            if self.signal_report_id:
+                all_properties["signal_report_id"] = str(self.signal_report_id)
             if properties:
                 all_properties.update(properties)
             (capture_fn or posthoganalytics.capture)(
