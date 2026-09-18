@@ -26,6 +26,16 @@ The option defaults to 8001, which the shared development worker already binds, 
 The shared development worker does not poll these queues.
 See [Temporal development guidance](../../posthog/temporal/README.md) for worker setup.
 
+## Existing SQL alert evaluation
+
+The existing SQL alert evaluator in `posthog/temporal/alerts/activities.py` runs separately from the noop product queues described here.
+A last-row anomaly check cannot use a paginated result because the returned tail may exclude the newest point.
+A nonempty result also needs enough rows for the detector's history window.
+These unavailable-data checks record an `ERRORED` result and leave the alert enabled for its next scheduled check.
+They follow the ordinary error-notification policy, without sending an automatic-disable notification.
+They do not fetch another page or change the SQL limit.
+First-row evaluation can use a paginated result when its newest-first rows contain enough history.
+
 ## Dev schedule
 
 `python manage.py schedule_temporal_workflows` creates or updates `alerts-product-check-due-schedule`
