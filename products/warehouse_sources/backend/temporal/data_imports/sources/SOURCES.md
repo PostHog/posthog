@@ -1213,6 +1213,7 @@ doesn't conflict with concurrent PRs.
 - mode
 - moengage
 - moesif
+- monaco
 - moneybird
 - mono
 - moodle
