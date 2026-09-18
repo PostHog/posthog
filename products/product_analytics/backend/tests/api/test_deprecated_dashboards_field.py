@@ -4,6 +4,7 @@ from unittest.mock import MagicMock
 from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
+from prometheus_client import REGISTRY
 from rest_framework import status
 
 from posthog.auth import PersonalAPIKeyAuthentication, SessionAuthentication, SharingAccessTokenAuthentication
@@ -14,6 +15,16 @@ from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.product_analytics.backend.facade.models import Insight
 from products.product_analytics.backend.presentation.insight import should_serve_deprecated_dashboards_field
+
+
+def _write_counter_value(access_method: str) -> float:
+    return (
+        REGISTRY.get_sample_value(
+            "posthog_api_insight_deprecated_dashboards_field_used_total",
+            {"usage": "write", "access_method": access_method},
+        )
+        or 0.0
+    )
 
 
 def _fake_request(authenticator: object | None, query_params: dict[str, str] | None = None) -> MagicMock:
@@ -108,3 +119,15 @@ class TestDeprecatedDashboardsFieldAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK
         assert "dashboards" not in response.json()
+
+    def test_delete_with_deprecated_dashboards_field_counts_as_a_write(self):
+        before = _write_counter_value("session")
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/insights/{self.insight.id}/",
+            {"deleted": True, "dashboards": [self.dashboard.id]},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert _write_counter_value("session") == before + 1
