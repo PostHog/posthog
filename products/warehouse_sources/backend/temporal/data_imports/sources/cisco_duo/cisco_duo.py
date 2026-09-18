@@ -2,7 +2,6 @@ import re
 import hmac
 import base64
 import hashlib
-import dataclasses
 import email.utils
 from collections.abc import Iterator
 from datetime import UTC, date, datetime
@@ -13,6 +12,8 @@ import requests
 from dateutil import parser as dateutil_parser
 from structlog.types import FilteringBoundLogger
 from tenacity import RetryCallState, retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.cisco_duo.settings import (
     CISCO_DUO_ENDPOINTS,
@@ -63,7 +64,7 @@ class CiscoDuoLogSaturationError(Exception):
     pass
 
 
-@dataclasses.dataclass
+@frozen
 class CiscoDuoResumeConfig:
     # v2 logs: opaque cursor within a fixed [mintime, maxtime] window (both ms).
     next_offset: str | None = None
