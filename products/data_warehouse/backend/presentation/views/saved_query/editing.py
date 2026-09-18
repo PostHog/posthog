@@ -34,6 +34,7 @@ from products.data_modeling.backend.facade.api import has_incremental_history
 from products.data_modeling.backend.facade.modeling import ResolutionCycleError, get_parents_from_model_query
 from products.data_modeling.backend.facade.models import (
     DAG,
+    DataModelingJob,
     DataWarehouseSavedQuery,
     DataWarehouseSavedQueryColumnAnnotation,
     Edge,
@@ -112,6 +113,17 @@ def _move_to_dag(view: DataWarehouseSavedQuery, dag: DAG) -> None:
         if node.dag.is_managed or node.outgoing_edges.exists():
             raise serializers.ValidationError(
                 {"dag_id": "This view cannot move while its DAG is managed or other views depend on it."}
+            )
+        # A run's activities load the node by team, node and DAG, so a move mid-run leaves the job
+        # stuck running: even the activity that records the failure stops finding the node.
+        if DataModelingJob.objects.filter(
+            team_id=view.team_id, saved_query=view, status=DataModelingJob.Status.RUNNING
+        ).exists():
+            raise serializers.ValidationError(
+                {
+                    "dag_id": "This view cannot move while it is materializing. Wait for the run to "
+                    "finish or cancel it, then try again."
+                }
             )
         previous_dag_id = node.dag_id
         # Rebuild parents in the destination without discarding the node's targets or job history.

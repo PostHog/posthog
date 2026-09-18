@@ -8,7 +8,14 @@ from unittest.mock import patch
 from parameterized import parameterized
 
 from products.data_modeling.backend.facade.api import get_declared_target, set_declared_target
-from products.data_modeling.backend.facade.models import DAG, DataWarehouseSavedQuery, Edge, Node
+from products.data_modeling.backend.facade.models import (
+    DAG,
+    DataModelingJob,
+    DataModelingJobStatus,
+    DataWarehouseSavedQuery,
+    Edge,
+    Node,
+)
 
 
 class TestSavedQueryWriteFields(APIBaseTest):
@@ -148,6 +155,24 @@ class TestSavedQueryWriteFields(APIBaseTest):
         )
         self.assertEqual(response.status_code, 400, response.content)
         self.assertEqual(Node.objects.filter(dag=foreign_dag).count(), 0)
+
+    @parameterized.expand(
+        [("running", DataModelingJobStatus.RUNNING, 400), ("completed", DataModelingJobStatus.COMPLETED, 200)]
+    )
+    def test_move_waits_for_a_materialization_in_flight(
+        self, _name: str, job_status: str, expected_status: int
+    ) -> None:
+        created = self._create_view().json()
+        node = Node.objects.get(saved_query_id=created["id"])
+        DataModelingJob.objects.create(team=self.team, saved_query_id=created["id"], status=job_status)
+        other = DAG.objects.create(team=self.team, name="Other")
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/{created['id']}",
+            {"dag_id": str(other.id)},
+        )
+        self.assertEqual(response.status_code, expected_status, response.content)
+        moved = Node.objects.get(id=node.id)
+        self.assertEqual(moved.dag_id, node.dag_id if expected_status == 400 else other.id)
 
     def test_reparenting_refuses_to_strand_dependents(self) -> None:
         created = self._create_view().json()
