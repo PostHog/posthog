@@ -89,7 +89,10 @@ def project_comment_activity(
     task_id = comment_task_id(comment)
     if task_id is None:
         return
-    task = _notification_tasks(team_id).filter(id=task_id).only("created_by_id").first()
+    if comment.scope == "desktop_canvas":
+        task = Task.objects.filter(team_id=team_id, id=task_id).only("created_by_id").first()
+    else:
+        task = _notification_tasks(team_id).filter(id=task_id).only("created_by_id").first()
     if task is None:
         return
 
@@ -119,12 +122,26 @@ def project_comment_activity(
                     )
                 except (ValueError, DjangoValidationError):
                     pass
-            owner_id = owner_id or task.created_by_id
+            if owner_id is None and comment.scope == "desktop_canvas" and comment.item_id:
+                from products.canvas.backend.comment_access import canvas_owner_id
+
+                owner_id = canvas_owner_id(team_id=team_id, canvas_id=comment.item_id)
+            if comment.scope != "desktop_canvas":
+                owner_id = owner_id or task.created_by_id
             if owner_id:
                 recipients[owner_id] = TaskCommentActivity.Kind.OWNED_ITEM_COMMENT
 
     recipients.update((user_id, TaskCommentActivity.Kind.MENTION) for user_id in mentioned_user_ids)
     recipients.pop(comment.created_by_id, None)
+    if comment.scope == "desktop_canvas":
+        from products.canvas.backend.comment_access import visible_canvas_user_ids
+
+        visible_user_ids = visible_canvas_user_ids(
+            team_id=team_id,
+            canvas_id=comment.item_id,
+            user_ids=recipients,
+        )
+        recipients = {user_id: kind for user_id, kind in recipients.items() if user_id in visible_user_ids}
     TaskCommentActivity.record_many(
         team_id=team_id,
         task_id=task_id,
