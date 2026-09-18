@@ -26,15 +26,7 @@ import { MlDataKey, MlKeyEncryption } from './crypto'
 import { DynamoItem, MlKeyDynamoDB, encodeKey } from './dynamodb'
 import { MlSessionKeyStore } from './key-store'
 import { MlKeyReader } from './reader'
-import {
-    MlSessionIdentity,
-    TableKey,
-    imageKeyId,
-    monthKeyIndexId,
-    sessionKeyId,
-    tableKeyString,
-    teamBlockId,
-} from './schema'
+import { MlSessionIdentity, TableKey, imageKeyId, monthKeyIndexId, sessionKeyId, tableKeyString } from './schema'
 import { MlKafkaTransport, mlKafkaRecord } from './transport'
 
 const session: MlSessionIdentity = {
@@ -220,15 +212,13 @@ describe('ML session key batches', () => {
     it('reads every row a batch needs in one pass', async () => {
         const readsBefore = boundary.readSizes.length
         await store.prepare([session])
-        // The team block, the session key and the team image key are known up front, so they go in one request.
+        // The session key and the team image key are known up front, so they go in one request.
         expect(boundary.readSizes.length - readsBefore).toBe(1)
         expect(new Set(boundary.readKeys.at(-1))).toEqual(
             new Set(
-                [
-                    teamBlockId(session.teamId),
-                    sessionKeyId(session.teamId, session.sessionId),
-                    imageKeyId(session.teamId, '2025-09'),
-                ].map(tableKeyString)
+                [sessionKeyId(session.teamId, session.sessionId), imageKeyId(session.teamId, '2025-09')].map(
+                    tableKeyString
+                )
             )
         )
     })
@@ -430,7 +420,7 @@ describe('ML session key batches', () => {
         expect(remaining).toBeGreaterThan(0)
     })
 
-    it('indexes monthly keys, ignores a month marker, and refuses a team marker from the next read', async () => {
+    it('indexes monthly keys and ignores a month marker', async () => {
         const october = { ...session, sessionId: '0199a13b-c000-7000-8000-000000000007' }
         const first = await store.prepare([session, october])
         await first.commit()
@@ -461,18 +451,6 @@ describe('ML session key batches', () => {
         await committingDespiteMonth
         expect(ignoringMonth.get(session.teamId, session.sessionId)).not.toBeUndefined()
         expect((await reader.read(locations)).size).toBe(4)
-        jest.useRealTimers()
-        const inFlight = await store.prepare([session])
-        const blocked = teamBlockId(session.teamId)
-        boundary.items.set(tableKeyString(blocked), { ...encodeKey(blocked), deleted: { BOOL: true } })
-        jest.useFakeTimers()
-        const committing = inFlight.commit()
-        await jest.runAllTimersAsync()
-        await committing
-        // A commit no longer re-reads, so the in-flight batch misses the block that every reader and the next batch see.
-        expect(inFlight.get(session.teamId, session.sessionId)).not.toBeUndefined()
-        expect((await reader.read(locations)).size).toBe(0)
-        expect((await store.prepare([session])).get(session.teamId, session.sessionId)).toBeUndefined()
     })
 
     it('wraps new keys without an organization and stores none on the row', async () => {
@@ -644,16 +622,6 @@ describe('ML session key batches', () => {
         expect(mismatch.mock.calls).toEqual([['month_key_unavailable', 1]])
     })
 
-    it('counts no month key failure for a blocked team, so the metric stays a corruption signal', async () => {
-        await (await store.prepare([session])).commit()
-        const block = teamBlockId(session.teamId)
-        boundary.items.set(tableKeyString(block), { ...encodeKey(block), deleted: { BOOL: true } })
-        coldCache()
-        const mismatch = jest.spyOn(MlMirrorMetrics, 'incrementMlKeyIdentityMismatch')
-        expect((await reader.read([sessionKeyId(session.teamId, session.sessionId)])).size).toBe(0)
-        expect(mismatch).not.toHaveBeenCalled()
-    })
-
     it('fails the read when KMS throttles a month key, so the caller retries instead of dropping', async () => {
         await (await store.prepare([session])).commit()
         coldCache()
@@ -742,7 +710,7 @@ describe('ML session key batches', () => {
     it.each([
         ['a lifetime over the cap is clamped', 86_400_000, 300_001, false],
         ['a lifetime under the cap is kept', 60_000, 60_001, false],
-        ['a team image key outlives the session cap', 86_400_000, 300_001, true],
+        ['a team image key is held past the session lifetime', 86_400_000, 300_001, true],
     ])('%s', async (_label, configured, elapsedMs, imageKey) => {
         let fakeNow = 1_000
         const clock = jest.spyOn(performance, 'now').mockImplementation(() => fakeNow)
@@ -769,21 +737,19 @@ describe('ML session key batches', () => {
         }
     })
 
-    it('refuses a blocked team on the next batch while its session row is still cached', async () => {
+    it('stops a team month for good once its month key is shredded, so no block row is needed', async () => {
         await (await store.prepare([session])).commit()
-        const warm = await store.prepare([session])
-        expect(warm.get(session.teamId, session.sessionId)).not.toBeUndefined()
-        const blocked = teamBlockId(session.teamId)
-        boundary.items.set(tableKeyString(blocked), { ...encodeKey(blocked), deleted: { BOOL: true } })
-        const readsBefore = boundary.readSizes.length
+        const monthLocation = tableKeyString(imageKeyId(session.teamId, '2025-09'))
+        const { wrapped_key: _shredded, ...tombstone } = boundary.items.get(monthLocation)!
+        const shreddedRow = { ...tombstone, deleted: { BOOL: true } }
+        boundary.items.set(monthLocation, shreddedRow)
+        coldCache()
+        const writesBefore = boundary.writes
         const next = await store.prepare([session])
-        // Only the team block row reached DynamoDB. The session row was served from the cache and did not hide the block.
-        expect(boundary.readSizes.slice(readsBefore).reduce((total, size) => total + size, 0)).toBe(1)
+        await next.commit()
         expect(next.get(session.teamId, session.sessionId)).toBeUndefined()
-        // The block is held once seen, so a team that keeps sending stops costing a read per batch.
-        const afterBlockRead = boundary.readSizes.length
-        expect((await store.prepare([session])).get(session.teamId, session.sessionId)).toBeUndefined()
-        expect(boundary.readSizes.slice(afterBlockRead).reduce((total, size) => total + size, 0)).toBe(0)
+        expect(boundary.items.get(monthLocation)).toEqual(shreddedRow)
+        expect(boundary.writes).toBe(writesBefore)
     })
 
     it('holds a session tombstone so a deleted session stops costing a read and a doomed write', async () => {
@@ -800,8 +766,8 @@ describe('ML session key batches', () => {
         const next = await cold.prepare([session])
         await next.commit()
         expect(next.get(session.teamId, session.sessionId)).toBeUndefined()
-        // Only the team block row, which is never cached. The tombstone spares the session key row and the image key row.
-        expect(boundary.readSizes.slice(readsBefore).reduce((total, size) => total + size, 0)).toBe(1)
+        // The tombstone spares the session key row and the image key row, and no row is read at all.
+        expect(boundary.readSizes.slice(readsBefore).reduce((total, size) => total + size, 0)).toBe(0)
         expect(boundary.writes).toBe(writesBefore)
     })
 
@@ -857,8 +823,8 @@ describe('ML session key batches', () => {
         expect(keys.image.plaintext).toEqual(original.image.plaintext)
         expect((await reader.read([sessionKeyId(session.teamId, session.sessionId)])).size).toBe(1)
         expect(generated).toBe(1)
-        // Only the team block row, because it decides whether the batch may mint new keys and is never cached.
-        expect(keysRead).toBe(1)
+        // Both rows come from the cache, so a batch that repeats a session reads nothing.
+        expect(keysRead).toBe(0)
     })
 
     it('publishes only after key writes commit and hands delivery acks to the scheduler', async () => {
