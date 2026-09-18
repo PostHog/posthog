@@ -14,7 +14,6 @@ import { ErrorTrackingRelationalIssue } from '~/queries/schema/schema-general'
 import { errorTrackingFingerprintEventQuery } from '../../queries'
 import { errorTrackingIssueSceneLogic } from '../../scenes/ErrorTrackingIssueScene/errorTrackingIssueSceneLogic'
 import { issueActionsLogic } from '../IssueActions/issueActionsLogic'
-import { fingerprintProjectionLogic } from './fingerprintProjectionLogic'
 import { FingerprintSampleMap, fingerprintSamplesLogic } from './fingerprintSamplesLogic'
 
 // Bounds the sample-event lookup to a window around when the fingerprint was first seen.
@@ -356,7 +355,6 @@ export const manageFingerprintsLogic = kea<manageFingerprintsLogicType>([
                 }
                 actions.closeManage()
                 actions.loadIssueFingerprints()
-                fingerprintProjectionLogic.findMounted({ issueId: props.issueId })?.actions.loadProjection()
                 if (newIssueIds.length === 0) {
                     lemonToast.warning('No fingerprints were unmerged')
                 } else if (newIssueIds.length === 1) {

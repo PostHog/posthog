@@ -66,7 +66,13 @@ export function FingerprintExceptionPane({
     return (
         <div className="flex min-h-0 flex-col overflow-hidden">
             <StyleVariables className="flex min-h-0 flex-1 flex-col">
-                <ExceptionCard issueId={issueId} issueName={null} loading={false} event={event} />
+                <ExceptionCard
+                    issueId={issueId}
+                    issueName={null}
+                    loading={false}
+                    event={event}
+                    logicKey={`manage-fingerprints-${issueId}`}
+                />
             </StyleVariables>
         </div>
     )

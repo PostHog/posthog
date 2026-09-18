@@ -9,16 +9,9 @@ interface FingerprintListProps {
     samples: FingerprintSampleMap
     loading: boolean
     onSelect: (fingerprint: string) => void
-    onFindSimilar: (fingerprint: string, firstSeen: string) => void
 }
 
-export function FingerprintList({
-    fingerprints,
-    samples,
-    loading,
-    onSelect,
-    onFindSimilar,
-}: FingerprintListProps): JSX.Element {
+export function FingerprintList({ fingerprints, samples, loading, onSelect }: FingerprintListProps): JSX.Element {
     if (loading) {
         return (
             <div className="flex min-h-0 flex-1 items-center justify-center">
@@ -45,7 +38,6 @@ export function FingerprintList({
                         firstSeen={created_at}
                         sample={samples[fingerprint]}
                         onSelect={() => onSelect(fingerprint)}
-                        onFindSimilar={() => onFindSimilar(fingerprint, created_at)}
                     />
                 ))}
             </div>

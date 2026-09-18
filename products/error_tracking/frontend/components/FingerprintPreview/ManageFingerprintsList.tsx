@@ -56,30 +56,32 @@ export function ManageFingerprintsList({
                 return (
                     <div
                         key={fingerprint}
-                        className={`grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-x-2 border-b border-primary px-2 py-1.5 ${
-                            isActive ? 'bg-primary-highlight' : 'hover:bg-primary-highlight'
+                        className={`relative grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-x-2 border-b border-primary px-2 py-1.5 ${
+                            isActive ? 'bg-primary-highlight' : ''
                         }`}
                         data-attr="error-tracking-manage-fingerprint-row"
                     >
+                        <LemonButton
+                            aria-label={`Preview ${accessibleLabel}`}
+                            aria-pressed={isActive}
+                            type="tertiary"
+                            fullWidth
+                            noPadding
+                            className="absolute inset-0 h-full w-full rounded-none"
+                            onClick={() => onActivate(fingerprint)}
+                            data-attr="error-tracking-manage-fingerprint-preview"
+                        />
                         <LemonCheckbox
                             checked={selected.includes(fingerprint)}
                             onChange={() => onToggle(fingerprint)}
+                            className="relative z-10"
                             label={<span className="sr-only">Select {accessibleLabel}</span>}
                             data-attr="error-tracking-manage-fingerprint-select"
                         />
-                        <LemonButton
-                            aria-pressed={isActive}
-                            type="tertiary"
-                            size="xsmall"
-                            fullWidth
-                            noPadding
-                            className="min-w-0 justify-start text-xs"
-                            onClick={() => onActivate(fingerprint)}
-                            data-attr="error-tracking-manage-fingerprint-preview"
-                        >
+                        <div className="pointer-events-none relative min-w-0 text-xs">
                             <FingerprintLabel fingerprint={fingerprint} sample={sample} />
-                        </LemonButton>
-                        <span className="text-xs tabular-nums text-muted">
+                        </div>
+                        <span className="pointer-events-none relative text-xs tabular-nums text-muted">
                             {dayjs(created_at).tz(timezone).format('D MMM')}
                         </span>
                     </div>

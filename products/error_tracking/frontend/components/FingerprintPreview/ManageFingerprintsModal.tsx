@@ -57,8 +57,8 @@ export function ManageFingerprintsModal({ issueId }: { issueId: string }): JSX.E
                 </>
             }
         >
-            <div className="@container/manage-fingerprints overflow-hidden rounded border border-primary">
-                <div className="grid h-96 grid-cols-1 grid-rows-2 divide-y divide-primary @3xl/manage-fingerprints:grid-cols-[18rem_minmax(0,1fr)] @3xl/manage-fingerprints:grid-rows-1 @3xl/manage-fingerprints:divide-x @3xl/manage-fingerprints:divide-y-0">
+            <div className="@container/manage-fingerprints -my-4 overflow-hidden border-x border-primary">
+                <div className="grid h-[30rem] grid-cols-1 grid-rows-2 divide-y divide-primary @3xl/manage-fingerprints:grid-cols-[18rem_minmax(0,1fr)] @3xl/manage-fingerprints:grid-rows-1 @3xl/manage-fingerprints:divide-x @3xl/manage-fingerprints:divide-y-0">
                     <ManageFingerprintsList
                         loading={issueFingerprintsLoading}
                         fingerprints={issueFingerprints}
