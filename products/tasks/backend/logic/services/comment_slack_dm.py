@@ -386,6 +386,8 @@ def _link_target(*, comment: Comment, task: Task) -> _LinkTarget | None:
     """
     if comment.scope != "desktop_canvas":
         return _LinkTarget(title=task.title or "a task", url=_bridge_url(comment=comment, task=task))
+    if not comment.item_id:
+        return None
     try:
         canvas = (
             Canvas.objects.for_team(comment.team_id)
