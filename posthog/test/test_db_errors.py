@@ -2,7 +2,7 @@ import pytest
 
 from django.db import InterfaceError, InternalError, OperationalError
 
-from posthog.temporal.common.db_errors import is_transient_db_error
+from posthog.db_errors import is_dropped_connection_error, is_transient_db_error
 
 
 class _WithSqlstate(Exception):
@@ -17,6 +17,7 @@ class _WithSqlstate(Exception):
         (ValueError("query_wait_timeout"), False),
         (OperationalError("query_wait_timeout"), True),
         (OperationalError("server closed the connection unexpectedly"), True),
+        (OperationalError("the connection is closed"), True),
         (InterfaceError("connection reset by peer"), True),
         (OperationalError("the database system is starting up"), True),
         (OperationalError("the database system is shutting down"), True),
@@ -63,3 +64,29 @@ def test_is_transient_db_error_by_sqlstate(error_cls: type[Exception], sqlstate:
     error = error_cls("some driver-specific message")
     error.__cause__ = _WithSqlstate(sqlstate)
     assert is_transient_db_error(error) is expected
+
+
+@pytest.mark.parametrize(
+    "error,expected",
+    [
+        (OperationalError("server closed the connection unexpectedly"), True),
+        # Both driver wordings for reuse of an already-closed connection: psycopg 3 first, then
+        # psycopg 2.
+        (OperationalError("the connection is closed"), True),
+        (InterfaceError("connection already closed"), True),
+        (OperationalError("server conn crashed?"), True),
+        (ValueError("server closed the connection unexpectedly"), False),
+        # The same dead-socket message, cached by pgbouncer's login cooldown: transient, but
+        # replayed for the whole cooldown, so an immediate retry meets it again.
+        (
+            OperationalError("server login has been failing, cached error: server conn crashed? (server_login_retry)"),
+            False,
+        ),
+        # Transient, but not a dead connection: an immediate retry would hit the same saturated
+        # pool or the same restarting server.
+        (OperationalError("query_wait_timeout"), False),
+        (OperationalError("the database system is starting up"), False),
+    ],
+)
+def test_is_dropped_connection_error(error: BaseException, expected: bool) -> None:
+    assert is_dropped_connection_error(error) is expected

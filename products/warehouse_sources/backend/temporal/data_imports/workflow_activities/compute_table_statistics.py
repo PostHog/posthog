@@ -28,11 +28,11 @@ import posthoganalytics
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
+from posthog.db_errors import is_transient_db_error
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
-from posthog.temporal.common.db_errors import is_transient_db_error
 from posthog.temporal.common.errors import NonReportableError
 from posthog.temporal.common.heartbeat import LivenessHeartbeater as Heartbeater
 
