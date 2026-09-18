@@ -19,7 +19,7 @@ from products.ai_training.backend.models import AITrainingDeletionRequest
 logger = structlog.get_logger(__name__)
 
 KEY_SHARDS = 32
-# Readers may use a key for this long after they read it, so deletion completes only after the lease has run out.
+# The worker waits this long before the last sweep. It does not bound key use, because the row cache holds a month key for longer.
 KEY_READ_LEASE_SECONDS = 300
 # Equals ML_SESSION_MAX_AGE_DAYS in nodejs/src/ingestion/pipelines/sessionreplay/ml-mirror/session-identifier-format.ts: ingestion drops sessions that started earlier than that, so no key for a month can appear after the month end plus this period.
 MONTH_DELETE_GRACE_DAYS = 14
@@ -192,7 +192,7 @@ class AITrainingPrivacyStore:
             return False
         if now.timestamp() < complete_after:
             return False
-        # A batch that read a month key before the shred can still seal and store session keys within its commit budget, and the lease outlasts that budget, so one more sweep after it catches every straggler. No reader can open those rows in any case, because the shred removed the month key. See products/ai_training/docs/replay-data.md.
+        # A batch that read a month key before the shred can still seal and store session keys within its commit budget, so one more sweep after the lease catches those rows. A batch that starts later can still write after that sweep, and no reader can open those rows either, because the shred removed the month key. See products/ai_training/docs/replay-data.md.
         if request.kind == "team" and not request.cursor.get("reswept"):
             self.save_cursor(request, work=[{"op": "team", "team_id": request.team_id, "shard": -1}], reswept=True)
             return self.apply(request, deadline)

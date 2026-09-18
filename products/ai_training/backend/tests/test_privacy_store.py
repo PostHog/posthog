@@ -117,10 +117,11 @@ class TestAITrainingPrivacyStore(SimpleTestCase):
             ],
         )
 
-    def test_completion_waits_for_reader_leases_then_sweeps_the_team_once_more(self) -> None:
+    def test_completion_waits_for_reader_leases_then_shreds_what_a_late_batch_wrote(self) -> None:
         request = MagicMock(kind="team", team_id=7, cursor={"work": []}, completed_at=None)
+        straggler = session_key(7, "01a09f92-e780-7000-8000-000000000003")
         client = MagicMock()
-        client.query.return_value = {"Items": []}
+        client.query.side_effect = [{"Items": []}, {"Items": [straggler]}, *({"Items": []} for _ in range(31))]
         store = AITrainingPrivacyStore(client, "table")
         now = timezone.now()
         with patch("products.ai_training.backend.privacy.store.timezone.now", return_value=now):
@@ -132,4 +133,8 @@ class TestAITrainingPrivacyStore(SimpleTestCase):
         ):
             self.assertTrue(store.apply(request, time.monotonic() + 1))
         self.assertEqual(client.query.call_count, 33)
+        self.assertEqual(
+            [call.kwargs["TransactItems"][0]["Update"]["Key"] for call in client.transact_write_items.call_args_list],
+            [straggler],
+        )
         self.assertEqual(request.identifiers, [])
