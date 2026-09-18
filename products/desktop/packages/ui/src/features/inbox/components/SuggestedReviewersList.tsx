@@ -50,7 +50,12 @@ function ReviewerIdentity({ reviewer }: { reviewer: SuggestedReviewer }) {
   return (
     <Tooltip>
       <TooltipTrigger
-        render={<span className="min-w-0 cursor-help opacity-70" />}
+        render={
+          <button
+            type="button"
+            className="min-w-0 cursor-help text-left opacity-70"
+          />
+        }
       >
         {identity}
       </TooltipTrigger>
