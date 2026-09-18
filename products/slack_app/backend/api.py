@@ -106,6 +106,11 @@ from products.slack_app.backend.services.slack_user_oauth import (
     find_linked_posthog_user,
     post_link_invite_message,
 )
+from products.slack_app.backend.services.welcome_messages import (
+    build_channel_welcome,
+    build_install_welcome,
+    build_team_join_welcome,
+)
 from products.slack_app.backend.slack_link_unfurl import (
     handle_posthog_link_unfurl,
     link_url_region,
@@ -143,7 +148,6 @@ SLACK_PLACEHOLDER_USER_ID = "U00"
 # cutover. A real re-join after this window should re-onboard — most likely the
 # person forgot how it works.
 ONBOARDING_DEDUPE_TTL_SECONDS = 60 * 10
-CHANNEL_ONBOARDING_DOCS_URL = "https://posthog.com/docs/slack-app"
 
 ROUTE_HANDLED_LOCALLY = "handled_locally"
 ROUTE_PROXIED = "proxied"
@@ -1781,18 +1785,9 @@ _ASSISTANT_WELCOME = (
     "Hi! I'm PostHog, an AI agent. DM me to investigate issues using your PostHog data and "
     "open PRs in your connected repos to fix them!"
 )
-_ASSISTANT_INSTALL_WELCOME = (
-    "Thanks for adding PostHog! :tada: I'm an AI agent - DM me here or @mention me in a channel "
-    "to investigate issues or open PRs in your connected repos"
-)
 _ASSISTANT_UNAVAILABLE = (
     "I can only help PostHog org members whose project has a connected repo. Make sure your Slack "
     "email matches your PostHog account and that a repo is connected, then try again."
-)
-_ASSISTANT_MEMBER_JOIN_WELCOME = (
-    ":wave: Welcome! I'm PostHog, an AI agent your team uses. DM me here to investigate issues "
-    "using your PostHog data or open PRs in your connected repos - you can also @mention me in "
-    "any channel."
 )
 
 
@@ -1873,14 +1868,21 @@ def _post_assistant_unavailable(slack: SlackIntegration, channel_id: str, thread
 
 
 def send_assistant_install_welcome(integration: Integration) -> None:
-    """DM the installing user the moment the app is added, when the assistant is enabled for their team."""
+    """DM the installing user the moment the app is added, when the assistant is enabled for their team.
+
+    Dispatched from the ``Integration`` post-save receiver in ``signals.py``, which fires
+    only on a first install, so this needs no dedupe of its own.
+    """
     if not is_slack_app_assistant_enabled(integration):
         return
     slack_user_id = ((integration.config or {}).get("authed_user") or {}).get("id")
     if not slack_user_id:
         return
+    text, blocks = build_install_welcome(integration)
     try:
-        SlackIntegration(integration).client.chat_postMessage(channel=slack_user_id, text=_ASSISTANT_INSTALL_WELCOME)
+        SlackIntegration(integration).client.chat_postMessage(
+            channel=slack_user_id, text=text, blocks=blocks, unfurl_links=False, unfurl_media=False
+        )
     except Exception:
         logger.warning("assistant_install_welcome_failed", exc_info=True)
 
@@ -2867,47 +2869,12 @@ def _release_channel_onboarding_claim(slack_team_id: str, channel_id: str) -> No
 
 def _post_channel_onboarding_message(slack: SlackIntegration, integration: Integration, channel_id: str) -> bool:
     """Post the welcome message. Returns True on success."""
-    blocks: list[dict[str, Any]] = [
-        {
-            "type": "section",
-            "text": {
-                "type": "mrkdwn",
-                "text": (
-                    ":wave: Thanks for adding the PostHog app to this channel! "
-                    "Mention me with `@PostHog` to get started – I can answer "
-                    "questions about your PostHog data, research your codebase, "
-                    "and kick off coding tasks backed by real usage data. "
-                    "I'll also unfurl PostHog links you share here."
-                ),
-            },
-        },
-        {
-            "type": "section",
-            "text": {
-                "type": "mrkdwn",
-                "text": (
-                    "*Try one of these:*\n"
-                    "• `@PostHog what's our weekly active user count this month?`\n"
-                    "• `@PostHog open a PR that adds a unit test for src/utils.py`"
-                ),
-            },
-        },
-        {
-            "type": "actions",
-            "elements": [
-                {
-                    "type": "button",
-                    "text": {"type": "plain_text", "text": "Read the docs"},
-                    "url": CHANNEL_ONBOARDING_DOCS_URL,
-                }
-            ],
-        },
-    ]
+    text, blocks = build_channel_welcome(integration)
 
     try:
         slack.client.chat_postMessage(
             channel=channel_id,
-            text="Thanks for adding the PostHog app – mention me with @PostHog to get started.",
+            text=text,
             blocks=blocks,
             unfurl_links=False,
             unfurl_media=False,
@@ -2989,9 +2956,10 @@ def _team_join_onboarding_cache_key(slack_team_id: str, slack_user_id: str) -> s
 
 
 def _post_team_join_welcome(integration: Integration, slack_user_id: str) -> bool:
+    text, blocks = build_team_join_welcome(integration)
     try:
         SlackIntegration(integration).client.chat_postMessage(
-            channel=slack_user_id, text=_ASSISTANT_MEMBER_JOIN_WELCOME
+            channel=slack_user_id, text=text, blocks=blocks, unfurl_links=False, unfurl_media=False
         )
         logger.info(
             "slack_app_team_join_welcome_posted",

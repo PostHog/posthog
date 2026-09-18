@@ -1596,26 +1596,29 @@ class TestAssistantInstallWelcome(TestCase):
         )
 
     def _run(self, *, enabled: bool):
-        from products.slack_app.backend.api import _ASSISTANT_INSTALL_WELCOME, send_assistant_install_welcome
+        from products.slack_app.backend.api import send_assistant_install_welcome
 
         enabled_p = patch("products.slack_app.backend.api.is_slack_app_assistant_enabled", return_value=enabled)
         slack = patch("products.slack_app.backend.api.SlackIntegration")
         with enabled_p, slack as slack_cls:
             send_assistant_install_welcome(self.integration)
-        return slack_cls, _ASSISTANT_INSTALL_WELCOME
+        return slack_cls
 
     def test_dms_installer_when_enabled(self):
-        slack_cls, welcome = self._run(enabled=True)
-        slack_cls.return_value.client.chat_postMessage.assert_called_once_with(channel="U_INSTALLER", text=welcome)
+        slack_cls = self._run(enabled=True)
+        kwargs = slack_cls.return_value.client.chat_postMessage.call_args.kwargs
+        assert kwargs["channel"] == "U_INSTALLER"
+        assert kwargs["text"]
+        assert any(block.get("type") == "actions" for block in kwargs["blocks"])
 
     def test_silent_when_flag_off(self):
-        slack_cls, _ = self._run(enabled=False)
+        slack_cls = self._run(enabled=False)
         slack_cls.return_value.client.chat_postMessage.assert_not_called()
 
     def test_no_post_without_authed_user(self):
         self.integration.config = {}
         self.integration.save()
-        slack_cls, _ = self._run(enabled=True)
+        slack_cls = self._run(enabled=True)
         slack_cls.return_value.client.chat_postMessage.assert_not_called()
 
     def test_slack_error_is_swallowed(self):

@@ -2,9 +2,12 @@
 
 from celery import shared_task
 
+from posthog.models.integration import Integration
+
 from products.slack_app.backend.api import (
     SLACK_INTEGRATION_KIND,
     does_other_region_claim_workspace,
+    send_assistant_install_welcome,
     send_region_proxy_request,
 )
 
@@ -29,3 +32,17 @@ def mirror_slack_message_event(
     # The body rides as text because Celery serializes arguments to JSON. Slack signs the raw
     # bytes, and the payload is UTF-8 JSON, so the decode/encode round trip is byte-exact.
     send_region_proxy_request(method="POST", target_url=target_url, headers=headers, body=body.encode("utf-8"))
+
+
+@shared_task(ignore_result=True)
+def send_slack_install_welcome(*, integration_id: int) -> None:
+    """DM whoever installed the Slack app a welcome, dispatched from the install signal.
+
+    Off the OAuth callback's request path because the installer is waiting on a redirect.
+    No retries: a welcome that arrives late is worth less than a duplicate would cost, and
+    the post is already best-effort inside ``send_assistant_install_welcome``.
+    """
+    integration = Integration.objects.filter(id=integration_id, kind=SLACK_INTEGRATION_KIND).first()
+    if integration is None:
+        return
+    send_assistant_install_welcome(integration)
