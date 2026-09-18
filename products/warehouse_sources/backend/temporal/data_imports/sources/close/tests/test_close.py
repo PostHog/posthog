@@ -10,9 +10,12 @@ from requests import Request, Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.close.close import (
     INITIAL_INCREMENTAL_VALUE,
+    CloseEventCursorPaginator,
     CloseOffsetPaginator,
     CloseResumeConfig,
     _format_close_datetime,
+    _organization_ids,
+    close_organizations_source,
     close_source,
     get_resource,
     validate_credentials,
@@ -140,6 +143,13 @@ class TestGetResource:
             ("OpportunityStatuses", "opportunity_statuses"),
             ("Pipelines", "pipelines"),
             ("EmailTemplates", "email_templates"),
+            ("Events", "events"),
+            ("Outcomes", "outcomes"),
+            ("LeadCustomFields", "lead_custom_fields"),
+            ("ContactCustomFields", "contact_custom_fields"),
+            ("OpportunityCustomFields", "opportunity_custom_fields"),
+            ("ActivityCustomFields", "activity_custom_fields"),
+            ("SharedCustomFields", "shared_custom_fields"),
         ],
     )
     def test_table_name_and_primary_key(self, endpoint: str, table_name: str) -> None:
@@ -148,7 +158,9 @@ class TestGetResource:
         assert resource["primary_key"] == ["id"]
         assert _endpoint(resource)["data_selector"] == "data"
 
-    @pytest.mark.parametrize("endpoint", ["Users", "Pipelines", "EmailTemplates"])
+    @pytest.mark.parametrize(
+        "endpoint", ["Users", "Pipelines", "EmailTemplates", "Outcomes", "LeadCustomFields", "SharedCustomFields"]
+    )
     def test_full_refresh_endpoints_never_incremental(self, endpoint: str) -> None:
         # Even when the user enables incremental, endpoints with no server-side date filter
         # stay on full replace and emit no `__gte` param.
@@ -177,19 +189,28 @@ class TestGetResource:
         assert resource["write_disposition"] == "replace"
         assert not any(key.endswith("__gte") for key in _params(resource))
 
-    @pytest.mark.parametrize("endpoint", ["LeadStatuses", "OpportunityStatuses", "Pipelines"])
+    @pytest.mark.parametrize("endpoint", ["LeadStatuses", "OpportunityStatuses", "Pipelines", "SharedCustomFields"])
     def test_non_paginated_endpoints_use_single_page_paginator(self, endpoint: str) -> None:
         # Dimension endpoints that take no `_skip`/`_limit` override the client offset paginator
         # so we never inject pagination params the API doesn't accept.
         resource = get_resource(endpoint, should_use_incremental_field=False, incremental_field=None)
         assert isinstance(_endpoint(resource)["paginator"], SinglePagePaginator)
 
-    @pytest.mark.parametrize("endpoint", ["Opportunities", "Activities", "Tasks", "Users", "EmailTemplates"])
+    @pytest.mark.parametrize(
+        "endpoint", ["Opportunities", "Activities", "Tasks", "Users", "EmailTemplates", "Outcomes", "LeadCustomFields"]
+    )
     def test_paginated_endpoints_inherit_client_paginator(self, endpoint: str) -> None:
         # Offset-paginated endpoints don't set an endpoint-level paginator, so they fall back to
         # the client-level CloseOffsetPaginator.
         resource = get_resource(endpoint, should_use_incremental_field=False, incremental_field=None)
         assert "paginator" not in _endpoint(resource)
+
+    def test_events_use_the_cursor_paginator_and_capped_limit(self) -> None:
+        # `/event/` rejects `_skip`, so it must never inherit the client offset paginator, and
+        # Close caps its page size at 50.
+        resource = get_resource("Events", should_use_incremental_field=False, incremental_field=None)
+        assert isinstance(_endpoint(resource)["paginator"], CloseEventCursorPaginator)
+        assert _params(resource)["_limit"] == 50
 
 
 class TestCloseSourcePartitioning:
@@ -201,9 +222,12 @@ class TestCloseSourcePartitioning:
             ("Opportunities", True),
             ("Activities", True),
             ("Tasks", True),
+            ("Events", True),
             ("Users", False),
             ("LeadStatuses", False),
             ("Pipelines", False),
+            ("Outcomes", False),
+            ("LeadCustomFields", False),
         ],
     )
     def test_partition_config(self, endpoint: str, expects_partition: bool) -> None:
@@ -358,6 +382,210 @@ class TestCloseSourceResumeBehavior:
         )
 
         assert sent_params[0]["date_updated__gte"] == "2024-06-01T12:00:00+00:00"
+
+    def test_events_window_only_the_first_request_then_page_by_cursor(self) -> None:
+        manager = MagicMock(spec=ResumableSourceManager)
+        manager.can_resume.return_value = False
+
+        responses = [
+            _make_http_response(
+                {"data": [{"id": "ev_2", "date_updated": "2024-06-05T00:00:00+00:00"}], "cursor_next": "cursor_2"}
+            ),
+            _make_http_response(
+                {"data": [{"id": "ev_1", "date_updated": "2024-06-03T00:00:00+00:00"}], "cursor_next": None}
+            ),
+        ]
+        sent_params = self._drive(
+            "Events",
+            manager,
+            responses,
+            should_use_incremental_field=True,
+            incremental_field="date_updated",
+            db_incremental_field_last_value=datetime(2024, 6, 1, 12, 0, 0, tzinfo=UTC),
+        )
+
+        assert sent_params[0]["date_updated__gte"] == "2024-06-01T12:00:00+00:00"
+        assert sent_params[0]["_limit"] == 50
+        assert "_skip" not in sent_params[0]
+        assert sent_params[1]["_cursor"] == "cursor_2"
+        assert "date_updated__gte" not in sent_params[1]
+
+        saved = [call.args[0] for call in manager.save_state.call_args_list]
+        assert saved == [CloseResumeConfig(next_cursor="cursor_2")]
+
+    def test_events_stop_once_a_page_predates_the_watermark(self) -> None:
+        # Without the client-side stop the cursor walk would keep going back through Close's
+        # whole retention window on every incremental sync.
+        manager = MagicMock(spec=ResumableSourceManager)
+        manager.can_resume.return_value = False
+
+        responses = [
+            _make_http_response(
+                {"data": [{"id": "ev_2", "date_updated": "2024-06-05T00:00:00+00:00"}], "cursor_next": "cursor_2"}
+            ),
+            _make_http_response(
+                {"data": [{"id": "ev_1", "date_updated": "2024-05-20T00:00:00+00:00"}], "cursor_next": "cursor_3"}
+            ),
+        ]
+        sent_params = self._drive(
+            "Events",
+            manager,
+            responses,
+            should_use_incremental_field=True,
+            incremental_field="date_updated",
+            db_incremental_field_last_value=datetime(2024, 6, 1, 12, 0, 0, tzinfo=UTC),
+        )
+
+        assert len(sent_params) == 2
+
+    def test_events_resume_seeds_the_saved_cursor(self) -> None:
+        manager = MagicMock(spec=ResumableSourceManager)
+        manager.can_resume.return_value = True
+        manager.load_state.return_value = CloseResumeConfig(next_cursor="cursor_7")
+
+        responses = [
+            _make_http_response(
+                {"data": [{"id": "ev_9", "date_updated": "2024-06-05T00:00:00+00:00"}], "cursor_next": None}
+            )
+        ]
+        sent_params = self._drive("Events", manager, responses)
+
+        assert sent_params[0]["_cursor"] == "cursor_7"
+
+
+class TestCloseEventCursorPaginator:
+    @staticmethod
+    def _page(rows: list[dict[str, Any]], cursor_next: str | None) -> Response:
+        return _make_http_response({"data": rows, "cursor_next": cursor_next})
+
+    def test_follows_cursor_next_and_stops_on_null(self) -> None:
+        paginator = CloseEventCursorPaginator()
+        rows = [{"id": "ev_1", "date_updated": "2024-06-05T00:00:00+00:00"}]
+
+        paginator.update_state(self._page(rows, "cursor_2"), rows)
+        assert paginator.has_next_page is True
+
+        request = Request(method="GET", url="https://api.close.com/api/v1/event/")
+        paginator.update_request(request)
+        assert request.params["_cursor"] == "cursor_2"
+
+        paginator.update_state(self._page(rows, None), rows)
+        assert paginator.has_next_page is False
+
+    def test_empty_page_stops(self) -> None:
+        paginator = CloseEventCursorPaginator()
+        paginator.update_state(self._page([], "cursor_2"), [])
+        assert paginator.has_next_page is False
+
+    @pytest.mark.parametrize(
+        ("newest_in_page", "expected_next_page"),
+        [
+            # Events arrive newest-first, so a page still holding anything at or after the
+            # watermark may be followed by more unsynced rows.
+            ("2024-06-05T00:00:00+00:00", True),
+            ("2024-06-01T12:00:00+00:00", True),
+            # A page entirely behind the watermark means everything further back is already
+            # synced; walking on would re-fetch the whole retention window every sync.
+            ("2024-05-31T23:59:59+00:00", False),
+        ],
+    )
+    def test_stops_once_a_whole_page_predates_the_watermark(
+        self, newest_in_page: str, expected_next_page: bool
+    ) -> None:
+        paginator = CloseEventCursorPaginator(stop_when_older_than=datetime(2024, 6, 1, 12, 0, 0, tzinfo=UTC))
+        rows = [
+            {"id": "ev_1", "date_updated": newest_in_page},
+            {"id": "ev_2", "date_updated": "2024-01-01T00:00:00+00:00"},
+        ]
+
+        paginator.update_state(self._page(rows, "cursor_2"), rows)
+
+        assert paginator.has_next_page is expected_next_page
+
+    def test_walks_on_without_a_watermark(self) -> None:
+        paginator = CloseEventCursorPaginator()
+        rows = [{"id": "ev_1", "date_updated": "2019-01-01T00:00:00+00:00"}]
+
+        paginator.update_state(self._page(rows, "cursor_2"), rows)
+
+        assert paginator.has_next_page is True
+
+    def test_cursor_request_drops_the_date_filter(self) -> None:
+        # Close documents that a cursor request re-sends every filter except `date_updated`.
+        paginator = CloseEventCursorPaginator()
+        rows = [{"id": "ev_1", "date_updated": "2024-06-05T00:00:00+00:00"}]
+        paginator.update_state(self._page(rows, "cursor_2"), rows)
+
+        request = Request(
+            method="GET",
+            url="https://api.close.com/api/v1/event/",
+            params={"date_updated__gte": "2024-06-01T12:00:00+00:00", "_limit": 50},
+        )
+        paginator.update_request(request)
+
+        assert "date_updated__gte" not in request.params
+        assert request.params == {"_limit": 50, "_cursor": "cursor_2"}
+
+    def test_resume_state_round_trip(self) -> None:
+        paginator = CloseEventCursorPaginator()
+        rows = [{"id": "ev_1", "date_updated": "2024-06-05T00:00:00+00:00"}]
+        paginator.update_state(self._page(rows, "cursor_2"), rows)
+        assert paginator.get_resume_state() == {"cursor": "cursor_2"}
+
+        resumed = CloseEventCursorPaginator()
+        resumed.set_resume_state({"cursor": "cursor_2"})
+        request = Request(method="GET", url="https://api.close.com/api/v1/event/")
+        resumed.init_request(request)
+        assert request.params["_cursor"] == "cursor_2"
+
+    def test_no_resume_state_on_terminal_page(self) -> None:
+        paginator = CloseEventCursorPaginator()
+        rows = [{"id": "ev_1", "date_updated": "2024-06-05T00:00:00+00:00"}]
+        paginator.update_state(self._page(rows, None), rows)
+        assert paginator.get_resume_state() is None
+
+
+class TestCloseOrganizationsSource:
+    @pytest.mark.parametrize(
+        ("me", "expected"),
+        [
+            ({"organizations": [{"id": "orga_1"}]}, ["orga_1"]),
+            ({"memberships": [{"organization_id": "orga_1"}]}, ["orga_1"]),
+            # `/me/` lists the same org under both keys, and each row must only be fetched once.
+            ({"organizations": [{"id": "orga_1"}], "memberships": [{"organization_id": "orga_1"}]}, ["orga_1"]),
+            (
+                {"organizations": [{"id": "orga_1"}], "memberships": [{"organization_id": "orga_2"}]},
+                ["orga_1", "orga_2"],
+            ),
+            ({}, []),
+        ],
+    )
+    def test_organization_ids(self, me: dict[str, Any], expected: list[str]) -> None:
+        assert _organization_ids(me) == expected
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.close.close._make_session")
+    def test_fetches_each_organization_named_by_me(self, mock_make_session: MagicMock) -> None:
+        # Close publishes no `/organization/` list endpoint, so a missed `/me/` hop syncs nothing.
+        responses: dict[str, dict[str, Any]] = {
+            "https://api.close.com/api/v1/me/": {"organizations": [{"id": "orga_1"}, {"id": "orga_2"}]},
+            "https://api.close.com/api/v1/organization/orga_1/": {"id": "orga_1", "name": "First"},
+            "https://api.close.com/api/v1/organization/orga_2/": {"id": "orga_2", "name": "Second"},
+        }
+        mock_make_session.return_value.get.side_effect = lambda url, **_: _make_http_response(responses[url])
+
+        response = close_organizations_source(api_key="api_test", endpoint="Organizations")
+        batches = list(cast(Iterable[Any], response.items()))
+
+        assert batches == [[{"id": "orga_1", "name": "First"}, {"id": "orga_2", "name": "Second"}]]
+        assert response.primary_keys == ["id"]
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.close.close._make_session")
+    def test_yields_nothing_when_me_names_no_organization(self, mock_make_session: MagicMock) -> None:
+        mock_make_session.return_value.get.return_value = _make_http_response({"id": "user_1"})
+
+        response = close_organizations_source(api_key="api_test", endpoint="Organizations")
+
+        assert list(cast(Iterable[Any], response.items())) == []
 
 
 class TestValidateCredentials:
