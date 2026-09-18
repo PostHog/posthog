@@ -228,16 +228,27 @@ def _record_task_comment_activity(
 
 
 def _mentions_allowed_for_comment_target(
-    *, team_id: int, scope: str, item_id: str | None, item_context: dict | None
-) -> bool:
+    *, team_id: int, scope: str, item_id: str | None, item_context: dict | None, mentioned_user_ids: list[int]
+) -> list[int]:
     if scope not in DESKTOP_COMMENT_SCOPES:
-        return True
+        return mentioned_user_ids
+    if scope == "desktop_canvas":
+        if not item_id:
+            return []
+        from products.canvas.backend.comment_access import visible_canvas_user_ids
+
+        visible_ids = visible_canvas_user_ids(
+            team_id=team_id,
+            canvas_id=item_id,
+            user_ids=mentioned_user_ids,
+        )
+        return [user_id for user_id in mentioned_user_ids if user_id in visible_ids]
     task_id = item_id if scope == "task" else (item_context or {}).get("taskId")
     if not task_id:
-        return False
+        return []
     from products.tasks.backend.facade.api import task_comment_mentions_allowed  # noqa: PLC0415
 
-    return task_comment_mentions_allowed(team_id=team_id, task_id=task_id)
+    return mentioned_user_ids if task_comment_mentions_allowed(team_id=team_id, task_id=task_id) else []
 
 
 class CommentSerializer(serializers.ModelSerializer):
@@ -478,13 +489,13 @@ class CommentSerializer(serializers.ModelSerializer):
         validated_data["team_id"] = self.context["team_id"]
 
         mentions = self._filter_mentions_to_organization(mentions, self.context["get_organization"]().id)
-        if not _mentions_allowed_for_comment_target(
+        mentions = _mentions_allowed_for_comment_target(
             team_id=self.context["team_id"],
             scope=validated_data["scope"],
             item_id=validated_data.get("item_id"),
             item_context=validated_data.get("item_context"),
-        ):
-            mentions = []
+            mentioned_user_ids=mentions,
+        )
 
         # ATOMIC_REQUESTS is off, so wrap the comment insert with the email-outbox write.
         persist_ctx = transaction.atomic() if validated_data["scope"] == "conversations_ticket" else nullcontext()
@@ -511,13 +522,13 @@ class CommentSerializer(serializers.ModelSerializer):
         request = self.context["request"]
 
         mentions = self._filter_mentions_to_organization(mentions, self.context["get_organization"]().id)
-        if not _mentions_allowed_for_comment_target(
+        mentions = _mentions_allowed_for_comment_target(
             team_id=instance.team_id,
             scope=validated_data.get("scope", instance.scope),
             item_id=validated_data.get("item_id", instance.item_id),
             item_context=validated_data.get("item_context", instance.item_context),
-        ):
-            mentions = []
+            mentioned_user_ids=mentions,
+        )
 
         with transaction.atomic():
             locked_instance = Comment.objects.select_for_update().get(pk=instance.pk)
