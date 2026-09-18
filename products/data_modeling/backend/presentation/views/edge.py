@@ -81,7 +81,7 @@ class EdgeViewSet(MetricNodeVisibilityMixin, TeamAndOrgViewSetMixin, viewsets.Mo
         instance.delete()
 
     def safely_get_queryset(self, queryset):
-        qs = self._visible_edges(queryset.filter(team_id=self.team_id))
+        qs = self._exclude_hidden_edges(queryset.filter(team_id=self.team_id))
         dag_id = self.request.query_params.get("dag")
         if dag_id:
             try:

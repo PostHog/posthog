@@ -118,7 +118,7 @@ export const LineageIssueKindEnumApi = {
 } as const
 
 export interface LineageIssueApi {
-    /** sync_failed when the last refresh of this node's edges raised. unresolved when the refresh ran but some dependency names matched no node.
+    /** sync_failed when the last attempt to rebuild this node's edges ended in an error. unresolved when the rebuild finished but some of the names this node reads matched no node in the DAG.
      *
      * * `sync_failed` - Sync Failed
      * * `unresolved` - Unresolved */

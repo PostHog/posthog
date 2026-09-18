@@ -70,8 +70,8 @@ class LineageLookupError(Exception):
 class LineageIssueSerializer(serializers.Serializer):
     kind = serializers.ChoiceField(
         choices=LineageIssueKind.choices,
-        help_text="sync_failed when the last refresh of this node's edges raised. "
-        "unresolved when the refresh ran but some dependency names matched no node.",
+        help_text="sync_failed when the last attempt to rebuild this node's edges ended in an error. "
+        "unresolved when the rebuild finished but some of the names this node reads matched no node in the DAG.",
     )
     detail = serializers.CharField(
         help_text="The error for sync_failed, or the comma-separated names that did not resolve for unresolved."
@@ -368,7 +368,7 @@ class NodeViewSet(MetricNodeVisibilityMixin, TeamAndOrgViewSetMixin, viewsets.Mo
         return dag_id
 
     def safely_get_queryset(self, queryset):
-        qs = _annotate_latest_job(self._visible_nodes(queryset.filter(team_id=self.team_id)))
+        qs = _annotate_latest_job(self._exclude_hidden_nodes(queryset.filter(team_id=self.team_id)))
         dag_id = self._get_dag_id_param()
         if dag_id:
             qs = qs.filter(dag_id=dag_id)
@@ -492,7 +492,11 @@ class NodeViewSet(MetricNodeVisibilityMixin, TeamAndOrgViewSetMixin, viewsets.Mo
 
         # saved_query is a non-unique FK: a saved query synced into multiple DAGs has multiple nodes.
         # Order for a deterministic pick (the graphs are equivalent for lineage purposes).
-        node = self._visible_nodes(Node.objects.filter(team_id=self.team_id, **lookup)).order_by("created_at").first()
+        node = (
+            self._exclude_hidden_nodes(Node.objects.filter(team_id=self.team_id, **lookup))
+            .order_by("created_at")
+            .first()
+        )
         if node is None:
             return response.Response({"error": "Node not found"}, status=status.HTTP_404_NOT_FOUND)
 
@@ -501,8 +505,10 @@ class NodeViewSet(MetricNodeVisibilityMixin, TeamAndOrgViewSetMixin, viewsets.Mo
         downstream_ids = _get_downstream_nodes(node, hidden_types=hidden_types)
         all_ids = upstream_ids | downstream_ids | {str(node.id)}
 
-        nodes = self._visible_nodes(_node_queryset_with_latest_job().filter(id__in=all_ids, team_id=self.team_id))
-        edges = self._visible_edges(
+        nodes = self._exclude_hidden_nodes(
+            _node_queryset_with_latest_job().filter(id__in=all_ids, team_id=self.team_id)
+        )
+        edges = self._exclude_hidden_edges(
             Edge.objects.select_related("source", "target", "dag").filter(
                 team_id=self.team_id, source_id__in=all_ids, target_id__in=all_ids
             )
