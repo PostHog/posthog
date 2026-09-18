@@ -8,6 +8,7 @@ from clickhouse_driver.errors import NetworkError, ServerException, SocketTimeou
 from posthog.hogql.errors import ExposedHogQLError
 
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
+from posthog.clickhouse.driver_patches import ClickHouseColumnDecodeError
 from posthog.exceptions import (
     ClickHouseAtCapacity,
     ClickHouseClusterMemoryLimitExceeded,
@@ -108,6 +109,13 @@ def _wrap_storage_file_changed_error(err: ServerException) -> "CHQueryErrorS3Fil
 
 def wrap_clickhouse_query_error(err: Exception) -> Exception:
     "Beautifies clickhouse client errors, using custom error classes for every code"
+    if isinstance(err, ClickHouseColumnDecodeError):
+        return CHQueryErrorColumnDecodeFailed(
+            f"PostHog cannot read a result column of type {err.column_type}. Remove the column from "
+            "the query, or convert it to a supported type, for example with toJSONString().",
+            code_name="column_decode_failed",
+        )
+
     if not isinstance(err, ServerException):
         return err
 
@@ -265,6 +273,12 @@ class CHQueryErrorQueryWasCancelled(InternalCHQueryError):
 
 class CHQueryErrorCorruptedParquetMetadata(ExposedCHQueryError):
     """A Parquet file backing a warehouse table has corrupted or oversized thrift metadata."""
+
+    pass
+
+
+class CHQueryErrorColumnDecodeFailed(ExposedCHQueryError):
+    """The client could not decode a result column ClickHouse returned."""
 
     pass
 

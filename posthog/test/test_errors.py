@@ -1,6 +1,7 @@
 from clickhouse_driver.errors import ServerException
 from parameterized import parameterized
 
+from posthog.clickhouse.driver_patches import ClickHouseColumnDecodeError
 from posthog.errors import (
     ExposedCHQueryError,
     InternalCHQueryError,
@@ -83,3 +84,12 @@ class TestWrapClickhouseQueryError:
 
         assert isinstance(wrapped, InternalCHQueryError)
         assert not isinstance(wrapped, ExposedCHQueryError)
+
+    def test_column_decode_failure_wraps_as_exposed_error_naming_the_type(self) -> None:
+        err = ClickHouseColumnDecodeError("Map(String, Map(String, Array(UInt64)))", ValueError("boom"))
+
+        wrapped = wrap_clickhouse_query_error(err)
+
+        assert isinstance(wrapped, ExposedCHQueryError)
+        assert "Map(String, Map(String, Array(UInt64)))" in str(wrapped)
+        assert wrapped.code_name == "column_decode_failed"
