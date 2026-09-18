@@ -1,7 +1,7 @@
-import { useActions, useValues } from 'kea'
+import { useActions, useAsyncActions, useValues } from 'kea'
 
 import { IconRefresh } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonButton, lemonToast } from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { Spinner } from 'lib/lemon-ui/Spinner'
@@ -57,7 +57,8 @@ function RecalculationRefreshButton({ experiment }: { experiment: Experiment }):
     const { isRecalculating, recalculationProgress, lastRefresh, queuedRerun } = useValues(metricsLogic)
     const { triggerRecalculation } = useActions(metricsLogic)
     const { autoRefresh, currentRefresh } = useValues(experimentLogic)
-    const { refreshExperimentResults, reportExperimentMetricsRefreshed } = useActions(experimentLogic)
+    const { reportExperimentMetricsRefreshed } = useActions(experimentLogic)
+    const { refreshExperimentResults } = useAsyncActions(experimentLogic)
 
     return (
         <RefreshButton
@@ -74,7 +75,9 @@ function RecalculationRefreshButton({ experiment }: { experiment: Experiment }):
                 })
                 triggerRecalculation()
                 // Exposures still live in experimentLogic, so refresh them alongside the recalculation.
-                refreshExperimentResults(true, 'manual')
+                void refreshExperimentResults(true, 'manual').catch(() => {
+                    lemonToast.error('Could not refresh results. Try again.')
+                })
             }}
         />
     )
@@ -89,7 +92,8 @@ function LegacyRefreshButton({ experiment }: { experiment: Experiment }): JSX.El
         autoRefresh,
         currentRefresh,
     } = useValues(experimentLogic)
-    const { refreshExperimentResults, reportExperimentMetricsRefreshed } = useActions(experimentLogic)
+    const { reportExperimentMetricsRefreshed } = useActions(experimentLogic)
+    const { refreshExperimentResults } = useAsyncActions(experimentLogic)
 
     const lastRefresh = primaryMetricsResults?.[0]?.last_refresh || secondaryMetricsResults?.[0]?.last_refresh || null
 
@@ -104,7 +108,9 @@ function LegacyRefreshButton({ experiment }: { experiment: Experiment }): JSX.El
                     auto_refresh_interval: autoRefresh.interval,
                     ...previousRefreshAnalytics(currentRefresh),
                 })
-                refreshExperimentResults(true, 'manual')
+                void refreshExperimentResults(true, 'manual').catch(() => {
+                    lemonToast.error('Could not refresh results. Try again.')
+                })
             }}
         />
     )
