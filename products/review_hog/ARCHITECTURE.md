@@ -101,12 +101,12 @@ gate and the structural rendering above are all built — the latter two deferre
 one MUST land before the resolution stage runs on PRs the team does not own:
 
 - **Pre-push restricted-paths enforcement** — the path backstop is detection, not prevention: GitHub's
-   `createCommitOnBranch` makes commit and push one atomic act, so a fix commit touching `.github/`, CODEOWNERS,
-   or dependency manifests is already on the PR branch (and CI is already running it) before
-   `commit_restricted_paths` looks. The guard must move into the signed-commit tooling itself, before the
-   mutation fires — a cross-product change (desktop agent package `signed-git-tool` / `signed-commit.ts` plus
-   the Tasks facade threading the policy in, plus a sandbox image rebuild), which is why it is a gate rather
-   than a fix in this repo.
+  `createCommitOnBranch` makes commit and push one atomic act, so a fix commit touching `.github/`, CODEOWNERS,
+  or dependency manifests is already on the PR branch (and CI is already running it) before
+  `commit_restricted_paths` looks. The guard must move into the signed-commit tooling itself, before the
+  mutation fires — a cross-product change (desktop agent package `signed-git-tool` / `signed-commit.ts` plus
+  the Tasks facade threading the policy in, plus a sandbox image rebuild), which is why it is a gate rather
+  than a fix in this repo.
 
 **Reviewing includes resolving**: a published review chains into the stage when the acting user's
 `resolve_comments` setting is on (default on; the toggle sits with the trigger opt-outs on the Code review scene,

@@ -3340,6 +3340,7 @@ RATE_LIMITED` (GraphQL's primary signal, invisible to the REST-shaped helper) no
    pre-public-release gate 1 (pre-push enforcement in the signed-commit tooling, outside this product).
    Not yet validated by a live e2e run, which the deferral asked for on prompt-content changes: the rendering
    and gate are covered by unit tests, and the prompt half needs a real run on a PR with a drive-by thread.
+
 9. **Persistence & budget** — home is the living `ReviewReport`; runs append `thread_verdict` (net-new content
    schema, latest-wins per thread) plus `commit` / `task_run` / `note` artefacts (their first writers). Idempotency
    is per-thread: unchanged state skips deterministically, any new reply re-opens that thread's triage (pushback on
