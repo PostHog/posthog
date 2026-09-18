@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT id::bigint as \"id!\", is_deleted as \"is_deleted!\"\n        FROM posthog_person\n        WHERE team_id = $1 AND uuid = ANY($2)\n        ORDER BY id FOR UPDATE\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "is_deleted!",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int4",
+        "UuidArray"
+      ]
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "73192dea99ae3a6102c372db9d24c0ff85316b45be4ad7dfb601edc0e513719c"
+}

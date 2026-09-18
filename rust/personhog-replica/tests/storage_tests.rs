@@ -2,7 +2,9 @@ mod common;
 
 use common::TestContext;
 use personhog_replica::storage::postgres::ConsistencyLevel;
-use personhog_replica::storage::{GroupKey, TombstonedDeleteOutcome};
+use personhog_replica::storage::{
+    DeletePersonsMode, GroupKey, TombstonedDeleteOutcome, TombstonedDistinctId, TombstonedPerson,
+};
 use rand::Rng;
 use rstest::rstest;
 use std::time::{Duration, Instant};
@@ -510,6 +512,113 @@ async fn test_delete_persons_tombstones_when_enabled() {
         .unwrap();
     assert_eq!(deleted, 0);
     let (_, version, _, _) = tombstone_state(&ctx.pool, ctx.team_id, person.id).await;
+    assert_eq!(version, 1);
+
+    ctx.cleanup().await.ok();
+}
+
+#[tokio::test]
+async fn test_delete_persons_with_mode_reports_the_tombstone_versions() {
+    let ctx = TestContext::new_with_tombstone_deletes(true).await;
+    let person = ctx.insert_person("versions_a", None).await.unwrap();
+    ctx.add_distinct_id_to_person(person.id, "versions_b")
+        .await
+        .unwrap();
+
+    let outcome = ctx
+        .storage
+        .delete_persons_with_mode(ctx.team_id, &[person.uuid], DeletePersonsMode::Default)
+        .await
+        .unwrap();
+
+    assert_eq!(outcome.deleted, 1);
+    // The versions the caller publishes to ClickHouse: exactly what the rows now hold.
+    assert_eq!(
+        outcome.tombstones,
+        Some(vec![TombstonedPerson {
+            uuid: person.uuid,
+            version: 1,
+            distinct_ids: vec![
+                TombstonedDistinctId {
+                    distinct_id: "versions_a".to_string(),
+                    version: 1,
+                },
+                TombstonedDistinctId {
+                    distinct_id: "versions_b".to_string(),
+                    version: 1,
+                },
+            ],
+        }])
+    );
+    let (is_deleted, version, _, _) = tombstone_state(&ctx.pool, ctx.team_id, person.id).await;
+    assert!(is_deleted);
+    assert_eq!(version, 1);
+
+    ctx.cleanup().await.ok();
+}
+
+#[tokio::test]
+async fn test_delete_persons_tombstone_mode_reports_versions_again_on_retry() {
+    let ctx = TestContext::new_with_tombstone_deletes(true).await;
+    let person = ctx.insert_person("retry_versions", None).await.unwrap();
+
+    let first = ctx
+        .storage
+        .delete_persons_with_mode(ctx.team_id, &[person.uuid], DeletePersonsMode::Default)
+        .await
+        .unwrap();
+    // A caller that lost the first response must get the same versions back, or
+    // its ClickHouse tombstones never get published.
+    let retry = ctx
+        .storage
+        .delete_persons_with_mode(ctx.team_id, &[person.uuid], DeletePersonsMode::Default)
+        .await
+        .unwrap();
+
+    assert_eq!(first.deleted, 1);
+    assert_eq!(retry.deleted, 0);
+    assert_eq!(retry.tombstones, first.tombstones);
+
+    ctx.cleanup().await.ok();
+}
+
+#[tokio::test]
+async fn test_delete_persons_hard_mode_removes_rows_despite_the_flag() {
+    let ctx = TestContext::new_with_tombstone_deletes(true).await;
+    let person = ctx.insert_person("hard_mode", None).await.unwrap();
+
+    let outcome = ctx
+        .storage
+        .delete_persons_with_mode(ctx.team_id, &[person.uuid], DeletePersonsMode::Hard)
+        .await
+        .unwrap();
+
+    assert_eq!(outcome.deleted, 1);
+    assert_eq!(outcome.tombstones, None);
+    assert!(!ctx.person_row_exists(person.id).await.unwrap());
+
+    ctx.cleanup().await.ok();
+}
+
+#[tokio::test]
+async fn test_delete_persons_tombstone_mode_tombstones_despite_the_flag() {
+    let ctx = TestContext::new_with_tombstone_deletes(false).await;
+    let person = ctx.insert_person("tombstone_mode", None).await.unwrap();
+
+    let outcome = ctx
+        .storage
+        .delete_persons_with_mode(ctx.team_id, &[person.uuid], DeletePersonsMode::Tombstone)
+        .await
+        .unwrap();
+
+    assert_eq!(outcome.deleted, 1);
+    assert_eq!(
+        outcome.tombstones.as_ref().map(|t| t.len()),
+        Some(1),
+        "tombstone mode reports the versions"
+    );
+    let (is_deleted, version, _, _) = tombstone_state(&ctx.pool, ctx.team_id, person.id).await;
+    assert!(is_deleted);
     assert_eq!(version, 1);
 
     ctx.cleanup().await.ok();
