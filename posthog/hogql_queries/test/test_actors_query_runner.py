@@ -43,8 +43,13 @@ from posthog.hogql.visitor import clear_locations
 
 from posthog.clickhouse.client import sync_execute
 from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
+from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models.group.util import create_group
+from posthog.models.sharing_configuration import SharingConfiguration
+from posthog.models.user import User
 from posthog.models.utils import UUIDT
+from posthog.shared_link_user import SharedLinkUser
+from posthog.synthetic_user import SyntheticUser
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
 from products.event_definitions.backend.models.property_definition import PropertyDefinition, PropertyType
@@ -381,6 +386,25 @@ class TestActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 results = runner.calculate().results
                 response_order = [person[0] for person in results]
                 self.assertEqual(response_order, expected)
+
+    @parameterized.expand(
+        [
+            (
+                "shared_link_viewer",
+                lambda team: SharedLinkUser(SharingConfiguration.objects.create(team=team, enabled=True)),
+            ),
+            ("synthetic_user", lambda team: SyntheticUser(team, "synthetic-principal")),
+        ]
+    )
+    def test_created_at_ordering_for_principal_without_an_organization(self, _name, make_user):
+        self._create_random_persons()
+        runner = ActorsQueryRunner(team=self.team, query=ActorsQuery(select=["id", "created_at"]))
+
+        response = runner.run(
+            execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS, user=cast(User, make_user(self.team))
+        )
+
+        assert len(response.results) == 10
 
     def test_persons_query_limit(self):
         self.random_uuid = self._create_random_persons()

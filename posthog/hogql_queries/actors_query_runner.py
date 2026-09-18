@@ -442,7 +442,8 @@ class ActorsQueryRunner(AnalyticsQueryRunner[ActorsQueryResponse]):
             elif "created_at" in self.input_columns():
                 if (
                     self.strategy.field == "person"
-                    and self.user
+                    # Only a real User has an organization: other principals are truthy without one.
+                    and isinstance(self.user, User)
                     and feature_enabled(
                         "drop-person-list-order-by",
                         distinct_id=str(self.user.distinct_id),
