@@ -24,7 +24,9 @@ describe("buildActionUrl", () => {
     it("builds a new-task link with only the prompt when no repo is given", () => {
       expect(
         buildActionUrl({ kind: "compose", prompt: "Fix the login bug" }, PROD),
-      ).toBe("posthog-code://new?prompt=Fix%20the%20login%20bug");
+      ).toBe(
+        "posthog-code://new?prompt=Fix%20the%20login%20bug&source=agent_action",
+      );
     });
 
     it("appends the repo when one is given", () => {
@@ -38,7 +40,7 @@ describe("buildActionUrl", () => {
           PROD,
         ),
       ).toBe(
-        "posthog-code://new?prompt=Fix%20the%20login%20bug&repo=posthog%2Fposthog",
+        "posthog-code://new?prompt=Fix%20the%20login%20bug&repo=posthog%2Fposthog&source=agent_action",
       );
     });
 
@@ -56,6 +58,7 @@ describe("buildActionUrl", () => {
       expect(host).toBe("new");
       expect(params.get("prompt")).toBe(prompt);
       expect(params.get("repo")).toBeNull();
+      expect(params.get("source")).toBe("agent_action");
     });
 
     it("round-trips a repo containing characters that need encoding", () => {
@@ -161,7 +164,7 @@ describe("buildActionUrl", () => {
       [
         "compose",
         { kind: "compose", prompt: "Do it" },
-        "posthog-code-dev://new?prompt=Do%20it",
+        "posthog-code-dev://new?prompt=Do%20it&source=agent_action",
       ],
       [
         "open_space",

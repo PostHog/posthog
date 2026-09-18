@@ -153,13 +153,15 @@ describe("NewTaskLinkService", () => {
       );
     });
 
-    it("passes shared params (repo, mode, model)", () => {
+    it("passes shared params and the agent action source", () => {
       const listener = vi.fn();
       service.on(NewTaskLinkEvent.Action, listener);
 
       mockDeepLink._invoke(
         "new",
-        new URLSearchParams("prompt=test&repo=org/repo&mode=cloud&model=opus"),
+        new URLSearchParams(
+          "prompt=test&repo=org/repo&mode=cloud&model=opus&source=agent_action",
+        ),
       );
 
       expect(listener).toHaveBeenCalledWith({
@@ -168,6 +170,7 @@ describe("NewTaskLinkService", () => {
         repo: "org/repo",
         mode: "cloud",
         model: "opus",
+        source: "agent_action",
       });
     });
   });

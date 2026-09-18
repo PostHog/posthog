@@ -8,14 +8,16 @@ const mockAppLifecycle = vi.hoisted(() => ({
   registerDeepLinkScheme: vi.fn(),
 }));
 
+const mockLogger = vi.hoisted(() => ({
+  info: vi.fn(),
+  error: vi.fn(),
+  warn: vi.fn(),
+  debug: vi.fn(),
+}));
+
 vi.mock("../../utils/logger.js", () => ({
   logger: {
-    scope: () => ({
-      info: vi.fn(),
-      error: vi.fn(),
-      warn: vi.fn(),
-      debug: vi.fn(),
-    }),
+    scope: () => mockLogger,
   },
 }));
 
@@ -164,6 +166,9 @@ describe("DeepLinkService", () => {
           "posthog-code://auth/callback?token=secret&redirect=home",
         );
         expect(handler).toHaveBeenCalled();
+        expect(JSON.stringify(mockLogger.info.mock.calls)).not.toContain(
+          "secret",
+        );
       });
 
       it("handles empty path", () => {
@@ -212,10 +217,15 @@ describe("DeepLinkService", () => {
     });
 
     describe("error handling", () => {
-      it("returns false for non-matching protocols", () => {
-        expect(service.handleUrl("https://example.com")).toBe(false);
+      it("returns false for non-matching protocols without logging their data", () => {
+        expect(
+          service.handleUrl("https://example.com?token=secret-value"),
+        ).toBe(false);
         expect(service.handleUrl("myapp://task/123")).toBe(false);
         expect(service.handleUrl("file:///path/to/file")).toBe(false);
+        expect(JSON.stringify(mockLogger.warn.mock.calls)).not.toContain(
+          "secret-value",
+        );
       });
 
       it("returns false for URLs without main key", () => {

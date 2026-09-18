@@ -75,6 +75,7 @@ export class NewTaskLinkResolver {
           has_repo: !!payload.repo,
           mode: payload.mode,
           model: payload.model,
+          source: payload.source,
         },
       },
     };
