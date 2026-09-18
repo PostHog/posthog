@@ -103,3 +103,32 @@ const withPageFilter = (values: Record<string, any>[]): Record<string, any> => (
 export const PageFilterNudge: Story = {
     parameters: withPageFilter([{ type: 'event', key: '$current_url', operator: 'icontains', value: '/pricing' }]),
 }
+
+const withEventMatchScope = (event_match_scope: 'recording' | undefined): Record<string, any> => ({
+    featureFlags: [FEATURE_FLAGS.REPLAY_EVENT_MATCH_SCOPE],
+    pageUrl: combineUrl(urls.replay(), {
+        showFilters: true,
+        filters: {
+            date_from: '-3d',
+            date_to: null,
+            filter_test_accounts: false,
+            event_match_scope,
+            duration: [{ type: 'recording', key: 'duration', value: 1, operator: 'gt' }],
+            filter_group: {
+                type: 'AND',
+                values: [{ type: 'AND', values: [{ id: '$pageview', name: '$pageview', type: 'events' }] }],
+            },
+        },
+    }).url,
+    testOptions: { waitForSelector: '[data-attr="session-recordings-event-match-scope"]' },
+})
+
+// The switch sits in the operand row and only renders behind the flag. The two stories cover its
+// two states, so a change to the row's layout or to the switch's copy shows up in visual review.
+export const EventMatchScopeSwitchOff: Story = {
+    parameters: withEventMatchScope(undefined),
+}
+
+export const EventMatchScopeSwitchOn: Story = {
+    parameters: withEventMatchScope('recording'),
+}
