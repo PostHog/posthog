@@ -290,15 +290,16 @@ class _AccessControlRuleRequestSerializer(serializers.Serializer):
 
     resource = serializers.ChoiceField(
         choices=RULE_RESOURCE_CHOICES,
-        help_text="The scope of the rule: `project` for the project itself, a resource type such as `dashboard` "
-        "for the whole resource type or for one object of it, or `property_definition` for one person or event "
-        "property.",
+        help_text="The scope of the rule: `project` for the project itself (with the project id as `resource_id`), "
+        "a resource type such as `dashboard` for the whole resource type or for one object of it, or "
+        "`property_definition` for one person or event property.",
     )
     resource_id = serializers.CharField(
         required=False,
         allow_null=True,
-        help_text="The object the rule applies to: an object's primary key, or a property definition id when "
-        "`resource` is `property_definition`. Omit it for a rule on the whole resource type or on the project.",
+        help_text="The object the rule applies to: the project id for a project rule, an object's primary key for "
+        "a rule on one object, or a property definition id when `resource` is `property_definition`. Omit it only "
+        "for a rule on a whole resource type.",
     )
     access_level = serializers.CharField(
         allow_null=True,
@@ -332,7 +333,8 @@ class AccessControlStoredRuleSerializer(serializers.Serializer):
     resource = serializers.CharField(help_text="The rule's scope, as sent in the request.")
     resource_id = serializers.CharField(
         allow_null=True,
-        help_text="The object or property definition the rule applies to. Null for a resource-type rule.",
+        help_text="The object the rule applies to: the project id for a project rule, an object's primary key, or a "
+        "property definition id. Null for a resource-type rule.",
     )
     access_level = serializers.CharField(help_text="The stored level.")
     member_id = serializers.UUIDField(

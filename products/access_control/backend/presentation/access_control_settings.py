@@ -773,9 +773,9 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
         check, which AccessControlSerializer runs against the project for such rules.
         """
         if resource == "project":
-            if resource_id and resource_id != str(team.id):
-                raise exceptions.ValidationError("A project rule takes no resource_id other than the project's own.")
-            return team, str(team.id)
+            if resource_id != str(team.id):
+                raise exceptions.ValidationError("A project rule takes the project's own id as resource_id.")
+            return team, resource_id
         if resource in RESOURCES_WITHOUT_RESOURCE_LEVEL_CONTROLS:
             raise exceptions.ValidationError(f"{resource} does not accept access rules.")
         if resource_id:
@@ -932,8 +932,8 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
 
     @extend_schema(
         description="Set or clear the rule everyone in the project gets for a scope, unless a member or role rule "
-        "of their own applies. The scope is the project (`resource: project`), a whole resource type, one object, "
-        "or one property definition. A null `access_level` removes the rule.",
+        "of their own applies. The scope is the project (`resource: project` with the project id as `resource_id`), "
+        "a whole resource type, one object, or one property definition. A null `access_level` removes the rule.",
         request=AccessControlDefaultRuleRequestSerializer,
         responses={200: AccessControlRuleWriteResponseSerializer},
         extensions=_SCHEMA_EXTENSIONS,
@@ -944,8 +944,9 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
 
     @extend_schema(
         description="Set or clear one member's rule for a scope. A member rule applies to that person only and "
-        "takes precedence over their role rules and the default. The scope is the project, a whole resource type, "
-        "one object, or one property definition. A null `access_level` removes the rule.",
+        "takes precedence over their role rules and the default. The scope is the project (`resource: project` with "
+        "the project id as `resource_id`), a whole resource type, one object, or one property definition. A null "
+        "`access_level` removes the rule.",
         request=AccessControlMemberRuleRequestSerializer,
         responses={200: AccessControlRuleWriteResponseSerializer},
         extensions=_SCHEMA_EXTENSIONS,
@@ -956,8 +957,9 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
 
     @extend_schema(
         description="Set or clear one role's rule for a scope. A role rule applies to every member of the role and "
-        "takes precedence over the default. Requires the role-based access feature. The scope is the project, a "
-        "whole resource type, one object, or one property definition. A null `access_level` removes the rule.",
+        "takes precedence over the default. Requires the role-based access feature. The scope is the project "
+        "(`resource: project` with the project id as `resource_id`), a whole resource type, one object, or one "
+        "property definition. A null `access_level` removes the rule.",
         request=AccessControlRoleRuleRequestSerializer,
         responses={200: AccessControlRuleWriteResponseSerializer},
         extensions=_SCHEMA_EXTENSIONS,

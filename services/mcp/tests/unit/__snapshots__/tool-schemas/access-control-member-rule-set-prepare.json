@@ -90,7 +90,7 @@
                 }
             ],
             "default": null,
-            "description": "The object's id for a rule on one object (a pk, as returned by the object's own get tool), or the property definition id for a property rule. Null for the project or a whole tool."
+            "description": "The project id for a project rule, the object's id for a rule on one object (a pk, as returned by the object's own get tool), or the property definition id for a property rule. Null only for a rule on a whole tool."
         }
     },
     "required": ["resource", "access_level", "member_id"],

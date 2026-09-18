@@ -250,7 +250,7 @@ export namespace Schemas {
      * A rule for everyone in the project without a member or role rule of their own.
      */
     export interface AccessControlDefaultRuleRequest {
-      /** The scope of the rule: `project` for the project itself, a resource type such as `dashboard` for the whole resource type or for one object of it, or `property_definition` for one person or event property.
+      /** The scope of the rule: `project` for the project itself (with the project id as `resource_id`), a resource type such as `dashboard` for the whole resource type or for one object of it, or `property_definition` for one person or event property.
        *
        * * `account` - account
        * * `action` - action
@@ -306,7 +306,7 @@ export namespace Schemas {
        * * `web_analytics` - web_analytics */
       resource: RuleResourceEnum;
       /**
-         * The object the rule applies to: an object's primary key, or a property definition id when `resource` is `property_definition`. Omit it for a rule on the whole resource type or on the project.
+         * The object the rule applies to: the project id for a project rule, an object's primary key for a rule on one object, or a property definition id when `resource` is `property_definition`. Omit it only for a rule on a whole resource type.
          * @nullable
          */
       resource_id?: string | null;
@@ -531,7 +531,7 @@ export namespace Schemas {
      * A rule for one organization member.
      */
     export interface AccessControlMemberRuleRequest {
-      /** The scope of the rule: `project` for the project itself, a resource type such as `dashboard` for the whole resource type or for one object of it, or `property_definition` for one person or event property.
+      /** The scope of the rule: `project` for the project itself (with the project id as `resource_id`), a resource type such as `dashboard` for the whole resource type or for one object of it, or `property_definition` for one person or event property.
        *
        * * `account` - account
        * * `action` - action
@@ -587,7 +587,7 @@ export namespace Schemas {
        * * `web_analytics` - web_analytics */
       resource: RuleResourceEnum;
       /**
-         * The object the rule applies to: an object's primary key, or a property definition id when `resource` is `property_definition`. Omit it for a rule on the whole resource type or on the project.
+         * The object the rule applies to: the project id for a project rule, an object's primary key for a rule on one object, or a property definition id when `resource` is `property_definition`. Omit it only for a rule on a whole resource type.
          * @nullable
          */
       resource_id?: string | null;
@@ -677,7 +677,7 @@ export namespace Schemas {
      * A rule for every member of one role.
      */
     export interface AccessControlRoleRuleRequest {
-      /** The scope of the rule: `project` for the project itself, a resource type such as `dashboard` for the whole resource type or for one object of it, or `property_definition` for one person or event property.
+      /** The scope of the rule: `project` for the project itself (with the project id as `resource_id`), a resource type such as `dashboard` for the whole resource type or for one object of it, or `property_definition` for one person or event property.
        *
        * * `account` - account
        * * `action` - action
@@ -733,7 +733,7 @@ export namespace Schemas {
        * * `web_analytics` - web_analytics */
       resource: RuleResourceEnum;
       /**
-         * The object the rule applies to: an object's primary key, or a property definition id when `resource` is `property_definition`. Omit it for a rule on the whole resource type or on the project.
+         * The object the rule applies to: the project id for a project rule, an object's primary key for a rule on one object, or a property definition id when `resource` is `property_definition`. Omit it only for a rule on a whole resource type.
          * @nullable
          */
       resource_id?: string | null;
@@ -780,7 +780,7 @@ export namespace Schemas {
       /** The rule's scope, as sent in the request. */
       resource: string;
       /**
-         * The object or property definition the rule applies to. Null for a resource-type rule.
+         * The object the rule applies to: the project id for a project rule, an object's primary key, or a property definition id. Null for a resource-type rule.
          * @nullable
          */
       resource_id: string | null;
