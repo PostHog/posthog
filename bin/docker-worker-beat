@@ -2,4 +2,10 @@
 set -e
 
 rm celerybeat.pid || echo "celerybeat.pid not found, proceeding"
+
+# A Redis ACL that refuses one of RedBeat's commands makes beat exit with a raw
+# traceback, which takes the worker container down with it. Name the missing grant
+# instead, so the operator sees a configuration error rather than a restart loop.
+python manage.py redbeat_preflight
+
 celery -A posthog beat -S redbeat.RedBeatScheduler
