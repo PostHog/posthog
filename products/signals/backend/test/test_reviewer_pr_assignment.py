@@ -453,21 +453,37 @@ class TestDirectlyResponsibleIndividual:
     def _team_x(self, github: MagicMock) -> None:
         github.list_team_members.return_value = {"success": True, "logins": ["bob", "dave", "stranger"]}
 
+    def _claim(self, team, report, users: dict, *, kind: str, login: str) -> None:
+        if kind == "user":
+            claim_report(
+                report=report,
+                actor=ArtefactAttribution.from_user(users[login].id),
+                user=users[login],
+                was_impersonated=False,
+            )
+            return
+        task = Task.objects.create(
+            team=team, title="Implementation", description="", origin_product="signals", created_by=users[login]
+        )
+        claim_report_for_task(team_id=team.id, report_id=str(report.id), task_id=str(task.id))
+
     @pytest.mark.django_db
     @pytest.mark.parametrize(
         ("reviewers", "claimant", "expected_owner"),
         [
             (["alice", "bob"], None, "alice"),
-            (["alice"], "user", "carol"),
-            (["alice"], "task", "carol"),
+            (["alice"], "task", "alice"),
+            (["alice"], "user", "alice"),
+            ([], "task", None),
             (["uuid:bob", "alice"], None, "bob"),
             (["stranger", "bob"], None, "bob"),
             ([], None, None),
         ],
         ids=[
             "top_reviewer",
-            "user_claimant_first",
-            "task_claimant_is_its_creator",
+            "a_task_claim_does_not_rank_its_claimant",
+            "a_person_claim_does_not_rank_its_claimant",
+            "a_claim_alone_is_nobody_to_assign",
             "reviewer_stored_by_uuid",
             "non_member_skipped",
             "nobody_to_assign",
@@ -478,18 +494,8 @@ class TestDirectlyResponsibleIndividual:
     ):
         org, team = org_and_team
         report, users = self._setup(org, team, reviewers)
-        if claimant == "user":
-            claim_report(
-                report=report,
-                actor=ArtefactAttribution.from_user(users["carol"].id),
-                user=users["carol"],
-                was_impersonated=False,
-            )
-        elif claimant == "task":
-            task = Task.objects.create(
-                team=team, title="Implementation", description="", origin_product="signals", created_by=users["carol"]
-            )
-            claim_report_for_task(team_id=team.id, report_id=str(report.id), task_id=str(task.id))
+        if claimant:
+            self._claim(team, report, users, kind=claimant, login="carol")
 
         calls = self._assign(team, report, self._github(existing_assignees=[], assignable=None))
 
@@ -539,18 +545,24 @@ class TestDirectlyResponsibleIndividual:
 
     @pytest.mark.django_db
     @pytest.mark.parametrize(
-        ("team_by_path", "members", "claimant", "expected_owner"),
+        ("reviewers", "team_by_path", "members", "claimant", "expected_owner"),
         [
-            ({"a.py": "team-x", "b.py": "team-x", "c.py": "team-y"}, {"success": True}, False, "dave"),
-            ({"a.py": "team-x"}, {"success": True}, True, "carol"),
-            (None, {"success": True}, False, "alice"),
-            ({"a.py": UNOWNED_TEAM}, {"success": True}, False, "alice"),
-            ({"a.py": "team-x"}, {"success": False, "status_code": 403}, False, "alice"),
-            ({"a.py": "team-y"}, {"success": True}, False, "alice"),
+            (["alice"], {"a.py": "team-x", "b.py": "team-x", "c.py": "team-y"}, {"success": True}, None, "dave"),
+            (["bob"], {"a.py": "team-x"}, {"success": True}, None, "bob"),
+            (["alice"], {"a.py": "team-x"}, {"success": True}, ("task", "carol"), "dave"),
+            (["alice"], {"a.py": "team-x"}, {"success": True}, ("task", "bob"), "dave"),
+            (["alice"], {"a.py": "team-x"}, {"success": True}, ("user", "carol"), "dave"),
+            (["alice"], None, {"success": True}, None, "alice"),
+            (["alice"], {"a.py": UNOWNED_TEAM}, {"success": True}, None, "alice"),
+            (["alice"], {"a.py": "team-x"}, {"success": False, "status_code": 403}, None, "alice"),
+            (["alice"], {"a.py": "team-y"}, {"success": True}, None, "alice"),
         ],
         ids=[
             "random_member_of_the_majority_team",
-            "claimant_before_the_team",
+            "a_suggested_member_comes_before_a_random_one",
+            "a_task_claim_outside_the_team_does_not_rank",
+            "a_task_claim_inside_the_team_does_not_reorder_it",
+            "a_person_claim_does_not_outrank_the_team",
             "no_owners_files_uses_reviewers",
             "unowned_files_use_reviewers",
             "unreadable_team_uses_reviewers",
@@ -561,20 +573,16 @@ class TestDirectlyResponsibleIndividual:
         self,
         org_and_team,
         ownership,
+        reviewers: list[str],
         team_by_path: dict[str, str] | None,
         members: dict,
-        claimant: bool,
+        claimant: tuple[str, str] | None,
         expected_owner: str,
     ):
         org, team = org_and_team
-        report, users = self._setup(org, team, ["alice"])
+        report, users = self._setup(org, team, reviewers)
         if claimant:
-            claim_report(
-                report=report,
-                actor=ArtefactAttribution.from_user(users["carol"].id),
-                user=users["carol"],
-                was_impersonated=False,
-            )
+            self._claim(team, report, users, kind=claimant[0], login=claimant[1])
         if team_by_path is not None:
             ownership.return_value = PathOwnership(team_by_path=team_by_path, registry={}, resolved=True)
         github = self._github(existing_assignees=[], assignable=None)
@@ -594,8 +602,8 @@ class TestDirectlyResponsibleIndividual:
     @pytest.mark.parametrize(
         ("opted_in", "existing_assignees", "add_result", "events", "expected_calls"),
         [
-            (("alice",), [], None, _NOT_UNASSIGNED, [["alice"], ["dave"]]),
-            (("alice",), ["alice"], None, _NOT_UNASSIGNED, [["alice"], ["dave"]]),
+            (("alice",), [], None, _NOT_UNASSIGNED, [["alice"], ["bob"]]),
+            (("alice",), ["alice"], None, _NOT_UNASSIGNED, [["alice"], ["bob"]]),
             (("alice",), [], {"success": True, "assignees": ["alice", "someone"]}, _NOT_UNASSIGNED, [["alice"]]),
             (("bob",), [], None, _NOT_UNASSIGNED, [["bob"]]),
             (("alice",), [], {"success": False, "error": "Network error"}, _NOT_UNASSIGNED, [["alice"]]),

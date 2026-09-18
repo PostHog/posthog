@@ -6,8 +6,8 @@ every self-driving pull request opens with no assignee. Two rules add assignees:
 - A suggested reviewer who opted in through `SignalUserAutonomyConfig.github_assign_on_pull_request`
   is always added.
 - A pull request that still has no assignee after that gets exactly one directly responsible
-  individual (DRI): the person who claimed the report, else a random member of the GitHub team that
-  owns the changed files (see `pr_owning_team.py`), else the most relevant suggested reviewer.
+  individual (DRI), drawn from the owners of the changed code: a member of the GitHub team that
+  owns them (see `pr_owning_team.py`), else the most relevant suggested reviewer.
   A pull request that everybody could pick up is a pull request nobody picks up, and a wrong
   owner costs one reassignment. The `signals-pr-dri-assignee` flag rolls this rule out per
   organization.
@@ -38,7 +38,6 @@ from products.signals.backend.models import (
     SignalUserAutonomyConfig,
 )
 from products.signals.backend.pr_owning_team import OwningTeam, OwningTeamResolver
-from products.signals.backend.report_claims import get_active_claim, responsible_user
 from products.signals.backend.report_generation.resolve_reviewers import (
     _normalized_reviewer_user_uuid,
     get_org_member_github_logins_by_user_uuid,
@@ -50,8 +49,8 @@ logger = structlog.get_logger(__name__)
 
 PR_DRI_FEATURE_FLAG = "signals-pr-dri-assignee"
 
-# Each DRI candidate costs one GitHub read. This covers the claimant and three other candidates,
-# and stops a large team or a long scout reviewer list from turning one pull request into ten reads.
+# Each DRI candidate costs one GitHub read, so this stops a large team or a long scout reviewer
+# list from turning one pull request into ten reads.
 MAX_DRI_CHECKS = 4
 
 # Assign only while the pull request can still be reviewed. UNKNOWN is included because a PR whose
@@ -157,15 +156,6 @@ def _pr_dri_enabled(team_id: int) -> bool:
     except Exception:
         logger.warning("signals.reviewer_pr_assignment.dri_flag_check_failed", team_id=team_id, exc_info=True)
         return False
-
-
-def claimant_login(*, team_id: int, report_id: str) -> str | None:
-    """The GitHub login of the person who claimed the report, when that person can be assigned."""
-    claim = get_active_claim(team_id=team_id, report_id=report_id)
-    claimant = responsible_user(claim) if claim is not None else None
-    if claimant is None:
-        return None
-    return get_org_member_github_logins_by_user_uuid(team_id, [str(claimant.uuid)]).get(str(claimant.uuid))
 
 
 def ranked_reviewer_logins(*, team_id: int, report_id: str) -> list[str]:
@@ -332,15 +322,21 @@ def _was_unassigned_by_hand(github: GitHubIntegration, *, team_id: int, report_i
     return bool(result.get("unassigned"))
 
 
-def dri_candidate_logins(*, claimant: str | None, team: OwningTeam | None, reviewers: list[str]) -> list[str]:
+def dri_candidate_logins(*, team: OwningTeam | None, reviewers: list[str]) -> list[str]:
     """GitHub logins that can own the pull request, the most responsible first.
 
-    The claimant comes first, because to claim a report is to take the work on. The members of the
-    team that owns the changed files come next. The suggested reviewers take their place when no
-    ownership source names a team.
+    Only owners: the members of the team that owns the changed files, or the suggested reviewers
+    when no ownership source names a team. Who claimed the report does not rank anybody here,
+    because an auto-started report is claimed by its own implementation task, and that task runs as
+    the report's top suggested reviewer — a commit-history guess, not a statement of ownership.
+
+    Within the owning team, a member the report already suggests comes first. They touched this code,
+    so they answer for it more closely than a teammate picked at random.
     """
-    others = team.logins if team is not None and team.logins else reviewers
-    return list(dict.fromkeys(login for login in (claimant, *others) if login))
+    if team is None or not team.logins:
+        return list(dict.fromkeys(reviewers))
+    suggested_members = [login for login in reviewers if login in team.logins]
+    return list(dict.fromkeys([*suggested_members, *team.logins]))
 
 
 def assign_reviewers_to_pull_request(*, team_id: int, report_id: str, pr_url: str) -> list[str]:
@@ -384,22 +380,19 @@ def assign_reviewers_to_pull_request(*, team_id: int, report_id: str, pr_url: st
     if not dri_enabled or owned_elsewhere:
         return assigned
 
-    claimant = claimant_login(team_id=team_id, report_id=report_id)
     team = _owning_team(github, team_id=team_id, report_id=report_id, parsed=parsed)
-    # An opted-in reviewer owns the pull request only as its claimant or as a member of the owning
-    # team. A reviewer who opted in is often suggested for other teams' code too.
-    owners = {login.lower() for login in (claimant, *(team.logins if team else ())) if login}
+    # An opted-in reviewer owns the pull request only as a member of the owning team, because a
+    # reviewer who opted in is often suggested for other teams' code too.
+    owning_team_logins = {login.lower() for login in (team.logins if team is not None else ())}
     assigned_lower = {login.lower() for login in assigned}
-    if assigned and (not owners or assigned_lower & owners):
+    if assigned and (not owning_team_logins or assigned_lower & owning_team_logins):
         return assigned
     if _was_unassigned_by_hand(github, team_id=team_id, report_id=report_id, parsed=parsed):
         return assigned
 
     # One owner rather than every candidate, because each person on a shared assignment reads the
     # pull request as somebody else's job.
-    candidates = dri_candidate_logins(
-        claimant=claimant, team=team, reviewers=ranked_reviewer_logins(team_id=team_id, report_id=report_id)
-    )
+    candidates = dri_candidate_logins(team=team, reviewers=ranked_reviewer_logins(team_id=team_id, report_id=report_id))
     dri = _first_assignable_login(
         github,
         team_id=team_id,
