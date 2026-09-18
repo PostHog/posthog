@@ -1,0 +1,3 @@
+distinct_id,timestamp,utm_campaign,utm_source,revenue
+dw_user_1,2023-01-10 10:00:00,summer_sale,google,100
+dw_user_2,2023-01-12 11:00:00,summer_sale,google,250

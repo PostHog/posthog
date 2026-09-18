@@ -323,8 +323,8 @@ class ConversionGoalProcessor:
     def get_utm_expressions(self) -> tuple[ast.Expr, ast.Expr]:
         """Build UTM campaign and source expressions for different node types"""
         schema_map = self.goal.schema_map
-        campaign_field = schema_map.get("utm_campaign_name", "utm_campaign")
-        source_field = schema_map.get("utm_source_name", "utm_source")
+        campaign_field = schema_map.get("utm_campaign_name") or "utm_campaign"
+        source_field = schema_map.get("utm_source_name") or "utm_source"
 
         if self.goal.kind in ["EventsNode", "ActionsNode"]:
             # For events table, UTM data is in properties
@@ -342,7 +342,7 @@ class ConversionGoalProcessor:
     def _resolve_field_name(self, field: TrackedField) -> str:
         """Resolve a tracked field's event property name, checking schema_map for overrides."""
         if field.schema_map_key:
-            return self.goal.schema_map.get(field.schema_map_key, field.event_property)
+            return self.goal.schema_map.get(field.schema_map_key) or field.event_property
         return field.event_property
 
     def sums_a_property(self) -> bool:
@@ -384,7 +384,7 @@ class ConversionGoalProcessor:
         """Build DAU (Daily Active Users) select expression"""
         if self.goal.kind == "DataWarehouseNode":
             schema_map = self.goal.schema_map
-            distinct_id_field = schema_map.get("distinct_id_field", self.config.default_distinct_id_field)
+            distinct_id_field = schema_map.get("distinct_id_field") or self.config.default_distinct_id_field
             return ast.Call(name="uniq", args=[ast.Field(chain=[distinct_id_field])])
         return ast.Call(name="uniq", args=[ast.Field(chain=["events", self.config.default_distinct_id_field])])
 
@@ -396,7 +396,7 @@ class ConversionGoalProcessor:
 
         if self.goal.kind == "DataWarehouseNode":
             property_field = ast.Field(chain=[math_property])
-            timestamp_field = self.goal.schema_map.get("timestamp_field", "timestamp")
+            timestamp_field = self.goal.schema_map.get("timestamp_field") or "timestamp"
             timestamp_expr: ast.Expr = ast.Field(chain=[timestamp_field])
         else:
             property_field = ast.Field(chain=["events", "properties", math_property])
@@ -465,7 +465,7 @@ class ConversionGoalProcessor:
         """Get appropriate timestamp field based on goal type"""
         if self.goal.kind == "DataWarehouseNode":
             schema_map = self.goal.schema_map
-            return schema_map.get("timestamp_field", "timestamp")
+            return schema_map.get("timestamp_field") or "timestamp"
         return "events.timestamp"
 
     def generate_cte_query(
@@ -2115,8 +2115,8 @@ class ConversionGoalProcessor:
             resolved_name = self._resolve_field_name(field)
             raw_expr: ast.Expr = ast.Field(chain=["events", "properties", resolved_name])
             return ast.Call(name="coalesce", args=[raw_expr, ast.Constant(value=field.default_value)])
-        elif field.schema_map_key and field.schema_map_key in self.goal.schema_map:
-            raw_expr = ast.Field(chain=[self.goal.schema_map[field.schema_map_key]])
+        elif field.schema_map_key and (column := self.goal.schema_map.get(field.schema_map_key)):
+            raw_expr = ast.Field(chain=[column])
             return ast.Call(name="coalesce", args=[raw_expr, ast.Constant(value=field.default_value)])
         else:
             return ast.Constant(value=field.default_value)

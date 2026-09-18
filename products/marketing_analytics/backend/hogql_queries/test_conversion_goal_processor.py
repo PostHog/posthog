@@ -29,7 +29,10 @@ from products.actions.backend.models.action import Action
 from products.marketing_analytics.backend.hogql_queries.conversion_goal_conditions import (
     add_conversion_goal_property_filters,
 )
-from products.marketing_analytics.backend.hogql_queries.conversion_goal_processor import ConversionGoalProcessor
+from products.marketing_analytics.backend.hogql_queries.conversion_goal_processor import (
+    TRACKED_FIELDS,
+    ConversionGoalProcessor,
+)
 from products.marketing_analytics.backend.hogql_queries.marketing_analytics_config import MarketingAnalyticsConfig
 from products.warehouse_sources.backend.facade.testing import create_data_warehouse_table_from_csv
 
@@ -255,6 +258,92 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
 
         assert processor.get_table_name() == "warehouse_table"
         assert processor.get_date_field() == "event_timestamp"
+
+    def test_data_warehouse_node_null_schema_map_values_fall_back_to_defaults(self):
+        """A JSON null in schema_map must not reach the HogQL printer as a field name."""
+        csv_path = Path(__file__).parent / "test/external/warehouse_conversions_default_columns.csv"
+        table, _source, _credential, _df, cleanup_fn = create_data_warehouse_table_from_csv(
+            csv_path,
+            "conversions_default_columns",
+            {
+                "distinct_id": "String",
+                "timestamp": "DateTime",
+                "utm_campaign": "String",
+                "utm_source": "String",
+                "revenue": "Int64",
+            },
+            "test_storage_bucket-posthog.marketing_analytics.default_columns",
+            self.team,
+        )
+        self.addCleanup(cleanup_fn)
+
+        goal = ConversionGoalFilter3(
+            kind="DataWarehouseNode",
+            id=table.name,
+            table_name=table.name,
+            conversion_goal_id="warehouse_null_schema_map",
+            conversion_goal_name="Warehouse Null Schema Map",
+            math=BaseMathType.DAU,
+            distinct_id_field="distinct_id",
+            id_field="distinct_id",
+            timestamp_field="timestamp",
+            schema_map={
+                "utm_campaign_name": None,
+                "utm_source_name": None,
+                "distinct_id_field": None,
+                "timestamp_field": None,
+            },
+        )
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
+
+        additional_conditions: list[ast.Expr] = [
+            ast.CompareOperation(
+                left=ast.Field(chain=["timestamp"]),
+                op=ast.CompareOperationOp.GtEq,
+                right=ast.Call(name="toDate", args=[ast.Constant(value="2023-01-01")]),
+            ),
+        ]
+        cte_query = processor.generate_cte_query(additional_conditions)
+        response = execute_hogql_query(query=cte_query, team=self.team)
+
+        # Schema: [0]=match_key, [1]=campaign, [2]=id, [3]=source, [4]=conversion
+        results = {row[1]: (row[3], row[4]) for row in response.results}
+        assert results == {"summer_sale": ("google", 2)}, (
+            f"Null schema_map values must fall back to the default column names, got {response.results}"
+        )
+
+    def test_null_schema_map_value_does_not_reach_a_field_chain(self):
+        """Every tracked field with a null schema_map entry must resolve to a default, not None."""
+        null_schema_map = {field.schema_map_key: None for field in TRACKED_FIELDS if field.schema_map_key}
+
+        events_goal = ConversionGoalFilter1(
+            kind="EventsNode",
+            event="sign_up",
+            conversion_goal_id="null_schema_events",
+            conversion_goal_name="Null Schema Events",
+            math=BaseMathType.TOTAL,
+            schema_map=null_schema_map,
+        )
+        events_processor = ConversionGoalProcessor(goal=events_goal, index=0, team=self.team, config=self.config)
+        for field in TRACKED_FIELDS:
+            assert events_processor._resolve_field_name(field) == field.event_property
+
+        warehouse_goal = ConversionGoalFilter3(
+            kind="DataWarehouseNode",
+            id="warehouse_null_schema",
+            table_name="warehouse_null_schema",
+            conversion_goal_id="null_schema_warehouse",
+            conversion_goal_name="Null Schema Warehouse",
+            math=BaseMathType.TOTAL,
+            distinct_id_field="distinct_id",
+            id_field="distinct_id",
+            timestamp_field="timestamp",
+            schema_map=null_schema_map,
+        )
+        warehouse_processor = ConversionGoalProcessor(goal=warehouse_goal, index=0, team=self.team, config=self.config)
+        for field in TRACKED_FIELDS:
+            expr = warehouse_processor._resolve_direct_field_expr(field, "warehouse_null_schema")
+            assert expr == ast.Constant(value=field.default_value)
 
     def test_data_warehouse_node_empty_utm_falls_back_to_organic(self):
         csv_path = Path(__file__).parent / "test/external/warehouse_conversions_empty_utm.csv"
