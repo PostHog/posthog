@@ -51839,6 +51839,7 @@
                     "items": {
                         "$ref": "#/definitions/StickinessQuerySeriesNode"
                     },
+                    "maxItems": 200,
                     "type": "array"
                 },
                 "stickinessFilter": {
@@ -54540,6 +54541,7 @@
                     "items": {
                         "$ref": "#/definitions/TrendsQuerySeriesNode"
                     },
+                    "maxItems": 200,
                     "type": "array"
                 },
                 "tags": {
