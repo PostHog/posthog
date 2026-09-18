@@ -27,7 +27,6 @@ import { useNotebookNode } from 'scenes/notebooks/Nodes/NotebookNodeContext'
 import { RecordingsUniversalFiltersEmbedButton } from 'scenes/session-recordings/filters/RecordingsUniversalFiltersEmbed'
 import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
 import { playlistFiltersLogic } from 'scenes/session-recordings/playlist/playlistFiltersLogic'
-import { ReplayExclusionsUnderOrNotice } from 'scenes/session-recordings/playlist/ReplayExclusionsUnderOrNotice'
 import { SessionRecordingPreview } from 'scenes/session-recordings/playlist/SessionRecordingPreview'
 import { sessionRecordingsPlaylistLogic } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
 import { SessionRecordingsPlaylistTopSettings } from 'scenes/session-recordings/playlist/SessionRecordingsPlaylistSettings'
@@ -337,7 +336,6 @@ export function Playlist({
                                 until you close it.
                             </LemonBanner>
                         )}
-                        <ReplayExclusionsUnderOrNotice filters={filters} />
                         <div className="overflow-y-auto flex-1 min-h-0" onScroll={handleScroll} ref={setScrollEl}>
                             {sectionCount > 1 ? (
                                 <LemonCollapse
