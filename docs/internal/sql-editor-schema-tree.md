@@ -13,7 +13,8 @@ Warehouse field requests first read a lightweight name catalog, then load column
 Keeping the namespace preserves inferred foreign keys, reverse joins, and the field names exposed on joined tables.
 Requests with saved views in that namespace, explicit joins, saved expressions, revenue views, or event modifiers retain the complete construction path.
 Direct connections and requests that include built-in tables also retain the complete construction path.
-Schema metadata reads do not load warehouse credentials or decrypt source configuration.
+Serialization metadata reads do not reload warehouse credentials or decrypt source configuration.
+Database construction still loads credentials for retained warehouse tables.
 Saved views use the shared schema store for tree fields, joined fields, and the field overlay.
 Expanded joins request the referenced table separately, including joins nested inside other joins.
 Joins into saved views show loading or error children until the view's fields are available, including when the join is restored as expanded.
