@@ -2,15 +2,18 @@
 
 One asset on the daily partition:
 
-    inbox_ranking_shadow_eval/v1/dt=D/   one row per (model, outcome, order) graded on D's lists
+    inbox_ranking_shadow_eval/v1/dt=D/   one row per (model, outcome, order, scope) on D's lists
 
 The inbox still serves a fixed sort, and no list response carries a model rank, so the model
 cannot be measured by what people clicked on it. What can be measured is the counterfactual: take
 the lists that were actually served on D, take the score each report already had when its list was
 served, and ask whether the model's order would have put the opened and acted-on reports higher
-than the served order did. `shadow/metrics.py` holds the ranking metrics and the position-bias
-caveat; this module reads the lists from the dogfood project, the scores from S3, and writes the
-grades back.
+than the served order did. `shadow/metrics.py` holds the ranking metrics, the grading scopes and
+the position-bias caveat; this module reads the lists from the dogfood project, the scores from
+S3, and writes the grades back.
+
+The impression read is scoped to this deployment's app host, for the reason `region_app_host`
+gives.
 
 The read grades a model that is not serving, so nothing here changes what anyone sees.
 """
@@ -71,6 +74,7 @@ _GRADE_FIELDS: list[tuple[str, pa.DataType]] = [
     ("model_versions", pa.int32()),
     ("outcome", pa.string()),
     ("ranking_order", pa.string()),
+    ("grading_scope", pa.string()),
     ("lists", pa.int64()),
     ("reports", pa.int64()),
     ("mean_list_size", pa.float64()),
@@ -85,6 +89,10 @@ _GRADE_FIELDS: list[tuple[str, pa.DataType]] = [
     ("score_coverage", pa.float64()),
     ("positive_coverage", pa.float64()),
     ("full_list_coverage", pa.float64()),
+    ("scored_list_share", pa.float64()),
+    ("score_pending_share", pa.float64()),
+    ("never_scored_share", pa.float64()),
+    ("champion_is_fallback", pa.bool_()),
     ("served_rows", pa.int64()),
     ("served_lists", pa.int64()),
     ("run_score_coverage", pa.float64()),
@@ -133,7 +141,8 @@ def load_scores(client, bucket: str, prefix: str, dates: list[datetime.date]) ->
     servable. Use LastModified from the same GET as the data, so rewrites and backfills cannot
     backdate scores. A rewrite conservatively loses coverage before that write. Missing champion
     rows for a partition/family/head fall back to its candidate, including shared-version days;
-    this fallback does not establish which version historically held the champion pointer.
+    `score_is_fallback` marks those rows, and the fallback does not establish which version
+    historically held the champion pointer.
     Missing partitions are ordinary: a day the training job did not run scored nobody."""
     frames: list[pd.DataFrame] = []
     for date in dates:
@@ -154,7 +163,7 @@ def load_scores(client, bucket: str, prefix: str, dates: list[datetime.date]) ->
         # head, this read grades two of the seven, and the whole lookback window is held at once.
         frame = with_model_names(table.to_pandas())[list(SCORE_JOIN_COLUMNS)]
         frame = frame.loc[frame["head"].isin(OUTCOMES)].assign(
-            available_at=pd.to_datetime(response["LastModified"], utc=True)
+            available_at=pd.to_datetime(response["LastModified"], utc=True), score_is_fallback=False
         )
         partition_columns = ["snapshot_date", "model_name", "head"]
         champions = frame.loc[frame["model_role"] == "champion", partition_columns].drop_duplicates()
@@ -162,11 +171,13 @@ def load_scores(client, bucket: str, prefix: str, dates: list[datetime.date]) ->
             champions, on=partition_columns, how="left", indicator=True
         )
         fallback = (
-            candidates.loc[candidates["_merge"] == "left_only"].drop(columns="_merge").assign(model_role="champion")
+            candidates.loc[candidates["_merge"] == "left_only"]
+            .drop(columns="_merge")
+            .assign(model_role="champion", score_is_fallback=True)
         )
         frames.extend([frame, fallback])
     if not frames:
-        return pd.DataFrame(columns=[*SCORE_JOIN_COLUMNS, "available_at"])
+        return pd.DataFrame(columns=[*SCORE_JOIN_COLUMNS, "available_at", "score_is_fallback"])
     return pd.concat(frames, ignore_index=True)
 
 
@@ -198,7 +209,10 @@ def grade_metadata(grades: list[RankingGrade]) -> dict[str, dagster.MetadataValu
         for name, value in grade.metrics().items():
             if value is None:
                 continue
-            key = f"{grade.outcome}_{grade.model_name}_{grade.model_role}_{grade.ranking_order}_{name}"
+            key = (
+                f"{grade.outcome}_{grade.model_name}_{grade.model_role}_"
+                f"{grade.grading_scope}_{grade.ranking_order}_{name}"
+            )
             metadata[key] = (
                 dagster.MetadataValue.int(value) if isinstance(value, int) else dagster.MetadataValue.float(value)
             )

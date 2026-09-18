@@ -1,11 +1,14 @@
 """The shadow read as events, next to the training and unseen series.
 
 The Parquet is the durable record, but a daily object in S3 cannot be charted. One event per
-(model, outcome, order) makes the three lines a trends insight with a `ranking_order` breakdown,
-so "does the model order better than the list people get" is one chart. A run event rides
-alongside them, one per partition whether or not anything was graded, so an alert can tell a
-quiet day from a run that never finished. The capture plumbing is the training dag's, shared
-rather than duplicated.
+(model, outcome, order, grading scope) makes the three lines a trends insight with a
+`ranking_order` breakdown, so "does the model order better than the list people get" is one chart.
+Pick one `grading_scope` per chart: `scored_rows` is the like-for-like read, `all_rows` keeps the
+older series and carries the part-scored handicap with it.
+
+A run event rides alongside them, one per partition whether or not anything was graded, so an
+alert can tell a quiet day from a run that never finished. The capture plumbing is the training
+dag's, shared rather than duplicated.
 """
 
 from collections.abc import Sequence
@@ -34,7 +37,8 @@ def shadow_grade_events(
 
     The run-level counts ride on every grade event too, so a chart can filter on them without a
     join. Each grade also carries its own `score_coverage`, which is the one to filter a single
-    line on.
+    line on, and `scored_list_share`, `score_pending_share` and `never_scored_share` say how much
+    of the day that line rests on and why the rest is missing.
     """
     reason = None
     if not grades:
