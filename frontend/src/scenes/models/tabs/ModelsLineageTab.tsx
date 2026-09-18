@@ -38,9 +38,7 @@ export function ModelsLineageTab(): JSX.Element {
     } = useValues(modelsLineageLogic)
     const { setSearchTerm, setTypeFilter, toggleLegendCollapsed, resetFilters } = useActions(modelsLineageLogic)
     const focusNodeIds =
-        parsedSearch.mode === 'search'
-            ? highlightedNodeIds
-            : new Set(visibleNodes.map((node) => node.id))
+        parsedSearch.mode === 'search' ? highlightedNodeIds : new Set(visibleNodes.map((node) => node.id))
 
     return (
         <div className="flex flex-col gap-2">
