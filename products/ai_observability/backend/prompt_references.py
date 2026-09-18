@@ -31,6 +31,10 @@ PROMPT_REFERENCE_REGEX = re.compile(
 )
 
 MAX_PROMPT_REFERENCES = 20
+# Incoming references are unbounded (any number of prompts can reference one
+# partial), so surfaces listing them cap the result. Existence checks stay
+# correct: over the cap still means "referenced".
+MAX_ACTIVE_REFERENCE_RESULTS = 100
 
 
 @frozen
@@ -91,11 +95,9 @@ def get_active_references_to(team_id: int, child_name: str) -> list[dict[str, An
         .exclude(parent_name=child_name)
         .values_list("parent_name", "child_label", "child_version")
         .distinct()
+        .order_by("parent_name", "child_label", "child_version")[:MAX_ACTIVE_REFERENCE_RESULTS]
     )
-    return [
-        {"name": name, "label": label, "version": version}
-        for name, label, version in sorted(rows, key=lambda row: (row[0], row[1] or "", row[2] or 0))
-    ]
+    return [{"name": name, "label": label, "version": version} for name, label, version in rows]
 
 
 def get_active_parents_referencing_label(team_id: int, prompt_name: str, label_name: str) -> list[str]:

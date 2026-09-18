@@ -682,6 +682,7 @@ class LLMPromptResolveResponseSerializer(serializers.Serializer):
         many=True,
         help_text=(
             "Prompts whose latest or labeled version references this prompt, with the label or version "
-            "each reference uses. Empty when nothing references this prompt."
+            "each reference uses. Empty when nothing references this prompt. At most 100 entries, "
+            "ordered by prompt name."
         ),
     )
