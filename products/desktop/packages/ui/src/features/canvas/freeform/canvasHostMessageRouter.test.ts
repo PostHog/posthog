@@ -385,6 +385,61 @@ describe("createCanvasHostMessageRouter", () => {
     await Promise.all(requests);
   });
 
+  it("keeps a timed-out request's slot until its call settles", async () => {
+    vi.useFakeTimers();
+    try {
+      const post = vi.fn();
+      const completions: Array<(value: unknown) => void> = [];
+      const route = createCanvasHostMessageRouter({
+        post,
+        callbacks: () => ({
+          onDataRequest: () =>
+            new Promise((resolve) => {
+              completions.push(resolve);
+            }),
+        }),
+        hasUserActivation: () => true,
+        openExternal: vi.fn(),
+      });
+      for (let index = 0; index < 8; index += 1) {
+        void route({
+          channel: "posthog-canvas",
+          type: "data-request",
+          id: `query-${index}`,
+          method: "stateGet",
+          payload: { scope: "user", key: `k${index}` },
+        });
+      }
+      await vi.advanceTimersByTimeAsync(30_000);
+      expect(post).toHaveBeenCalledWith(
+        expect.objectContaining({
+          id: "query-0",
+          ok: false,
+          error: "Canvas data request timed out",
+        }),
+      );
+
+      // No host passes an abort signal, so a reported timeout leaves the query
+      // running. Starting the next request on its slot would put 9 in flight.
+      void route({
+        channel: "posthog-canvas",
+        type: "data-request",
+        id: "after-timeout",
+        method: "stateGet",
+        payload: { scope: "user", key: "after" },
+      });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(completions).toHaveLength(8);
+
+      // The slot is free once the call itself settles.
+      for (const resolve of completions.splice(0)) resolve(null);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(completions).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("stops waiting for a slot before the canvas runtime gives up", async () => {
     vi.useFakeTimers();
     try {

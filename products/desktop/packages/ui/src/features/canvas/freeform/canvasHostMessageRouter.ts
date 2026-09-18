@@ -95,6 +95,19 @@ function acquireSlot(slots: RequestSlots): Promise<boolean> {
   });
 }
 
+function withRequestTimeout<T>(call: Promise<T>): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  return Promise.race([
+    call,
+    new Promise<never>((_, reject) => {
+      timer = setTimeout(
+        () => reject(new Error("Canvas data request timed out")),
+        DATA_REQUEST_TIMEOUT_MS,
+      );
+    }),
+  ]).finally(() => clearTimeout(timer));
+}
+
 function releaseSlot(slots: RequestSlots): void {
   const next = slots.waiting.shift();
   if (next) {
@@ -233,25 +246,26 @@ export function createCanvasHostMessageRouter(
           );
           break;
         }
+        // The async wrapper turns a callback that throws on the spot, such as a
+        // capability check, into a rejection the slot release can follow.
+        const call = (async () =>
+          options.callbacks().onDataRequest(message.method, message.payload))();
+        // A timed-out request is reported to the canvas, but the call behind it
+        // keeps running: no host passes an abort signal down to the query. The
+        // slot therefore follows the call, not the report, so the cap counts
+        // the work that is really in flight.
+        if (slots) {
+          const release = (): void => releaseSlot(slots);
+          call.then(release, release);
+        }
         try {
-          const call = options
-            .callbacks()
-            .onDataRequest(message.method, message.payload);
           // Approval dialogs can stay open longer than the I/O timeout.
           // Do not report a failure while a later approval can still run the call.
           const result =
             message.method === "agentRequest" ||
             message.method === "connectorCall"
               ? await call
-              : await Promise.race([
-                  call,
-                  new Promise<never>((_, reject) =>
-                    setTimeout(
-                      () => reject(new Error("Canvas data request timed out")),
-                      DATA_REQUEST_TIMEOUT_MS,
-                    ),
-                  ),
-                ]);
+              : await withRequestTimeout(call);
           options.post({
             channel: "posthog-canvas",
             type: "data-response",
@@ -267,8 +281,6 @@ export function createCanvasHostMessageRouter(
             ok: false,
             error: error instanceof Error ? error.message : String(error),
           });
-        } finally {
-          if (slots) releaseSlot(slots);
         }
         break;
       }
