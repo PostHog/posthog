@@ -88,8 +88,17 @@ from posthog.tasks.email import (
     send_password_reset,
     send_two_factor_auth_backup_code_used_email,
 )
-from posthog.utils import get_instance_available_sso_providers, get_ip_address, get_short_user_agent
+from posthog.utils import (
+    get_instance_available_sso_providers,
+    get_ip_address,
+    get_short_user_agent,
+    get_trusted_client_ip,
+)
 from posthog.workos_radar import RadarAction, RadarAuthMethod, evaluate_auth_attempt
+
+from products.security.backend.facade.api import shadow_check as security_shadow_check
+from products.security.backend.facade.contracts import SubjectInput as SecuritySubject
+from products.security.backend.facade.enums import Surface as SecuritySurface
 
 logger = structlog.get_logger("posthog.auth")
 mfa_logger = structlog.get_logger("posthog.auth.mfa")
@@ -353,6 +362,15 @@ class LoginSerializer(serializers.Serializer):
                 raise AxesBackendPermissionDenied("Account locked: too many login attempts.")
 
             raise serializers.ValidationError("Invalid email or password.", code="invalid_credentials")
+
+        try:
+            security_shadow_check(
+                SecuritySubject(email=user.email, user_uuid=str(user.uuid), ip=get_trusted_client_ip(axes_request)),
+                SecuritySurface.APP,
+                call_site="login",
+            )
+        except Exception:
+            logger.exception("security_shadow_check_site_failed", call_site="login")
 
         if not is_email_verified_for_login(user):
             # A fresh code was just emailed; hand the frontend the uuid so it can route to

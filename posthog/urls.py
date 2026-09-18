@@ -59,6 +59,7 @@ from products.notebooks.backend.facade.sql_v2 import (
     notebook_sql_v2_data_plane_status,
 )
 from products.product_tours.backend.api import product_tours
+from products.security.backend.presentation.hub_api import urlpatterns as security_hub_urlpatterns
 from products.signals.backend import views as signals_views
 from products.signals.backend.views import SignalUserAutonomyConfigView as signals_user_autonomy_view
 from products.slack_app.backend.api import (
@@ -154,6 +155,8 @@ urlpatterns = [
     ),
     path("api/sdk_health/", sdk_health),
     path("api/conversations/", include("products.conversations.backend.api.urls")),
+    # Routes the security hub calls from outside the cluster (auth: scoped service JWT)
+    path("api/security/", include(security_hub_urlpatterns)),
     path("api/customer_analytics/", include("products.customer_analytics.backend.presentation.views.urls")),
     path(
         "api/projects/<int:parent_lookup_team_id>/mcp_analytics/",
