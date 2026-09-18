@@ -75,7 +75,9 @@ export interface actionEditLogicActions {
     loadEventDefinitions: (url?: string | null | undefined) => {
         url: string | null
     } // eventDefinitionsTableLogic
-    loadTags: () => any // tagsModel
+    loadTags: () => {
+        value: true
+    } // tagsModel
     actionAlreadyExists: (actionId: number | null) => {
         actionId: number | null
     }

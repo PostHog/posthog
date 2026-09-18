@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING, TypedDict
+from typing import TYPE_CHECKING
 
 from django.db import IntegrityError, transaction
 from django.db.models import Q, QuerySet
@@ -25,15 +25,6 @@ if TYPE_CHECKING:
     from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 
 logger = structlog.get_logger(__name__)
-
-# properties["system"] marker set by consolidate_dags --adopt-unresolvable when a query's SQL
-# would not resolve and its node was created without edges. A successful sync clears it.
-DEGRADED_SYNC_KEY = "degraded_sync"
-
-
-class DegradedSyncMarker(TypedDict):
-    error: str
-    at: str
 
 
 def materializes(saved_query: "DataWarehouseSavedQuery") -> bool:
@@ -290,11 +281,7 @@ def sync_saved_query_to_dag(
         raise
 
     # resolution succeeded, so an edge-less adoption marker no longer describes this node
-    system = (target.properties or {}).get("system")
-    if isinstance(system, dict):
-        system.pop(DEGRADED_SYNC_KEY, None)
-        if not system:
-            target.properties.pop("system", None)
+    target.clear_lineage_markers()
 
     # name is included in update_fields because Node.save() auto-syncs it from saved_query
     target.save(update_fields=["name", "type", "properties"])

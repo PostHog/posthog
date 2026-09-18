@@ -79,7 +79,10 @@ position with `"cursor":"<nextCursor>"` to retrieve it. The HTTP `Content-Length
 The parser currently accepts ClickHouse's `database.table` identifiers but not HogQL's three-part synced-table names.
 Shared analysis normalizes those table references before parsing while preserving byte offsets.
 For incomplete SQL, completion can recover a single query's `FROM` clause and keeps the parser error in `parseError`.
-It does not recover bindings from malformed CTEs or nested queries.
+Queries with complete CTE definitions can also retain their outer SELECT/FROM scope through unfinished trailing clauses, including completion inside an unfinished outer predicate.
+This preserves derived fields, known property origins, and retained SELECT aliases.
+Recovery excludes malformed CTE bodies, nested SELECTs in the outer query, FROM/JOIN cursor positions, and incomplete JOIN sources.
+Validation still reports the original query's syntax errors.
 Completion and validation recognize explicit SELECT aliases in later SELECT items and clauses resolved after SELECT, including WHERE, GROUP BY, HAVING, and ORDER BY.
 Aliases stay within their defining query and do not appear in JOIN conditions.
 Computed and nested property provenance, additional alias forms, parser recovery, and other exclusions are tracked in [query analysis and remaining work](../../docs/internal/hogql-language-service.md#recovery-and-remaining-work).
