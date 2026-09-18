@@ -6,11 +6,12 @@ from unittest.mock import patch
 
 from django.contrib.admin.sites import AdminSite
 from django.contrib.auth.models import Group
+from django.contrib.messages import get_messages
 from django.contrib.messages.storage.fallback import FallbackStorage
-from django.core.exceptions import PermissionDenied
 from django.test import RequestFactory, override_settings
 from django.utils import timezone
 
+from parameterized import parameterized
 from temporalio.common import WorkflowIDConflictPolicy
 
 from posthog.admin.admins.project_admin import ProjectAdmin
@@ -58,6 +59,7 @@ class TestProjectAdminDeleteNow(BaseTest):
             ) as mock_start,
         ):
             response = self.admin.delete_now_view(http_request, str(self.project.pk))
+        self.last_request = http_request
         return response, mock_start
 
     def test_post_deletes_pending_project_now(self):
@@ -117,12 +119,36 @@ class TestProjectAdminDeleteNow(BaseTest):
         self.assertIn("is_pending_deletion", self.admin.readonly_fields)
         self.assertIn("deletion_scheduled_at", self.admin.readonly_fields)
 
-    def test_staff_outside_deletion_group_cannot_delete_now(self):
+    def test_staff_outside_deletion_group_is_told_which_group_is_needed(self):
         self.user.groups.clear()
 
-        with self.assertRaises(PermissionDenied):
-            self._call()
+        response, mock_start = self._call()
 
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.url, _fake_reverse("admin:posthog_project_change", args=[self.project.pk]))
+        self.assertIn(DELETION_AUTHORIZED_GROUP, " ".join(str(m) for m in get_messages(self.last_request)))
+        mock_start.assert_not_called()
         self.project.refresh_from_db()
         self.assertTrue(self.project.is_pending_deletion)
         self.assertEqual(self.project.deletion_scheduled_at, timezone.now() + timedelta(hours=48))
+
+    @parameterized.expand(
+        [
+            ("trigger_deletion_display", "Trigger deletion"),
+            ("delete_now_display", "Delete now"),
+        ]
+    )
+    def test_danger_zone_button_needs_the_deletion_group(self, display_name: str, button_label: str):
+        self.project.refresh_from_db()
+        http_request = self.factory.get(f"/admin/posthog/project/{self.project.pk}/change/")
+        http_request.user = self.user
+        self.admin._current_request = http_request
+
+        with patch("posthog.admin.admins.project_admin.reverse", side_effect=_fake_reverse):
+            authorized = getattr(self.admin, display_name)(self.project)
+            self.user.groups.clear()
+            unauthorized = getattr(self.admin, display_name)(self.project)
+
+        self.assertIn(button_label, authorized)
+        self.assertNotIn(button_label, unauthorized)
+        self.assertIn(DELETION_AUTHORIZED_GROUP, unauthorized)
