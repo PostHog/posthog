@@ -1,4 +1,5 @@
 import uuid
+import hashlib
 import datetime as dt
 from typing import cast
 from uuid import uuid4
@@ -1207,6 +1208,28 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         # Fixing the filters leaves the destination off, so the second email must reach the
         # recipients rather than being deduped away by the first.
         assert mocked_email_messages[0].campaign_key != mocked_email_messages[1].campaign_key
+
+    def test_send_hog_function_filters_uncompilable_keys_the_campaign_on_a_stable_digest(
+        self, MockEmailMessage: MagicMock
+    ) -> None:
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        bytecode_error = "Cohort membership can't be evaluated"
+        hog_function = HogFunction.objects.create(team=self.team, name="Broken destination", enabled=True)
+        HogFunction.objects.filter(id=hog_function.id).update(
+            filters={"bytecode": None, "bytecode_error": bytecode_error}
+        )
+
+        send_hog_function_filters_uncompilable(str(hog_function.id))
+
+        # The key decides whether a re-run emails the same people again, so it has to survive a
+        # worker restart. hash() is salted per interpreter and would not.
+        digest = hashlib.sha256(bytecode_error.encode("utf-8")).hexdigest()[:16]
+        assert (
+            mocked_email_messages[0].campaign_key
+            == f"hog_function_filters_uncompilable_{hog_function.id}_{digest}_enabled"
+        )
 
     def test_send_hog_function_filters_uncompilable_sends_nothing_without_an_error(
         self, MockEmailMessage: MagicMock
