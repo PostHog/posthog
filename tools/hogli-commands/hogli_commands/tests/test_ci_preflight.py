@@ -417,6 +417,20 @@ class TestLockfileMerge:
     ) -> None:
         assert missing_resolutions(_lockfile(importer_deps, packages, snapshots)) == expected
 
+    def test_reports_a_registry_dependency_when_both_resolution_sections_are_empty(self) -> None:
+        # A lockfile that resolves nothing is broken, not clean. Treating an empty
+        # result as "nothing to say" would hide exactly the breakage this catches.
+        broken = _lockfile("      posthog-js:\n        specifier: 'catalog:'\n        version: 1.433.9\n")
+        assert missing_resolutions(broken) == ["posthog-js@1.433.9"]
+
+    def test_stays_quiet_on_a_lockfile_layout_it_does_not_know(self) -> None:
+        # A future lockfileVersion may move the resolution sections. Reading that
+        # as "resolves nothing" would warn on every push touching the lockfile.
+        future = _lockfile("      posthog-js:\n        specifier: 'catalog:'\n        version: 1.433.9\n").replace(
+            "lockfileVersion: '9.0'", "lockfileVersion: '10.0'"
+        )
+        assert missing_resolutions(future) == []
+
     def test_the_repos_own_lockfile_is_clean(self) -> None:
         # A parser regression that reports a false positive here would block every
         # push, so this guards the checked-in lockfile rather than a fixture.

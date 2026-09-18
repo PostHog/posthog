@@ -15,11 +15,28 @@ appears in the merge queue where the Docker build runs `--frozen-lockfile`.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 # Versions that resolve to a path or another workspace package rather than to a
 # registry snapshot, so `snapshots:` has nothing to hold for them.
 _NON_REGISTRY_PREFIXES = ("link:", "file:", "workspace:")
 
 _DEPENDENCY_BLOCKS = ("dependencies:", "devDependencies:", "optionalDependencies:")
+
+# The layout below is the one pnpm writes for lockfileVersion 9. Reading a
+# version this parser does not know would mistake an unrecognized layout for a
+# lockfile that resolves nothing, and report every dependency as broken.
+_SUPPORTED_LOCKFILE_MAJOR = "9"
+
+
+def _is_supported_layout(lockfile: str) -> bool:
+    for line in lockfile.splitlines():
+        if line.startswith("lockfileVersion:"):
+            version = _unquote(line[len("lockfileVersion:") :].strip())
+            return version.split(".")[0] == _SUPPORTED_LOCKFILE_MAJOR
+        if line and not line[0].isspace():
+            break
+    return False
 
 
 def _unquote(text: str) -> str:
@@ -69,11 +86,18 @@ def resolved_keys(lockfile: str) -> set[str]:
     return keys
 
 
-def importer_requirements(lockfile: str) -> list[tuple[str, str, str]]:
-    """Every (workspace, package, resolved version) an importer block declares."""
-    requirements: list[tuple[str, str, str]] = []
+@dataclass(frozen=True, kw_only=True, slots=True)
+class ImporterDependency:
+    """One dependency an importer declares, and the version it resolved to."""
+
+    package: str
+    version: str
+
+
+def importer_dependencies(lockfile: str) -> list[ImporterDependency]:
+    """Every dependency the importer blocks declare."""
+    dependencies: list[ImporterDependency] = []
     in_section = False
-    workspace = ""
     in_block = False
     package = ""
     for line in lockfile.splitlines():
@@ -85,7 +109,6 @@ def importer_requirements(lockfile: str) -> list[tuple[str, str, str]]:
         indent = len(line) - len(line.lstrip(" "))
         stripped = line.strip()
         if indent == 2:
-            workspace = _unquote(_key_before_colon(stripped) or "")
             in_block = False
         elif indent == 4:
             in_block = stripped in _DEPENDENCY_BLOCKS
@@ -94,23 +117,26 @@ def importer_requirements(lockfile: str) -> list[tuple[str, str, str]]:
         elif indent == 8 and in_block and stripped.startswith("version:"):
             version = _unquote(stripped[len("version:") :].strip())
             if package and version and not version.startswith(_NON_REGISTRY_PREFIXES):
-                requirements.append((workspace, package, version))
-    return requirements
+                dependencies.append(ImporterDependency(package=package, version=version))
+    return dependencies
 
 
 def missing_resolutions(lockfile: str) -> list[str]:
     """Versions an importer resolves to that the lockfile does not define.
 
-    Empty for any lockfile pnpm would accept. A non-empty result names the keys
-    `--frozen-lockfile` reports, and needs no install to compute.
+    Empty for any lockfile pnpm would accept, and empty for a lockfile whose
+    layout this parser does not recognize, because a guess either way is worse
+    than staying quiet. A non-empty result names the keys `--frozen-lockfile`
+    reports, and needs no install to compute.
     """
-    keys = resolved_keys(lockfile)
-    if not keys:
+    if not _is_supported_layout(lockfile):
         return []
+    keys = resolved_keys(lockfile)
     missing = set()
-    for _, package, version in importer_requirements(lockfile):
+    for dependency in importer_dependencies(lockfile):
+        key = f"{dependency.package}@{dependency.version}"
         # An aliased dependency ("npm:@scope/other@1.2.3") carries the full spec
         # in its version, so that string is the key rather than name@version.
-        if f"{package}@{version}" not in keys and version not in keys:
-            missing.add(f"{package}@{version}")
+        if key not in keys and dependency.version not in keys:
+            missing.add(key)
     return sorted(missing)
