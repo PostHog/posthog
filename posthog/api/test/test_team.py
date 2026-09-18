@@ -46,6 +46,7 @@ from posthog.test.test_utils import create_group_type_mapping_without_created_at
 from posthog.utils import get_instance_realm
 
 from products.access_control.backend.models.access_control import AccessControl
+from products.conversations.backend.playbook import compose_support_playbook
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.workflows.backend.models.team_workflows_config import TeamWorkflowsConfig
 
@@ -1937,6 +1938,84 @@ def team_api_test_factory():
             assert settings["widget_identification_form_description"] == "Please provide your details."
             assert settings["widget_placeholder_text"] == "Type your message..."
 
+        def test_conversations_playbook_custom_instructions(self):
+            response = self.client.patch(
+                "/api/environments/@current/",
+                {"conversations_settings": {"ai_reply_custom_instructions": "  Always greet first.  "}},
+            )
+            assert response.status_code == status.HTTP_200_OK
+            assert response.json()["conversations_settings"]["ai_reply_custom_instructions"] == "Always greet first."
+
+            blank = self.client.patch(
+                "/api/environments/@current/",
+                {"conversations_settings": {"ai_reply_custom_instructions": "   "}},
+            )
+            assert blank.status_code == status.HTTP_200_OK
+            assert blank.json()["conversations_settings"]["ai_reply_custom_instructions"] is None
+
+            too_long = self.client.patch(
+                "/api/environments/@current/",
+                {"conversations_settings": {"ai_reply_custom_instructions": "x" * 8001}},
+            )
+            assert too_long.status_code == status.HTTP_400_BAD_REQUEST
+
+            reset = self.client.patch(
+                "/api/environments/@current/",
+                {"conversations_settings": {"ai_reply_custom_instructions": None}},
+            )
+            assert reset.status_code == status.HTTP_200_OK
+            assert reset.json()["conversations_settings"]["ai_reply_custom_instructions"] is None
+
+            inherited = compose_support_playbook().inherited_text
+            snapshot = self.client.patch(
+                "/api/environments/@current/",
+                {"conversations_settings": {"ai_reply_custom_instructions": inherited}},
+            )
+            assert snapshot.status_code == status.HTTP_200_OK
+            assert snapshot.json()["conversations_settings"]["ai_reply_custom_instructions"] is None
+
+            prefixed = self.client.patch(
+                "/api/environments/@current/",
+                {"conversations_settings": {"ai_reply_custom_instructions": f"{inherited}\n\nAlways greet first."}},
+            )
+            assert prefixed.status_code == status.HTTP_200_OK
+            assert prefixed.json()["conversations_settings"]["ai_reply_custom_instructions"] == "Always greet first."
+
+            # A later PATCH that omits docs_source has to normalize against the saved source, or
+            # the PostHog overlay the editor displayed gets stored as custom text and stacks twice.
+            assert (
+                self.client.patch(
+                    "/api/environments/@current/",
+                    {"conversations_settings": {"docs_source": "posthog"}},
+                ).status_code
+                == status.HTTP_200_OK
+            )
+            posthog_inherited = compose_support_playbook(docs_source="posthog").inherited_text
+            overlay = self.client.patch(
+                "/api/environments/@current/",
+                {
+                    "conversations_settings": {
+                        "ai_reply_custom_instructions": f"{posthog_inherited}\n\nAlways greet first."
+                    }
+                },
+            )
+            assert overlay.status_code == status.HTTP_200_OK
+            assert overlay.json()["conversations_settings"]["ai_reply_custom_instructions"] == "Always greet first."
+
+        def test_conversations_docs_source_validation(self):
+            ok = self.client.patch(
+                "/api/environments/@current/",
+                {"conversations_settings": {"docs_source": "posthog"}},
+            )
+            assert ok.status_code == status.HTTP_200_OK
+            assert ok.json()["conversations_settings"]["docs_source"] == "posthog"
+
+            bad = self.client.patch(
+                "/api/environments/@current/",
+                {"conversations_settings": {"docs_source": "acme"}},
+            )
+            assert bad.status_code == status.HTTP_400_BAD_REQUEST
+
         def test_enabling_conversations_auto_generates_token(self):
             self.team.conversations_enabled = False
             self.team.conversations_settings = None
@@ -2088,6 +2167,65 @@ def team_api_test_factory():
             )
             assert response.status_code == status.HTTP_400_BAD_REQUEST
             assert "logs_settings must be an object" in response.json()["detail"]
+
+        def test_logs_settings_custom_retention_requires_flag(self):
+            self._grant_logs_retention_features(AvailableFeature.LOGS_RETENTION_30D)
+
+            response = self.client.patch(
+                "/api/environments/@current/",
+                {"logs_settings": {"retention_days": 90}},
+            )
+            assert response.status_code == status.HTTP_400_BAD_REQUEST
+            assert "retention_days must be one of" in response.json()["detail"]
+
+            with patch("posthoganalytics.feature_enabled", return_value=True):
+                for valid_days in [90, 360, 2580]:
+                    response = self.client.patch(
+                        "/api/environments/@current/",
+                        {"logs_settings": {"retention_days": valid_days}},
+                    )
+                    assert response.status_code == status.HTTP_200_OK, response.json()
+                    assert response.json()["logs_settings"]["retention_days"] == valid_days
+                    # Reset so the next update is not blocked by the 24-hour throttle.
+                    self.team.logs_settings = {}
+                    self.team.save()
+
+                for invalid_days in [45, 2610, 0, -30]:
+                    response = self.client.patch(
+                        "/api/environments/@current/",
+                        {"logs_settings": {"retention_days": invalid_days}},
+                    )
+                    assert response.status_code == status.HTTP_400_BAD_REQUEST, (
+                        f"Expected 400 for retention_days={invalid_days}"
+                    )
+                    assert "multiple of 30" in response.json()["detail"]
+
+        def test_logs_settings_unchanged_custom_retention_kept_when_flag_off(self):
+            self._grant_logs_retention_features(AvailableFeature.LOGS_RETENTION_30D)
+            with patch("posthoganalytics.feature_enabled", return_value=True):
+                response = self.client.patch(
+                    "/api/environments/@current/",
+                    {"logs_settings": {"retention_days": 90}},
+                )
+                assert response.status_code == status.HTTP_200_OK, response.json()
+
+            # Settings switches send the whole object back, including the stored period.
+            response = self.client.patch(
+                "/api/environments/@current/",
+                {"logs_settings": {"retention_days": 90, "json_parse_logs": True}},
+            )
+            assert response.status_code == status.HTTP_200_OK, response.json()
+            assert response.json()["logs_settings"]["retention_days"] == 90
+            assert response.json()["logs_settings"]["json_parse_logs"] is True
+
+        def test_logs_settings_custom_retention_requires_paid_feature(self):
+            with patch("posthoganalytics.feature_enabled", return_value=True):
+                response = self.client.patch(
+                    "/api/environments/@current/",
+                    {"logs_settings": {"retention_days": 90}},
+                )
+            assert response.status_code == status.HTTP_403_FORBIDDEN
+            assert "90 days" in response.json()["detail"]
 
         def test_logs_settings_retention_requires_matching_feature(self):
             response = self.client.patch(

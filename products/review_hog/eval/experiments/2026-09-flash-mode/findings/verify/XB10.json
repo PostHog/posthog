@@ -1,0 +1,27 @@
+{
+    "letter": "XB",
+    "id": "XB10",
+    "cluster": 1,
+    "is_real": true,
+    "severity": "must_fix",
+    "votes": [
+        {
+            "is_real": true,
+            "severity": "must_fix",
+            "evidence": "/tmp/frozen-75215/products/stamphog/AGENTS.md:84-86 documents a non-internal signal task requirement, which is implemented by review_hog/backend/receivers.py:97-105 and tasks/backend/facade/api.py:504-509. However, the real producer signals/backend/auto_start.py:244-265 explicitly sets internal=True at 260-261 alongside ai_stage=implementation and signal_report_id. The task facade forwards that value unchanged at tasks/backend/facade/api.py:891-903, Task.create_and_run forwards it at models.py:756-768, and the producer's test asserts internal is True at signals/backend/test/test_auto_start.py:257-264. Consequently initial output saves return before dispatch, and later webhook task matching also returns None for production auto-start implementation runs.",
+            "refutation": "I first checked whether the internal flag applied only to research tasks, whether a facade default overwrote it, or whether the recorded implementation relationship bypassed the visibility guard. The producer explicitly comments that the implementation task is internal to keep it out of the default task list; no forwarding layer changes it. It records the implementation relationship separately at auto_start.py:271-275, but neither trigger consults that relationship before rejecting internal. This is an executable producer/consumer mismatch, not a documentation-only inconsistency, and blocks the primary intended feature."
+        },
+        {
+            "is_real": true,
+            "severity": "must_fix",
+            "evidence": "/tmp/frozen-75215/products/signals/backend/auto_start.py:244-265 creates the actual auto-start implementation with signal_report_id, ai_stage=implementation, interaction_origin=signal_report and internal=True (:260-261); :271-275 records the explicit implementation relationship. Tasks facade/api.py:891-905 forwards internal, and models.py:555-566 persists it unchanged. ReviewHog receivers.py:100-105 returns for every internal task before the new Stamphog dispatch; Tasks facade/api.py:508-509 rejects it again when the later Stamphog webhook resolves provenance. Thus both initial and subsequent automated reviews are suppressed for production auto-start implementations, contrary to the feature's documented purpose.",
+            "refutation": "First checked whether internal=True was limited to research tasks, merely a default overridden by the creator, or reset downstream. The implementation producer explicitly sets it to hide the task from the default list, and the facade/model chain preserves it. Signals test/test_auto_start.py:257-260 asserts internal=True. The receiver's happy-path fixtures in review_hog/backend/tests/test_inbox_trigger.py:61-79 instead default internal=False, masking the mismatch; its internal-task test treats every such task as plumbing. Manual noninternal tasks can work, but that does not refute the complete failure of the normal auto-start path."
+        },
+        {
+            "is_real": true,
+            "severity": "must_fix",
+            "evidence": "The actual auto-start creator passes signal_report_id, ai_stage='implementation', and internal=True at products/signals/backend/auto_start.py:244-261, and records the implementation relationship at 271-275. This function is called by the production auto-start path at 521-532. products/tasks/backend/facade/api.py:891-903 forwards internal unchanged to Task.create_and_run (models.py:718-768). Consequently review_hog/backend/receivers.py:104-105 drops the real task before dispatch, and tasks/backend/facade/api.py:504-509 also rejects it when Stamphog tries to identify a later webhook re-review. The main self-driving auto-start feature is therefore excluded from both review legs.",
+            "refutation": "I first checked whether the non-internal description was backed by the producer or whether the flag is reset during creation. It is not: auto_start.py:260-261 deliberately hides implementation tasks from the default task list with internal=True, and the test explicitly asserts that argument (signals/backend/test/test_auto_start.py:257-260). The facade propagates the value; the successful receiver fixtures default to internal=False (review_hog/backend/tests/test_inbox_trigger.py:66,79), so they miss this production path. Manual Inbox Create PR tasks can remain non-internal, but that does not repair the excluded automatic implementations identified by this claim."
+        }
+    ]
+}

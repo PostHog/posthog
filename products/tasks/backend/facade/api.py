@@ -68,7 +68,6 @@ from products.tasks.backend.constants import (
     DEV_STACK_PREVIEW_STATE_KEY,
     MAX_CUSTOM_IMAGES_PER_TEAM,
     MAX_CUSTOM_IMAGES_PER_USER,
-    PI_CLOUD_RUNTIME_FEATURE_FLAG,
     PR_LOOP_ENABLED_STATE_KEY,
     PR_STATES as PR_STATES,  # re-exported for presentation
     RESERVED_SANDBOX_ENVIRONMENT_VARIABLE_KEYS,
@@ -82,7 +81,11 @@ from products.tasks.backend.constants import (
     is_same_run_resume_state,
 )
 from products.tasks.backend.error_telemetry import truncate_error_message
-from products.tasks.backend.feature_flags import get_model_access_error, is_workflow_dispatch_shadow_enabled
+from products.tasks.backend.feature_flags import (
+    get_model_access_error,
+    is_workflow_dispatch_shadow_enabled,
+    pi_cloud_runtime_enabled,
+)
 from products.tasks.backend.github_repository_access import (
     inaccessible_repositories_via_integration as _inaccessible_repositories_via_integration,
 )
@@ -1599,6 +1602,7 @@ def create_and_run_task(
     create_pr: bool = True,
     mode: str = "background",
     start_workflow: bool = True,
+    scheduled_at: datetime | None = None,
     branch: str | None = None,
     signal_report_id: str | None = None,
     free_trial_enabled: bool | None = None,
@@ -1620,6 +1624,9 @@ def create_and_run_task(
     ``free_trial_enabled`` is a free-trial verdict the caller already resolved. Auto-start reads
     that flag before it takes the report row lock, so handing the result over keeps the flag
     request out of the lock. Left NULL, the gate reads the flag itself.
+
+    ``scheduled_at`` creates the run in NOT_STARTED and defers its workflow until the dispatcher
+    materializes it at or after that time. The run still stores its complete execution settings.
     """
     # create_pr=False sessions (research, repo selection, custom agents) can never open the
     # billable PR, so the quota gate must not block them.
@@ -1645,6 +1652,7 @@ def create_and_run_task(
         create_pr=create_pr,
         mode=mode,
         start_workflow=start_workflow,
+        scheduled_at=scheduled_at,
         branch=branch,
         signal_report_id=signal_report_id,
         internal=internal,
@@ -5262,8 +5270,9 @@ _STARTABLE_TASK_RUN_STATUSES = (TaskRun.Status.NOT_STARTED, TaskRun.Status.QUEUE
 def check_task_run_startable(run_id: str | UUID, task_id: str | UUID, team_id: int) -> tuple[str, str | None]:
     """Whether a run can be started via the start endpoint.
 
-    Returns ``"not_found"`` (run missing), ``"not_cloud"``, ``"bad_status:<current>"``, or
-    ``"ok"``, together with the stored run source. The view applies the usage gate before ``start_task_run``.
+    Returns ``"not_found"`` (run missing), ``"not_cloud"``, ``"scheduled"``,
+    ``"bad_status:<current>"``, or ``"ok"``, together with the stored run source. The view
+    applies the usage gate before ``start_task_run``.
     """
     run = _get_visible_run(run_id, task_id, team_id)
     if run is None:
@@ -5271,6 +5280,8 @@ def check_task_run_startable(run_id: str | UUID, task_id: str | UUID, team_id: i
     run_source = (run.state or {}).get("run_source")
     if run.environment != TaskRun.Environment.CLOUD:
         return "not_cloud", run_source
+    if run.status == TaskRun.Status.NOT_STARTED and run.scheduled_at is not None:
+        return "scheduled", run_source
     if run.status not in _STARTABLE_TASK_RUN_STATUSES:
         return f"bad_status:{run.status}", run_source
     return "ok", run_source
@@ -5600,25 +5611,6 @@ def get_conversation_task_dtos(
         .annotate(_latest_run_id=Subquery(latest_run_id_sq))
     )
     return {task.id: _task_detail_to_dto(task, user_id=user_id, include_latest_run=False) for task in tasks}
-
-
-def pi_cloud_runtime_enabled(team: Team, user: User) -> bool:
-    distinct_id = user.distinct_id or f"user_{user.id}"
-    organization_id = str(team.organization_id)
-    try:
-        return bool(
-            posthoganalytics.feature_enabled(
-                PI_CLOUD_RUNTIME_FEATURE_FLAG,
-                distinct_id,
-                groups={"organization": organization_id},
-                group_properties={"organization": {"id": organization_id}},
-                only_evaluate_locally=False,
-                send_feature_flag_events=False,
-            )
-        )
-    except Exception:
-        logger.exception("pi-harness flag check failed; treating as disabled")
-        return False
 
 
 def task_analysis_enabled(team: Team, user: User) -> bool:

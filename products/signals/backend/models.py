@@ -1727,6 +1727,10 @@ class SignalReportCheck(UUIDModel):
     days, and the check carries its own `next_run_at` rather than deriving one from a merged pull
     request — plenty of fixes land with no pull request to date the window from.
 
+    A check written before the fix exists has no date to carry, so it is stored PENDING with a
+    `soak_minutes` window and the report's transition to RESOLVED sets its `next_run_at`. That makes
+    the resolve the clock for every kind of fix, including the ones that never had a pull request.
+
     Terminal statuses are final. A check that passed, failed, errored out, expired, or was cancelled
     is never rescheduled; the author writes a new check instead, so a result artefact always refers
     to a row whose state explains it.
@@ -1741,12 +1745,20 @@ class SignalReportCheck(UUIDModel):
         AGENT = "agent"
 
     class Status(models.TextChoices):
+        # Written before the fix it checks exists, so it carries a soak rather than a date and
+        # waits for its report to resolve. Not due, not expired, and not terminal: the resolve
+        # transition arms it into ACTIVE (`report_check_authoring.arm_pending_checks`).
+        PENDING = "pending"
         ACTIVE = "active"
         PASSED = "passed"
         FAILED = "failed"
         ERRORED = "errored"
         EXPIRED = "expired"
         CANCELLED = "cancelled"
+
+    # The two statuses a check can still produce a verdict from. Both count against the per-report
+    # cap, because a pending check is one the report has already committed to running.
+    OPEN_STATUSES = (Status.PENDING, Status.ACTIVE)
 
     class Outcome(models.TextChoices):
         PASSED = "passed"
@@ -1773,6 +1785,10 @@ class SignalReportCheck(UUIDModel):
     config = models.JSONField(default=dict, db_default={})
 
     next_run_at = models.DateTimeField()
+    # How long after the report resolves a PENDING check waits before its first run. Null on a check
+    # created ACTIVE, which named its own `next_run_at` instead. Kept after the check is armed, so a
+    # reader can see what window the verdict was measured over.
+    soak_minutes = models.PositiveIntegerField(null=True, blank=True)
     # Null means one-shot. A recurring check re-arms at this interval until it runs out of runs or
     # reaches its expiry.
     run_interval_minutes = models.PositiveIntegerField(null=True, blank=True)
@@ -1821,7 +1837,7 @@ class SignalReportCheck(UUIDModel):
 
     @property
     def is_terminal(self) -> bool:
-        return self.status != self.Status.ACTIVE
+        return self.status not in self.OPEN_STATUSES
 
 
 # ── Signals scout (headless cross-source explorer) ──────────────────────────────

@@ -249,6 +249,7 @@ def process_database_schema_query(
             user=user,
             error_factory=ValidationError,
             modifiers=create_default_modifiers_for_team(team),
+            schema_table_names=set(query.tables) if query.tables else None,
         )
         context = HogQLContext(team_id=team.pk, team=team, database=database, user=user)
         serialized_tables = database.serialize(

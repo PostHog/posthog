@@ -3100,7 +3100,10 @@ export interface TrendsQueryApi {
     response?: TrendsQueryResponseApi | null
     /** Sampling rate */
     samplingFactor?: number | null
-    /** Events and actions to include */
+    /**
+     * Events and actions to include
+     * @maxItems 200
+     */
     series: (EventsNodeApi | ActionsNodeApi | DataWarehouseNodeApi | GroupNodeApi)[]
     /** Tags that will be added to the Query log comment */
     tags?: QueryLogTagsApi | null
@@ -3873,6 +3876,8 @@ export interface PathsFilterApi {
     showFullUrls?: boolean | null
     startPoint?: string | null
     stepLimit?: number | null
+    /** Remove the query string from page view URLs, so pages that differ only in query parameters become one path item */
+    stripQueryString?: boolean | null
 }
 
 export interface PathsLinkApi {
@@ -4248,7 +4253,10 @@ export interface StickinessQueryApi {
     response?: StickinessQueryResponseApi | null
     /** Sampling rate */
     samplingFactor?: number | null
-    /** Events and actions to include */
+    /**
+     * Events and actions to include
+     * @maxItems 200
+     */
     series: (EventsNodeApi | ActionsNodeApi | DataWarehouseNodeApi)[]
     /** Properties specific to the stickiness insight */
     stickinessFilter?: StickinessFilterApi | null
@@ -6541,6 +6549,15 @@ export interface ExperimentRatioMetricApi {
     version?: number | null
 }
 
+export type ExperimentExposureNodeApiResponse = { [key: string]: unknown } | null
+
+export interface ExperimentExposureNodeApi {
+    kind?: 'ExperimentExposureNode'
+    response?: ExperimentExposureNodeApiResponse
+    /** version of the node, used for schema migrations */
+    version?: number | null
+}
+
 export type StartHandlingApi = (typeof StartHandlingApi)[keyof typeof StartHandlingApi]
 
 export const StartHandlingApi = {
@@ -6566,7 +6583,7 @@ export interface ExperimentRetentionMetricApi {
     retention_window_start: number
     retention_window_unit: FunnelConversionWindowTimeUnitApi
     sharedMetricId?: number | null
-    start_event: EventsNodeApi | ActionsNodeApi | ExperimentDataWarehouseNodeApi
+    start_event: EventsNodeApi | ActionsNodeApi | ExperimentDataWarehouseNodeApi | ExperimentExposureNodeApi
     start_handling: StartHandlingApi
     uuid?: string | null
     /** version of the node, used for schema migrations */

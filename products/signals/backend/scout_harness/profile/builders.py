@@ -76,7 +76,7 @@ logger = logging.getLogger(__name__)
 # (or restructuring an existing one) without bumping the version would silently mix old
 # and new shapes in the cache. A redaction change bumps it too, so rows built before the
 # redaction stop being served.
-INVENTORY_SOURCE_VERSION = "v13"
+INVENTORY_SOURCE_VERSION = "v14"
 
 # Top-events ClickHouse query bounds. 7d is short enough to spot recent bursts and long
 # enough to stabilize counts on low-traffic teams; 50 covers the long tail without
@@ -286,35 +286,20 @@ def _signal_source_configs(team: Team) -> dict[str, list[dict[str, str]]]:
 def _emit_eligibility(team: Team) -> dict[str, Any]:
     """Whether scout findings can actually reach the inbox for this team.
 
-    Mirrors the team/org-level half of the shared emit preflight (`_preflight_emit_gates`) so a
-    scout can read it at cold start and quick-close before doing throwaway work whose output would
-    be silently dropped. Both the signal and report channels gate on the same two conditions: the
-    org must have approved AI data processing, and the `signals_scout` source must be enabled.
-    `remediation` reuses the emit path's authoritative pointers so the profile and the skip
-    response never drift.
+    The profile row is shared by every scout on the team, so this stores the team-wide floor: the
+    two gates that hold for all of them (org AI-processing consent, `signals_scout` source
+    enablement). `emit_eligibility(run=None)` is where those are evaluated, and the profile
+    endpoint re-derives the block for whichever scout is reading. Delegating rather than
+    re-deriving is the point: the value a scout reads while orienting and the gate applied when it
+    writes come out of the same function, so the profile can't promise an emit the write path
+    refuses.
     """
     # Deferred to break the profile↔tools import cycle: `tools/__init__` eagerly imports
     # `tools.profile`, which imports this `profile` package, so a module-level import here would
     # re-enter a half-initialized `profile` package during `tools` package init.
-    from products.signals.backend.scout_harness.tools.emit import (  # noqa: PLC0415
-        SOURCE_PRODUCT,
-        SOURCE_TYPE,
-        remediation_for_skip,
-    )
+    from products.signals.backend.scout_harness.tools.emit import emit_eligibility  # noqa: PLC0415
 
-    ai_processing_approved = bool(team.organization.is_ai_data_processing_approved)
-    source_enabled = SignalSourceConfig.is_source_enabled(team.id, SOURCE_PRODUCT, SOURCE_TYPE)
-    can_emit = ai_processing_approved and source_enabled
-    # Point at the first failing gate, matching the preflight's check order.
-    blocking_reason = (
-        None if can_emit else ("ai_processing_not_approved" if not ai_processing_approved else "source_disabled")
-    )
-    return {
-        "ai_processing_approved": ai_processing_approved,
-        "source_enabled": source_enabled,
-        "can_emit": can_emit,
-        "remediation": remediation_for_skip(blocking_reason),
-    }
+    return emit_eligibility(team=team, run=None)
 
 
 def _scout_fleet(team: Team) -> dict[str, Any]:
