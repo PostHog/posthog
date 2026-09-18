@@ -114,7 +114,13 @@ class BasePrinter(Visitor[str]):
 
     def _assert_recursive_cte_supported(self) -> None:
         """Raise if this dialect does not support recursive CTEs. Postgres overrides to permit."""
-        raise ImpossibleASTError("Recursive CTEs are only supported in PostgreSQL dialect")
+        # Exposed, not internal: the grammar accepts WITH RECURSIVE and the resolver types it, so a
+        # user reaches this gate with a query that parses and must be told the dialect refuses it.
+        raise QueryError(
+            f"WITH RECURSIVE is not supported in the '{self.DIALECT_NAME}' dialect. "
+            "Recursive CTEs only work when the query runs against a Postgres source. "
+            "Rewrite the query without recursion, for example with one join per level."
+        )
 
     def _assert_qualify_supported(self) -> None:
         """Raise if this dialect does not support the QUALIFY clause. Postgres overrides to permit."""
@@ -279,11 +285,11 @@ class BasePrinter(Visitor[str]):
                 f"CTE materialization hints are not supported in the '{self.DIALECT_NAME}' dialect"
             )
         if node.using_key is not None:
-            raise ImpossibleASTError(f"CTE USING KEY is not supported in the '{self.DIALECT_NAME}' dialect")
+            raise QueryError(f"CTE USING KEY is not supported in the '{self.DIALECT_NAME}' dialect")
 
         if node.cte_type == "subquery":
             if node.columns is not None:
-                raise NotImplementedError("CTE column name lists are not supported in this dialect")
+                raise QueryError(f"CTE column name lists are not supported in the '{self.DIALECT_NAME}' dialect")
             return f"{self._print_identifier(node.name)} AS {self.visit(node.expr)}"
         return f"{self.visit(node.expr)} AS {self._print_identifier(node.name)}"
 
