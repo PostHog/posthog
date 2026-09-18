@@ -159,7 +159,6 @@ class _QualityGatedViewSet(TeamAndOrgViewSetMixin):
                 self.user_access_control,
                 get_authenticator_scopes(self.request.successful_authenticator),
                 write=write,
-                route_scope=self.scope_object,
             )
         return self._authorized_types[write]
 

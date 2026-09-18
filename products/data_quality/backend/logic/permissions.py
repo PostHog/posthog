@@ -9,7 +9,7 @@ from ..facade.enums import SubjectType
 from .subject_access import DenialContext, ReadableSubjects
 
 if TYPE_CHECKING:
-    from posthog.scopes import APIScopeObject, APIScopeObjectOrNotSupported
+    from posthog.scopes import APIScopeObject
 
     from products.access_control.backend.facade.user_access_control import UserAccessControl
 
@@ -18,6 +18,7 @@ _SUBJECT_RESOURCES: dict[SubjectType, "APIScopeObject"] = {
     SubjectType.VIEW: "warehouse_view",
     SubjectType.METRIC: "data_catalog",
 }
+_WAREHOUSE_FAMILY_SCOPE = "warehouse_objects"
 
 
 def authorized_subject_types(
@@ -25,19 +26,19 @@ def authorized_subject_types(
     scopes: Collection[str] | None,
     *,
     write: bool = False,
-    route_scope: "APIScopeObjectOrNotSupported | None" = None,
 ) -> frozenset[SubjectType]:
     level: Literal["editor", "viewer"] = "editor" if write else "viewer"
     return frozenset(
         kind
         for kind, resource in _SUBJECT_RESOURCES.items()
-        if _scope_allows(
-            scopes,
-            resource if kind == SubjectType.METRIC or resource == route_scope else "warehouse_objects",
-            write,
-        )
-        and _has_subject_access(access, kind, level)
+        if _scope_reaches(scopes, kind, resource, write) and _has_subject_access(access, kind, level)
     )
+
+
+def _scope_reaches(scopes: Collection[str] | None, kind: SubjectType, resource: str, write: bool) -> bool:
+    if _scope_allows(scopes, resource, write):
+        return True
+    return kind != SubjectType.METRIC and _scope_allows(scopes, _WAREHOUSE_FAMILY_SCOPE, write)
 
 
 def _has_subject_access(access: "UserAccessControl", kind: SubjectType, level: Literal["editor", "viewer"]) -> bool:

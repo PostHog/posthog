@@ -20,12 +20,13 @@ A check that reads more than its own subject executes as a user. A manual run ex
 
 All routes below also require `query:read`. Write scopes include read access; read-only scopes do not authorize writes. Token scopes limit access independently of the user's grants, including for organization administrators.
 
-| Subject kind               | Read scope               | Write scope               |
-| -------------------------- | ------------------------ | ------------------------- |
-| Warehouse tables and views | `warehouse_objects:read` | `warehouse_objects:write` |
-| Catalog metrics            | `data_catalog:read`      | `data_catalog:write`      |
+| Subject kind     | Read scope                                         | Write scope                                          |
+| ---------------- | -------------------------------------------------- | ---------------------------------------------------- |
+| Warehouse tables | `warehouse_objects:read` or `warehouse_table:read` | `warehouse_objects:write` or `warehouse_table:write` |
+| Warehouse views  | `warehouse_objects:read` or `warehouse_view:read`  | `warehouse_objects:write` or `warehouse_view:write`  |
+| Catalog metrics  | `data_catalog:read`                                | `data_catalog:write`                                 |
 
-The per-kind `warehouse_table` and `warehouse_view` scopes do not reach these routes: one route spans both kinds, so it answers to the family scope. A token may select only the subject kinds its scopes permit. An unnamed manual sweep skips inaccessible checks; an explicitly selected inaccessible check is rejected. Cross-subject references must also fall within the caller's permitted subject types.
+The family scope `warehouse_objects` reaches every warehouse kind. A per-kind scope reaches its own kind only, which is what a key minted by the Agent CLI carries. A token may select only the subject kinds its scopes permit. An unnamed manual sweep skips inaccessible checks; an explicitly selected inaccessible check is rejected. Cross-subject references must also fall within the caller's permitted subject types.
 
 The table above applies to the REST routes only. The MCP tools declare `query:read` alone, because a tool's scope list must be met in full and the two subject families are authorized independently; a token with no subject family is refused by the route. A raw HogQL query against `system.information_schema.data_quality_*` needs `query:read` and no other scope. The user's own permissions still apply to each row. A token with `query:read` reads metric checks only if its user has catalog access.
 
