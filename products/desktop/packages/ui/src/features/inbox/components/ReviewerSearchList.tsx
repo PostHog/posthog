@@ -124,6 +124,9 @@ export function ReviewerSearchList({
       github_login: option.github_login,
       github_name: option.name || null,
       relevant_commits: [],
+      // The server settles a manual add on this source. Without it the row claims the agent
+      // picked the reviewer until the refetch lands.
+      source_label: "Added by teammate",
       user: {
         id: 0,
         uuid: option.uuid,
