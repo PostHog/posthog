@@ -104,7 +104,7 @@ function toCumulative(result: TrendResult): TrendResult {
 }
 
 function hasBreakdown(source: TrendsQuery): boolean {
-    return !!source.breakdownFilter?.breakdown || !!source.breakdownFilter?.breakdowns?.length
+    return breakdownProperties(source.breakdownFilter).length > 0
 }
 
 function hasCountryCodeBreakdown(source: TrendsQuery): boolean {
