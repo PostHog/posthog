@@ -90,6 +90,14 @@ describe('shouldShowProductPushWelcome', () => {
             true,
         ],
         [
+            "the gate's own feature flag has not arrived yet",
+            {
+                emptyState: emptyState({ featureFlag: FEATURE_FLAGS.SCENE_MENU_BAR }),
+                receivedFeatureFlags: false,
+            },
+            false,
+        ],
+        [
             'the gate is scoped to scenes this one is not among',
             { emptyState: emptyState({ scenes: ['SomeOtherScene'] }) },
             true,

@@ -74,8 +74,15 @@ export function productEmptyStateGateActivation({
     receivedFeatureFlags,
     forcedMode,
 }: ProductEmptyStateGateSurface): ProductEmptyStateGateActivation {
-    if (emptyState.featureFlag && !featureFlags[emptyState.featureFlag]) {
-        return 'off'
+    if (emptyState.featureFlag) {
+        // An unset flag reads the same as a flag that has not arrived, so wait rather than hand the
+        // scene through and take the setup screen back once the flags land.
+        if (!receivedFeatureFlags) {
+            return 'awaiting-flags'
+        }
+        if (!featureFlags[emptyState.featureFlag]) {
+            return 'off'
+        }
     }
     if (emptyState.scenes && !emptyState.scenes.some((gated) => coversCurrentSurface(gated, activeSceneId, params))) {
         return 'off'
