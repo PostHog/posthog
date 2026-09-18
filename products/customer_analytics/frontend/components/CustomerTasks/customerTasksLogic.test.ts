@@ -42,6 +42,9 @@ const mockAccounts = accountsList as jest.MockedFunction<typeof accountsList>
 const mockUpdate = customerTasksPartialUpdate as jest.MockedFunction<typeof customerTasksPartialUpdate>
 const mockAccount = accountsRetrieve as jest.MockedFunction<typeof accountsRetrieve>
 
+const URL_ACCOUNT_ID = '0199ed4a-5c03-0000-3220-df21df612e95'
+const SECOND_URL_ACCOUNT_ID = '0199ed4a-5c03-0000-3220-df21df612e96'
+
 function task(canEdit = true): CustomerTaskApi {
     return {
         id: 'task-1',
@@ -72,7 +75,7 @@ describe('customerTasksLogic', () => {
         mockList.mockResolvedValue({ count: 0, next: null, previous: null, results: [] })
         mockAccounts.mockResolvedValue({ count: 0, next: null, previous: null, results: [] })
         mockUpdate.mockResolvedValue(task())
-        mockAccount.mockResolvedValue({ id: 'account-1', name: 'Acme' } as never)
+        mockAccount.mockResolvedValue({ id: URL_ACCOUNT_ID, name: 'Acme' } as never)
         router.actions.push(urls.customerAnalyticsTasks())
     })
 
@@ -380,16 +383,16 @@ describe('customerTasksLogic', () => {
     })
 
     test('names the account a link can only identify by id', async () => {
-        router.actions.push(urls.customerAnalyticsTasks(), { account: 'account-1' })
+        router.actions.push(urls.customerAnalyticsTasks(), { account: URL_ACCOUNT_ID })
         logic = customerTasksLogic({ context: 'inbox', canViewAll: true })
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
 
-        expect(mockAccount).toHaveBeenCalledWith(expect.any(String), 'account-1')
-        expect(logic.values.filters.account).toEqual({ id: 'account-1', name: 'Acme' })
+        expect(mockAccount).toHaveBeenCalledWith(expect.any(String), URL_ACCOUNT_ID)
+        expect(logic.values.filters.account).toEqual({ id: URL_ACCOUNT_ID, name: 'Acme' })
         expect(mockList).toHaveBeenLastCalledWith(
             expect.any(String),
-            expect.objectContaining({ account_id: 'account-1' })
+            expect.objectContaining({ account_id: URL_ACCOUNT_ID })
         )
     })
 
@@ -397,18 +400,18 @@ describe('customerTasksLogic', () => {
         let resolveAccount = (): void => {}
         mockAccount.mockReturnValueOnce(
             new Promise((resolve) => {
-                resolveAccount = () => resolve({ id: 'account-1', name: 'Acme' } as never)
+                resolveAccount = () => resolve({ id: URL_ACCOUNT_ID, name: 'Acme' } as never)
             })
         )
-        router.actions.push(urls.customerAnalyticsTasks(), { account: 'account-1' })
+        router.actions.push(urls.customerAnalyticsTasks(), { account: URL_ACCOUNT_ID })
         logic = customerTasksLogic({ context: 'inbox', canViewAll: true })
         logic.mount()
 
-        logic.actions.setAccountFilter({ id: 'account-2', name: 'Initech' })
+        logic.actions.setAccountFilter({ id: SECOND_URL_ACCOUNT_ID, name: 'Initech' })
         resolveAccount()
         await expectLogic(logic).toFinishAllListeners()
 
-        expect(logic.values.filters.account).toEqual({ id: 'account-2', name: 'Initech' })
+        expect(logic.values.filters.account).toEqual({ id: SECOND_URL_ACCOUNT_ID, name: 'Initech' })
     })
 
     test('reports where an inbox visit came from once, then drops the source', async () => {
