@@ -260,6 +260,7 @@ export interface eventFilterLogicValues {
     filterFormValidationErrors: DeepPartialMap<EventFilterFormValues, ValidationErrorType>
     isFilterFormSubmitting: boolean
     isFilterFormValid: boolean
+    liveModeDisabledReason: string | null
     showFilterFormErrors: boolean
     testResults: TestResult[]
 }
@@ -353,6 +354,7 @@ export interface eventFilterLogicMeta {
         conditionCount: (filterForm: EventFilterFormValues) => number
         testResults: (filterForm: EventFilterFormValues) => TestResult[]
         allTestsPass: (testResults: TestResult[], filterForm: EventFilterFormValues) => boolean
+        liveModeDisabledReason: (filterForm: EventFilterFormValues, allTestsPass: boolean) => string | null
     }
 }
 
@@ -448,6 +450,23 @@ export const eventFilterLogic = kea<eventFilterLogicType>([
             (s) => [s.testResults, s.filterForm],
             (results: TestResult[], form: EventFilterFormValues): boolean =>
                 form.test_cases.length === 0 || results.every((r) => r.pass),
+        ],
+
+        /** Why live mode cannot be selected yet, or null if it can. Mirrors the `mode` form errors. */
+        liveModeDisabledReason: [
+            (s) => [s.filterForm, s.allTestsPass],
+            (form: EventFilterFormValues, allTestsPass: boolean): string | null => {
+                if (!treeHasConditions(form.filter_tree)) {
+                    return null
+                }
+                if (form.test_cases.length === 0) {
+                    return 'Add at least one test case before going live'
+                }
+                if (!allTestsPass) {
+                    return 'All test cases must pass before going live'
+                }
+                return null
+            },
         ],
 
         breadcrumbs: [
