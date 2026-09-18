@@ -1,6 +1,7 @@
 use crate::{
     api::errors::FlagError,
     flags::{
+        feature_flag_list::LenientHypercacheFlagsWrapper,
         flag_definitions_cache::FlagDefinitionsCache,
         flag_models::{FeatureFlagList, HypercacheFlagsWrapper, PreparedFlagDefinitions},
     },
@@ -179,8 +180,9 @@ impl FlagService {
     }
 
     /// Fetches flags from the hypercache (Redis → S3), falling back to PostgreSQL
-    /// on cache miss or infra errors. Parse errors (`Json`/`Pickle`) hard-fail with
-    /// a tombstone rather than serving degraded single-stage PG data.
+    /// on cache miss or infra errors. A payload-level parse error (`Json`/`Pickle`)
+    /// hard-fails with a tombstone rather than serving degraded single-stage PG
+    /// data. A single flag that does not parse is skipped, not fatal.
     ///
     /// On the hot path the in-memory `FlagDefinitionsCache` is keyed on the etag
     /// Django writes alongside the payload (`enable_etag=True`), so an in-memory
@@ -235,9 +237,11 @@ impl FlagService {
     /// Hypercache-then-PG payload fetch, extracted so the in-memory cache can
     /// invoke it lazily inside `get_or_load`. Returns `None` for the
     /// `__missing__` sentinel (team has no flags), `Some(wrapper)` otherwise.
-    /// `Json`/`Pickle` parse errors hard-fail with a tombstone — we never want
-    /// to silently degrade to PG (which lacks dependency metadata) on data
-    /// corruption.
+    /// A payload-level `Json`/`Pickle` parse error hard-fails with a tombstone,
+    /// because we never want to silently degrade to PG (which lacks dependency
+    /// metadata) on data corruption. A flag whose own JSON does not parse is
+    /// skipped and counted instead, so one bad flag cannot take the team's
+    /// evaluation down.
     async fn fetch_wrapper_or_pg(
         &self,
         team_id: TeamId,
@@ -246,10 +250,10 @@ impl FlagService {
 
         match self
             .flags_hypercache_reader
-            .get_typed_with_source::<HypercacheFlagsWrapper>(&key)
+            .get_typed_with_source::<LenientHypercacheFlagsWrapper>(&key)
             .await
         {
-            Ok((data, source)) => Ok((data, source)),
+            Ok((data, source)) => Ok((data.map(|w| w.into_wrapper(team_id)), source)),
             Err(e @ (HyperCacheError::Json(_) | HyperCacheError::Pickle(_))) => {
                 counter!(
                     TOMBSTONE_COUNTER,
@@ -977,6 +981,87 @@ mod tests {
                 })
             ),
             "parse error must hard-fail, got {result:?}"
+        );
+    }
+
+    /// One flag the cache payload cannot parse must not take the team's whole
+    /// evaluation down: the team keeps every other flag, and gets no 500.
+    #[tokio::test]
+    async fn test_get_flags_skips_unparseable_flag_in_hypercache_payload() {
+        use common_redis::MockRedisClient;
+
+        let team_id = 4242;
+
+        // The second flag holds a property filter with no "type" key, which
+        // PropertyFilter requires, so it alone fails to deserialize.
+        let payload = serde_json::json!({
+            "flags": [
+                {
+                    "id": 1,
+                    "key": "healthy_flag",
+                    "team_id": team_id,
+                    "active": true,
+                    "deleted": false,
+                    "filters": { "groups": [] }
+                },
+                {
+                    "id": 2,
+                    "key": "malformed_flag",
+                    "team_id": team_id,
+                    "active": true,
+                    "deleted": false,
+                    "filters": {
+                        "groups": [
+                            {
+                                "properties": [{ "key": "email", "value": "a@example.com" }],
+                                "rollout_percentage": 100
+                            }
+                        ]
+                    }
+                }
+            ],
+            "evaluation_metadata": {
+                "dependency_stages": [[1, 2]],
+                "flags_with_missing_deps": [],
+                "transitive_deps": { "1": [], "2": [] }
+            }
+        })
+        .to_string();
+        let pickled = serde_pickle::to_vec(&payload, Default::default()).expect("Failed to pickle");
+
+        let mut mock_client = MockRedisClient::new();
+        mock_client.get_raw_bytes_ret(&hypercache_test_key(team_id), Ok(pickled));
+
+        let redis_client: Arc<dyn RedisClient + Send + Sync> = Arc::new(mock_client);
+        let hypercache_reader = setup_hypercache_reader_with_mock_redis(redis_client.clone());
+        let team_hypercache_reader =
+            setup_team_hypercache_reader_with_mock_redis(redis_client.clone());
+
+        let flag_service = FlagService::new(
+            redis_client,
+            setup_pg_reader_client(None),
+            team_hypercache_reader,
+            hypercache_reader,
+            Arc::new(FlagDefinitionsCache::disabled()),
+            NegativeCache::new(100, 300),
+            false,
+        );
+
+        let result = flag_service
+            .get_flags_from_cache_or_pg(team_id)
+            .await
+            .expect("one unparseable flag must not fail the team's read");
+
+        let keys: Vec<&str> = result
+            .prepared
+            .flags
+            .iter()
+            .map(|f| f.key.as_str())
+            .collect();
+        assert_eq!(keys, vec!["healthy_flag"]);
+        assert_eq!(
+            result.prepared.evaluation_metadata.dependency_stages,
+            vec![vec![1]]
         );
     }
 
