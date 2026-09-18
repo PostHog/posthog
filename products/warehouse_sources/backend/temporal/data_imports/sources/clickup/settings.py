@@ -24,7 +24,7 @@ EndpointKind = Literal[
 ]
 
 
-@dataclass
+@dataclass(frozen=True)
 class ClickUpEndpointConfig:
     name: str
     kind: EndpointKind

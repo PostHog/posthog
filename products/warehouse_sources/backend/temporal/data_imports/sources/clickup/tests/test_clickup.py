@@ -330,25 +330,22 @@ class TestTimeEntries:
         assert snapshots[1]["params"]["start_date"] == round(TIME_ENTRIES_HISTORY_FLOOR.timestamp() * 1000)
 
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_omits_assignee_when_no_members_resolve(self, MockSession: mock.MagicMock) -> None:
+    def test_fails_when_no_members_resolve(self, MockSession: mock.MagicMock) -> None:
         session = MockSession.return_value
         # A token that can see other workspaces but not the configured one.
-        snapshots = _wire_repeating(
-            session, [_response({"teams": [{"id": "404", "members": [{"user": {"id": 11}}]}]})], lambda: _response({})
-        )
+        _wire(session, [_response({"teams": [{"id": "404", "members": [{"user": {"id": 11}}]}]})])
 
-        _rows(
-            _source(
-                "time_entries",
-                _make_manager(),
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=datetime.now(tz=UTC) - timedelta(days=1),
+        # Syncing without `assignee` would fill a workspace-wide table with one user's time, and
+        # nothing downstream could tell that from a workspace where only one person tracks time.
+        with pytest.raises(ValueError, match="no members for workspace 9"):
+            _rows(
+                _source(
+                    "time_entries",
+                    _make_manager(),
+                    should_use_incremental_field=True,
+                    db_incremental_field_last_value=datetime.now(tz=UTC) - timedelta(days=1),
+                )
             )
-        )
-
-        # Sending an empty assignee would filter every entry out rather than fall back to the
-        # calling user's own.
-        assert "assignee" not in snapshots[1]["params"]
 
 
 class TestTaskTimeInStatus:

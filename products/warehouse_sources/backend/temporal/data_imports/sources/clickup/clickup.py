@@ -54,8 +54,13 @@ TIME_ENTRIES_HISTORY_FLOOR = datetime(2017, 1, 1, tzinfo=UTC)
 # Get Bulk Tasks' Time in Status accepts at most 100 task ids per request.
 TIME_IN_STATUS_BATCH_SIZE = 100
 
+# (connect, read) seconds. Left unset, a host that accepts the connection and then stalls holds
+# an import worker open with no bound. The client raises a timeout as retryable, so a stall
+# costs a few bounded attempts instead.
+REQUEST_TIMEOUT_SECONDS: tuple[float, float] = (10.0, 60.0)
 
-@dataclasses.dataclass
+
+@dataclasses.dataclass(frozen=True)
 class ClickUpResumeConfig:
     # Zero-indexed page of the Get Filtered Team Tasks endpoint to resume from.
     page: int = 0
@@ -188,6 +193,7 @@ def _client_config(api_key: str) -> ClientConfig:
         "auth": {"type": "api_key", "api_key": api_key, "name": "Authorization", "location": "header"},
         # Every endpoint except tasks returns its whole result in one un-paginated response.
         "paginator": SinglePagePaginator(),
+        "request_timeout": REQUEST_TIMEOUT_SECONDS,
     }
 
 
@@ -331,6 +337,7 @@ def _make_client(api_key: str) -> RESTClient:
         base_url=CLICKUP_BASE_URL,
         headers={"Accept": "application/json"},
         auth=APIKeyAuth(api_key=api_key, name="Authorization", location="header"),
+        request_timeout=REQUEST_TIMEOUT_SECONDS,
     )
 
 
@@ -341,6 +348,10 @@ def _member_user_ids(client: RESTClient, workspace_id: str) -> list[str]:
     a workspace-wide table has to name the members. Passing `assignee` needs an owner/admin token;
     a token without it gets a 403, which `get_non_retryable_errors` reports as a permission problem
     rather than retrying.
+
+    Raises when the workspace resolves no members. A workspace always holds at least the calling
+    user, so an empty list means the token lost access or the response shape changed. Carrying on
+    without `assignee` would quietly fill the table with one user's time.
     """
     user_ids: list[str] = []
     for page in client.paginate(path="/team", paginator=SinglePagePaginator(), data_selector="teams"):
@@ -352,6 +363,12 @@ def _member_user_ids(client: RESTClient, workspace_id: str) -> list[str]:
                 user_id = user.get("id")
                 if user_id is not None:
                     user_ids.append(str(user_id))
+
+    if not user_ids:
+        raise ValueError(
+            f"ClickUp returned no members for workspace {workspace_id}. "
+            "Check that the API token still has access to the workspace, then sync again."
+        )
     return user_ids
 
 
@@ -390,10 +407,11 @@ def _time_entries_rows(
 ) -> Iterator[list[dict[str, Any]]]:
     client = _make_client(api_key)
 
-    params: dict[str, Any] = {"include_task_tags": "true", "include_location_names": "true"}
-    member_ids = _member_user_ids(client, workspace_id)
-    if member_ids:
-        params["assignee"] = ",".join(member_ids)
+    params: dict[str, Any] = {
+        "include_task_tags": "true",
+        "include_location_names": "true",
+        "assignee": ",".join(_member_user_ids(client, workspace_id)),
+    }
 
     start = _time_entries_range_start(should_use_incremental_field, db_incremental_field_last_value)
     if resumable_source_manager.can_resume():
