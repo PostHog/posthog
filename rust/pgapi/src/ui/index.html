@@ -445,10 +445,11 @@
   const pidCell = (pid, user, app) => el('span', { class: 'nowrap' }, el('span', { class: 'mono' }, pid), user || app ? [el('br'), el('span', { class: 'muted small' }, [user, app].filter(Boolean).join(' · '))] : null);
   const lockCell = r => el('span', { class: 'nowrap' }, r.locktype || '–', el('br'), el('span', { class: 'muted small' }, r.wanted_mode || ''), r.relation ? [el('br'), el('span', { class: 'mono small' }, r.relation)] : null);
   // Consecutive 10 s samples with the same state, statement, wait and blocker collapse into one span, so a
-  // blocker's history reads as "ran X for 8 s, then sat idle in transaction for 15 min".
+  // blocker's history reads as "ran X for 8 s, then sat idle in transaction for 15 min". A gap over 30 s or a
+  // different backend_start (the pid was reused) starts a new span rather than bridging what was not sampled.
   function sessionSpans(rows) {
     const out = [];
-    const same = (a, b) => a.state === b.state && a.query === b.query && a.wait_event_type === b.wait_event_type && a.wait_event === b.wait_event && a.blocked_by === b.blocked_by;
+    const same = (a, b) => a.state === b.state && a.query === b.query && a.wait_event_type === b.wait_event_type && a.wait_event === b.wait_event && a.blocked_by === b.blocked_by && a.backend_start === b.backend_start && new Date(b.collected_at) - new Date(a.last) <= 30e3;
     for (const r of rows) {
       const last = out[out.length - 1];
       if (last && same(last, r)) { last.last = r.collected_at; last.xact_age_s = r.xact_age_s; last.samples++; last.trace_id = r.trace_id || last.trace_id; }
@@ -466,14 +467,15 @@
     const per = BUCKET_LABEL[bucket] || bucket;
     // A selected episode (instance:pid:from:to) shows what the blocker was doing across its transaction.
     const sel = state.params.session ? state.params.session.split(':') : null;
-    const history = sel ? await api(`/servers/${state.server}/sessions/${sel[1]}`, { instance: sel[0], from: decodeURIComponent(sel[2]), to: decodeURIComponent(sel[3]) }) : null;
+    // The history is a drill-down, so a failed fetch shows in its own panel instead of replacing the page.
+    const history = sel ? await api(`/servers/${state.server}/sessions/${sel[1]}`, { instance: sel[0], from: decodeURIComponent(sel[2]), to: decodeURIComponent(sel[3]) }).catch(e => ({ error: String(e.message || e) })) : null;
     const clearSel = () => { const p = { ...state.params }; delete p.session; go('locks', p); };
     return [
       el('h1', {}, 'Locks', el('span', { class: 'sub' }, 'who waited for whom, from 10 s samples of blocked sessions')),
       panel(`Sessions waiting on locks per ${per}, by lock type`, chart(series, { stacked: true, yfmt: v => fmt.dec(v, 2) })),
       history ? el('div', { style: 'margin-top:12px' }, panel(null,
         el('div', { class: 'toolbar' }, el('h2', { style: 'margin:0' }, `Blocker pid ${sel[1]} on ${sel[0]}`), el('span', { class: 'muted' }, `${fmt.ts(decodeURIComponent(sel[2]))} to ${fmt.ts(decodeURIComponent(sel[3]))}`), el('button', { onclick: clearSel }, '✕ close')),
-        table(sessionSpans(history), [
+        history.error ? el('div', { class: 'error-box' }, `Couldn't load the session history: ${history.error}. Try again, and if it keeps happening check the API logs.`) : table(sessionSpans(history), [
           { key: 'first', label: 'from', fmt: fmt.time }, { key: 'last', label: 'to', fmt: fmt.time },
           { key: 'state', label: 'state', render: r => el('span', { class: r.state === 'idle in transaction' ? 'warn' : '' }, r.state) },
           { key: 'wait_event_type', label: 'wait', fmt: (v, r) => v ? `${v}:${r.wait_event}` : 'CPU' },

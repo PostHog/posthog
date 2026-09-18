@@ -665,7 +665,7 @@ pub async fn session_history(
     to: Ts,
 ) -> Result<Value> {
     Ok(json!(opt(db, "SELECT * FROM (
-            SELECT collected_at, datname, usename, application_name, client_addr, state, wait_event_type, wait_event, blocked_by,
+            SELECT collected_at, datname, usename, application_name, client_addr, backend_start, state, wait_event_type, wait_event, blocked_by,
                    xact_start, xact_age_s, query_start, query_age_s, query_id, query, tags, trace_id
             FROM ts_activity_sessions WHERE server_id = $1 AND instance = $2 AND pid = $3 AND collected_at >= $4 AND collected_at < $5
             ORDER BY collected_at DESC LIMIT 2000) newest ORDER BY collected_at", &[&server, &instance, &pid, &from, &to]).await?))
