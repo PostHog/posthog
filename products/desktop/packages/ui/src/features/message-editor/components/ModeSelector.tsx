@@ -9,6 +9,9 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
   MenuLabel,
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
 } from "@posthog/quill";
 import { flattenSelectOptions } from "@posthog/ui/features/sessions/sessionStore";
 import { useRetainedConfigOption } from "@posthog/ui/features/sessions/useRetainedConfigOption";
@@ -96,19 +99,35 @@ export function ModeSelector({
         pendingToggle?.();
       }}
     >
-      <DropdownMenuTrigger
-        render={
-          <Button
-            type="button"
-            variant={bypassActive ? "destructive" : "default"}
-            size="sm"
-            disabled={isDisabled}
-            aria-label="Mode"
-          >
-            <span>{currentLabel}</span>
-          </Button>
-        }
-      />
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <DropdownMenuTrigger
+              render={
+                <Button
+                  type="button"
+                  variant={bypassActive ? "destructive" : "default"}
+                  size="sm"
+                  disabled={isDisabled}
+                  aria-label="Mode"
+                >
+                  {/* A mode name as long as "Bypass Permissions" is the widest
+                      control on the row, so it gives up its tail once the
+                      composer is narrower than the shorter model name and the
+                      icon-only queue toggle can answer for. The tooltip keeps
+                      the whole name reachable. A harness can name a mode
+                      anything, so the label is cut by width rather than by a
+                      table of short names we would have to guess. */}
+                  <span className="@max-[400px]/composer:max-w-20 truncate">
+                    {currentLabel}
+                  </span>
+                </Button>
+              }
+            />
+          }
+        />
+        <TooltipContent side="top">{currentLabel}</TooltipContent>
+      </Tooltip>
       <DropdownMenuContent
         align="start"
         side="top"
