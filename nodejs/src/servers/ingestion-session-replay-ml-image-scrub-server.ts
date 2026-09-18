@@ -8,7 +8,7 @@ import { KafkaDeadLetterSink } from '~/ingestion/pipelines/sessionreplay/ml-mirr
 import { ImageBatcher } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-scrub/image-batcher'
 import { ImageShardStore } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-scrub/image-shard-store'
 import { ScrubClient } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-scrub/scrub-client'
-import { MlPrivacyRuntime } from '~/ingestion/pipelines/sessionreplay/ml-mirror/privacy/runtime'
+import { MlKeyManager } from '~/ingestion/pipelines/sessionreplay/ml-mirror/keys/runtime'
 import { createProducerRegistry } from '~/ingestion/pipelines/sessionreplay/outputs/producer-registry'
 import { INGESTION_SESSIONREPLAY_ML_IMAGE_SCRUB_PRODUCER } from '~/ingestion/pipelines/sessionreplay/shared/outputs/producer-config'
 import { buildSessionRecordingS3Client } from '~/ingestion/pipelines/sessionreplay/shared/s3-client'
@@ -47,19 +47,19 @@ export function buildImageScrubConsumerConfig(config: IngestionSessionReplayMlMi
 }
 
 export class IngestionSessionReplayMlImageScrubServer extends MlMirrorConsumerServer {
-    private privacy?: MlPrivacyRuntime
+    private keyManager?: MlKeyManager
     private producerRegistry?: KafkaProducerRegistry<SessionReplayProducerName>
 
     protected async startServices(): Promise<void> {
         if (
-            this.config.AI_RESEARCH_REPLAY_PRIVACY_TABLE &&
+            this.config.AI_RESEARCH_REPLAY_KEY_TABLE &&
             !this.config.SESSION_RECORDING_ML_IMAGE_SCRUB_DLQ_TOPIC.trim()
         ) {
-            throw new Error('ML privacy-enabled image scrubber requires SESSION_RECORDING_ML_IMAGE_SCRUB_DLQ_TOPIC')
+            throw new Error('ML key manager-enabled image scrubber requires SESSION_RECORDING_ML_IMAGE_SCRUB_DLQ_TOPIC')
         }
-        if (this.config.AI_RESEARCH_REPLAY_PRIVACY_TABLE) {
-            this.privacy = new MlPrivacyRuntime(this.config)
-            await this.privacy.start()
+        if (this.config.AI_RESEARCH_REPLAY_KEY_TABLE) {
+            this.keyManager = new MlKeyManager(this.config)
+            await this.keyManager.start()
         }
         const s3Client = requireS3Client(buildSessionRecordingS3Client(this.config))
         const store = new ImageShardStore(
@@ -110,7 +110,7 @@ export class IngestionSessionReplayMlImageScrubServer extends MlMirrorConsumerSe
             },
             Date.now(),
             deadLetters,
-            this.privacy
+            this.keyManager
         )
         await scrubClient.waitUntilReachable()
         await consumer.connect((messages) => {
@@ -138,7 +138,7 @@ export class IngestionSessionReplayMlImageScrubServer extends MlMirrorConsumerSe
         return {
             kafkaProducers: [],
             additionalCleanup: async () => {
-                this.privacy?.stop()
+                this.keyManager?.stop()
                 await this.producerRegistry?.disconnectAll()
             },
             redisPools: [],

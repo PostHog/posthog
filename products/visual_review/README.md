@@ -29,7 +29,7 @@ No sync problems, no "baseline service went down", no mystery diffs from someone
 
 ### Retention
 
-A daily Celery task, `sweep visual review retention`, deletes data that can no longer be used.
+Two daily Celery tasks delete data that can no longer be used: `sweep visual review runs`, and an hour later `sweep visual review artifacts`.
 The windows and the reasons behind them are constants in `backend/logic/retention.py`.
 
 - Superseded runs on PR branches go after 30 days, on the default branch after 180 days.
@@ -41,6 +41,8 @@ The windows and the reasons behind them are constants in `backend/logic/retentio
   An artifact row is what makes the CLI skip an upload, so a row without its object is the one state to avoid; a leaked object only costs storage.
 - A story-to-file map goes when the sweep deletes the last run that names it.
 - Each invocation is capped by rows and by a time budget, so a backlog drains over days.
+  The budget stays below the time a deploy gives a busy worker to finish, so a deploy cannot kill a sweep.
+  Artifacts have their own task and budget, so a backlog of runs cannot use up the time the artifact sweep needs.
 
 ### Weekly debt digest
 
@@ -207,6 +209,17 @@ Add `--tolerate-drift` to report the drift and still exit 0. Use it on the defau
 - **`review`** (default) — approvable. Backend posts PR comment prompts; UI surfaces it under "needs review"; CLI gates on unapproved changes.
 - **`observe`** — tracking only. Backend rejects approval attempts; no PR comment; excluded from "needs review". The commit status is posted green (`success`, "Tracking only…") to a separate, non-gating `… (tracking)` context — never the gating `PostHog Visual Review / {run_type}` one. `purpose` is client-supplied, so greening the gating context would let an observe run bypass branch protection on a PR head SHA; the separate context keeps observe runs informational-only (like `(partial)` runs). The UI hides all approval affordances. Use on master pushes and merge-queue branches, where there's no PR to approve.
   The commit status never gates, but the exit code of `vr run complete` still does, and that is where a caller chooses. A merge-queue branch renders the tree about to land, so it lets drift fail the job. Master passes `--tolerate-drift` instead.
+
+### PR comments
+
+Enabled per repo with `enable_pr_comments`.
+A run that needs review posts its own comment, so GitHub notifies the reviewers and the prompt sits at the bottom of the PR with the new changes.
+GitHub sends nothing for an edit, so a run must not rewrite an earlier comment into a new prompt — a reviewer who already approved would never learn that more changes arrived.
+After the new prompt lands, the run clears the previous comment of its own run type: an approval is kept and marked as covering an earlier revision, an unanswered prompt is deleted.
+This order keeps the existing prompt on the PR when the post fails.
+Each run type keeps its own live prompt, because each one has a separate gate and a separate approval.
+An approval updates the prompt of its own run in place, because the reviewer who approved needs no notification.
+A run that never got a prompt, because it found nothing to review or because the post failed, posts a new comment on approval instead.
 
 ## Current state
 

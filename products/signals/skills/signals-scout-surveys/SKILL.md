@@ -1,5 +1,6 @@
 ---
 name: signals-scout-surveys
+scout-display-name: Surveys
 description: >
   Signals scout for PostHog surveys. Watches active surveys for score regressions, response-
   volume drops, abandonment spikes, and targeting drift, and aggregates open-text responses into

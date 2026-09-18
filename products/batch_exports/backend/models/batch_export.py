@@ -28,6 +28,15 @@ TIMEZONES = [(tz, tz) for tz in pytz.all_timezones]
 # type which has now been fully deprecated.
 S3_FAMILY_TYPES: frozenset[str] = frozenset({"AwsS3", "S3Compatible"})
 
+# Destinations that write files to object storage, as opposed to the data warehouse destinations
+# (BigQuery, Databricks, Postgres, Redshift, Snowflake) that write rows into a table. File format,
+# compression and object key layout are questions only this half has to answer.
+#
+# Also includes "FileDownload", which writes to a PostHog bucket rather than a customer one.
+# TODO: it probably makes sense to introduce a 'DestinationKind' abstraction in the future,
+# to properly categorize object storage and data warehouse destinations.
+OBJECT_STORAGE_DESTINATIONS: frozenset[str] = frozenset({"S3", "AwsS3", "S3Compatible", "AzureBlob", "FileDownload"})
+
 
 class DayOfWeek(IntEnum):
     """Day of the week enum for batch export schedules.

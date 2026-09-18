@@ -1,5 +1,7 @@
 import { Counter, Gauge, Histogram } from 'prom-client'
 
+import type { MlWireVersion } from '~/ingestion/pipelines/sessionreplay/ml-mirror/keys/schema'
+
 import type { RepublishReason, UrlDropReason, UrlSkipReason } from './collected-urls-record'
 import type { AttemptOutcome } from './fetch-runner'
 import type { FrontierDeadLetterReason } from './frontier-dead-letter-sink'
@@ -31,6 +33,11 @@ type PolicyAndBudgetReason = FetchRefusalReason | RequestScheduleBlockReason | '
 const BATCH_DIVERSITY_TOP_COUNTS = [1, 5, 10] as const
 
 export class ImageFetchConsumerMetrics {
+    private static readonly wireVersion = new Counter({
+        name: 'ml_image_fetch_consumer_version_total',
+        help: 'Frontier records accepted by wire format version, counted before parsing. Version 2 arrived as an encrypted envelope this consumer decrypted, version 1 as cleartext. The mirror stamps the version, so this is the consumer-side view of its switchover and the two rates should track each other across a deploy',
+        labelNames: ['version'],
+    })
     private static readonly fetchable = new Counter({
         name: 'ml_image_fetch_consumer_fetchable_total',
         help: 'URLs that passed every check and would have been fetched. In dry run no request is sent, so this is the offered rate rather than the sent rate',
@@ -164,6 +171,12 @@ export class ImageFetchConsumerMetrics {
         name: 'ml_image_fetch_consumer_dry_run',
         help: '1 while the lane sends no outbound request, 0 once fetching is enabled. Every other metric of this lane means something different either side of this value',
     })
+
+    public static incrementVersion(version: MlWireVersion, count: number): void {
+        if (count > 0) {
+            this.wireVersion.labels(version).inc(count)
+        }
+    }
 
     public static setDryRun(enabled: boolean): void {
         this.dryRun.set(enabled ? 1 : 0)
