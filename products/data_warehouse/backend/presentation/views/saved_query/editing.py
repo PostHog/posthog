@@ -39,7 +39,7 @@ from products.warehouse_sources.backend.facade.hogql import (
 )
 from products.warehouse_sources.backend.facade.models import sync_frequency_to_sync_frequency_interval
 
-from . import incremental_config, sync_cadence, view_description, view_state
+from . import incremental_config, snapshot_config, sync_cadence, view_description, view_state
 
 logger = structlog.get_logger(__name__)
 
@@ -149,6 +149,20 @@ class DataWarehouseSavedQuerySerializer(
         help_text="How far incremental materialization has progressed. Null until the first run "
         "records any. Written by the materialization run, not by this API.",
     )
+    snapshot = snapshot_config.SnapshotConfigSerializer(
+        source="snapshot_config",
+        required=False,
+        allow_null=True,
+        help_text="Keep a history of changes observed each time this query runs.",
+    )
+    snapshot_state = snapshot_config.SnapshotStateSerializer(
+        read_only=True,
+        allow_null=True,
+        help_text="System-written snapshot observation and generation state.",
+    )
+    materialization_mode = serializers.SerializerMethodField(
+        help_text="Effective materialization mode: full_refresh, incremental, or snapshot."
+    )
 
     class Meta:
         model = DataWarehouseSavedQuery
@@ -159,6 +173,9 @@ class DataWarehouseSavedQuerySerializer(
             "query",
             "incremental",
             "incremental_state",
+            "snapshot",
+            "snapshot_state",
+            "materialization_mode",
             "created_by",
             "created_at",
             "updated_at",
@@ -598,6 +615,19 @@ class DataWarehouseSavedQuerySerializer(
 
     def validate(self, attrs):
         attrs = super().validate(attrs)
+
+        snapshot = attrs.get("snapshot_config", self.instance.snapshot_config if self.instance is not None else None)
+        incremental = attrs.get(
+            "incremental_config", self.instance.incremental_config if self.instance is not None else None
+        )
+        if isinstance(snapshot, dict) and snapshot and isinstance(incremental, dict) and incremental.get("enabled"):
+            raise serializers.ValidationError(
+                {"snapshot": "Snapshot and incremental materialization cannot be enabled together."}
+            )
+        if self.instance is not None and self.instance.snapshot_state and snapshot != self.instance.snapshot_config:
+            raise serializers.ValidationError(
+                {"snapshot": "Snapshot configuration cannot change after history exists. Create another model."}
+            )
 
         # Falls back to the stored config so editing the query of an already-incremental view is
         # checked too. Otherwise a query that incremental cannot serve would save while the view
