@@ -199,6 +199,26 @@ class TestLLMSkillAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
+    @parameterized.expand(
+        [
+            # Named by its directory under products/signals/skills/.
+            ("skill_directory", "signals-scout-logs"),
+            # Named by the frontmatter of a loose entry point, which its path does not carry.
+            ("loose_entry_point", "adding-warehouse-person-properties"),
+        ]
+    )
+    def test_create_skill_rejects_a_bundled_skill_name(self, _label, skill_name):
+        response = self.client.post(
+            self._url(),
+            data={"name": skill_name, "description": "Shadows a bundled skill.", "body": "# Shadow"},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == "name"
+        assert "already ships a skill" in response.json()["detail"]
+        assert not LLMSkill.objects.filter(team=self.team, name=skill_name).exists()
+
     def test_create_skill_requires_description(self):
         response = self.client.post(
             self._url(),
@@ -1044,6 +1064,26 @@ class TestLLMSkillAPI(APIBaseTest):
         assert data["license"] == "MIT"
         assert data["compatibility"] == "Python 3.12+"
 
+    @parameterized.expand(
+        [
+            ("drops_the_hash", {"seeded_by": "signals_scout_harness"}),
+            ("forges_the_hash", {"seeded_by": "signals_scout_harness", "canonical_hash": "forged"}),
+            ("forges_the_seed_tag", {"seeded_by": "someone_else", "canonical_hash": "forged", "source": "elsewhere"}),
+        ]
+    )
+    def test_publish_cannot_rewrite_harness_provenance_metadata(self, _label, supplied_metadata):
+        seeded = {"seeded_by": "signals_scout_harness", "canonical_hash": "abc123", "source": "products/signals/skills"}
+        self.create_skill(name="signals-scout-health-checks", metadata=seeded)
+
+        response = self.client.patch(
+            self._url("name/signals-scout-health-checks"),
+            data={"body": "# Repurposed", "metadata": {**supplied_metadata, "note": "mine"}, "base_version": 1},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["metadata"] == {**seeded, "note": "mine"}
+
     def test_publish_can_update_description(self):
         self.create_skill(name="update-desc", description="Old desc.", body="# Body")
 
@@ -1570,6 +1610,19 @@ class TestLLMSkillAPI(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert LLMSkill.objects.filter(team=self.team, name=old_name, deleted=False).exists()
         assert not LLMSkill.objects.filter(team=self.team, name=new_name).exists()
+
+    @parameterized.expand([("rename", "rename"), ("duplicate", "duplicate")])
+    def test_taking_a_bundled_skill_name_is_rejected(self, _label, action):
+        self.create_skill(name="source")
+
+        response = self.client.post(
+            self._url(f"name/source/{action}"),
+            data={"new_name": "signals-scout-logs"},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert not LLMSkill.objects.filter(team=self.team, name="signals-scout-logs").exists()
 
     def test_rename_of_a_missing_skill_is_not_found(self):
         response = self.client.post(

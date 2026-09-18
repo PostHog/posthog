@@ -113,7 +113,7 @@ class ZoomSource(ResumableSource[ZoomSourceConfig, ZoomResumeConfig]):
             name=ExternalDataSourceType.ZOOM,
             category=DataWarehouseSourceCategory.COMMUNICATION,
             label="Zoom",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Sync your Zoom users, meetings, and webinars into the PostHog Data warehouse.
 
 Create a **Server-to-Server OAuth** app in the [Zoom App Marketplace](https://marketplace.zoom.us/develop/create) and copy its Account ID, Client ID, and Client Secret below.

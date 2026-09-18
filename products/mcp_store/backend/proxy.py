@@ -11,6 +11,8 @@ import httpx
 import structlog
 
 from posthog.api.streaming import sse_streaming_response
+from posthog.security.pinned_httpx import pinned_client
+from posthog.security.pinned_requests import SSRFBlockedError
 from posthog.security.url_validation import is_url_allowed
 from posthog.settings import SERVER_GATEWAY_INTERFACE
 
@@ -19,7 +21,7 @@ from ee.hogai.utils.asgi import SyncIterableToAsync
 from .models import MCPAuditEvent, MCPGatewayServer, MCPServerInstallation, MCPServerInstallationTool
 from .oauth import TokenRefreshError, TokenRefreshRejectedError, is_token_expiring, refresh_installation_token
 from .policy import GatewayCaller, PolicyContext
-from .url_policy import check_mcp_url_policy, trust_environment_proxy
+from .url_policy import resolve_mcp_url_policy, trust_environment_proxy
 
 logger = structlog.get_logger(__name__)
 
@@ -469,11 +471,11 @@ def proxy_mcp_request(
     rides, so the audit trail answers whose connection an agent used. Both are
     empty for member calls, where the actor already is the credential owner.
     """
-    allowed, error = check_mcp_url_policy(installation.url, installation.team_id)
-    if not allowed:
-        logger.warning("SSRF: blocked proxy request", url=installation.url, reason=error)
+    verdict = resolve_mcp_url_policy(installation.url, installation.team_id)
+    if not verdict.allowed:
+        logger.warning("SSRF: blocked proxy request", url=installation.url, reason=verdict.reason)
         return HttpResponse(
-            json.dumps({"error": f"URL not allowed: {error}"}),
+            json.dumps({"error": f"URL not allowed: {verdict.reason}"}),
             content_type="application/json",
             status=400,
         )
@@ -543,7 +545,9 @@ def proxy_mcp_request(
     if mcp_session_id:
         headers["Mcp-Session-Id"] = mcp_session_id
 
-    client = httpx.Client(
+    client = pinned_client(
+        installation.url,
+        verdict.pinned_ips,
         timeout=UPSTREAM_TIMEOUT,
         trust_env=trust_environment_proxy(installation.url, installation.team_id),
     )
@@ -555,6 +559,14 @@ def proxy_mcp_request(
             content=body,
             headers=headers,
             stream=True,
+        )
+    except (SSRFBlockedError, httpx.ProxyError):
+        client.close()
+        logger.warning("Upstream MCP connection blocked by URL or proxy policy")
+        return HttpResponse(
+            '{"error": "Upstream MCP connection blocked. Ask an administrator to check the outbound proxy configuration."}',
+            content_type="application/json",
+            status=502,
         )
     except httpx.ConnectError:
         client.close()

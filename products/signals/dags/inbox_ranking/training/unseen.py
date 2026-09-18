@@ -27,6 +27,7 @@ from products.signals.backend.ranking.features import (
     NO_EXTRAS,
     REPORT_EMBEDDINGS_FEATURE_SET,
     TABULAR_FEATURE_SET,
+    TITLE_EMBEDDINGS_FEATURE_SET,
     Extras,
     FeatureSet,
     feature_set_by_name,
@@ -48,6 +49,8 @@ POOL_NAME = "newborn"
 # definition puts two populations in one AUC series unless the older one keeps its own name.
 LEGACY_POOL_NAME = "sampled"
 
+UNSEEN_SCORES_TABLE = "inbox_ranking_unseen_scores"
+
 CANDIDATE_ROLE = "candidate"
 CHAMPION_ROLE = "champion"
 
@@ -55,6 +58,7 @@ CHAMPION_ROLE = "champion"
 # it was fit on. Both are in the identity, so two families trained on one day stay apart.
 TABULAR_MODEL_NAME = "tabular_xgb"
 REPORT_EMBEDDINGS_MODEL_NAME = "report_embeddings"
+TITLE_EMBEDDINGS_MODEL_NAME = "title_embeddings"
 
 # A shuffle plus one AUC rather than a refit, so this sits far above the trainer's NULL_PERMUTATIONS.
 NULL_PERMUTATIONS = 25
@@ -110,7 +114,7 @@ class UnseenModel:
 @frozen
 class ModelFamily:
     """One family the training job fits and the unseen read grades: its name, and the feature set
-    its trainer fits. Both families are per-head XGBoost, so the learner is not a field yet; a
+    its trainer fits. Every family is per-head XGBoost, so the learner is not a field yet; a
     family with its own predict (the MMoE) adds one at the `UnseenModel` boundary."""
 
     name: str
@@ -120,9 +124,14 @@ class ModelFamily:
 # The families the training job trains and the unseen read grades, in the order they are trained. A
 # family with no metadata for the day is skipped, so an entry can be added here before its trainer
 # writes its first candidate, and a family that fails costs its own series rather than every one.
+# The two embedding families read one `ReportEmbeddingsFeatureSet` instance each and fit with the
+# same module-level `XGB_PARAMS`, so their width, grain, row budget, sampling, split and booster
+# settings match by construction. Keep it that way: the pair is a measurement of the text choice,
+# and a recipe that differed between them would answer a question nobody asked.
 MODEL_FAMILIES: tuple[ModelFamily, ...] = (
     ModelFamily(name=TABULAR_MODEL_NAME, feature_set=TABULAR_FEATURE_SET),
     ModelFamily(name=REPORT_EMBEDDINGS_MODEL_NAME, feature_set=REPORT_EMBEDDINGS_FEATURE_SET),
+    ModelFamily(name=TITLE_EMBEDDINGS_MODEL_NAME, feature_set=TITLE_EMBEDDINGS_FEATURE_SET),
 )
 
 
@@ -331,6 +340,19 @@ def with_model_names(scores: pd.DataFrame) -> pd.DataFrame:
     if "model_name" not in scores:
         return scores.assign(model_name=TABULAR_MODEL_NAME)
     return scores.assign(model_name=scores["model_name"].fillna(TABULAR_MODEL_NAME))
+
+
+def families_lost_by_rewrite(existing: pd.DataFrame, scores: pd.DataFrame) -> list[str]:
+    """The families whose rows a rewrite of a partition's scores object would delete.
+
+    One object holds every family, and the write replaces it in full, so a run that scored fewer
+    families than the object already holds removes the rest. That is the loss
+    `empty_scores_write_allowed` refuses for a run that scored nothing, and a family is skipped
+    whenever its models or its set's side input are missing for the partition, so the partial case
+    is as ordinary as the empty one. Reading the object settles what it holds, which the row-count
+    stamp alone cannot.
+    """
+    return sorted(set(with_model_names(existing)["model_name"].unique()) - set(scores["model_name"].unique()))
 
 
 def score_pool(
