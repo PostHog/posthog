@@ -102,11 +102,8 @@ Name it explicitly near the top of the body so every run anchors on it.
 
 (The one exception: a **measurement scout** on the structured-output channel holds no bar — it applies a **rubric** to every sampled item, and the rubric takes the discriminator's slot as the design surface to name, dogfood, and calibrate. See the recurring measurement / LLM-judge pattern in `references/scout-patterns.md`.)
 
-A second design rule binds any **metric-shaped scout** — one that scores, ranks, or reports a named, reusable measure, whether a business measure (MRR, churn risk, usage revenue, activation) or operational telemetry it computes every run to monitor or report (cost per run, failure or error rates, latency, throughput).
-When the project's metrics catalog is enabled, it may hold a governed definition of that measure in `system.information_schema.metrics`, and the harness tells every run to prefer it — so write the body to cooperate rather than compete: have the run check the catalog for an approved, non-drifted metric before its own derivation, and run a match through `data-catalog-metric-run`.
-Where a governed metric exists, reference it by name in any `references/queries.md` you ship, and label every hand-written derivation there a noncanonical fallback — an unlabeled "validated query" outranks the harness's catalog-first rule at run time, which is exactly how a scout ends up re-deriving a number the team already governs.
-Freshness, availability, and schema checks are exempt: they stay schema-first, with no catalog detour.
-A measurement scout is exempt too, but only for the measure it invents: a subjective rubric has no governed definition to defer to, while any conventional metric the same scout reports still goes through the catalog.
+A second design consideration applies to a **metric-shaped scout** — one that scores, ranks, or reports a named, reusable measure, whether a business measure (MRR, churn risk, usage revenue, activation) or operational telemetry it computes every run to monitor or report (cost per run, failure or error rates, latency, throughput).
+If the project has an approved metric for that measure (`metric-list` shows what exists), name it in the body and run it with `data-catalog-metric-run`, so the scout's number matches the one the team already reports.
 
 ## Run posture (config)
 

@@ -6,7 +6,10 @@ from django.conf import settings
 from django.db import IntegrityError, transaction
 from django.db.models import QuerySet
 
+from rest_framework import serializers
+
 from posthog.api.llm_prompt_serializers import MAX_PROMPT_PAYLOAD_BYTES
+from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team, User
 from posthog.models.activity_logging.activity_log import Change
@@ -18,7 +21,13 @@ from products.ai_observability.backend.models.llm_prompt import (
     LLMPromptLabel,
     annotate_llm_prompt_version_history_metadata,
 )
-from products.ai_observability.backend.prompt_references import record_prompt_references, validate_prompt_references
+from products.ai_observability.backend.prompt_references import (
+    get_active_parents_referencing_label,
+    get_active_referencing_parent_names,
+    parse_prompt_references,
+    record_prompt_references,
+    validate_prompt_references,
+)
 
 SYNC_ARCHIVE_VERSION_INVALIDATION_LIMIT = 100
 MAX_PROMPT_VERSION = 2000
@@ -56,6 +65,11 @@ class LLMPromptVersionLimitError(Exception):
 class LLMPromptEditError(Exception):
     message: str
     edit_index: int
+
+
+@frozen
+class LLMPromptReferencedError(Exception):
+    referencing_prompts: list[str]
 
 
 def apply_prompt_edits(prompt_content: Any, edits: list[dict[str, str]]) -> Any:
@@ -339,6 +353,15 @@ def duplicate_prompt(
 
 def archive_prompt(team: Team, prompt_name: str, *, user: User | None = None) -> list[int]:
     with transaction.atomic():
+        # Label rows lock before version rows everywhere (set_prompt_label,
+        # reference validation, here), so an archive racing a label write
+        # queues instead of deadlocking on opposite lock orders.
+        list(
+            LLMPromptLabel.objects.select_for_update()
+            .filter(team=team, prompt_name=prompt_name)
+            .order_by("name")
+            .values_list("id", flat=True)
+        )
         prompt_versions = list(
             LLMPrompt.objects.select_for_update()
             .filter(team=team, name=prompt_name, deleted=False)
@@ -347,6 +370,10 @@ def archive_prompt(team: Team, prompt_name: str, *, user: User | None = None) ->
         )
         if not prompt_versions:
             raise LLMPromptNotFoundError()
+
+        referencing_prompts = get_active_referencing_parent_names(team.id, prompt_name)
+        if referencing_prompts:
+            raise LLMPromptReferencedError(referencing_prompts=referencing_prompts)
         LLMPrompt.objects.filter(team=team, name=prompt_name, deleted=False).update(
             deleted=True,
             is_latest=False,
@@ -415,6 +442,16 @@ def set_prompt_label(
     moved, so the one-version-per-label invariant can't be violated through this path.
     """
     with transaction.atomic():
+        # Locked before the guard below: reference validation locks this same
+        # row, so a publish that is about to reference this label either
+        # commits its dependency row first (the guard sees it) or waits.
+        existing = (
+            LLMPromptLabel.objects.select_for_update(of=("self",))
+            .select_related("prompt")
+            .filter(team=team, prompt_name=prompt_name, name=label_name)
+            .first()
+        )
+
         # Locked so a concurrent archive_prompt (which locks the same rows) can't mark the
         # prompt deleted between this check and the label write, orphaning the label.
         target = (
@@ -426,12 +463,24 @@ def set_prompt_label(
         if target is None:
             raise LLMPromptNotFoundError()
 
-        existing = (
-            LLMPromptLabel.objects.select_for_update()
-            .select_related("prompt")
-            .filter(team=team, prompt_name=prompt_name, name=label_name)
-            .first()
-        )
+        # A referenced label is part of other prompts' assembled content, so it
+        # must keep pointing at a version those prompts can splice in. An
+        # unreferenced label can move freely.
+        referencing_label = get_active_parents_referencing_label(team.id, prompt_name, label_name)
+        if referencing_label:
+            if not isinstance(target.prompt, str):
+                raise serializers.ValidationError(
+                    f"Label '{label_name}' is referenced by {', '.join(referencing_label)} and cannot point "
+                    "at a version whose content is not plain text.",
+                    code="label_target_not_text",
+                )
+            if parse_prompt_references(target.prompt):
+                raise serializers.ValidationError(
+                    f"Label '{label_name}' is referenced by {', '.join(referencing_label)} and cannot point "
+                    "at a version that contains references. Choose a version without references.",
+                    code="label_target_has_references",
+                )
+
         if existing is not None:
             previous_version = existing.prompt.version
             if existing.prompt_id != target.pk:
@@ -457,7 +506,19 @@ def set_prompt_label(
 
 
 def remove_prompt_label(team: Team, *, prompt_name: str, label_name: str) -> None:
-    label = LLMPromptLabel.objects.filter(team=team, prompt_name=prompt_name, name=label_name).first()
-    if label is None:
-        raise LLMPromptLabelNotFoundError()
-    label.delete()
+    with transaction.atomic():
+        # Same lock as set_prompt_label and reference validation, so the guard
+        # cannot miss a dependency row that a concurrent publish is committing.
+        label = (
+            LLMPromptLabel.objects.select_for_update()
+            .filter(team=team, prompt_name=prompt_name, name=label_name)
+            .first()
+        )
+        if label is None:
+            raise LLMPromptLabelNotFoundError()
+
+        referencing_prompts = get_active_parents_referencing_label(team.id, prompt_name, label_name)
+        if referencing_prompts:
+            raise LLMPromptReferencedError(referencing_prompts=referencing_prompts)
+
+        label.delete()

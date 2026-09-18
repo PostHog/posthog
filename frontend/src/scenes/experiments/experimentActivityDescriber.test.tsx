@@ -413,6 +413,113 @@ describe('experimentActivityDescriber', () => {
             expect(text).not.toContain(': on')
         })
 
+        it('describes a reset entry without narrating the cleared fields', () => {
+            const result = experimentActivityDescriber(
+                baseLogItem({
+                    activity: 'reset',
+                    detail: {
+                        name: 'Checkout funnel',
+                        changes: [
+                            {
+                                type: ActivityScope.EXPERIMENT,
+                                action: 'deleted',
+                                field: 'start_date',
+                                before: '2026-06-18T14:25:34Z',
+                                after: null,
+                            },
+                            {
+                                type: ActivityScope.EXPERIMENT,
+                                action: 'deleted',
+                                field: 'end_date',
+                                before: '2026-07-18T14:25:34Z',
+                                after: null,
+                            },
+                        ],
+                        merge: null,
+                        trigger: null,
+                    },
+                })
+            )
+            const text = textOf(result)
+            expect(text).toContain('reset experiment')
+            expect(text).not.toContain('start date')
+            expect(text).not.toContain('end date')
+        })
+
+        it('keeps a row for a standalone end date removal', () => {
+            const result = experimentActivityDescriber(
+                baseLogItem({
+                    activity: 'updated',
+                    detail: {
+                        name: 'Checkout funnel',
+                        changes: [
+                            {
+                                type: ActivityScope.EXPERIMENT,
+                                action: 'deleted',
+                                field: 'end_date',
+                                before: '2026-07-18T14:25:34Z',
+                                after: null,
+                            },
+                        ],
+                        merge: null,
+                        trigger: null,
+                    },
+                })
+            )
+            expect(textOf(result)).toContain('removed the end date')
+        })
+
+        it.each([
+            [true, 'archived experiment'],
+            [false, 'unarchived experiment'],
+        ])('describes an archived change to %s', (after, expected) => {
+            const result = experimentActivityDescriber(
+                baseLogItem({
+                    activity: 'updated',
+                    detail: {
+                        name: 'Checkout funnel',
+                        changes: [
+                            {
+                                type: ActivityScope.EXPERIMENT,
+                                action: 'changed',
+                                field: 'archived',
+                                before: !after,
+                                after,
+                            },
+                        ],
+                        merge: null,
+                        trigger: null,
+                    },
+                })
+            )
+            expect(textOf(result)).toContain(expected)
+        })
+
+        it('names the shipped variant', () => {
+            const result = experimentActivityDescriber(
+                baseLogItem({
+                    activity: 'variant_shipped',
+                    detail: {
+                        name: 'Checkout funnel',
+                        changes: [
+                            {
+                                type: ActivityScope.EXPERIMENT,
+                                action: 'created',
+                                field: 'shipped_variant',
+                                before: null,
+                                after: 'test-b',
+                            },
+                        ],
+                        merge: null,
+                        trigger: null,
+                    },
+                })
+            )
+            const text = textOf(result)
+            expect(text).toContain('shipped variant')
+            expect(text).toContain('test-b')
+        })
+
         it('keeps a row for a comment-only conclusion edit', () => {
             const result = experimentActivityDescriber(
                 baseLogItem({

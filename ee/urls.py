@@ -10,6 +10,7 @@ from django.views.generic import RedirectView
 from django_otp.plugins.otp_static.models import StaticDevice
 from django_otp.plugins.otp_totp.models import TOTPDevice
 
+from posthog.admin import register_all_admin
 from posthog.middleware import impersonated_session_logout
 from posthog.views import api_key_search_view, redis_edit_ttl_view, redis_values_view
 
@@ -74,6 +75,11 @@ def extend_api_router() -> None:
 
 # The admin interface is disabled on self-hosted instances, as its misuse can be unsafe
 if settings.ADMIN_PORTAL_ENABLED:
+    # `AdminSite.get_urls()` derives the `admin:app_list` URL pattern from the registry
+    # when `admin.site.urls` below is read, and never rebuilds it. `LazyAdminRegistry`
+    # fills the registry first, but `posthog/apps.py` skips it under `settings.TEST`.
+    register_all_admin()
+
     # these models are auto-registered but we don't want to expose them to staff
     for model in (StaticDevice, TOTPDevice):
         try:

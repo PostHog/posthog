@@ -82,7 +82,9 @@ def _scope_allows(scopes: Collection[str] | None, resource: str, write: bool) ->
 def restrict_subject_types(context: DenialContext, allowed: Collection[SubjectType]) -> DenialContext:
     denied = set(context.denied)
     if SubjectType.TABLE not in allowed:
+        # Both spellings, because a query can write either and the matcher compares leaf names.
         denied.update(context.metadata.table_names.values())
+        denied.update(context.metadata.table_keys.values())
     if SubjectType.VIEW not in allowed:
         denied.update(context.metadata.view_names.values())
     return replace(

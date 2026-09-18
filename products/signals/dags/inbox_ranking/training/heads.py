@@ -95,17 +95,17 @@ HEADS: tuple[Head, ...] = (
         name="dismiss_wrong",
         cohort=impressed,
         label=dismissed_as_wrong,
-        horizon_days=7,
+        horizon_days=14,
         min_holdout_positives=30,
         status_labels=True,
     ),
     # Which reports get a PR at all? Cohort is every report the sweep would score.
     Head(name="pr_created", cohort=everyone, label=pr_created, horizon_days=7, min_holdout_positives=30),
-    # Of the reports that got a PR, which got it merged? Completes the open -> pr_created -> pr_merged
-    # funnel; the negative is "pr_created, no merge within the horizon".
+    # Which reports end up with a merged PR? The cohort is everyone, so the label carries the whole
+    # report-to-merge path rather than conditioning on a PR that does not exist yet at birth.
     Head(
         name="pr_merged",
-        cohort=pr_created,
+        cohort=everyone,
         label=pr_merged,
         horizon_days=14,
         min_holdout_positives=30,

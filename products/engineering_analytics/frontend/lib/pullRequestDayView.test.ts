@@ -24,7 +24,7 @@ function pr(
         created_at: at(segments[0][1]),
         started_at: at(segments[0][1]),
         merged_at: options.merged ? at(last[2]) : null,
-        pushes: 1,
+        pushes: [],
         estimated_cost_usd: null,
         billable_minutes: null,
         segments: segments.map(([kind, start, end]) => ({ kind, started_at: at(start), ended_at: at(end) })),

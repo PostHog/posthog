@@ -2470,7 +2470,7 @@ def get_teams_with_workflow_billable_invocations_in_period(
             """
             SELECT team_id, SUM(count) as count
             FROM app_metrics2
-            WHERE app_source='hog_flow' AND metric_name IN ('billable_invocation') AND metric_kind IN ('fetch') AND timestamp >= %(begin)s AND timestamp < %(end)s
+            WHERE app_source='hog_flow' AND metric_name IN ('billable_invocation') AND metric_kind IN ('fetch', 'push') AND timestamp >= %(begin)s AND timestamp < %(end)s
             GROUP BY team_id
         """,
             {"begin": begin, "end": end},

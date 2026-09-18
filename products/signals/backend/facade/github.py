@@ -2,7 +2,7 @@
 
 import structlog
 
-from posthog.api.github_webhooks.integrations import _installation_team_ids
+from posthog.github.installations import installation_team_ids
 
 from products.signals.backend.report_assignments import update_assignments_for_pull_request
 from products.signals.backend.report_generation.resolve_reviewers import resolve_org_github_login_to_users
@@ -17,7 +17,7 @@ def resolve_github_login_distinct_id(login: str, team_id: int) -> str | None:
 
 def update_pull_request_assignments(payload: dict, pr_state: str | None) -> None:
     repository = (payload.get("repository") or {}).get("full_name")
-    team_ids = _installation_team_ids(payload)
+    team_ids = installation_team_ids(payload)
     if pr_state is None or not repository or not team_ids:
         return
     pull_request = payload.get("pull_request") or {}

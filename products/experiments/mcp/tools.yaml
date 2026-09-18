@@ -134,7 +134,6 @@ tools:
                 aliases:
                     - experimentId
                     - experiment_id
-        feature_flag: experiment-flag-cleanup-pr
         response:
             exclude:
                 - can_view_task
@@ -257,7 +256,7 @@ tools:
             - description
             - feature_flag_key
             - feature_flag
-            - parameters
+            - running_time_calculation
             - stats_config
             - holdout_id
             - allow_unknown_events
@@ -282,6 +281,12 @@ tools:
                     natural-language pair without naming explicit keys, key the baseline `control` and keep their
                     wording in the variant `name`. When the user asks for specific keys, use them as-is and put the
                     baseline first.
+            running_time_calculation:
+                description: >
+                    Persist a running-time / sample-size plan onto the experiment (the planning target shown in the
+                    experiment's running-time panel). Object with optional keys: minimum_detectable_effect (percentage,
+                    e.g. 20 for a 20% lift), recommended_sample_size (total across all variants),
+                    recommended_running_time (days), and exposure_estimate_config.
         ui_app: experiment
         response:
             include:
@@ -295,7 +300,7 @@ tools:
                 - start_date
                 - end_date
                 - created_at
-                - parameters
+                - running_time_calculation
                 - metrics
                 - metrics_secondary
                 - conclusion
@@ -334,7 +339,6 @@ tools:
                 - start_date
                 - end_date
                 - created_at
-                - parameters
                 - metrics
                 - metrics_secondary
                 - conclusion
@@ -529,10 +533,10 @@ tools:
             deactivated, "exposure_frozen" when its flag's release groups are narrowed to the already-exposed cohort so
             enrollment is closed while metrics keep flowing), start_date and end_date, linked feature_flag (with
             variants, filters, active state), metrics and metrics_secondary arrays, conclusion and conclusion_comment if
-            ended, parameters (including feature_flag_variants and recommended_running_time), stats_config, type
-            (web/product), and resolved_exposure_event (the event exposures are counted on when no custom exposure event
-            is configured — resolved server-side to $feature_flag_called or $experiment_exposure; use it in SQL instead
-            of hardcoding either name).
+            ended, running_time_calculation (minimum detectable effect, recommended running time and sample size),
+            stats_config, type (web/product), and resolved_exposure_event (the event exposures are counted on when no
+            custom exposure event is configured — resolved server-side to $feature_flag_called or $experiment_exposure;
+            use it in SQL instead of hardcoding either name).
         param_overrides:
             id:
                 cast: string-int
@@ -1417,7 +1421,6 @@ tools:
             - name
             - description
             - feature_flag
-            - parameters
             - running_time_calculation
             - excluded_variants
             - metrics
@@ -1469,8 +1472,8 @@ tools:
                 - start_date
                 - end_date
                 - created_at
-                - parameters
                 - running_time_calculation
+                - excluded_variants
                 - metrics
                 - metrics_secondary
                 - saved_metrics

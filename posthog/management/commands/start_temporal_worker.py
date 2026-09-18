@@ -156,6 +156,7 @@ from products.alerts.backend.facade.temporal import (
     DELIVERY_WORKFLOWS as ALERTS_PRODUCT_DELIVERY_WORKFLOWS,
     EVALUATION_ACTIVITIES as ALERTS_PRODUCT_EVALUATION_ACTIVITIES,
     EVALUATION_WORKFLOWS as ALERTS_PRODUCT_EVALUATION_WORKFLOWS,
+    SHARED_ORCHESTRATION_ACTIVITIES as ALERTS_PRODUCT_SHARED_ORCHESTRATION_ACTIVITIES,
     SHARED_ORCHESTRATION_WORKFLOWS as ALERTS_PRODUCT_SHARED_ORCHESTRATION_WORKFLOWS,
 )
 from products.batch_exports.backend.temporal import (
@@ -553,7 +554,7 @@ _task_queue_specs = [
     (
         settings.ALERTS_PRODUCT_SHARED_ORCHESTRATION_TASK_QUEUE,
         ALERTS_PRODUCT_SHARED_ORCHESTRATION_WORKFLOWS,
-        [],
+        ALERTS_PRODUCT_SHARED_ORCHESTRATION_ACTIVITIES,
     ),
     (
         settings.ALERTS_PRODUCT_EVALUATION_TASK_QUEUE,
@@ -745,14 +746,14 @@ class Command(BaseCommand):
 
         tag_queries(kind="temporal")
 
-        # Max AI and tasks-agent traces span the Django request and the Temporal activity that runs
+        # Max AI, tasks-agent, and wizard traces span the Django request and the Temporal activity that runs
         # the agent loop. Without the OTel plugin on the worker, every span emitted from an activity
         # is a root span and the conversation trace splits across disconnected pieces. Force-enable
-        # for both queues so investigations don't depend on an operator flipping
+        # for these queues so investigations don't depend on an operator flipping
         # TEMPORAL_OTEL_PLUGIN_ENABLED.
         enable_otel = (
             settings.TEMPORAL_OTEL_PLUGIN_ENABLED is True
-            or task_queue in (settings.MAX_AI_TASK_QUEUE, settings.TASKS_TASK_QUEUE)
+            or task_queue in (settings.MAX_AI_TASK_QUEUE, settings.TASKS_TASK_QUEUE, settings.WIZARD_TASK_QUEUE)
         ) and settings.OTEL_SERVICE_NAME is not None
         if enable_otel is True:
             # Mypy doesn't understand we have already checked settings.OTEL_SERVICE_NAME

@@ -11,7 +11,10 @@ from products.warehouse_sources.backend.facade.source_config import (
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
+    FieldType,
+    error_message_matches,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.base import SQLSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.motherduck import (
@@ -19,6 +22,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.motherduck.motherduck import (
     MOTHERDUCK_ERROR_CLASSES,
+    MOTHERDUCK_TRANSIENT_ERRORS,
+    MOTHERDUCK_UNAVAILABLE_MESSAGE,
     MotherDuckConnectionError,
     MotherDuckImplementation,
     connect,
@@ -29,6 +34,10 @@ if TYPE_CHECKING:
     import duckdb
 
 _MOTHERDUCK_IMPLEMENTATION = MotherDuckImplementation()
+
+_CONNECTION_DETAILS_MESSAGE = (
+    "MotherDuck rejected the connection details. Check the database name and access token, then resync."
+)
 
 
 @SourceRegistry.register
@@ -97,10 +106,25 @@ class MotherduckSource(SQLSource[MotherduckSourceConfig]):
             **self.default_non_retryable_errors(),
             "Catalog Error": "A database, schema, or table this source syncs no longer exists in MotherDuck, or your access token lost access to it. Check that it still exists, then resync.",
             "Binder Error": "A column this source syncs no longer exists in MotherDuck. Reset the table so we pick up its new shape, then resync.",
-            "Invalid Input Error": "MotherDuck rejected the connection details. Check the database name and access token, then resync.",
+            # `connect()` translates before it raises, so the message carries this text rather than
+            # DuckDB's class name. Keying on the class would also catch an outage, which stays retryable.
+            MOTHERDUCK_ERROR_CLASSES["Invalid Input Error"]: _CONNECTION_DETAILS_MESSAGE,
             "Invalid MotherDuck token": None,
             "UNAUTHENTICATED": "Your MotherDuck token is invalid or expired. Generate a new access token and reconnect.",
         }
+
+    def get_retryable_errors(self) -> set[str]:
+        # A MotherDuck outage clears on its own, so the next attempt recovers. Both the driver's
+        # own wording and the translation of it are matched: which one reaches classification
+        # depends on where in the sync the failure was raised.
+        return {*MOTHERDUCK_TRANSIENT_ERRORS, MOTHERDUCK_UNAVAILABLE_MESSAGE}
+
+    def get_retry_exhausted_errors(self) -> dict[str, str]:
+        return dict.fromkeys(
+            self.get_retryable_errors(),
+            "MotherDuck was unavailable for this whole sync, so it couldn't finish. This isn't a "
+            "problem with your connection details. The next sync runs on schedule.",
+        )
 
     @staticmethod
     def normalized_database(config: MotherduckSourceConfig) -> str | None:
@@ -145,6 +169,8 @@ class MotherduckSource(SQLSource[MotherduckSourceConfig]):
                     False,
                     "MotherDuck rejected the access token. Check that the token is correct and has not expired.",
                 )
+            if error_message_matches(error_msg, MOTHERDUCK_TRANSIENT_ERRORS):
+                return False, MOTHERDUCK_UNAVAILABLE_MESSAGE
             for key, value in MOTHERDUCK_ERROR_CLASSES.items():
                 if key in error_msg:
                     return False, value

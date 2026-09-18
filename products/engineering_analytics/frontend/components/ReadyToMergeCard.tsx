@@ -4,14 +4,15 @@
 
 import { LemonCard, LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
 
-import type { DeliverySummaryApi } from '../generated/api.schemas'
 import { compactAgeLabel, percent } from '../lib/format'
+import { ReadyToMergeRow } from '../lib/readyToMergeRows'
 import { ComparisonBarRow } from './ComparisonBarRow'
 
 const BEFORE_APPROVAL_COLOR = 'var(--data-color-3)'
 const AFTER_APPROVAL_COLOR = 'var(--data-color-1)'
 
 function ApprovalSplit({ beforeShare }: { beforeShare: number | null }): JSX.Element {
+    // A plain data color would read as one side of the approval split, so an unsplit bar stays grey.
     if (beforeShare == null) {
         return <div className="h-full bg-[var(--muted)]" />
     }
@@ -33,131 +34,115 @@ function ApprovalSplit({ beforeShare }: { beforeShare: number | null }): JSX.Ele
     )
 }
 
-function SplitRow({
-    label,
-    value,
-    p90,
-    beforeShare,
-    max,
-    isScope,
-}: {
-    label: string
-    value: number
-    p90: number | null
-    beforeShare: number | null
-    max: number
-    isScope: boolean
-}): JSX.Element {
-    return (
-        <ComparisonBarRow
-            label={label}
-            value={compactAgeLabel(value)}
-            fraction={value / max}
-            muted={!isScope}
-            marker={p90 != null ? { fraction: p90 / max, tooltip: `90th percentile ${compactAgeLabel(p90)}` } : null}
-        >
-            <ApprovalSplit beforeShare={beforeShare} />
-        </ComparisonBarRow>
-    )
+function baselineText(rows: ReadyToMergeRow[], seconds: (row: ReadyToMergeRow) => number | null): string {
+    return rows
+        .filter((row) => seconds(row) != null)
+        .map((row) => `${row.shortLabel} ${compactAgeLabel(seconds(row))}`)
+        .join(' · ')
 }
 
 function LegRow({
     color,
     label,
-    scope,
-    repo,
+    value,
+    baselines,
 }: {
     color: string
     label: string
-    scope: number | null
-    repo: number | null
+    value: number | null
+    baselines: string
 }): JSX.Element {
     return (
-        <div className="grid grid-cols-[minmax(0,1fr)_auto_5rem] items-baseline gap-2 border-t border-primary py-1 text-xs text-secondary">
+        <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,auto)] items-baseline gap-2 border-t border-primary py-1 text-xs text-secondary">
             <span className="flex min-w-0 items-center gap-1.5">
                 <span className="size-2 shrink-0 rounded-sm" style={{ backgroundColor: color }} />
                 <span className="truncate">{label}</span>
             </span>
-            <span className="font-semibold tabular-nums text-primary">{compactAgeLabel(scope)}</span>
-            <span className="text-right tabular-nums text-tertiary">repo {compactAgeLabel(repo)}</span>
+            <span className="font-semibold tabular-nums text-primary">{compactAgeLabel(value)}</span>
+            <span className="truncate text-right tabular-nums text-tertiary">{baselines}</span>
         </div>
     )
 }
 
 export function ReadyToMergeCard({
-    summary,
-    scopeLabel,
+    rows,
+    reviewsSynced,
     loading,
+    emptyText,
+    title = 'Ready for review to merged',
+    tooltip = 'Median calendar time from the last ready for review to the merge, over pull requests merged in the window. The bar length is that median. Its split is the share of all those hours spent before and after the first approval, so long pull requests weigh more. The two medians below are separate medians and do not add up to the total.',
+    footnote,
+    dataAttr = 'engineering-analytics-delivery-ready',
 }: {
-    summary: DeliverySummaryApi | null
-    /** The row label for the scope's bar, e.g. "This author" or "This team". */
-    scopeLabel: string
+    /** The row being compared first, then its baselines, drawn muted. */
+    rows: ReadyToMergeRow[]
+    reviewsSynced: boolean
     loading: boolean
+    emptyText: string
+    title?: string
+    tooltip?: string
+    footnote?: string | null
+    dataAttr?: string
 }): JSX.Element {
-    const median = summary?.median_ready_to_merge_seconds
-    const p90 = summary?.p90_ready_to_merge_seconds
-    const share = summary?.before_first_approval_share
-    const reviewsSynced = !!summary?.review_data_available
-    const max = Math.max(...[median?.scope, median?.repo, p90?.scope, p90?.repo].map((value) => value ?? 0))
+    const [focus, ...baselines] = rows
+    const shown = rows.filter((row) => row.seconds != null)
+    const max = Math.max(...shown.flatMap((row) => [row.seconds ?? 0, row.p90Seconds ?? 0]))
 
     return (
-        <LemonCard
-            hoverEffect={false}
-            className="flex h-full flex-col p-4"
-            data-attr="engineering-analytics-delivery-ready"
-        >
+        <LemonCard hoverEffect={false} className="flex h-full flex-col p-4" data-attr={dataAttr}>
             <h3 className="mb-1 text-xs font-semibold text-secondary">
-                <Tooltip title="Median calendar time from the last ready for review to the merge, over pull requests merged in the window. The bar length is that median. Its split is the share of all those hours spent before and after the first approval, so long pull requests weigh more. The two medians below are separate medians and do not add up to the total.">
-                    <span className="cursor-default">Ready for review to merged</span>
+                <Tooltip title={tooltip}>
+                    <span className="cursor-default">{title}</span>
                 </Tooltip>
             </h3>
             {loading ? (
                 <LemonSkeleton className="h-24 w-full" />
-            ) : median?.scope != null ? (
+            ) : focus?.seconds != null ? (
                 <>
                     <div className="mb-3 flex flex-wrap items-baseline gap-2">
                         <span className="text-2xl font-semibold leading-none tabular-nums">
-                            {compactAgeLabel(median.scope)}
+                            {compactAgeLabel(focus.seconds)}
                         </span>
-                        {median.repo != null && (
-                            <span className="text-xs tabular-nums text-tertiary">
-                                repo {compactAgeLabel(median.repo)}
-                            </span>
-                        )}
+                        <span className="text-xs tabular-nums text-tertiary">
+                            {baselineText(baselines, (row) => row.seconds)}
+                        </span>
                     </div>
                     <div className="flex flex-col gap-1.5">
-                        <SplitRow
-                            label={scopeLabel}
-                            value={median.scope}
-                            p90={p90?.scope ?? null}
-                            beforeShare={reviewsSynced ? (share?.scope ?? null) : null}
-                            max={max}
-                            isScope
-                        />
-                        {median.repo != null && (
-                            <SplitRow
-                                label="Repo"
-                                value={median.repo}
-                                p90={p90?.repo ?? null}
-                                beforeShare={reviewsSynced ? (share?.repo ?? null) : null}
-                                max={max}
-                                isScope={false}
-                            />
-                        )}
+                        {shown.map((row, index) => (
+                            <ComparisonBarRow
+                                // A handle can equal a team slug, so the label alone is no unique key.
+                                key={`${index}:${row.label}`}
+                                label={row.label}
+                                labelTooltip={row.labelTooltip}
+                                value={compactAgeLabel(row.seconds)}
+                                fraction={(row.seconds ?? 0) / max}
+                                muted={row !== focus}
+                                marker={
+                                    row.p90Seconds != null
+                                        ? {
+                                              fraction: row.p90Seconds / max,
+                                              tooltip: `90th percentile ${compactAgeLabel(row.p90Seconds)}`,
+                                          }
+                                        : null
+                                }
+                            >
+                                <ApprovalSplit beforeShare={reviewsSynced ? row.beforeShare : null} />
+                            </ComparisonBarRow>
+                        ))}
                     </div>
                     {reviewsSynced ? (
                         <div className="mt-3 flex flex-col">
                             <LegRow
                                 color={BEFORE_APPROVAL_COLOR}
-                                label="Ready to first approval, median"
-                                scope={summary?.median_ready_to_first_approval_seconds.scope ?? null}
-                                repo={summary?.median_ready_to_first_approval_seconds.repo ?? null}
+                                label="Ready to first approval"
+                                value={focus.beforeApprovalSeconds}
+                                baselines={baselineText(baselines, (row) => row.beforeApprovalSeconds)}
                             />
                             <LegRow
                                 color={AFTER_APPROVAL_COLOR}
-                                label="First approval to merged, median"
-                                scope={summary?.median_first_approval_to_merge_seconds.scope ?? null}
-                                repo={summary?.median_first_approval_to_merge_seconds.repo ?? null}
+                                label="First approval to merged"
+                                value={focus.afterApprovalSeconds}
+                                baselines={baselineText(baselines, (row) => row.afterApprovalSeconds)}
                             />
                         </div>
                     ) : (
@@ -165,13 +150,10 @@ export function ReadyToMergeCard({
                             Sync the reviews table on this GitHub source to split the wait at the first approval.
                         </div>
                     )}
+                    {footnote && <div className="mt-2 text-[11px] text-tertiary">{footnote}</div>}
                 </>
             ) : (
-                <div className="flex h-20 items-center text-xs text-secondary">
-                    {summary && !summary.ready_data_available
-                        ? 'Ready time appears once the issue events table on this GitHub source is synced.'
-                        : 'No merged pull requests with a known ready time in the window.'}
-                </div>
+                <div className="flex h-20 items-center text-xs text-secondary">{emptyText}</div>
             )}
         </LemonCard>
     )

@@ -527,6 +527,50 @@ describe('mcpDashboardOverviewLogic', () => {
             operator: PropertyOperator.Exact,
             type: PropertyFilterType.Event,
         }
+        it('reloads tiles once when the URL hydrates both shared filters', async () => {
+            router.actions.push(urls.mcpAnalyticsDashboard())
+            const logic = mcpDashboardOverviewLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            const callsBefore = mockApi.query.mock.calls.length
+
+            await expectLogic(logic, () => {
+                router.actions.push(urls.mcpAnalyticsDashboard(), {
+                    properties: [EVENT_FILTER],
+                    filter_test_accounts: true,
+                })
+            }).toFinishAllListeners()
+
+            const reloads = reloadCallsSince(callsBefore)
+            expect(reloads).toHaveLength(8)
+            expect(reloads.every((call) => filtersOf(call).filterTestAccounts === true)).toBe(true)
+            expect(
+                reloads.every((call) => JSON.stringify(filtersOf(call).properties) === JSON.stringify([EVENT_FILTER]))
+            ).toBe(true)
+        })
+        it('reloads tiles once when the URL changes the date and shared filters together', async () => {
+            router.actions.push(urls.mcpAnalyticsDashboard())
+            const logic = mcpDashboardOverviewLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            const callsBefore = mockApi.query.mock.calls.length
+
+            await expectLogic(logic, () => {
+                router.actions.push(urls.mcpAnalyticsDashboard(), {
+                    date_from: '-30d',
+                    properties: [EVENT_FILTER],
+                    filter_test_accounts: true,
+                })
+            }).toFinishAllListeners()
+
+            const reloads = reloadCallsSince(callsBefore)
+            expect(reloads).toHaveLength(8)
+            expect(reloads.every((call) => filtersOf(call).filterTestAccounts === true)).toBe(true)
+            expect(
+                reloads.every((call) => JSON.stringify(filtersOf(call).properties) === JSON.stringify([EVENT_FILTER]))
+            ).toBe(true)
+            expect(reloads.filter((call) => filtersOf(call).dateRange?.date_from === '-30d')).toHaveLength(6)
+        })
         // Feature-flag filters arrive as ordinary $feature/<key> event-property filters.
         const FLAG_FILTER: AnyPropertyFilter = {
             key: '$feature/mcp-new-thing',
@@ -553,30 +597,6 @@ describe('mcpDashboardOverviewLogic', () => {
             expect(
                 reloads.every((call) => JSON.stringify(filtersOf(call).properties) === JSON.stringify([filter]))
             ).toBe(true)
-        })
-
-        it('syncs property filters to the URL and clears the param when emptied', async () => {
-            const logic = mcpDashboardOverviewLogic()
-            logic.mount()
-            await expectLogic(logic).toFinishAllListeners()
-
-            await expectLogic(logic, () => {
-                logic.actions.setPropertyFilters([EVENT_FILTER])
-            }).toFinishAllListeners()
-            expect(router.values.searchParams.properties).toEqual([EVENT_FILTER])
-
-            await expectLogic(logic, () => {
-                logic.actions.setPropertyFilters([])
-            }).toFinishAllListeners()
-            expect(router.values.searchParams.properties).toBeUndefined()
-        })
-
-        it('hydrates property filters from the URL on mount', async () => {
-            router.actions.push(urls.mcpAnalyticsDashboard(), { properties: [EVENT_FILTER] })
-            const logic = mcpDashboardOverviewLogic()
-            logic.mount()
-            await expectLogic(logic).toFinishAllListeners()
-            expect(logic.values.propertyFilters).toEqual([EVENT_FILTER])
         })
     })
 })

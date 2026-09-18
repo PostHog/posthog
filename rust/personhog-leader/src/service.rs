@@ -27,6 +27,7 @@ use crate::cache::{
 use crate::emitted::{EmittedVersionGuard, EmittedVersions};
 use crate::fence::{
     fenced_status, semantic_refusal, target_mark_status, FenceHealer, FenceMap, FenceState,
+    MarkVerifier,
 };
 use crate::fencing::{FencedChangelogProducers, FencedProduceError};
 use crate::inflight::{InflightGuard, InflightTracker};
@@ -126,6 +127,9 @@ pub struct PersonHogLeaderService {
     /// construction. Absent without one (dev fixtures) — ghost fences
     /// then last until the partition changes hands, as before.
     fence_healer: Option<Arc<FenceHealer>>,
+    /// The committed-release mark check, one query per op per pod. Absent
+    /// without a fallback pool, in which case a release is refused.
+    mark_verifier: Option<MarkVerifier>,
     /// Memory fuse for the fence map (see `fence_map_max_entries` in the
     /// config for the full policy): at this many live fences, FencePerson
     /// sheds new fences with RESOURCE_EXHAUSTED.
@@ -238,6 +242,7 @@ impl PersonHogLeaderService {
             fence_healer: fallback
                 .as_ref()
                 .map(|f| Arc::new(FenceHealer::new(f.clone(), Arc::clone(&fences)))),
+            mark_verifier: fallback.as_ref().map(MarkVerifier::new),
             fallback,
             inflight,
             num_partitions,
@@ -2208,6 +2213,7 @@ mod tests {
             FenceState {
                 op_id,
                 op_type: LifecycleOpType::Delete,
+                sealed_at: None,
             },
         );
 
@@ -2267,6 +2273,7 @@ mod tests {
             FenceState {
                 op_id,
                 op_type: LifecycleOpType::Delete,
+                sealed_at: None,
             },
         );
 

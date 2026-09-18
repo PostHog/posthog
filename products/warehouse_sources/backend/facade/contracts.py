@@ -151,6 +151,19 @@ class TableSourceLocation:
     schema_id: UUID
 
 
+@dataclass(frozen=True)
+class TableNames:
+    """The two names one warehouse table answers to.
+
+    ``row_name`` is what the table row stores and a listing shows. ``queryable_key`` is what a
+    query writes, which for a source table is the dotted form. They are equal for a direct-access
+    source and for a table with no source.
+    """
+
+    row_name: str
+    queryable_key: str
+
+
 WAREHOUSE_OBJECT_TABLE = "table"
 WAREHOUSE_OBJECT_VIEW = "view"
 

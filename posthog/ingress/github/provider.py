@@ -85,7 +85,7 @@ class GitHubProvider(WebhookProvider):
     def scheme(self) -> SignatureScheme:
         return self._scheme
 
-    def deliveries(self, request: HttpRequest, payload: Any) -> Sequence[WebhookDelivery]:
+    def deliveries(self, request: HttpRequest, payload: Any, facts: Mapping[str, Any]) -> Sequence[WebhookDelivery]:
         if not isinstance(payload, Mapping):
             return ()
         return (

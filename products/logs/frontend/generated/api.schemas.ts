@@ -1359,12 +1359,12 @@ export interface LogsSeriesBandBucketApi {
     /** Log count observed in this bucket. */
     observed: number
     /**
-     * Lower edge of the expected band. Null while the series has too little history to band.
+     * Lower edge of the expected band. Null while no validated band is available for this series.
      * @nullable
      */
     lower: number | null
     /**
-     * Upper edge of the expected band. Null while the series has too little history to band.
+     * Upper edge of the expected band. Null while no validated band is available for this series.
      * @nullable
      */
     upper: number | null
@@ -1384,12 +1384,12 @@ export interface LogsSeriesBandSeriesApi {
     severity: string
     /** Total observed log count over the window. Series are ordered by this, descending. */
     total_count: number
-    /** Full weeks of history behind the band, 0 to 5. Below 2 the series is still learning and its buckets carry no band. */
+    /** Full weeks of history behind the band, 0 to 5. History depth alone does not enable a band; a validated readiness policy is also required. */
     baseline_weeks: number
     /** Start of sustained traffic inside the fetched lookback: the first bucket followed by a week with enough non-empty buckets. A stray earlier row does not move it. The window start when no traffic is sustained yet. */
     history_start: string
     /**
-     * When this series gains its band, so a learning series can count down to it. Null once the band is drawn.
+     * When this series gains its band under a validated readiness policy. Null when the band is ready or no validated readiness date is available. Check the buckets' lower and upper values to determine whether a band is present.
      * @nullable
      */
     band_ready_at: string | null

@@ -318,6 +318,7 @@ export interface marketingAnalyticsLogicValues {
     setupSection: SetupSection
     shouldFilterTestAccounts: boolean
     tileColumnSelection: validColumnsForTiles
+    unconfiguredNativeSources: ExternalDataSource[]
     uniqueConversionGoalName: string
     validExternalTables: ExternalTable[]
     validNativeSources: NativeSource[]
@@ -523,6 +524,10 @@ export interface marketingAnalyticsLogicMeta {
             nativeSources: ExternalDataSource[],
             dataWarehouseTables: DatabaseSchemaDataWarehouseTable[]
         ) => NativeSource[]
+        unconfiguredNativeSources: (
+            nativeSources: ExternalDataSource[],
+            validNativeSources: NativeSource[]
+        ) => ExternalDataSource[]
         uniqueConversionGoalName: (
             conversionGoalInput: ConversionGoalFilter,
             conversion_goals: ConversionGoalFilter[]
@@ -889,9 +894,6 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
         drillDownLevel: [
             (s) => [s._drillDownLevel, s.featureFlags],
             (level: MarketingAnalyticsDrillDownLevel, featureFlags: Record<string, boolean | string>) => {
-                if (!featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_DRILL_DOWN]) {
-                    return MarketingAnalyticsDrillDownLevel.Campaign
-                }
                 if (
                     EXTENDED_DRILL_DOWN_LEVELS.has(level) &&
                     !featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_EXTENDED_DRILL_DOWN]
@@ -1030,6 +1032,13 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
                     }
                     return validNativeSources
                 }, [])
+            },
+        ],
+        unconfiguredNativeSources: [
+            (s) => [s.nativeSources, s.validNativeSources],
+            (nativeSources: ExternalDataSource[], validNativeSources: NativeSource[]): ExternalDataSource[] => {
+                const validIds = new Set(validNativeSources.map(({ source }) => source.id))
+                return nativeSources.filter((source) => !validIds.has(source.id))
             },
         ],
         uniqueConversionGoalName: [

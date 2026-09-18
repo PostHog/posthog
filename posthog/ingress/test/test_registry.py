@@ -3,6 +3,7 @@ from django.test import SimpleTestCase
 from posthog.ingress.contracts import ProviderSpec, WebhookConsumer, WebhookDelivery
 from posthog.ingress.dispatch.loading import get_consumer_registry, reset_consumer_registry
 from posthog.ingress.dispatch.registry import ConsumerRegistry, RegistryError
+from posthog.ingress.github.provider import SPECS as GITHUB_SPECS
 
 GITHUB = ProviderSpec(provider="github", app="posthog", event_types=frozenset({"pull_request", "push"}))
 STAMPHOG = ProviderSpec(provider="github", app="stamphog", event_types=frozenset({"pull_request"}))
@@ -80,6 +81,20 @@ class TestConsumerRegistry(SimpleTestCase):
             ],
             ["installation_lifecycle"],
         )
+
+    def test_no_github_consumer_opts_into_regional_forwarding(self) -> None:
+        # Each region runs its own GitHub App, with its own webhook URL and its own secret, so a
+        # replayed delivery can only fail the other region's signature check. The forward lane
+        # keys off `ownership` alone, so leaving it unset is what keeps GitHub out of it.
+        reset_consumer_registry()
+        self.addCleanup(reset_consumer_registry)
+
+        registry = get_consumer_registry()
+
+        for spec in GITHUB_SPECS:
+            for event_type in sorted(spec.event_types):
+                for consumer in registry.consumers_for(provider="github", app=spec.app, event_type=event_type):
+                    self.assertIsNone(consumer.ownership, f"{consumer.name} would forward {event_type} deliveries")
 
     def test_same_name_on_two_apps_is_kept_apart_when_providers_differ(self) -> None:
         slack = ProviderSpec(provider="slack", app="supporthog", event_types=frozenset({"message"}))

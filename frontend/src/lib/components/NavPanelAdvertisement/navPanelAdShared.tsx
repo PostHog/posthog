@@ -64,8 +64,6 @@ export interface ProductPushDisplay {
     /** Pre-rendered brand logo shown instead of a Hoggie, for surfaces that aren't catalog products.
      * The card positions and rotates it; the element carries its own size and color. */
     Icon?: JSX.Element
-    /** Soft purple glow behind `Icon`, echoing the AI surfaces' sidebar treatment. */
-    iconBackdrop?: boolean
     /** Render `Icon` upright instead of the default slight rotation (the PostHog logomark reads wrong tilted). */
     iconUpright?: boolean
     /** Product brand color, used for the title and - mixed down - its highlight */
@@ -125,10 +123,7 @@ export function ProductHogHero({
                 // default (uprighted for marks that read wrong at an angle, e.g. the PostHog logo).
                 <div className="relative -mx-2 -mt-1 h-24 overflow-hidden" aria-hidden="true">
                     <div className={`absolute bottom-3 right-4 ${hero.iconUpright ? '' : 'rotate-[14deg]'}`}>
-                        {hero.iconBackdrop ? (
-                            <div className="absolute inset-0 scale-75 rounded-full bg-[var(--color-purple-200)] opacity-70 blur-lg" />
-                        ) : null}
-                        <div className="relative">{hero.Icon}</div>
+                        {hero.Icon}
                     </div>
                 </div>
             ) : hero.Hoggie ? (

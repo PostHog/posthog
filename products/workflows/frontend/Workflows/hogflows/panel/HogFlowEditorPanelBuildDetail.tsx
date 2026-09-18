@@ -90,6 +90,10 @@ export function HogFlowEditorPanelBuildDetail(): JSX.Element | null {
                 direction="vertical"
                 className="flex-1 min-h-0"
                 innerClassName="flex flex-col gap-2 p-3"
+                // The scroll area wraps the step config in its own content element, so the flex
+                // column above stops there. An email step's preview takes the height the panel
+                // gives it, so that wrapper has to grow as well.
+                contentClassName={isEmailAction(action) ? 'flex flex-1 flex-col' : undefined}
                 styledScrollbars
             >
                 <ErrorBoundary exceptionProps={{ feature: 'workflow-step-config' }}>

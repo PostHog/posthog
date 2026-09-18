@@ -966,6 +966,10 @@ async def _rewrite_into_temp(
         temp_uri=temp_uri,
     )
 
+    # The live table's properties travel with its rows. A buffered CDC lane reads its resume
+    # point from a statistic one of them declares, and a rebuilt table that lost it would report
+    # no position at all.
+    table_configuration = dict(old_delta.metadata().configuration or {}) or None
     dataset = await asyncio.to_thread(old_delta.to_pyarrow_dataset)
     if skip_rows:
         dataset, skip_rows = await asyncio.to_thread(_drop_copied_source_files, old_delta, dataset, skip_rows)
@@ -1049,6 +1053,7 @@ async def _rewrite_into_temp(
             mode="append",
             schema_mode="merge",
             storage_options=storage_options,
+            configuration=table_configuration,
         )
         rows_written += combined.num_rows
         commits += 1
@@ -1390,7 +1395,13 @@ async def repartition_table_in_place(
                 claim_token=claim_token,
                 checkpoint={
                     "temp_uri": temp_uri,
-                    "rows_written": rows_so_far,
+                    # The field records what temp holds, but `rows_so_far` counts only the rows this
+                    # call appended, so a resumed attempt has to add back the prefix it inherited.
+                    # Recording the appended count alone makes the checkpoint go backwards mid-resume,
+                    # and `_retrying_a_killed_attempt` then reads an advancing rewrite as a stalled one
+                    # and stands its retry down until the next sync, whose merge invalidates the
+                    # checkpoint and restarts the rewrite from row 0.
+                    "rows_written": skip_rows + rows_so_far,
                     "target": resolved_target.to_dict(),
                     "live_version": checkpoint_version,
                     "held_at": datetime.now(UTC).isoformat(),

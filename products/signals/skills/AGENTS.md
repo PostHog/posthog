@@ -113,6 +113,7 @@ Most are a single self-contained `SKILL.md`; a few bundle surface-specific refer
 
 - **Official skills (`signals/`, `inbox-exploration/`).** Disk in this directory is the source of truth. Changes get published to `products/posthog_ai/dist/skills/` for distribution as part of the official PostHog skill set; they are not auto-synced onto teams' `LLMSkill` rows.
 - **Scout skills (`signals-scout-*/`).** Disk in this directory is the source of truth, and `lazy_seed` mirrors changes onto each agent-enabled team's `LLMSkill` rows on the next coordinator tick (or immediately via `python manage.py sync_signals_scout_skills --all-enabled`). Teams that have manually edited a row are treated as "diverged" and left alone — the sync logs them so you can decide whether to nudge those teams to reset.
+- **A skill in this directory names nothing that exists in only one project.** Every skill here ships to every project, so a metric, dashboard, event, or id from PostHog's own project is wrong for almost every reader. Text about an optional product says how to tell whether the project uses it, and never assumes that it does.
 - **If you change the scout fleet shape (add a new specialist, rename, or change the SKILL.md schema), update this file.**
 
 ## Reference

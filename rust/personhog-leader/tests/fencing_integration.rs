@@ -399,6 +399,44 @@ async fn a_successor_fences_every_lane_of_the_predecessor() {
     .expect("writes parked forever — a window_closed wakeup was lost");
 }
 
+/// A write that arrives while another lane commits parks behind it
+/// instead of opening a second window; the next window opens on the
+/// lane idle longest once that commit ends.
+#[tokio::test]
+async fn a_write_parks_behind_a_commit_on_another_lane() {
+    let topic = format!("fence_serial_{}", uuid::Uuid::new_v4().simple());
+    let producers = Arc::new(fenced_producers(&topic, 2));
+    producers.acquire(0).await.expect("acquire the fence");
+    producers.begin_committing_for_test(0, 0);
+    let write = {
+        let p = Arc::clone(&producers);
+        tokio::spawn(async move { p.produce(0, &test_person(1)).await })
+    };
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while producers.parked_writers_for_test(0, 0) == 0 {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("the writer must park behind lane 0's commit, not open lane 1");
+    assert_eq!(
+        producers.lane_commit_marks_for_test(0),
+        vec![0, 0],
+        "nothing commits while lane 0's commit is in flight"
+    );
+    producers.finish_committing_for_test(0, 0);
+    tokio::time::timeout(Duration::from_secs(10), write)
+        .await
+        .expect("the woken writer must commit")
+        .expect("the writer task must not panic")
+        .expect("the write lands");
+    let marks = producers.lane_commit_marks_for_test(0);
+    assert!(
+        marks[1] > marks[0],
+        "the write commits on lane 1 after lane 0's commit ends: {marks:?}"
+    );
+}
+
 /// A writer that parked because every lane was committing picks again
 /// when it wakes: the lane whose commit just finished is the one the
 /// coordinator is holding, and another lane may have finished earlier.

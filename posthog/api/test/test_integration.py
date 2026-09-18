@@ -683,6 +683,38 @@ class TestDatabricksIntegration:
         assert not Integration.objects.filter(team=self.team, kind="databricks").exists()
 
 
+class TestGoogleCloudServiceAccountIntegration:
+    @pytest.fixture(autouse=True)
+    def setup_integration(self, db):
+        self.organization = Organization.objects.create(name="Test Org")
+        self.team = Team.objects.create(organization=self.organization, name="Test Team")
+        self.user = User.objects.create_and_join(
+            self.organization, "test@posthog.com", "test", level=OrganizationMembership.Level.ADMIN
+        )
+
+    def test_rejects_key_file_token_uri_that_is_not_google(self, client: HttpClient):
+        client.force_login(self.user)
+
+        response = client.post(
+            f"/api/environments/{self.team.pk}/integrations",
+            {
+                "kind": "google-cloud-service-account",
+                "config": {
+                    "service_account_email": "svc@proj.iam.gserviceaccount.com",
+                    "project_id": "proj",
+                    "private_key": "key",
+                    "private_key_id": "key-id",
+                    "token_uri": "https://relay.example.com/token",
+                },
+            },
+            content_type="application/json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "not Google's OAuth token endpoint" in response.json()["detail"]
+        assert not Integration.objects.filter(team=self.team, kind="google-cloud-service-account").exists()
+
+
 class TestAWSIntegration:
     @pytest.fixture(
         params=[
@@ -6539,6 +6571,35 @@ class TestIntegrationRequestAccessAPI(APIBaseTest):
         mock_report.assert_not_called()
 
 
+class TestApplePushIntegrationAPI(APIBaseTest):
+    @parameterized.expand(
+        [
+            ("numeric_team_id", "team_id_apple", 12345),
+            ("object_signing_key", "signing_key", {"pem": "-----BEGIN PRIVATE KEY-----"}),
+        ]
+    )
+    def test_rejects_a_config_field_that_is_not_a_string(self, _name, field, value):
+        # `config` is a JSON field, so nothing types what a client posts into it. A wrong type has
+        # to read as a validation error, not as a server error.
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/integrations",
+            {
+                "kind": "apns",
+                "config": {
+                    "signing_key": "-----BEGIN PRIVATE KEY-----\nfake\n-----END PRIVATE KEY-----",
+                    "key_id": "KEY1",
+                    "team_id_apple": "TEAM123",
+                    "bundle_id": "com.example.app",
+                    field: value,
+                },
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert not Integration.objects.filter(team=self.team, kind="apns").exists()
+
+
 class TestPushIdentityVerificationAPI(APIBaseTest):
     def setUp(self):
         super().setUp()
@@ -6562,7 +6623,11 @@ class TestPushIdentityVerificationAPI(APIBaseTest):
             {
                 "kind": "firebase",
                 "config": {
-                    "key_info": {"type": "service_account", "project_id": "my-firebase-project"},
+                    "key_info": {
+                        "type": "service_account",
+                        "project_id": "my-firebase-project",
+                        "token_uri": "https://oauth2.googleapis.com/token",
+                    },
                     "push_identity_verification": "required",
                 },
             },
@@ -6734,7 +6799,7 @@ class TestIntegrationMembershipPermissions(APIBaseTest):
                     "project_id": "hijacked-project",
                     "private_key": "new",
                     "private_key_id": "new",
-                    "token_uri": "new",
+                    "token_uri": "https://oauth2.googleapis.com/token",
                 },
             },
             format="json",

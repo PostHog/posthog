@@ -25,7 +25,7 @@ import type {
     WorkflowRunDetailApi,
 } from '../generated/api.schemas'
 import { ciStatusOf } from '../lib/ci'
-import { summarizeLifecycle, workflowRuns } from '../lib/lifecycle'
+import { workflowRuns } from '../lib/lifecycle'
 import { engineeringAnalyticsFiltersLogic } from './engineeringAnalyticsFiltersLogic'
 import {
     DEFAULT_FILTERS,
@@ -548,37 +548,6 @@ describe('engineeringAnalyticsLogic', () => {
     ])('workflowFailureSeries: %s', (_label, counts, completed, failures, label) => {
         const series = workflowFailureSeries([{ bucketStart: '2026-06-05', runCount: 30, ...counts }], 'day')
         expect(series).toEqual({ completed: [completed], failures: [failures], labels: [label] })
-    })
-
-    it('summarizeLifecycle rolls events up into milestones and verdicts', () => {
-        const summary = summarizeLifecycle([
-            { kind: 'opened', at: '2026-06-01T00:00:00Z' },
-            { kind: 'ci_started', at: '2026-06-01T00:01:00Z', detail: 'Backend CI' },
-            { kind: 'ci_started', at: '2026-06-01T00:02:00Z', detail: 'Frontend CI' },
-            { kind: 'ci_started', at: '2026-06-01T00:03:00Z', detail: 'E2E: smoke' },
-            { kind: 'ci_finished', at: '2026-06-01T00:30:00Z', detail: 'Backend CI: failure' },
-            { kind: 'ci_finished', at: '2026-06-01T00:20:00Z', detail: 'Frontend CI: success' },
-            { kind: 'merged', at: '2026-06-02T00:00:00Z' },
-        ])
-        expect(summary.openedAt).toBe('2026-06-01T00:00:00Z')
-        expect(summary.firstCiStartedAt).toBe('2026-06-01T00:01:00Z')
-        expect(summary.lastCiFinishedAt).toBe('2026-06-01T00:30:00Z')
-        expect(summary.mergedAt).toBe('2026-06-02T00:00:00Z')
-        expect(summary.closedAt).toBeNull()
-        expect(summary.notPassing).toEqual([
-            { workflow: 'Backend CI', conclusion: 'failure', at: '2026-06-01T00:30:00Z' },
-        ])
-        expect(summary.passed).toBe(1)
-        expect(summary.unsettled).toBe(1)
-    })
-
-    it('summarizeLifecycle keeps workflow names that contain a colon', () => {
-        const summary = summarizeLifecycle([
-            { kind: 'ci_finished', at: '2026-06-01T00:30:00Z', detail: 'E2E: smoke: timed_out' },
-        ])
-        expect(summary.notPassing).toEqual([
-            { workflow: 'E2E: smoke', conclusion: 'timed_out', at: '2026-06-01T00:30:00Z' },
-        ])
     })
 
     it('workflowRuns pairs starts and finishes into per-workflow runs with durations', () => {

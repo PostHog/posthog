@@ -98,6 +98,7 @@ class ClickHouseUser(StrEnum):
     REPLAY_VISION = "replay_vision"
     # Session replay surfacing scoring sweep
     SURFACING_SCORING = "surfacing_scoring"
+    DELETION_EXECUTOR = "deletion_executor"
 
     # Backups - used by Dagster backup jobs
     BACKUPS = "backups"
@@ -119,6 +120,7 @@ class ClickHouseCredentials:
     # Path to a file holding the live password. When set, read_password re-reads it on each call,
     # so a rotated short-lived token reaches ClickHouse without rebuilding the pool.
     password_file: str | None = None
+    require_password: bool = False
 
     def read_password(self) -> str:
         path = self.password_file
@@ -127,11 +129,16 @@ class ClickHouseCredentials:
                 token = Path(path).read_text().strip()
             except OSError:
                 logging.warning("clickhouse: %s is not readable, using the static fallback", path)
-                return self.password
+                return self._validated_password(self.password)
             if token:
                 return token
             logging.warning("clickhouse: %s is empty, using the static fallback", path)
-        return self.password
+        return self._validated_password(self.password)
+
+    def _validated_password(self, password: str) -> str:
+        if self.require_password and not password:
+            raise RuntimeError(f"ClickHouse credentials for {self.user} have no usable password.")
+        return password
 
 
 __user_dict: Mapping[ClickHouseUser, ClickHouseCredentials] | None = None
@@ -151,7 +158,12 @@ def init_clickhouse_users() -> Mapping[ClickHouseUser, ClickHouseCredentials]:
         password_file = os.getenv(f"CLICKHOUSE_{u.name.upper()}_PASSWORD_FILE")
         secret = password or password_file
         if user and secret:
-            user_dict[u] = ClickHouseCredentials(user=user, password=password or "", password_file=password_file)
+            user_dict[u] = ClickHouseCredentials(
+                user=user,
+                password=password or "",
+                password_file=password_file,
+                require_password=u == ClickHouseUser.DELETION_EXECUTOR,
+            )
         elif bool(user) != bool(secret):
             logging.warning(f"only one of clickhouse user/password provided, check your config")
     user_names = ",".join([x.name for x in user_dict.keys()])
@@ -185,6 +197,13 @@ def get_clickhouse_creds(user: ClickHouseUser) -> ClickHouseCredentials:
         raise RuntimeError(
             "Business Knowledge ClickHouse credentials are missing; set "
             "CLICKHOUSE_BUSINESS_KNOWLEDGE_USER and CLICKHOUSE_BUSINESS_KNOWLEDGE_PASSWORD"
+        )
+    if user == ClickHouseUser.DELETION_EXECUTOR:
+        raise RuntimeError(
+            "Data deletion request executor ClickHouse credentials are missing; set "
+            "CLICKHOUSE_DELETION_EXECUTOR_USER and "
+            "CLICKHOUSE_DELETION_EXECUTOR_PASSWORD or "
+            "CLICKHOUSE_DELETION_EXECUTOR_PASSWORD_FILE"
         )
     return __user_dict[ClickHouseUser.DEFAULT]
 

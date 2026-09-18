@@ -1,7 +1,7 @@
 import type { McpServerConnection } from "@posthog/shared";
 import { z } from "zod/v4";
 
-export { posthogExecPermissionRegexSchema } from "../posthog-exec-permission";
+export { posthogExecPermissionRegexSchema } from "@posthog/harness/extensions/posthog-mcp-policy";
 
 const httpHeaderSchema = z.object({
   name: z.string(),

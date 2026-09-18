@@ -8,6 +8,7 @@ from products.warehouse_sources.backend.facade.source_config import (
     SourceFieldInputConfigType,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.clerk.clerk import (
+    INSTANCE_NOT_FOUND_MESSAGE,
     ClerkResumeConfig,
     clerk_source,
     validate_credentials as validate_clerk_credentials,
@@ -135,6 +136,13 @@ The secret key starts with `sk_live_`.
             # unfiltered list request is identical every run, so it re-fails on every schedule.
             # Scoped to this path for the same reason as redirect_urls above.
             "404 Client Error: Not Found for url: https://api.clerk.com/v1/jwt_templates": "The JWT templates table isn't available on your Clerk plan or instance. Turn off syncing for this table.",
+            # The users list exists on every Clerk instance, and an instance with no users answers
+            # 200 with an empty array, so a 404 resource_not_found here can't mean a missing record
+            # — Clerk won't resolve the instance the key belongs to at all. The request is identical
+            # every run, so it re-fails on every schedule. Scoped to this path, like the two
+            # entries above; `users` is also the parent of the sessions fan-out, so the copy names
+            # the key rather than one table.
+            "404 Client Error: Not Found for url: https://api.clerk.com/v1/users": INSTANCE_NOT_FOUND_MESSAGE,
             **{reason: reason for reason in RETIRED_ENDPOINTS.values()},
         }
 

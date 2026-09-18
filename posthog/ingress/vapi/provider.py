@@ -34,6 +34,10 @@ class VapiProvider(WebhookProvider):
     app = "default"
     invalid_signature_status = 401
     unconfigured_status = 503
+    # Vapi sends the delivery again after a 5xx, and its report is the only copy: nothing else
+    # replays an interview. The consumer hands the report to a queue and does no other work, so a
+    # consumer failure means the report reached no queue at all, and a receipt would drop it.
+    retry_status = 500
 
     def __init__(self) -> None:
         self._scheme = HmacSha256(
@@ -45,7 +49,7 @@ class VapiProvider(WebhookProvider):
     def scheme(self) -> SignatureScheme:
         return self._scheme
 
-    def deliveries(self, request: HttpRequest, payload: Any) -> Sequence[WebhookDelivery]:
+    def deliveries(self, request: HttpRequest, payload: Any, facts: Mapping[str, Any]) -> Sequence[WebhookDelivery]:
         if not isinstance(payload, Mapping):
             return ()
         message = payload.get("message")

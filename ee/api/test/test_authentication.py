@@ -12,6 +12,7 @@ from unittest.mock import MagicMock, patch
 
 from django.conf import settings
 from django.core import mail
+from django.core.cache import cache
 from django.core.exceptions import ValidationError
 from django.http import HttpResponse
 from django.shortcuts import redirect
@@ -688,6 +689,19 @@ class TestEEAuthenticationAPI(APILicensedTest):
             self.client.post("/login/google-oauth2/", {})
             second_key = self.client.session.session_key
             self.assertNotEqual(first_key, second_key)
+
+    def test_sso_login_is_throttled_per_ip(self):
+        cache.delete("throttle_sso_login_192.0.2.1")
+        self.addCleanup(cache.delete, "throttle_sso_login_192.0.2.1")
+
+        for _ in range(10):
+            response = self.client.get("/login/unknown-provider/", HTTP_X_FORWARDED_FOR="192.0.2.1")
+            self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+
+        response = self.client.get("/login/unknown-provider/", HTTP_X_FORWARDED_FOR="192.0.2.1")
+
+        self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+        self.assertEqual(response["Retry-After"], "60")
 
     @patch("social_core.backends.base.BaseAuth.request")
     def test_google_login_returns_to_saved_insight(self, mock_request):

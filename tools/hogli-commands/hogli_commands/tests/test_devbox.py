@@ -911,7 +911,7 @@ def _stub_create_workspace(captured: dict[str, str | None]) -> Callable[..., Non
 
     def stub(
         name: str,
-        disk_size: int,
+        disk_size: int | None,
         *,
         git_name: str | None = None,
         git_email: str | None = None,
@@ -967,7 +967,7 @@ class TestWorkspaceCreation:
                 ["Default (warm)", "Cold"],
                 "posthog-linux",
                 "none",
-                {"disk_size": "100", "repo": _REPO, "workspace_region": "us-east-1"},
+                {"repo": _REPO, "workspace_region": "us-east-1"},
             ),
             # An explicit warm preset that the template defines flows through to
             # the coder argv unchanged, alongside all optional params.
@@ -982,7 +982,6 @@ class TestWorkspaceCreation:
                 "posthog-linux",
                 "Default (warm)",
                 {
-                    "disk_size": "100",
                     "repo": _REPO,
                     "workspace_region": "us-east-1",
                     "git_name": "PostHog Engineer",
@@ -995,7 +994,7 @@ class TestWorkspaceCreation:
                 ["Default (warm)"],
                 "posthog-microvm",
                 "none",
-                {"disk_size": "100", "repo": _REPO, "workspace_region": "us-east-1"},
+                {"repo": _REPO, "workspace_region": "us-east-1"},
             ),
             # Resolution fallback to "none" is exhaustively covered by
             # TestTemplatePresetResolution; one case here is enough to prove
@@ -1006,7 +1005,7 @@ class TestWorkspaceCreation:
                 ["Cold only"],
                 "posthog-microvm",
                 "none",
-                {"disk_size": "100", "repo": _REPO, "workspace_region": "us-east-1"},
+                {"repo": _REPO, "workspace_region": "us-east-1"},
             ),
             # A non-default region is forwarded verbatim as workspace_region.
             (
@@ -1014,7 +1013,7 @@ class TestWorkspaceCreation:
                 ["Default (warm)"],
                 "posthog-linux",
                 "none",
-                {"disk_size": "100", "repo": _REPO, "workspace_region": "eu-central-1"},
+                {"repo": _REPO, "workspace_region": "eu-central-1"},
             ),
         ],
         ids=[
@@ -1038,7 +1037,7 @@ class TestWorkspaceCreation:
         monkeypatch.setattr(coder, "_run_build", _fake_run_build_capturing(captured))
         monkeypatch.setattr(coder, "_list_template_presets", lambda template: list(available_presets))
 
-        coder.create_workspace("devbox-test-user", 100, **kwargs)
+        coder.create_workspace("devbox-test-user", None, **kwargs)
 
         args = captured["args"]
         assert args[:3] == ["coder", "create", "devbox-test-user"]
@@ -1592,7 +1591,7 @@ class TestDevboxCommands:
         assert result.exit_code == 0
         assert captured == {
             "name": "devbox-test-user",
-            "disk_size": "100",
+            "disk_size": "None",
             "git_name": None,
             "git_email": None,
             "dotfiles_uri": None,
@@ -1603,8 +1602,6 @@ class TestDevboxCommands:
         }
 
     def test_devbox_start_forwards_larger_disk_size(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        # Guards that --disk 200 is an accepted choice and reaches create_workspace;
-        # regresses if the choice list drifts from the Coder template's disk_size options.
         captured: dict[str, str | None] = {}
 
         monkeypatch.setattr(devbox_cli, "ensure_runtime_ready", lambda: None)

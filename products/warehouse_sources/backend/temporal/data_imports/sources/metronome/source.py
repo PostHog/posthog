@@ -28,10 +28,13 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.metronome.
     validate_credentials as validate_metronome_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.metronome.settings import (
+    DEFAULT_USAGE_DAILY_HISTORY_MONTHS,
+    DEFAULT_USAGE_HOURLY_HISTORY_DAYS,
     ENDPOINTS,
     INCREMENTAL_FIELDS,
     METRONOME_ENDPOINTS,
     USAGE_HISTORY,
+    usage_history_window,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
@@ -85,11 +88,17 @@ class MetronomeSource(ResumableSource[MetronomeSourceConfig, MetronomeResumeConf
             ].default_incremental_lookback_seconds
         return schemas
 
-    def history_lookback_for_schema(self, schema_name: str) -> timedelta | None:
+    def history_lookback_for_schema(
+        self, schema_name: str, config: MetronomeSourceConfig | None = None
+    ) -> timedelta | None:
         # Only the bucketed usage tables bound their first sync. Everything else reads a list the
         # account already bounds, and the lifetime `usage` aggregate is one row per customer and
         # metric however far back it reaches.
-        return USAGE_HISTORY.get(schema_name)
+        return usage_history_window(
+            schema_name,
+            config.usage_hourly_history_days if config else None,
+            config.usage_daily_history_months if config else None,
+        )
 
     def validate_credentials(
         self,
@@ -144,6 +153,22 @@ class MetronomeSource(ResumableSource[MetronomeSourceConfig, MetronomeResumeConf
                         required=True,
                         placeholder="",
                         secret=True,
+                    ),
+                    SourceFieldInputConfig(
+                        name="usage_hourly_history_days",
+                        label="Hourly usage history (days)",
+                        type=SourceFieldInputConfigType.NUMBER,
+                        required=False,
+                        placeholder=str(DEFAULT_USAGE_HOURLY_HISTORY_DAYS),
+                        secret=False,
+                    ),
+                    SourceFieldInputConfig(
+                        name="usage_daily_history_months",
+                        label="Daily usage history (months)",
+                        type=SourceFieldInputConfigType.NUMBER,
+                        required=False,
+                        placeholder=str(DEFAULT_USAGE_DAILY_HISTORY_MONTHS),
+                        secret=False,
                     ),
                 ],
             ),

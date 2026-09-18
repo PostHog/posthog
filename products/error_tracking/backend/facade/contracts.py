@@ -18,8 +18,16 @@ from pydantic.dataclasses import dataclass
 
 ERROR_TRACKING_ISSUE_SEVERITIES = ("low", "medium", "high", "critical")
 
-# Keep in sync with SOURCE_MAPS_DOCS_URL in sourceMapsFixWizardLogic.ts
+# Keep in sync with products/error_tracking/frontend/scenes/ErrorTrackingScene/tabs/recommendations/sourceMapsFixWizardLogic.ts.
 SOURCE_MAPS_DOCS_URL = "https://posthog.com/docs/error-tracking/upload-source-maps"
+
+
+@dataclass(frozen=True)
+class DocumentEmbeddingTable:
+    """One per-model embeddings table: the sharded storage table and the Distributed table that reads it."""
+
+    sharded_table: str
+    distributed_table: str
 
 
 @dataclass(frozen=True)
@@ -282,6 +290,10 @@ class ErrorTrackingAlertDestination:
     channel_type: str
     integration_id: int | None
     config: dict
+    last_delivered_at: datetime | None
+    last_failure_at: datetime | None
+    last_error: str
+    consecutive_failures: int
     created_at: datetime
     updated_at: datetime
 

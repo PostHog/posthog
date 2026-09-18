@@ -33,11 +33,11 @@ class TestGitHubProvider(SimpleTestCase):
             scheme = build_github_provider(app).scheme()
 
             self.assertEqual(
-                scheme.verify(body=BODY, headers={"X-Hub-Signature-256": _signature(own_secret)}),
+                scheme.verify(body=BODY, headers={"X-Hub-Signature-256": _signature(own_secret)}).outcome,
                 VerificationOutcome.VERIFIED,
             )
             self.assertEqual(
-                scheme.verify(body=BODY, headers={"X-Hub-Signature-256": _signature(other_secret)}),
+                scheme.verify(body=BODY, headers={"X-Hub-Signature-256": _signature(other_secret)}).outcome,
                 VerificationOutcome.INVALID,
             )
 

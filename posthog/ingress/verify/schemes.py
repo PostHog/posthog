@@ -1,4 +1,9 @@
-"""Signature schemes: the part of a provider incarnation that decides "this is really them"."""
+"""Signature schemes: the part of a provider incarnation that decides "this is really them".
+
+A scheme with a network step answers `UNAVAILABLE` when that step fails on transport rather than
+on the signature, because a fetch that never completed proves nothing about the caller. `BearerJwt`
+does this for a JWKS fetch failure, and `SnsSignature` owes the same for its certificate fetch.
+"""
 
 import re
 import hmac
@@ -6,6 +11,7 @@ import json
 import time
 import base64
 from collections.abc import Callable, Mapping
+from dataclasses import field
 from enum import StrEnum
 from typing import Any, Literal, Protocol
 
@@ -25,6 +31,23 @@ class VerificationOutcome(StrEnum):
     # The instance holds no secret for this provider app, which is an operator problem
     # rather than a caller one, so incarnations answer it with their own status code.
     NOT_CONFIGURED = "not_configured"
+    # Verification could not run right now, so the sender is asked to retry.
+    UNAVAILABLE = "unavailable"
+
+
+@frozen
+class Verification:
+    """What a signature check concluded, and what it proved on the way.
+
+    A scheme that checks a signed token learns more than "this is really them": the claims it
+    validated name the sender and the audience. `facts` carries those to `deliveries`, so an
+    incarnation can cross-check the body against what was actually signed, rather than trusting
+    a field of the body that says the same thing. An HMAC over raw bytes proves nothing beyond
+    the signature and leaves `facts` empty.
+    """
+
+    outcome: VerificationOutcome
+    facts: Mapping[str, Any] = field(default_factory=dict)
 
 
 def header_value(headers: Mapping[str, str], name: str) -> str | None:
@@ -59,7 +82,15 @@ def signatures_match(expected: str, provided: str) -> bool:
 
 
 class SignatureScheme(Protocol):
-    def verify(self, *, body: bytes, headers: Mapping[str, str]) -> VerificationOutcome: ...
+    def verify(self, *, body: bytes, headers: Mapping[str, str]) -> Verification: ...
+
+    def rejects_headers(self, headers: Mapping[str, str]) -> bool:
+        """Whether the headers alone already fail the check, so the body need not be read.
+
+        `WebhookProvider.verify` asks this first, and a `True` answers exactly what an INVALID
+        verification answers. A scheme that cannot decide from headers alone answers `False`.
+        """
+        ...
 
 
 @frozen
@@ -98,27 +129,45 @@ class HmacSha256:
     def _expected_signature(self, secret: str, signed: bytes) -> str:
         return hmac_sha256_signature(secret, signed, encoding=self.encoding, prefix=self.prefix)
 
-    def verify(self, *, body: bytes, headers: Mapping[str, str]) -> VerificationOutcome:
+    def _headers_fail(self, headers: Mapping[str, str]) -> bool:
+        provided = header_value(headers, self.signature_header)
+        if not provided:
+            return True
+        if self.signature_pattern is not None and not self.signature_pattern.match(provided):
+            return True
+        if self.timestamp_header is None:
+            return False
+        # Freshness needs only the clock, so a malformed or stale timestamp costs no body read either.
+        timestamp = header_value(headers, self.timestamp_header)
+        return not timestamp or not self._timestamp_is_fresh(timestamp)
+
+    def rejects_headers(self, headers: Mapping[str, str]) -> bool:
+        # An unconfigured endpoint keeps answering NOT_CONFIGURED, whatever the headers carry.
+        if not self.secret_getter():
+            return False
+        return self._headers_fail(headers)
+
+    def _outcome(self, *, body: bytes, headers: Mapping[str, str]) -> VerificationOutcome:
         secret = self.secret_getter()
         if not secret:
             return VerificationOutcome.NOT_CONFIGURED
-
-        provided = header_value(headers, self.signature_header)
-        if not provided:
-            return VerificationOutcome.INVALID
-        if self.signature_pattern is not None and not self.signature_pattern.match(provided):
+        if self._headers_fail(headers):
             return VerificationOutcome.INVALID
 
-        timestamp: str | None = None
-        if self.timestamp_header is not None:
-            timestamp = header_value(headers, self.timestamp_header)
-            if not timestamp or not self._timestamp_is_fresh(timestamp):
-                return VerificationOutcome.INVALID
+        # Present and well-shaped, because `rejects_headers` just said so.
+        provided = header_value(headers, self.signature_header) or ""
+
+        timestamp = header_value(headers, self.timestamp_header) if self.timestamp_header is not None else None
 
         expected = self._expected_signature(secret, self._signed_bytes(body, timestamp))
         if signatures_match(expected, provided):
             return VerificationOutcome.VERIFIED
         return VerificationOutcome.INVALID
+
+    def verify(self, *, body: bytes, headers: Mapping[str, str]) -> Verification:
+        # No facts: an HMAC over the raw body proves the sender holds the secret and says
+        # nothing else about the delivery.
+        return Verification(outcome=self._outcome(body=body, headers=headers))
 
 
 @frozen
@@ -133,7 +182,12 @@ class SnsSignature:
     verify_message: Callable[[Mapping[str, Any]], bool]
     allowed_topic_arns: Callable[[], frozenset[str]]
 
-    def verify(self, *, body: bytes, headers: Mapping[str, str]) -> VerificationOutcome:
+    def rejects_headers(self, headers: Mapping[str, str]) -> bool:
+        # SNS signs the JSON envelope and carries nothing in the headers, so there is no
+        # header-only refusal to make here.
+        return False
+
+    def _outcome(self, *, body: bytes, headers: Mapping[str, str]) -> VerificationOutcome:
         allowed = self.allowed_topic_arns()
         if not allowed:
             return VerificationOutcome.NOT_CONFIGURED
@@ -151,3 +205,8 @@ class SnsSignature:
             logger.warning("ingress_sns_invalid_signature", message_id=message.get("MessageId"))
             return VerificationOutcome.INVALID
         return VerificationOutcome.VERIFIED
+
+    def verify(self, *, body: bytes, headers: Mapping[str, str]) -> Verification:
+        # No facts: the allowlist and the RSA check both read the body the incarnation parses
+        # again, so there is nothing here that `deliveries` cannot see for itself.
+        return Verification(outcome=self._outcome(body=body, headers=headers))

@@ -36,7 +36,6 @@ from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Product, tag_queries, tags_context
-from posthog.constants import EXPERIMENTS_RETENTION_METRIC_EVENTS_PREAGGREGATION_FEATURE_FLAG_KEY
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
@@ -491,28 +490,6 @@ class ExperimentQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
             return PrecomputeSkipReason.GROUP_AGGREGATION
         return None  # precompute was attempted; a direct path means the build failed / wasn't ready
 
-    def _retention_metric_events_precomputation_enabled(self) -> bool:
-        """Kill switch for retention metric-events pre-aggregation, independent of funnel/mean.
-
-        Default-off and fail-safe: returns False unless the flag is explicitly enabled, so a
-        flag-eval failure (or the flag not existing yet) leaves retention metric events on the
-        direct-scan path while funnel/mean metric events and exposures keep using their
-        precomputed tables.
-        """
-        return bool(
-            posthoganalytics.feature_enabled(
-                EXPERIMENTS_RETENTION_METRIC_EVENTS_PREAGGREGATION_FEATURE_FLAG_KEY,
-                str(self.team.uuid),
-                groups={"organization": str(self.team.organization_id), "project": str(self.team.id)},
-                group_properties={
-                    "organization": {"id": str(self.team.organization_id)},
-                    "project": {"id": str(self.team.id), "uuid": str(self.team.uuid)},
-                },
-                only_evaluate_locally=True,
-                send_feature_flag_events=False,
-            )
-        )
-
     def _metric_events_precompute_applicable(self) -> bool:
         """
         Metric-events precompute supports ordered funnels, mean metrics with
@@ -563,9 +540,7 @@ class ExperimentQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
             extension_seconds = get_conversion_window_seconds(self.metric) + conversion_window_to_seconds(
                 self.metric.retention_window_end, self.metric.retention_window_unit
             )
-            if extension_seconds > METRIC_EVENTS_MAX_WINDOW_EXTENSION_SECONDS:
-                return False
-            return self._retention_metric_events_precomputation_enabled()
+            return extension_seconds <= METRIC_EVENTS_MAX_WINDOW_EXTENSION_SECONDS
         return False
 
     @property

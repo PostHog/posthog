@@ -1682,6 +1682,75 @@ class DeliverySummary:
     lead_time: DeliveryLeadTime
 
 
+class ComparisonTeamBasis(StrEnum):
+    """Why a delivery comparison shows the teams it shows. The candidates are the author's GitHub teams
+    with evidence of owning code (the ownership census or a review request), or every team of an author
+    without such a team."""
+
+    # The pull request in focus asked these teams of the author's to review.
+    PULL_REQUEST = "pull_request"
+    # The author's team that the author's pull requests asked to review most often in the window. Ties
+    # keep every tied team.
+    REVIEW_REQUESTS = "review_requests"
+    # The author is in one candidate team.
+    ONLY_TEAM = "only_team"
+    # No review request points at one of the author's candidate teams, so every candidate is shown.
+    ALL_TEAMS = "all_teams"
+    # The author is in no candidate team, or the team membership table is not synced.
+    NO_TEAM = "no_team"
+
+
+@dataclass(frozen=True)
+class ReadyToMergeMedians:
+    """Medians over one population's pull requests merged in the window, bots and drafts excluded. A
+    median is None when no pull request in the population could be measured."""
+
+    merged_pr_count: int
+    ready_to_merge_seconds: float | None
+    p90_ready_to_merge_seconds: float | None
+    ready_to_first_approval_seconds: float | None
+    first_approval_to_merge_seconds: float | None
+    # The share of all ready-to-merge hours spent before the first approval, as in the delivery summary.
+    before_first_approval_share: float | None
+
+
+@dataclass(frozen=True)
+class PullRequestReadyToMerge:
+    """One merged pull request measured the way the medians measure every pull request."""
+
+    number: int
+    ready_to_merge_seconds: float | None
+    ready_to_first_approval_seconds: float | None
+    first_approval_to_merge_seconds: float | None
+    before_first_approval_share: float | None
+
+
+@dataclass(frozen=True)
+class TeamReadyToMergeMedians:
+    github_team: str
+    # Over the pull requests by the team's members, the same population as a github_team delivery scope.
+    # None when too few other authors merged in the window: the author could read a teammate's value back.
+    medians: ReadyToMergeMedians | None
+
+
+@dataclass(frozen=True)
+class DeliveryComparison:
+    """How long an author's pull requests take from ready to merged, next to their team's and the
+    repository's. The team is never a ranking: the read holds one author and that author's own teams."""
+
+    author: str
+    has_membership_data: bool
+    review_data_available: bool
+    ready_data_available: bool
+    team_basis: ComparisonTeamBasis
+    author_medians: ReadyToMergeMedians
+    # Sorted by slug; empty for the NO_TEAM basis.
+    teams: list[TeamReadyToMergeMedians]
+    repo_medians: ReadyToMergeMedians
+    # The pull request in focus, when it merged in the window.
+    pull_request: PullRequestReadyToMerge | None
+
+
 class PRTimelineSegmentKind(StrEnum):
     """What a pull request was waiting on during one stretch of its timeline, most specific first.
 
@@ -1714,6 +1783,13 @@ class PRTimelineSegment:
 
 
 @dataclass(frozen=True)
+class PRTimelinePush:
+    head_sha: str
+    # When the commit's first workflow run was created, which is when the commit arrived.
+    pushed_at: datetime
+
+
+@dataclass(frozen=True)
 class PRTimeline:
     """One pull request's delivery timeline, from the moment it was ready for review (or opened,
     for a draft) to its merge, its close, or now, as consecutive segments with no gaps."""
@@ -1728,8 +1804,8 @@ class PRTimeline:
     # Where the segments start: the last ready_for_review before the end, else created_at.
     started_at: datetime
     merged_at: datetime | None
-    # Distinct head commits that triggered CI, merge-queue gate runs excluded.
-    pushes: int
+    # Distinct head commits that triggered CI, oldest first, merge-queue gate runs excluded.
+    pushes: list[PRTimelinePush]
     estimated_cost_usd: float | None
     billable_minutes: float | None
     segments: list[PRTimelineSegment]

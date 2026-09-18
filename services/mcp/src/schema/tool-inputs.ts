@@ -4,6 +4,25 @@ import { z } from 'zod'
 // script, and both modules are pure constants/functions — no `.md` imports to choke on.
 import { castStringToInt, normalizeParamAliases } from '../tools/cast-helpers'
 
+export const CanvasStateReadLimitSchema = z.number().int().min(1).max(100).default(20)
+export const CanvasStateKeysOnlySchema = z.boolean().default(true)
+export const WikiPageReadLimitSchema = z.number().int().min(1).max(12000).default(12000)
+
+// Mirrors the Django serializer's `validate` rule so a continuation without the revision
+// fails here instead of at the API with a 400.
+export function validateCanvasStateValueContinuation(
+    data: { offset?: number | undefined; revision?: string | undefined },
+    ctx: z.RefinementCtx
+): void {
+    if ((data.offset ?? 0) > 0 && !data.revision) {
+        ctx.addIssue({
+            code: 'custom',
+            path: ['revision'],
+            message: 'Read the first chunk and pass its revision to continue.',
+        })
+    }
+}
+
 export const ChannelInstructionsBaseVersionSchema = z
     .number()
     .int()

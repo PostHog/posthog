@@ -1,6 +1,7 @@
 """Resolve implementation PR URLs linked to signal reports."""
 
 import re
+from collections.abc import Callable
 from dataclasses import replace
 from datetime import datetime
 from typing import TYPE_CHECKING, Literal
@@ -296,16 +297,60 @@ def report_ids_for_implementation_pr(*, team_id: int, repository: str, pr_number
     ]
 
 
-PrCloseReason = Literal["suppressed", "snoozed", "resolved"]
+def implementation_pr_needed_by_another_report(*, team_id: int, report_id: str, pr_url: str) -> bool:
+    """Whether an unfinished report other than ``report_id`` still links this pull request.
+
+    One pull request can back several reports. Closing it for one dismissal would close the work the
+    others still depend on, and the close webhook would then suppress them too, so only the last
+    report still using it closes it. No retry can change the answer while the other report runs, so
+    a caller that reports per-PR outcomes records this as a skip rather than a failure.
+    """
+    parsed = GitHubIntegrationBase.parse_pull_request_url(pr_url)
+    if parsed is None:
+        return False
+    return (
+        SignalReport.objects.filter(
+            team_id=team_id,
+            id__in=report_ids_for_implementation_pr(
+                team_id=team_id, repository=parsed.repository, pr_number=parsed.number
+            ),
+        )
+        .exclude(id=report_id)
+        .exclude(status__in=_FINISHED_REPORT_STATUSES)
+        .exists()
+    )
 
 
-def _pr_close_comment(reason: PrCloseReason, *, report_link: str, actor_mention: str | None) -> str:
+PrCloseReason = Literal["suppressed", "snoozed", "resolved", "superseded"]
+
+_SUPERSEDED_COMMENT = (
+    "Closing this PR because later research changed the fix. "
+    "PostHog completed the replacement implementation: {replacement}.\n\n"
+    "The replacement explains what changed. If this PR should remain open, reopen it and review "
+    "the linked report before changing the replacement PRs."
+)
+_SUPERSEDED_COMMENT_NO_URL = (
+    "🔕 Closing this PR because more research changed what the fix should be. "
+    "The report it came from is still open, and a new PR replaces this one.\n\n"
+    "If this PR was still the right fix, reopen it."
+)
+
+
+def _pr_close_comment(
+    reason: PrCloseReason, *, report_link: str, actor_mention: str | None, replacement_pr_url: str | None = None
+) -> str:
     """What the PR says about its own close.
 
     Left on the PR before it closes, so anyone reading the PR sees why it closed, who decided it,
     and how to undo it. The close itself goes out under the team's GitHub App, so this comment is
     the only place the person behind it can appear.
     """
+    if reason == "superseded":
+        return (
+            _SUPERSEDED_COMMENT.format(replacement=replacement_pr_url)
+            if replacement_pr_url
+            else _SUPERSEDED_COMMENT_NO_URL
+        )
     if reason == "resolved":
         opening = (
             f"🔕 Closing this PR because {actor_mention} resolved the {report_link} without it."
@@ -329,6 +374,10 @@ def _close_implementation_pr(
     reason: PrCloseReason = "suppressed",
     pr: ImplementationPr,
     actor_user_id: int | None = None,
+    replacement_pr_url: str | None = None,
+    expected_head_sha: str | None = None,
+    comment_marker: str | None = None,
+    before_close: Callable[[], bool] | None = None,
 ) -> bool:
     """Best-effort: comment on and close the GitHub PR attached to this report.
 
@@ -358,21 +407,7 @@ def _close_implementation_pr(
 
         from products.signals.backend.report_assignments import update_assignments_for_pull_request
 
-        # One pull request can back several reports. Closing it for one dismissal would close the
-        # work the others still depend on, and the close webhook would then suppress them too, so
-        # only the last report still using it closes it.
-        still_used_elsewhere = (
-            SignalReport.objects.filter(
-                team_id=team_id,
-                id__in=report_ids_for_implementation_pr(
-                    team_id=team_id, repository=parsed.repository, pr_number=parsed.number
-                ),
-            )
-            .exclude(id=report_id)
-            .exclude(status__in=_FINISHED_REPORT_STATUSES)
-            .exists()
-        )
-        if still_used_elsewhere:
+        if implementation_pr_needed_by_another_report(team_id=team_id, report_id=report_id, pr_url=pr_url):
             logger.info(
                 "close_implementation_pr_still_used_by_another_report",
                 report_id=str(report_id),
@@ -418,25 +453,36 @@ def _close_implementation_pr(
             )
             return False
 
-        # Explain first, close second. A failed comment should not stop the close.
-        comment_outcome = github.comment_on_pull_request(
-            parsed.repository,
-            parsed.number,
-            _pr_close_comment(
-                reason,
-                report_link=f"[linked PostHog report]({settings.SITE_URL}/project/{team_id}/inbox/reports/{report_id})",
-                actor_mention=github_mention_for_user(actor_user_id),
-            ),
+        if expected_head_sha is not None and pr_status.get("head_sha") != expected_head_sha:
+            return False
+        comment = _pr_close_comment(
+            reason,
+            report_link=f"[linked PostHog report]({settings.SITE_URL}/project/{team_id}/inbox/reports/{report_id})",
+            actor_mention=github_mention_for_user(actor_user_id),
+            replacement_pr_url=replacement_pr_url,
         )
-        if not comment_outcome.get("success"):
-            logger.warning(
-                "close_implementation_pr_comment_failed",
-                report_id=str(report_id),
-                pr_url=pr_url,
-                error=comment_outcome.get("error"),
-                status_code=comment_outcome.get("status_code"),
-            )
+        already_commented = False
+        if comment_marker:
+            found = github.has_pull_request_comment(parsed.repository, parsed.number, comment_marker)
+            if found is None:
+                return False
+            already_commented = found
+            comment += f"\n\n{comment_marker}"
+        if not already_commented:
+            comment_outcome = github.comment_on_pull_request(parsed.repository, parsed.number, comment)
+            if not comment_outcome.get("success"):
+                logger.warning(
+                    "close_implementation_pr_comment_failed",
+                    report_id=str(report_id),
+                    pr_url=pr_url,
+                    error=comment_outcome.get("error"),
+                    status_code=comment_outcome.get("status_code"),
+                )
+                if comment_marker:
+                    return False
 
+        if before_close is not None and not before_close():
+            return False
         outcome = github.close_pull_request(parsed.repository, parsed.number)
         if not outcome.get("success"):
             logger.warning(
@@ -463,15 +509,30 @@ def _close_implementation_pr(
 
 
 def close_implementation_pr_for_report(
-    team_id: int, report_id: str, *, reason: PrCloseReason = "suppressed", actor_user_id: int | None = None
+    team_id: int,
+    report_id: str,
+    *,
+    reason: PrCloseReason = "suppressed",
+    actor_user_id: int | None = None,
+    pr_url: str | None = None,
+    replacement_pr_url: str | None = None,
 ) -> bool:
     try:
         if not SignalReport.objects.filter(team_id=team_id, id=report_id).exists():
             return False
         closed = False
         for pr in fetch_implementation_prs_for_reports([str(report_id)], team_id=team_id).get(str(report_id), []):
+            if pr_url is not None and pr.url != pr_url:
+                continue
             closed = (
-                _close_implementation_pr(team_id, report_id, reason=reason, pr=pr, actor_user_id=actor_user_id)
+                _close_implementation_pr(
+                    team_id,
+                    report_id,
+                    reason=reason,
+                    pr=pr,
+                    actor_user_id=actor_user_id,
+                    replacement_pr_url=replacement_pr_url,
+                )
                 or closed
             )
         return closed

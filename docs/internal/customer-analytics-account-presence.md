@@ -2,7 +2,7 @@
 
 Account detail pages show avatars for other active teammates who can read the same account.
 
-The browser sends `POST /api/projects/:team_id/accounts/:account_id/presence/` when the page opens and every 30 seconds while the tab is visible. The request has no body. The server derives the viewer identity from the authenticated user.
+The browser sends `POST /api/projects/:team_id/accounts/:account_id/presence/` when the page opens and every 30 seconds while the tab is visible. For an [external-ID account link](customer-analytics-account-links.md), heartbeats start after the account lookup succeeds and use the returned account UUID. The request has no body. The server derives the viewer identity from the authenticated user.
 
 Each heartbeat updates an account-scoped Redis roster. A viewer expires after 90 seconds without another heartbeat. Hidden tabs and unmounted pages stop heartbeats, so another viewer can remain visible for up to 90 seconds after leaving.
 

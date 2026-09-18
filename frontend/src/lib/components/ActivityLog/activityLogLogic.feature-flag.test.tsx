@@ -45,6 +45,33 @@ describe('the activity log logic', () => {
             expect(render(<>{actual[0].description}</>).container).toHaveTextContent('peter updated')
         })
 
+        it.each([
+            ['experiment_exposure_frozen', 'restricted the release conditions to the exposure freeze snapshot cohort'],
+            ['experiment_exposure_unfrozen', 'removed the exposure freeze restriction'],
+        ])('describes a %s flag rewrite instead of narrating the filter diff', async (jobType, expected) => {
+            const logic = await featureFlagsTestSetup(
+                'test flag',
+                'updated',
+                [
+                    {
+                        type: ActivityScope.FEATURE_FLAG,
+                        action: 'changed',
+                        field: 'filters',
+                        before: { groups: [{ properties: [], rollout_percentage: 50 }] },
+                        after: { groups: [{ properties: [{ key: 'id', type: 'cohort', value: 1 }] }] },
+                    },
+                ],
+                null,
+                { job_type: jobType, job_id: '123', payload: { experiment_id: 123 } }
+            )
+
+            const actual = logic.values.humanizedActivity
+            expect(actual).toHaveLength(1)
+            const text = render(<>{actual[0].description}</>).container.textContent
+            expect(text).toContain(expected)
+            expect(text).not.toContain('rollout')
+        })
+
         it('can handle change of key', async () => {
             const logic = await featureFlagsTestSetup('test flag', 'updated', [
                 {

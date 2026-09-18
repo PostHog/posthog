@@ -14,7 +14,6 @@ access goes through `database_sync_to_async(..., thread_sensitive=False)`; `@sco
 `@close_db_connections` mirror the Signals report activities.
 """
 
-import uuid
 import logging
 import datetime
 from collections import Counter
@@ -41,13 +40,13 @@ from products.review_hog.backend.reviewer.constants import (
     CHUNKING_REASONING_EFFORT,
     CHUNKING_RUNTIME_ADAPTER,
     DEFAULT_URGENCY_THRESHOLD,
-    VALIDATION_INITIAL_PERMISSION_MODE,
+    REVIEW_MODE_FLASH,
+    REVIEW_MODE_FULL,
     VALIDATION_MAX_ATTEMPTS,
-    VALIDATION_MODEL,
-    VALIDATION_REASONING_EFFORT,
-    VALIDATION_RUNTIME_ADAPTER,
     effective_priority,
     published_priorities_for,
+    review_arm_for_mode,
+    validation_arm_for_mode,
 )
 from products.review_hog.backend.reviewer.lazy_seed import (
     sync_canonical_authoring,
@@ -77,11 +76,11 @@ from products.review_hog.backend.reviewer.persistence import (
     load_valid_findings,
     persist_chunk_set,
     persist_commit_snapshot,
-    persist_findings,
     persist_perspective_results,
     persist_perspective_selection,
     persist_pr_snapshot,
     persist_verdict,
+    replace_deduplicated_findings,
     upsert_review_report,
 )
 from products.review_hog.backend.reviewer.sandbox.direct_llm import run_oneshot_review
@@ -104,7 +103,7 @@ from products.review_hog.backend.reviewer.status_comment import (
     finalize_status_comment,
     maybe_refresh_status_comment,
 )
-from products.review_hog.backend.reviewer.telemetry import review_routing_properties
+from products.review_hog.backend.reviewer.telemetry import review_event_uuid, review_routing_properties
 from products.review_hog.backend.reviewer.tools.github_client import GitHubAPIError, github_api_request
 from products.review_hog.backend.reviewer.tools.github_meta import (
     PRFetcher,
@@ -173,6 +172,9 @@ class FetchPRDataInput:
     trigger_source: str = TRIGGER_MANUAL
     # `ReportPriority` value the trigger read before the implementation agent could write its own.
     signal_priority: str | None = None
+    # This turn's mode. Read only to hold the tier back on a flash turn: the persisted arm must stay
+    # what the PR's next normal review runs on. Defaulted so pre-field payloads stay full reviews.
+    review_mode: str = REVIEW_MODE_FULL
 
 
 @dataclass
@@ -270,7 +272,7 @@ class GenerateSchemasInput:
     pass
 
 
-@dataclass
+@dataclass(frozen=False)
 class SandboxStageInput:
     """Shared identity + turn scope for a sandbox-turn activity."""
 
@@ -281,6 +283,10 @@ class SandboxStageInput:
     repository: str
     branch: str
     run_index: int
+    # What this turn runs on (`REVIEW_MODE_FULL` / `REVIEW_MODE_FLASH`); picks the reviewer and
+    # validator arms and labels every GitHub message. Keyword-only with a default so subclasses keep
+    # their positional fields and pre-field payloads deserialize as full reviews.
+    review_mode: str = field(default=REVIEW_MODE_FULL, kw_only=True)
 
 
 @dataclass
@@ -365,7 +371,7 @@ class BuildBodyInput:
     will_publish: bool = False
 
 
-@dataclass
+@dataclass(frozen=False)
 class PublishInput:
     team_id: int
     report_id: str
@@ -376,6 +382,7 @@ class PublishInput:
     pr_number: int
     # Same snapshot as `BuildBodyInput.urgency_threshold`, so body counts and comments agree.
     urgency_threshold: str = IssuePriority.CONSIDER.value
+    review_mode: str = REVIEW_MODE_FULL
 
 
 @dataclass
@@ -422,6 +429,8 @@ class TrackReviewCompletedInput:
     # and a person's re-trigger of an inbox report is the case the tier telemetry has to see.
     # Defaulted so in-flight payloads from before the field still deserialize.
     turn_trigger_source: str | None = None
+    # What THIS turn ran on; the event names the flash arm in both seats for a flash turn.
+    review_mode: str = REVIEW_MODE_FULL
 
 
 @frozen
@@ -433,6 +442,7 @@ class TrackReviewStartedInput:
     head_sha: str
     run_index: int
     turn_trigger_source: str | None
+    review_mode: str = REVIEW_MODE_FULL
 
 
 @frozen
@@ -443,14 +453,16 @@ class TrackReviewFailedInput:
     report_id: str
     run_index: int
     turn_trigger_source: str | None = None
+    review_mode: str = REVIEW_MODE_FULL
 
 
-@dataclass
+@dataclass(frozen=False)
 class StatusCommentInput:
     """Kickoff / failure edits of the PR's status comment; owner/repo/pr come off the report row."""
 
     team_id: int
     report_id: str
+    review_mode: str = REVIEW_MODE_FULL
 
 
 # --- Setup activities ------------------------------------------------------------------------------
@@ -465,9 +477,11 @@ def _sandbox_workflow_id_prefix(step_name: str) -> str:
     return f"{activity.info().workflow_id}:{step_name}".lower()
 
 
-async def _refresh_status_comment(team_id: int, report_id: str) -> None:
+async def _refresh_status_comment(team_id: int, report_id: str, review_mode: str) -> None:
     """Refresh the PR's status comment after this activity persisted progress (debounced, best-effort)."""
-    await database_sync_to_async(maybe_refresh_status_comment, thread_sensitive=False)(team_id, report_id)
+    await database_sync_to_async(maybe_refresh_status_comment, thread_sensitive=False)(
+        team_id, report_id, review_mode=review_mode
+    )
 
 
 def _github_integration_exists(team_id: int) -> bool:
@@ -572,7 +586,9 @@ def _fetch_and_persist(input: FetchPRDataInput) -> ReviewMeta:
         trigger_source=input.trigger_source,
         # Only the creating turn routes on it: the upsert is what knows whether the row exists.
         signal_priority=ReportPriority(input.signal_priority) if input.signal_priority is not None else None,
-        lift_tier_on_human_trigger=True,
+        # A flash trigger never lifts: the lift rewrites the persisted arm, and the person asking for
+        # the cheap review would raise what every later normal turn costs.
+        lift_tier_on_human_trigger=input.review_mode != REVIEW_MODE_FLASH,
     )
     # Read the report's watermark BEFORE persist_commit_snapshot advances it, so the parent can decide
     # whether this turn has anything to do. `published_head_sha == head_sha` means we already reviewed
@@ -760,7 +776,7 @@ async def split_chunks_activity(input: SandboxStageInput) -> list[int]:
     )
     if existing is not None:
         logger.info("Reusing persisted chunk set for this turn")
-        await _refresh_status_comment(input.team_id, input.report_id)
+        await _refresh_status_comment(input.team_id, input.report_id, input.review_mode)
         return [chunk.chunk_id for chunk in existing.chunks]
 
     snapshot = await database_sync_to_async(load_pr_snapshot, thread_sensitive=False)(
@@ -777,7 +793,7 @@ async def split_chunks_activity(input: SandboxStageInput) -> list[int]:
         await database_sync_to_async(persist_chunk_set, thread_sensitive=False)(
             team_id=input.team_id, report_id=input.report_id, head_sha=input.head_sha, chunks=planned
         )
-        await _refresh_status_comment(input.team_id, input.report_id)
+        await _refresh_status_comment(input.team_id, input.report_id, input.review_mode)
         return [chunk.chunk_id for chunk in planned.chunks]
 
     prompt = generate_chunking_prompt(snapshot.pr_metadata, snapshot.pr_comments, snapshot.pr_files)
@@ -817,7 +833,7 @@ async def split_chunks_activity(input: SandboxStageInput) -> list[int]:
     await database_sync_to_async(persist_chunk_set, thread_sensitive=False)(
         team_id=input.team_id, report_id=input.report_id, head_sha=input.head_sha, chunks=chunks
     )
-    await _refresh_status_comment(input.team_id, input.report_id)
+    await _refresh_status_comment(input.team_id, input.report_id, input.review_mode)
     return [chunk.chunk_id for chunk in chunks.chunks]
 
 
@@ -889,7 +905,7 @@ async def select_perspectives_activity(input: SelectPerspectivesInput) -> Perspe
         roster=[p.skill_name for p in input.perspectives],
         selection=selection,
     )
-    await _refresh_status_comment(input.team_id, input.report_id)
+    await _refresh_status_comment(input.team_id, input.report_id, input.review_mode)
     return PerspectiveSelectionDTO.from_model(selection)
 
 
@@ -919,9 +935,10 @@ def _prepare_review_prompt(
     run_index: int,
     blind_spot_check: bool,
     wave_perspectives: list[LoadedPerspectiveDTO],
+    review_model: str,
 ) -> str | None:
     """Build the review prompt for one (perspective, chunk), or None if already reviewed this turn."""
-    done = load_perspective_results(team_id=team_id, report_id=report_id, head_sha=head_sha)
+    done = load_perspective_results(team_id=team_id, report_id=report_id, head_sha=head_sha, review_model=review_model)
     if (pass_number, chunk_id) in done:
         return None
     snapshot = load_pr_snapshot(team_id=team_id, report_id=report_id, head_sha=head_sha)
@@ -959,6 +976,14 @@ def _prepare_review_prompt(
 @close_db_connections
 async def review_chunk_activity(input: ReviewChunkInput) -> bool:
     """Review one chunk through one perspective (or the blind-spot check) and persist it (idempotent)."""
+    # The report's persisted arm (its tier's, decided at creation), not the module pins. Each unit
+    # resolves it against the live registry, so all units of a turn agree unless a deploy
+    # deregisters the model mid-turn — which is why a tier's arm changes in REVIEW_ARMS_BY_TIER,
+    # never by deregistering the model. A flash turn overrides it with the flash arm for this turn only.
+    persisted_arm = await database_sync_to_async(load_review_arm, thread_sensitive=False)(
+        team_id=input.team_id, report_id=input.report_id
+    )
+    arm = review_arm_for_mode(input.review_mode, persisted_arm)
     prompt = await database_sync_to_async(_prepare_review_prompt, thread_sensitive=False)(
         input.team_id,
         input.report_id,
@@ -970,6 +995,7 @@ async def review_chunk_activity(input: ReviewChunkInput) -> bool:
         input.run_index,
         input.blind_spot_check,
         input.wave_perspectives,
+        arm.model,
     )
     if prompt is None:
         return True
@@ -977,13 +1003,6 @@ async def review_chunk_activity(input: ReviewChunkInput) -> bool:
         f"blind-spots-c{input.chunk_id}"
         if input.blind_spot_check
         else f"issues-review-p{input.pass_number}-c{input.chunk_id}"
-    )
-    # The report's persisted arm (its tier's, decided at creation), not the module pins. Each unit
-    # resolves it against the live registry, so all units of a turn agree unless a deploy
-    # deregisters the model mid-turn — which is why a tier's arm changes in REVIEW_ARMS_BY_TIER,
-    # never by deregistering the model.
-    arm = await database_sync_to_async(load_review_arm, thread_sensitive=False)(
-        team_id=input.team_id, report_id=input.report_id
     )
     async with Heartbeater():
         review = await run_sandbox_review(
@@ -1010,16 +1029,19 @@ async def review_chunk_activity(input: ReviewChunkInput) -> bool:
         report_id=input.report_id,
         head_sha=input.head_sha,
         results={(input.pass_number, input.chunk_id): review},
+        review_model=arm.model,
     )
-    await _refresh_status_comment(input.team_id, input.report_id)
+    await _refresh_status_comment(input.team_id, input.report_id, input.review_mode)
     return True
 
 
 # --- Combine + scope-clean + dedup -----------------------------------------------------------------
 
 
-def _combine_and_clean(team_id: int, report_id: str, head_sha: str) -> list[Issue]:
-    perspective_results = load_perspective_results(team_id=team_id, report_id=report_id, head_sha=head_sha)
+def _combine_and_clean(team_id: int, report_id: str, head_sha: str, review_model: str) -> list[Issue]:
+    perspective_results = load_perspective_results(
+        team_id=team_id, report_id=report_id, head_sha=head_sha, review_model=review_model
+    )
     snapshot = load_pr_snapshot(team_id=team_id, report_id=report_id, head_sha=head_sha)
     pr_files = snapshot.pr_files if snapshot is not None else []
     raw_issues = combine_issues(perspective_results)
@@ -1037,8 +1059,13 @@ async def dedup_activity(input: SandboxStageInput) -> DedupResult:
     stages reload the issue content from the finding rows, so the unbounded issue list never crosses
     a Temporal payload boundary by value.
     """
+    # Only this turn's reviewer's results are combined: a flash and a full turn can share a commit.
+    persisted_arm = await database_sync_to_async(load_review_arm, thread_sensitive=False)(
+        team_id=input.team_id, report_id=input.report_id
+    )
+    review_arm = review_arm_for_mode(input.review_mode, persisted_arm)
     issues = await database_sync_to_async(_combine_and_clean, thread_sensitive=False)(
-        input.team_id, input.report_id, input.head_sha
+        input.team_id, input.report_id, input.head_sha, review_arm.model
     )
     snapshot = await database_sync_to_async(load_pr_snapshot, thread_sensitive=False)(
         team_id=input.team_id, report_id=input.report_id, head_sha=input.head_sha
@@ -1063,10 +1090,17 @@ async def dedup_activity(input: SandboxStageInput) -> DedupResult:
             repository=input.repository,
             workflow_id_prefix=_sandbox_workflow_id_prefix("dedup"),
         )
-    issue_ids = await database_sync_to_async(persist_findings, thread_sensitive=False)(
-        team_id=input.team_id, report_id=input.report_id, issues=survivors, run_index=input.run_index
+    issue_ids = await database_sync_to_async(replace_deduplicated_findings, thread_sensitive=False)(
+        team_id=input.team_id,
+        report_id=input.report_id,
+        issues=survivors,
+        run_index=input.run_index,
+        head_sha=input.head_sha,
+        review_mode=input.review_mode,
+        review_arm=review_arm,
+        validation_arm=validation_arm_for_mode(input.review_mode),
     )
-    await _refresh_status_comment(input.team_id, input.report_id)
+    await _refresh_status_comment(input.team_id, input.report_id, input.review_mode)
     return DedupResult(issue_ids=issue_ids)
 
 
@@ -1134,6 +1168,7 @@ async def validate_chunk_activity(input: ValidateChunkInput) -> ValidateChunkRes
 
     validated = len(done)
     final_attempt = activity.info().attempt >= VALIDATION_MAX_ATTEMPTS
+    validator = validation_arm_for_mode(input.review_mode)
     session: MultiTurnSession | None = None
     chunk_ok = False
     try:
@@ -1159,10 +1194,10 @@ async def validate_chunk_activity(input: ValidateChunkInput) -> ValidateChunkRes
                             model_to_validate=IssueValidation,
                             step_name=f"validation-c{input.chunk_id}",
                             workflow_id_prefix=_sandbox_workflow_id_prefix(f"validation-c{input.chunk_id}"),
-                            runtime_adapter=VALIDATION_RUNTIME_ADAPTER,
-                            model=VALIDATION_MODEL,
-                            reasoning_effort=VALIDATION_REASONING_EFFORT,
-                            initial_permission_mode=VALIDATION_INITIAL_PERMISSION_MODE,
+                            runtime_adapter=validator.runtime_adapter,
+                            model=validator.model,
+                            reasoning_effort=validator.reasoning_effort,
+                            initial_permission_mode=validator.initial_permission_mode,
                         )
                     else:
                         validation = await continue_sandbox_session(
@@ -1207,7 +1242,7 @@ async def validate_chunk_activity(input: ValidateChunkInput) -> ValidateChunkRes
                 status="completed" if chunk_ok else "failed",
                 error=None if chunk_ok else "validation chunk failed mid-session",
             )
-    await _refresh_status_comment(input.team_id, input.report_id)
+    await _refresh_status_comment(input.team_id, input.report_id, input.review_mode)
     return ValidateChunkResult(chunk_id=input.chunk_id, validated_count=validated)
 
 
@@ -1267,6 +1302,7 @@ def _publish(input: PublishInput) -> PublishResult:
         token=token,
         urgency_threshold=IssuePriority(input.urgency_threshold),
         installation_id=installation_id,
+        review_mode=input.review_mode,
     )
     return PublishResult(posted=outcome.posted, review_url=outcome.review_url)
 
@@ -1353,12 +1389,16 @@ def _track_review_started(input: TrackReviewStartedInput) -> None:
     posthoganalytics.capture(
         distinct_id=_review_event_identity(report),
         event="reviewhog_review_started",
-        # Deterministic per turn, like the completed event: a parent retry re-runs the gates and
-        # re-captures the same uuid, so a turn starts once however many attempts it takes.
-        uuid=str(uuid.uuid5(uuid.NAMESPACE_URL, f"reviewhog_review_started:{input.report_id}:{input.run_index}")),
+        # A parent retry must not count another start for the same turn and mode.
+        uuid=review_event_uuid(
+            "reviewhog_review_started",
+            report_id=input.report_id,
+            run_index=input.run_index,
+            review_mode=input.review_mode,
+        ),
         properties={
             **_turn_event_properties(report, run_index=input.run_index, turn_trigger_source=input.turn_trigger_source),
-            **review_routing_properties(report),
+            **review_routing_properties(report, review_mode=input.review_mode),
             **_pr_size_properties(snapshot),
         },
         groups=groups(team=report.team),
@@ -1408,9 +1448,13 @@ def _track_review_completed(input: TrackReviewCompletedInput) -> None:
     posthoganalytics.capture(
         distinct_id=_review_event_identity(report),
         event="reviewhog_review_completed",
-        # Deterministic per turn: an activity retry that re-captures after a worker crash emits the
-        # same event uuid, so ingestion dedupes it instead of double-counting the review.
-        uuid=str(uuid.uuid5(uuid.NAMESPACE_URL, f"reviewhog_review_completed:{input.report_id}:{input.run_index}")),
+        # Activity retries must not double-count a completed turn within its review mode.
+        uuid=review_event_uuid(
+            "reviewhog_review_completed",
+            report_id=input.report_id,
+            run_index=input.run_index,
+            review_mode=input.review_mode,
+        ),
         properties={
             **_turn_event_properties(report, run_index=input.run_index, turn_trigger_source=input.turn_trigger_source),
             "published": input.published,
@@ -1419,7 +1463,7 @@ def _track_review_completed(input: TrackReviewCompletedInput) -> None:
             "findings_must_fix": valid_by_priority.get(IssuePriority.MUST_FIX, 0),
             "findings_should_fix": valid_by_priority.get(IssuePriority.SHOULD_FIX, 0),
             "findings_consider": valid_by_priority.get(IssuePriority.CONSIDER, 0),
-            **review_routing_properties(report),
+            **review_routing_properties(report, review_mode=input.review_mode),
             **_pr_size_properties(snapshot),
             "duration_seconds": duration_seconds,
         },
@@ -1455,13 +1499,16 @@ def _track_review_failed(input: TrackReviewFailedInput) -> None:
     posthoganalytics.capture(
         distinct_id=_review_event_identity(report),
         event="reviewhog_review_failed",
-        # Deterministic per turn, like the completed event: repeated failures of the same turn (a
-        # re-trigger that dies again before finalize bumps run_count) dedupe to one event, so
-        # completion rate counts turns, not attempts.
-        uuid=str(uuid.uuid5(uuid.NAMESPACE_URL, f"reviewhog_review_failed:{input.report_id}:{input.run_index}")),
+        # Failures of the same turn and mode dedupe so retries do not lower its completion rate.
+        uuid=review_event_uuid(
+            "reviewhog_review_failed",
+            report_id=input.report_id,
+            run_index=input.run_index,
+            review_mode=input.review_mode,
+        ),
         properties={
             **_turn_event_properties(report, run_index=input.run_index, turn_trigger_source=input.turn_trigger_source),
-            **review_routing_properties(report),
+            **review_routing_properties(report, review_mode=input.review_mode),
         },
         groups=groups(team=report.team),
         send_feature_flags=True,
@@ -1485,9 +1532,10 @@ async def track_review_failed_activity(input: TrackReviewFailedInput) -> None:
     The completed event alone hides failures: a run that dies never emits it, so an arm of the
     reviewer-model experiment that crashes on its hardest PRs would silently shed them from every
     per-review metric. This event is the denominator's other half, but do NOT naively sum event
-    counts: the parent workflow retry makes fail-then-complete at the same (report_id, run_index)
-    common, so a turn counts as failed only when it has a failed event and NO completed event
-    (anti-join on report_id + run_index). Best-effort, like the completed event.
+    counts: a parent retry can fail and then complete at the same (report_id, run_index, review_mode),
+    so a turn counts as failed only when that combination has a failed event and no completed event.
+    Anti-join on report_id + run_index + review_mode, treating an absent mode as Full for legacy events.
+    Best-effort, like the completed event.
     """
     await database_sync_to_async(_track_review_failed_safe, thread_sensitive=False)(input)
 
@@ -1504,7 +1552,9 @@ async def post_status_comment_activity(input: StatusCommentInput) -> None:
     Dispatched only on the publish path once every gate has passed. Best-effort inside
     (`ensure_status_comment` swallows failures), so it can't fail the review.
     """
-    await database_sync_to_async(ensure_status_comment, thread_sensitive=False)(input.team_id, input.report_id)
+    await database_sync_to_async(ensure_status_comment, thread_sensitive=False)(
+        input.team_id, input.report_id, review_mode=input.review_mode
+    )
 
 
 @activity.defn
@@ -1515,12 +1565,12 @@ async def finalize_status_comment_activity(input: FinalizeStatusCommentInput) ->
     await database_sync_to_async(finalize_status_comment, thread_sensitive=False)(input)
 
 
-def _fail_run(team_id: int, report_id: str) -> None:
+def _fail_run(team_id: int, report_id: str, review_mode: str = REVIEW_MODE_FULL) -> None:
     # The idle write comes first so a GitHub failure below can't skip it: on publishing runs
     # finalize defers going idle to the publish stage, so a run dying between finalize and publish
     # would otherwise sit ACTIVE (reading as in-progress in the UI) until the staleness cutoff.
     ReviewReport.objects.for_team(team_id).filter(id=report_id).update(status=ReviewReport.Status.IDLE)
-    fail_status_comment(team_id, report_id)
+    fail_status_comment(team_id, report_id, review_mode=review_mode)
 
 
 @activity.defn
@@ -1532,7 +1582,7 @@ async def fail_status_comment_activity(input: StatusCommentInput) -> None:
     The idle write lives in this activity rather than as its own workflow command so in-flight
     histories replay unchanged (new unconditional commands break replay determinism).
     """
-    await database_sync_to_async(_fail_run, thread_sensitive=False)(input.team_id, input.report_id)
+    await database_sync_to_async(_fail_run, thread_sensitive=False)(input.team_id, input.report_id, input.review_mode)
 
 
 # --- The signals report's code_review receipt --------------------------------------------------------

@@ -1,0 +1,27 @@
+{
+    "letter": "GA",
+    "id": "GA29",
+    "cluster": 58,
+    "is_real": false,
+    "severity": null,
+    "votes": [
+        {
+            "is_real": false,
+            "severity": null,
+            "evidence": "In products/stamphog/backend/tasks/tasks.py:1159-1162, process_inbox_pr_review catches GitHubRateLimitError and retries with countdown=max(e.retry_after or 0, 60). The value of retry_after comes from posthog/egress/github/transport.py:79-85. It uses the Retry-After header when GitHub sends one. For a primary rate limit (x-ratelimit-remaining=0) it uses reset_at - now, which is the full time until the window resets. It falls back to 60s only when the limit shows up in the response body alone, which is GitHub's documented minimum wait. The task keeps max_retries=3 (tasks.py:1109), the same budget as the sibling tasks at tasks.py:721 and 809. The webhook path at tasks.py:974 handles rate limits the same way.",
+            "refutation": "The finding rests on the idea that 3 retries, even with 60s waits, can all land inside an hour-long primary rate-limit window. The code rules that out. For a primary limit, raise_if_github_rate_limited sets retry_after to reset_at - now (transport.py:81-82), so the first retry is already scheduled for after the window resets. It is not 60s later. Secondary limits come with Retry-After or use the 60s minimum GitHub recommends. Exhausting all retries inside one window would take repeated fresh limits, which is an unlikely edge case. The finding also says a dropped review is never re-triggered, but the docstring at tasks.py:1121-1125 contradicts that: the receiver fires again on every TaskRun output save that carries the PR URL, and the head-keyed dedupe makes those extra fires safe. The review is not silently lost either. Every rate-limited attempt logs stamphog_inbox_pr_fetch_rate_limited, and once retries run out Celery re-raises the exception, so the final failure shows up in normal task-failure reporting."
+        },
+        {
+            "is_real": false,
+            "severity": null,
+            "evidence": "tasks.py:1160-1162 retries a GitHubRateLimitError with countdown=max(e.retry_after or 0, 60). posthog/egress/github/transport.py:80-85 always sets retry_after. It uses the Retry-After header if GitHub sends one. Otherwise, for a primary limit, it uses reset_at - now (the time left until the window resets). It falls back to 60s only when GitHub gives no hint. The docstring at transport.py:39 states that raise_if_github_rate_limited \"always sets it\".",
+            "refutation": "The finding says three retries at 60s intervals can all land inside an hour-long primary rate-limit window. The code does not wait a fixed 60s. The countdown comes from GitHub's own reset time (transport.py:81-82), so the first retry is scheduled after the window resets, and one retry is normally enough. The remaining retries cover repeat failures. The claim that the loss cannot be seen is also overstated. Each rate-limited attempt logs stamphog_inbox_pr_fetch_rate_limited (tasks.py:1161). The task docstring (tasks.py:1121-1125) also says the receiver fires again on every TaskRun output save, so a later save can start the review again. The remaining concern, a limit that recurs more than three times in a row, is a speculative edge case and not a demonstrated defect."
+        },
+        {
+            "is_real": false,
+            "severity": null,
+            "evidence": "products/stamphog/backend/tasks/tasks.py:1109 sets `max_retries=3`, and :1160-1162 catches GitHubRateLimitError and retries with `countdown=max(e.retry_after or 0, 60)`. The finding says three retries \"even at 60s countdowns\" can all fall inside an hour-long primary window. But retry_after is not a fixed 60s. It comes from posthog/egress/github/transport.py:78-85. That code uses the `retry-after` header when present. Otherwise it uses `reset_at - now` from `x-ratelimit-reset`, and it falls back to 60s only when GitHub sends no timing headers at all. A primary-window exhaustion is a 403 with `x-ratelimit-remaining: 0` (transport.py:56), and those responses carry `x-ratelimit-reset`. So the countdown is set to the moment the window resets, and the first retry already lands after it. Every request in the task also goes through the client at products/stamphog/backend/logic/github_client.py:441-451, which sends it through the egress layer with Priority.CRITICAL and then calls raise_if_github_rate_limited, so the hint is always filled in on the production path.",
+            "refutation": "In production, GitHub's primary-limit responses include reset headers. `raise_if_github_rate_limited` turns those headers into `retry_after = reset_at - now` (transport.py:81-82). The task then waits `max(retry_after, 60)` (tasks.py:1162), so a retry cannot fire inside the window. Secondary limits send a `retry-after` header, or the task waits GitHub's documented minimum of 60s. Using up all 3 retries would take 4 separate rate-limit windows in a row, which is a speculative trigger. The claim that the failure is invisible is also weak. Each rate-limited attempt logs `stamphog_inbox_pr_fetch_rate_limited` (tasks.py:1161). On the last attempt, `retry(exc=e)` re-raises the original exception, so Celery records a task failure. The premise of the finding does not match the code."
+        }
+    ]
+}

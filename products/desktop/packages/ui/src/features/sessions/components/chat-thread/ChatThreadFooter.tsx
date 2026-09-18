@@ -15,6 +15,7 @@ interface ChatThreadFooterProps {
   task?: Task;
   taskId?: string;
   footerState: Omit<BuildResult, "items">;
+  hasCurrentSetupProgress: boolean;
   hasPendingPermission?: boolean;
   currentWork?: string;
 }
@@ -30,6 +31,7 @@ export function ChatThreadFooter({
   task,
   taskId,
   footerState,
+  hasCurrentSetupProgress,
   hasPendingPermission,
   currentWork,
 }: ChatThreadFooterProps) {
@@ -56,7 +58,11 @@ export function ChatThreadFooter({
     <div className="pt-1">
       {taskId && task && (
         <div className="-mx-2.5 pb-1">
-          <SessionStartupRow taskId={taskId} task={task} />
+          <SessionStartupRow
+            taskId={taskId}
+            task={task}
+            hasCurrentSetupProgress={hasCurrentSetupProgress}
+          />
         </div>
       )}
       <SessionFooter

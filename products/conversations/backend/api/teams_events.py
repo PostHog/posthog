@@ -12,9 +12,10 @@ from rest_framework.request import Request as DRFRequest
 
 from posthog.models.team import Team
 from posthog.rate_limit import TeamsEventWebhookThrottle
+from posthog.regions import is_primary_region
 
 from products.conversations.backend.models import TeamConversationsTeamsConfig
-from products.conversations.backend.services.region_routing import is_primary_region, proxy_to_secondary_region
+from products.conversations.backend.services.region_routing import proxy_to_secondary_region
 from products.conversations.backend.support_teams import (
     get_bot_from_id,
     is_trusted_teams_service_url,

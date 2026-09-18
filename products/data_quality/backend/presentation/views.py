@@ -28,7 +28,6 @@ from rest_framework.views import APIView
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
-from posthog.exceptions_capture import capture_exception
 from posthog.models import Team, User
 from posthog.permissions import APIScopePermission, TeamMemberAccessPermission, get_authenticator_scopes
 from posthog.rate_limit import HogQLQueryThrottle
@@ -187,20 +186,14 @@ class _QualityGatedViewSet(TeamAndOrgViewSetMixin):
         """
         cached = getattr(self, "_denial_context_cache", None)
         if cached is None:
-            try:
-                cached = api.restrict_subject_types(
-                    api.caller_denial_context(
-                        self.team,
-                        cast(User, self.request.user),
-                        user_access_control=self.user_access_control,
-                    ),
-                    self._authorized_subject_types(),
-                )
-            except Exception as err:
-                # Building the snapshot walks every saved query; one malformed definition must not
-                # 500 the surface. Failing open would leak denied subjects, so fail closed.
-                capture_exception(err)
-                raise PermissionDenied("Could not verify your access to this table or view.")
+            cached = api.restrict_subject_types(
+                api.caller_denial_context(
+                    self.team,
+                    cast(User, self.request.user),
+                    user_access_control=self.user_access_control,
+                ),
+                self._authorized_subject_types(),
+            )
             self._denial_context_cache = cached
         return cached
 
