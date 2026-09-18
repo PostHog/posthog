@@ -168,20 +168,29 @@ describe('buildWorkflowTree', () => {
     })
 
     it.each([
-        [false, 'branch', 'Condition matched'],
-        [true, 'branch', 'Event received'],
-        [false, 'continue', 'No match within 2d'],
-        [true, 'continue', 'No match within 2d'],
-    ] as const)('labels wait outcomes for events=%s and edge=%s', (hasEvents, edgeType, label) => {
-        const waitAction: HogFlowAction = {
-            id: 'wait',
-            type: 'wait_until_condition',
-            name: 'Wait for activation',
-            description: '',
-            config: { condition: {}, max_wait_duration: '2d', events: hasEvents ? [{ name: 'activated' }] : [] },
+        [false, false, 'branch', 'Condition matched'],
+        [false, true, 'branch', 'Event received'],
+        [true, false, 'branch', 'Condition matched'],
+        [true, true, 'branch', 'Condition or event matched'],
+        [false, false, 'continue', 'No match within 2d'],
+        [false, true, 'continue', 'No match within 2d'],
+    ] as const)(
+        'labels wait outcomes for condition=%s events=%s and edge=%s',
+        (hasCondition, hasEvents, edgeType, label) => {
+            const waitAction: HogFlowAction = {
+                id: 'wait',
+                type: 'wait_until_condition',
+                name: 'Wait for activation',
+                description: '',
+                config: {
+                    condition: hasCondition ? { filters: { properties: [{ key: 'plan', value: 'pro' }] } } : {},
+                    max_wait_duration: '2d',
+                    events: hasEvents ? [{ name: 'activated' }] : [],
+                },
+            }
+            expect(getWorkflowBranchLabel(waitAction, edge('wait', 'next', edgeType, 0))).toBe(label)
         }
-        expect(getWorkflowBranchLabel(waitAction, edge('wait', 'next', edgeType, 0))).toBe(label)
-    })
+    )
 
     it('moves a branching action with all of its paths', () => {
         const workflowWithJoin = workflow(

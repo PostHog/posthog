@@ -28,9 +28,24 @@ export function isBranchingAction(action: Pick<HogFlowAction, 'type'>): boolean 
 
 export function getWorkflowBranchLabel(action: HogFlowAction | undefined, edge: HogFlowEdge): string {
     if (action?.type === 'wait_until_condition') {
-        return edge.type === 'continue'
-            ? `No match within ${action.config.max_wait_duration}`
-            : action.config.condition?.name || (action.config.events?.length ? 'Event received' : 'Condition matched')
+        if (edge.type === 'continue') {
+            return `No match within ${action.config.max_wait_duration}`
+        }
+        const { condition, events } = action.config
+        if (condition?.name) {
+            return condition.name
+        }
+        if (!events?.length) {
+            return 'Condition matched'
+        }
+        // The property condition and the events resolve the wait through this same edge, so a wait
+        // that sets both must not name only one of them.
+        const filters = condition?.filters
+        const hasConditionFilters =
+            (filters?.properties?.length ?? 0) > 0 ||
+            (filters?.events?.length ?? 0) > 0 ||
+            (filters?.actions?.length ?? 0) > 0
+        return hasConditionFilters ? 'Condition or event matched' : 'Event received'
     }
     if (edge.type === 'continue') {
         return 'No match'
