@@ -191,8 +191,10 @@ tools:
             have approved AI data processing and to be within its active-summary cap and AI credit budget; otherwise the
             update is rejected.
 
-            `delivery_config` follows the same rules as on create. The update is rejected when an option does not apply
-            to this subscription.
+            `delivery_config` options carry the same scope rules as on create, and the update is rejected when an
+            option you send does not apply to this subscription. On a prompt subscription the object you send merges
+            into the stored one instead of replacing it, so set an option to the value you want rather than expecting
+            an omitted option to be cleared.
         exclude_params:
             - contexts
             - deleted

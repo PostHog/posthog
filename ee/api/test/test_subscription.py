@@ -3967,7 +3967,15 @@ class TestAISubscriptionAPI(APILicensedTest):
         assert patch_response.json()["delivery_config"] == expected_config
         assert Subscription.objects.get(id=subscription_id).delivery_config == expected_config
 
-    def test_patch_validates_the_merged_delivery_config(self, mock_is_cloud, mock_flag, mock_sync):
+    @parameterized.expand(
+        [
+            ("unrelated_field", {"enabled": False}),
+            ("delivery_config_without_the_option", {"delivery_config": {"include_images": False}}),
+        ]
+    )
+    def test_stored_gallery_option_does_not_block_other_prompt_edits(
+        self, mock_is_cloud, mock_flag, mock_sync, _name, patch_body
+    ):
         self._enable_ai()
         self._mock_temporal(mock_sync)
         integration = Integration.objects.create(
@@ -3983,19 +3991,15 @@ class TestAISubscriptionAPI(APILicensedTest):
         )
         assert create_response.status_code == status.HTTP_201_CREATED, create_response.json()
         subscription_id = create_response.json()["id"]
-        # Seeded directly because create rejects the option: the PATCH never resubmits it, so only
-        # validating the merged config catches it.
+        # Seeded directly because create rejects the option. Rows like this predate the rule, and
+        # validating the stored value would leave them impossible to edit or even to disable.
         Subscription.objects.filter(id=subscription_id).update(
             delivery_config={"post_all_insights_in_main_message": True}
         )
 
-        patch_response = self.client.patch(
-            f"/api/projects/{self.team.id}/subscriptions/{subscription_id}",
-            {"delivery_config": {"include_images": False}},
-        )
+        patch_response = self.client.patch(f"/api/projects/{self.team.id}/subscriptions/{subscription_id}", patch_body)
 
-        assert patch_response.status_code == status.HTTP_400_BAD_REQUEST, patch_response.json()
-        assert patch_response.json()["detail"] == GALLERY_ON_PROMPT_ERROR
+        assert patch_response.status_code == status.HTTP_200_OK, patch_response.json()
 
     @parameterized.expand(
         [

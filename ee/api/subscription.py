@@ -295,7 +295,7 @@ class DeliveryConfigSerializer(serializers.Serializer):
             "together in the main Slack message instead of posting the first image in the main "
             "message and the rest as threaded replies. Defaults to false. The request is rejected "
             "when target_type is not 'slack', when the subscription sets prompt instead of insight "
-            "or dashboard, and when the Slack integration does not hold the files:write permission. "
+            "or dashboard, or when the Slack integration does not hold the files:write permission. "
             "Omit it unless the user asks for one combined message."
         ),
     )
@@ -770,6 +770,10 @@ class SubscriptionWriteSerializer(serializers.ModelSerializer):
                 )
         except ValueError as exc:
             raise ValidationError(str(exc))
+        # The prompt merge below folds the stored config into `attrs`, so keep what the caller
+        # actually sent. A stored option that the request never names must not reject the
+        # request, because that leaves the row impossible to edit.
+        submitted_delivery_config = attrs.get("delivery_config") or {}
         if (
             resource_type == Subscription.ResourceType.AI_PROMPT
             and self.partial
@@ -841,7 +845,7 @@ class SubscriptionWriteSerializer(serializers.ModelSerializer):
                         ]
                     }
                 )
-        elif effective_delivery_config.get("post_all_insights_in_main_message"):
+        elif submitted_delivery_config.get("post_all_insights_in_main_message"):
             # The prompt Slack renderer already posts every chart in the main message and never reads this option.
             raise ValidationError(
                 {
