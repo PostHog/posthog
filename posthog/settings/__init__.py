@@ -133,6 +133,10 @@ PERSON_ON_EVENTS_V2_OVERRIDE: bool = get_from_env("PERSON_ON_EVENTS_V2_OVERRIDE"
 # When on, the person bulk delete API hands profile deletion to a Celery task that pages through
 # each person's distinct IDs, instead of tombstoning them inline in the request.
 PERSON_BULK_DELETE_ASYNC: bool = get_from_env("PERSON_BULK_DELETE_ASYNC", False, type_cast=str_to_bool)
+# Person deletes tombstone the Postgres rows (version kept, properties scrubbed) and publish the
+# ClickHouse tombstones at the versions the replica wrote, instead of hard-deleting and guessing
+# version + 100. Ingestion must revive tombstones for every team before this is on.
+PERSON_DELETE_TOMBSTONE: bool = get_from_env("PERSON_DELETE_TOMBSTONE", False, type_cast=str_to_bool)
 
 # Events data retention enforcement override (ops kill switch / local + test toggle). When unset (None),
 # enforcement falls back to the per-project `events-data-retention` cohort flag. When set, forces it on/off everywhere.
