@@ -70,8 +70,8 @@ tools:
             Attach a Slack, webhook, Microsoft Teams, or PagerDuty notification destination to a log alert. Without a
             destination an alert evaluates silently and never notifies. One HogFunction is created per event kind
             (firing, resolved, broken, errored) atomically. A PagerDuty destination only gets firing and resolved:
-            firing triggers an incident and resolved resolves it. The returned hog_function_ids identify the
-            destination group.
+            firing triggers an incident and resolved resolves it. The returned hog_function_ids identify the destination
+            group.
         param_overrides:
             type:
                 description: >
@@ -87,8 +87,8 @@ tools:
                 description: Required when type is webhook or teams.
             pagerduty_routing_key:
                 description: >
-                    The 32-character integration key of an Events API v2 integration on the PagerDuty service.
-                    Required when type is pagerduty.
+                    The 32-character integration key of an Events API v2 integration on the PagerDuty service. Required
+                    when type is pagerduty.
             pagerduty_severity:
                 description: Incident severity for PagerDuty. One of critical, error, warning, info. Defaults to critical.
             pagerduty_region:
