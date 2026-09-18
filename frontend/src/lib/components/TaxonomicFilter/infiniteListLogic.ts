@@ -1251,8 +1251,9 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                     const taxonomicGroups = selectors.taxonomicGroups(state)
                     const group = taxonomicGroups.find((g) => g.type === props.listGroupType)
 
-                    if (group?.logic && group?.valueLoading) {
-                        return group.logic.selectors[group.valueLoading]?.(state) ?? false
+                    const groupLogic = group?.logic?.findMounted()
+                    if (groupLogic && group?.valueLoading) {
+                        return groupLogic.selectors[group.valueLoading]?.(state) ?? false
                     }
                     return false
                 },
@@ -1479,8 +1480,12 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                     const taxonomicGroups = selectors.taxonomicGroups(state)
                     const group = taxonomicGroups.find((g) => g.type === props.listGroupType)
 
-                    if (group?.logic && group?.value) {
-                        let items = group.logic.selectors[group.value]?.(state)
+                    // Via `findMounted()`: reaching for `.selectors` on an unmounted logic throws,
+                    // and the throw lands in a render, which blanks the scene. An unmounted group
+                    // logic means the items are not ready yet, not that the picker should fail.
+                    const groupLogic = group?.logic?.findMounted()
+                    if (groupLogic && group?.value) {
+                        let items = groupLogic.selectors[group.value]?.(state)
 
                         // Handle paginated responses for cohorts, which return a CountedPaginatedResponse
                         if (items?.results) {
@@ -2382,6 +2387,17 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
         afterMount: () => {
             cache.lastActiveTab = values.activeTab
             cache.lastSearchQuery = values.searchQuery
+
+            // A group that serves items from a logic needs that logic mounted for as long as this
+            // list reads it. The list owns the mount because `taxonomicFilterLogic` can only gate on
+            // its build-time props, which stop describing the rendered groups once its props change.
+            // `pauseOnPageHidden: false` — a hidden tab must not unmount a logic the list still reads.
+            const groupLogic = values.group?.logic
+            if (groupLogic) {
+                cache.disposables.add(() => groupLogic.mount(), 'groupLogicMount', {
+                    pauseOnPageHidden: false,
+                })
+            }
 
             if (values.hasRemoteDataSource) {
                 actions.loadRemoteItems({ offset: 0, limit: values.limit })
