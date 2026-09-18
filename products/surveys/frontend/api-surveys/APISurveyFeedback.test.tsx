@@ -10,7 +10,7 @@ describe('APISurveyFeedback', () => {
     beforeEach(initKeaTests)
     afterEach(cleanup)
 
-    it('loads before showing the rating and shares one response with the dialog', async () => {
+    it.each([true, false])('loads, edits, and completes one response with partial responses: %s', async (partial) => {
         let respond!: (surveys: Survey[]) => void
         const client = {
             ...exampleSurveyClient(),
@@ -29,8 +29,14 @@ describe('APISurveyFeedback', () => {
         )
         expect(screen.queryByRole('button', { name: 'Helpful' })).toBeNull()
         expect(capture).not.toHaveBeenCalled()
-        await act(async () => respond([exampleRatingSurvey]))
+        await act(async () => respond([{ ...exampleRatingSurvey, enable_partial_responses: partial }]))
         fireEvent.click(await screen.findByRole('button', { name: 'Helpful' }))
+        expect(screen.queryByText('Complete the survey to send your rating.') !== null).toBe(!partial)
+        expect(screen.getByText('Selected: Helpful')).toBeTruthy()
+        fireEvent.click(screen.getByRole('button', { name: 'Change' }))
+        expect(screen.getByRole('button', { name: 'Helpful' })).toBe(document.activeElement)
+        fireEvent.click(screen.getByRole('button', { name: 'Not helpful' }))
+        expect(screen.getByText('Selected: Not helpful')).toBeTruthy()
         fireEvent.click(screen.getByRole('button', { name: 'Share more feedback' }))
         const input = await screen.findByRole('textbox')
         expect(screen.queryByRole('button', { name: 'Helpful' })).toBeNull()
@@ -48,8 +54,18 @@ describe('APISurveyFeedback', () => {
                     completed: properties?.$survey_completed,
                 }))
         ).toEqual([
-            { id: 'shared-response', rating: '1', completed: false },
-            { id: 'shared-response', rating: '1', completed: true },
+            ...(partial
+                ? [
+                      { id: 'shared-response', rating: '1', completed: false },
+                      { id: 'shared-response', rating: '2', completed: false },
+                  ]
+                : []),
+            { id: 'shared-response', rating: '2', completed: true },
         ])
+        fireEvent.click(screen.getByRole('button', { name: 'close' }))
+        await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+        expect(screen.queryByRole('button', { name: 'Share more feedback' })).toBeNull()
+        expect(screen.queryByRole('button', { name: 'Change' })).toBeNull()
+        expect(screen.getByRole('status')).toBe(document.activeElement)
     })
 })

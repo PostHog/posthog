@@ -3,7 +3,7 @@ import { Survey, SurveyQuestionType } from 'posthog-js'
 
 import { initKeaTests } from '~/test/init'
 
-import { exampleApiSurvey, exampleSurveyClient } from './apiSurvey.fixtures'
+import { exampleApiSurvey, exampleFeedbackRating, exampleSurveyClient } from './apiSurvey.fixtures'
 import { apiSurveyLogic } from './apiSurveyLogic'
 
 describe('apiSurveyLogic', () => {
@@ -162,6 +162,30 @@ describe('apiSurveyLogic', () => {
                 $survey_submission_id: logic.values.submissionId,
             }),
         ])
+        unmount()
+    })
+
+    it('allows retrying an edited rating without losing the draft or submission ID', async () => {
+        const survey = {
+            ...exampleApiSurvey,
+            enable_partial_responses: true,
+            questions: [exampleFeedbackRating, ...exampleApiSurvey.questions],
+        }
+        const client = exampleSurveyClient([survey])
+        const capture = jest.spyOn(client, 'capture')
+        const logic = apiSurveyLogic({ surveyId: survey.id, instanceId: 'edit', client })
+        const unmount = logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.submitRating('1')
+        logic.actions.setAnswer('goal', 'Keep this draft')
+        logic.actions.editRating()
+        capture.mockReturnValueOnce(undefined)
+        logic.actions.submitRating('2')
+        expect(logic.values.ratingAccepted).toBe(false)
+        logic.actions.submitRating('2')
+        expect(logic.values.ratingAccepted).toBe(true)
+        expect(logic.values.answers.goal).toBe('Keep this draft')
+        expect(new Set(capture.mock.calls.map(([, properties]) => properties?.$survey_submission_id)).size).toBe(1)
         unmount()
     })
 

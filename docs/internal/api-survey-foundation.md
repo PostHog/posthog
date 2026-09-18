@@ -44,9 +44,13 @@ The dialog renders the remaining questions, and the final response includes the 
 
 `SurveyFeedbackButtons` is the controlled rating input with a separate Share more feedback action.
 Its question prop supplies the prompt, description, scale, and endpoint labels.
-Two-point emoji ratings use thumbs; numeric ratings use the configured range, including 0 through 10.
+Two-point emoji ratings use thumbs; numeric ratings use equal-width, flat buttons over the configured range, including 0 through 10.
 It calls `onChange(rating, submissionId)` immediately with the selected value (`1` for thumbs up or `2` for thumbs down).
-After the caller accepts a rating, the rating buttons are replaced by Share more feedback, which calls `onMoreFeedback(submissionId)`.
+After the caller accepts a rating, the controls show the selected answer, a Change action, and Share more feedback.
+Change returns focus to the selected rating and keeps the same submission ID and detail draft.
+Share more feedback calls `onMoreFeedback(submissionId)`.
+When partial responses are disabled, the summary explains that the rating is sent when the survey is completed.
+After final submission and closing the dialog, only the thank-you message remains and receives focus.
 When using the controlled buttons alone, the caller owns persistence, pending and error state, and the link between the rating and details.
 Pass `loading` while saving to prevent duplicate actions, and update `value` when the caller accepts the rating.
 The prompt and action sit at opposite ends of the row.
@@ -84,7 +88,9 @@ Replay is off by default.
 `Surveys/API survey question` covers each supported control.
 Stories inject a client that uses invented surveys and never sends analytics events.
 The Dialog and NumericRating stories use `APISurveyFeedback` with an invented survey and a fake capture client.
+They use a short example survey with an optional text follow-up and outcome question.
 They exercise the rating-first flow, including partial responses, without sending live events.
+RatingWithoutPartialResponses demonstrates the unsent-rating message.
 FeedbackLoading and FeedbackUnavailable show the states before a rating can be offered.
 The form mounts only while the dialog is open, and Escape or the close button returns focus to the trigger.
 Backdrop clicks leave the dialog open to avoid losing input accidentally.

@@ -65,5 +65,9 @@ export const exampleFeedbackRating = {
 export const exampleRatingSurvey: Survey = {
     ...exampleApiSurvey,
     enable_partial_responses: true,
-    questions: [exampleFeedbackRating, ...exampleApiSurvey.questions],
+    questions: [
+        exampleFeedbackRating,
+        { id: 'goal', type: SurveyQuestionType.Open, question: 'What could we improve?', optional: true },
+        { ...exampleApiSurvey.questions[1], optional: true },
+    ],
 }
