@@ -133,7 +133,40 @@ const EXPECTATIONS: Expectation[] = [
                 'test-selection-verdict',
                 'capture-test-selection',
             ],
-            skipped: ['handle-snapshots', 'cancel-backend-on-openapi-check-failure'],
+            skipped: ['handle-snapshots', 'cancel-backend-on-openapi-check-failure', 'hand-off-to-depot'],
+        }
+    ),
+    // Handed off to Depot: it runs the tests and the side effects, GitHub Actions relays the
+    // verdict. Every heavy job and every side effect here stands down, and the required gate
+    // keeps reporting.
+    backend(
+        {
+            name: 'ready PR handed off to Depot',
+            steps: { changes: { route: { outputs: { engine: 'depot' } } } },
+        },
+        {
+            runs: ['changes', 'hand-off-to-depot', 'django_tests'],
+            skipped: [
+                'detect-snapshot-mode',
+                'turbo-discover',
+                'repo-checks',
+                'validate-product-yamls',
+                'check-migrations',
+                'check-openapi-types',
+                'get_clickhouse_versions',
+                'build_django_matrix',
+                'build-product-test-matrix',
+                'django',
+                'turbo-tests',
+                'handle-snapshots',
+                'test-selection-verdict',
+                'capture-test-selection',
+                'report-test-timings',
+                'calculate-running-time',
+                'backend-coverage-report',
+                'cancel-backend-on-repo-check-failure',
+                'cancel-backend-on-openapi-check-failure',
+            ],
         }
     ),
     backend(
