@@ -164,10 +164,15 @@ class TestMessageAssets(ClickhouseTestMixin, APIBaseTest):
         assert {r["invocation_id"] for r in results} == {"recent"}
 
     def test_respects_limit_and_offset(self):
+        # One sent time for every row, as a batch send gives: a tie must not move rows
+        # between pages.
+        tied = datetime.now(tz=UTC)
         for i in range(5):
-            self._seed(f"inv-{i}")
+            self._seed(f"inv-{i}", sent_at=tied)
         assert len(self._list({"limit": 2}).json()) == 2
         assert len(self._list({"limit": 2, "offset": 4}).json()) == 1
+        walked = [r["invocation_id"] for offset in (0, 2, 4) for r in self._list({"limit": 2, "offset": offset}).json()]
+        assert walked == ["inv-4", "inv-3", "inv-2", "inv-1", "inv-0"]
 
     def test_content_returns_html_bytes_inline(self):
         self._seed("inv-1", action_id="step-a", html="<html><body>Hello Bob</body></html>")
@@ -308,10 +313,17 @@ class TestPersonEmails(ClickhouseTestMixin, APIBaseTest):
         assert [r["invocation_id"] for r in rows] == ["newer", "older"]
 
     def test_respects_limit_and_offset(self):
+        # One sent time for every row, as a batch send gives: a tie must not move rows
+        # between pages.
+        tied = datetime.now(tz=UTC)
         for i in range(5):
-            self._seed(f"inv-{i}")
+            self._seed(f"inv-{i}", sent_at=tied)
         assert len(self._emails({"limit": 2}).json()) == 2
         assert len(self._emails({"limit": 2, "offset": 4}).json()) == 1
+        walked = [
+            r["invocation_id"] for offset in (0, 2, 4) for r in self._emails({"limit": 2, "offset": offset}).json()
+        ]
+        assert walked == ["inv-4", "inv-3", "inv-2", "inv-1", "inv-0"]
 
     def test_personal_api_key_requires_person_read_scope(self):
         self._seed("inv-1")
