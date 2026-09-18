@@ -24606,12 +24606,12 @@ export namespace Schemas {
       /** @nullable */
       readonly latest_error: string | null;
       /**
-         * Activity log ID from the last known edit. Used for conflict detection.
+         * The latest_history_id you last read for this view. Required when changing the query. The write is refused if someone else changed the query in the meantime.
          * @nullable
          */
       edited_history_id?: string | null;
       /**
-         * Activity log ID of the most recent query edit to this view. Send it back as edited_history_id on the next query write, so conflict detection can tell whether someone else changed the query in the meantime. Edits that leave the query alone do not advance it.
+         * Revision of this view's query. Send it back as edited_history_id on the next query write, so conflict detection can tell whether someone else changed the query in the meantime. Edits that leave the query alone do not advance it.
          * @nullable
          */
       readonly latest_history_id: string | null;
@@ -42906,6 +42906,46 @@ export namespace Schemas {
       readonly updated_at: string;
     }
 
+    /**
+     * * `open` - open
+     * * `closed` - closed
+     */
+    export type IssueStateEnum = typeof IssueStateEnum[keyof typeof IssueStateEnum];
+
+
+    export const IssueStateEnum = {
+      Open: 'open',
+      Closed: 'closed',
+    } as const;
+
+    export interface FeatureRequestGitHubLink {
+      /** Stable GitHub link ID. */
+      readonly id: string;
+      /** Canonical GitHub issue URL. */
+      readonly issue_url: string;
+      /** Canonical owner and repository name. */
+      readonly repository: string;
+      /**
+         * GitHub issue number.
+         * @minimum 1
+         */
+      readonly issue_number: number;
+      /** Latest GitHub issue title. */
+      readonly issue_title: string;
+      /** Latest GitHub issue state.
+       *
+       * * `open` - open
+       * * `closed` - closed */
+      readonly issue_state: IssueStateEnum;
+      /** Whether GitHub issue changes update this request. */
+      readonly sync_enabled: boolean;
+      /**
+         * When GitHub last updated this link.
+         * @nullable
+         */
+      readonly last_synced_at: string | null;
+    }
+
     export interface FeatureRequest {
       /** Stable feature request ID. */
       readonly id: string;
@@ -42957,6 +42997,8 @@ export namespace Schemas {
       readonly evidence_count: number;
       /** Product areas affected by this request. */
       readonly product_areas: readonly FeatureRequestProductArea[];
+      /** Linked GitHub issue, or null when no issue is linked. */
+      readonly github_link: FeatureRequestGitHubLink | null;
       /**
          * ID of the user who created the request.
          * @nullable
@@ -43090,6 +43132,21 @@ export namespace Schemas {
       evidence_id: string;
     }
 
+    export interface FeatureRequestGitHubLinkSerializerInput {
+      /**
+         * GitHub integration ID connected to this project.
+         * @minimum 1
+         */
+      integration_id: number;
+      /** GitHub issue URL. Pull request URLs are not supported. */
+      issue_url: string;
+      /**
+         * Request version loaded by the editor. Stale versions return 409 Conflict.
+         * @minimum 1
+         */
+      expected_version: number;
+    }
+
     /**
      * * `status` - Status
      * * `priority` - Priority
@@ -43097,6 +43154,8 @@ export namespace Schemas {
      * * `accounts` - Accounts
      * * `evidence` - Evidence
      * * `product_areas` - Product areas
+     * * `github_link` - GitHub link
+     * * `github_sync` - GitHub sync
      */
     export type FeatureRequestHistoryChangeFieldEnum = typeof FeatureRequestHistoryChangeFieldEnum[keyof typeof FeatureRequestHistoryChangeFieldEnum];
 
@@ -43108,12 +43167,22 @@ export namespace Schemas {
       Accounts: 'accounts',
       Evidence: 'evidence',
       ProductAreas: 'product_areas',
+      GithubLink: 'github_link',
+      GithubSync: 'github_sync',
     } as const;
 
     /**
      * Value before the update, including relation snapshots.
      */
-    export type FeatureRequestHistoryChangeBefore = string | {
+    export type FeatureRequestHistoryChangeBefore = string | boolean | {
+      id: string;
+      issue_url: string;
+      repository: string;
+      issue_number: number;
+      issue_title: string;
+      issue_state: 'open' | 'closed';
+      sync_enabled: boolean;
+    } | {
       /** @nullable */
       id: string | null;
       name: string;
@@ -43138,7 +43207,15 @@ export namespace Schemas {
     /**
      * Value after the update, including relation snapshots.
      */
-    export type FeatureRequestHistoryChangeAfter = string | {
+    export type FeatureRequestHistoryChangeAfter = string | boolean | {
+      id: string;
+      issue_url: string;
+      repository: string;
+      issue_number: number;
+      issue_title: string;
+      issue_state: 'open' | 'closed';
+      sync_enabled: boolean;
+    } | {
       /** @nullable */
       id: string | null;
       name: string;
@@ -43168,7 +43245,9 @@ export namespace Schemas {
        * * `account` - Account
        * * `accounts` - Accounts
        * * `evidence` - Evidence
-       * * `product_areas` - Product areas */
+       * * `product_areas` - Product areas
+       * * `github_link` - GitHub link
+       * * `github_sync` - GitHub sync */
       readonly field: FeatureRequestHistoryChangeFieldEnum;
       /** Value before the update, including relation snapshots. */
       readonly before: FeatureRequestHistoryChangeBefore;
@@ -43178,12 +43257,14 @@ export namespace Schemas {
 
     /**
      * * `manual` - Manual
+     * * `github` - GitHub
      */
     export type FeatureRequestHistorySourceEnum = typeof FeatureRequestHistorySourceEnum[keyof typeof FeatureRequestHistorySourceEnum];
 
 
     export const FeatureRequestHistorySourceEnum = {
       Manual: 'manual',
+      Github: 'github',
     } as const;
 
     export interface FeatureRequestHistory {
@@ -43195,7 +43276,8 @@ export namespace Schemas {
       readonly is_initial: boolean;
       /** System that recorded the request change.
        *
-       * * `manual` - Manual */
+       * * `manual` - Manual
+       * * `github` - GitHub */
       readonly change_source: FeatureRequestHistorySourceEnum;
       /**
          * ID of the user who changed the request, if known.
@@ -43232,7 +43314,8 @@ export namespace Schemas {
       readonly request_status: FeatureRequestStatusEnum;
       /** System that recorded the status change.
        *
-       * * `manual` - Manual */
+       * * `manual` - Manual
+       * * `github` - GitHub */
       readonly change_source: FeatureRequestHistorySourceEnum;
       /**
          * ID of the user who changed the status, if known.
@@ -53961,8 +54044,18 @@ export namespace Schemas {
       title: string;
       /** What the server does. */
       description: string;
-      /** Rank score in [0, 1] under the ranking version used. */
+      /** The server's own standing in [0, 1] under the ranking version used: liveness x trust, independent of the query. */
       score: number;
+      /**
+         * How well the server's own text answered `intent`, in [0, 1]. Null when the intent held no words worth matching on.
+         * @nullable
+         */
+      relevance: number | null;
+      /**
+         * The value candidates are ordered by: relevance and score combined, weighted toward relevance. Null in two cases. When the intent held no words worth matching on, ordering falls back to `score`. When the ranking version has no completed run, `score` is 0 for every candidate and ordering falls back to `relevance`.
+         * @nullable
+         */
+      combined_score: number | null;
       /** Score breakdown so an agent can explain its choice: fit, liveness, trust, and whether real usage signal contributed. */
       why: MCPDiscoverCandidateWhy;
       /** Probed liveness state (alive_open, alive_auth, dead, ...). */
@@ -56020,6 +56113,11 @@ export namespace Schemas {
       display_name: string;
       /** Reasoning efforts this model accepts, in ascending order. Empty for a model with no effort control. */
       supported_efforts: ReasoningEffortEnum[];
+      /**
+         * Per-token cost against the catalogue baseline, ready to display, such as '2.5x' or '~0.55x'. Prefixed when the input and output rates diverge enough that one number flatters either. Null for a model the catalogue quotes no rate for.
+         * @nullable
+         */
+      cost_multiplier?: string | null;
     }
 
     export interface ModelCatalogueResponse {
@@ -57131,6 +57229,23 @@ export namespace Schemas {
       results: ObservationSearchResult[];
       /** True when more matches may exist beyond `results`, so the response is a top slice rather than everything that matched. */
       truncated: boolean;
+    }
+
+    /**
+     * An inbox report that this observation's emitted signals were grouped into.
+     */
+    export interface ObservationSignalReport {
+      /** ID of the inbox report, for linking to its inbox page. */
+      id: string;
+      /**
+         * Report title, null while the report is still too new to have been summarized.
+         * @nullable
+         */
+      title: string | null;
+      /** The report's status in the inbox: potential, candidate, in_progress, pending_input, ready, resolved, failed, or suppressed. */
+      status: string;
+      /** When the report was created. */
+      created_at: string;
     }
 
     export interface ObservationStatusCounts {
@@ -66842,12 +66957,12 @@ export namespace Schemas {
       /** @nullable */
       readonly latest_error?: string | null;
       /**
-         * Activity log ID from the last known edit. Used for conflict detection.
+         * The latest_history_id you last read for this view. Required when changing the query. The write is refused if someone else changed the query in the meantime.
          * @nullable
          */
       edited_history_id?: string | null;
       /**
-         * Activity log ID of the most recent query edit to this view. Send it back as edited_history_id on the next query write, so conflict detection can tell whether someone else changed the query in the meantime. Edits that leave the query alone do not advance it.
+         * Revision of this view's query. Send it back as edited_history_id on the next query write, so conflict detection can tell whether someone else changed the query in the meantime. Edits that leave the query alone do not advance it.
          * @nullable
          */
       readonly latest_history_id?: string | null;
@@ -74078,13 +74193,15 @@ export namespace Schemas {
     export interface PersonBulkDeleteResponse {
       /** Number of persons matched by the provided IDs or distinct IDs. */
       persons_found: number;
-      /** Number of person records deleted from the database. 0 if keep_person was true. */
+      /** Number of person records deleted from the database during this request. 0 if keep_person was true or if the deletion was queued (see persons_queued_for_deletion). */
       persons_deleted: number;
+      /** Number of persons queued for deletion in the background. Their person records and distinct IDs are removed shortly after the request completes. 0 if keep_person was true. */
+      persons_queued_for_deletion: number;
       /** Whether event deletion was requested for the matched persons. If a deletion was already queued for a person, it will not be duplicated. */
       events_queued_for_deletion: boolean;
       /** Whether recording deletion was requested for the matched persons. If a deletion was already queued for a person, it will not be duplicated. */
       recordings_queued_for_deletion: boolean;
-      /** Persons that could not be deleted. Each entry contains 'person_uuid'. Contact support if this persists. */
+      /** Persons whose deletion did not fully complete in this request. Each entry contains 'person_uuid' and 'step', the deletion step that failed for that person. A failed database delete is reported here rather than as an error response, so a 202 with entries means some or all persons were not deleted. A 'log_activity' step means the person was deleted but the activity log entry was not written. Always empty when the deletion was queued (see persons_queued_for_deletion). Contact support if this persists. */
       deletion_errors?: PersonBulkDeleteResponseDeletionErrorsItem[];
     }
 
@@ -109386,6 +109503,61 @@ export namespace Schemas {
     min_score?: number;
     /**
      * Sort observations. Plain keys: created_at, started_at, completed_at, status, recording_subject_email. JSONB keys: result_score (scorer), result_verdict (monitor), result_confidence, scanner_version. Prefix with `-` for descending; nullable keys sort nulls last either way.
+     */
+    order_by?: string;
+    /**
+     * Filter to observations whose person email contains this value (case-insensitive).
+     */
+    recording_subject?: string;
+    /**
+     * Filter to observations of one or more session recordings. Accepts a comma-separated list.
+     */
+    session_id?: string;
+    /**
+     * Filter by observation status. Accepts a comma-separated list.
+     */
+    status?: string;
+    /**
+     * Filter classifier observations whose fixed or freeform tags include any of the given values (comma-separated). Matches if the tag appears in either `tags` or `tags_freeform`.
+     */
+    tags?: string;
+    /**
+     * Filter by trigger source (schedule, on_demand, retry, or backfill). Accepts a comma-separated list.
+     */
+    triggered_by?: string;
+    /**
+     * Filter monitor observations by verdict. Accepts a comma-separated list (e.g. `yes,inconclusive`).
+     */
+    verdict?: string;
+    };
+
+    export type VisionScannersObservationsSignalReportsListParams = {
+    /**
+     * Only observations dispatched by this backfill.
+     */
+    backfill_id?: string;
+    /**
+     * Only observations created at or after this time. Accepts ISO 8601, a relative date like `-7d`, or `now`; values without an explicit offset are interpreted in the project's timezone.
+     */
+    date_from?: string;
+    /**
+     * Only observations created at or before this time. Accepts ISO 8601, a relative date like `-1d`, or `now` for the current time; omit it to query through the current time. Date-only values include the whole day, interpreted in the project's timezone.
+     */
+    date_to?: string;
+    /**
+     * When true, return only observations that have a shared label (thumbs up or down); when false, only unlabeled observations.
+     */
+    labeled?: boolean;
+    /**
+     * Filter scorer observations to those scoring at or below this value. Rows with no numeric score (other scanner types, failed or in-flight runs) are excluded.
+     */
+    max_score?: number;
+    /**
+     * Filter scorer observations to those scoring at or above this value. Rows with no numeric score (other scanner types, failed or in-flight runs) are excluded.
+     */
+    min_score?: number;
+    /**
+     * Sort observations by created_at, started_at, completed_at, status, recording_subject_email, result_score, result_verdict, result_confidence, or scanner_version. Prefix with `-` for descending. Keys that can be null (started_at, completed_at, recording_subject_email, result_*, scanner_version) sort nulls last regardless of direction.
      */
     order_by?: string;
     /**
