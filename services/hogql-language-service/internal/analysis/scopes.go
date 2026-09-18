@@ -299,9 +299,9 @@ func (s *queryScope) unqualifiedPropertyNamespace(name string) (string, bool, bo
 	return resolved.name, resolved.ok, resolved.matched
 }
 
-func normalizeHogQLTableReferences(query string) (string, map[string]string) {
+func normalizeHogQLTableReferences(query string) (string, map[int]string) {
 	normalized := []byte(query)
-	originalNames := map[string]string{}
+	originalNames := map[int]string{}
 	for _, indexes := range tableReferencePattern.FindAllStringSubmatchIndex(query, -1) {
 		start, end := indexes[2], indexes[3]
 		name := query[start:end]
@@ -314,7 +314,7 @@ func normalizeHogQLTableReferences(query string) (string, map[string]string) {
 				normalized[index] = '_'
 			}
 		}
-		originalNames[string(normalized[start:end])] = name
+		originalNames[start] = name
 	}
 	return string(normalized), originalNames
 }
@@ -412,7 +412,7 @@ func bindingPropertyNamespace(binding Relation, name string) (string, bool) {
 		if _, ok := binding.table.Fields.Exact(name); !ok {
 			return "", false
 		}
-		return propertyresolver.Resolve([]string{binding.name, name, "property"}, map[string]string{binding.name: binding.name})
+		return propertyresolver.Resolve([]string{binding.table.Name, name, "property"}, nil)
 	}
 	if binding.cte == nil {
 		return "", false
