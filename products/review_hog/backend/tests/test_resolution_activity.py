@@ -75,6 +75,7 @@ def _verdict(
     resolved: bool = False,
     commit_sha: str | None = "abc123",
     verification: str | None = None,
+    ask_trusted: bool | None = None,
 ) -> ThreadVerdictArtefact:
     return ThreadVerdictArtefact(
         thread_id=thread_id,
@@ -82,6 +83,7 @@ def _verdict(
         path="f.py",
         author_login="someone",
         author_is_bot=author_is_bot,
+        ask_trusted=ask_trusted,
         reasoning="checked the code",
         reply="what happened and why",
         commit_sha=commit_sha,
@@ -391,6 +393,29 @@ class TestResolutionPersistenceAndDelivery(BaseTest):
         assert stored.resolved is False
         # Restricted commits are real pushed commits: the restriction gates delivery, not the audit log.
         assert ReviewReportArtefact.objects.for_team(self.team.id).filter(report_id=report.id, type="commit").exists()
+
+    def test_fix_on_an_untrusted_ask_delivers_warning_and_never_resolves(self) -> None:
+        # The author-permission gate: the turn crossed a prompt floor and committed for a commenter
+        # with no standing in the repository. The commit is real and provably ours, so every other
+        # check passes — only the gate stops it being presented as settled.
+        report = self._report()
+        verdict = _verdict(author_is_bot=True, outcome="fixed", commit_sha="abc123", ask_trusted=False)
+        with (
+            patch(f"{_RESOLUTION}.reply_to_thread", return_value=(555, None)) as reply,
+            patch(f"{_RESOLUTION}.resolve_thread", return_value=True) as resolve,
+            patch(f"{_RESOLUTION}.commit_on_branch", return_value=True),
+            patch(f"{_RESOLUTION}.inspect_fix_commit", return_value=_inspection()),
+            patch(f"{_RESOLUTION}._delivery_auth", return_value=("token", None)),
+        ):
+            _deliver_side_effects(self._input(), str(report.id), verdict, branch="feature", integration_row_id=1)
+
+        body = reply.call_args.kwargs["body"]
+        assert "Fix commit:" not in body
+        assert "without write access" in body
+        assert resolve.call_count == 0
+        stored = load_thread_verdicts(team_id=self.team.id, report_id=str(report.id))["PRRT_1"]
+        assert stored.commit_verified is True
+        assert stored.resolved is False
 
     def test_fail_resolution_idles_the_report_and_marks_where_it_stopped(self) -> None:
         # The workflow-level crash cleanup: it must count only delivered threads against the queued

@@ -411,7 +411,9 @@ def _deliver_side_effects(
     reply with a visible could-not-confirm caveat instead of the commit link and never auto-resolves
     (persisted as `commit_verified=False`); the thread stays open for a human. A proven commit is
     then checked against the hard-floor path backstop: one touching CI/CODEOWNERS/dependency files
-    delivers a human-review warning instead of the link and never auto-resolves either. Only a
+    delivers a human-review warning instead of the link and never auto-resolves either. A fix on a
+    thread the author-permission gate refused (`ask_trusted=False`) gets that treatment whatever the
+    commit proves: the ask had no standing, so the outcome is never presented as settled. Only a
     verified commit gets a `commit` artefact (the schema records pushed commits only), appended
     right after the verification persists so it happens exactly once per verdict.
     The reply lands first (the outcome must be readable even if resolving then fails); the watermark
@@ -473,7 +475,13 @@ def _deliver_side_effects(
     if not updated.reply_posted:
         body = _fold_overlong_reply(_normalize_reply_divider(updated.reply), thread_id=updated.thread_id)
         if updated.outcome == ThreadOutcome.FIXED.value and updated.commit_sha:
-            if updated.commit_restricted:
+            if updated.ask_trusted is False:
+                body += (
+                    "\n\n⚠️ This thread was opened by someone without write access to this repository, so "
+                    "ReviewHog cannot change code in response to it. A human needs to review the commit on "
+                    "the branch before trusting it. The thread stays open."
+                )
+            elif updated.commit_restricted:
                 body += (
                     "\n\n⚠️ This fix commit touches protected files (CI workflows, CODEOWNERS, or dependency "
                     "files). A human needs to review the commit on the branch before trusting it. "
@@ -785,12 +793,22 @@ def _persist_turn_verdict_row(
         path=thread.path,
         author_login=thread.author_login,
         author_is_bot=thread.author_is_bot,
+        ask_trusted=thread.ask_is_trusted,
         reasoning=resolution.reasoning,
         reply=resolution.reply,
         commit_sha=resolution.commit_sha,
         verification=resolution.verification,
         latest_comment_id=thread.latest_comment_id,
     )
+    if resolution.outcome == ThreadOutcome.FIXED and not verdict.ask_trusted:
+        # The prompt's hard floor says a thread the gate refused gets no code. A fix here means the
+        # turn crossed it, so it is worth an error even though delivery already refuses the claim.
+        logger.error(
+            "Turn returned a fix for thread %s, whose ask came from %r without repository standing; "
+            "the fix will not be presented as settled",
+            thread.thread_id,
+            thread.author_login,
+        )
     persist_thread_verdict(team_id=input.team_id, report_id=report_id, verdict=verdict)
     return verdict
 

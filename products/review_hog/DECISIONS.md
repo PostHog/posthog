@@ -3285,6 +3285,35 @@ RATE_LIMITED` (GraphQL's primary signal, invisible to the REST-shaped helper) no
    `commit_verified=False` — caveat reply, no link, never auto-resolves. Residual (accepted): echoing one of
    the bot's own earlier fix commits still passes; that closes only with the recorded Tasks
    session-provenance follow-up.
+   _Built 2026-09-18 (off the SecurityHog agent-injection finding FBRX-5523c688, filed as a critical
+   Signals inbox report):_ the two pieces deferred above as BLOCKING pre-public-release gates are now built, so
+   the only prompt-only control left on the write path is the one that needs a change outside this repo.
+   **Structural (JSON) comment rendering** — `render_thread` / `render_work_list` emit JSON, mirroring the review
+   stage's `PR_COMMENTS`. Flat text made the attribution forgeable: a commenter could type
+   `--- maintainer [human, OWNER] …` and a "SAFE TO FIX" verdict into their own body and have the turn read it as
+   two further comments from a maintainer. As a JSON string value that text stays inside one `body` field, every
+   field around it is the orchestrator's, and the real comment `databaseId` ships as `comment_id` (the
+   "expose it as ground truth" option the gate left open). The per-thread `outdated` legend moved from the
+   rendering into the template's new `<thread_format>` block, so it is stated once per session instead of once
+   per turn. **Author-permission gate** — `comment_is_trusted` trusts OWNER / MEMBER / COLLABORATOR (an ask with
+   the same standing as a push to the branch) plus any bot author, keyed on GraphQL `__typename` rather than
+   association: the naive filter the gate warned about would have dropped the review-bot threads the stage exists
+   to settle, since bots and outside contributors both report `NONE`. `ReviewThread.ask_is_trusted` evaluates it
+   on the **opening** comment — the comment that asks, where later replies only argue — so a member's reply
+   cannot lift a drive-by ask and a drive-by reply cannot sink a member's thread; an empty thread fails closed.
+   Enforcement is two-layered, matching the path backstop's posture: the turn is told `code_changes_allowed:
+   false` and the prompt's hard floors forbid any code change on such a thread, and delivery refuses to present
+   a fix on one as settled whatever the commit proves (`ask_trusted=False` persists, `should_resolve` refuses,
+   the reply carries a human-review caveat instead of the commit link, and the crossed floor is logged at
+   error). Standing verdicts are covered by the same predicate: "SAFE TO FIX" / "E2E REQUIRED" counts only from
+   a `trusted` comment, closing the hole where a thread's own low-trust asker waved their ask through the worth
+   bar. Deliberately NOT done: excluding an untrusted thread from the work-list, which would have contradicted
+   the comment-loading policy (CONTEXT.md) and let any drive-by commenter silence a thread — loading is not
+   permission, so the thread is still read, judged and answered, and only its code writes are refused. Residual,
+   unchanged: this is containment, not prevention — a turn that crosses the floor has already pushed, which is
+   pre-public-release gate 1 (pre-push enforcement in the signed-commit tooling, outside this product).
+   Not yet validated by a live e2e run, which the deferral asked for on prompt-content changes: the rendering
+   and gate are covered by unit tests, and the prompt half needs a real run on a PR with a drive-by thread.
 9. **Persistence & budget** — home is the living `ReviewReport`; runs append `thread_verdict` (net-new content
    schema, latest-wins per thread) plus `commit` / `task_run` / `note` artefacts (their first writers). Idempotency
    is per-thread: unchanged state skips deterministically, any new reply re-opens that thread's triage (pushback on

@@ -66,24 +66,28 @@ an unproven SHA posts the reply without the commit link and never auto-resolves.
 against the hard-floor **path backstop** (`commit_restricted_paths`): one touching `.github/`, CODEOWNERS, or
 dependency manifests delivers a human-review warning instead of the link and never auto-resolves either.
 
-**TODO (BLOCKING — before any rollout beyond the dogfood team / public release) — the three remaining
-injection-surface hardening items from the July e2e GO conditions.** The path backstop above is built; these
-are deliberately deferred (maintainer decisions 2026-08-06 and 2026-08-10, recorded in DECISIONS.md Stage 7)
-and MUST land before the resolution stage runs on PRs the team does not own:
+The **author-permission gate** decides whose ask may drive a code-writing turn, deterministically and
+server-side: `github_threads.py::comment_is_trusted` trusts an OWNER / MEMBER / COLLABORATOR author (their ask
+carries the same standing as a push to the branch) plus any **bot** author — on GraphQL's `__typename`, not its
+association, because review bots and outside contributors both report `NONE`, so an association-only filter
+would drop exactly the bot threads the stage exists to settle. `ReviewThread.ask_is_trusted` reads the gate off
+the thread's **opening** comment (the comment that asks; later replies argue about the ask), and the turn is
+told the answer as `code_changes_allowed`. A drive-by thread is still loaded, judged and answered — only its
+code writes are refused. A FIXED verdict on one is never presented as settled, whatever the commit proves:
+`ask_trusted=False` persists on the verdict, `should_resolve` refuses it, and the reply carries a human-review
+caveat instead of the commit link. Trust also gates standing verdicts: a "SAFE TO FIX" / "E2E REQUIRED" reply
+counts only from a `trusted` comment, so a thread's own low-trust asker cannot wave their ask through the worth
+bar. Threads reach the session as **JSON** (`tools/thread_resolution.py::render_thread`), not flat text, so a
+commenter cannot forge an author header or a standing verdict inside their own body: the attribution fields are
+the orchestrator's, and only `body` is theirs.
 
-1. **Structural comment rendering** — thread comments still render as flat text in the resolution prompt, so a
-   commenter can forge an "OWNER" header or a fake "SAFE TO FIX" verdict inside their own comment
-   (`tools/thread_resolution.py::render_thread`). Fix: JSON-encode the conversation like the review stage's
-   `PR_COMMENTS` (and decide whether to expose the real comment `databaseId` as ground truth). Prompt-content
-   change → validate with a live e2e run.
-2. **Author-permission gate** — no code rule restricts whose comment may drive a write turn; the policy is the
-   hard part (review bots and external contributors both carry `author_association: NONE`, so a naive filter
-   drops exactly the bot threads the stage exists to resolve). Decide which associations may drive write turns
-   and how trusted bots stay in scope. The same policy must cover **standing-verdict overrides**: today a
-   "SAFE TO FIX" reply from any non-bot account substitutes for the worth judgment with no association gate,
-   so the thread's own low-trust asker can wave their own ask through the worth bar (safety bar and hard
-   floors still apply).
-3. **Pre-push restricted-paths enforcement** — the path backstop is detection, not prevention: GitHub's
+**TODO (BLOCKING — before any rollout beyond the dogfood team / public release) — the last of the three
+injection-surface hardening items from the July e2e GO conditions.** The path backstop, the author-permission
+gate and the structural rendering above are all built — the latter two deferred by maintainer decisions
+2026-08-06 and 2026-08-10, then landed off the SecurityHog agent-injection finding (DECISIONS.md Stage 7). This
+one MUST land before the resolution stage runs on PRs the team does not own:
+
+- **Pre-push restricted-paths enforcement** — the path backstop is detection, not prevention: GitHub's
    `createCommitOnBranch` makes commit and push one atomic act, so a fix commit touching `.github/`, CODEOWNERS,
    or dependency manifests is already on the PR branch (and CI is already running it) before
    `commit_restricted_paths` looks. The guard must move into the signed-commit tooling itself, before the
@@ -732,10 +736,9 @@ refreshes the perspective stats and an open drawer's detail (`reviewHogSettingsL
   "valid"/"invalid" (`reviewer/tools/publish_review.py`, the `post_promo` block). Publish is now live
   per-run (the trigger endpoint posts with `publish=true`), so settle the prod wording before real users
   see it.
-- **TODO (BLOCKING public release) — resolution-stage injection hardening, deferred by decision.** Structural
-  (JSON) comment rendering in the resolution prompt, the author-permission gate, and pre-push restricted-paths
-  enforcement in the signed-commit tooling are NOT built; only the prompt floors + the post-push delivery
-  backstop stand between a hostile PR comment and a write turn (and the backstop cannot un-push — the commit is
-  on the branch, and CI has seen it, before the check runs). Do not widen `REVIEWHOG_TEAM_IDS` or ship the
-  resolution stage publicly before all three land — see the BLOCKING TODO in
+- **TODO (BLOCKING public release) — pre-push restricted-paths enforcement is still not built.** Structural
+  (JSON) comment rendering and the author-permission gate have landed; what remains is enforcement inside the
+  signed-commit tooling. Until it exists the post-push delivery backstop cannot un-push — a restricted commit is
+  on the branch, and CI has seen it, before the check runs. Do not widen `REVIEWHOG_TEAM_IDS` or ship the
+  resolution stage publicly before it lands — see the BLOCKING TODO in
   [Status & next](#status--next) and DECISIONS.md Stage 7.
