@@ -463,8 +463,8 @@ class TestSQLV2Run(APIBaseTest):
     @override_settings(DEBUG=False)
     @patch("products.notebooks.backend.presentation.views.notebook.is_sql_v2_enabled", return_value=False)
     @patch("products.notebooks.backend.presentation.views.notebook.is_notebook_widget_enabled", return_value=True)
-    @patch("products.notebooks.backend.presentation.views.notebook.enqueue_direct_run")
-    @patch("products.notebooks.backend.presentation.views.notebook.start_sql_v2_run_workflow")
+    @patch("products.notebooks.backend.sql_v2_dispatch.enqueue_direct_run")
+    @patch("products.notebooks.backend.sql_v2_dispatch.start_sql_v2_run_workflow")
     def test_widget_only_access(self, _name, payload, expected_status, start_workflow, enqueue, _widget, _python):
         response = self.client.post(self.run_url, data={"node_id": "n1", **payload}, format="json")
         assert response.status_code == expected_status
@@ -486,7 +486,7 @@ class TestSQLV2Run(APIBaseTest):
         ]
     )
     @patch("products.notebooks.backend.presentation.views.notebook.is_sql_v2_enabled", return_value=True)
-    @patch("products.notebooks.backend.presentation.views.notebook.enqueue_direct_run")
+    @patch("products.notebooks.backend.sql_v2_dispatch.enqueue_direct_run")
     def test_reuses_only_matching_active_or_completed_run(
         self, status: str, principal: str, should_reuse: bool, enqueue: Mock, _enabled: Mock
     ) -> None:

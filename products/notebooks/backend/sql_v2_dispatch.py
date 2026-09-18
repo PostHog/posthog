@@ -418,6 +418,11 @@ def dispatch_node_run(notebook: Notebook, user: User | None, team: Team, request
         release_run_slots(team.id, notebook.short_id, str(new_run_id))
         raise
 
+    # Read before the handoff, never after: the sandbox lane provisions a kernel of its own, so
+    # a disclosure taken afterwards can observe this very dispatch's sandbox and report that it
+    # started nothing — exactly when the user most needs telling they are being charged.
+    starts_sandbox, hourly_price = sandbox_disclosure(notebook, user, uses_sandbox=plan.node_type != "hogql")
+
     try:
         if plan.node_type == "hogql":
             # Direct lane: a pure-HogQL run never touches the sandbox — it rides the
@@ -448,7 +453,6 @@ def dispatch_node_run(notebook: Notebook, user: User | None, team: Team, request
         finish_node_run(run, NotebookNodeRun.Status.FAILED, error="Failed to start run.")
         raise NodeRunDispatchFailed("Failed to start run.")
 
-    starts_sandbox, hourly_price = sandbox_disclosure(notebook, user, uses_sandbox=plan.node_type != "hogql")
     return NodeRunDispatch(run_id=run.id, starts_sandbox=starts_sandbox, sandbox_hourly_price=hourly_price)
 
 
