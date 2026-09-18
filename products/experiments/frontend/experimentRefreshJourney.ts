@@ -1,4 +1,5 @@
 import type { CustomerJourney, CustomerJourneySummary } from 'lib/customerJourneys/createCustomerJourney'
+import { customerJourneyFailure } from 'lib/customerJourneys/customerJourneyFailure'
 import { CustomerJourneyScope } from 'lib/customerJourneys/CustomerJourneyScope'
 import { startCustomerJourney } from 'lib/customerJourneys/startCustomerJourney'
 
@@ -141,7 +142,9 @@ export class ExperimentRefreshJourneyController {
             return
         }
         if (errors.some(Boolean) || attempt.groups[group].some((_, index) => results[index] == null)) {
-            this.fail(id, 'failed', 'query_error')
+            const error = errors.find(Boolean) as { statusCode?: number; code?: string } | undefined
+            const { outcome, error_type } = customerJourneyFailure({ status: error?.statusCode, code: error?.code })
+            this.fail(id, outcome, error_type)
             return
         }
         attempt[group] = [...results]
@@ -169,7 +172,11 @@ export class ExperimentRefreshJourneyController {
         this.publish(attempt)
     }
 
-    public fail(id: string, outcome: 'failed' | 'timed_out', error: 'query_error' | 'load_error' | 'timeout'): void {
+    public fail(
+        id: string,
+        outcome: 'failed' | 'timed_out',
+        error: NonNullable<CustomerJourneySummary['error_type']>
+    ): void {
         if (this.scope.current?.id === id) {
             this.scope.finish(outcome, { error_type: error })
         }
