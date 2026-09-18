@@ -30,6 +30,7 @@ from ..facade.enums import SubjectHealth, SubjectStatus, SubjectType, SuiteRunSt
 from ..models import DataQualityCheck, DataQualityCheckRun, DataQualitySuiteRun
 from . import posthog_tables
 from .compiler import related_subject_ref
+from .contracts import SubjectRef
 from .errors import (
     CheckConfigError,
     ConcurrentEditError,
@@ -44,7 +45,7 @@ from .schedules import provision_schedule
 from .serialization import canonical_config, compute_fingerprint
 from .spec import CheckConfig
 from .subject_schedules import SCHEDULE_TYPES
-from .subjects import resolve_subject, subject_column_type
+from .subjects import posthog_table_column_is_selectable, resolve_subject, subject_column_type
 
 _UPSERTABLE_FIELDS = (
     "name",
@@ -115,6 +116,7 @@ def validate_check(
         raise CheckConfigError("A check on a metric takes no column. Remove the column and save again.")
     if parsed.lookback_hours is not None and not subject.time_column:
         raise CheckConfigError(f"A {subject_type} has no time column, so it cannot take a lookback_hours window.")
+    _require_selectable_posthog_column(subject, column_name)
     spec.referenced_table_names(parsed, subject)
     # After the subject resolves, so the column type is only looked up for a check that could run.
     parsed = spec.coerce_to_column(parsed, subject_column_type(team.id, subject_type, subject_uuid, column_name))
@@ -131,8 +133,16 @@ def validate_check(
             raise CheckConfigError(
                 f"The referenced {related[0]} has no time column, so it cannot take a to_lookback_hours window."
             )
+        _require_selectable_posthog_column(related_subject, getattr(parsed, "to_column", ""))
 
     return parsed
+
+
+def _require_selectable_posthog_column(subject: SubjectRef, column_name: str) -> None:
+    if subject.subject_type != SubjectType.POSTHOG_TABLE or not column_name:
+        return
+    if not posthog_table_column_is_selectable(subject.subject_uuid, column_name):
+        raise CheckConfigError(f"{subject.name} has no column named {column_name}. Pick one of its listed columns.")
 
 
 def upsert_check(

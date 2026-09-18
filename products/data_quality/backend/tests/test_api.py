@@ -2101,6 +2101,52 @@ class TestDataQualityCheckAPI(APIBaseTest):
             status.HTTP_503_SERVICE_UNAVAILABLE,
         )
 
+    @parameterized.expand(
+        [
+            ("json_path", "properties.$browser", status.HTTP_201_CREATED),
+            ("join_path", "person.properties.email", status.HTTP_400_BAD_REQUEST),
+            ("lazy_table", "pdi.person_id", status.HTTP_400_BAD_REQUEST),
+            ("unknown_column", "stripe_customer", status.HTTP_400_BAD_REQUEST),
+        ]
+    )
+    def test_a_posthog_table_check_names_only_a_column_it_can_select(
+        self, _name: str, column_name: str, expected: int
+    ) -> None:
+        events = by_name("events")
+        assert events is not None
+
+        response = self.client.post(
+            f"{self.url}/",
+            {
+                "subject_type": SubjectType.POSTHOG_TABLE,
+                "subject_uuid": str(events.id),
+                "check_type": CheckType.NOT_NULL,
+                "column_name": column_name,
+                "config": {},
+            },
+        )
+
+        assert response.status_code == expected, response.json()
+
+    def test_a_relationships_target_on_a_posthog_table_names_only_a_column_it_can_select(self) -> None:
+        events = by_name("events")
+        assert events is not None
+
+        response = self.client.post(
+            f"{self.url}/",
+            self._payload(
+                check_type=CheckType.RELATIONSHIPS,
+                column_name="customer_id",
+                config={
+                    "to_subject_type": SubjectType.POSTHOG_TABLE,
+                    "to_subject_uuid": str(events.id),
+                    "to_column": "person.id",
+                },
+            ),
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+
     def test_a_restricted_member_still_lists_and_runs_a_posthog_table_check(self) -> None:
         events = by_name("events")
         assert events is not None

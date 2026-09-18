@@ -9,6 +9,8 @@ denormalized name is refreshed on every run so renames self-heal.
 from collections.abc import Collection
 from uuid import UUID
 
+from posthog.schema import DatabaseSerializedFieldType
+
 from products.data_catalog.backend.facade import api as data_catalog_facade
 from products.data_catalog.backend.facade.enums import HOGQL_DEFINITION_KIND
 from products.data_modeling.backend.facade import api as data_modeling_facade
@@ -214,6 +216,18 @@ def subject_column_type(team_id: int, subject_type: str, subject_uuid: str | UUI
     else:
         columns = data_modeling_facade.get_saved_query_columns(team_id, subject_uuid)
     return columns.get(column_name)
+
+
+def posthog_table_column_is_selectable(subject_uuid: str | UUID, column_name: str) -> bool:
+    """Whether the column is one the registry lists, or a path into one of its JSON columns."""
+    entry = posthog_tables.by_id(subject_uuid)
+    if entry is None:
+        return False
+    head, _, tail = column_name.partition(".")
+    column_type = entry.columns.get(head)
+    if column_type is None:
+        return False
+    return not tail or column_type == DatabaseSerializedFieldType.JSON.value
 
 
 def _missing(kind: SubjectType, subject_uuid: str | UUID) -> SubjectRef:
