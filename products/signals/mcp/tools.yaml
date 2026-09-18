@@ -112,6 +112,20 @@ tools:
             Replace the `content` of an existing artefact, addressed by its id, when new information supersedes it. The
             new content is validated against the artefact type's schema. Editing the latest row of a status type changes
             the report's canonical status; to re-assess while keeping history, append a new artefact instead.
+    inbox-report-checks-create:
+        operation: signals_scout_report_check_create
+        enabled: true
+        scopes:
+            - signal_scout_report:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Write a follow-up check (removed)
+        description: >
+            Removed. A scout run writes checks with scout-report-check-create, and the research pipeline writes its
+            own; there is no create surface for a person or a task token. Read a report's checks with
+            inbox-report-checks-list.
     inbox-report-checks-list:
         operation: signals_report_checks_list
         enabled: true
@@ -906,6 +920,19 @@ tools:
             this before writing a check: a report already carrying one for the same claim needs no second, and a report
             holds at most five open checks at a time. A `pending` check is waiting for the report to resolve before its
             clock starts; every status other than `pending` and `active` is terminal.
+    scout-report-checks-list:
+        operation: signals_scout_report_checks_list
+        enabled: true
+        scopes:
+            - signal_scout_report:write
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: List a report's follow-up checks (deprecated)
+        description:
+            'DEPRECATED: renamed to scout-report-check-list. This alias forwards to the same endpoint and will be
+            removed. Call scout-report-check-list directly with the same arguments.'
     scout-run-now:
         operation: signals_scout_config_run
         enabled: true

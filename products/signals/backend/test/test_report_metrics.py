@@ -262,7 +262,7 @@ class TestReportMetric(SimpleTestCase):
                 content = _affected_users_metric().model_dump(mode="json")
                 content["query"]["source"]["dateRange"]["date_from"] = date_from
 
-                with self.assertRaisesRegex(ValidationError, "relative time window|must not exceed"):
+                with self.assertRaisesRegex(ValidationError, "relative window|must not exceed"):
                     ReportMetric.model_validate(content)
 
         for date_from in ("-8784h", "-366d", "-52w", "-12m", "-1y"):

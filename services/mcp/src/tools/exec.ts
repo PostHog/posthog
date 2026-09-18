@@ -30,8 +30,10 @@ import {
 } from './types'
 
 /** Upper bound on a `search` regex pattern — keeps a pathological pattern from
- *  forcing catastrophic backtracking against tool metadata. */
-const MAX_SEARCH_PATTERN_LENGTH = 400
+ *  forcing catastrophic backtracking against tool metadata. Wide enough for an
+ *  anchored alternation of every tool an agent holds, which is not pathological
+ *  and used to hit the bound. */
+const MAX_SEARCH_PATTERN_LENGTH = 800
 
 /** Advertised on `tools/list` and on the runtime Tool. OpenAI's plugin verifier
  *  requires these three hints (plus idempotent) to be present, not just defined

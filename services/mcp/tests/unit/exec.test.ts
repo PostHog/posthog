@@ -1629,9 +1629,23 @@ describe('exec tool', () => {
             expect(JSON.parse(result as string)).toEqual(['feature-flag-get-all'])
         })
 
+        it('accepts an anchored alternation of a whole toolset', async () => {
+            const flagTool = makeMockTool({ name: 'feature-flag-get-all', title: 'List feature flags' })
+            const exec = createExec([flagTool])
+            const alternation = [
+                ...Array.from({ length: 20 }, (_, index) => `^scout-some-long-tool-name-${index}$`),
+                '^feature-flag-get-all$',
+            ].join('|')
+            expect(alternation.length).toBeGreaterThan(400)
+
+            const result = await exec.handler(mockContext, { command: `search ${alternation}` })
+
+            expect(JSON.parse(result as string)).toEqual(['feature-flag-get-all'])
+        })
+
         it('rejects an overly long search pattern before compiling the regex', async () => {
             const exec = createExec([makeMockTool()])
-            const longPattern = 'a'.repeat(401)
+            const longPattern = 'a'.repeat(801)
             await expect(exec.handler(mockContext, { command: `search ${longPattern}` })).rejects.toThrow(
                 /pattern too long/i
             )
