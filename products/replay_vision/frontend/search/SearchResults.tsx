@@ -2,7 +2,7 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
 
-import { IconGridMasonry, IconList, IconPlayFilled, IconRewindPlay } from '@posthog/icons'
+import { IconGridMasonry, IconList, IconPlayFilled } from '@posthog/icons'
 import { LemonSegmentedButton, LemonSkeleton, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
@@ -56,14 +56,11 @@ function WatchLink({ observation, compact }: { observation: ReplayObservationApi
         <Link
             to={watchMomentUrl(observation, citedMs, routerValues)}
             className={clsx(
-                'relative block aspect-video bg-surface-tertiary text-primary hover:bg-fill-highlight-100',
+                'relative block aspect-video bg-gradient-to-br from-surface-tertiary to-surface-secondary text-primary hover:from-fill-highlight-100 hover:to-fill-highlight-100',
                 compact && 'w-28 rounded overflow-hidden'
             )}
             data-attr="vision-search-result-watch"
         >
-            <span className="absolute inset-0 flex items-center justify-center text-tertiary opacity-40">
-                <IconRewindPlay className={compact ? 'text-2xl' : 'text-5xl'} />
-            </span>
             <span className="absolute inset-0 flex items-center justify-center">
                 <span
                     className={clsx(
