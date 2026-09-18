@@ -67,7 +67,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeEmbedAttributes
                         onLoad={() => {
                             setLoaded(true)
                         }}
-                        sandbox="allow-scripts allow-same-origin allow-popups allow-forms"
+                        sandbox="allow-scripts allow-popups allow-forms"
                     />
                     {!loaded ? <SpinnerOverlay /> : null}
                 </>

@@ -151,6 +151,11 @@ The generated-code trust flow works as follows:
 
 Exact-build execution choices are stored in the browser, partitioned by PostHog user ID. Generated widgets are not rendered in publicly shared notebooks. This client-side consent state is a user-experience boundary; server authorization remains the data boundary.
 
+Ordinary `<Embed>` blocks accept absolute HTTP or HTTPS URLs.
+Public sharing removes invalid embed sources before serving notebook markdown.
+Embed frames run without same-origin access, including when an external URL redirects to the application origin.
+Embedded pages that require cookies or browser storage may need to be opened directly.
+
 After consent, the bridge exposes only the version’s declared dataframes through permission-checked endpoints. The Canvas CSP keeps `connect-src 'none'`, but iframe self-navigation can still transmit data. A clean automated review cannot prove arbitrary JavaScript safe, so dataframe access requires consent even when no findings were reported.
 
 There is intentionally no “trust widgets by this author” option. An author is not the sole authority over a collaborative notebook node: another editor can change its instructions, regenerate it, restore a version, or otherwise replace the artifact after the original author created it. Binding trust to an immutable build is stable; binding it to a mutable ownership label is not.
