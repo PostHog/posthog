@@ -155,9 +155,9 @@ class AIObservabilityOfflineEvaluationsViewSet(TeamAndOrgViewSetMixin, viewsets.
         date_to: str | None = serializer.validated_data.get("date_to") or None
 
         # Parse-time, not execute-time: `properties.$ai_* + GROUP BY +
-        # {placeholder}` trips `HogVMException: Global variable not found:
-        # properties` in bytecode. parse_select-time substitution embeds
-        # Constants into the AST and bypasses the bytecode path.
+        # {placeholder}` makes the VM read `properties` as a global it was never
+        # given. parse_select-time substitution embeds Constants into the AST and
+        # bypasses the bytecode path.
         preflight_placeholders: dict[str, ast.Expr] = {
             "experiment_id": ast.Constant(value=experiment_id),
             # `parseDateTimeBestEffort` rejects "", so the `_is_null` flags
