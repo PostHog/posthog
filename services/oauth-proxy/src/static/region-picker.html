@@ -275,45 +275,6 @@
             color: var(--text-primary);
         }
 
-        #redirect-banner {
-            margin-top: 24px;
-            padding: 16px;
-            font-size: 14px;
-            line-height: 20px;
-            text-align: left;
-            background: var(--control-bg);
-            border: 1px solid var(--card-border);
-            border-radius: var(--radius);
-        }
-
-        #redirect-region-name {
-            font-weight: 700;
-        }
-
-        #progress-bar {
-            width: 100%;
-            height: 4px;
-            margin-top: 12px;
-            overflow: hidden;
-            background: var(--card-border);
-            border-radius: 2px;
-        }
-
-        #progress-fill {
-            width: 0%;
-            height: 100%;
-            background: var(--accent);
-            border-radius: 2px;
-            transition: width 100ms linear;
-        }
-
-        #redirect-actions {
-            display: flex;
-            flex-direction: column;
-            gap: 8px;
-            margin-top: 16px;
-        }
-
         footer {
             margin-top: 20px;
             font-size: 14px;
@@ -339,7 +300,6 @@
         @media (prefers-reduced-motion: reduce) {
 
             .btn,
-            #progress-fill,
             #caret {
                 transition: none;
                 animation: none;
@@ -493,18 +453,6 @@
                 <a href="https://eu.posthog.com" rel="noopener noreferrer" target="_blank">eu.posthog.com</a>
             </p>
 
-            <div aria-live="polite" hidden id="redirect-banner">
-                <span>You're logged in to <span id="redirect-region-name"></span>. Redirecting
-                    in <span id="redirect-countdown">7</span>s...</span>
-                <div aria-label="Redirect countdown" aria-valuemax="100" aria-valuemin="0" aria-valuenow="0"
-                    id="progress-bar" role="progressbar">
-                    <div id="progress-fill"></div>
-                </div>
-                <div id="redirect-actions">
-                    <a class="btn btn--primary" id="redirect-go-now"></a>
-                    <button class="btn btn--small" id="redirect-cancel" type="button">Cancel redirect</button>
-                </div>
-            </div>
         </article>
 
         <footer>
@@ -546,74 +494,22 @@
             }, 42);
         })();
 
+        // Mark the region this browser last used. The worker already redirected anyone with a
+        // single live session (see soleLiveRegion in handlers/authorize.ts), so reaching this page
+        // means the answer is genuinely ambiguous and the choice is the visitor's to make.
         (function () {
-            var REDIRECT_SECONDS = 7;
-
-            function readCookie(name) {
-                var row = document.cookie.split('; ').find(function (c) { return c.startsWith(name + '='); });
-                return row ? decodeURIComponent(row.substring(row.indexOf('=') + 1)).replace(/"/g, '') : null;
-            }
-
-            // Two cookies means two live accounts, and neither is the obvious one to pick. Zero
-            // means we have nothing to go on. Both cases hand the choice back to the visitor.
-            var liveRegions = ['us', 'eu'].filter(function (r) { return readCookie('ph_authenticated_' + r); });
-
-            // One slot shared by both regions, so this only ever names the most recent one.
-            // Enough to label a button, not to redirect on.
-            var lastUsedRegion = null;
+            var cookie = document.cookie.split('; ').find(function (c) { return c.startsWith('ph_current_instance='); });
+            if (!cookie) return;
+            var value = decodeURIComponent(cookie.substring(cookie.indexOf('=') + 1)).replace(/"/g, '');
             try {
-                var hostname = new URL(readCookie('ph_current_instance')).hostname;
-                if (hostname === 'us.posthog.com') lastUsedRegion = 'us';
-                else if (hostname === 'eu.posthog.com') lastUsedRegion = 'eu';
-            } catch (e) { /* no cookie, or not a region we know */ }
-
-            if (liveRegions.length !== 1) {
-                if (lastUsedRegion) {
-                    document.querySelector('#btn-' + lastUsedRegion + ' .last-used').hidden = false;
+                var hostname = new URL(value).hostname;
+                var region = hostname === 'us.posthog.com' ? 'us' : hostname === 'eu.posthog.com' ? 'eu' : null;
+                if (region) {
+                    document.querySelector('#btn-' + region + ' .last-used').hidden = false;
                 }
-                return;
-            }
-
-            var region = liveRegions[0];
-            var regionLabel = region === 'us' ? 'US Cloud' : 'EU Cloud';
-            var redirectUrl = buildUrl(region);
-
-            document.querySelector('#btn-' + region + ' .last-used').hidden = false;
-            document.getElementById('hint-default').hidden = true;
-            document.getElementById('redirect-banner').hidden = false;
-            document.getElementById('redirect-region-name').textContent = regionLabel;
-            document.getElementById('redirect-go-now').textContent = 'Go to ' + regionLabel + ' now';
-            document.getElementById('redirect-go-now').href = redirectUrl;
-
-            var startTime = Date.now();
-            var fill = document.getElementById('progress-fill');
-            var progressBar = document.getElementById('progress-bar');
-            var countdown = document.getElementById('redirect-countdown');
-            var timer = null;
-
-            function tick() {
-                var elapsed = Date.now() - startTime;
-                var progress = Math.min(elapsed / (REDIRECT_SECONDS * 1000), 1);
-                var percent = Math.round(progress * 100);
-                if (!prefersReducedMotion) {
-                    fill.style.width = percent + '%';
-                    progressBar.setAttribute('aria-valuenow', String(percent));
-                }
-                countdown.textContent = Math.max(0, Math.ceil(REDIRECT_SECONDS - elapsed / 1000));
-                if (progress >= 0.99) { // allow for rounding errors
-                    window.location.href = redirectUrl;
-                    return;
-                }
-                timer = requestAnimationFrame(tick);
-            }
-            timer = requestAnimationFrame(tick);
-
-            document.getElementById('redirect-cancel').addEventListener('click', function () {
-                cancelAnimationFrame(timer);
-                document.getElementById('redirect-banner').hidden = true;
-                document.getElementById('hint-default').hidden = false;
-            });
+            } catch (e) { /* not a region we know */ }
         })();
+
     </script>
 </body>
 

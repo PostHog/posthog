@@ -54,8 +54,27 @@ export async function handleAuthorize(request: Request, kv: KVNamespace): Promis
         return redirectToRegionalAuthorize(url, selectedRegion, kv)
     }
 
+    const liveRegion = soleLiveRegion(request.headers.get('Cookie'))
+    if (liveRegion) {
+        return redirectToRegionalAuthorize(url, liveRegion, kv)
+    }
+
     // Show the region picker page (JS reads query params from window.location.search)
     return new Response(REGION_PICKER_HTML, { headers: REGION_PICKER_HEADERS })
+}
+
+/**
+ * Reads `SameSite=Lax` cookies, which is the only kind that survives the cross-site top-level
+ * navigation an OAuth client sends the visitor here with. `ph_current_instance` and the other
+ * `Strict` cookies are withheld on that hop and never reach this code.
+ */
+function soleLiveRegion(cookieHeader: string | null): Region | null {
+    if (!cookieHeader) {
+        return null
+    }
+    const names = new Set(cookieHeader.split(';').map((c) => c.trim().split('=')[0]))
+    const live = (['us', 'eu'] as const).filter((region) => names.has(`ph_authenticated_${region}`))
+    return live.length === 1 ? live[0] : null
 }
 
 async function redirectToRegionalAuthorize(url: URL, region: Region, kv: KVNamespace): Promise<Response> {

@@ -696,7 +696,7 @@ class TestPostHogTokenCookieMiddleware(APIBaseTest):
         ph_authenticated_cookie = response.cookies["ph_authenticated_us"]
         self.assertEqual(ph_authenticated_cookie.value, "1")
         self.assertEqual(ph_authenticated_cookie["path"], "/")
-        self.assertEqual(ph_authenticated_cookie["samesite"], "Strict")
+        self.assertEqual(ph_authenticated_cookie["samesite"], "Lax")
         self.assertEqual(ph_authenticated_cookie["domain"], "posthog.com")
         self.assertEqual(ph_authenticated_cookie["secure"], True)
         self.assertNotIn("ph_authenticated_eu", response.cookies)
