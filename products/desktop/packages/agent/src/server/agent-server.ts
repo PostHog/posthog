@@ -238,6 +238,21 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function budgetSnapshotFromUsageUpdate(
+  message: unknown,
+): Record<string, unknown> | undefined {
+  if (typeof message !== "object" || message === null) return undefined;
+  const { method, params } = message as {
+    method?: unknown;
+    params?: { budget?: unknown };
+  };
+  if (method !== POSTHOG_NOTIFICATIONS.USAGE_UPDATE) return undefined;
+  const budget = params?.budget;
+  return typeof budget === "object" && budget !== null
+    ? (budget as Record<string, unknown>)
+    : undefined;
+}
+
 export function isTurnCompleteNotification(message: unknown): boolean {
   return (
     typeof message === "object" &&
@@ -2206,6 +2221,12 @@ export class AgentServer {
       jsonSchema: preTask?.json_schema ?? null,
       permissionMode: initialPermissionMode,
       ...(channelMode && { channelMode: true }),
+      budgetSteer: {
+        mode:
+          !channelMode && this.shouldAutoPublishCloudChanges()
+            ? "publish"
+            : "wrap_up",
+      },
       posthogExecPermissionRegex: this.posthogExecPermissionRegexSource,
       ...(preTask?.origin_product && {
         taskOriginProduct: preTask.origin_product,
@@ -5963,10 +5984,17 @@ ${commonInstructions}
       payload.task_id,
       payload.run_id,
       this.logger,
+      this.lastBudgetSnapshot && { budget_guard: this.lastBudgetSnapshot },
     );
   }
 
+  private lastBudgetSnapshot: Record<string, unknown> | undefined;
+
   private handleAcpTransportMessage(message: unknown, eventId?: string): void {
+    const budget = budgetSnapshotFromUsageUpdate(message);
+    if (budget) {
+      this.lastBudgetSnapshot = budget;
+    }
     if (isTurnCompleteNotification(message)) {
       if (this.suppressAdapterTurnComplete) {
         return;

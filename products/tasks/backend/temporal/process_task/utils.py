@@ -1351,6 +1351,7 @@ def run_gateway_env_vars(ctx, task) -> dict[str, str]:
     if not _record_pinned_gateway_product(ctx.run_id, ctx.state, env_vars.get("AI_GATEWAY_PRODUCT")):
         # The model-change guard reads that stamp; unstamped, a run can move off its pin with no fallback.
         env_vars.pop("AI_GATEWAY_TOKEN", None)
+        env_vars.pop("AI_GATEWAY_TOKEN_CAP_USD", None)
     return env_vars
 
 

@@ -24,7 +24,7 @@ function opusCall(id: string, cacheReadTokens: number) {
   };
 }
 
-function agentSpawn(toolName = "Agent"): HookInput {
+function spawn(toolName: string): HookInput {
   return {
     session_id: "s",
     transcript_path: "/tmp/t",
@@ -35,6 +35,8 @@ function agentSpawn(toolName = "Agent"): HookInput {
     tool_use_id: "toolu_1",
   } as HookInput;
 }
+
+const hookOptions = () => ({ signal: new AbortController().signal });
 
 describe("RunBudgetGuard", () => {
   test("prices an opus call the way the gateway bills it", () => {
@@ -57,6 +59,36 @@ describe("RunBudgetGuard", () => {
     expect(unknown).toBe(known);
   });
 
+  test("charges one-hour cache writes at twice the input price and fast mode at six times", () => {
+    const flat = estimateMessageCostUsd(
+      {
+        model: "claude-opus-5",
+        usage: { cache_creation_input_tokens: 1_000_000 },
+      },
+      DEFAULT_MODEL_PRICES,
+    );
+    const oneHour = estimateMessageCostUsd(
+      {
+        model: "claude-opus-5",
+        usage: {
+          cache_creation_input_tokens: 1_000_000,
+          cache_creation: { ephemeral_1h_input_tokens: 1_000_000 },
+        },
+      },
+      DEFAULT_MODEL_PRICES,
+    );
+    const fast = estimateMessageCostUsd(
+      {
+        model: "claude-opus-5",
+        usage: { output_tokens: 1_000_000, speed: "fast" },
+      },
+      DEFAULT_MODEL_PRICES,
+    );
+    expect(flat).toBeCloseTo(6.25, 6);
+    expect(oneHour).toBeCloseTo(10, 6);
+    expect(fast).toBeCloseTo(150, 6);
+  });
+
   test("is disabled when the sandbox carries no cap", () => {
     expect(RunBudgetGuard.fromEnv({}, logger)).toBeNull();
     expect(
@@ -67,19 +99,31 @@ describe("RunBudgetGuard", () => {
     ).toBeNull();
   });
 
-  test("honours a price table override from the environment", () => {
-    const guard = RunBudgetGuard.fromEnv(
-      {
-        [BUDGET_CAP_ENV]: "1",
-        [BUDGET_PRICES_ENV]: JSON.stringify({
-          opus: { input: 0, output: 0, cacheRead: 10, cacheWrite: 0 },
-        }),
-      },
-      logger,
-    );
-    guard?.recordAssistantMessage(opusCall("m1", 50_000));
-    expect(guard?.spentUsd).toBeCloseTo(0.5, 6);
-  });
+  test.each([
+    [
+      '{"opus": {"input": 0, "output": 0, "cacheRead": 10, "cacheWrite": 0}}',
+      0.5,
+    ],
+    [
+      '{"opus": {"input": 0, "output": 0, "cacheRead": -10, "cacheWrite": 0}}',
+      0.03626,
+    ],
+    [
+      '{"opus": {"input": 0, "output": 0, "cacheRead": 1e400, "cacheWrite": 0}}',
+      0.03626,
+    ],
+    ["not json", 0.03626],
+  ])(
+    "price override %s yields spend %s for a 50k cache read",
+    (raw, expected) => {
+      const guard = RunBudgetGuard.fromEnv(
+        { [BUDGET_CAP_ENV]: "1", [BUDGET_PRICES_ENV]: raw },
+        logger,
+      );
+      guard?.recordAssistantMessage(opusCall("m1", 50_000));
+      expect(guard?.spentUsd).toBeCloseTo(expected, 4);
+    },
+  );
 
   test("fires warn once and critical once, in order, and dedupes repeated message ids", () => {
     const guard = new RunBudgetGuard(1, DEFAULT_MODEL_PRICES, logger);
@@ -101,7 +145,21 @@ describe("RunBudgetGuard", () => {
     expect(events).toEqual(["warn", "critical"]);
   });
 
-  test("snaps the estimate to the SDK's cumulative cost when a turn settles", () => {
+  test("keeps a threshold pending until a steer is delivered, and critical supersedes warn", () => {
+    const guard = new RunBudgetGuard(1, DEFAULT_MODEL_PRICES, logger);
+    guard.recordAssistantMessage(opusCall("m1", 1_500_000));
+    expect(guard.takePendingSteer()).toBe("warn");
+    expect(guard.takePendingSteer()).toBeNull();
+    guard.markUndelivered("warn");
+    guard.recordAssistantMessage(opusCall("m2", 500_000));
+    expect(guard.takePendingSteer()).toBe("critical");
+    guard.markUndelivered("warn");
+    guard.markUndelivered("critical");
+    guard.markUndelivered("warn");
+    expect(guard.takePendingSteer()).toBe("critical");
+  });
+
+  test("never lets the SDK total erase spend the estimate already counted", () => {
     const guard = new RunBudgetGuard(10, DEFAULT_MODEL_PRICES, logger);
     guard.recordAssistantMessage(opusCall("m1", 1_000_000));
     expect(guard.spentUsd).toBeCloseTo(0.51126, 4);
@@ -110,36 +168,87 @@ describe("RunBudgetGuard", () => {
     guard.recordAssistantMessage(opusCall("m2", 1_000_000));
     expect(guard.spentUsd).toBeCloseTo(2.51126, 4);
     guard.calibrate(1.0);
-    expect(guard.spentUsd).toBeCloseTo(2.51126, 4);
+    expect(guard.spentUsd).toBeCloseTo(3.0, 4);
     expect(guard.calibrate(8.6)).toMatchObject({ stage: "critical" });
     expect(guard.recordAssistantMessage(opusCall("m3", 1_000))).toBeNull();
     expect(guard.currentStage).toBe("critical");
   });
 
-  test("denies subagent spawns only once the budget is critical", async () => {
-    const guard = new RunBudgetGuard(1, DEFAULT_MODEL_PRICES, logger);
-    const hook = guard.preToolUseHook();
+  test("carries spend across a query reset instead of restarting from the new query's total", () => {
+    const guard = new RunBudgetGuard(10, DEFAULT_MODEL_PRICES, logger);
+    guard.calibrate(4.0);
+    guard.onQueryReset();
+    guard.calibrate(0.5);
+    expect(guard.spentUsd).toBeCloseTo(4.5, 6);
+    guard.calibrate(0.9);
+    expect(guard.spentUsd).toBeCloseTo(4.9, 6);
+    guard.calibrate(0.2);
+    expect(guard.spentUsd).toBeCloseTo(5.1, 6);
+    expect(guard.snapshot().sdk_total_usd).toBeCloseTo(5.1, 6);
+  });
+
+  test.each(["Agent", "Task", "Workflow"])(
+    "denies a %s spawn only once the budget is critical",
+    async (toolName) => {
+      const guard = new RunBudgetGuard(1, DEFAULT_MODEL_PRICES, logger);
+      const hook = guard.preToolUseHook();
+      guard.recordAssistantMessage(opusCall("m1", 1_500_000));
+      expect(guard.currentStage).toBe("warn");
+      expect(await hook(spawn(toolName), undefined, hookOptions())).toEqual({
+        continue: true,
+      });
+      guard.recordAssistantMessage(opusCall("m2", 500_000));
+      expect(guard.currentStage).toBe("critical");
+      expect(
+        await hook(spawn(toolName), undefined, hookOptions()),
+      ).toMatchObject({
+        hookSpecificOutput: { permissionDecision: "deny" },
+      });
+      expect(await hook(spawn("Bash"), undefined, hookOptions())).toEqual({
+        continue: true,
+      });
+    },
+  );
+
+  test("only a publish-mode guard tells the agent to commit and open a pull request", () => {
+    const publish = new RunBudgetGuard(
+      1,
+      DEFAULT_MODEL_PRICES,
+      logger,
+      "publish",
+    );
+    const wrapUp = new RunBudgetGuard(
+      1,
+      DEFAULT_MODEL_PRICES,
+      logger,
+      "wrap_up",
+    );
+    for (const stage of ["warn", "critical"] as const) {
+      expect(publish.steerText(stage)).toContain("git_signed_commit");
+      expect(publish.steerText(stage)).not.toMatch(/, push,/);
+      expect(wrapUp.steerText(stage)).not.toContain("git_signed_commit");
+      expect(wrapUp.steerText(stage)).not.toContain("pull request");
+    }
+  });
+
+  test("snapshots the steers it recorded", () => {
+    const guard = new RunBudgetGuard(
+      1,
+      DEFAULT_MODEL_PRICES,
+      logger,
+      "publish",
+    );
     guard.recordAssistantMessage(opusCall("m1", 1_500_000));
-    expect(guard.currentStage).toBe("warn");
-    expect(
-      await hook(agentSpawn(), undefined, {
-        signal: new AbortController().signal,
-      }),
-    ).toEqual({
-      continue: true,
+    guard.recordSteer("warn", false);
+    guard.recordSteer("warn", true);
+    expect(guard.snapshot()).toMatchObject({
+      cap_usd: 1,
+      stage: "warn",
+      mode: "publish",
+      steers: [
+        { stage: "warn", delivered: false },
+        { stage: "warn", delivered: true },
+      ],
     });
-    guard.recordAssistantMessage(opusCall("m2", 500_000));
-    expect(guard.currentStage).toBe("critical");
-    const denied = await hook(agentSpawn(), undefined, {
-      signal: new AbortController().signal,
-    });
-    expect(denied).toMatchObject({
-      hookSpecificOutput: { permissionDecision: "deny" },
-    });
-    expect(
-      await hook(agentSpawn("Bash"), undefined, {
-        signal: new AbortController().signal,
-      }),
-    ).toEqual({ continue: true });
   });
 });

@@ -260,6 +260,7 @@ export type NewSessionMeta = {
    * runtime whether it needs a repo and clones one only if so.
    */
   channelMode?: boolean;
+  budgetSteer?: { mode?: "publish" | "wrap_up" };
   taskOriginProduct?: string;
   /** Workflow-action opt-in: exposes the `finish` tool to a workflow-origin run. */
   endRunWhenDone?: boolean;

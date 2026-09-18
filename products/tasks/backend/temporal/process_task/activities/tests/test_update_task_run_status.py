@@ -247,6 +247,13 @@ class TestUpdateTaskRunStatusActivity:
             "benjamin_version": "2026.08.1",
             "model": "gpt-5.6-sol",
             "runtime_adapter": "codex",
+            "budget_guard": {
+                "cap_usd": 20,
+                "spent_usd": 14.5,
+                "stage": "warn",
+                "mode": "publish",
+                "steers": [{"stage": "warn", "spent_usd": 14.1, "delivered": True}],
+            },
         }
         test_task_run.save(update_fields=["state"])
 
@@ -268,6 +275,11 @@ class TestUpdateTaskRunStatusActivity:
         assert props["benjamin_version"] == "2026.08.1"
         assert props["run_environment"] == test_task_run.environment
         assert props["termination_reason"] is None
+        assert props["budget_cap_usd"] == 20
+        assert props["budget_spent_usd"] == 14.5
+        assert props["budget_stage"] == "warn"
+        assert props["budget_steers"] == 1
+        assert props["budget_steers_delivered"] == 1
         mock_record.assert_called_once()
         assert mock_record.call_args.kwargs["rtk_enabled"] is True
         assert mock_record.call_args.kwargs["benjamin_enabled"] is True

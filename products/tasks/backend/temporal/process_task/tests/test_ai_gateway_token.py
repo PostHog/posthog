@@ -539,7 +539,12 @@ class TestProvisioningBoundaries:
             assert utils.run_gateway_env_vars(self._ctx(), self._task()) == {}
 
     def test_a_pinned_token_the_stamp_could_not_record_is_dropped(self, mint_settings):
-        env = {"AI_GATEWAY_URL": "url", "AI_GATEWAY_TOKEN": "phe", "AI_GATEWAY_PRODUCT": "slack_app"}
+        env = {
+            "AI_GATEWAY_URL": "url",
+            "AI_GATEWAY_TOKEN": "phe",
+            "AI_GATEWAY_TOKEN_CAP_USD": "75",
+            "AI_GATEWAY_PRODUCT": "slack_app",
+        }
         with (
             patch.object(utils, "ai_gateway_env_vars", return_value=env),
             patch(
@@ -549,6 +554,7 @@ class TestProvisioningBoundaries:
         ):
             out = utils.run_gateway_env_vars(self._ctx(), self._task())
         assert "AI_GATEWAY_TOKEN" not in out
+        assert "AI_GATEWAY_TOKEN_CAP_USD" not in out
         assert out["AI_GATEWAY_URL"] == "url"
 
     def test_an_unpinned_token_survives_a_failed_stamp_removal(self, mint_settings):

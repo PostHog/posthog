@@ -322,6 +322,55 @@ class TestTaskRunEventIngest(TestCase):
         )
 
     @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
+    def test_budget_steer_capture_uses_authenticated_ids_and_rejects_malformed_params(self) -> None:
+        token = self._create_token()
+
+        def event(seq: int, params: dict) -> dict:
+            return {
+                "seq": seq,
+                "event": {
+                    "type": "notification",
+                    "notification": {"method": "_posthog/budget_steer", "params": params},
+                },
+            }
+
+        good = event(
+            1,
+            {
+                "sessionId": "spoofed-run",
+                "stage": "warn",
+                "mode": "publish",
+                "delivered": True,
+                "spent_usd": 14.1,
+                "cap_usd": 20,
+            },
+        )
+        bad_stage = event(2, {"stage": "later", "mode": "publish", "delivered": True, "spent_usd": 1, "cap_usd": 2})
+        bad_amount = event(3, {"stage": "warn", "mode": "publish", "delivered": True, "spent_usd": -1, "cap_usd": 2})
+
+        with patch("products.tasks.backend.logic.stream.event_ingest._capture_budget_steer") as capture_budget_steer:
+            first_status, _ = self._call_ingest(token, [good, bad_stage, bad_amount])
+            duplicate_status, duplicate_body = self._call_ingest(token, [good])
+
+        self.assertEqual(first_status, 200)
+        self.assertEqual(duplicate_status, 200)
+        self.assertEqual(duplicate_body["duplicate"], 1)
+        capture_budget_steer.assert_called_once_with(
+            self.team.id,
+            str(uuid5(NAMESPACE_URL, f"posthog-task-budget-steer:{self.task_run.id}:1")),
+            {
+                "team_id": self.team.id,
+                "task_id": str(self.task.id),
+                "run_id": str(self.task_run.id),
+                "stage": "warn",
+                "mode": "publish",
+                "delivered": True,
+                "spent_usd": 14.1,
+                "cap_usd": 20.0,
+            },
+        )
+
+    @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
     def test_rtk_savings_capture_failure_can_be_retried(self) -> None:
         token = self._create_token()
         event = {

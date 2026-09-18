@@ -121,6 +121,8 @@ import {
 import { canUseTool } from "./permissions/permission-handlers";
 import {
   type AssistantUsageLike,
+  type BudgetSteerMode,
+  type BudgetSteerStage,
   type BudgetThresholdEvent,
   RunBudgetGuard,
 } from "./session/budget-guard";
@@ -602,27 +604,38 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
     return this.listSessions(params);
   }
 
-  private async deliverBudgetSteer(
+  private budgetSteerTail: Promise<void> = Promise.resolve();
+
+  private deliverBudgetSteer(
+    sessionId: string,
+    event: BudgetThresholdEvent,
+  ): Promise<void> {
+    const run = this.budgetSteerTail.then(() =>
+      this.sendBudgetSteer(sessionId, event),
+    );
+    this.budgetSteerTail = run.catch(() => undefined);
+    return run;
+  }
+
+  private async sendBudgetSteer(
     sessionId: string,
     event: BudgetThresholdEvent,
   ): Promise<void> {
     const guard = this.session?.budgetGuard;
     if (!guard) return;
-    const summary = `[BudgetGuard] ${event.stage}: $${event.spentUsd.toFixed(2)} of $${event.capUsd.toFixed(2)} spent, steering the turn`;
+    const stage = guard.takePendingSteer();
+    if (!stage) return;
+    const summary = `[BudgetGuard] ${stage}: $${event.spentUsd.toFixed(2)} of $${event.capUsd.toFixed(2)} spent, steering the turn`;
     this.logger.warn(summary);
-    await this.client.extNotification(POSTHOG_NOTIFICATIONS.CONSOLE, {
-      sessionId,
-      level: "warn",
-      message: summary,
-    });
+    let delivered = false;
     try {
       const result = await this.prompt({
         sessionId,
         prompt: [
           {
             type: "text",
-            text: guard.steerText(event.stage),
-            _meta: { ui: { hidden: true }, budgetGuard: event.stage },
+            text: guard.steerText(stage),
+            _meta: { ui: { hidden: true }, budgetGuard: stage },
           },
         ],
         _meta: { steer: true },
@@ -630,14 +643,47 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       const meta = result._meta as
         | { steer?: boolean; steerDeclineCause?: string }
         | undefined;
-      if (meta?.steer !== true) {
+      delivered = meta?.steer === true;
+      if (!delivered) {
         this.logger.warn("[BudgetGuard] Steer not delivered", {
-          stage: event.stage,
+          stage,
           cause: meta?.steerDeclineCause,
         });
       }
     } catch (error) {
       this.logger.warn("[BudgetGuard] Steer failed", { error });
+    }
+    if (!delivered) {
+      guard.markUndelivered(stage);
+    }
+    await this.reportBudgetSteer(sessionId, stage, delivered, summary);
+  }
+
+  private async reportBudgetSteer(
+    sessionId: string,
+    stage: BudgetSteerStage,
+    delivered: boolean,
+    summary: string,
+  ): Promise<void> {
+    const guard = this.session?.budgetGuard;
+    if (!guard) return;
+    const record = guard.recordSteer(stage, delivered);
+    try {
+      await this.client.extNotification(POSTHOG_NOTIFICATIONS.CONSOLE, {
+        sessionId,
+        level: "warn",
+        message: `${summary} (delivered=${delivered})`,
+      });
+      await this.client.extNotification(POSTHOG_NOTIFICATIONS.BUDGET_STEER, {
+        sessionId,
+        stage,
+        delivered,
+        spent_usd: record.spent_usd,
+        cap_usd: guard.capUsd,
+        mode: guard.mode,
+      });
+    } catch (error) {
+      this.logger.warn("[BudgetGuard] Failed to report the steer", { error });
     }
   }
 
@@ -652,6 +698,29 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       return this.clearConversation(params);
     }
 
+    const pendingBudgetSteer =
+      !isSteerMeta(params._meta) && !command
+        ? this.session.budgetGuard?.takePendingSteer()
+        : null;
+    if (pendingBudgetSteer && this.session.budgetGuard) {
+      params = {
+        ...params,
+        prompt: [
+          ...params.prompt,
+          {
+            type: "text",
+            text: this.session.budgetGuard.steerText(pendingBudgetSteer),
+            _meta: { ui: { hidden: true }, budgetGuard: pendingBudgetSteer },
+          },
+        ],
+      };
+      void this.reportBudgetSteer(
+        params.sessionId,
+        pendingBudgetSteer,
+        true,
+        `[BudgetGuard] ${pendingBudgetSteer}: steer attached to the next turn`,
+      );
+    }
     const userMessage = promptToClaude(params);
     const promptUuid = randomUUID();
     userMessage.uuid = promptUuid;
@@ -1411,6 +1480,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
                   cachedWriteTokens: message.usage.cache_creation_input_tokens,
                 },
                 cost: message.total_cost_usd,
+                budget: session.budgetGuard?.snapshot(),
                 breakdown: buildBreakdown(
                   session.contextBreakdownBaseline ?? emptyBaseline(),
                   breakdownInputTokens,
@@ -2056,6 +2126,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       newQuery = query({ prompt: newInput, options: newOptions });
 
       session.query = newQuery;
+      session.budgetGuard?.onQueryReset();
       session.input = newInput;
       session.queryOptions = newOptions;
       session.abortController = newAbortController;
@@ -2287,7 +2358,11 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       });
 
       const answer = await withTimeout(
-        collectSideQuestionAnswer(oneShot),
+        collectSideQuestionAnswer(oneShot, (message) => {
+          this.session?.budgetGuard?.recordAssistantMessage(
+            message.message as AssistantUsageLike,
+          );
+        }),
         SIDE_QUESTION_TIMEOUT_MS,
       );
 
@@ -2399,6 +2474,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       newQuery = query({ prompt: newInput, options: newOptions });
 
       prev.query = newQuery;
+      prev.budgetGuard?.onQueryReset();
       prev.input = newInput;
       prev.queryOptions = newOptions;
       prev.abortController = newAbortController;
@@ -2768,11 +2844,16 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
     // Gate signed-commit wiring on cloud-run detection so the desktop (which
     // signs via CommitSaga) is untouched.
     const cloudRun = isCloudRun(meta);
+    const budgetSteerMode: BudgetSteerMode =
+      meta?.budgetSteer?.mode === "publish" ? "publish" : "wrap_up";
     const budgetGuard = cloudRun
-      ? RunBudgetGuard.fromEnv(process.env, this.logger)
+      ? RunBudgetGuard.fromEnv(process.env, this.logger, budgetSteerMode)
       : null;
     if (budgetGuard) {
-      this.logger.info("[BudgetGuard] Armed", { capUsd: budgetGuard.capUsd });
+      this.logger.info("[BudgetGuard] Armed", {
+        capUsd: budgetGuard.capUsd,
+        mode: budgetGuard.mode,
+      });
     }
     const effort = meta?.claudeCode?.options?.effort as EffortLevel | undefined;
 
