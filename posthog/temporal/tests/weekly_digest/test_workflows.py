@@ -1,18 +1,29 @@
 import uuid
+import asyncio
+from collections import Counter
 from datetime import UTC, datetime, timedelta
 from typing import TypedDict
 
 import pytest
+from unittest import mock
 
 import temporalio.worker
+from parameterized import parameterized
 from temporalio import activity, workflow
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import Worker
 
+from posthog.temporal.weekly_digest.activities import (
+    count_organizations,
+    generate_organization_digest_batch,
+    list_team_id_ranges,
+)
 from posthog.temporal.weekly_digest.types import (
     CommonInput,
     Digest,
+    GenerateDigestDataBatchInput,
     GenerateDigestDataInput,
+    GenerateOrganizationDigestInput,
     SendWeeklyDigestBatchInput,
     SendWeeklyDigestInput,
     TeamIdRange,
@@ -98,6 +109,64 @@ async def test_weekly_digest_workflow_skip_generate():
 
     assert not _test_state["generate_called"], "Generate workflow should not have been called"
     assert _test_state["send_called"], "Send workflow should have been called"
+
+
+@parameterized.expand([(True,), (False,)])
+@pytest.mark.asyncio
+async def test_generate_digest_data_bounds_pending_activities(patched: bool) -> None:
+    team_ranges = [TeamIdRange(start=i, end=i + 1) for i in range(200)]
+    pending = 0
+    peak_pending = 0
+    completed: list[tuple[object, int, int]] = []
+    aggregated: list[tuple[int, int]] = []
+
+    async def execute_activity(activity_fn: object, activity_input: object = None, **_: object) -> object:
+        nonlocal pending, peak_pending
+        if activity_fn is list_team_id_ranges:
+            return team_ranges
+        if activity_fn is count_organizations:
+            assert pending == 0
+            assert len(completed) == 13 * len(team_ranges)
+            return 3
+        if activity_fn is generate_organization_digest_batch:
+            assert isinstance(activity_input, GenerateOrganizationDigestInput)
+            aggregated.append(activity_input.batch)
+            return None
+
+        assert isinstance(activity_input, GenerateDigestDataBatchInput)
+        pending += 1
+        peak_pending = max(peak_pending, pending)
+        loop = asyncio.get_running_loop()
+        completion: asyncio.Future[None] = loop.create_future()
+        loop.call_soon(completion.set_result, None)
+        try:
+            await completion
+            completed.append((activity_fn, activity_input.team_id_range.start, activity_input.team_id_range.end))
+        finally:
+            pending -= 1
+        return None
+
+    period_end = datetime.now(UTC)
+    with (
+        mock.patch("temporalio.workflow.execute_activity", side_effect=execute_activity),
+        mock.patch("temporalio.workflow.patched", return_value=patched),
+    ):
+        await GenerateDigestDataWorkflow().run(
+            GenerateDigestDataInput(
+                digest=Digest(key="test-digest", period_start=period_end - timedelta(days=7), period_end=period_end),
+                common=CommonInput(batch_size=2),
+            )
+        )
+
+    assert len(completed) == len(set(completed)) == 13 * len(team_ranges)
+    assert Counter((start, end) for _, start, end in completed) == {
+        (team_range.start, team_range.end): 13 for team_range in team_ranges
+    }
+    assert aggregated == [(0, 2), (2, 4)]
+    if patched:
+        assert peak_pending < 2000
+    else:
+        assert peak_pending == 13 * len(team_ranges)
 
 
 @pytest.mark.asyncio
