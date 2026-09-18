@@ -12,6 +12,8 @@ from parameterized import parameterized
 
 from posthog.exceptions_capture import ambient_exception_properties
 
+from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
+from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.errors import (
     TransientObjectStoreError,
 )
@@ -830,6 +832,79 @@ class TestTransientObjectStoreFailure:
                 RepartitionActivityInputs(team_id=TEAM_ID, schema_id=SCHEMA_ID, job_id=JOB_ID, source_id=SOURCE_ID),
                 MagicMock(),
             )
+
+
+class TestEarlyFetchTransientInfraError:
+    """A DB error fetching the schema or job, before any claim is staked or attempt charged, must
+    stand down like the rewrite's own transient-infra handling instead of escaping to error
+    tracking. `retry_on_db_connection_drop`'s built-in retry only clears a stale pooled
+    connection; it does nothing for e.g. the worker running out of file descriptors, so the same
+    error resurfaces on the retry and previously propagated all the way to error tracking."""
+
+    @patch(f"{MODULE}.capture_exception")
+    @patch(f"{MODULE}.ExternalDataJob")
+    @patch(f"{MODULE}.ExternalDataSchema")
+    def test_transient_db_error_fetching_schema_stands_down(
+        self,
+        mock_schema_model: MagicMock,
+        _mock_job_model: MagicMock,
+        mock_capture_exception: MagicMock,
+    ) -> None:
+        mock_schema_model.DoesNotExist = ExternalDataSchema.DoesNotExist
+        mock_schema_model.objects.select_related.return_value.get.side_effect = OperationalError(
+            "[Errno 24] Too many open files"
+        )
+
+        _maybe_repartition_table(
+            RepartitionActivityInputs(team_id=TEAM_ID, schema_id=SCHEMA_ID, job_id=JOB_ID, source_id=SOURCE_ID),
+            MagicMock(),
+        )
+
+        mock_capture_exception.assert_not_called()
+
+    @patch(f"{MODULE}.capture_exception")
+    @patch(f"{MODULE}.ExternalDataJob")
+    @patch(f"{MODULE}.ExternalDataSchema")
+    def test_non_transient_error_fetching_schema_still_raises(
+        self,
+        mock_schema_model: MagicMock,
+        _mock_job_model: MagicMock,
+        mock_capture_exception: MagicMock,
+    ) -> None:
+        # Guards against overbroadening the stand-down: a real bug fetching the schema must still
+        # surface, not be silently swallowed alongside the transient case above.
+        mock_schema_model.DoesNotExist = ExternalDataSchema.DoesNotExist
+        mock_schema_model.objects.select_related.return_value.get.side_effect = ValueError("boom")
+
+        with pytest.raises(ValueError):
+            _maybe_repartition_table(
+                RepartitionActivityInputs(team_id=TEAM_ID, schema_id=SCHEMA_ID, job_id=JOB_ID, source_id=SOURCE_ID),
+                MagicMock(),
+            )
+        mock_capture_exception.assert_not_called()
+
+    @patch(f"{MODULE}.capture_exception")
+    @patch(f"{MODULE}.is_auto_repartition_enabled", return_value=True)
+    @patch(f"{MODULE}.ExternalDataJob")
+    @patch(f"{MODULE}.ExternalDataSchema")
+    def test_transient_db_error_fetching_job_stands_down(
+        self,
+        mock_schema_model: MagicMock,
+        mock_job_model: MagicMock,
+        _mock_enabled: MagicMock,
+        mock_capture_exception: MagicMock,
+    ) -> None:
+        schema = _schema(name="public.usages", s3_folder_name="usages")
+        mock_schema_model.objects.select_related.return_value.get.return_value = schema
+        mock_job_model.DoesNotExist = ExternalDataJob.DoesNotExist
+        mock_job_model.objects.get.side_effect = OperationalError("[Errno 24] Too many open files")
+
+        _maybe_repartition_table(
+            RepartitionActivityInputs(team_id=TEAM_ID, schema_id=SCHEMA_ID, job_id=JOB_ID, source_id=SOURCE_ID),
+            MagicMock(),
+        )
+
+        mock_capture_exception.assert_not_called()
 
 
 class TestFeatureFlagGate:
