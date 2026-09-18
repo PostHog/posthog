@@ -44,6 +44,12 @@ MAX_SELECT_POSTHOG_AI_LIMIT = 500  # 500 rows
 DEFAULT_POSTHOG_AI_RETURNED_ROWS = 100
 MAX_SELECT_DATA_CATALOG_LIMIT = 10000
 DEFAULT_DATA_CATALOG_RETURNED_ROWS = 1000
+# Cap on series x cohort breakdown values x compare, because each expanded series becomes its own
+# ClickHouse query on its own thread holding its own Postgres connection.
+MAX_EXPANDED_INSIGHT_QUERIES = 200
+# How many of those per-series queries run at the same time inside one request.
+INSIGHT_QUERY_FANOUT_CONCURRENCY = 10
+
 # Max amount of memory usage when doing group by before swapping to disk. Only used in certain queries
 MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY = 22 * 1024 * 1024 * 1024
 
