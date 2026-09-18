@@ -324,6 +324,10 @@ fn log_startup(config: &Config) {
         persons_per_chunk = config.seeder_persons_per_chunk,
         person_max_concurrent_chunks = config.seeder_person_max_concurrent_chunks,
         person_emit_nonmatchers = config.seeder_person_emit_nonmatchers,
+        person_emission = cohort_seeder::domain::PersonEmissionPolicy::from_emit_nonmatchers(
+            config.seeder_person_emit_nonmatchers,
+        )
+        .as_str(),
         scan_shadow_compare = config.seeder_scan_shadow_compare,
         reconcile_auto_dispatch_enabled = config.seeder_reconcile_auto_dispatch_enabled,
         confirm_register_backfilled = config.seeder_confirm_register_backfilled,
