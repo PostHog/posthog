@@ -347,25 +347,37 @@ class ApplyScannerWorkflow(PostHogWorkflow):
             )
             self._advance_phase("finalizing")
             signals_count = 0
+            signal_problem_types: list[str] = []
             if call_output.signals:
-                # The activity fails soft (returns 0 on any error), so there's nothing to retry. The local
+                emit_inputs = EmitObservationSignalInputs(
+                    team_id=inputs.team_id,
+                    observation_id=observation_id,
+                    exported_asset_id=asset_result.asset_id,
+                    signals=call_output.signals,
+                )
+                # 30s truncated the tail on a slow facade and recorded nothing emitted; retries are safe
+                # because each finding carries a deterministic idempotency key.
+                emit_kwargs: dict[str, Any] = {
+                    "start_to_close_timeout": dt.timedelta(minutes=2),
+                    "heartbeat_timeout": dt.timedelta(seconds=30),
+                    "retry_policy": common.RetryPolicy(maximum_attempts=3),
+                }
+                # The activity fails soft (returns [] on any error), so there's nothing to retry. The local
                 # catch covers Temporal-level failures (timeout, worker loss) — emission is advisory and
                 # must never demote an otherwise-successful observation to FAILED.
                 try:
-                    signals_count = await wf.execute_activity(
-                        emit_observation_signal_activity,
-                        EmitObservationSignalInputs(
-                            team_id=inputs.team_id,
-                            observation_id=observation_id,
-                            exported_asset_id=asset_result.asset_id,
-                            signals=call_output.signals,
-                        ),
-                        # 30s truncated the tail on a slow facade and recorded signals_count=0; retries are
-                        # safe because each finding carries a deterministic idempotency key.
-                        start_to_close_timeout=dt.timedelta(minutes=2),
-                        heartbeat_timeout=dt.timedelta(seconds=30),
-                        retry_policy=common.RetryPolicy(maximum_attempts=3),
-                    )
+                    if wf.patched("replay-vision-emitted-signal-problem-types"):
+                        # The activity returns the problem type of each signal it actually emitted, so the
+                        # count and the types agree. Pre-patch histories recorded a bare int count here;
+                        # the else branch keeps decoding those as int so in-flight scans replay cleanly.
+                        signal_problem_types = await wf.execute_activity(
+                            emit_observation_signal_activity, emit_inputs, result_type=list, **emit_kwargs
+                        )
+                        signals_count = len(signal_problem_types)
+                    else:
+                        signals_count = await wf.execute_activity(
+                            emit_observation_signal_activity, emit_inputs, result_type=int, **emit_kwargs
+                        )
                 except Exception:
                     wf.logger.exception("Signal emission activity failed for observation %s", observation_id)
             # Persist the billed result first — everything past this point is fail-soft delivery.
@@ -377,7 +389,7 @@ class ApplyScannerWorkflow(PostHogWorkflow):
                     scanner_result=ScannerResult(
                         model_output=call_output.model_output,
                         signals_count=signals_count,
-                        signal_problem_types=[s.problem_type for s in call_output.signals],
+                        signal_problem_types=signal_problem_types,
                         verification=call_output.verification,
                     ),
                 ),

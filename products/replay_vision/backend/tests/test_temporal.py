@@ -3661,7 +3661,7 @@ class TestEmitObservationSignalActivity:
             patch(_EMIT_SIGNAL_PATCH, new_callable=AsyncMock) as mock_emit,
             patch(_LOAD_LLM_INPUTS_PATCH, return_value=self._llm_inputs(observation)),
         ):
-            assert emit_observation_signal_activity(self._inputs(observation)) == 1
+            assert emit_observation_signal_activity(self._inputs(observation)) == ["bug"]
 
         assert mock_emit.await_args is not None
         kwargs = mock_emit.await_args.kwargs
@@ -3710,7 +3710,7 @@ class TestEmitObservationSignalActivity:
             patch(_EMIT_SIGNAL_PATCH, new_callable=AsyncMock) as mock_emit,
             patch(_LOAD_LLM_INPUTS_PATCH, return_value=None),
         ):
-            assert emit_observation_signal_activity(self._inputs(observation)) == 1
+            assert emit_observation_signal_activity(self._inputs(observation)) == ["bug"]
 
         assert mock_emit.await_args is not None
         extra = mock_emit.await_args.kwargs["extra"]
@@ -3727,7 +3727,7 @@ class TestEmitObservationSignalActivity:
             patch(_EMIT_SIGNAL_PATCH, new_callable=AsyncMock) as mock_emit,
             patch(_LOAD_LLM_INPUTS_PATCH, side_effect=Exception("redis down")),
         ):
-            assert emit_observation_signal_activity(self._inputs(observation)) == 1
+            assert emit_observation_signal_activity(self._inputs(observation)) == ["bug"]
 
         assert mock_emit.await_args is not None
         extra = mock_emit.await_args.kwargs["extra"]
@@ -3745,7 +3745,7 @@ class TestEmitObservationSignalActivity:
             patch(_LOAD_LLM_INPUTS_PATCH, return_value=None),
         ):
             # Two emitted; the 0.2-confidence finding is below the floor and skipped.
-            assert emit_observation_signal_activity(self._inputs(observation, signals=signals)) == 2
+            assert emit_observation_signal_activity(self._inputs(observation, signals=signals)) == ["bug", "bug"]
 
         calls = mock_emit.await_args_list
         assert [c.kwargs["source_id"] for c in calls] == [
@@ -3760,7 +3760,7 @@ class TestEmitObservationSignalActivity:
         observation = _make_observation(scanner)
 
         with patch(_EMIT_SIGNAL_PATCH, new_callable=AsyncMock) as mock_emit:
-            assert emit_observation_signal_activity(self._inputs(observation, confidence=confidence)) == 0
+            assert emit_observation_signal_activity(self._inputs(observation, confidence=confidence)) == []
         mock_emit.assert_not_awaited()
 
     def test_skips_when_the_snapshot_does_not_emit_signals(self) -> None:
@@ -3768,7 +3768,7 @@ class TestEmitObservationSignalActivity:
         observation = _make_observation(scanner)
 
         with patch(_EMIT_SIGNAL_PATCH, new_callable=AsyncMock) as mock_emit:
-            assert emit_observation_signal_activity(self._inputs(observation)) == 0
+            assert emit_observation_signal_activity(self._inputs(observation)) == []
         mock_emit.assert_not_awaited()
 
     def test_skips_when_the_observation_is_missing(self) -> None:
@@ -3777,7 +3777,7 @@ class TestEmitObservationSignalActivity:
         inputs = self._inputs(observation, observation_id=uuid.uuid4())
 
         with patch(_EMIT_SIGNAL_PATCH, new_callable=AsyncMock) as mock_emit:
-            assert emit_observation_signal_activity(inputs) == 0
+            assert emit_observation_signal_activity(inputs) == []
         mock_emit.assert_not_awaited()
 
     @pytest.mark.parametrize(
@@ -3790,7 +3790,7 @@ class TestEmitObservationSignalActivity:
         observation = _make_observation(scanner)
 
         with patch(_EMIT_SIGNAL_PATCH, new_callable=AsyncMock, side_effect=error) as mock_emit:
-            assert emit_observation_signal_activity(self._inputs(observation)) == 0
+            assert emit_observation_signal_activity(self._inputs(observation)) == []
         mock_emit.assert_awaited_once()
 
     def test_emits_without_any_source_config(self) -> None:
@@ -3799,7 +3799,7 @@ class TestEmitObservationSignalActivity:
         observation = _make_observation(scanner)
 
         with patch(_EMIT_SIGNAL_PATCH, new_callable=AsyncMock) as mock_emit:
-            assert emit_observation_signal_activity(self._inputs(observation)) == 1
+            assert emit_observation_signal_activity(self._inputs(observation)) == ["bug"]
 
         mock_emit.assert_awaited_once()
         assert not SignalSourceConfig.objects.filter(team=scanner.team).exists()
@@ -3831,7 +3831,7 @@ async def test_apply_scanner_workflow_emits_the_signal_finding() -> None:
                     )
                 ],
             ),
-            emit_observation_signal_activity: 1,
+            emit_observation_signal_activity: ["bug"],
         },
     )
 
@@ -3889,3 +3889,4 @@ async def test_apply_scanner_workflow_succeeds_when_the_signal_activity_fails() 
     assert mark_observation_failed_activity not in called
     succeeded = next(arg for fn, arg in mocks.activity_calls if fn is mark_observation_succeeded_activity)
     assert succeeded.scanner_result.signals_count == 0
+    assert succeeded.scanner_result.signal_problem_types == []
