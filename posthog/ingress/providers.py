@@ -17,7 +17,7 @@ from django.http import HttpRequest, HttpResponse
 from rest_framework.throttling import BaseThrottle
 
 from posthog.ingress.contracts import ProviderSpec, WebhookConsumer, WebhookDelivery
-from posthog.ingress.verify.schemes import SignatureScheme, Verification
+from posthog.ingress.verify.schemes import SignatureScheme, Verification, VerificationOutcome
 
 # Every incarnation module, imported lazily. An incarnation exposes `SPECS` (what it accepts)
 # and may expose `CORE_CONSUMERS` (consumers core owns rather than a product).
@@ -98,7 +98,12 @@ class WebhookProvider(ABC):
         """
 
     def verify(self, request: HttpRequest) -> Verification:
-        return self.scheme().verify(body=request.body, headers=request.headers)
+        scheme = self.scheme()
+        # Asked before `request.body`, so an unsigned probe cannot make every endpoint here
+        # read a body of up to the request limit before the signature header is even looked at.
+        if scheme.rejects_headers(request.headers):
+            return Verification(outcome=VerificationOutcome.INVALID)
+        return scheme.verify(body=request.body, headers=request.headers)
 
     def parse(self, request: HttpRequest) -> Any:
         """Decode the verified body into the value `deliveries` reads.
