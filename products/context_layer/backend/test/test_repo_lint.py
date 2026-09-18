@@ -104,6 +104,57 @@ def _scripts_tampered_lint(root: Path) -> None:
     lint.write_text(lint.read_text() + "\nimport os  # smuggled\n")
 
 
+SPACE_PAGE_HEAD = f"team_id: 1\nchannel_id: {uuid.uuid4()}\nsummary: General\nstatus: active"
+
+DESKTOP_SERIALIZER_OUTPUT = """\
+goals:
+  - id: 7f1d4d1e-3b0f-4c7c-9a48-3a6c1a5f1e01
+    name: Weekly paid bills
+    primary: true
+    period: week
+    target:
+      direction: at_least
+      value: 500
+      due_date: 2026-10-31
+    measure:
+      kind: hogql
+      sql: |-
+        SELECT count()
+        FROM events
+        WHERE event = 'paid_bill'
+  - id: 0b2c9e4a-6d1f-4e3b-8a7c-5d9e1f2a3b4c
+    name: "Share of paid bills: business plan"
+    percent: true
+    target:
+      direction: at_most
+      value: 0.3
+    measure:
+      kind: insight
+      short_id: AbC123
+      url: http://localhost:8010/project/1/insights/AbC123
+      name: Bill's conversion
+reading:
+  - title: "#growth-team"
+    target: https://slack.com/app_redirect?channel=growth-team
+    note: Where the team talks.
+  - title: plans-and-prices.md
+    target: projects/1/spaces/hedgebox-growth/plans-and-prices.md
+watching:
+  - kind: flag
+    title: retention-nudge-v1
+    url: http://localhost:8010/project/1/feature_flags/8"""
+
+
+def _write_space_page(root: Path, lists: str) -> None:
+    spaces = root / "projects" / "1" / "spaces"
+    spaces.mkdir(parents=True, exist_ok=True)
+    (spaces / "general.md").write_text(f"---\n{SPACE_PAGE_HEAD}\n{lists}\n---\n# general\n")
+
+
+def _space_page_with_lists(lists: str) -> Callable[[Path], None]:
+    return lambda root: _write_space_page(root, lists)
+
+
 class TestRepoLint(SimpleTestCase):
     def setUp(self) -> None:
         super().setUp()
@@ -169,6 +220,21 @@ done
         )
         assert lint_repo(self.root) == []
 
+    def test_lists_written_by_the_desktop_serializer_are_clean(self) -> None:
+        _write_space_page(self.root, DESKTOP_SERIALIZER_OUTPUT)
+        assert lint_repo(self.root) == []
+
+    def test_list_errors_name_the_field_or_the_line(self) -> None:
+        _write_space_page(self.root, "goals:\n  - name: x\n    target:\n      direction: upwards\n      value: 1")
+        assert lint_repo(self.root) == [
+            "projects/1/spaces/general.md: goals[0].target.direction must be one of at_least, at_most"
+        ]
+
+        _write_space_page(self.root, "goals:\n  - name: Revenue: business plan")
+        assert lint_repo(self.root) == [
+            "projects/1/spaces/general.md: goals: line 7: text that contains a colon must be quoted"
+        ]
+
     def test_report_findings_do_not_fail_lint(self) -> None:
         _oversized_page(self.root)
         assert lint_repo(self.root) == []
@@ -206,6 +272,41 @@ done
             ("scripts_extra_file", _scripts_extra_file),
             ("scripts_tampered_lint", _scripts_tampered_lint),
             ("non_utf8_page", _non_utf8_page),
+            ("goal_without_name", _space_page_with_lists("goals:\n  - primary: true")),
+            ("goal_with_unknown_key", _space_page_with_lists("goals:\n  - name: x\n    due-date: 2026-01-01")),
+            ("goal_with_bad_yaml", _space_page_with_lists("goals:\n  - name: x\n    unit: %")),
+            (
+                "goal_with_text_value",
+                _space_page_with_lists(
+                    "goals:\n  - name: x\n    target:\n      direction: at_least\n      value: many"
+                ),
+            ),
+            (
+                "goal_with_loose_date",
+                _space_page_with_lists(
+                    "goals:\n  - name: x\n    target:\n      direction: at_least\n      value: 1\n      due_date: 2026-1-5"
+                ),
+            ),
+            (
+                "goal_with_unknown_measure",
+                _space_page_with_lists("goals:\n  - name: x\n    measure:\n      kind: sqlite"),
+            ),
+            ("goal_in_flow_style", _space_page_with_lists("goals: [{name: x}]")),
+            ("goal_with_duplicate_key", _space_page_with_lists("goals:\n  - name: x\n    name: y")),
+            ("goals_listed_twice", _space_page_with_lists("goals:\n  - name: x\ngoals:\n  - name: y")),
+            ("goals_indented_with_tabs", _space_page_with_lists("goals:\n\t- name: x")),
+            (
+                "watched_object_with_file_url",
+                _space_page_with_lists("watching:\n  - kind: flag\n    title: x\n    url: file:///etc/passwd"),
+            ),
+            (
+                "watched_object_of_unknown_kind",
+                _space_page_with_lists("watching:\n  - kind: widget\n    title: x\n    url: https://example.com/1"),
+            ),
+            (
+                "reading_entry_with_empty_note",
+                _space_page_with_lists("reading:\n  - title: a\n    target: b\n    note:"),
+            ),
         ]
     )
     def test_violations_are_reported(self, _name: str, violate: Callable[[Path], None]) -> None:

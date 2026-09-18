@@ -28,6 +28,17 @@ goals:
         SELECT count()
         FROM events
         WHERE event = 'paid_bill'
+  - id: 0b2c9e4a-6d1f-4e3b-8a7c-5d9e1f2a3b4c
+    name: "Share of paid bills: business plan"
+    percent: true
+    target:
+      direction: at_most
+      value: 0.3
+    measure:
+      kind: insight
+      short_id: AbC123
+      url: http://localhost:8010/project/1/insights/AbC123
+      name: Bill's conversion
 reading:
   - title: "#growth-team"
     target: https://slack.com/app_redirect?channel=growth-team
@@ -67,6 +78,21 @@ describe("contextDocument", () => {
           kind: "hogql",
           sql: "SELECT count()\nFROM events\nWHERE event = 'paid_bill'",
           trendSql: undefined,
+        },
+      },
+      {
+        id: "0b2c9e4a-6d1f-4e3b-8a7c-5d9e1f2a3b4c",
+        name: "Share of paid bills: business plan",
+        primary: false,
+        period: undefined,
+        percent: true,
+        task: undefined,
+        target: { direction: "at_most", value: 0.3, dueDate: null },
+        measure: {
+          kind: "insight",
+          shortId: "AbC123",
+          url: "http://localhost:8010/project/1/insights/AbC123",
+          name: "Bill's conversion",
         },
       },
     ]);
