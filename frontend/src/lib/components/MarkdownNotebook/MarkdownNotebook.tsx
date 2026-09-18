@@ -345,12 +345,13 @@ type NotebookHistoryState = {
     redo: NotebookHistoryEntry[]
 }
 
-/** Consecutive single-block edits within this window fold into one undo step. */
-// The editable surfaces whose links are pointer-inert while editing (see MarkdownNotebook.scss);
-// only these get the modifier-click open behavior, everything else keeps native navigation
-const POINTER_INERT_LINK_CONTAINER_SELECTOR =
+// The editable surfaces whose links the browser refuses to follow, because a link inside a
+// contenteditable is text first; only these need us to open the link, everything else keeps
+// native navigation
+const EDITABLE_LINK_CONTAINER_SELECTOR =
     '.MarkdownNotebook__text-block[contenteditable="true"], .MarkdownNotebook__list-block[contenteditable="true"], .MarkdownNotebook__table-cell-content[contenteditable="true"]'
 
+/** Consecutive single-block edits within this window fold into one undo step. */
 const UNDO_TYPING_GROUP_MS = 1000
 
 /** How many recent local serializations to remember for save-echo detection. Must comfortably
@@ -4064,49 +4065,22 @@ function MarkdownNotebookEditor({
         }, 0)
     }
 
-    // Links in editable blocks are pointer-inert so plain clicks place the caret; holding
-    // Cmd/Ctrl re-enables them (see MarkdownNotebook.scss) so they can be opened, matching
-    // the TipTap editor's link mark behavior.
-    useEffect(() => {
-        if (mode !== 'edit') {
-            return
-        }
-
-        const setLinkModifierHeld = (isHeld: boolean): void => {
-            notebookRef.current?.classList.toggle('MarkdownNotebook--link-modifier-held', isHeld)
-        }
-        const handleModifierKeyChange = (event: globalThis.KeyboardEvent): void =>
-            setLinkModifierHeld(event.metaKey || event.ctrlKey)
-        const resetLinkModifier = (): void => setLinkModifierHeld(false)
-
-        window.addEventListener('keydown', handleModifierKeyChange)
-        window.addEventListener('keyup', handleModifierKeyChange)
-        window.addEventListener('blur', resetLinkModifier)
-        return () => {
-            window.removeEventListener('keydown', handleModifierKeyChange)
-            window.removeEventListener('keyup', handleModifierKeyChange)
-            window.removeEventListener('blur', resetLinkModifier)
-            resetLinkModifier()
-        }
-    }, [mode])
-
     const handleCanvasClick = (event: ReactMouseEvent<HTMLDivElement>): void => {
         if (!(event.target instanceof Element)) {
             return
         }
 
         const linkElement = event.target.closest('a[href]')
-        if (linkElement && linkElement.closest(POINTER_INERT_LINK_CONTAINER_SELECTOR)) {
-            if (event.metaKey || event.ctrlKey) {
-                const href = sanitizeNotebookLinkHref(linkElement.getAttribute('href') ?? '')
-                if (href) {
-                    event.preventDefault()
-                    window.open(href, '_blank', 'noopener')
-                    return
-                }
-            } else {
-                // While editing, a plain click only places the caret, never navigates
-                event.preventDefault()
+        if (linkElement && linkElement.closest(EDITABLE_LINK_CONTAINER_SELECTOR)) {
+            // A browser never follows a link inside a contenteditable, so opening it is on us.
+            // Alt-click, the second click of a double-click, and the click that closes a drag
+            // selection all reach for the text rather than for the link, and only place the caret.
+            const reachesForTheText = event.altKey || event.detail > 1 || window.getSelection()?.isCollapsed === false
+            const href = reachesForTheText ? null : sanitizeNotebookLinkHref(linkElement.getAttribute('href') ?? '')
+            event.preventDefault()
+            if (href) {
+                window.open(href, '_blank', 'noopener')
+                return
             }
         }
 
