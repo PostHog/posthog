@@ -14,6 +14,7 @@ import { mswDecorator } from '~/mocks/browser'
 import {
     ErrorTrackingIssueRelease,
     ErrorTrackingQueryResponse,
+    ErrorTrackingRelationalIssue,
     ErrorTrackingReleasesQueryResponse,
     NodeKind,
     TrendsQueryResponse,
@@ -346,12 +347,21 @@ const STORY_ASSIGNEE_ROLES = Array.from({ length: 16 }, (_, index) => {
         created_by: MOCK_DEFAULT_BASIC_USER,
     }
 })
-const STORY_ISSUE = {
+const STORY_ISSUE: ErrorTrackingRelationalIssue = {
     ...errorTrackingTypeIssue,
     id: ISSUE_ID,
     name: 'Non-OK response',
     description: 'The billing request returned an unsuccessful response.',
     first_seen: STORY_TIMESTAMPS.at(-1)!,
+    external_issues: [
+        {
+            id: '01890a1b-2c3d-4e4f-8a9b-0c1d2e3f4a6c',
+            external_url: 'https://github.com/example/example/issues/42',
+            external_id: '#42',
+            title: 'Checkout failed for annual subscriptions',
+            integration: { id: 1, kind: 'github', display_name: 'Example' },
+        },
+    ],
 }
 const STORY_SUMMARY_RESPONSE: ErrorTrackingQueryResponse = {
     ...errorTrackingQueryResponse,

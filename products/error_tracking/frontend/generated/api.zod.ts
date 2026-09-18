@@ -398,7 +398,7 @@ export const ErrorTrackingExternalReferencesLinkIssueCreateBody = /* @__PURE__ *
     external_context: zod
         .record(zod.string(), zod.unknown())
         .describe(
-            'Identifier of the existing external issue to link, as returned by the search-issues endpoint. Required keys depend on the integration kind: github -> {repository, number}; gitlab -> {issue_id}; linear -> {id}; jira -> {key}.'
+            'Identifier and optional title of the existing external issue to link, as returned by the search-issues endpoint. Required keys depend on the integration kind: github -> {repository, number}; gitlab -> {issue_id}; linear -> {id}; jira -> {key}.'
         ),
 })
 
@@ -544,6 +544,8 @@ export const ErrorTrackingIssuesCohortUpdateBody = /* @__PURE__ */ zod
                         })
                         .describe('The connected integration this reference was created through.'),
                     external_url: zod.string().describe("URL of the linked external issue in the provider's system."),
+                    external_id: zod.string().describe('Provider-native identifier of the linked issue.'),
+                    title: zod.string().describe('Title of the linked issue.'),
                 })
                 .describe('Read-only shape of an external reference, shared by every response.')
         ),
@@ -611,6 +613,8 @@ export const ErrorTrackingIssuesBulkCreateBody = /* @__PURE__ */ zod
                         })
                         .describe('The connected integration this reference was created through.'),
                     external_url: zod.string().describe("URL of the linked external issue in the provider's system."),
+                    external_id: zod.string().describe('Provider-native identifier of the linked issue.'),
+                    title: zod.string().describe('Title of the linked issue.'),
                 })
                 .describe('Read-only shape of an external reference, shared by every response.')
         ),
