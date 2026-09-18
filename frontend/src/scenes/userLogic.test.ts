@@ -4,6 +4,7 @@ import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
@@ -245,6 +246,35 @@ describe('userLogic', () => {
             }).toDispatchActions(['updateUserFailure'])
 
             expect(captureSpy).toHaveBeenCalled()
+        })
+    })
+
+    describe('organization switching', () => {
+        const OTHER_ORGANIZATION_ID = '018f0000-0000-0000-0000-0000000000aa'
+
+        afterEach(() => {
+            jest.restoreAllMocks()
+        })
+
+        it('marks the organization as being switched to while the request is in flight', async () => {
+            jest.spyOn(api, 'update').mockImplementation(async () => await new Promise(() => undefined))
+
+            await expectLogic(userLogic, () => {
+                userLogic.actions.updateCurrentOrganization(OTHER_ORGANIZATION_ID)
+            }).toMatchValues({ switchingToOrganizationId: OTHER_ORGANIZATION_ID })
+        })
+
+        it('clears the switch and reports the reason when the request fails', async () => {
+            const toastSpy = jest.spyOn(lemonToast, 'error').mockImplementation(() => undefined as any)
+            jest.spyOn(api, 'update').mockRejectedValue({ status: 400, detail: 'Organization is disabled.' })
+
+            await expectLogic(userLogic, () => {
+                userLogic.actions.updateCurrentOrganization(OTHER_ORGANIZATION_ID)
+            })
+                .toDispatchActions(['cancelOrganizationSwitch'])
+                .toMatchValues({ switchingToOrganizationId: null })
+
+            expect(toastSpy).toHaveBeenCalledWith('Organization is disabled.')
         })
     })
 })
