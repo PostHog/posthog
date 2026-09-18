@@ -1100,7 +1100,7 @@ describe('dataQualityCheckEditorLogic', () => {
         expect((dataQualityChecksSubjectsList as jest.Mock).mock.calls.length).toEqual(1)
     })
 
-    it('keeps the subject catalog loaded when reopening an unscoped draft', async () => {
+    it('reloads the subject catalog when reopening an unscoped draft', async () => {
         await mountLogic({ surface: 'overview' })
         logic.actions.openEditor(null, null)
         await expectLogic(logic).toFinishAllListeners()
@@ -1109,6 +1109,6 @@ describe('dataQualityCheckEditorLogic', () => {
         logic.actions.openEditor(null, null)
         await expectLogic(logic).toFinishAllListeners()
 
-        expect((dataQualityChecksSubjectsList as jest.Mock).mock.calls.length).toEqual(1)
+        expect((dataQualityChecksSubjectsList as jest.Mock).mock.calls.length).toEqual(2)
     })
 })
