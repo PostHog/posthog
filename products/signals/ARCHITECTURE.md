@@ -380,7 +380,11 @@ potential → candidate → in_progress → ready
 # repo selection and findings for already-seen signals. Suppressed between buckets and once every
 # bucket is used (see Research buckets).
 # RESOLVED is terminal and never re-promotes: a recurrence spawns a fresh report, linked back to the
-# resolved one via a related_to artefact (assign_and_emit_signal_activity).
+# resolved one via a related_to artefact (assign_and_emit_signal_activity). A report dismissed with a
+# reason that claims the issue is fixed (already_fixed, fixed_outside_posthog, pr_merged) makes the
+# same claim, so it forks the same way; every other dismissal reason absorbs later signals silently
+# (recurrence.py). The fork joins an open fork of the same parent rather than being created twice, so
+# a parent that absorbs signals for months holds one live recurrence report, not one per signal.
 ready → candidate
 
 # Resolve: a report is marked resolved when the requested work is done. Two paths:
@@ -388,7 +392,8 @@ ready → candidate
 # - user-driven: the state API accepts state='resolved' (single + bulk) so a user or MCP agent
 #   can resolve directly — useful for PR-less fixes (skill-body changes, NO_REPO reports) that the
 #   webhook could never reach. Restricted to the same statuses the machine allows below.
-ready | pending_input → resolved
+ready | pending_input | failed → resolved (a run that died in processing still describes real work,
+              so whoever fixed it can say so instead of being pushed onto the dismissal path)
 suppressed → resolved (resolve an archived report straight out of the archive; the state action
               refuses this unless it was researched before being archived, so an unresearched
               report can't be laundered candidate → suppressed → resolved)

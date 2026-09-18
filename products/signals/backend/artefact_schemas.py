@@ -277,6 +277,11 @@ class ChannelAssignment(BaseModel):
 # Reason code shared by the dismissal writer (the state API) and the corrections reader
 # (`repo_corrections`), defined here so the two cannot drift apart.
 DISMISSAL_REASON_WRONG_REPO = "wrong_repo"
+# Reason codes that claim the issue is fixed, rather than stating a preference about the report.
+# A later matching signal contradicts the claim, so the grouping stage treats these dismissals the
+# way it treats a resolved report: the recurrence gets a fresh report (see `recurrence.py`). The
+# `wontfix_*` codes and the rest stay sinks, because they say "I do not want this".
+FIXED_DISMISSAL_REASONS = frozenset({"already_fixed", "fixed_outside_posthog", "pr_merged"})
 # Bounds shared by the state API and this schema, so the generic artefact endpoint cannot store a
 # dismissal the state API would reject. Readers scan these rows in bulk (`repo_corrections`), so an
 # unbounded row is a cost on every repository selection, not just on the write.
