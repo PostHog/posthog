@@ -36,6 +36,7 @@ from products.warehouse_sources.backend.facade.models import (
     update_sync_type_config_keys,
 )
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
+from products.warehouse_sources.backend.models.external_data_schema import MISSING_PRIMARY_KEY_DISABLED_MESSAGE
 from products.warehouse_sources.backend.presentation.views.external_data_schema import schema_display_status
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
     VersionDeprecation,
@@ -1762,6 +1763,47 @@ class TestExternalDataSchema(APIBaseTest):
 
         assert schema.sync_type_config.get("primary_key_columns") == ["_id", "source_id"]
         assert schema.primary_key_columns == ["_id", "source_id"]
+
+    @parameterized.expand(
+        [
+            ("setting_a_key_clears_the_block", {"primary_key_columns": ["_id"]}, None),
+            ("switching_the_sync_method_clears_the_block", {"sync_type": "full_refresh"}, None),
+            (
+                "echoing_the_stored_key_back_leaves_it",
+                {"primary_key_columns": None},
+                MISSING_PRIMARY_KEY_DISABLED_MESSAGE,
+            ),
+            ("an_unrelated_edit_leaves_it", {"sync_frequency": "24hour"}, MISSING_PRIMARY_KEY_DISABLED_MESSAGE),
+        ]
+    )
+    def test_update_schema_clears_a_blocked_incremental_error(
+        self, _name: str, payload: dict[str, Any], expected_error: str | None
+    ):
+        source = ExternalDataSource.objects.create(
+            team=self.team, source_type=ExternalDataSourceType.STRIPE, job_inputs={"stripe_secret_key": "123"}
+        )
+        schema = ExternalDataSchema.objects.create(
+            name="BalanceTransaction",
+            team=self.team,
+            source=source,
+            should_sync=False,
+            status=ExternalDataSchema.Status.FAILED,
+            latest_error=MISSING_PRIMARY_KEY_DISABLED_MESSAGE,
+            sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
+            sync_type_config={"incremental_field": "created", "incremental_field_type": "integer"},
+        )
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}", data=payload
+        )
+
+        assert response.status_code == 200
+        assert response.json()["incremental_sync_blocked"] == (
+            "missing_primary_key" if expected_error is not None else None
+        )
+
+        schema.refresh_from_db()
+        assert schema.latest_error == expected_error
 
     @parameterized.expand(
         [
