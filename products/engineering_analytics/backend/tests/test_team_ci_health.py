@@ -58,6 +58,9 @@ class TestTeamCIHealthAPI(ClickhouseTestMixin, APIBaseTest):
             # A second owned test is quarantined in the same run. The team still had one such run.
             cls._span(21, T_REPLAY_RERUN, "xfailed", ts=cls.current_b, owner="team-replay", run="104"),
             cls._span(5, T_REPLAY_PRS, "failed", ts=prior, owner="team-replay", run="105", pr="101"),
+            cls._span(23, T_REPLAY_PRS, "xfailed", ts=prior, owner="team-replay", run="204"),
+            cls._span(24, T_REPLAY_RERUN, "xfailed", ts=prior, owner="team-replay", run="204"),
+            cls._span(27, T_REPLAY_PRS, "rerun_passed", ts=prior, owner="team-replay", run="202", pr="202"),
             # team-replay test 2 is a proven flake in both windows via in-job pass-on-retry.
             cls._span(6, T_REPLAY_RERUN, "rerun_passed", ts=cls.current_b, owner="team-replay", run="201", pr="201"),
             cls._span(7, T_REPLAY_RERUN, "rerun_passed", ts=prior, owner="team-replay", run="202", pr="202"),
@@ -68,6 +71,17 @@ class TestTeamCIHealthAPI(ClickhouseTestMixin, APIBaseTest):
             cls._span(9, T_EXPORTS_RECOVERED, "failed", ts=prior, owner="batch-exports", run="301", pr="301"),
             cls._span(10, T_EXPORTS_RECOVERED, "failed", ts=prior, owner="batch-exports", run="302", pr="302"),
             cls._span(11, T_EXPORTS_RECOVERED, "failed", ts=prior, owner="batch-exports", run="303", pr="303"),
+            cls._span(25, T_EXPORTS_SAME_RUN, "failed", ts=prior, owner="batch-exports", run="301", pr="301"),
+            cls._span(
+                26,
+                T_EXPORTS_SAME_RUN,
+                "passed",
+                ts=prior,
+                owner="batch-exports",
+                run="301",
+                attempt="2",
+                pr="301",
+            ),
             cls._span(14, T_EXPORTS_RECOVERED, "failed", ts=cls.current_a, owner="batch-exports", run="304", pr="304"),
             # A second owned test fails in the same run, and recovers in it. The team still had one
             # failed run and one recovery run.
@@ -177,11 +191,11 @@ class TestTeamCIHealthAPI(ClickhouseTestMixin, APIBaseTest):
         # is a regression here exactly as it is in the queue.
         replay = rows["team-replay"]
         assert (replay["flaky_test_count"], replay["regression_test_count"]) == (1, 1)
-        assert (replay["flaky_test_count_prior"], replay["regression_test_count_prior"]) == (1, 0)
+        assert (replay["flaky_test_count_prior"], replay["regression_test_count_prior"]) == (2, 0)
         assert (replay["failed_run_count"], replay["failed_run_count_prior"]) == (3, 1)
         assert (replay["same_commit_recovery_run_count"], replay["same_commit_recovery_run_count_prior"]) == (1, 2)
-        # Two owned tests were quarantined in run 104: one such run for the team, not two.
-        assert (replay["quarantined_failed_run_count"], replay["quarantined_failed_run_count_prior"]) == (1, 0)
+        # Two owned tests were quarantined in the same run in each window.
+        assert (replay["quarantined_failed_run_count"], replay["quarantined_failed_run_count_prior"]) == (1, 1)
 
         # The unstamped test and the '@handle'-stamped one both land here; no '@someone' row exists.
         assert (rows["unowned"]["flaky_test_count"], rows["unowned"]["same_commit_recovery_run_count"]) == (2, 2)
@@ -191,11 +205,10 @@ class TestTeamCIHealthAPI(ClickhouseTestMixin, APIBaseTest):
         # window's 3 unrecovered PR failures are a regression, not a flake.
         exports = rows["batch-exports"]
         assert (exports["flaky_test_count"], exports["regression_test_count"]) == (2, 0)
-        assert (exports["flaky_test_count_prior"], exports["regression_test_count_prior"]) == (0, 1)
-        # Two owned tests failed in run 304 and both recovered in it: one failed run and one
-        # recovery run for the team, not two of each.
+        assert (exports["flaky_test_count_prior"], exports["regression_test_count_prior"]) == (1, 1)
+        # Two owned tests failed and recovered in one shared run in each window.
         assert (exports["failed_run_count"], exports["failed_run_count_prior"]) == (1, 3)
-        assert (exports["same_commit_recovery_run_count"], exports["same_commit_recovery_run_count_prior"]) == (1, 0)
+        assert (exports["same_commit_recovery_run_count"], exports["same_commit_recovery_run_count_prior"]) == (1, 1)
 
         # The foreign-service span's team must not appear at all.
         assert "ghost-team" not in rows
@@ -223,7 +236,7 @@ class TestTeamCIHealthAPI(ClickhouseTestMixin, APIBaseTest):
         assert data["owner_team"] == "team-replay"
         # Before/after pairs: ranked by the stronger window, xfail excluded from signal.
         assert [(t["nodeid"], t["signal_count"], t["signal_count_prior"]) for t in data["tests"]] == [
-            (T_REPLAY_PRS, 3, 1),
+            (T_REPLAY_PRS, 3, 2),
             (T_REPLAY_RERUN, 1, 2),
         ]
         assert not data["truncated_tests"]
