@@ -8,9 +8,11 @@ the event lands in ClickHouse. An eviction costs a banner, never a report.
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime, timedelta
 
 from django.core.cache import cache
 from django.utils import timezone
+from django.utils.dateparse import parse_datetime
 
 import structlog
 
@@ -22,6 +24,20 @@ MAX_RECENT_SPIKES = 5
 
 def _key(team_id: int) -> str:
     return f"conversations:ticket_patterns:recent:{team_id}"
+
+
+def _is_recent(spike: dict, cutoff: datetime) -> bool:
+    # A spike we cannot date is not recent: both the banner and the endpoint promise the last day,
+    # and an undateable entry would otherwise sit in the list for as long as the team keeps writing.
+    try:
+        detected_at = parse_datetime(str(spike.get("detected_at") or ""))
+    except ValueError:
+        return False
+    if detected_at is None:
+        return False
+    if detected_at.tzinfo is None:
+        detected_at = detected_at.replace(tzinfo=UTC)
+    return detected_at >= cutoff
 
 
 def spike_key(spike: dict) -> str:
@@ -66,6 +82,12 @@ def record_spike(team_id: int, spike: dict) -> None:
 
 
 def recent_spikes(team_id: int) -> list[dict]:
+    """The team's spikes from the last day, newest first.
+
+    Every write rewrites the one key with a fresh TTL, so the TTL alone would carry an older entry
+    forward for as long as the team keeps producing spikes. The cutoff is what holds the promise the
+    banner and the endpoint both make; the TTL only cleans up after a team goes quiet.
+    """
     try:
         raw = cache.get(_key(team_id))
     except Exception:
@@ -77,4 +99,7 @@ def recent_spikes(team_id: int) -> list[dict]:
         spikes = json.loads(raw)
     except (TypeError, ValueError):
         return []
-    return spikes if isinstance(spikes, list) else []
+    if not isinstance(spikes, list):
+        return []
+    cutoff = timezone.now() - timedelta(seconds=RECENT_SPIKES_TTL_SECONDS)
+    return [s for s in spikes if isinstance(s, dict) and _is_recent(s, cutoff)]

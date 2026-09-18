@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import uuid
+from datetime import timedelta
 
 from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
 from django.test import SimpleTestCase
+from django.utils import timezone
 
 from parameterized import parameterized
 
@@ -189,7 +191,7 @@ class TestRecentSpikes(SimpleTestCase):
         )
 
         for index in range(MAX_RECENT_SPIKES + 3):
-            record_spike(7, {"topic": f"spike-{index}"})
+            record_spike(7, {"topic": f"spike-{index}", "detected_at": timezone.now().isoformat()})
 
         stored = recent_spikes(7)
 
@@ -199,6 +201,29 @@ class TestRecentSpikes(SimpleTestCase):
     def test_spikes_are_per_team(self):
         from products.conversations.backend.temporal.ticket_patterns.recent import recent_spikes, record_spike
 
-        record_spike(7, {"topic": "only-team-7"})
+        record_spike(7, {"topic": "only-team-7", "detected_at": timezone.now().isoformat()})
 
         assert recent_spikes(8) == []
+
+    @parameterized.expand(
+        [
+            ("a day and an hour old", 25 * 60 * 60, False),
+            ("an hour old", 60 * 60, True),
+            ("undateable", None, False),
+        ]
+    )
+    def test_only_spikes_from_the_last_day_are_served(self, _name, age_seconds, expected):
+        from products.conversations.backend.temporal.ticket_patterns.recent import recent_spikes, record_spike
+
+        spike = {"topic": "older"}
+        if age_seconds is not None:
+            spike["detected_at"] = (timezone.now() - timedelta(seconds=age_seconds)).isoformat()
+        record_spike(7, spike)
+
+        # A later write rewrites the one key with a fresh TTL, so without the cutoff the stale
+        # entry would be carried forward and served as recent for another day.
+        record_spike(7, {"topic": "newer", "detected_at": timezone.now().isoformat()})
+
+        topics = [s["topic"] for s in recent_spikes(7)]
+        assert ("older" in topics) is expected
+        assert "newer" in topics

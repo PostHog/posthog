@@ -1,18 +1,21 @@
 from posthog.test.base import APIBaseTest
 
 from django.core.cache import cache
+from django.utils import timezone
 
 from posthog.models import Team
 
 from products.conversations.backend.temporal.ticket_patterns.recent import record_spike
 
+# Relative, not a fixed date: the endpoint only serves spikes from the last day, so a literal
+# timestamp would stop meaning "recent" as soon as real time moved past it.
 SPIKE = {
     "topic": "checkout failing",
     "summary": "Several customers cannot complete a payment.",
     "ticket_ids": ["t1", "t2", "t3"],
     "ticket_count": 3,
     "requester_count": 3,
-    "detected_at": "2026-09-17T12:00:00Z",
+    "detected_at": timezone.now().isoformat(),
 }
 
 
