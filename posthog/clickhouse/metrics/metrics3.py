@@ -76,7 +76,9 @@ ENGINE = {ReplacingMergeTree(METRIC_SERIES4_TABLE_NAME, replication_scheme=Repli
 PARTITION BY toMonday(original_expiry_timestamp)
 ORDER BY (team_id, metric_name, series_fingerprint, time_bucket)
 TTL original_expiry_timestamp
-SETTINGS index_granularity = 8192
+SETTINGS
+    index_granularity = 8192,
+    ttl_only_drop_parts = 1
 """
 
 
