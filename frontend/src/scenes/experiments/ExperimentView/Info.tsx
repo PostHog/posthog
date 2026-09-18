@@ -17,6 +17,7 @@ import { getExperimentStatus, isExperimentPaused } from 'products/experiments/fr
 
 import { experimentLogic } from '../experimentLogic'
 import { modalsLogic } from '../modalsLogic'
+import { isLegacyExperiment } from '../utils'
 import { ExperimentDuration } from './ExperimentDuration'
 import { ExperimentReloadActionContainer } from './ExperimentReloadActionContainer'
 import { flagCleanupTaskLogic } from './flagCleanupTaskLogic'
@@ -222,7 +223,7 @@ export function Info(): JSX.Element {
                                 onClick={openRunningTimeConfigModal}
                                 isExperimentDraft={isExperimentDraft}
                             />
-                            {status !== ExperimentStatus.Draft && (
+                            {status !== ExperimentStatus.Draft && !isLegacyExperiment(experiment) && (
                                 <ExperimentReloadActionContainer experiment={experiment} lastRefresh={lastRefresh} />
                             )}
                             <div className="flex flex-col">

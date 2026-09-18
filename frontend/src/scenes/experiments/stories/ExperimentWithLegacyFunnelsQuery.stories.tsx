@@ -1,5 +1,6 @@
 import { Meta, StoryObj } from '@storybook/react'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { makeDelay } from 'lib/utils/async'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
@@ -50,3 +51,11 @@ type Story = StoryObj<{}>
 
 // Small delay to ensure charts render completely
 export const ExperimentWithLegacyFunnelsQuery: Story = { play: makeDelay(500) }
+
+export const ExperimentWithLegacyFunnelsQueryRetired: Story = {
+    parameters: {
+        ...meta.parameters,
+        featureFlags: [FEATURE_FLAGS.EXPERIMENTS_LEGACY_VIEW_REMOVED],
+    },
+    play: makeDelay(500),
+}
