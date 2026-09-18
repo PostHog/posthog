@@ -12,6 +12,7 @@ from posthog.event_usage import EventSource
 from posthog.models import Organization, Team
 
 from ee.hogai.mcp_tool import MCPToolResult
+from ee.hogai.tool_errors import MaxToolTransientError
 
 
 class TestMCPToolsAPI(APIBaseTest):
@@ -139,7 +140,7 @@ class TestMCPToolsAPI(APIBaseTest):
 
     @patch("ee.hogai.tools.execute_sql.mcp_tool.ExecuteSQLMCPTool.execute", new_callable=AsyncMock)
     def test_invoke_tool_unexpected_error_returns_internal_error(self, mock_execute):
-        mock_execute.side_effect = RuntimeError("unexpected")
+        mock_execute.side_effect = RuntimeError("column customer_secret does not exist")
 
         response = self.client.post(
             f"/api/environments/{self.team.id}/mcp_tools/execute_sql/",
@@ -153,13 +154,11 @@ class TestMCPToolsAPI(APIBaseTest):
         self.assertEqual(data["error"]["category"], "internal")
         self.assertEqual(data["error"]["tool"], "execute_sql")
         # The defect's own message stays out of the reply; the ID is what ties it to the trace.
-        self.assertNotIn("unexpected", data["content"])
+        self.assertNotIn("customer_secret", data["content"])
         self.assertIn(data["error"]["correlation_id"], data["content"])
 
     @patch("ee.hogai.tools.execute_sql.mcp_tool.ExecuteSQLMCPTool.execute", new_callable=AsyncMock)
     def test_invoke_tool_transient_error_tells_the_caller_a_retry_is_safe(self, mock_execute):
-        from ee.hogai.tool_errors import MaxToolTransientError
-
         mock_execute.side_effect = MaxToolTransientError("Queries are a little too busy right now")
 
         response = self.client.post(
