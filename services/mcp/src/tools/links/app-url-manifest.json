@@ -264,6 +264,11 @@
         "params": [],
         "scope": "project"
     },
+    "businessKnowledgeSource": {
+        "template": "/business-knowledge/{id}",
+        "params": ["id"],
+        "scope": "project"
+    },
     "canvas": {
         "template": "/canvas",
         "params": [],
@@ -362,6 +367,11 @@
     "customerAnalyticsAccount": {
         "template": "/customer_analytics/accounts/{accountId}",
         "params": ["accountId"],
+        "scope": "project"
+    },
+    "customerAnalyticsAccountByExternalId": {
+        "template": "/customer_analytics/accounts/by-external-id/{externalId}",
+        "params": ["externalId"],
         "scope": "project"
     },
     "customerAnalyticsAccounts": {

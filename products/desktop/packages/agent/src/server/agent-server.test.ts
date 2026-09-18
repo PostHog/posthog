@@ -6776,6 +6776,7 @@ describe("AgentServer HTTP Mode", () => {
         "*Created with [PostHog Desktop](https://posthog.com/desktop?ref=pr)*",
       );
       expect(prompt).toContain(".github/pull_request_template.md");
+      expect(prompt).toContain(".github/PULL_REQUEST_TEMPLATE/*.md");
       expect(prompt).toContain("gh issue list --search");
       expect(prompt).toContain("Closes #<n>");
     });
@@ -6803,11 +6804,14 @@ describe("AgentServer HTTP Mode", () => {
           "open a draft pull request",
           "unless the user explicitly asks",
           ".github/pull_request_template.md",
+          ".github/PULL_REQUEST_TEMPLATE/*.md",
           "gh issue list --search",
           "Closes #<n>",
           "Generated-By: PostHog Desktop",
           "Task-Id: test-task-id",
           "canonical `posthog:exec` tool",
+          "`posthog:business-knowledge-documents-search`",
+          "whatever else the question is about",
           "`posthog:read-data-schema`",
           "`posthog:metric-list`",
           "`posthog:metric-describe`",
@@ -6836,6 +6840,8 @@ describe("AgentServer HTTP Mode", () => {
           "You may make local edits in a repository cloned with `clone_repo`",
           "Do NOT create branches, commits, push changes, or open pull requests in this run",
           "canonical `posthog:exec` tool",
+          "`posthog:business-knowledge-documents-search`",
+          "whatever else the question is about",
           "`posthog:metric-list`",
           "`posthog:metric-describe`",
           "`posthog:data-catalog-metric-run`",
@@ -6880,6 +6886,7 @@ describe("AgentServer HTTP Mode", () => {
       );
       // PR template detection (repo first, org `.github` fallback)
       expect(prompt).toContain(".github/pull_request_template.md");
+      expect(prompt).toContain(".github/PULL_REQUEST_TEMPLATE/*.md");
       expect(prompt).toContain("org's `.github` repo");
       // Related-issue linking
       expect(prompt).toContain("gh issue list --state open --search");
