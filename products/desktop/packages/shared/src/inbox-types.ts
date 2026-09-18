@@ -421,20 +421,22 @@ export type SourceProduct =
   | "llm_analytics"
   | "replay_vision"
   | "session_replay"
+  | "signals_check"
   | "signals_scout"
   | ExternalInboxSourceProduct;
 
 /**
  * Products that render as a toggle in the Self-driving sources modal.
  *
- * `signals_scout` appears only as a signal origin and is always on. `replay_vision` authorizes
- * itself through each scanner's own `emits_signals` flag, so there is no config row to toggle.
- * `session_replay` is retired: the session summarization behind it is gone, and it survives here
- * only so reports emitted before that still render their source.
+ * `signals_scout` appears only as a signal origin and is always on. `signals_check` is emitted by
+ * the inbox to itself when a report check fails, so there is nothing for a team to connect.
+ * `replay_vision` authorizes itself through each scanner's own `emits_signals` flag, so there is
+ * no config row to toggle. `session_replay` is retired: the session summarization behind it is
+ * gone, and it survives here only so reports emitted before that still render their source.
  */
 export type ToggleableSourceProduct = Exclude<
   SourceProduct,
-  "signals_scout" | "replay_vision" | "session_replay"
+  "signals_check" | "signals_scout" | "replay_vision" | "session_replay"
 >;
 
 /**
@@ -442,6 +444,7 @@ export type ToggleableSourceProduct = Exclude<
  * warehouse record kinds.
  */
 export type SourceType =
+  | "check_failed"
   | "cross_source_issue"
   | "evaluation"
   | "evaluation_report"
