@@ -2236,8 +2236,13 @@ jobs:
                   echo "changed=$changed" >> $GITHUB_OUTPUT
                   # A branch that predates the crate has nothing to install.
                   rust_changed=false
-                  if [[ -f rust/hogql/parser/pyproject.toml ]] && ! git diff --quiet HEAD FETCH_HEAD -- rust/hogql/parser/; then
-                      rust_changed=true
+                  if [[ -f rust/hogql/parser/pyproject.toml ]]; then
+                      crate_version=$(grep -m1 '^version = ' rust/hogql/parser/pyproject.toml | sed -E 's/version = "(.*)"/\1/')
+                      # Publishing is a manual step after merge, so master can carry a crate version that
+                      # the root pin does not name yet. That version builds from source too.
+                      if ! git diff --quiet HEAD FETCH_HEAD -- rust/hogql/parser/ || ! grep -q "\"hogql-parser-rs==$crate_version\"" pyproject.toml; then
+                          rust_changed=true
+                      fi
                   fi
                   echo "rust_changed=$rust_changed" >> $GITHUB_OUTPUT
             # tests would intermittently fail in GH actions
