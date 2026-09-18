@@ -27,6 +27,27 @@ describe('LLMMessageDisplay', () => {
         cleanup()
     })
 
+    it.each<[string, CompatMessage, boolean]>([
+        ['content to reveal', { role: 'tool', content: 'search result' }, true],
+        ['only keyword args to reveal', { role: 'tool', content: '', tool_call_id: 'call_1' }, true],
+        ['nothing to reveal', { role: 'tool', content: '' }, false],
+    ])('offers the role label as a toggle only when a message has %s', (_label, message, expectedToggle) => {
+        const onToggle = jest.fn()
+        const { container } = render(
+            <Provider>
+                <LLMMessageDisplay message={message} show={false} onToggle={onToggle} />
+            </Provider>
+        )
+
+        const toggle = container.querySelector('[data-attr="llm-message-role-toggle"]')
+        expect(!!toggle).toBe(expectedToggle)
+
+        if (toggle) {
+            fireEvent.click(toggle)
+            expect(onToggle).toHaveBeenCalled()
+        }
+    })
+
     it.each([
         [
             'bracket-prefixed thinking text',

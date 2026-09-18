@@ -86,6 +86,8 @@ export function createPersonFilter(filterIdentifier: FilterIdentifier): AnyPrope
     }
 }
 
+const MODEL_PROPERTY = '$ai_model'
+
 export function getTracesUrlWithPersonFilter(
     filterIdentifier: FilterIdentifier,
     dateRange?: { dateFrom: string | null; dateTo: string | null }
@@ -139,6 +141,43 @@ function PersonColumnCell({ person }: { person: PersonData | null | undefined })
                 </Tooltip>
             )}
         </div>
+    )
+}
+
+function ModelColumnCell({ model }: { model: string }): JSX.Element {
+    const { setPropertyFilters } = useActions(aiObservabilitySharedLogic)
+    const { propertyFilters } = useValues(aiObservabilitySharedLogic)
+
+    const handleFilterByModel = (): void => {
+        const filterExists = propertyFilters.some(
+            (f) => f.type === PropertyFilterType.Event && f.key === MODEL_PROPERTY && 'value' in f && f.value === model
+        )
+
+        if (!filterExists) {
+            setPropertyFilters([
+                ...propertyFilters,
+                {
+                    type: PropertyFilterType.Event,
+                    key: MODEL_PROPERTY,
+                    operator: PropertyOperator.Exact,
+                    value: model,
+                },
+            ])
+        }
+    }
+
+    return (
+        <Tooltip title={`Filter by ${model}`}>
+            <LemonButton
+                size="xsmall"
+                noPadding
+                className="px-1 -mx-1"
+                onClick={handleFilterByModel}
+                data-attr="generation-model-filter"
+            >
+                {model}
+            </LemonButton>
+        </Tooltip>
     )
 }
 
@@ -399,6 +438,16 @@ export const aiObservabilityColumnRenderers: Record<string, QueryContextColumn> 
                 return <>–</>
             }
             return <AIOutputCell eventData={eventData} />
+        },
+    },
+    "f'{properties.$ai_model}' -- Model": {
+        title: 'Model',
+        render: ({ value }) => {
+            if (!value || typeof value !== 'string') {
+                return <>–</>
+            }
+
+            return <ModelColumnCell model={value} />
         },
     },
     'properties.$ai_trace_id': {
