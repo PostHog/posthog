@@ -144,6 +144,12 @@ class BackfillWarehousePersonPropertiesWorkflow(PostHogWorkflow):
         # revision that must run after the current activity.
         self._pending_inputs = dataclasses.replace(inputs, skip_initial_run=False)
 
+    @property
+    def _has_pending_request(self) -> bool:
+        """Whether a request is queued. A signal handler can queue one during any await, so read
+        this rather than the field: a narrowed field reads as empty for the rest of the run."""
+        return self._pending_inputs is not None
+
     @staticmethod
     def parse_inputs(inputs: list[str]) -> PersonPropertyBackfillActivityInputs:
         loaded = json.loads(inputs[0])
@@ -171,16 +177,16 @@ class BackfillWarehousePersonPropertiesWorkflow(PostHogWorkflow):
                 # queued, so serve that before giving up — a mapping edit must not die with the run
                 # it happened to overlap. With nothing pending, fail the workflow as before.
                 await workflow.wait_condition(workflow.all_handlers_finished)
-                if self._pending_inputs is None:
+                if not self._has_pending_request:
                     raise
                 continue
 
             # Drain signal handlers and re-check before completing. A signal racing the completion
             # command makes Temporal replay this task; a signal after completion starts a fresh run.
             await workflow.wait_condition(workflow.all_handlers_finished)
-            if self._pending_inputs is None:
+            if not self._has_pending_request:
                 return
 
 
-PERSON_PROPERTY_BACKFILL_WORKFLOWS = [BackfillWarehousePersonPropertiesWorkflow]
+PERSON_PROPERTY_BACKFILL_WORKFLOWS: list[type[PostHogWorkflow]] = [BackfillWarehousePersonPropertiesWorkflow]
 PERSON_PROPERTY_BACKFILL_ACTIVITIES = [backfill_warehouse_person_properties_activity]
