@@ -880,9 +880,6 @@ const scoutEmitReport = (): ToolBase<ReturnType<typeof ScoutEmitReportSchema>, S
     handler: async (context: Context, params: z.infer<ReturnType<typeof ScoutEmitReportSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
-        if (params.space_id !== undefined) {
-            body['space_id'] = params.space_id
-        }
         if (params.title !== undefined) {
             body['title'] = params.title
         }
@@ -1653,9 +1650,6 @@ const signalsScoutEmitReport = (): ToolBase<
     handler: async (context: Context, params: z.infer<ReturnType<typeof SignalsScoutEmitReportSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
-        if (params.space_id !== undefined) {
-            body['space_id'] = params.space_id
-        }
         if (params.title !== undefined) {
             body['title'] = params.title
         }

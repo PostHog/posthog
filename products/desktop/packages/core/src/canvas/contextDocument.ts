@@ -88,7 +88,7 @@ const linkSchema = z.object({
 const objectSchema = z.object({
   kind: z.enum(OBJECT_KINDS),
   title: z.string(),
-  url: z.string(),
+  url: z.string().refine(isHttpUrl, "Must be an http(s) URL"),
 });
 
 const targetSchema = z

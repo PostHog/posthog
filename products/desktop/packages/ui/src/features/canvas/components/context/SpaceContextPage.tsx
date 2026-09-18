@@ -7,18 +7,13 @@ import {
 } from "@posthog/core/canvas/contextDocument";
 import { spaceFilesFolder } from "@posthog/core/canvas/contextFiles";
 import { Button, cn, Text } from "@posthog/quill";
-import { isTerminalStatus, type Task } from "@posthog/shared/domain-types";
 import { CreateChannelModal } from "@posthog/ui/features/canvas/components/CreateChannelModal";
 import {
   buildGoalMeasurePrompt,
   GOAL_MEASURE_AGENT,
   goalMeasureTaskTitle,
 } from "@posthog/ui/features/canvas/contextPrompt";
-import {
-  type GoalMeasureTask,
-  readGoalMeasureTaskIds,
-  writeGoalMeasureTaskIds,
-} from "@posthog/ui/features/canvas/goalMeasureTasks";
+import { goalMeasureTasks } from "@posthog/ui/features/canvas/goalMeasureTasks";
 import { useChannelFeed } from "@posthog/ui/features/canvas/hooks/useChannelFeed";
 import type { ContextDocumentStore } from "@posthog/ui/features/canvas/hooks/useContextDocumentStore";
 import { useGenerateContext } from "@posthog/ui/features/canvas/hooks/useGenerateContext";
@@ -35,12 +30,11 @@ import {
 import { RelativeTimestamp } from "@posthog/ui/primitives/RelativeTimestamp";
 import { Spinner } from "@posthog/ui/primitives/Spinner";
 import { navigateToChannelTask } from "@posthog/ui/router/navigationBridge";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { ContextEmptyHero } from "./ContextEmptyHero";
 import { GoalsList } from "./GoalsList";
 import { KnowledgeList } from "./KnowledgeList";
 import { MarkdownFileDialog } from "./MarkdownFileDialog";
-import { SignalsMargin } from "./SignalsMargin";
 
 const COLUMN = "mx-auto w-full max-w-[1100px] px-8";
 
@@ -69,14 +63,7 @@ export function SpaceContextPage({
 }: SpaceContextPageProps) {
   const [agentOpen, setAgentOpen] = useState(false);
   const [editingContextFile, setEditingContextFile] = useState(false);
-  const [measureTaskIds, setMeasureTaskIds] = useState<Record<string, string>>(
-    () => readGoalMeasureTaskIds(channelId),
-  );
-  useEffect(() => {
-    setMeasureTaskIds(readGoalMeasureTaskIds(channelId));
-  }, [channelId]);
-  const { tasks: channelTasks, isLoading: channelTasksLoading } =
-    useChannelFeed(channelId);
+  const { tasks: channelTasks } = useChannelFeed(channelId);
   const contextLayerEnabled = useContextLayerFlag();
   const { generate } = useGenerateContext();
   const parsed = useMemo(() => parseDocument(store.content), [store.content]);
@@ -89,23 +76,9 @@ export function SpaceContextPage({
     doc.links.length === 0 &&
     doc.objects.length === 0;
   const measureTasks = useMemo(
-    () =>
-      new Map(
-        doc.goals.flatMap((goal) => {
-          const taskId = measureTaskIds[goal.name];
-          if (!taskId || goal.measure !== null) return [];
-          const task = taskStateFor(taskId, channelTasks, channelTasksLoading);
-          return [[goal.name, task] as const];
-        }),
-      ),
-    [doc.goals, measureTaskIds, channelTasks, channelTasksLoading],
+    () => goalMeasureTasks(doc.goals, channelTasks),
+    [doc.goals, channelTasks],
   );
-
-  const rememberTask = (key: string, taskId: string) => {
-    const next = { ...measureTaskIds, [key]: taskId };
-    setMeasureTaskIds(next);
-    writeGoalMeasureTaskIds(channelId, next);
-  };
 
   const saveDoc = (next: ContextDocument) =>
     store.save(serializeContextDocument(next));
@@ -116,7 +89,7 @@ export function SpaceContextPage({
   };
 
   const askAgentForMeasure = async (goal: ContextGoal) => {
-    const task = await generate({
+    await generate({
       channelId,
       channelName,
       description: "",
@@ -130,7 +103,6 @@ export function SpaceContextPage({
       title: goalMeasureTaskTitle(goal.name),
       agent: GOAL_MEASURE_AGENT,
     });
-    if (task) rememberTask(goal.name, task.id);
   };
 
   return (
@@ -188,7 +160,7 @@ export function SpaceContextPage({
         </div>
       ) : null}
       {ready ? (
-        <div className="@container min-h-0 flex-1 overflow-y-auto">
+        <div className="min-h-0 flex-1 overflow-y-auto">
           <div className={cn(COLUMN, "flex flex-col gap-6 pt-10 pb-24")}>
             {store.saveError ? (
               <div className="flex items-center justify-between gap-3 border-border border-y py-2.5">
@@ -226,27 +198,16 @@ export function SpaceContextPage({
                   }
                   isSaving={store.isSaving}
                 />
-                <div className="grid @4xl:grid-cols-[minmax(0,1fr)_300px] grid-cols-1 @4xl:gap-14 gap-10">
-                  <div className="@4xl:order-none order-last min-w-0">
-                    <KnowledgeList
-                      channelName={channelName}
-                      links={doc.links}
-                      objects={doc.objects}
-                      filesFolder={wikiPath ? spaceFilesFolder(wikiPath) : null}
-                      onOpenContextFile={() => setEditingContextFile(true)}
-                      onLinksChange={(links) => saveDoc({ ...doc, links })}
-                      onObjectsChange={(objects) =>
-                        saveDoc({ ...doc, objects })
-                      }
-                      isSaving={store.isSaving}
-                    />
-                  </div>
-                  <div className="min-w-0">
-                    <div className="@4xl:sticky @4xl:top-0">
-                      <SignalsMargin objects={doc.objects} />
-                    </div>
-                  </div>
-                </div>
+                <KnowledgeList
+                  channelName={channelName}
+                  links={doc.links}
+                  objects={doc.objects}
+                  filesFolder={wikiPath ? spaceFilesFolder(wikiPath) : null}
+                  onOpenContextFile={() => setEditingContextFile(true)}
+                  onLinksChange={(links) => saveDoc({ ...doc, links })}
+                  onObjectsChange={(objects) => saveDoc({ ...doc, objects })}
+                  isSaving={store.isSaving}
+                />
               </div>
             )}
           </div>
@@ -303,16 +264,4 @@ function documentProblem(
     };
   }
   return null;
-}
-
-function taskStateFor(
-  taskId: string,
-  channelTasks: Task[],
-  loading: boolean,
-): GoalMeasureTask {
-  const task = channelTasks.find((candidate) => candidate.id === taskId);
-  const ended = task
-    ? isTerminalStatus(task.latest_run?.status)
-    : !loading && channelTasks.length > 0;
-  return { taskId, state: ended ? "ended" : "running" };
 }

@@ -13,6 +13,12 @@ import {
 } from "@posthog/ui/features/canvas/deriveTrendSql";
 import { useAuthenticatedQuery } from "@posthog/ui/hooks/useAuthenticatedQuery";
 
+const LIVE_QUERY = {
+  staleTime: 60_000,
+  refetchInterval: 5 * 60_000,
+  retry: false,
+} as const;
+
 export const goalMeasureQueryKey = (measure: GoalMeasure | null) =>
   [
     "context-goal-measure",
@@ -41,9 +47,7 @@ export function useGoalMeasure(measure: GoalMeasure | null) {
       enabled:
         measure !== null &&
         (measure.kind === "insight" || measure.sql.trim().length > 0),
-      staleTime: 0,
-      refetchInterval: 60_000,
-      retry: false,
+      ...LIVE_QUERY,
     },
   );
 }
@@ -145,11 +149,6 @@ export function useGoalTrend(goalName: string, measure: GoalMeasure | null) {
         points: trendPoints(grid.results, query.period),
       };
     },
-    {
-      enabled: query !== null,
-      staleTime: 0,
-      refetchInterval: 60_000,
-      retry: false,
-    },
+    { enabled: query !== null, ...LIVE_QUERY },
   );
 }

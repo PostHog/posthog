@@ -1,32 +1,34 @@
-import { z } from "zod";
+import type { ContextGoal } from "@posthog/core/canvas/contextDocument";
+import { isTerminalStatus, type Task } from "@posthog/shared/domain-types";
+import { goalMeasureTaskTitle } from "./contextPrompt";
 
 export interface GoalMeasureTask {
   taskId: string;
   state: "running" | "ended";
 }
 
-const taskIdsByGoal = z.record(z.string(), z.string());
-
-const storageKey = (channelId: string) =>
-  `context-goal-measure-tasks:${channelId}`;
-
-export function readGoalMeasureTaskIds(
-  channelId: string,
-): Record<string, string> {
-  try {
-    const raw = window.localStorage.getItem(storageKey(channelId));
-    const parsed = taskIdsByGoal.safeParse(raw ? JSON.parse(raw) : null);
-    return parsed.success ? parsed.data : {};
-  } catch {
-    return {};
-  }
+function newest(tasks: Task[]): Task | undefined {
+  return tasks.reduce<Task | undefined>(
+    (latest, task) =>
+      latest && latest.created_at >= task.created_at ? latest : task,
+    undefined,
+  );
 }
 
-export function writeGoalMeasureTaskIds(
-  channelId: string,
-  ids: Record<string, string>,
-): void {
-  try {
-    window.localStorage.setItem(storageKey(channelId), JSON.stringify(ids));
-  } catch {}
+export function goalMeasureTasks(
+  goals: ContextGoal[],
+  channelTasks: Task[],
+): Map<string, GoalMeasureTask> {
+  return new Map(
+    goals.flatMap((goal) => {
+      if (goal.measure !== null) return [];
+      const title = goalMeasureTaskTitle(goal.name);
+      const task = newest(channelTasks.filter((task) => task.title === title));
+      if (!task) return [];
+      const state = isTerminalStatus(task.latest_run?.status)
+        ? "ended"
+        : "running";
+      return [[goal.name, { taskId: task.id, state }] as const];
+    }),
+  );
 }

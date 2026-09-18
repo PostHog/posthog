@@ -322,29 +322,6 @@ def close_pr_when_report_dismissed(
 
 
 @receiver(post_save, sender=SignalReport)
-def route_surfaced_report_to_space(
-    sender: type[SignalReport],
-    instance: SignalReport,
-    created: bool,
-    update_fields: set[str] | None = None,
-    **kwargs: Any,
-) -> None:
-    if not created and update_fields is not None and "status" not in update_fields:
-        return
-    if instance.status not in (SignalReport.Status.READY, SignalReport.Status.PENDING_INPUT):
-        return
-    from products.signals.backend.space_routing import route_report_to_space  # noqa: PLC0415
-
-    def _route() -> None:
-        try:
-            route_report_to_space(instance.team_id, str(instance.id))
-        except Exception:
-            logger.warning("space_routing.failed", report_id=str(instance.id), exc_info=True)
-
-    transaction.on_commit(_route)
-
-
-@receiver(post_save, sender=SignalReport)
 def emit_report_embedding_on_document_change(
     sender: type[SignalReport],
     instance: SignalReport,
