@@ -321,12 +321,21 @@ def kernel_sandbox_is_live(*, team_id: int, notebook_short_id: str, user_id: int
 
     A RUNNING row can outlive its sandbox, so a caller deciding whether to restart needs this
     rather than the row's own status.
+
+    Scoped to the user as well as the team, because runtimes are per user and the check below
+    resolves the kernel service for this one: another user's row would answer about their
+    sandbox. A token user owns no runtime, so `user=None` matches only the unowned rows.
     """
     notebook = _resolve_notebook(team_id, notebook_short_id)
-    runtime = KernelRuntime.objects.filter(id=runtime_id, team_id=team_id).first()
+    user = _resolve_user(user_id)
+    if user_id is not None and user is None:
+        # The user is gone, so none of their runtimes are theirs to report on. Without this,
+        # the filter below would quietly widen to the unowned rows.
+        return False
+    runtime = KernelRuntime.objects.filter(id=runtime_id, team_id=team_id, user=user).first()
     if runtime is None:
         return False
-    return sandbox_is_running(notebook, _resolve_user(user_id), runtime)
+    return sandbox_is_running(notebook, user, runtime)
 
 
 def dispatch_node_run(notebook: Notebook, user: User | None, team: Team, request: NodeRunRequest) -> NodeRunDispatch:
