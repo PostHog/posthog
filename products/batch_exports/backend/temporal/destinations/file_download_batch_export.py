@@ -298,52 +298,6 @@ async def export_to_file_download_bucket_with_temporary_credentials(inputs: Expo
         )
         # Minting the first credentials calls AWS STS, and this activity heartbeats every 10 seconds,
         # so the call runs under the heartbeater rather than ahead of it.
-        prefix = FILE_DOWNLOAD_PREFIX.format(
-            batch_export_id=inputs.batch_export.batch_export_id, batch_export_run_id=inputs.batch_export.run_id
-        )
-        file_name_prefix = None
-        if inputs.batch_export.on_demand and (
-            inputs.batch_export.data_interval_start is None or inputs.batch_export.data_interval_end is None
-        ):
-            run_id = inputs.batch_export.run_id
-            if run_id is None:
-                raise MissingRequiredInputsError("An on-demand file download requires a run_id")
-            prefix = FILE_DOWNLOAD_UNBOUNDED_PREFIX.format(
-                batch_export_id=inputs.batch_export.batch_export_id, batch_export_run_id=run_id
-            )
-            run = await BatchExportRun.objects.aget(
-                id=run_id, batch_export_on_demand__team_id=inputs.batch_export.team_id
-            )
-            file_name_prefix = f"export-{run.created_at.astimezone(dt.UTC):%Y-%m-%dT%H-%M-%SZ}"
-
-        refresh_credentials = functools.partial(
-            _get_temporary_credentials_for_multipart_upload,
-            inputs.s3_bucket.name,
-            f"batch-exports/{inputs.batch_export.batch_export_id}/{inputs.batch_export.run_id}",
-            role_arn=inputs.aws_role_arn,
-        )
-
-        s3_insert_inputs = S3InsertInputs(
-            bucket_name=inputs.s3_bucket.name,
-            region=inputs.s3_bucket.region,
-            prefix=prefix,
-            compression=inputs.compression,
-            file_format=inputs.file_format,
-            max_file_size_mb=inputs.max_file_size_mb,
-            data_interval_start=inputs.batch_export.data_interval_start,
-            data_interval_end=inputs.batch_export.data_interval_end,
-            exclude_events=inputs.batch_export.exclude_events,
-            include_events=inputs.batch_export.include_events,
-            team_id=inputs.batch_export.team_id,
-            run_id=inputs.batch_export.run_id,
-            stage_folder=inputs.batch_export.stage_folder,
-            batch_export_model=inputs.batch_export.batch_export_model,
-            batch_export_id=inputs.batch_export.batch_export_id,
-            destination_default_fields=inputs.batch_export.destination_default_fields,
-            on_demand=inputs.batch_export.on_demand,
-        )
-        # Minting the first credentials calls AWS STS, and this activity heartbeats every 10 seconds,
-        # so the call runs under the heartbeater rather than ahead of it.
         resolved_credentials = ResolvedS3Credentials(
             credentials=await refresh_credentials(),
             refresh_using=refresh_credentials,
