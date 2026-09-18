@@ -315,6 +315,7 @@ function SortableTabPill({
           defaultValue={split.name ?? ""}
           placeholder="Name this split"
           aria-label="Split name"
+          onFocus={(event) => event.currentTarget.select()}
           className="h-6 w-full min-w-0 rounded-md bg-background px-2 text-xs outline-none ring-1 ring-accent-8"
           onKeyDown={(event) => {
             if (event.key === "Enter") {
