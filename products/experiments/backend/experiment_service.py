@@ -3,7 +3,7 @@
 import json
 import time
 from collections import defaultdict
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Mapping, Sequence
 from copy import deepcopy
 from datetime import date, datetime, timedelta
 from enum import Enum
@@ -892,7 +892,7 @@ class ExperimentService:
     def validate_conversion_window_units(
         cls,
         metrics: list | None,
-        stored_metrics_by_uuid: Mapping[str, Any],
+        stored_metrics: Sequence[Any],
         *,
         section: str,
     ) -> None:
@@ -902,7 +902,7 @@ class ExperimentService:
         metrics (the serializer field validators on every write, and the copy path), and stored
         metrics predate this rule, so a check there would make those experiments uneditable.
         """
-        index = first_unitless_conversion_window(metrics, stored_metrics_by_uuid)
+        index = first_unitless_conversion_window(metrics, stored_metrics)
         if index is not None:
             raise ValidationError(f"Invalid metric at index {index} in {section}: {UNITLESS_CONVERSION_WINDOW_ERROR}")
 
@@ -1316,10 +1316,10 @@ class ExperimentService:
         self.validate_experiment_metrics(metrics)
         self.validate_experiment_metrics(metrics_secondary)
         if creation_mode == "new":
-            # Duplicate and copy carry the source's stored metrics, which may hold a unit-less
-            # window from before the rule. Cloning must not be the operation that rejects them.
-            self.validate_conversion_window_units(metrics, {}, section="metrics")
-            self.validate_conversion_window_units(metrics_secondary, {}, section="metrics_secondary")
+            # Duplicate and copy carry the source's stored metrics, so cloning must not be the
+            # operation that rejects a window saved before this rule.
+            self.validate_conversion_window_units(metrics, [], section="metrics")
+            self.validate_conversion_window_units(metrics_secondary, [], section="metrics_secondary")
         self.validate_metric_action_ids(metrics, self.team.id)
         self.validate_metric_action_ids(metrics_secondary, self.team.id)
         if not allow_unknown_events:
@@ -3610,18 +3610,20 @@ class ExperimentService:
             [*(experiment.metrics or []), *(experiment.metrics_secondary or [])]
         )
 
-        # Same reasoning for conversion windows, matched per metric rather than pooled by
-        # reference. Run before _assign_uuids_to_metrics, which can hand an incoming metric a
-        # fresh uuid and so hide the stored metric it came from.
-        stored_metrics_by_uuid: dict[str, Any] = {}
-        for metric in [*(experiment.metrics or []), *(experiment.metrics_secondary or [])]:
-            if isinstance(metric, dict) and isinstance(metric.get("uuid"), str):
-                stored_metrics_by_uuid[metric["uuid"]] = metric
+        # Conversion windows follow the same rule, matched per metric by the uuid as sent, and
+        # before _assign_uuids_to_metrics replaces it. Only sections this update rewrites count as
+        # stored: a uuid reused from a section it leaves alone is a copy, and is regenerated too.
+        stored_metrics_for_match = [
+            metric
+            for field in ("metrics", "metrics_secondary")
+            if field in update_data
+            for metric in (getattr(experiment, field) or [])
+        ]
         if "metrics" in update_data:
-            self.validate_conversion_window_units(update_data["metrics"], stored_metrics_by_uuid, section="metrics")
+            self.validate_conversion_window_units(update_data["metrics"], stored_metrics_for_match, section="metrics")
         if "metrics_secondary" in update_data:
             self.validate_conversion_window_units(
-                update_data["metrics_secondary"], stored_metrics_by_uuid, section="metrics_secondary"
+                update_data["metrics_secondary"], stored_metrics_for_match, section="metrics_secondary"
             )
 
         if "metrics" in update_data:

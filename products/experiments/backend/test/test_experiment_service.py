@@ -1013,13 +1013,16 @@ class TestExperimentService(APIBaseTest):
     # ------------------------------------------------------------------
 
     @staticmethod
-    def _metric_with_window(uuid: str, conversion_window: int | None, conversion_window_unit: str | None) -> dict:
+    def _metric_with_window(
+        uuid: str | None, conversion_window: int | None, conversion_window_unit: str | None
+    ) -> dict:
         metric: dict[str, Any] = {
             "kind": "ExperimentMetric",
             "metric_type": "mean",
             "source": {"kind": "EventsNode", "event": "$pageview"},
-            "uuid": uuid,
         }
+        if uuid is not None:
+            metric["uuid"] = uuid
         if conversion_window is not None:
             metric["conversion_window"] = conversion_window
         if conversion_window_unit is not None:
@@ -1038,29 +1041,34 @@ class TestExperimentService(APIBaseTest):
         self, _: str, window: int | None, unit: str | None
     ) -> None:
         metric = self._metric_with_window("22222222-2222-4222-8222-222222222222", window, unit)
-        ExperimentService.validate_conversion_window_units([metric], {}, section="metrics")
-
-    def test_validate_conversion_window_units_accepts_stored_metric_resent_unchanged(self) -> None:
-        stored = self._metric_with_window(self._STORED_UNITLESS_UUID, 7, None)
-        ExperimentService.validate_conversion_window_units(
-            [deepcopy(stored)], {self._STORED_UNITLESS_UUID: stored}, section="metrics"
-        )
+        ExperimentService.validate_conversion_window_units([metric], [], section="metrics")
 
     @parameterized.expand(
         [
-            ("new_metric", 7, {}),
+            ("with_uuid", _STORED_UNITLESS_UUID),
+            # Metrics stored before uuids were assigned have none, and must stay editable too.
+            ("without_uuid", None),
+        ]
+    )
+    def test_validate_conversion_window_units_accepts_stored_metric_resent_unchanged(
+        self, _: str, uuid: str | None
+    ) -> None:
+        stored = self._metric_with_window(uuid, 7, None)
+        ExperimentService.validate_conversion_window_units([deepcopy(stored)], [stored], section="metrics")
+
+    @parameterized.expand(
+        [
+            ("new_metric", 7, []),
             # Same uuid as the stored metric, but the window changed, so the caller touched it.
-            ("changed_window_on_stored_metric", 14, {_STORED_UNITLESS_UUID: {"conversion_window": 7}}),
+            ("changed_window_on_stored_metric", 14, [{"uuid": _STORED_UNITLESS_UUID, "conversion_window": 7}]),
         ]
     )
     def test_validate_conversion_window_units_rejects_window_without_unit(
-        self, _: str, window: int, stored_metrics_by_uuid: dict
+        self, _: str, window: int, stored_metrics: list
     ) -> None:
         metric = self._metric_with_window(self._STORED_UNITLESS_UUID, window, None)
         with self.assertRaises(ValidationError) as ctx:
-            ExperimentService.validate_conversion_window_units(
-                [metric], stored_metrics_by_uuid, section="metrics_secondary"
-            )
+            ExperimentService.validate_conversion_window_units([metric], stored_metrics, section="metrics_secondary")
         message = str(ctx.exception)
         assert "conversion_window_unit" in message
         assert "metrics_secondary" in message
@@ -1109,6 +1117,40 @@ class TestExperimentService(APIBaseTest):
                 {"metrics": [self._metric_with_window(self._STORED_UNITLESS_UUID, 14, None)]},
                 allow_unknown_events=True,
             )
+        assert "conversion_window_unit" in str(ctx.exception)
+
+    def test_update_experiment_accepts_stored_unitless_metric_moved_between_sections(self) -> None:
+        stored = self._metric_with_window(self._STORED_UNITLESS_UUID, 7, None)
+        experiment = Experiment.objects.create(
+            team=self.team,
+            name="Stored unit-less secondary window",
+            feature_flag=self._create_flag(key="window-unit-move"),
+            metrics_secondary=[stored],
+            secondary_metrics_ordered_uuids=[self._STORED_UNITLESS_UUID],
+        )
+
+        updated = self._service().update_experiment(
+            experiment,
+            {"metrics": [deepcopy(stored)], "metrics_secondary": []},
+            allow_unknown_events=True,
+        )
+
+        assert [metric["uuid"] for metric in updated.metrics or []] == [self._STORED_UNITLESS_UUID]
+        assert updated.metrics_secondary == []
+
+    def test_update_experiment_rejects_uuid_borrowed_from_a_section_it_does_not_rewrite(self) -> None:
+        # The secondary list keeps its stored value, so the primary metric is a copy, not the
+        # stored metric. _assign_uuids_to_metrics gives it a fresh uuid for the same reason.
+        stored = self._metric_with_window(self._STORED_UNITLESS_UUID, 7, None)
+        experiment = Experiment.objects.create(
+            team=self.team,
+            name="Stored unit-less secondary window",
+            feature_flag=self._create_flag(key="window-unit-borrow"),
+            metrics_secondary=[stored],
+        )
+
+        with self.assertRaises(ValidationError) as ctx:
+            self._service().update_experiment(experiment, {"metrics": [deepcopy(stored)]}, allow_unknown_events=True)
         assert "conversion_window_unit" in str(ctx.exception)
 
     def test_duplicate_experiment_keeps_stored_unitless_window(self) -> None:

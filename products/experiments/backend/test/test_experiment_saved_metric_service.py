@@ -316,9 +316,18 @@ class TestExperimentSavedMetricService(APIBaseTest):
 
         assert "conversion_window_unit" in str(ctx.exception)
 
-    def test_update_saved_metric_keeps_stored_unitless_window_editable(self) -> None:
+    @parameterized.expand(
+        [
+            ("with_uuid", str(uuid4())),
+            # Saved metrics stored before uuids were assigned have none, and must stay editable too.
+            ("without_uuid", None),
+        ]
+    )
+    def test_update_saved_metric_keeps_stored_unitless_window_editable(self, _: str, uuid: str | None) -> None:
         # Written through the model: the service now refuses this shape, but saved metrics hold it.
-        stored_query = {**self._valid_experiment_metric(), "uuid": str(uuid4()), "conversion_window": 7}
+        stored_query = {**self._valid_experiment_metric(), "conversion_window": 7}
+        if uuid is not None:
+            stored_query["uuid"] = uuid
         saved_metric = ExperimentSavedMetric.objects.create(
             team=self.team,
             created_by=self.user,
