@@ -18,7 +18,8 @@ Capabilities for this project: the full `capabilities.posthog` shape with `state
 
 - [The content module (`src/plan.ts`)](#the-content-module-srcplants): the `Step` and `Section` types, the sample `SECTIONS` tree, and `TOTAL_STEPS`.
 - [The component (`src/canvas.tsx`)](#the-component-srccanvastsx): one file, in this order. It is a single block, so find a part by its name.
-  - `Entry`, `PREFIX`, `RESET_KEY`: the shape of one persisted step and the `step:<id>` key prefix.
+  - `Entry` and `PREFIX`: the shape of one persisted step, and the `step:<id>` prefix on its shared-state key.
+  - `RESET_KEY`: the `saveErrors` key that holds a failed reset.
   - `CommandBlock`: the copy button, with its success and failure states.
   - The first `useEffect`: reads saved progress with `ph.state.list`, and sets the loading and load-failure states.
   - The second `useEffect`: on unmount, clears the debounce timers it captured when it mounted.
