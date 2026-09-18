@@ -18,6 +18,7 @@ from products.tasks.backend.temporal.process_task.activities.get_task_processing
 from products.tasks.backend.temporal.process_task.activities.mark_pr_ready import mark_pr_ready
 from products.tasks.backend.temporal.process_task.workflow import (
     CIFollowUpDecision,
+    PendingFollowup,
     ProcessTaskInput,
     ProcessTaskWorkflow,
     ResumedSandboxState,
@@ -237,7 +238,7 @@ class TestBabysitFollowUpDecision:
         wf._agent_active = active
         wf._end_of_turn_received = not active
         if queued:
-            wf._pending_followups.append("More work")
+            wf._pending_followups.append(PendingFollowup(message="More work", artifact_ids=[]))
         snapshot = _babysit_snapshot(
             **{"pr_state": "draft", "ci_status": "passing", "mergeable": True, "feedback_complete": True, **overrides}
         )

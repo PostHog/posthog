@@ -39,9 +39,10 @@ def test_activity_rechecks_run_and_pr_before_requesting_review(monkeypatch, chan
         repository="example/widgets",
         distinct_id="user-1",
     )
+    pr_url = "https://github.com/example/widgets/pull/7"
     raw = {
         "success": True,
-        "url": "https://github.com/example/widgets/pull/7",
+        "url": pr_url,
         "state": "draft",
         "head_sha": "head1",
         "head_ref": "posthog/change",
@@ -49,7 +50,7 @@ def test_activity_rechecks_run_and_pr_before_requesting_review(monkeypatch, chan
         "mergeable": True,
         "feedback_complete": True,
     }
-    snapshot = PRSnapshot.from_raw(raw, raw["url"])
+    snapshot = PRSnapshot.from_raw(raw, pr_url)
     run = SimpleNamespace(status="in_progress", branch=raw["head_ref"], output={"pr_url": raw["url"]}, state={})
     github = MagicMock()
     github.mark_pull_request_ready_for_review.return_value = {"success": True, "changed": True}
