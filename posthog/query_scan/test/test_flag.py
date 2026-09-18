@@ -14,6 +14,7 @@ from posthog.query_scan.flag import (
     DEFAULT_EVENT_RATIO,
     DEFAULT_FLOOR_MS,
     DEFAULT_PERSONS_RATIO,
+    DEFAULT_START_DATE_RATIO,
     QueryScanMode,
     get_query_scan_flag,
 )
@@ -34,7 +35,7 @@ TEAM = cast(
 
 class TestQueryScanFlag(SimpleTestCase):
     def test_evaluates_on_the_organization_and_the_project(self) -> None:
-        payload = '{"floor_ms": 2000, "event_ratio": 0.2, "persons_ratio": 0.7}'
+        payload = '{"floor_ms": 2000, "event_ratio": 0.2, "persons_ratio": 0.7, "start_date_ratio": 0.05}'
         with patch.object(flag.posthoganalytics, "get_feature_flag_result") as get_result:
             get_result.return_value = SimpleNamespace(variant="show", payload=payload)
             result = get_query_scan_flag(TEAM)
@@ -44,6 +45,7 @@ class TestQueryScanFlag(SimpleTestCase):
         self.assertEqual(result.floor_ms, 2000)
         self.assertEqual(result.event_ratio, 0.2)
         self.assertEqual(result.persons_ratio, 0.7)
+        self.assertEqual(result.start_date_ratio, 0.05)
 
         get_result.assert_called_once()
         kwargs = get_result.call_args.kwargs
@@ -54,19 +56,27 @@ class TestQueryScanFlag(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("no payload", None, (DEFAULT_FLOOR_MS, DEFAULT_EVENT_RATIO, DEFAULT_PERSONS_RATIO)),
-            ("a float floor", {"floor_ms": 1500.0}, (1500, DEFAULT_EVENT_RATIO, DEFAULT_PERSONS_RATIO)),
+            (
+                "no payload",
+                None,
+                (DEFAULT_FLOOR_MS, DEFAULT_EVENT_RATIO, DEFAULT_PERSONS_RATIO, DEFAULT_START_DATE_RATIO),
+            ),
+            (
+                "a float floor",
+                {"floor_ms": 1500.0},
+                (1500, DEFAULT_EVENT_RATIO, DEFAULT_PERSONS_RATIO, DEFAULT_START_DATE_RATIO),
+            ),
         ]
     )
     def test_a_missing_threshold_falls_back_to_its_default(
-        self, _name: str, payload: object, expected: tuple[int, float, float]
+        self, _name: str, payload: object, expected: tuple[int, float, float, float]
     ) -> None:
         with patch.object(flag.posthoganalytics, "get_feature_flag_result") as get_result:
             get_result.return_value = SimpleNamespace(variant="show", payload=payload)
             result = get_query_scan_flag(TEAM)
 
         assert result is not None
-        self.assertEqual((result.floor_ms, result.event_ratio, result.persons_ratio), expected)
+        self.assertEqual((result.floor_ms, result.event_ratio, result.persons_ratio, result.start_date_ratio), expected)
 
     @parameterized.expand(
         [
