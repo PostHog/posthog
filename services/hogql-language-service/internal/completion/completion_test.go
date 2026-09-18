@@ -351,6 +351,7 @@ func TestCompletesScopedProjections(t *testing.T) {
 		{"alias virtual property shadow", "SELECT uuid AS session FROM events ORDER BY session.properties.$entry|", nil},
 		{"qualified properties bypass alias", "SELECT uuid AS properties FROM events ORDER BY events.properties.$geo_ci|", map[string]string{"$geo_city": "String"}},
 		{"no recovered select aliases", "SELECT amount AS total FROM orders WHERE tot| >", nil},
+		{"recovery preserves relation case", "SELECT Mixed.cus| FROM Events AS Mixed WHERE custom_field =", map[string]string{"custom_field": "string"}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			position := strings.IndexByte(test.query, '|')
@@ -358,6 +359,9 @@ func TestCompletesScopedProjections(t *testing.T) {
 			result, err := Complete(testCatalog(), query, position, PositionEncodingUTF8, "")
 			if err != nil {
 				t.Fatal(err)
+			}
+			if test.name == "recovery preserves relation case" && !strings.HasPrefix(result.ParseError, "parse incomplete SQL:") {
+				t.Fatalf("parse error = %q, want recovered incomplete SQL error", result.ParseError)
 			}
 			fields := map[string]string{}
 			for _, suggestion := range result.Suggestions {
