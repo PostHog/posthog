@@ -26,7 +26,7 @@ from products.slack_app.backend.facade.run_preferences import (
 from products.slack_app.backend.models import SlackThreadTaskMapping
 from products.slack_app.backend.prompt_templates import PromptTemplates
 from products.slack_app.backend.services.slack_messages import SlackThreadMessage
-from products.slack_app.backend.services.slack_user_info import get_cached_bot_user_id, get_slack_user_info
+from products.slack_app.backend.services.slack_user_info import find_addressed_bot_user_id
 
 logger = structlog.get_logger(__name__)
 
@@ -255,48 +255,6 @@ def _agent_directed_response_format() -> ResponseFormatJSONSchema:
     }
 
 
-_USER_MENTION_RE = re.compile(r"<@([A-Z0-9]+)(?:\|[^>]*)?>")
-
-
-def _bot_addressed_by_reply(slack: SlackIntegration, integration: Integration, event_text: str) -> str | None:
-    """The user id of a bot other than ours that this reply tags, or ``None``.
-
-    Other apps work in the same threads we do, and a reply that tags one is addressed to
-    that app. The webhook already drops what those apps post, because the author is a bot,
-    but nothing upstream reads who a human reply is *for*. The classifier cannot answer it
-    either: a mention reaches it as a bare ``<@U…>`` id, which says nothing about whose it
-    is, under a prompt that names the PostHog agent as the one working in this thread.
-
-    A reply that tags our own bot never arrives here. The webhook hands that copy to the
-    mention pipeline instead (``_message_tags_bot``).
-
-    Answers ``None`` when a lookup fails as well as when the reply tags no bot. An
-    unresolved mention is not evidence the message was for someone else, and the
-    classifier still has to judge it.
-    """
-    mentioned_ids = dict.fromkeys(_USER_MENTION_RE.findall(event_text))
-    if not mentioned_ids:
-        return None
-
-    our_bot_user_id = get_cached_bot_user_id(slack, integration)
-    for user_id in mentioned_ids:
-        if our_bot_user_id and user_id == our_bot_user_id:
-            continue
-        try:
-            user_info = get_slack_user_info(slack, integration, user_id)
-        except Exception:
-            logger.warning(
-                "posthog_code_thread_message_mention_lookup_failed",
-                integration_id=integration.id,
-                mentioned_user_id=user_id,
-                exc_info=True,
-            )
-            continue
-        if user_info.get("user", {}).get("is_bot"):
-            return user_id
-    return None
-
-
 def classify_message_is_agent_directed(
     event_text: str,
     task_title: str,
@@ -394,7 +352,7 @@ def classify_untagged_followup_activity(
 
     # Asked before the history fetch and the model call, because reading the reply cannot
     # answer it.
-    addressed_bot_user_id = _bot_addressed_by_reply(slack, integration, event_text)
+    addressed_bot_user_id = find_addressed_bot_user_id(slack, integration, event_text)
     if addressed_bot_user_id:
         logger.info(
             "posthog_code_thread_message_addressed_to_another_app",

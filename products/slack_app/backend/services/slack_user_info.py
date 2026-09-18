@@ -17,6 +17,7 @@ dependency. Living in `services/` lets all of them import normally and
 keeps `api.py` focused on routes.
 """
 
+import re
 from datetime import timedelta
 from typing import Any
 
@@ -332,3 +333,50 @@ def get_cached_bot_user_id(slack: SlackIntegration, integration: Integration) ->
     if integration.integration_id:
         cache_workspace_bot_user_id(integration.integration_id, bot_user_id)
     return bot_user_id
+
+
+_USER_MENTION_RE = re.compile(r"<@([A-Z0-9]+)(?:\|[^>]*)?>")
+
+
+def find_addressed_bot_user_id(slack: SlackIntegration, integration: Integration, text: str) -> str | None:
+    """The user id of a bot other than ours that this message tags, or ``None``.
+
+    Callers ask this to tell a message addressed to another app from one addressed to us.
+    Other apps work in the same channels and threads we do, and a message that tags one is
+    that app's to answer. Nothing in the text says so by the time an agent reads it:
+    ``resolve_user_mentions_text`` strips bot mentions, which leaves a bare instruction to
+    whoever is listening.
+
+    Wire format cannot answer it either. A bot user id and a human's are both
+    ``U…``-prefixed, so the ``is_bot`` flag is the only authoritative signal, and it comes
+    from ``users.info`` through the same cache every other lookup here uses.
+
+    Answers ``None`` when a lookup fails as well as when the message tags no bot. An
+    unresolved mention is no evidence the message was meant for someone else. That covers
+    our own id too: without it our bot's mention is indistinguishable from another app's,
+    and a message that tagged us is the worse one to get wrong.
+    """
+    mentioned_ids = dict.fromkeys(_USER_MENTION_RE.findall(text))
+    if not mentioned_ids:
+        return None
+
+    our_bot_user_id = get_cached_bot_user_id(slack, integration)
+    if not our_bot_user_id:
+        return None
+
+    for user_id in mentioned_ids:
+        if user_id == our_bot_user_id:
+            continue
+        try:
+            user_info = get_slack_user_info(slack, integration, user_id)
+        except Exception:
+            logger.warning(
+                "slack_app_mention_bot_lookup_failed",
+                integration_id=integration.id,
+                mentioned_user_id=user_id,
+                exc_info=True,
+            )
+            continue
+        if user_info.get("user", {}).get("is_bot"):
+            return user_id
+    return None
