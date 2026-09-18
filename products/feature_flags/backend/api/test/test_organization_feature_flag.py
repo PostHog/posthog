@@ -445,6 +445,40 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
         ]
         self.organization.save()
 
+    def test_copy_carries_tags_and_evaluation_contexts(self):
+        from posthog.models.tag import Tag
+        from posthog.models.tagged_item import TaggedItem
+
+        from products.feature_flags.backend.models.evaluation_context import (
+            EvaluationContext,
+            FeatureFlagEvaluationContext,
+        )
+
+        tag = Tag.objects.create(name="checkout", team_id=self.team_1.id)
+        TaggedItem.objects.create(tag=tag, feature_flag=self.feature_flag_to_copy)
+        source_context = EvaluationContext.objects.create(name="production", team=self.team_1)
+        FeatureFlagEvaluationContext.objects.create(
+            feature_flag=self.feature_flag_to_copy, evaluation_context=source_context
+        )
+
+        url = f"/api/organizations/{self.organization.id}/feature_flags/copy_flags"
+        data = {
+            "feature_flag_key": self.feature_flag_to_copy.key,
+            "from_project": self.feature_flag_to_copy.team_id,
+            "target_project_ids": [self.team_2.id],
+        }
+
+        with patch("posthoganalytics.feature_enabled", return_value=True):
+            response = self.client.post(url, data)
+
+        assert response.status_code == status.HTTP_200_OK
+        copied = FeatureFlag.objects.get(team=self.team_2, key=self.feature_flag_key)
+        assert [tagged_item.tag.name for tagged_item in copied.tagged_items.all()] == ["checkout"]
+        assert [flag_context.evaluation_context.name for flag_context in copied.flag_evaluation_contexts.all()] == [
+            "production"
+        ]
+        assert EvaluationContext.objects.filter(team=self.team_2, name="production").exists()
+
     @snapshot_postgres_queries
     def test_copy_feature_flag_create_new(self):
         url = f"/api/organizations/{self.organization.id}/feature_flags/copy_flags"

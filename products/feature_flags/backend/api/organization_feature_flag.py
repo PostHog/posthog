@@ -1345,6 +1345,15 @@ class OrganizationFeatureFlagView(
             "bucketing_identifier": source_flag.bucketing_identifier,
             "is_remote_configuration": source_flag.is_remote_configuration,
             "has_encrypted_payloads": source_flag.has_encrypted_payloads,
+            # Tags and evaluation contexts are named, not keyed by id, so they carry across
+            # projects. A name the target project does not have yet is created there.
+            "tags": sorted({tagged_item.tag.name for tagged_item in source_flag.tagged_items.all()}),
+            "evaluation_contexts": sorted(
+                {
+                    flag_context.evaluation_context.name
+                    for flag_context in source_flag.flag_evaluation_contexts.select_related("evaluation_context")
+                }
+            ),
         }
         context = {
             "request": request,
