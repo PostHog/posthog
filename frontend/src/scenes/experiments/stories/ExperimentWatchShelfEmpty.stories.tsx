@@ -20,11 +20,24 @@ import {
 // and a screenshot is the only way to check that they read as different answers.
 const DELTAS_PATH = `/api/projects/:team_id/experiments/${EXPERIMENT_WITH_FUNNEL_METRIC.id}/session_event_deltas/`
 
+// What the shelf holds besides its reason, and which of them the copy reads. Defaults describe a
+// comparison big enough to have found an ordinary difference; a story that needs the other answer
+// says so.
+interface ShelfOptions {
+    sessionsTruncated?: boolean
+    /** Below 0.5 is what the backend reports 'underpowered' on, so the two must agree in a fixture. */
+    detectableShare?: number | null
+    /** Overrides on the experiment itself: an end date, or a launch date close enough to be young. */
+    experiment?: Record<string, unknown>
+    /** Scanners already watching this experiment. One of them replaces every cross-sell with a back-link. */
+    scanners?: { id: string; name: string; scanner_type: string; observations_this_month: number }[]
+}
+
 // Typed as the generated response so a new required field on the serializer breaks the typecheck here.
 const emptyShelf = (
     emptyReason: ExperimentWatchEmptyReasonEnumApi,
     variantPersons: number[],
-    sessionsTruncated: boolean
+    { sessionsTruncated = false, detectableShare = 0.92 }: ShelfOptions
 ): ExperimentSessionEventDeltaResponseApi => ({
     cards: [],
     variants: [
@@ -49,6 +62,12 @@ const emptyShelf = (
         emptyReason === ExperimentWatchEmptyReasonEnumApi.TooEarly ||
         emptyReason === ExperimentWatchEmptyReasonEnumApi.NoSessionLinkedExposures,
     empty_reason: emptyReason,
+    // Null wherever nothing was compared, which is the same pair of reasons `too_early` covers.
+    detectable_share:
+        emptyReason === ExperimentWatchEmptyReasonEnumApi.TooEarly ||
+        emptyReason === ExperimentWatchEmptyReasonEnumApi.NoSessionLinkedExposures
+            ? null
+            : detectableShare,
 })
 
 const meta: Meta = {
@@ -59,7 +78,9 @@ const meta: Meta = {
         viewMode: 'story',
         mockDate: '2025-06-01',
         pageUrl: urls.experiment(EXPERIMENT_WITH_FUNNEL_METRIC.id) + '?tab=recordings',
-        featureFlags: [FEATURE_FLAGS.EXPERIMENT_BEHAVIOR_COMPARISON],
+        // The vision entry point too, because which empty state carries the scanner offer and
+        // which does not is half of what this story set checks.
+        featureFlags: [FEATURE_FLAGS.EXPERIMENT_BEHAVIOR_COMPARISON, FEATURE_FLAGS.VISION_ENTRYPOINT_EXPERIMENTS],
         testOptions: { waitForSelector: '[data-attr="experiment-recordings-tab"]' },
     },
     decorators: [
@@ -97,9 +118,23 @@ const openTheShelf: Story['play'] = async ({ canvasElement }) => {
 const shelfStory = (
     emptyReason: ExperimentWatchEmptyReasonEnumApi,
     variantPersons: number[],
-    sessionsTruncated: boolean = false
+    options: ShelfOptions = {}
 ): Story => ({
-    decorators: [mswDecorator({ post: { [DELTAS_PATH]: emptyShelf(emptyReason, variantPersons, sessionsTruncated) } })],
+    decorators: [
+        mswDecorator({
+            get: {
+                [`/api/projects/:team_id/experiments/${EXPERIMENT_WITH_FUNNEL_METRIC.id}/`]: {
+                    ...EXPERIMENT_WITH_FUNNEL_METRIC,
+                    ...options.experiment,
+                },
+                '/api/projects/:team_id/vision/scanners/': {
+                    count: options.scanners?.length ?? 0,
+                    results: options.scanners ?? [],
+                },
+            },
+            post: { [DELTAS_PATH]: emptyShelf(emptyReason, variantPersons, options) },
+        }),
+    ],
     play: openTheShelf,
 })
 
@@ -108,11 +143,55 @@ export const ExperimentWatchShelfTooEarly: Story = shelfStory(ExperimentWatchEmp
 export const ExperimentWatchShelfTooEarlyTruncated: Story = shelfStory(
     ExperimentWatchEmptyReasonEnumApi.TooEarly,
     [1900, 3, 0],
-    true
+    { sessionsTruncated: true }
 )
+// The one empty state that carries the tailored scanner offer, and the one where the tab's generic
+// banner has to be gone: the same offer twice on one screen is what the suppression is for.
 export const ExperimentWatchShelfNoSeparation: Story = shelfStory(
     ExperimentWatchEmptyReasonEnumApi.NoSeparation,
     [2400, 2400, 2400]
+)
+// A scanner already watches this experiment, so the reader has Replay vision and the pitch is noise.
+export const ExperimentWatchShelfNoSeparationWithScanner: Story = shelfStory(
+    ExperimentWatchEmptyReasonEnumApi.NoSeparation,
+    [2400, 2400, 2400],
+    {
+        scanners: [
+            { id: 'scanner-1', name: 'Checkout confusion', scanner_type: 'classifier', observations_this_month: 42 },
+        ],
+    }
+)
+// Small enough that a doubling could not have carded, so the copy sizes the comparison instead of
+// reporting that the variants behaved the same. No scanner offer: the answer here is to wait.
+export const ExperimentWatchShelfUnderpowered: Story = shelfStory(
+    ExperimentWatchEmptyReasonEnumApi.Underpowered,
+    [190, 190, 190],
+    { detectableShare: 0.21 }
+)
+// A cap bound the comparison, so waiting adds nobody and "check back" would be a false promise.
+export const ExperimentWatchShelfUnderpoweredTruncated: Story = shelfStory(
+    ExperimentWatchEmptyReasonEnumApi.Underpowered,
+    [190, 190, 190],
+    { detectableShare: 0.21, sessionsTruncated: true }
+)
+// The string that matters most: an ended run reads as a clean negative result today, and is not one.
+export const ExperimentWatchShelfUnderpoweredEnded: Story = shelfStory(
+    ExperimentWatchEmptyReasonEnumApi.Underpowered,
+    [190, 190, 190],
+    { detectableShare: 0.21, experiment: { end_date: '2025-05-31T09:00:00Z' } }
+)
+// Started two days before the mocked date: a young run leads with its age, so an empty shelf reads
+// as normal this early rather than as something being wrong.
+export const ExperimentWatchShelfUnderpoweredYoung: Story = shelfStory(
+    ExperimentWatchEmptyReasonEnumApi.Underpowered,
+    [190, 190, 190],
+    { detectableShare: 0.21, experiment: { start_date: '2025-05-29T09:00:00Z' } }
+)
+// The other state that leads with its age, where the reader has not even reached a comparison yet.
+export const ExperimentWatchShelfTooEarlyYoung: Story = shelfStory(
+    ExperimentWatchEmptyReasonEnumApi.TooEarly,
+    [12, 12, 12],
+    { experiment: { start_date: '2025-05-29T09:00:00Z' } }
 )
 export const ExperimentWatchShelfNoRecordings: Story = shelfStory(
     ExperimentWatchEmptyReasonEnumApi.NoRecordings,

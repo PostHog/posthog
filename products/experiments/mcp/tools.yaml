@@ -1548,9 +1548,11 @@ tools:
             results, so never turn one into a claim about how that metric moved. Group cards by kind before presenting:
             behavior and friction cards are findings, a variant_only card just confirms the variant's own change is
             rendering, and metric cards are shortcuts that claim nothing. When cards is empty, empty_reason says which
-            of four things happened (nothing compared yet, nothing told the variants apart, nothing recorded to watch,
-            or the people exposed have no sessions we can see): report that instead of an empty shelf, and don't reach
-            for the experiment's metrics to fill it. Check empty_reason, sessions_truncated and whether the experiment
+            of five things happened (nothing compared yet, nothing told the variants apart, too few people compared
+            for an ordinary difference to show, nothing recorded to watch, or the people exposed have no sessions we
+            can see): report that instead of an empty shelf, and don't reach for the experiment's metrics to fill it.
+            An 'underpowered' shelf is not a negative result: the comparison could not have found an ordinary
+            difference at that size, so never report it as the variants behaving the same. Check empty_reason, sessions_truncated and whether the experiment
             is still running before telling anyone to come back later: while it runs, nothing compared yet and nothing
             told the variants apart can both change as more people are exposed, but when sessions_truncated is true only
             people exposed between date_from and date_to were compared, so more time helps only if more people are

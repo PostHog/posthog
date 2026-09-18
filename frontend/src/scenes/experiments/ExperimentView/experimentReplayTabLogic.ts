@@ -15,7 +15,7 @@ import {
 } from 'kea'
 import type { BreakPointFunction } from 'kea'
 import { loaders } from 'kea-loaders'
-import { router, urlToAction } from 'kea-router'
+import { combineUrl, router, urlToAction } from 'kea-router'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
@@ -44,6 +44,7 @@ import {
 } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
 import { filtersFromUniversalFilterGroups } from 'scenes/session-recordings/utils'
 import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
 
 import { ExperimentMetric, NodeKind, ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 import {
@@ -66,7 +67,10 @@ import {
     experimentsSessionContextsCreate,
     experimentsSessionEventDeltasCreate,
 } from 'products/experiments/frontend/generated/api'
-import { ExperimentWatchCardKindEnumApi } from 'products/experiments/frontend/generated/api.schemas'
+import {
+    ExperimentWatchCardKindEnumApi,
+    ExperimentWatchEmptyReasonEnumApi,
+} from 'products/experiments/frontend/generated/api.schemas'
 import type {
     ExperimentInSessionExposureApi,
     ExperimentSessionBucketResponseApi,
@@ -76,6 +80,7 @@ import type {
 } from 'products/experiments/frontend/generated/api.schemas'
 import { visionScannersList } from 'products/replay_vision/frontend/generated/api'
 import type { ScannerTypeEnumApi } from 'products/replay_vision/frontend/generated/api.schemas'
+import { experimentScannerParams } from 'products/replay_vision/frontend/replay_scanners/experimentTargeting'
 
 import type { ExperimentIdType } from '../../../types'
 import type { ExperimentSavedMetric } from '../experimentLogic'
@@ -180,7 +185,14 @@ export interface ExperimentRecordingsListError {
 const LIST_ERROR_DETAIL_LIMIT = 200
 
 /** The link an empty "what to watch" state offers, as reported to telemetry. */
-export type ExperimentWatchEmptyAction = 'exposure_docs' | 'replay_settings'
+export type ExperimentWatchEmptyAction = 'exposure_docs' | 'replay_settings' | 'vision_scanner_setup'
+
+/**
+ * Shared by the tab's generic scanner banner and the shelf's tailored one, because they are the
+ * same offer: a reader who turned it down once must not be asked again a few hundred pixels lower.
+ * The value is unchanged from the earlier cross-sell wording, so dismissals already stored hold.
+ */
+export const SCANNER_CROSS_SELL_DISMISS_KEY = 'experiment-replay-vision-scanner-cross-sell'
 
 /** The action an empty recordings list offers for its reason, as reported to telemetry. */
 export type ExperimentRecordingsEmptyAction =
@@ -394,6 +406,7 @@ export interface experimentReplayTabLogicValues {
     behaviorComparisonOpen: boolean
     behaviorComparisonUnavailableReason: ExperimentBehaviorComparisonUnavailableReason | null
     bucketSessionIds: string[] | undefined
+    daysSinceExperimentStart: number | null
     droppedMetricReason: ExperimentMetricUnselectableCode | null
     durationFilterActive: boolean
     durationFilterCustomized: boolean
@@ -423,6 +436,7 @@ export interface experimentReplayTabLogicValues {
     playlistHeldForChecks: boolean
     recordingsFilters: RecordingUniversalFilters
     scannedWindowEnd: string | null
+    scannerSetupUrl: string
     selectedMetricUuids: string[]
     selectedVariantKey: string | null
     selectedWatchCard: ExperimentWatchCardApi | null
@@ -434,6 +448,7 @@ export interface experimentReplayTabLogicValues {
     sessionEventDeltasError: string | null
     sessionEventDeltasErrorStatus: number | null
     sessionEventDeltasLoading: boolean
+    shelfVisionCrossSellShown: boolean
     tabViewContext: ExperimentRecordingsTabContext
     variantKeys: string[]
 }
@@ -721,6 +736,18 @@ export interface experimentReplayTabLogicMeta {
         loadedRecordingsById: (loadedRecordings: ExperimentReplayRecording[]) => Map<string, ExperimentReplayRecording>
         variantKeys: (arg: any) => string[]
         behaviorComparisonAvailable: (featureFlags: FeatureFlagsSet) => boolean
+        daysSinceExperimentStart: (arg: any) => number | null
+        scannerSetupUrl: (effectiveVariantKey: string | null, arg: any) => string
+        shelfVisionCrossSellShown: (
+            featureFlags: FeatureFlagsSet,
+            behaviorComparisonAvailable: boolean,
+            behaviorComparisonOpen: boolean,
+            sessionEventDeltas: ExperimentSessionEventDeltaResponseApi | null,
+            sessionEventDeltasLoading: boolean,
+            sessionEventDeltasError: string | null,
+            linkedScanners: LinkedScanner[],
+            linkedScannersLoading: boolean
+        ) => boolean
         groupAggregatedExposure: (arg: any) => boolean
         listUnavailableReason: (
             variantKeys: string[],
@@ -1029,6 +1056,11 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
                         ),
                         sessions_truncated: response.sessions_truncated,
                         events_truncated: response.events_truncated,
+                        // What the comparison could have found, beside what it did. It is the only
+                        // way to check the underpowered line against projects other than the ones
+                        // it was set from, so it is reported on every shelf rather than on the
+                        // empty ones.
+                        detectable_share: response.detectable_share,
                         // An empty shelf on a young experiment is a different answer from the same
                         // shelf on one that has stopped enrolling, so the age of the run is read
                         // next to `empty_reason` rather than inferred from the event's timestamp.
@@ -1296,6 +1328,65 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
         behaviorComparisonAvailable: [
             (s) => [s.featureFlags],
             (featureFlags: FeatureFlagsSet): boolean => !!featureFlags[FEATURE_FLAGS.EXPERIMENT_BEHAVIOR_COMPARISON],
+        ],
+        // Whole days from the launch to this visit, so an empty shelf can say the run is young
+        // rather than leaving the reader to read it as broken. Resolved once per visit, which is
+        // the resolution the copy prints anyway.
+        daysSinceExperimentStart: [
+            () => [(_, props) => props.experiment],
+            (experiment: Experiment): number | null => daysSince(experiment.start_date),
+        ],
+        // Where the Replay vision cross-sell sends the reader, built once so the tab's banner and
+        // the shelf's tailored offer cannot drift into two different deep links.
+        scannerSetupUrl: [
+            (s) => [s.effectiveVariantKey, (_, props) => props.experiment],
+            (effectiveVariantKey: string | null, experiment: Experiment): string =>
+                combineUrl(
+                    urls.replayVisionScannerTemplate('new'),
+                    experimentScannerParams({ experimentId: experiment.id as number, variantKey: effectiveVariantKey })
+                ).url,
+        ],
+        /**
+         * Whether the shelf is showing its own Replay vision offer, which the tab reads to hold
+         * back the generic banner: the same offer twice on one screen reads as an ad rather than as
+         * help.
+         *
+         * One empty reason only. `no_separation` means the comparison looked, had the size to find
+         * an ordinary difference, and matched the event names, so what changed may be something
+         * events never recorded. Every other state either wants the reader to wait or has no
+         * recordings for a scanner to watch either.
+         */
+        shelfVisionCrossSellShown: [
+            (s) => [
+                s.featureFlags,
+                s.behaviorComparisonAvailable,
+                s.behaviorComparisonOpen,
+                s.sessionEventDeltas,
+                s.sessionEventDeltasLoading,
+                s.sessionEventDeltasError,
+                s.linkedScanners,
+                s.linkedScannersLoading,
+            ],
+            (
+                featureFlags: FeatureFlagsSet,
+                behaviorComparisonAvailable: boolean,
+                behaviorComparisonOpen: boolean,
+                sessionEventDeltas: ExperimentSessionEventDeltaResponseApi | null,
+                sessionEventDeltasLoading: boolean,
+                sessionEventDeltasError: string | null,
+                linkedScanners: LinkedScanner[],
+                linkedScannersLoading: boolean
+            ): boolean =>
+                !!featureFlags[FEATURE_FLAGS.VISION_ENTRYPOINT_EXPERIMENTS] &&
+                behaviorComparisonAvailable &&
+                behaviorComparisonOpen &&
+                !sessionEventDeltasLoading &&
+                sessionEventDeltasError === null &&
+                sessionEventDeltas?.empty_reason === ExperimentWatchEmptyReasonEnumApi.NoSeparation &&
+                // A failed lookup resolves to [], so it shows the offer. That is what the tab's own
+                // banner already does, and a reader who has no scanners is the reader it is for.
+                !linkedScannersLoading &&
+                linkedScanners.length === 0,
         ],
         /**
          * Whether the flag exposes groups rather than people. Read off the feature flag's filters

@@ -30,9 +30,40 @@ import { asDisplay } from 'products/persons/frontend/person-utils'
 import {
     type ExperimentReplayRecording,
     type ExperimentWatchEmptyAction,
+    SCANNER_CROSS_SELL_DISMISS_KEY,
     experimentReplayTabLogic,
 } from './experimentReplayTabLogic'
 import { VariantTag } from './VariantTag'
+
+// Below this many days since launch an empty shelf leads with the run's age. A week is how long it
+// takes before "nothing yet" stops being what every experiment looks like.
+const YOUNG_EXPERIMENT_DAYS = 7
+
+/**
+ * Where the shelf sends a reader who wants a scanner, and what to fire when they go. Null in every
+ * state but the one the offer belongs in, which `shelfVisionCrossSellShown` decides.
+ */
+interface ShelfVisionCrossSell {
+    url: string
+    onClick: () => void
+}
+
+/** How long this experiment has been running, for a shelf that leads with it. Null once it is no longer young. */
+function youngExperimentLead(daysSinceStart: number | null): string | null {
+    if (daysSinceStart === null || daysSinceStart >= YOUNG_EXPERIMENT_DAYS) {
+        return null
+    }
+    return daysSinceStart === 0
+        ? 'This experiment started today'
+        : `This experiment started ${pluralize(daysSinceStart, 'day')} ago`
+}
+
+/** How many people the comparison put on both sides of the question, which is what its copy has to size itself against. */
+function comparedPersons(deltas: ExperimentSessionEventDeltaResponseApi): number {
+    return deltas.variants
+        .filter((variant) => variant.persons >= deltas.min_variant_persons)
+        .reduce((total, variant) => total + variant.persons, 0)
+}
 
 const STRENGTH_WORD: Record<Exclude<ExperimentWatchCardStrengthEnumApi, 'only'>, string> = {
     far_more: 'Far more common',
@@ -425,8 +456,17 @@ export function ExperimentBehaviorComparison({
         sessionEventDeltasErrorStatus,
         selectedWatchCard,
         loadedRecordingsById,
+        daysSinceExperimentStart,
+        scannerSetupUrl,
+        shelfVisionCrossSellShown,
     } = useValues(logic)
-    const { selectWatchCard, loadSessionEventDeltas, watchHighlightOpened, watchEmptyActionClicked } = useActions(logic)
+    const {
+        selectWatchCard,
+        loadSessionEventDeltas,
+        watchHighlightOpened,
+        watchEmptyActionClicked,
+        scannerCrossSellClicked,
+    } = useActions(logic)
 
     // Nothing at all when closed, rather than an empty spacer: the toggle lives in the filter row
     // now, so a wrapper left behind here would push the recordings list down for no reason.
@@ -460,6 +500,21 @@ export function ExperimentBehaviorComparison({
                     // than from end_date, so a state that carries an end date without having
                     // stopped enrolling people cannot reach the past-tense copy.
                     ended={hasEnded(experiment)}
+                    daysSinceStart={daysSinceExperimentStart}
+                    visionCrossSell={
+                        shelfVisionCrossSellShown
+                            ? {
+                                  url: scannerSetupUrl,
+                                  onClick: () => {
+                                      // Both: the empty-state event is how the shelf's own states
+                                      // are compared against each other, and the product intent is
+                                      // what every other Replay vision entry point is measured on.
+                                      watchEmptyActionClicked('vision_scanner_setup')
+                                      scannerCrossSellClicked()
+                                  },
+                              }
+                            : null
+                    }
                     selectedCard={selectedWatchCard}
                     onSelect={selectWatchCard}
                     recordingsById={loadedRecordingsById}
@@ -483,14 +538,19 @@ function EmptyShelf({
     deltas,
     reason,
     ended,
+    daysSinceStart,
+    visionCrossSell,
     onAction,
 }: {
     deltas: ExperimentSessionEventDeltaResponseApi
     reason:
         | typeof ExperimentWatchEmptyReasonEnumApi.NoSeparation
+        | typeof ExperimentWatchEmptyReasonEnumApi.Underpowered
         | typeof ExperimentWatchEmptyReasonEnumApi.NoRecordings
         | typeof ExperimentWatchEmptyReasonEnumApi.NoSessionLinkedExposures
     ended: boolean
+    daysSinceStart: number | null
+    visionCrossSell: ShelfVisionCrossSell | null
     onAction: (action: ExperimentWatchEmptyAction) => void
 }): JSX.Element {
     if (reason === ExperimentWatchEmptyReasonEnumApi.NoSessionLinkedExposures) {
@@ -530,18 +590,64 @@ function EmptyShelf({
             </LemonBanner>
         )
     }
+    if (reason === ExperimentWatchEmptyReasonEnumApi.Underpowered) {
+        // Never "nothing separated the variants": the backend reports this reason exactly when the
+        // comparison could not have carded an ordinary difference, so the empty shelf says how big
+        // the comparison was rather than what people did.
+        const people = humanFriendlyNumber(comparedPersons(deltas))
+        const covered = coveredWindow(deltas)
+        const lead = ended || deltas.sessions_truncated ? null : youngExperimentLead(daysSinceStart)
+        return (
+            <LemonBanner type="info">
+                {ended
+                    ? `Too few people to tell. ${people} people were compared, and at that size even one variant doing something twice as often would not have shown up for most events. This is not evidence that the variants behaved the same.`
+                    : deltas.sessions_truncated
+                      ? `Too few people to tell. ${people} people were compared, and at that size even one variant doing something twice as often would not show up for most events. Only people exposed between ${covered.from} and ${covered.to} were compared, so more time helps only if more people are exposed within a stretch that long.`
+                      : lead
+                        ? `${lead} and ${people} people have been compared so far. At that size even one variant doing something twice as often would not show up for most events. Check back as more people are exposed.`
+                        : `Too few people to tell yet. ${people} people were compared, and at that size even one variant doing something twice as often would not show up for most events. Check back as more people are exposed.`}
+            </LemonBanner>
+        )
+    }
     return (
-        <LemonBanner type="info">
-            {ended
-                ? 'Nothing separated the variants. People did the same things in the sessions compared here, which is a result in itself. Differences small enough to be chance never get a card.'
-                : 'Nothing separated the variants yet. People did the same things in the sessions compared here, which is a result in itself. Differences small enough to be chance never get a card, so check back as more people are exposed.'}
-        </LemonBanner>
+        <>
+            <LemonBanner type="info">
+                {ended
+                    ? 'Nothing separated the variants. People did the same things in the sessions compared here, which is a result in itself. Differences small enough to be chance never get a card.'
+                    : 'Nothing separated the variants yet. People did the same things in the sessions compared here, which is a result in itself. Differences small enough to be chance never get a card, so check back as more people are exposed.'}
+            </LemonBanner>
+            {/* The one empty state a scanner answers, and the only one it is offered in. Here the
+                comparison had the size to find an ordinary difference and the event names matched,
+                so what changed may be something events never recorded. On 'underpowered' and
+                'too_early' the reader needs another week or a bigger run, and a scanner is metered,
+                so offering one there sells against their interest. On 'no_recordings' and
+                'no_session_linked_exposures' there is nothing for a scanner to watch either, so the
+                offer promises something that cannot work. Do not widen this to a second state on a
+                conversion number. */}
+            {visionCrossSell && (
+                <LemonBanner
+                    type="ai"
+                    dismissKey={SCANNER_CROSS_SELL_DISMISS_KEY}
+                    action={{
+                        children: 'Set up a scanner for this experiment',
+                        to: visionCrossSell.url,
+                        onClick: visionCrossSell.onClick,
+                        'data-attr': 'experiment-watch-shelf-scanner-cross-sell',
+                    }}
+                >
+                    Replay vision can watch these sessions for things events don't record, like hesitation or a dead
+                    end. It scores each session and tells you which ones to open.
+                </LemonBanner>
+            )}
+        </>
     )
 }
 
 function WatchShelves({
     deltas,
     ended,
+    daysSinceStart,
+    visionCrossSell,
     selectedCard,
     onSelect,
     recordingsById,
@@ -550,6 +656,8 @@ function WatchShelves({
 }: {
     deltas: ExperimentSessionEventDeltaResponseApi
     ended: boolean
+    daysSinceStart: number | null
+    visionCrossSell: ShelfVisionCrossSell | null
     selectedCard: ExperimentWatchCardApi | null
     onSelect: (card: ExperimentWatchCardApi | null) => void
     recordingsById: Map<string, ExperimentReplayRecording>
@@ -564,11 +672,16 @@ function WatchShelves({
         // No caption: nothing was compared, so there is no covered window to name. Once a cap bound
         // the comparison, waiting adds nobody to it, so "check back" is the one promise to avoid.
         const covered = coveredWindow(deltas)
+        const floor = pluralize(deltas.min_variant_persons, 'exposed person', 'exposed people')
+        // A young run leads with its age. Most readers who reach this state opened the shelf within
+        // a few days of launching, and nothing else on the tab tells them an empty shelf is what
+        // every experiment looks like that early rather than something being wrong.
+        const lead = ended || deltas.sessions_truncated ? null : youngExperimentLead(daysSinceStart)
         return (
             <LemonBanner type="info">
-                Too early to compare behavior: this needs at least{' '}
-                {pluralize(deltas.min_variant_persons, 'exposed person', 'exposed people')} in two variants, and has{' '}
-                {variantCounts}.{' '}
+                {lead
+                    ? `${lead}, and not enough people have been exposed yet to compare behavior: this needs at least ${floor} in two variants, and has ${variantCounts}.`
+                    : `Too early to compare behavior: this needs at least ${floor} in two variants, and has ${variantCounts}.`}{' '}
                 {ended
                     ? 'The experiment ended before enough people were exposed to compare them.'
                     : deltas.sessions_truncated
@@ -580,19 +693,36 @@ function WatchShelves({
 
     // No caption for the same reason: no session was read.
     if (emptyReason === ExperimentWatchEmptyReasonEnumApi.NoSessionLinkedExposures) {
-        return <EmptyShelf deltas={deltas} reason={emptyReason} ended={ended} onAction={onEmptyAction} />
+        return (
+            <EmptyShelf
+                deltas={deltas}
+                reason={emptyReason}
+                ended={ended}
+                daysSinceStart={daysSinceStart}
+                visionCrossSell={visionCrossSell}
+                onAction={onEmptyAction}
+            />
+        )
     }
 
     // Matched by name rather than `!= null`, so a reason this build does not know falls through to
     // the shelves instead of replacing them with an empty state the backend never claimed.
     if (
         emptyReason === ExperimentWatchEmptyReasonEnumApi.NoSeparation ||
+        emptyReason === ExperimentWatchEmptyReasonEnumApi.Underpowered ||
         emptyReason === ExperimentWatchEmptyReasonEnumApi.NoRecordings
     ) {
         return (
             <div className="flex flex-col gap-3">
                 <ShelfCaption deltas={deltas} hasCards={false} />
-                <EmptyShelf deltas={deltas} reason={emptyReason} ended={ended} onAction={onEmptyAction} />
+                <EmptyShelf
+                    deltas={deltas}
+                    reason={emptyReason}
+                    ended={ended}
+                    daysSinceStart={daysSinceStart}
+                    visionCrossSell={visionCrossSell}
+                    onAction={onEmptyAction}
+                />
             </div>
         )
     }

@@ -2491,6 +2491,7 @@ export const ExperimentWatchMultipleVariantHandlingEnumApi = {
 /**
  * * `too_early` - too_early
  * * `no_separation` - no_separation
+ * * `underpowered` - underpowered
  * * `no_recordings` - no_recordings
  * * `no_session_linked_exposures` - no_session_linked_exposures
  */
@@ -2500,6 +2501,7 @@ export type ExperimentWatchEmptyReasonEnumApi =
 export const ExperimentWatchEmptyReasonEnumApi = {
     TooEarly: 'too_early',
     NoSeparation: 'no_separation',
+    Underpowered: 'underpowered',
     NoRecordings: 'no_recordings',
     NoSessionLinkedExposures: 'no_session_linked_exposures',
 } as const
@@ -2545,13 +2547,19 @@ export interface ExperimentSessionEventDeltaResponseApi {
     dropped_duplicate_cards: number
     /** True when fewer than two variants have min_variant_persons exposed people, so no comparison exists and cards is empty. Show the variants' counts alongside it: an empty shelf presented without them would read as 'the variants behaved identically'. Read empty_reason and sessions_truncated before telling anyone to check back: this is also true when the variants are empty because the people exposed have no sessions we can see, which empty_reason reports as 'no_session_linked_exposures' and which more time fixes only while those people were exposed less than a day ago. And when sessions_truncated is true, only people exposed between date_from and date_to were compared, so more time helps only if more people are exposed within a stretch that long. */
     too_early: boolean
-    /** Why cards is empty, and null whenever cards is not empty. Report which of the four happened rather than reporting an empty shelf, because they ask different things of the reader. 'too_early': fewer than two variants have min_variant_persons exposed people, so nothing was compared yet. The answer can still change unless sessions_truncated is true, in which case only the people exposed between date_from and date_to were compared and more time helps only if more people are exposed within a stretch that long; a rollout split that changed during the run lands here too, and the experiment's exposure chart is where that shows. 'no_separation': the variants were compared and no event told them apart, which is a result rather than a failure. 'no_recordings': events did tell the variants apart, but no recording behind them can be opened, so the project's session replay sampling and retention are what decide whether this surface can ever show anything. 'no_session_linked_exposures': the people exposed between date_from and date_to had no session we can see since being exposed, looking up to 24 hours after each exposure, so there was nothing to compare. Two things reach this state, and they ask for different answers: no browser or mobile SDK is capturing events, because sessions exist nowhere else, or the exposed people have not come back. While the experiment runs the read stops at the time of the request, so people exposed less than a day ago are judged on less than a day and can still return. Check which one before telling anyone to check back, because more exposures captured the same way yield more of the same. Never fill an empty shelf with the experiment's metrics: shortcut cards to those metrics' events are withheld here for exactly that reason.
+    /** Why cards is empty, and null whenever cards is not empty. Report which of the five happened rather than reporting an empty shelf, because they ask different things of the reader. 'too_early': fewer than two variants have min_variant_persons exposed people, so nothing was compared yet. The answer can still change unless sessions_truncated is true, in which case only the people exposed between date_from and date_to were compared and more time helps only if more people are exposed within a stretch that long; a rollout split that changed during the run lands here too, and the experiment's exposure chart is where that shows. 'no_separation': the variants were compared and no event told them apart, which is a result rather than a failure. 'underpowered': the variants were compared and nothing separated them, but too few people were compared for an ordinary difference to show, so do not report that the variants behaved the same; while the experiment runs and sessions_truncated is false, more exposed people fix it. 'no_recordings': events did tell the variants apart, but no recording behind them can be opened, so the project's session replay sampling and retention are what decide whether this surface can ever show anything. 'no_session_linked_exposures': the people exposed between date_from and date_to had no session we can see since being exposed, looking up to 24 hours after each exposure, so there was nothing to compare. Two things reach this state, and they ask for different answers: no browser or mobile SDK is capturing events, because sessions exist nowhere else, or the exposed people have not come back. While the experiment runs the read stops at the time of the request, so people exposed less than a day ago are judged on less than a day and can still return. Check which one before telling anyone to check back, because more exposures captured the same way yield more of the same. Never fill an empty shelf with the experiment's metrics: shortcut cards to those metrics' events are withheld here for exactly that reason.
      *
      * * `too_early` - too_early
      * * `no_separation` - no_separation
+     * * `underpowered` - underpowered
      * * `no_recordings` - no_recordings
      * * `no_session_linked_exposures` - no_session_linked_exposures */
     empty_reason: ExperimentWatchEmptyReasonEnumApi | null
+    /**
+     * The share of the commonly done events on which one variant doing the event twice as often would have earned a card, and null when nothing was compared. Diagnostic: it says what this comparison could have seen, not what it found, so never present it as a result or turn it into a claim about the variants.
+     * @nullable
+     */
+    detectable_share: number | null
 }
 
 export interface ShipVariantApi {

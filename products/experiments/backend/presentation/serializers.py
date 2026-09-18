@@ -2181,7 +2181,7 @@ class ExperimentSessionEventDeltaResponseSerializer(serializers.Serializer):
         choices=[reason.value for reason in WatchEmptyReason],
         allow_null=True,
         help_text=(
-            "Why cards is empty, and null whenever cards is not empty. Report which of the four happened "
+            "Why cards is empty, and null whenever cards is not empty. Report which of the five happened "
             "rather than reporting an empty shelf, because they ask different things of the reader. "
             "'too_early': fewer than two variants have min_variant_persons exposed people, so nothing was compared "
             "yet. The answer can still change unless sessions_truncated is true, in which case only the people "
@@ -2189,7 +2189,10 @@ class ExperimentSessionEventDeltaResponseSerializer(serializers.Serializer):
             "exposed within a stretch that long; a rollout split that changed during the run lands here too, "
             "and the experiment's exposure chart is where that shows. "
             "'no_separation': the variants were compared and no event told them apart, which is a result rather "
-            "than a failure. 'no_recordings': events did tell the variants apart, but no recording behind them can "
+            "than a failure. 'underpowered': the variants were compared and nothing separated them, but too few "
+            "people were compared for an ordinary difference to show, so do not report that the variants behaved "
+            "the same; while the experiment runs and sessions_truncated is false, more exposed people fix it. "
+            "'no_recordings': events did tell the variants apart, but no recording behind them can "
             "be opened, so the project's session replay sampling and retention are what decide whether this "
             "surface can ever show anything. 'no_session_linked_exposures': the people exposed between date_from "
             "and date_to had no session we can see since being exposed, looking up to "
@@ -2201,5 +2204,13 @@ class ExperimentSessionEventDeltaResponseSerializer(serializers.Serializer):
             "more exposures captured the same way yield more of the same. Never fill an empty shelf with the "
             "experiment's metrics: shortcut cards to those metrics' events are withheld here for exactly that "
             "reason."
+        ),
+    )
+    detectable_share = serializers.FloatField(
+        allow_null=True,
+        help_text=(
+            "The share of the commonly done events on which one variant doing the event twice as often would have "
+            "earned a card, and null when nothing was compared. Diagnostic: it says what this comparison could have "
+            "seen, not what it found, so never present it as a result or turn it into a claim about the variants."
         ),
     )
