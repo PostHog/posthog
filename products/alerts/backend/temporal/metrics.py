@@ -48,6 +48,18 @@ def increment_checks(source: str, outcome: str) -> None:
     ).add(1)
 
 
+def increment_checks_skipped(source: str, reason: str) -> None:
+    """Checks that reached an outcome without a query answering them.
+
+    A rising reason means the platform is spending ticks on work it cannot do: a blocked window,
+    a configuration no data satisfies, or a query that keeps failing.
+    """
+    get_metric_meter({"source": source, "reason": reason}).create_counter(
+        "alerts_platform_checks_skipped_total",
+        "Checks decided without an evaluation, by reason",
+    ).add(1)
+
+
 def increment_state_transition(source: str, from_state: str, to_state: str) -> None:
     get_metric_meter({"source": source, "from": from_state, "to": to_state}).create_counter(
         "alerts_platform_state_transitions_total",
