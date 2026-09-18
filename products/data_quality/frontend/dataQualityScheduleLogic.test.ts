@@ -144,6 +144,45 @@ describe('dataQualityScheduleLogic', () => {
         setIntervalSpy.mockRestore()
     })
 
+    it('waits while the surface loads the listing and fetches its own only if none arrives', async () => {
+        logic = dataQualityScheduleLogic.build({
+            subjectType: 'metric',
+            subjectId: 'metric-1',
+            initialSchedule: null,
+            poll: false,
+        })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(dataQualityChecksScheduleRetrieve).not.toHaveBeenCalled()
+
+        dataQualityScheduleLogic.build({
+            subjectType: 'metric',
+            subjectId: 'metric-1',
+            initialSchedule: SCHEDULE,
+            poll: false,
+        })
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.schedule).toEqual(SCHEDULE)
+        expect(dataQualityChecksScheduleRetrieve).not.toHaveBeenCalled()
+
+        const orphan = dataQualityScheduleLogic.build({
+            subjectType: 'metric',
+            subjectId: 'metric-2',
+            initialSchedule: null,
+            poll: false,
+        })
+        orphan.mount()
+        dataQualityScheduleLogic.build({
+            subjectType: 'metric',
+            subjectId: 'metric-2',
+            initialSchedule: undefined,
+            poll: false,
+        })
+        await expectLogic(orphan).toFinishAllListeners()
+        expect(dataQualityChecksScheduleRetrieve).toHaveBeenCalledTimes(1)
+        orphan.unmount()
+    })
+
     it('refreshes the schedule while the frequency controls are open', async () => {
         let refreshSchedule: (() => void) | undefined
         const setIntervalSpy = jest.spyOn(window, 'setInterval').mockImplementation((handler: TimerHandler) => {

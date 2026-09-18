@@ -25,6 +25,10 @@ export interface DataQualityScheduleLogicProps extends DataQualitySubjectRef {
     poll?: boolean
 }
 
+function surfaceStillLoading(initialSchedule: DataQualityCheckScheduleApi | null | undefined): boolean {
+    return initialSchedule === null
+}
+
 export interface DataQualityScheduleError {
     message: string
     uncertain: boolean
@@ -162,12 +166,16 @@ export const dataQualityScheduleLogic: LogicWrapper<dataQualityScheduleLogicType
     propsChanged(({ actions, props, values }, oldProps) => {
         if (props.initialSchedule && props.initialSchedule !== oldProps.initialSchedule && !values.scheduleLoading) {
             actions.refreshScheduleSuccess(props.initialSchedule)
+            return
+        }
+        if (surfaceStillLoading(oldProps.initialSchedule) && props.initialSchedule === undefined && !values.schedule) {
+            actions.loadSchedule()
         }
     }),
     afterMount(({ actions, props, cache }) => {
         if (props.initialSchedule) {
             actions.refreshScheduleSuccess(props.initialSchedule)
-        } else {
+        } else if (!surfaceStillLoading(props.initialSchedule)) {
             actions.loadSchedule()
         }
         if (props.poll === false) {

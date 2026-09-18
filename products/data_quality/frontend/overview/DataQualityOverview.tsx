@@ -251,6 +251,7 @@ function SubjectSection({ group }: { group: SubjectGroup }): JSX.Element {
         runError,
         pollTimedOut,
         scheduleBySubjectKey,
+        subjectSchedulesLoading,
     } = useValues(dataQualityOverviewLogic)
     const { toggleSubjectExpanded, runChecks, loadOverview } = useActions(dataQualityOverviewLogic)
 
@@ -352,7 +353,10 @@ function SubjectSection({ group }: { group: SubjectGroup }): JSX.Element {
                             <DataQualitySchedule
                                 subjectType={group.subjectType}
                                 subjectId={group.subjectUuid}
-                                initialSchedule={scheduleBySubjectKey[group.subjectKey] ?? null}
+                                initialSchedule={
+                                    scheduleBySubjectKey[group.subjectKey] ??
+                                    (subjectSchedulesLoading ? null : undefined)
+                                }
                                 poll={false}
                             />
                         </div>
