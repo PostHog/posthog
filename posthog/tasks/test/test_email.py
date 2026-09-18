@@ -15,6 +15,7 @@ from django.utils import timezone
 from parameterized import parameterized
 
 from posthog.api.authentication import password_reset_token_generator
+from posthog.constants import AvailableFeature
 from posthog.models import Comment, Organization, Team, User
 from posthog.models.app_metrics2.sql import TRUNCATE_APP_METRICS2_TABLE_SQL
 from posthog.models.instance_setting import set_instance_setting
@@ -57,6 +58,7 @@ from posthog.tasks.email import (
 from posthog.tasks.test.utils_email_tests import mock_email_messages
 from posthog.test.api_keys import create_project_secret_api_key
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.batch_exports.backend.models.batch_export import (
     BatchExport,
     BatchExportDestination,
@@ -1152,6 +1154,37 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
 
         recipients = {entry["recipient"] for entry in mocked_email_messages[0].to}
         assert "gone@posthog.com" not in recipients
+        assert self.user.email in recipients
+
+    def test_send_hog_function_filters_uncompilable_skips_a_creator_denied_project_access(
+        self, MockEmailMessage: MagicMock
+    ) -> None:
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        creator = self._create_user("denied@posthog.com")
+        creator_membership = OrganizationMembership.objects.get(user=creator, organization=self.organization)
+        creator_membership.level = OrganizationMembership.Level.MEMBER
+        creator_membership.save()
+        # The project is private, so organization membership alone no longer grants access to it.
+        AccessControl.objects.create(
+            team=self.team, resource="project", resource_id=str(self.team.id), access_level="none"
+        )
+        hog_function = HogFunction.objects.create(
+            team=self.team, name="Broken destination", enabled=True, created_by=creator
+        )
+        HogFunction.objects.filter(id=hog_function.id).update(
+            filters={"bytecode": None, "bytecode_error": "Cohort membership can't be evaluated"}
+        )
+
+        send_hog_function_filters_uncompilable(str(hog_function.id))
+
+        recipients = {entry["recipient"] for entry in mocked_email_messages[0].to}
+        assert "denied@posthog.com" not in recipients
         assert self.user.email in recipients
 
     def test_send_hog_function_filters_uncompilable_sends_nothing_without_an_error(
