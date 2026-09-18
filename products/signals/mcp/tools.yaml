@@ -247,7 +247,7 @@ tools:
             readOnly: false
             destructive: false
             idempotent: false
-        enrich_url: '{id}'
+        enrich_url: '{report_id}'
         title: Link a report to another report
         description: >
             Record how one report relates to another, as a directed link that reads as a sentence starting at the report
@@ -420,7 +420,7 @@ tools:
             readOnly: false
             destructive: true
             idempotent: true
-        enrich_url: '{id}'
+        enrich_url: '{params.id}'
         title: Remove a link between two reports
         description: >
             Remove every `kind` link from the report in `id` to `report_id`, undoing an `inbox-reports-link` call.

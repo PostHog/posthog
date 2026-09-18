@@ -777,6 +777,14 @@ def _reviewer_reasons(reviewers: SuggestedReviewers | None) -> list[str]:
     return [entry.reason for entry in reviewers.root if entry.reason]
 
 
+def _link_reasons(links: Sequence[ReportLink]) -> list[str]:
+    """The scout-authored `reason` strings from the links an edit writes, for the safety judge.
+
+    A reason persists in the report-link artefact and renders in the work log that action-capable
+    report agents read, so it goes in front of the judge like a reviewer reason does."""
+    return [link.reason for link in links if link.reason]
+
+
 def _wants_repo_selection(
     repository: str | None, priority: PriorityAssessment | None, reviewers: SuggestedReviewers | None
 ) -> bool:
@@ -2294,6 +2302,7 @@ async def edit_report(
             metrics=built_metrics or (),
             suggested_prompts=built_prompts or (),
             reviewer_reasons=_reviewer_reasons(built_reviewers),
+            link_reasons=_link_reasons(built_links),
         )
     )
     result = await database_sync_to_async(_do_edit_report, thread_sensitive=False)(
@@ -2390,6 +2399,7 @@ def edit_report_sync(
             metrics=built_metrics or (),
             suggested_prompts=built_prompts or (),
             reviewer_reasons=_reviewer_reasons(built_reviewers),
+            link_reasons=_link_reasons(built_links),
         )
     )
     result = _do_edit_report(
