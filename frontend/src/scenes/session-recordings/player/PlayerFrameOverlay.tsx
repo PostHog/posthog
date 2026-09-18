@@ -87,6 +87,7 @@ const PlayerFrameOverlayContent = (): JSX.Element | null => {
         playerError,
         playerFrameDocumentFailed,
         isWaitingForIngestion,
+        isRetryingSnapshotLoad,
         sessionPlayerMetaData,
         matchingEventSkipTarget,
     } = useValues(sessionRecordingPlayerLogic)
@@ -200,6 +201,11 @@ const PlayerFrameOverlayContent = (): JSX.Element | null => {
                 <div className="text-sm max-w-100">
                     This recording is finishing ingestion. It's usually ready to play within a few minutes.
                 </div>
+            </div>
+        ) : isRetryingSnapshotLoad ? (
+            <div className="SessionRecordingPlayer--buffering flex flex-col items-center gap-1 text-center text-white">
+                <div className="text-3xl italic font-medium">Still loading…</div>
+                <div className="text-sm max-w-100">Part of this recording didn't load. We're trying again.</div>
             </div>
         ) : (
             <div className="SessionRecordingPlayer--buffering text-3xl italic font-medium text-white">Buffering…</div>

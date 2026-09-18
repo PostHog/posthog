@@ -259,6 +259,21 @@ export class ApiError extends Error {
     }
 
     /**
+     * The `Retry-After` header in seconds, from either form the header allows: an integer, or a
+     * date such as "Wed, 21 Oct 2015 07:28:00 GMT". Null when the header is absent or unreadable,
+     * so a caller keeps its own back-off in that case.
+     */
+    get retryAfterSeconds(): number | null {
+        const retryAfter = this.headers?.get('Retry-After')
+        if (!retryAfter) {
+            return null
+        }
+        const asInteger = Number(retryAfter)
+        const seconds = isNaN(asInteger) ? dayjs(retryAfter).diff(dayjs(), 'seconds') : asInteger
+        return isFinite(seconds) ? seconds : null
+    }
+
+    /**
      * For when the API returned a 429 (Too Many Requests) error:
      * If the `Retry-After` header is present, return a human-friendly duration, e.g. "in 4 hours", otherwise just "later".
      * Return null for other status codes.
@@ -267,16 +282,11 @@ export class ApiError extends Error {
         if (this.status !== 429) {
             return null
         }
-        if (this.headers?.has('Retry-After')) {
-            const retryAfter = this.headers.get('Retry-After') as string
-            let secondsLeft = Number(retryAfter) // Let's assume we're dealing with an integer by default
-            if (isNaN(secondsLeft)) {
-                // Nope, here we're dealing with date in this format: Wed, 21 Oct 2015 07:28:00 GMT
-                secondsLeft = dayjs(retryAfter).diff(dayjs(), 'seconds')
-            }
-            return `in ${humanFriendlyDuration(secondsLeft, { maxUnits: 2 })}`
+        const secondsLeft = this.retryAfterSeconds
+        if (secondsLeft === null) {
+            return 'later'
         }
-        return 'later'
+        return `in ${humanFriendlyDuration(secondsLeft, { maxUnits: 2 })}`
     }
 }
 
