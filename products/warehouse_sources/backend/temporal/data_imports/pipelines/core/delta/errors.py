@@ -148,14 +148,30 @@ def is_invalid_version_race(error: BaseException) -> bool:
     return type(error) is deltalake.exceptions.DeltaError and DELTA_INVALID_VERSION_RACE_NEEDLE in str(error)
 
 
+def _is_too_many_open_files_error(error: BaseException) -> bool:
+    """True if opening the app-DB connection failed because this worker is out of file descriptors.
+
+    `update_sync_type_config_keys` (persisting the vacuum watermark) opens a fresh Django connection;
+    its socket/selector setup raises a bare `OSError` — not a psycopg exception — when `socket()` hits
+    EMFILE (this process's fd table is full) or ENFILE (the system-wide table is full), before libpq
+    has anything to wrap into `OperationalError`. Same transient fd-pressure condition already handled
+    for the source's own connect path (`postgres.py::_is_too_many_open_files_error`) and for
+    `cdp_producer.py`'s own-DB check: a descriptor frees the moment another connection/handle in this
+    worker closes, so it's never a customer or maintenance-logic problem.
+    """
+    return isinstance(error, OSError) and error.errno in (errno.EMFILE, errno.ENFILE)
+
+
 def is_transient_maintenance_error(error: BaseException) -> bool:
     """Infra blips seen during delta maintenance that aren't a maintenance bug.
 
     Covers S3/object-store hiccups reaching our own data-warehouse bucket (see
     `is_transient_object_store_error` above), racy concurrent-maintenance DeltaErrors (see
-    `is_transient_delta_maintenance_error` above), and app-DB connection blips (DNS, pooler drops) hit
-    while resolving `job.folder_path()` on a pooled connection — the same `OperationalError`/`InterfaceError`
-    classification used for this failure class in `repartition_table.py`'s `_is_transient_infra_error`.
+    `is_transient_delta_maintenance_error` above), and app-DB connection blips (DNS, pooler drops, fd
+    exhaustion) hit while resolving `job.folder_path()` or persisting the vacuum watermark on a pooled
+    connection — the same `OperationalError`/`InterfaceError` classification used for this failure class
+    in `repartition_table.py`'s `_is_transient_infra_error`, plus `_is_too_many_open_files_error` above
+    for the fd-exhaustion variant that reaches here as a bare `OSError`.
 
     Also covers a primary-DB failover briefly routing the watermark's `select_for_update()` onto a
     connection that has become a read-only standby: Postgres raises `ReadOnlySqlTransaction`
@@ -166,5 +182,7 @@ def is_transient_maintenance_error(error: BaseException) -> bool:
     if isinstance(error, OperationalError | InterfaceError):
         return True
     if isinstance(error, InternalError) and isinstance(error.__cause__, psycopg.errors.ReadOnlySqlTransaction):
+        return True
+    if _is_too_many_open_files_error(error):
         return True
     return is_transient_object_store_error(error) or is_transient_delta_maintenance_error(error)
