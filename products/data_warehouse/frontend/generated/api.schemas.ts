@@ -3266,6 +3266,7 @@ export interface CredentialApi {
  * * `Quo` - Quo
  * * `HeyReach` - HeyReach
  * * `MoEngage` - MoEngage
+ * * `Monaco` - Monaco
  */
 export type ExternalDataSourceTypeEnumApi =
     (typeof ExternalDataSourceTypeEnumApi)[keyof typeof ExternalDataSourceTypeEnumApi]
@@ -4614,6 +4615,7 @@ export const ExternalDataSourceTypeEnumApi = {
     Quo: 'Quo',
     HeyReach: 'HeyReach',
     MoEngage: 'MoEngage',
+    Monaco: 'Monaco',
 } as const
 
 export interface SimpleExternalDataSourceSerializersApi {

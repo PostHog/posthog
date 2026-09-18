@@ -161,9 +161,11 @@ def _reportable_nodes(dag: DAG) -> list[Node]:
     """Every node a run could act on. Mirrors `schedulable_nodes`' exclusion of soft-deleted saved
     queries — those keep their target but the scheduler never sees them, so reporting them would
     manufacture permanent phantom rows. Source (TABLE) nodes are kept so the page can show them.
+    METRIC nodes are dropped: nothing ever runs them.
     """
     return list(
         Node.objects.filter(team_id=dag.team_id, dag=dag)
+        .exclude(type=NodeType.METRIC)
         .exclude(saved_query__deleted=True)
         .select_related("saved_query")
     )
