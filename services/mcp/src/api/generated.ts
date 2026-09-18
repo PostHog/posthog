@@ -1398,6 +1398,17 @@ export namespace Schemas {
       time_elapsed: number;
     }
 
+    export type QueryScanFixLocation = typeof QueryScanFixLocation[keyof typeof QueryScanFixLocation];
+
+
+    export const QueryScanFixLocation = {
+      Query: 'query',
+      Subquery: 'subquery',
+      View: 'view',
+      InsightDateRange: 'insight_date_range',
+      DashboardDateFilter: 'dashboard_date_filter',
+    } as const;
+
     export type QueryScanFindingKind = typeof QueryScanFindingKind[keyof typeof QueryScanFindingKind];
 
 
@@ -1407,34 +1418,28 @@ export namespace Schemas {
       PersonsJoin: 'persons_join',
     } as const;
 
-    export type QueryScanFindingReason = typeof QueryScanFindingReason[keyof typeof QueryScanFindingReason];
-
-
-    export const QueryScanFindingReason = {
-      InOr: 'in_or',
-      Wrapped: 'wrapped',
-      Negated: 'negated',
-      Dynamic: 'dynamic',
-      NotPruned: 'not_pruned',
-      Filters: 'filters',
-    } as const;
-
     export interface QueryScanWarning {
+      /** Whether the person can change the query so it reads less and still answers the same question. Surfaces show the full advice and "Fix with AI" only when a finding is actionable. */
+      actionable: boolean;
+      /** True when the query reads this much on purpose, so reading less would change the answer. Absent means no. */
+      by_design?: boolean | null;
+      /** A label for what in the query text kept the read wide, such as `in_or`. Only analytics and the assistant read it, and the labels can change. */
+      cause?: string | null;
       /** The one fact the finding rests on. */
       evidence?: string | null;
       /** What "Fix with AI" and the assistant are told to do. */
       fix: string;
+      /** Where the change goes. Absent means the query itself. */
+      fix_location?: QueryScanFixLocation | null;
       kind: QueryScanFindingKind;
       /** Shown to the person: what happened and what to do. */
       message: string;
-      /** Only with `no_event_filter` and `no_start_date`. */
-      reason?: QueryScanFindingReason | null;
     }
 
     export interface QueryScanAnalysis {
       /** The message the Fix with AI button sends to the assistant. Absent when no finding can be fixed in the query. */
       assistant_prompt?: string | null;
-      /** Empty when the analysis found nothing to fix. */
+      /** Every finding, fixable or not. Empty when the analysis found none. */
       findings: QueryScanWarning[];
       /** How much of all the project's events the query read, 0 to 1. */
       project_share?: number | null;
