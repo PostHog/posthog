@@ -214,6 +214,7 @@ export function TerminalScene(): JSX.Element {
                         size="xsmall"
                         type="secondary"
                         tooltip="Insert command. Press Enter to run."
+                        aria-label={command}
                         disabledReason={status !== 'ready' ? 'Start the terminal first' : undefined}
                         onClick={() => insertCommand(command)}
                     >
