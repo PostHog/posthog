@@ -81,6 +81,9 @@ const voiceId = z
 // preferences: allowBypassPermissions normally requires an explicit consent
 // dialog, and spendLimits guards against runaway spend, so a backup file must
 // not be able to change either without the user seeing it happen.
+// spokenNotifications and debugLogsCloudRuns stay off it as well: their
+// controls sit behind rollout flags, so a backup could switch them on where
+// the user has no control to switch them off.
 export const portableSettingsSchema = z
   .object({
     theme: z.enum(["light", "dark", "system"]),
@@ -114,7 +117,6 @@ export const portableSettingsSchema = z
     completionSound: completionSoundSchema,
     completionVolume: z.number().min(0).max(100),
     scaleSoundWithTaskLength: z.boolean(),
-    spokenNotifications: z.boolean(),
     spokenNotifyNeedsInput: z.boolean(),
     spokenNotifyCompletion: z.boolean(),
     spokenNotifyProgress: z.boolean(),
@@ -131,7 +133,6 @@ export const portableSettingsSchema = z
       .min(AUTO_COMPACT_MIN_PERCENT)
       .max(AUTO_COMPACT_MAX_PERCENT)
       .nullable(),
-    debugLogsCloudRuns: z.boolean(),
     autoPublishCloudRuns: z.boolean(),
     rtkEnabledLocal: z.boolean(),
     rtkEnabledCloud: z.boolean(),

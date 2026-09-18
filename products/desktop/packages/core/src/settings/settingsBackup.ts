@@ -64,22 +64,25 @@ export function mergeSettingsBackupSounds(
 ): SettingsBackupSoundMerge {
   const sounds = [...currentSounds];
   const remappedIds = new Map<string, string>();
+  // A backup can hold many large clips, so the lookups stay constant time.
+  const soundsByDataUrl = new Map(sounds.map((s) => [s.dataUrl, s]));
+  const idSet = new Set(sounds.map((s) => s.id));
   for (const sound of importedSounds) {
     // The audio identifies a clip. A rename on either machine keeps the same
     // audio, so comparing names here would import a clip the library already
     // holds a second time.
-    const existing = sounds.find(
-      (candidate) => candidate.dataUrl === sound.dataUrl,
-    );
+    const existing = soundsByDataUrl.get(sound.dataUrl);
     if (existing) {
       remappedIds.set(sound.id, existing.id);
       continue;
     }
     let id = sound.id;
     let suffix = 1;
-    while (sounds.some((candidate) => candidate.id === id))
-      id = `${sound.id.slice(0, 220)}-import-${suffix++}`;
-    sounds.push({ ...sound, id });
+    while (idSet.has(id)) id = `${sound.id.slice(0, 220)}-import-${suffix++}`;
+    const imported = { ...sound, id };
+    sounds.push(imported);
+    soundsByDataUrl.set(imported.dataUrl, imported);
+    idSet.add(id);
     remappedIds.set(sound.id, id);
   }
   return { sounds, remappedIds };
@@ -241,7 +244,14 @@ export class SettingsBackupService {
       );
       const settings = settingsSchemas[scope].parse(validated.settings);
       if (settings.completionSound?.startsWith("custom:")) {
-        settings.completionSound = `custom:${remappedIds.get(settings.completionSound.slice(7))}`;
+        const remappedId = remappedIds.get(settings.completionSound.slice(7));
+        if (remappedId) {
+          settings.completionSound = `custom:${remappedId}`;
+        } else {
+          // The merge did not carry the clip, so drop the selection rather
+          // than persist a reference to a sound that does not exist.
+          delete settings.completionSound;
+        }
       }
       this.state.apply({ settings, sounds });
       return sounds.length - current.sounds.length;
