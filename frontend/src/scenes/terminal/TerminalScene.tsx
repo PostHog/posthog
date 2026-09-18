@@ -40,6 +40,7 @@ const examples = [
         title: 'Edit and organize',
         commands: [
             'nano Unfiled/Notebooks/Foobar.md',
+            "find /posthog/files -name '*.json'",
             'vi Unfiled/Notebooks/Foobar.md',
             'mkdir -p Research/Archive',
             'mv Unfiled/Notebooks/Foobar.md Research/Archive/',
@@ -243,8 +244,8 @@ export function TerminalScene(): JSX.Element {
                                 first start downloads Linux and bundled tools (about 15 MB).
                             </p>
                             <p className="mb-0">
-                                Commands and notebook edits can change real data. Local files and unsaved edits
-                                disappear when you leave this page.
+                                Commands and file edits can change real data. Local files and unsaved edits disappear
+                                when you leave this page.
                             </p>
                             <p className="mb-0">
                                 Choose an example to insert it, then press Enter. Tab completes paths. Ctrl+C

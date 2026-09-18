@@ -10,11 +10,15 @@ import {
 import type { FileSystemApi } from '~/generated/core/api.schemas'
 import { joinPath, splitPath } from '~/layout/panel-layout/ProjectTree/utils'
 
-import { dashboardsRetrieve } from 'products/dashboards/frontend/generated/api'
-import { featureFlagsRetrieve } from 'products/feature_flags/frontend/generated/api'
+import { actionsPartialUpdate, actionsRetrieve } from 'products/actions/frontend/generated/api'
+import { cohortsPartialUpdate, cohortsRetrieve } from 'products/cohorts/frontend/generated/api'
+import { dashboardsPartialUpdate, dashboardsRetrieve } from 'products/dashboards/frontend/generated/api'
+import { experimentsPartialUpdate, experimentsRetrieve } from 'products/experiments/frontend/generated/api'
+import { featureFlagsPartialUpdate, featureFlagsRetrieve } from 'products/feature_flags/frontend/generated/api'
 import { notebooksList, notebooksPartialUpdate, notebooksRetrieve } from 'products/notebooks/frontend/generated/api'
 import type { NotebookMinimalApi } from 'products/notebooks/frontend/generated/api.schemas'
-import { insightsRetrieve } from 'products/product_analytics/frontend/generated/api'
+import { insightsPartialUpdate, insightsRetrieve } from 'products/product_analytics/frontend/generated/api'
+import { surveysPartialUpdate, surveysRetrieve } from 'products/surveys/frontend/generated/api'
 
 import {
     FilesystemError,
@@ -81,7 +85,7 @@ export const TERMINAL_README = `PostHog terminal
 This is a Linux virtual machine running in your browser.
 
 /posthog/files       Your project tree. Markdown notebooks have a .md extension.
-/posthog/api         Read-only JSON representations, grouped by object type and ID.
+/posthog/api         JSON representations, grouped by object type and ID.
 /posthog/tools       Command descriptions and argument schemas. Run ph tools to discover MCP tools.
 /posthog/recovery    Edits that could not be saved. Copy them before leaving this page.
 /root and /tmp       Local Linux files. These disappear when the terminal closes.
@@ -102,8 +106,14 @@ Try:
   ph notebook-get '/posthog/files/Unfiled/Notebooks/My notebook.md'
 
 Saving an existing .md notebook updates PostHog using your current permissions.
-Writes commit on fsync or close. Concurrent edits fail instead of overwriting
-someone else's changes. Check the browser's save error banner and /posthog/recovery.
+JSON files for notebooks, dashboards, insights, feature flags, cohorts, actions,
+surveys, and experiments are editable in both mounts when you have edit access.
+Saving sends the JSON object to its existing API endpoint with PATCH. The mounted
+path selects the object, even if you edit an ID inside the JSON. API validation
+and read-only fields still apply. Unsupported object types remain read-only.
+Writes commit on fsync or close. Notebook saves use version checks; other objects
+use their API's update behavior. Invalid JSON and API failures fail the save.
+Check the browser's save error banner and /posthog/recovery for failed edits.
 Use mkdir to create project folders and mv to move or rename files and folders
 inside /posthog/files. Keep .md or .json extensions when renaming files.
 Moves preserve object IDs and folder contents. Existing destinations cannot be
@@ -327,20 +337,89 @@ export class PosthogFilesystem extends TerminalFilesystem {
         }
     }
 
-    private async object(entry: FileSystemApi): Promise<unknown> {
+    private objectApi(entry: FileSystemApi):
+        | {
+              read: () => Promise<unknown>
+              update: (data: Record<string, unknown>) => Promise<unknown>
+          }
+        | undefined {
         const options = { signal: this.signal }
-        const ref = entry.ref ?? ''
+        const ref = entry.ref
+        if (!ref) {
+            return undefined
+        }
         switch (entry.type) {
             case 'notebook':
-                return notebooksRetrieve(this.projectId, ref, options)
+                return {
+                    read: () => notebooksRetrieve(this.projectId, ref, options),
+                    update: (data) => notebooksPartialUpdate(this.projectId, ref, data, options),
+                }
             case 'dashboard':
-                return dashboardsRetrieve(this.projectId, Number(ref), undefined, options)
+                return {
+                    read: () => dashboardsRetrieve(this.projectId, Number(ref), undefined, options),
+                    update: (data) => dashboardsPartialUpdate(this.projectId, Number(ref), data, undefined, options),
+                }
             case 'insight':
-                return insightsRetrieve(this.projectId, ref, undefined, options)
+                return {
+                    read: () => insightsRetrieve(this.projectId, ref, undefined, options),
+                    update: (data) => insightsPartialUpdate(this.projectId, ref, data, undefined, options),
+                }
             case 'feature_flag':
-                return featureFlagsRetrieve(this.projectId, Number(ref), options)
+                return {
+                    read: () => featureFlagsRetrieve(this.projectId, Number(ref), options),
+                    update: (data) => featureFlagsPartialUpdate(this.projectId, Number(ref), data, options),
+                }
+            case 'cohort':
+                return {
+                    read: () => cohortsRetrieve(this.projectId, Number(ref), options),
+                    update: (data) => cohortsPartialUpdate(this.projectId, Number(ref), data, options),
+                }
+            case 'action':
+                return {
+                    read: () => actionsRetrieve(this.projectId, Number(ref), undefined, options),
+                    update: (data) => actionsPartialUpdate(this.projectId, Number(ref), data, undefined, options),
+                }
+            case 'survey':
+                return {
+                    read: () => surveysRetrieve(this.projectId, ref, options),
+                    update: (data) => surveysPartialUpdate(this.projectId, ref, data, options),
+                }
+            case 'experiment':
+                return {
+                    read: () => experimentsRetrieve(this.projectId, Number(ref), options),
+                    update: (data) => experimentsPartialUpdate(this.projectId, Number(ref), data, options),
+                }
             default:
-                return fileSystemRetrieve(this.projectId, entry.id, options)
+                return undefined
+        }
+    }
+
+    private async json(entry: FileSystemApi, writable: boolean): Promise<TerminalFile> {
+        const endpoint = this.objectApi(entry)
+        let value = endpoint
+            ? await endpoint.read()
+            : await fileSystemRetrieve(this.projectId, entry.id, { signal: this.signal })
+        return {
+            ...jsonFile(value),
+            save:
+                writable && endpoint
+                    ? async (data) => {
+                          let update: unknown
+                          try {
+                              update = JSON.parse(decoder.decode(data))
+                          } catch {
+                              throw new Error('Invalid JSON. Fix the JSON syntax before saving.')
+                          }
+                          if (!update || typeof update !== 'object' || Array.isArray(update)) {
+                              throw new Error('The JSON must contain an object with the fields to update.')
+                          }
+                          const payload = { ...update } as Record<string, unknown>
+                          if (entry.type === 'notebook' && value && typeof value === 'object' && 'version' in value) {
+                              payload.version = value.version
+                          }
+                          value = await endpoint.update(payload)
+                      }
+                    : undefined,
         }
     }
 
@@ -433,13 +512,16 @@ export class PosthogFilesystem extends TerminalFilesystem {
             while (parent.children!.has(name)) {
                 name = `${basename}~${entry.id}-${duplicate++}${extension}`
             }
+            const access = notebook?.user_access_level ?? entry.user_access_level
+            const writable =
+                !!this.objectApi(entry) &&
+                entry.user_access_level !== 'viewer' &&
+                (access === null || ['editor', 'manager'].includes(access ?? ''))
             const file = this.file(
                 name,
                 parent,
-                notebook ? () => this.notebook(entry) : async () => jsonFile(await this.object(entry)),
-                !!notebook &&
-                    (notebook.user_access_level === null ||
-                        ['editor', 'manager'].includes(notebook.user_access_level ?? ''))
+                notebook ? () => this.notebook(entry) : () => this.json(entry, writable),
+                writable
             )
             this.projectNodes.set(file, { parts: splitPath(entry.path), entry, extension })
             file.rename = (parent, name) => this.move(file, parent, name)
@@ -448,7 +530,7 @@ export class PosthogFilesystem extends TerminalFilesystem {
             const type = this.directory(terminalFilename(entry.type ?? 'unknown'), this.api)
             const apiName = `${terminalFilename(entry.ref ?? entry.id)}.json`
             if (!type.children!.has(apiName)) {
-                this.file(apiName, type, async () => jsonFile(await this.object(entry)))
+                this.file(apiName, type, () => this.json(entry, writable), writable)
                 this.references.set(`/posthog/api/${type.name}/${apiName}`, entry)
             }
         }

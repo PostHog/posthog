@@ -28,12 +28,33 @@ const meta: Meta<typeof TerminalScene> = {
         const notebooks = new Map([[notebook.short_id, notebook]])
         const paths = new Map([[notebook.id, 'Research/Welcome']])
         const folders = new Map([['01900000-0000-7000-8000-000000000005', 'Research']])
+        const objects = [
+            { type: 'dashboard', route: 'dashboards', ref: '101', name: 'Overview' },
+            { type: 'insight', route: 'insights', ref: 'demo-insight', name: 'Signups' },
+            { type: 'feature_flag', route: 'feature_flags', ref: '102', name: 'New navigation' },
+            { type: 'cohort', route: 'cohorts', ref: '103', name: 'Active users' },
+            { type: 'action', route: 'actions', ref: '104', name: 'Checkout' },
+            { type: 'survey', route: 'surveys', ref: '01900000-0000-7000-8000-000000000006', name: 'Feedback' },
+            { type: 'experiment', route: 'experiments', ref: '105', name: 'Signup test' },
+        ]
+        const objectData = new Map<string, Record<string, unknown>>(
+            objects.map((item) => [
+                item.ref,
+                { id: item.ref, name: item.name, description: 'Terminal demo', user_access_level: 'editor' },
+            ])
+        )
         useStorybookMocks({
             get: {
+                ...Object.fromEntries(
+                    objects.map((item) => [
+                        `/api/projects/:projectId/${item.route}/${item.ref}/`,
+                        () => [200, objectData.get(item.ref)],
+                    ])
+                ),
                 '/api/projects/:projectId/file_system/': () => [
                     200,
                     {
-                        count: notebooks.size + folders.size,
+                        count: notebooks.size + folders.size + objects.length,
                         next: null,
                         results: [...notebooks.values()]
                             .map((item) => ({
@@ -49,6 +70,15 @@ const meta: Meta<typeof TerminalScene> = {
                                     path,
                                     type: 'folder',
                                     ref: '',
+                                    user_access_level: 'editor',
+                                }))
+                            )
+                            .concat(
+                                objects.map((item) => ({
+                                    id: `file-${item.ref}`,
+                                    path: `Objects/${item.name}`,
+                                    type: item.type,
+                                    ref: item.ref,
                                     user_access_level: 'editor',
                                 }))
                             ),
@@ -161,6 +191,20 @@ const meta: Meta<typeof TerminalScene> = {
                 },
             },
             patch: {
+                ...Object.fromEntries(
+                    objects.map((item) => [
+                        `/api/projects/:projectId/${item.route}/${item.ref}/`,
+                        async ({ request }: { request: Request }) => {
+                            const data = await request.json()
+                            if (typeof data.name !== 'string' || !data.name.trim()) {
+                                return [400, { detail: 'Name cannot be empty.' }]
+                            }
+                            const updated = { ...objectData.get(item.ref), ...data, id: item.ref }
+                            objectData.set(item.ref, updated)
+                            return [200, updated]
+                        },
+                    ])
+                ),
                 '/api/projects/:projectId/notebooks/:shortId/': async ({ request, params }) => {
                     const existing = notebooks.get(String(params.shortId))
                     if (!existing) {

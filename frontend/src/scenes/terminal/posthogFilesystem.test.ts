@@ -16,7 +16,10 @@ jest.mock('~/generated/core/api', () => ({
     fileSystemCreate: jest.fn(),
     fileSystemDestroy: jest.fn(),
 }))
-jest.mock('lib/api-orval-mutator', () => ({ __esModule: true, default: jest.fn() }))
+jest.mock('lib/api-orval-mutator', () => {
+    const mutator = jest.fn()
+    return { __esModule: true, default: mutator, apiMutator: mutator }
+})
 jest.mock('products/notebooks/frontend/generated/api', () => ({
     notebooksRetrieve: jest.fn(),
     notebooksList: jest.fn(),
@@ -266,7 +269,7 @@ describe('PostHog filesystem projection', () => {
         await fs.load()
         const directory = fs.root.children!.get('files')!.children!.get('Research')!
         expect([...directory.children!.keys()].sort()).toEqual(['Legacy.json', 'Notes.md', 'Notes~note-2.md'])
-        expect(directory.children!.get('Legacy.json')!.writable).toBe(false)
+        expect(directory.children!.get('Legacy.json')!.writable).toBe(true)
         const api = fs.root.children!.get('api')!.children!.get('notebook')!.children!.get('note-1.json')!
         expect(JSON.parse(decoder.decode((await api.open!()).bytes)).version).toBe(7)
         expect(jest.mocked(fileSystemList).mock.calls[1][1]?.offset).toBe(1)
@@ -286,6 +289,103 @@ describe('PostHog filesystem projection', () => {
         const files = fs.root.children!.get('files')!
         expect([...files.children!.keys()]).toEqual(['Notes.md'])
         expect(files.children!.get('Notes.md')!.writable).toBe(false)
+        expect(fs.root.children!.get('api')!.children!.get('notebook')!.children!.get('note-1.json')!.writable).toBe(
+            false
+        )
+    })
+
+    it.each([
+        ['dashboard', 'dashboards', '12'],
+        ['insight', 'insights', 'insight-short-id'],
+        ['feature_flag', 'feature_flags', '13'],
+        ['cohort', 'cohorts', '14'],
+        ['action', 'actions', '15'],
+        ['survey', 'surveys', '01900000-0000-7000-8000-000000000003'],
+        ['experiment', 'experiments', '16'],
+    ])('reads and saves %s JSON through its project-scoped endpoint from both mounts', async (type, route, ref) => {
+        jest.mocked(fileSystemList).mockResolvedValue({ count: 1, results: [entry(ref, 'Object', type)] })
+        const original = { id: ref, name: 'Original', nested: { enabled: false }, readonly_field: 'from API' }
+        jest.mocked(apiMutator).mockResolvedValue(original)
+        const signal = new AbortController().signal
+        const fs = new PosthogFilesystem('42', signal)
+        await fs.load()
+        expect(apiMutator).not.toHaveBeenCalled()
+        const files = [
+            fs.root.children!.get('files')!.children!.get('Object.json')!,
+            fs.root.children!.get('api')!.children!.get(type)!.children!.get(`${ref}.json`)!,
+        ]
+        for (const file of files) {
+            expect(file.writable).toBe(true)
+            const opened = await file.open!()
+            expect(JSON.parse(decoder.decode(opened.bytes))).toEqual(original)
+            expect(apiMutator).toHaveBeenLastCalledWith(`/api/projects/42/${route}/${ref}/`, { method: 'GET', signal })
+            const edited = { ...original, id: 'another-id', name: 'Edited', nested: { enabled: true } }
+            await opened.save!(new TextEncoder().encode(JSON.stringify(edited)))
+            expect(apiMutator).toHaveBeenLastCalledWith(`/api/projects/42/${route}/${ref}/`, {
+                method: 'PATCH',
+                signal,
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(edited),
+            })
+        }
+    })
+
+    it('rejects invalid JSON and propagates API failures without retrying a failed update', async () => {
+        jest.mocked(fileSystemList).mockResolvedValue({ count: 1, results: [entry('12', 'Object', 'dashboard')] })
+        jest.mocked(apiMutator).mockResolvedValue({ id: 12, name: 'Original' })
+        const fs = new PosthogFilesystem('42', new AbortController().signal)
+        await fs.load()
+        const file = await fs.root.children!.get('files')!.children!.get('Object.json')!.open!()
+        jest.mocked(apiMutator).mockClear()
+        for (const invalid of ['{', 'null', '[]', '"text"', '123']) {
+            await expect(file.save!(new TextEncoder().encode(invalid))).rejects.toThrow(/JSON/)
+        }
+        expect(apiMutator).not.toHaveBeenCalled()
+        const error = { status: 400, detail: 'Name cannot be empty.' }
+        jest.mocked(apiMutator).mockRejectedValueOnce(error)
+        await expect(file.save!(new TextEncoder().encode('{"name":""}'))).rejects.toBe(error)
+        expect(apiMutator).toHaveBeenCalledTimes(1)
+    })
+
+    it('keeps unsupported objects and viewer JSON read-only', async () => {
+        jest.mocked(fileSystemList).mockResolvedValue({
+            count: 2,
+            results: [
+                entry('unsupported', 'Unknown', 'unknown'),
+                { ...entry('12', 'View only', 'dashboard'), user_access_level: 'viewer' },
+            ],
+        })
+        const fs = new PosthogFilesystem('42', new AbortController().signal)
+        await fs.load()
+        for (const node of fs.root.children!.get('files')!.children!.values()) {
+            expect(node.writable).toBe(false)
+        }
+        for (const directory of fs.root.children!.get('api')!.children!.values()) {
+            expect([...directory.children!.values()][0].writable).toBe(false)
+        }
+    })
+
+    it('saves notebook JSON with the opened version and advances it after a successful save', async () => {
+        const fs = new PosthogFilesystem('42', new AbortController().signal)
+        await fs.load()
+        const file =
+            await fs.root.children!.get('api')!.children!.get('notebook')!.children!.get('note-1.json')!.open!()
+        jest.mocked(notebooksPartialUpdate).mockResolvedValue({ ...notebook, version: 8 })
+        const data = new TextEncoder().encode(JSON.stringify({ ...notebook, title: 'Edited', version: 99 }))
+        await file.save!(data)
+        expect(notebooksPartialUpdate).toHaveBeenLastCalledWith(
+            '42',
+            'note-1',
+            expect.objectContaining({ title: 'Edited', version: 7 }),
+            expect.anything()
+        )
+        await file.save!(data)
+        expect(notebooksPartialUpdate).toHaveBeenLastCalledWith(
+            '42',
+            'note-1',
+            expect.objectContaining({ version: 8 }),
+            expect.anything()
+        )
     })
 
     it.each([

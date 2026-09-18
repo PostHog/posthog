@@ -103,12 +103,16 @@ export class NinePServer {
             await fid.file.save(fid.file.bytes)
             fid.dirty = false
             fid.node.size = fid.file.bytes.length
-        } catch {
+        } catch (error) {
             fid.failed = true
             const recovery = this.filesystem.recover(fid.node, fid.file.bytes)
-            this.onSaveError(
-                `Could not save ${fid.node.name}. Check your access or concurrent edits. Your edit is in ${recovery}.`
-            )
+            const detail =
+                error instanceof Error
+                    ? error.message
+                    : error && typeof error === 'object' && 'detail' in error && typeof error.detail === 'string'
+                      ? error.detail
+                      : 'Check your access, JSON fields, or concurrent edits.'
+            this.onSaveError(`Could not save ${fid.node.name}. ${detail} Your edit is in ${recovery}.`)
             throw new FilesystemError(5)
         }
     }
