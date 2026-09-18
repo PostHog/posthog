@@ -39,12 +39,42 @@ The terminal uses a black background in both app themes.
 Select text and use **Copy selection**, or use **Paste** to paste clipboard text into the terminal.
 Keyboard shortcuts are ⌘C/⌘V on macOS and Ctrl+Shift+C/V on Linux and Windows; Ctrl+C still interrupts the running command.
 If the browser denies clipboard access, focus the terminal and use its native paste shortcut or context menu.
+Click a command below the terminal to insert it without running it; press Enter to run.
+The **…** menu contains more examples for files, commands, and JSON filtering.
 Midnight Commander is not included in this image.
-Directories are a snapshot from startup; restart the terminal to discover newly created or renamed objects.
+Directories are a snapshot; run `ph refresh` to discover newly created, renamed, or deleted objects.
 Startup uses the filesystem index and the filtered notebook index without downloading notebook bodies.
 Directory listings, including `ls -l` and `find`, use local metadata without fetching object contents.
 Unopened files show a size of zero; after opening a file, listings show its last known byte size.
 Contents are fetched when a file opens, with a 4 MiB limit per file.
+
+`ph` runs built-in project commands and tools from connected MCP servers using your current browser session.
+The built-in commands cover notebook creation, reading, updates, and deletion, plus reading insights, dashboards, and feature flags.
+They use MCP command names and the existing generated API clients; they do not embed the full PostHog MCP server.
+Connected servers expose their available tools as `server/tool` commands through the existing MCP gateway, including its approval checks.
+The VM receives no credentials, and the bridge does not provide arbitrary HTTP access.
+
+```sh
+ph help
+ph tools notebook
+ph help notebooks-destroy
+ph notebooks-list --limit 10 | jq '.results[].title'
+ph notebook-get '/posthog/files/Research/Notes.md'
+ph notebook-create --title 'Notes' --markdown @/tmp/notes.md
+ph notebook-delete <short-id>
+ph refresh
+cat /posthog/tools/notebooks-destroy.json
+```
+
+`notebook-list`, `notebook-get`, `notebook-create`, `notebook-update`, and `notebook-delete` are aliases for the corresponding notebook commands.
+Built-in ID arguments accept a file path under `/posthog/files` or `/posthog/api`, including paths relative to the current directory.
+Use named flags such as `--short-id abc`, or pass an arguments object with `--json '{"short_id":"abc"}'`.
+An `@file` argument reads a Linux file's contents; `--json -` reads JSON from stdin.
+Results go to stdout and can be piped to `jq` or redirected to a local file.
+Failures go to stderr and return a nonzero exit code.
+Calls serialize through a guest file lock, so pipelines and background commands cannot consume each other's responses.
+Tool descriptions and argument schemas appear as JSON files under `/posthog/tools`; `ph tools` loads connected tool schemas there too.
+Run `ph refresh` after mutations to update the tree and tool catalog.
 
 Notebook writes commit on `fsync` or close.
 A rejected save returns an I/O error, shows a browser error banner, and preserves the edit under `/posthog/recovery`.

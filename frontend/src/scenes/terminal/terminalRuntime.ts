@@ -97,6 +97,7 @@ export class TerminalRuntime {
                         'umount /mnt',
                         'mount -t 9p -o trans=virtio,version=9p2000.L,cache=none host9p /posthog || exit',
                         'cp /posthog/bin/jq /usr/bin/jq && chmod +x /usr/bin/jq || exit',
+                        'cp /posthog/bin/ph /usr/bin/ph && chmod +x /usr/bin/ph || exit',
                         'stty -F /dev/ttyS1 raw -echo',
                         '{ while read -r rows cols; do stty -F /dev/ttyS0 rows "$rows" cols "$cols"; done < /dev/ttyS1 & }',
                         "alias ls='ls --color=auto'",
