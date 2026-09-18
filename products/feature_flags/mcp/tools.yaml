@@ -279,12 +279,12 @@ tools:
 
             `active` covers standard flag evaluation only, and remote config flags are the exception. A row with
             `is_remote_configuration: true` is a remote config flag. Its payload endpoint ignores `active`, so turning
-            the flag off does not stop payload delivery. That endpoint serves a payload only when one is configured,
-            and the row does not show whether one is. So report such a flag as off for evaluation, and say that its
-            payload delivery does not depend on `active`, rather than that a payload is served. A remote config flag
-            with an encrypted payload never evaluates, whatever `active` holds, because only its payload endpoint can
-            decrypt the payload. The row does not show which flags those are, and `feature-flag-get-definition`
-            returns `has_encrypted_payloads` for one flag.
+            the flag off does not stop payload delivery. That endpoint serves a payload only when one is configured, and
+            the row does not show whether one is. So report such a flag as off for evaluation, and say that its payload
+            delivery does not depend on `active`, rather than that a payload is served. A remote config flag with an
+            encrypted payload never evaluates, whatever `active` holds, because only its payload endpoint can decrypt
+            the payload. The row does not show which flags those are, and `feature-flag-get-definition` returns
+            `has_encrypted_payloads` for one flag.
 
 
             `feature-flag-get-definition` returns the same `active` field for one flag. `feature-flags-status-retrieve`
@@ -333,10 +333,10 @@ tools:
 
             `active` is the serving state: true means the flag evaluates, false means it is turned off. The `status`
             field in the same response is the staleness classification, not the serving state, and a disabled flag
-            reports `status: ACTIVE`. Report serving state from `active` only. `active` covers standard flag
-            evaluation only: when `is_remote_configuration` is true, the payload endpoint ignores `active`, so it keeps
-            serving a configured payload while `active` is false. A flag with `has_encrypted_payloads: true` never
-            evaluates, whatever `active` holds, because only that endpoint can decrypt the payload.
+            reports `status: ACTIVE`. Report serving state from `active` only. `active` covers standard flag evaluation
+            only: when `is_remote_configuration` is true, the payload endpoint ignores `active`, so it keeps serving a
+            configured payload while `active` is false. A flag with `has_encrypted_payloads: true` never evaluates,
+            whatever `active` holds, because only that endpoint can decrypt the payload.
         param_overrides:
             id:
                 cast: string-int
