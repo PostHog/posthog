@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 50 enabled ops
+ * PostHog API - MCP 48 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -475,185 +475,19 @@ export const SignalsReportChecksListQueryParams = () => zod.object({
 })
 
 /**
- * Schedule a re-measurement of the report's claim. A `metric_threshold` check runs one bounded Trends query and compares the result, so it needs no agent run. An `agent` check runs a scout instead, for a claim no single number settles; it runs on the scout its config names, or on the fleet's follow-up scout when it names none.
- * @summary Create a check on a report
- */
-export const SignalsReportChecksCreateParams = () => zod.object({
-    project_id: zod
-        .string()
-        .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
-        ),
-    report_id: zod
-        .string()
-        .describe(
-            "UUID of the report whose artefacts you're addressing. This must be a report id (the report's own UUID), not a signal id such as `sig_praise` — a non-report id returns 404."
-        ),
-})
-
-export const signalsReportChecksCreateBodyTitleMax = 200
-
-export const signalsReportChecksCreateBodyRationaleMax = 2000
-
-export const signalsReportChecksCreateBodyConfigOneTwoInstructionsMax = 2000
-
-export const signalsReportChecksCreateBodyConfigOneTwoSkillNameOneMax = 200
-
-export const signalsReportChecksCreateBodyConfigOneTwoProbeHintsMax = 5
-
-export const signalsReportChecksCreateBodyRunIntervalMinutesMin = 360
-export const signalsReportChecksCreateBodyRunIntervalMinutesMax = 129600
-
-export const signalsReportChecksCreateBodyRunsRemainingMax = 10
-
-export const SignalsReportChecksCreateBody = () => zod
-    .object({
-        title: zod
-            .string()
-            .max(signalsReportChecksCreateBodyTitleMax)
-            .describe('Short label for the expectation, e.g. `Checkout 500s stay below 10 a day`.'),
-        rationale: zod
-            .string()
-            .max(signalsReportChecksCreateBodyRationaleMax)
-            .optional()
-            .describe('Why the check is worth running.'),
-        kind: zod
-            .enum(['metric_threshold', 'agent'])
-            .describe('\* `metric_threshold` - Metric Threshold\n\* `agent` - Agent')
-            .describe('How the check is evaluated.\n\n\* `metric_threshold` - Metric Threshold\n\* `agent` - Agent'),
-        config: zod
-            .union([
-                zod
-                    .object({
-                        metric_id: zod
-                            .union([zod.string(), zod.null()])
-                            .optional()
-                            .describe(
-                                "Identifier of a metric on the report whose query this check measures. The metric's query is copied into `query` when the check is created."
-                            ),
-                        query: zod
-                            .union([zod.record(zod.string(), zod.unknown()), zod.null()])
-                            .optional()
-                            .describe(
-                                'Live InsightVizNode wrapping one TrendsQuery: supplied by the caller, or copied from the named metric when the check is created.'
-                            ),
-                        comparison: zod
-                            .object({
-                                operator: zod.enum(['lte', 'gte', 'between']).describe('`lte`, `gte`, or `between`.'),
-                                value: zod
-                                    .union([zod.number(), zod.null()])
-                                    .optional()
-                                    .describe('The bound for `lte` and `gte`; unused by `between`.'),
-                                bounds: zod
-                                    .union([
-                                        zod.object({
-                                            lower: zod.number(),
-                                            upper: zod.number(),
-                                        }),
-                                        zod.null(),
-                                    ])
-                                    .optional()
-                                    .describe('The inclusive range for `between`; unused by `lte` and `gte`.'),
-                            })
-                            .describe('What the measured value must satisfy to pass.'),
-                        baseline_value: zod
-                            .union([zod.number(), zod.null()])
-                            .optional()
-                            .describe(
-                                'The value observed when the check was written, recorded on each result for context.'
-                            ),
-                    })
-                    .describe(
-                        "A deterministic check: measure one number, compare it, record the verdict.\n\nThe number comes either from a metric the report already shows (``metric_id``) or from a query\nthe author supplies. Both end up in the same runner, so a supplied query must satisfy the live\nmetric contract — the node allowlist, the bounded window, and the single-output-series rule.\n\nA caller names one source. When it names a metric, the create path copies that metric's query\ninto ``query`` before the row is stored, so the check keeps measuring what its author saw even if\nthe report's metric is later rewritten under the same id; ``metric_id`` stays as provenance.\n\nUnknown keys are refused rather than ignored, so a misspelled field name is reported instead of\nbeing dropped in silence and stored as it arrived."
-                    ),
-                zod
-                    .object({
-                        instructions: zod
-                            .string()
-                            .max(signalsReportChecksCreateBodyConfigOneTwoInstructionsMax)
-                            .describe("What the run must establish, in the author's own words."),
-                        skill_name: zod
-                            .union([
-                                zod.string().max(signalsReportChecksCreateBodyConfigOneTwoSkillNameOneMax),
-                                zod.null(),
-                            ])
-                            .optional()
-                            .describe(
-                                "Scout skill that runs the check. Omit it to run on the fleet's follow-up scout, which is the right lane for a report no scout authored."
-                            ),
-                        probe_hints: zod
-                            .array(zod.string())
-                            .max(signalsReportChecksCreateBodyConfigOneTwoProbeHintsMax)
-                            .optional()
-                            .describe(
-                                'Concrete places to look, such as an issue id, a service name, or a query to repeat.'
-                            ),
-                    })
-                    .describe(
-                        'A check a scout run answers: re-probe the report\'s claim and record one verdict.\n\nThe kind for a claim no single number settles. A resolved error-tracking report is the usual\ncase: \"did the exception stop?\" needs the issue looked up, its recent events read, and the\nstack compared against what the fix changed, which is a run rather than a comparison.\n\nEverything here is prompt material a scout reads, so it is untrusted by construction: it renders\nin the run block the agent is told to weigh, never in the instructions it is told to follow. The\nverdict still comes back through `scout-check-record-result`, so instructions cannot widen what\na check run may write.\n\n``skill_name`` names the lane. Most reports are pipeline-authored and have no scout behind them,\nso it is optional: a check that names none runs on the fleet\'s follow-up scout\n(see ``report_check_agent.FALLBACK_CHECK_SKILL_NAME``).'
-                    ),
-            ])
-            .describe('What the check measures and what the result must satisfy; the shape depends on `kind`.'),
-        next_run_at: zod.iso
-            .datetime({ offset: true })
-            .optional()
-            .describe(
-                'When to first evaluate the check. Must be in the future and within 90 days. Defaults to 7 days from now.'
-            ),
-        run_interval_minutes: zod
-            .number()
-            .min(signalsReportChecksCreateBodyRunIntervalMinutesMin)
-            .max(signalsReportChecksCreateBodyRunIntervalMinutesMax)
-            .nullish()
-            .describe(
-                'Gap between runs for a recurring check, between 360 and 129600 minutes. Omit for a one-shot check.'
-            ),
-        runs_remaining: zod
-            .number()
-            .min(1)
-            .max(signalsReportChecksCreateBodyRunsRemainingMax)
-            .optional()
-            .describe('How many times to evaluate the check, at most 10. Defaults to 1.'),
-        expires_at: zod.iso
-            .datetime({ offset: true })
-            .optional()
-            .describe(
-                'Horizon after which the check retires unrun. Defaults to 30 days after the last scheduled run, or the 90-day horizon if that comes first.'
-            ),
-    })
-    .describe(
-        "Request body for creating a check on a report.\n\nThe schedule is the check's own: `next_run_at` says when to look, rather than the system\nderiving a soak window from a merged pull request that many fixes never have."
-    )
-
-/**
- * Checks attached to a signal report: read, create, and cancel.
+ * Checks attached to a signal report: read and cancel.
+ *
+ * There is no create here. A check is authored by a scout run or by the research pipeline, both
+ * through `report_check_authoring.create_check`. An `agent` check puts its author's prose in front
+ * of a privileged scout run, and `task:write` does not authorize that, so no caller-facing
+ * endpoint accepts one. Anyone who can read the report can read its checks, and a person can
+ * still stop one.
  *
  * There is no update: a check is a claim about the future, and editing its threshold after a
- * result would make the recorded verdict unreadable. Cancel it and write a new one.
- *
- * Writes are attributed the same way artefact writes are — to the task named by the
- * `X-PostHog-Task-Id` header when present, else to the requesting user.
+ * result would make the recorded verdict unreadable. Cancel it and let its author write a new one.
  * @summary Get a single check
  */
 export const SignalsReportChecksRetrieveParams = () => zod.object({
-    id: zod.string().describe('A UUID string identifying this Signal report check.'),
-    project_id: zod
-        .string()
-        .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
-        ),
-    report_id: zod
-        .string()
-        .describe(
-            "UUID of the report whose artefacts you're addressing. This must be a report id (the report's own UUID), not a signal id such as `sig_praise` — a non-report id returns 404."
-        ),
-})
-
-/**
- * Stop a check that is still open — active, or pending its report resolving. Its recorded results stay on the report.
- * @summary Cancel a check
- */
-export const SignalsReportChecksDestroyParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this Signal report check.'),
     project_id: zod
         .string()

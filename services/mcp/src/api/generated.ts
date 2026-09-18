@@ -84152,49 +84152,6 @@ export namespace Schemas {
       not_found_count: number;
     }
 
-    /**
-     * Request body for creating a check on a report.
-     *
-     * The schedule is the check's own: `next_run_at` says when to look, rather than the system
-     * deriving a soak window from a merged pull request that many fixes never have.
-     */
-    export interface SignalReportCheckWrite {
-      /**
-         * Short label for the expectation, e.g. `Checkout 500s stay below 10 a day`.
-         * @maxLength 200
-         */
-      title: string;
-      /**
-         * Why the check is worth running.
-         * @maxLength 2000
-         */
-      rationale?: string;
-      /** How the check is evaluated.
-       *
-       * * `metric_threshold` - Metric Threshold
-       * * `agent` - Agent */
-      kind: SignalReportCheckKindEnum;
-      /** What the check measures and what the result must satisfy; the shape depends on `kind`. */
-      config: SignalReportCheckConfig;
-      /** When to first evaluate the check. Must be in the future and within 90 days. Defaults to 7 days from now. */
-      next_run_at?: string;
-      /**
-         * Gap between runs for a recurring check, between 360 and 129600 minutes. Omit for a one-shot check.
-         * @minimum 360
-         * @maximum 129600
-         * @nullable
-         */
-      run_interval_minutes?: number | null;
-      /**
-         * How many times to evaluate the check, at most 10. Defaults to 1.
-         * @minimum 1
-         * @maximum 10
-         */
-      runs_remaining?: number;
-      /** Horizon after which the check retires unrun. Defaults to 30 days after the last scheduled run, or the 90-day horizon if that comes first. */
-      expires_at?: string;
-    }
-
     export interface SignalReportClaim {
       /** Active claim ID returned by an earlier call. Stale claims are rejected. */
       claim_id?: string;

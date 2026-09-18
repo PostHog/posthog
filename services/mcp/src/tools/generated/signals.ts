@@ -147,75 +147,6 @@ const inboxReportArtefactsUpdate = (): ToolBase<
     },
 })
 
-const InboxReportChecksCreateSchema = () => {
-    const SignalsReportChecksCreateBody = orvalSchemas.SignalsReportChecksCreateBody()
-    const SignalsReportChecksCreateParams = orvalSchemas.SignalsReportChecksCreateParams()
-    return SignalsReportChecksCreateParams.omit({ project_id: true }).extend(SignalsReportChecksCreateBody.shape)
-}
-
-const inboxReportChecksCreate = (): ToolBase<
-    ReturnType<typeof InboxReportChecksCreateSchema>,
-    WithPostHogUrl<Schemas.SignalReportCheck>
-> => ({
-    name: 'inbox-report-checks-create',
-    schema: InboxReportChecksCreateSchema(),
-    handler: async (context: Context, params: z.infer<ReturnType<typeof InboxReportChecksCreateSchema>>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const body: Record<string, unknown> = {}
-        if (params.title !== undefined) {
-            body['title'] = params.title
-        }
-        if (params.rationale !== undefined) {
-            body['rationale'] = params.rationale
-        }
-        if (params.kind !== undefined) {
-            body['kind'] = params.kind
-        }
-        if (params.config !== undefined) {
-            body['config'] = params.config
-        }
-        if (params.next_run_at !== undefined) {
-            body['next_run_at'] = params.next_run_at
-        }
-        if (params.run_interval_minutes !== undefined) {
-            body['run_interval_minutes'] = params.run_interval_minutes
-        }
-        if (params.runs_remaining !== undefined) {
-            body['runs_remaining'] = params.runs_remaining
-        }
-        if (params.expires_at !== undefined) {
-            body['expires_at'] = params.expires_at
-        }
-        const result = await context.api.request<Schemas.SignalReportCheck>({
-            method: 'POST',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/reports/${encodeURIComponent(String(params.report_id))}/checks/`,
-            body,
-        })
-        return await withPostHogUrl(context, result, `/inbox/${params.report_id}`)
-    },
-})
-
-const InboxReportChecksDeleteSchema = () => {
-    const SignalsReportChecksDestroyParams = orvalSchemas.SignalsReportChecksDestroyParams()
-    return SignalsReportChecksDestroyParams.omit({ project_id: true })
-}
-
-const inboxReportChecksDelete = (): ToolBase<
-    ReturnType<typeof InboxReportChecksDeleteSchema>,
-    Schemas.SignalReportCheck
-> => ({
-    name: 'inbox-report-checks-delete',
-    schema: InboxReportChecksDeleteSchema(),
-    handler: async (context: Context, params: z.infer<ReturnType<typeof InboxReportChecksDeleteSchema>>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.SignalReportCheck>({
-            method: 'DELETE',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/reports/${encodeURIComponent(String(params.report_id))}/checks/${encodeURIComponent(String(params.id))}/`,
-        })
-        return result
-    },
-})
-
 const InboxReportChecksListSchema = () => {
     const SignalsReportChecksListParams = orvalSchemas.SignalsReportChecksListParams()
     const SignalsReportChecksListQueryParams = orvalSchemas.SignalsReportChecksListQueryParams()
@@ -2362,8 +2293,6 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'inbox-report-artefacts-list': inboxReportArtefactsList,
     'inbox-report-artefacts-retrieve': inboxReportArtefactsRetrieve,
     'inbox-report-artefacts-update': inboxReportArtefactsUpdate,
-    'inbox-report-checks-create': inboxReportChecksCreate,
-    'inbox-report-checks-delete': inboxReportChecksDelete,
     'inbox-report-checks-list': inboxReportChecksList,
     'inbox-report-checks-retrieve': inboxReportChecksRetrieve,
     'inbox-reports-bulk-set-state': inboxReportsBulkSetState,

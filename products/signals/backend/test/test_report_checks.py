@@ -577,14 +577,28 @@ class TestReportCheckAPI(APIBaseTest):
         self.report = SignalReport.objects.create(team=self.team, status=SignalReport.Status.RESOLVED, title="Fix")
         self.url = f"/api/projects/{self.team.id}/signals/reports/{self.report.id}/checks/"
 
-    def test_create_then_list_then_cancel(self) -> None:
+    def _create(self, *, report: SignalReport | None = None, **overrides) -> SignalReportCheck:
+        spec: dict = {
+            "title": "Checkout errors stay low",
+            "kind": SignalReportCheck.Kind.METRIC_THRESHOLD,
+            "config": _threshold_config(),
+            "next_run_at": timezone.now() + timedelta(days=7),
+        }
+        spec.update(overrides)
+        return create_check(report=report or self.report, attribution=ArtefactAttribution.system(), **spec)
+
+    def test_the_endpoint_does_not_create_checks(self) -> None:
         response = self.client.post(
             self.url,
-            {"title": "Checkout errors stay low", "kind": "metric_threshold", "config": _threshold_config()},
+            {"title": "Checkout errors stay low", "kind": "agent", "config": {"instructions": "Look at anything."}},
             format="json",
         )
-        assert response.status_code == status.HTTP_201_CREATED, response.json()
-        check_id = response.json()["id"]
+
+        assert response.status_code == status.HTTP_405_METHOD_NOT_ALLOWED
+        assert not SignalReportCheck.objects.for_team(self.team.id).exists()
+
+    def test_list_then_cancel(self) -> None:
+        check_id = str(self._create().id)
 
         listed = self.client.get(self.url)
         assert [row["id"] for row in listed.json()["results"]] == [check_id]
@@ -600,35 +614,19 @@ class TestReportCheckAPI(APIBaseTest):
     def test_a_created_check_is_reported_for_adoption(self) -> None:
         with patch(_CAPTURE) as capture:
             with self.captureOnCommitCallbacks(execute=True):
-                response = self.client.post(
-                    self.url,
-                    {
-                        "title": "Checkout errors stay low",
-                        "kind": "metric_threshold",
-                        "config": _threshold_config(),
-                        "run_interval_minutes": MIN_CHECK_INTERVAL_MINUTES,
-                        "runs_remaining": 2,
-                    },
-                    format="json",
-                )
+                check = self._create(run_interval_minutes=MIN_CHECK_INTERVAL_MINUTES, runs_remaining=2)
 
-        assert response.status_code == status.HTTP_201_CREATED, response.json()
         assert capture.call_count == 1
         properties = capture.call_args.kwargs["properties"]
         assert capture.call_args.kwargs["event"] == "signals_report_check_created"
-        assert properties["check_id"] == response.json()["id"]
+        assert properties["check_id"] == str(check.id)
         assert properties["kind"] == SignalReportCheck.Kind.METRIC_THRESHOLD
         assert properties["metric_source"] == "query"
         assert properties["run_interval_minutes"] == MIN_CHECK_INTERVAL_MINUTES
         assert properties["runs_remaining"] == 2
 
     def test_cancelling_does_not_overwrite_a_verdict_that_landed_first(self) -> None:
-        created = self.client.post(
-            self.url,
-            {"title": "Checkout errors stay low", "kind": "metric_threshold", "config": _threshold_config()},
-            format="json",
-        )
-        check_id = created.json()["id"]
+        check_id = str(self._create().id)
         # The row the request read before a run committed its verdict.
         stale = SignalReportCheck.objects.for_team(self.team.id).get(id=check_id)
         SignalReportCheck.objects.for_team(self.team.id).filter(id=check_id).update(
@@ -644,24 +642,17 @@ class TestReportCheckAPI(APIBaseTest):
         )
 
     def test_a_metric_reference_is_resolved_and_copied_when_the_check_is_created(self) -> None:
-        payload = {
-            "title": "Checkout errors stay low",
-            "kind": "metric_threshold",
-            "config": {"metric_id": "checkout-errors", "comparison": {"operator": "lte", "value": 10}},
-        }
+        config = {"metric_id": "checkout-errors", "comparison": {"operator": "lte", "value": 10}}
 
-        refused = self.client.post(self.url, payload, format="json")
-
-        assert refused.status_code == status.HTTP_400_BAD_REQUEST
+        with self.assertRaises(CheckCreationError):
+            self._create(config=config)
         assert not SignalReportCheck.objects.for_team(self.team.id).filter(report_id=self.report.id).exists()
 
         self.report.metrics = [
             {"metric_id": "checkout-errors", "title": "Checkout errors", "kind": "occurrences", "query": _PAGEVIEWS}
         ]
         self.report.save(update_fields=["metrics"])
-        created = self.client.post(self.url, payload, format="json")
-        assert created.status_code == status.HTTP_201_CREATED, created.json()
-        stored = SignalReportCheck.objects.for_team(self.team.id).get(id=created.json()["id"])
+        stored = self._create(config=config)
         assert stored.config["metric_id"] == "checkout-errors"
         assert stored.config["query"] == _PAGEVIEWS
 
@@ -683,11 +674,7 @@ class TestReportCheckAPI(APIBaseTest):
         report = SignalReport.objects.create(team=child, status=SignalReport.Status.RESOLVED, title="Fix")
         url = f"/api/projects/{child.id}/signals/reports/{report.id}/checks/"
 
-        created = self.client.post(
-            url, {"title": "Errors stay low", "kind": "metric_threshold", "config": _threshold_config()}, format="json"
-        )
-        assert created.status_code == status.HTTP_201_CREATED, created.json()
-        check_id = created.json()["id"]
+        check_id = str(self._create(report=report).id)
 
         assert [row["id"] for row in self.client.get(url).json()["results"]] == [check_id]
         assert SignalReportCheck.all_teams.get(id=check_id).team_id == child.id
@@ -710,17 +697,12 @@ class TestReportCheckAPI(APIBaseTest):
                 }
             ]
         )
-        created = self.client.post(
-            self.url,
-            {
-                "title": "Enterprise pageviews stay low",
-                "kind": "metric_threshold",
-                "config": _threshold_config(query=secret_pageviews, baseline_value=3),
-            },
-            format="json",
+        check_id = str(
+            self._create(
+                title="Enterprise pageviews stay low",
+                config=_threshold_config(query=secret_pageviews, baseline_value=3),
+            ).id
         )
-        assert created.status_code == status.HTTP_201_CREATED, created.json()
-        check_id = created.json()["id"]
         SignalReportCheck.objects.for_team(self.team.id).filter(id=check_id).update(
             next_run_at=timezone.now() - timedelta(minutes=1)
         )
@@ -764,17 +746,11 @@ class TestReportCheckAPI(APIBaseTest):
     def test_an_agent_checks_verdict_is_readable_because_a_run_wrote_it(self) -> None:
         # The metric-access policy judges a stored query, which an agent check does not carry, so
         # gating its verdict on that policy would hide every agent result from every reader.
-        created = self.client.post(
-            self.url,
-            {
-                "title": "Checkout 500s stay gone",
-                "kind": "agent",
-                "config": {"instructions": "Re-read the issue and say whether it still fires."},
-            },
-            format="json",
+        check = self._create(
+            title="Checkout 500s stay gone",
+            kind=SignalReportCheck.Kind.AGENT,
+            config={"instructions": "Re-read the issue and say whether it still fires."},
         )
-        assert created.status_code == status.HTTP_201_CREATED, created.json()
-        check = SignalReportCheck.objects.for_team(self.team.id).get(id=created.json()["id"])
         record_check_verdict(check, CheckVerdict(outcome="failed", explanation="The issue fired 30 times yesterday."))
 
         artefacts_url = f"/api/projects/{self.team.id}/signals/reports/{self.report.id}/artefacts/"
@@ -783,21 +759,12 @@ class TestReportCheckAPI(APIBaseTest):
         )
         assert result["explanation"] == "The issue fired 30 times yesterday."
 
-    def test_an_invalid_config_is_rejected_by_the_endpoint(self) -> None:
-        response = self.client.post(
-            self.url,
-            {"title": "Nonsense", "kind": "metric_threshold", "config": {"comparison": {"operator": "lte"}}},
-            format="json",
-        )
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-
     def test_a_report_carries_a_bounded_number_of_active_checks(self) -> None:
-        payload = {"title": "Errors stay low", "kind": "metric_threshold", "config": _threshold_config()}
         for _ in range(MAX_ACTIVE_CHECKS_PER_REPORT):
-            assert self.client.post(self.url, payload, format="json").status_code == status.HTTP_201_CREATED
+            self._create()
 
-        refused = self.client.post(self.url, payload, format="json")
-        assert refused.status_code == status.HTTP_400_BAD_REQUEST
+        with self.assertRaises(CheckCreationError):
+            self._create()
 
     def test_another_teams_report_is_not_reachable(self) -> None:
         other_team = self.organization.teams.create(name="Other")

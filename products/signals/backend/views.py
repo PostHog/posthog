@@ -123,7 +123,6 @@ from products.signals.backend.pull_requests import import_report_pull_requests
 from products.signals.backend.quota import self_driving_quota_enforcement_enabled, self_driving_quota_gate
 from products.signals.backend.repo_corrections import sanitized_repository
 from products.signals.backend.report_assignments import InvalidPullRequestUrl, ReportClaimConflict, claim_report
-from products.signals.backend.report_check_authoring import CheckCreationError, create_check
 from products.signals.backend.report_claims import (
     actor_owns_claim,
     get_active_claim,
@@ -165,7 +164,6 @@ from products.signals.backend.serializers import (
     SignalReportArtefactWriteResponseSerializer,
     SignalReportArtefactWriteSerializer,
     SignalReportCheckSerializer,
-    SignalReportCheckWriteSerializer,
     SignalReportClaimSerializer,
     SignalReportListSerializer,
     SignalReportMetricRefreshRequestSerializer,
@@ -4288,19 +4286,6 @@ def _record_reviewer_edit(
         responses={200: SignalReportCheckSerializer},
         operation_id="signals_report_checks_retrieve",
     ),
-    create=extend_schema(
-        summary="Create a check on a report",
-        description=(
-            "Schedule a re-measurement of the report's claim. A `metric_threshold` check runs one "
-            "bounded Trends query and compares the result, so it needs no agent run. An `agent` check "
-            "runs a scout instead, for a claim no single number settles; it runs on the scout its "
-            "config names, or on the fleet's follow-up scout when it names none."
-        ),
-        parameters=[_REPORT_ID_PARAMETER],
-        request=SignalReportCheckWriteSerializer,
-        responses={201: SignalReportCheckSerializer},
-        operation_id="signals_report_checks_create",
-    ),
     destroy=extend_schema(
         summary="Cancel a check",
         description=(
@@ -4316,17 +4301,19 @@ class SignalReportCheckViewSet(
     TeamAndOrgViewSetMixin,
     mixins.ListModelMixin,
     mixins.RetrieveModelMixin,
-    mixins.CreateModelMixin,
     mixins.DestroyModelMixin,
     viewsets.GenericViewSet,
 ):
-    """Checks attached to a signal report: read, create, and cancel.
+    """Checks attached to a signal report: read and cancel.
+
+    There is no create here. A check is authored by a scout run or by the research pipeline, both
+    through `report_check_authoring.create_check`. An `agent` check puts its author's prose in front
+    of a privileged scout run, and `task:write` does not authorize that, so no caller-facing
+    endpoint accepts one. Anyone who can read the report can read its checks, and a person can
+    still stop one.
 
     There is no update: a check is a claim about the future, and editing its threshold after a
-    result would make the recorded verdict unreadable. Cancel it and write a new one.
-
-    Writes are attributed the same way artefact writes are — to the task named by the
-    `X-PostHog-Task-Id` header when present, else to the requesting user.
+    result would make the recorded verdict unreadable. Cancel it and let its author write a new one.
     """
 
     serializer_class = SignalReportCheckSerializer
@@ -4334,7 +4321,7 @@ class SignalReportCheckViewSet(
     permission_classes = [IsAuthenticated, APIScopePermission]
     scope_object = "task"
     queryset = SignalReportCheck.objects.unscoped().order_by("-created_at")
-    http_method_names = ["get", "post", "delete", "head", "options"]
+    http_method_names = ["get", "delete", "head", "options"]
 
     def _validated_report(self) -> SignalReport:
         report_id = self.parents_query_dict["report_id"]
@@ -4353,32 +4340,6 @@ class SignalReportCheckViewSet(
 
     def safely_get_queryset(self, queryset):
         return queryset.filter(report_id=self._validated_report().id, team=self.team)
-
-    def create(self, request: Request, *args, **kwargs) -> Response:
-        report = self._validated_report()
-        write_serializer = SignalReportCheckWriteSerializer(data=request.data)
-        write_serializer.is_valid(raise_exception=True)
-        spec = write_serializer.validated_data
-
-        # Resolved before the write — a bad X-PostHog-Task-Id header must 400 before anything
-        # mutates, and its task lookup has no business inside the create's row lock.
-        attribution = resolve_request_attribution(request, self.team.id)
-        try:
-            check = create_check(
-                report=report,
-                title=spec["title"],
-                rationale=spec.get("rationale", ""),
-                kind=spec["kind"],
-                config=spec["config"],
-                attribution=attribution,
-                next_run_at=spec["next_run_at"],
-                run_interval_minutes=spec.get("run_interval_minutes"),
-                runs_remaining=spec["runs_remaining"],
-                expires_at=spec["expires_at"],
-            )
-        except CheckCreationError as error:
-            return Response({"error": str(error)}, status=status.HTTP_400_BAD_REQUEST)
-        return Response(self.get_serializer(check).data, status=status.HTTP_201_CREATED)
 
     def destroy(self, request: Request, *args, **kwargs) -> Response:
         check = cast(SignalReportCheck, self.get_object())
