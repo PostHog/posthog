@@ -170,7 +170,7 @@ describe('observationSearchLogic', () => {
             searchSpy.mockImplementation(mockResponse as () => any)
         }
         const captureSpy = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined as any)
-        const logic = observationSearchLogic({ scannerId: null, teamId: 1, userId: 'user-1' })
+        const logic = observationSearchLogic({ teamId: 1, userId: 'user-1' })
         logic.mount()
         router.actions.push(urls.replayVision(), { tab: 'search' })
         logic.actions.setQuery('rage clicks')
@@ -188,7 +188,7 @@ describe('observationSearchLogic', () => {
         searchSpy.mockImplementation(() => [500, { detail: 'embedding service down' }])
         const captureSpy = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined as any)
         const toastSpy = jest.spyOn(lemonToast, 'error').mockImplementation(() => 'toast-id')
-        const logic = observationSearchLogic({ scannerId: null, teamId: 1, userId: 'user-1' })
+        const logic = observationSearchLogic({ teamId: 1, userId: 'user-1' })
         logic.mount()
         router.actions.push(urls.replayVision(), { tab: 'search' })
 
@@ -294,6 +294,14 @@ describe('observationSearchLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
         expect(router.values.searchParams.similar).toBeUndefined()
         expect(searchSpy).toHaveBeenCalledTimes(1)
+
+        // Editing the prose keeps the shown results' provenance until the edited search lands as a regular one.
+        logic.actions.setQuery('Stalled at checkout twice')
+        expect(logic.values.sourceObservationId).toBe('obs-0')
+        await expectLogic(logic, () => logic.actions.search()).toFinishAllListeners()
+        expect(logic.values.sourceObservationId).toBeNull()
+        expect(router.values.searchParams.q).toBe('Stalled at checkout twice')
+        expect(logic.values.recentQueries).toEqual(['Stalled at checkout twice'])
         logic.unmount()
     })
 
