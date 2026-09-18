@@ -181,6 +181,7 @@ class TestStalledSchedules(BaseTest):
             repair_stalled_schema(stalled)
 
         schema.refresh_from_db()
+        assert schema.last_error_notified_at is not None
         assert schema.last_error_notified_at > old_notification
 
     def test_repair_skips_a_schema_disabled_since_it_was_discovered(self) -> None:
