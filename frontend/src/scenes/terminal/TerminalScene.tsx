@@ -259,12 +259,14 @@ export function TerminalScene(): JSX.Element {
             {saveError && <LemonBanner type="error">{saveError}</LemonBanner>}
             {clipboardError && <LemonBanner type="error">{clipboardError}</LemonBanner>}
             <div
-                ref={container}
                 aria-label="Linux terminal"
                 data-attr="posthog-terminal"
                 translate="no"
                 className="min-h-0 min-w-0 flex-1 overflow-hidden rounded border p-3 bg-[var(--color-black)] text-[var(--color-white)]"
-            />
+            >
+                {/* xterm's fit addon counts padding on its parent as usable space. */}
+                <div ref={container} className="h-full min-w-0 bg-[var(--color-black)]" />
+            </div>
         </SceneContent>
     )
 }
