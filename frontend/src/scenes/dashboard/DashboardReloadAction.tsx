@@ -113,7 +113,7 @@ export function DashboardReloadAction(): JSX.Element {
             >
                 <div className="relative inline-flex">
                     <LemonButton
-                        onClick={() => (itemsLoading ? cancelDashboardRefresh() : triggerDashboardRefresh())}
+                        onClick={() => (itemsLoading ? cancelDashboardRefresh() : triggerDashboardRefresh('manual'))}
                         type="secondary"
                         icon={
                             itemsLoading ? (

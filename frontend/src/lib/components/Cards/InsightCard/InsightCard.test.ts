@@ -1,7 +1,7 @@
 import { NodeKind } from '~/queries/schema/schema-general'
 import { ChartDisplayType, DashboardPlacement, QueryBasedInsightModel } from '~/types'
 
-import { shouldRenderInsightCardViz } from './InsightCard'
+import { shouldRenderInsightCardViz, useActualVisibilityChange } from './InsightCard'
 
 const tableQuery = { kind: NodeKind.DataTableNode } as QueryBasedInsightModel['query']
 const autoSqlQuery = {
@@ -14,6 +14,30 @@ const canvasQuery = {
 } as QueryBasedInsightModel['query']
 
 describe('InsightCard', () => {
+    it('waits for a real zero-margin observation and reports observed-offscreen separately from unobserved', () => {
+        const onChange = jest.fn()
+        const observedEntry = {} as IntersectionObserverEntry
+        const unobserved = renderHook(({ entry, inView }) => useActualVisibilityChange(entry, inView, onChange), {
+            initialProps: { entry: undefined as IntersectionObserverEntry | undefined, inView: false },
+        })
+
+        unobserved.unmount()
+        expect(onChange).not.toHaveBeenCalled()
+
+        const { rerender, unmount } = renderHook(
+            ({ entry, inView }) => useActualVisibilityChange(entry, inView, onChange),
+            { initialProps: { entry: undefined as IntersectionObserverEntry | undefined, inView: false } }
+        )
+
+        expect(onChange).not.toHaveBeenCalled()
+        rerender({ entry: observedEntry, inView: false })
+        expect(onChange).toHaveBeenLastCalledWith(false)
+        rerender({ entry: observedEntry, inView: true })
+        expect(onChange).toHaveBeenLastCalledWith(true)
+        unmount()
+        expect(onChange).toHaveBeenLastCalledWith(false)
+    })
+
     it.each([
         {
             name: 'keeps a visible table mounted when the page is hidden',
@@ -85,3 +109,4 @@ describe('InsightCard', () => {
         expect(shouldRenderInsightCardViz(input)).toBe(expected)
     })
 })
+import { renderHook } from '@testing-library/react'
