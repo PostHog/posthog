@@ -533,6 +533,7 @@ class EnrichedReviewer(ContractModel):
     relevant_commits: list[RelevantCommit]
     user: SignalReviewerUserInfo | None
     reason: str | None = None
+    source_skill: str | None = None
     source_label: str
     explanation: str | None = None
 

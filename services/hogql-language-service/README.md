@@ -48,6 +48,8 @@ Direct property containers retain their catalog namespace through CTEs, aliased 
 For example, `WITH t AS (SELECT properties AS props FROM events) SELECT t.props.$br FROM t` suggests `$browser`.
 Computed or ambiguous property origins remain unknown; the service does not guess a namespace from a projected name.
 Validation reports `duplicate_table` for repeated table names or explicit aliases in one query scope and asks for distinct aliases.
+Table names, table aliases, and CTE names resolve by exact case; catalogs can contain distinct `events` and `Events` tables.
+Autocomplete prefix matching remains case-insensitive and preserves the selected identifier's case.
 Duplicate qualifiers do not supply property provenance, even when raw ClickHouse accepts the corresponding unaliased self-join.
 
 Validation diagnostic offsets use `positionEncoding`, which defaults to UTF-16. Diagnostics include up to five visible

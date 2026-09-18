@@ -906,6 +906,8 @@ class TaskWriteSerializer(serializers.Serializer):
             # mint an internally funded scoped token. Only ReviewHog's executor sets it.
             tasks_facade.TaskOriginProduct.REVIEW_HOG,
             tasks_facade.TaskOriginProduct.TASK_ANALYSIS,
+            # Maps to the mintable `slack_app` gateway product. Only the Slack app's server flows set it.
+            tasks_facade.TaskOriginProduct.SLACK,
         }
         if value in reserved_origins:
             raise serializers.ValidationError(f"origin_product '{value}' is reserved for server-created tasks")
@@ -2959,10 +2961,19 @@ class ModelChoiceSerializer(DataclassSerializer):
         child=serializers.ChoiceField(choices=[effort.value for effort in PUBLIC_REASONING_EFFORTS]),
         help_text="Reasoning efforts this model accepts, in ascending order. Empty for a model with no effort control.",
     )
+    cost_multiplier = serializers.CharField(
+        allow_null=True,
+        required=False,
+        help_text=(
+            "Per-token cost against the catalogue baseline, ready to display, such as '2.5x' or "
+            "'~0.55x'. Prefixed when the input and output rates diverge enough that one number "
+            "flatters either. Null for a model the catalogue quotes no rate for."
+        ),
+    )
 
     class Meta:
         dataclass = ModelChoice
-        fields = ["runtime_adapter", "model", "display_name", "supported_efforts"]
+        fields = ["runtime_adapter", "model", "display_name", "supported_efforts", "cost_multiplier"]
 
 
 class ModelCatalogueResponseSerializer(serializers.Serializer):
