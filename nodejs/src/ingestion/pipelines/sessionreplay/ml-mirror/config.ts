@@ -13,6 +13,10 @@ export type MlMirrorConfig = {
     AI_RESEARCH_REPLAY_ROW_CACHE_LIFETIME_MS: number
     AI_RESEARCH_REPLAY_IMAGE_FETCH_V2_DYNAMODB_TABLE: string
     AI_RESEARCH_REPLAY_S3_PREFIX: string
+    /** Bucket of the v3 dataset, which holds only AISR03 frames. Empty until the cutover by session start timestamp selects it. */
+    AI_RESEARCH_REPLAY_S3_BUCKET: string
+    /** Block prefix inside the v3 bucket. Each dataset version has its own, so a bucket policy grants only the versions it holds. */
+    AI_RESEARCH_REPLAY_S3_V3_PREFIX: string
     /** S3 key prefix under the bucket for the block-metadata Parquet dataset (used by the sink). */
     SESSION_RECORDING_ML_METADATA_PREFIX: string
     /** Optional S3 key of the `{ text, url }` allow-list document; empty → in-binary defaults. */
@@ -222,6 +226,8 @@ export function getDefaultMlMirrorConfig(): MlMirrorConfig {
         AI_RESEARCH_REPLAY_ROW_CACHE_LIFETIME_MS: 300_000,
         AI_RESEARCH_REPLAY_IMAGE_FETCH_V2_DYNAMODB_TABLE: '',
         AI_RESEARCH_REPLAY_S3_PREFIX: 'rrweb_2',
+        AI_RESEARCH_REPLAY_S3_BUCKET: '',
+        AI_RESEARCH_REPLAY_S3_V3_PREFIX: 'rrweb_3',
         SESSION_RECORDING_ML_METADATA_PREFIX: 'block-metadata',
         SESSION_RECORDING_ML_ALLOW_LIST_S3_KEY: '',
         AI_RESEARCH_REPLAY_PSEUDONYM_SECRET: '',
