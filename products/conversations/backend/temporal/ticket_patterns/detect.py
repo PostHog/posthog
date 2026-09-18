@@ -37,6 +37,7 @@ with workflow.unsafe.imports_passed_through():
     )
     from products.conversations.backend.temporal.ticket_patterns.dedupe import mark_reported, unreported_ticket_ids
     from products.conversations.backend.temporal.ticket_patterns.eligibility import is_team_eligible
+    from products.conversations.backend.temporal.ticket_patterns.recent import record_spike
     from products.conversations.backend.temporal.ticket_patterns.schemas import (
         DetectedCluster,
         DetectionSettings,
@@ -55,8 +56,10 @@ Return JSON only, in this shape:
 {"clusters": [{"topic": "short label", "summary": "one sentence on what the customers are hitting", "ticket_ids": ["..."]}]}
 
 Rules:
-- A cluster is several tickets about one underlying problem, such as one broken feature, one failing integration, or one confusing change. Wording will differ between customers; the problem is what matters.
+- A cluster is several customers reporting that the same thing is not working. Group by what is failing, not by what you think the root cause is. Two customers reporting different symptoms of one broken feature belong in one cluster, because the team investigates them together.
 - Tickets that only share a product area are not a cluster. "Two people asked about billing" is not a cluster; "two people cannot complete a payment since today" is.
+- A question and an outage are not one cluster. "How do I export this?" never groups with "the export is failing".
+- Do not split a cluster to separate one suspected cause from another. A team that learns one feature is failing for several customers can work out the cause themselves. For example, "search is down", "search results will not load" and "search is broken" are one cluster, even though the first could be a different fault from the other two.
 - Every ticket id you return must come from the input. Never invent one.
 - A ticket belongs to at most one cluster. Leave unrelated tickets out.
 - Return {"clusters": []} when nothing groups. That is the normal answer, and a wrong cluster costs the team more than a missed one.
@@ -182,6 +185,17 @@ def _report(team: Team, clusters: list[DetectedCluster], lookback_minutes: int) 
     for cluster in clusters:
         # Emit before marking: a crash in between repeats an alert, the other order loses it.
         capture_ticket_pattern_detected(team, cluster, lookback_minutes)
+        record_spike(
+            team.id,
+            {
+                "topic": cluster.topic,
+                "summary": cluster.summary,
+                "ticket_ids": cluster.ticket_ids,
+                "ticket_count": len(cluster.ticket_ids),
+                "requester_count": cluster.requester_count,
+                "detected_at": timezone.now().isoformat(),
+            },
+        )
         mark_reported(team.id, cluster.ticket_ids)
 
 

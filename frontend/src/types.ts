@@ -806,6 +806,7 @@ export interface ConversationsSettings {
     ai_resolution_channels?: string[] | null
     ai_reply_modes?: Record<string, Record<string, 'private_note' | 'bot_reply'>> | null
     ticket_patterns_enabled?: boolean
+    ticket_patterns_banner_enabled?: boolean
     // Null resets a threshold to its default.
     ticket_patterns_lookback_minutes?: number | null
     ticket_patterns_min_tickets?: number | null

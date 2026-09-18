@@ -1,7 +1,16 @@
 import { useActions, useValues } from 'kea'
-import { router } from 'kea-router'
+import { combineUrl, router } from 'kea-router'
 
-import { LemonBanner, LemonCard, LemonCheckbox, LemonDivider, LemonSelect, LemonSwitch, Link } from '@posthog/lemon-ui'
+import {
+    LemonBanner,
+    LemonButton,
+    LemonCard,
+    LemonCheckbox,
+    LemonDivider,
+    LemonSelect,
+    LemonSwitch,
+    Link,
+} from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -31,6 +40,9 @@ const CHANNEL_SETTINGS_TABS: Record<TicketChannel, string> = {
     github: 'github',
 }
 
+// The Slack alert template shipped in products/workflows/backend/templates/support-spike-alert.json.
+const SPIKE_ALERT_TEMPLATE_ID = '019d4a7c-3b21-0000-9f04-6e2b8c15d730'
+
 const TICKET_TYPES = ['how_to', 'diagnostic', 'account_billing'] as const
 
 // Only how_to replies may be sent to the customer. diagnostic/account_billing draw on project
@@ -53,6 +65,7 @@ export function AISection(): JSX.Element {
         aiResolutionChannels,
         aiReplyModes,
         ticketPatternsEnabled,
+        ticketPatternsBannerEnabled,
         ticketPatternsLoading,
     } = useValues(supportSettingsLogic)
     const {
@@ -61,6 +74,7 @@ export function AISection(): JSX.Element {
         setAiResolutionChannels,
         setAiReplyMode,
         setTicketPatternsEnabled,
+        setTicketPatternsBannerEnabled,
     } = useActions(supportSettingsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const businessKnowledgeEnabled = !!featureFlags[FEATURE_FLAGS.PRODUCT_BUSINESS_KNOWLEDGE]
@@ -274,6 +288,39 @@ export function AISection(): JSX.Element {
                         </div>
                         {ticketPatternsEnabled && (
                             <>
+                                <LemonDivider />
+                                <div className="flex items-center gap-4 justify-between">
+                                    <div>
+                                        <label className="font-medium">Show a banner in the inbox</label>
+                                        <p className="text-xs text-muted-alt mb-0">
+                                            Puts the spike above the ticket list, so your team sees it without leaving
+                                            the inbox. Each banner can be dismissed.
+                                        </p>
+                                    </div>
+                                    <LemonSwitch
+                                        checked={ticketPatternsBannerEnabled}
+                                        onChange={(checked) => setTicketPatternsBannerEnabled(checked)}
+                                        loading={ticketPatternsLoading}
+                                    />
+                                </div>
+                                <LemonDivider />
+                                <div className="flex items-center gap-4 justify-between">
+                                    <div>
+                                        <label className="font-medium">Alert your team elsewhere</label>
+                                        <p className="text-xs text-muted-alt mb-0">
+                                            Start from the Slack alert template, or build your own workflow on the
+                                            Ticket spike detected trigger.
+                                        </p>
+                                    </div>
+                                    <LemonButton
+                                        type="secondary"
+                                        to={combineUrl(urls.workflowNew(), { templateId: SPIKE_ALERT_TEMPLATE_ID }).url}
+                                        targetBlank
+                                        data-attr="ticket-patterns-slack-template"
+                                    >
+                                        Set up a Slack alert
+                                    </LemonButton>
+                                </div>
                                 <LemonDivider />
                                 <TicketPatternThresholds />
                             </>

@@ -71,8 +71,6 @@ export interface supportSettingsLogicValues {
     aiResolutionChannels: TicketChannel[]
     aiSuggestionsEnabled: boolean
     aiSuggestionsLoading: boolean
-    ticketPatternsEnabled: boolean
-    ticketPatternsLoading: boolean
     conversationsDomains: string[]
     conversationsEnabledLoading: boolean
     domainInputValue: string
@@ -153,6 +151,9 @@ export interface supportSettingsLogicValues {
         name: string
     }[]
     teamsTeamsLoading: boolean
+    ticketPatternsBannerEnabled: boolean
+    ticketPatternsEnabled: boolean
+    ticketPatternsLoading: boolean
     widgetEnabledLoading: boolean
 }
 
@@ -430,12 +431,6 @@ export interface supportSettingsLogicActions {
     setAiSuggestionsLoading: (loading: boolean) => {
         loading: boolean
     }
-    setTicketPatternsEnabled: (enabled: boolean) => {
-        enabled: boolean
-    }
-    setTicketPatternsLoading: (loading: boolean) => {
-        loading: boolean
-    }
     setConversationsEnabledLoading: (loading: boolean) => {
         loading: boolean
     }
@@ -515,6 +510,15 @@ export interface supportSettingsLogicActions {
         status: 'error' | 'idle' | 'installed' | 'installing' | 'needs_org_catalog'
         teamId: string | null
     }
+    setTicketPatternsBannerEnabled: (enabled: boolean) => {
+        enabled: boolean
+    }
+    setTicketPatternsEnabled: (enabled: boolean) => {
+        enabled: boolean
+    }
+    setTicketPatternsLoading: (loading: boolean) => {
+        loading: boolean
+    }
     setWidgetEnabledLoading: (loading: boolean) => {
         loading: boolean
     }
@@ -569,6 +573,7 @@ export interface supportSettingsLogicMeta {
         aiSuggestionsEnabled: (currentTeam: TeamPublicType | TeamType | null) => boolean
         aiDiagnosticsEnabled: (currentTeam: TeamPublicType | TeamType | null) => boolean
         ticketPatternsEnabled: (currentTeam: TeamPublicType | TeamType | null) => boolean
+        ticketPatternsBannerEnabled: (currentTeam: TeamPublicType | TeamType | null) => boolean
         aiEnabledChannels: (
             currentTeam: TeamPublicType | TeamType | null,
             emailConfigs: EmailConfigStatus[]
@@ -688,6 +693,7 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
         setAiDiagnosticsEnabled: (enabled: boolean) => ({ enabled }),
         setAiDiagnosticsLoading: (loading: boolean) => ({ loading }),
         setTicketPatternsEnabled: (enabled: boolean) => ({ enabled }),
+        setTicketPatternsBannerEnabled: (enabled: boolean) => ({ enabled }),
         setTicketPatternsLoading: (loading: boolean) => ({ loading }),
         setAiResolutionChannels: (channels: TicketChannel[]) => ({ channels }),
         setAiReplyMode: (channel: string, ticketType: string, mode: 'private_note' | 'bot_reply') => ({
@@ -1163,6 +1169,11 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
             (currentTeam: null | import('~/types').TeamPublicType | import('~/types').TeamType): boolean =>
                 !!currentTeam?.conversations_settings?.ticket_patterns_enabled,
         ],
+        ticketPatternsBannerEnabled: [
+            (s) => [s.currentTeam],
+            (currentTeam: null | import('~/types').TeamPublicType | import('~/types').TeamType): boolean =>
+                !!currentTeam?.conversations_settings?.ticket_patterns_banner_enabled,
+        ],
         aiEnabledChannels: [
             (s) => [s.currentTeam, s.emailConfigs],
             (
@@ -1627,6 +1638,15 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
                 conversations_settings: {
                     ...values.currentTeam?.conversations_settings,
                     ticket_patterns_enabled: enabled,
+                },
+            })
+        },
+        setTicketPatternsBannerEnabled: ({ enabled }) => {
+            actions.setTicketPatternsLoading(true)
+            actions.updateCurrentTeam({
+                conversations_settings: {
+                    ...values.currentTeam?.conversations_settings,
+                    ticket_patterns_banner_enabled: enabled,
                 },
             })
         },

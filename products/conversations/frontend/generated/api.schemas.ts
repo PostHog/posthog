@@ -7,6 +7,21 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
+export interface TicketPatternApi {
+    /** Short label for the problem the tickets share. */
+    topic: string
+    /** One sentence describing what the customers are hitting. */
+    summary: string
+    /** IDs of the tickets in this spike. */
+    ticket_ids: string[]
+    /** How many tickets the spike covers. */
+    ticket_count: number
+    /** How many distinct customers reported it. */
+    requester_count: number
+    /** When detection reported this spike. */
+    detected_at: string
+}
+
 /**
  * * `widget` - Widget
  * * `email` - Email

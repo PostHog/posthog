@@ -175,3 +175,30 @@ class TestDedupe(SimpleTestCase):
 
         assert len(second) == 1
         assert second[0].ticket_ids == ["t4", "t5", "t6"]
+
+
+class TestRecentSpikes(SimpleTestCase):
+    def setUp(self) -> None:
+        cache.clear()
+
+    def test_newest_first_and_capped(self):
+        from products.conversations.backend.temporal.ticket_patterns.recent import (
+            MAX_RECENT_SPIKES,
+            recent_spikes,
+            record_spike,
+        )
+
+        for index in range(MAX_RECENT_SPIKES + 3):
+            record_spike(7, {"topic": f"spike-{index}"})
+
+        stored = recent_spikes(7)
+
+        assert len(stored) == MAX_RECENT_SPIKES
+        assert stored[0]["topic"] == f"spike-{MAX_RECENT_SPIKES + 2}"
+
+    def test_spikes_are_per_team(self):
+        from products.conversations.backend.temporal.ticket_patterns.recent import recent_spikes, record_spike
+
+        record_spike(7, {"topic": "only-team-7"})
+
+        assert recent_spikes(8) == []

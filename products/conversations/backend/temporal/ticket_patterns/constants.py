@@ -23,7 +23,9 @@ MAX_CLUSTERS_PER_RUN = 5
 
 # Must be in the LLM gateway `conversations` product allowlist
 # (`services/llm-gateway/src/llm_gateway/products/config.py`).
-DETECTION_MODEL = "claude-haiku-4-5"
+# Not haiku: it splits one outage into separate clusters when customers word it differently
+# ("recording down" vs "replays will not load"), which drops each part below the threshold.
+DETECTION_MODEL = "claude-sonnet-4-6"
 DETECTION_MAX_TOKENS = 2_000
 
 # Twice the widest lookback, so a ticket cannot leave the dedupe set while detection can still

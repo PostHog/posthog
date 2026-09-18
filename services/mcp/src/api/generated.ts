@@ -93412,6 +93412,21 @@ export namespace Schemas {
       readonly content: string;
     }
 
+    export interface TicketPattern {
+      /** Short label for the problem the tickets share. */
+      topic: string;
+      /** One sentence describing what the customers are hitting. */
+      summary: string;
+      /** IDs of the tickets in this spike. */
+      ticket_ids: string[];
+      /** How many tickets the spike covers. */
+      ticket_count: number;
+      /** How many distinct customers reported it. */
+      requester_count: number;
+      /** When detection reported this spike. */
+      detected_at: string;
+    }
+
     /**
      * Payload for posting a reply or internal note to a ticket.
      */

@@ -28,6 +28,7 @@ import type {
     TicketApi,
     TicketFullEmailApi,
     TicketMessageApi,
+    TicketPatternApi,
     TicketReplyRequestApi,
     TicketUpdateRequestApi,
     TicketViewApi,
@@ -51,6 +52,23 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
           [P in keyof Writable<T>]: T[P] extends object ? NonReadonly<NonNullable<T[P]>> : T[P]
       }
     : DistributeReadOnlyOverUnions<T>
+
+export const getConversationsTicketPatternsListUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/conversations/ticket_patterns/`
+}
+
+/**
+ * List the ticket spikes reported for this project in the last day, newest first.
+ */
+export const conversationsTicketPatternsList = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<TicketPatternApi[]> => {
+    return apiMutator<TicketPatternApi[]>(getConversationsTicketPatternsListUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
 
 export const getConversationsTicketsListUrl = (projectId: string, params?: ConversationsTicketsListParams) => {
     const normalizedParams = new URLSearchParams()
