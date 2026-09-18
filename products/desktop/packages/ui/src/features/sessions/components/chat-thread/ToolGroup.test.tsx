@@ -162,6 +162,15 @@ describe("ToolGroup", () => {
       expected: "posthog - Query trends",
     },
     {
+      name: "names a direct PostHog exec call while it is active",
+      items: [
+        piToolItem("mcp-exec", "mcp_posthog_exec", {
+          command: "call feature-flag-get-all",
+        }),
+      ],
+      expected: "posthog - Get feature flags",
+    },
+    {
       name: "names an MCP search while it is active",
       items: [piToolItem("mcp-search", "mcp", { search: "dashboard metrics" })],
       expected: 'Searching MCP tools for "dashboard metrics"',

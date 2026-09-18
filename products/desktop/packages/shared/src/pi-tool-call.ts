@@ -39,23 +39,67 @@ const piMcpProxyInputSchema = z.object({
   args: z.string().optional(),
 });
 
+const posthogExecServerPattern = /^(?:plugin_)?posthog(?:_[^_]+)*$/;
+
+function readPiMcpToolParts(
+  name: string,
+): { server: string; tool: string } | undefined {
+  const withoutPrefix = name.replace(/^mcp_+/, "");
+  const canonicalSeparator = withoutPrefix.indexOf("__");
+  if (canonicalSeparator > 0) {
+    return {
+      server: withoutPrefix.slice(0, canonicalSeparator),
+      tool: withoutPrefix.slice(canonicalSeparator + 2),
+    };
+  }
+
+  if (withoutPrefix.endsWith("_exec")) {
+    return { server: withoutPrefix.slice(0, -5), tool: "exec" };
+  }
+  return undefined;
+}
+
+function isPostHogExecToolName(name: string): boolean {
+  const parts = readPiMcpToolParts(name);
+  return (
+    !!parts &&
+    parts.tool === "exec" &&
+    posthogExecServerPattern.test(parts.server)
+  );
+}
+
 export function parsePiMcpCallDetails(
   name: string,
   args: unknown,
 ): PiMcpCallDetails | undefined {
-  if (name !== "mcp") return undefined;
-
-  const parsed = piMcpProxyInputSchema.safeParse(args);
-  if (!parsed.success) return undefined;
-  if (parsed.data.search) return { kind: "search", query: parsed.data.search };
-  if (parsed.data.tool) {
-    return {
-      kind: "tool",
-      name: parsed.data.tool,
-      ...(parsed.data.args ? { args: parsed.data.args } : {}),
-    };
+  if (name === "mcp") {
+    const parsed = piMcpProxyInputSchema.safeParse(args);
+    if (!parsed.success) return undefined;
+    if (parsed.data.search) {
+      return { kind: "search", query: parsed.data.search };
+    }
+    if (parsed.data.tool) {
+      return {
+        kind: "tool",
+        name: parsed.data.tool,
+        ...(parsed.data.args ? { args: parsed.data.args } : {}),
+      };
+    }
+    return undefined;
   }
-  return undefined;
+
+  if (!isPostHogExecToolName(name)) return undefined;
+  const parsed = z
+    .object({ command: z.string() })
+    .passthrough()
+    .safeParse(args);
+  if (!parsed.success) return undefined;
+
+  return {
+    kind: "tool",
+    name,
+    args: JSON.stringify(parsed.data),
+  };
 }
 
 export function readPiMcpCallDetails(
