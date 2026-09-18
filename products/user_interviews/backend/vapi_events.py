@@ -306,6 +306,11 @@ def handle_vapi_webhook_delivery(
     # top-level precedence, mirroring how the access token is resolved when the delivery arrives.
     merged_metadata: dict[str, Any] = {**overrides_metadata, **top_metadata}
     call_id = call.get("id")
+    if event_type == "end-of-call-report" and not call_id:
+        # The call id is what makes a report idempotent, so a report without one would create a
+        # blank interview on every redelivery.
+        logger.warning("user_interviews_vapi_webhook_missing_call_id", team_id=team_id, topic_id=topic_id)
+        return
 
     topic = (
         UserInterviewTopic.objects.select_related("team", "team__organization", "created_by")

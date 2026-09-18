@@ -78,8 +78,11 @@ class TestVapiWebhookTask(APIBaseTest):
     @parameterized.expand([("null_message", {"message": None}), ("null_call", {"message": {"call": None}})])
     def test_task_survives_a_null_message_or_call(self, _name: str, payload: dict[str, Any]) -> None:
         # A JSON null where the message or call object goes must not raise: an AttributeError is
-        # outside the task's retry list, so the report would be lost without a trace.
+        # outside the task's retry list. Without a call id there is no idempotency either, so the
+        # report must not become a blank interview on every redelivery.
         self._run(payload)
+
+        self.assertFalse(UserInterview.objects.filter(team=self.team).exists())
 
     def test_task_stores_the_report(self):
         self._run(self._report())
