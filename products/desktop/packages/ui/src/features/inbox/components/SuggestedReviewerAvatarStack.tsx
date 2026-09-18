@@ -1,13 +1,6 @@
-import {
-  suggestedReviewerDisplayName,
-  toSuggestedReviewerWriteContent,
-} from "@posthog/core/inbox/artefacts";
+import { toSuggestedReviewerWriteContent } from "@posthog/core/inbox/artefacts";
 import { selectSuggestedReviewersArtefact } from "@posthog/core/inbox/reportArtefacts";
 import {
-  Accordion,
-  AccordionContent,
-  AccordionItem,
-  AccordionTrigger,
   Button,
   Popover,
   PopoverContent,
@@ -21,6 +14,7 @@ import type {
 } from "@posthog/shared/types";
 import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
 import { useCurrentUser } from "@posthog/ui/features/auth/useCurrentUser";
+import { SuggestedReviewersList } from "@posthog/ui/features/inbox/components/SuggestedReviewersList";
 import { SuggestedReviewerAvatar } from "@posthog/ui/features/inbox/components/utils/SuggestedReviewerAvatar";
 import {
   useInboxReportArtefacts,
@@ -66,10 +60,11 @@ export function SuggestedReviewerAvatarStack({
   const reviewerArtefact = selectSuggestedReviewersArtefact(
     artefacts?.results ?? data?.results ?? [],
   );
+  const allReviewers = reviewerArtefact?.content ?? [];
   // The stack draws GitHub profile avatars, so it can only show reviewers who have a login. A
-  // reviewer identified by PostHog user alone still routes the report; they just have no avatar
-  // to draw here yet.
-  const reviewers = (reviewerArtefact?.content ?? []).filter(
+  // reviewer identified by PostHog user alone still routes the report and belongs in the list;
+  // they just have no avatar to draw here yet.
+  const reviewers = allReviewers.filter(
     (reviewer): reviewer is SuggestedReviewer & { github_login: string } =>
       !!reviewer.github_login,
   );
@@ -159,34 +154,10 @@ export function SuggestedReviewerAvatarStack({
           Suggested reviewers
         </div>
         <div className="max-h-80 overflow-y-auto overscroll-contain p-2">
-          <Accordion
-            multiple
-            defaultValue={
-              reviewers[0]?.github_login ? [reviewers[0].github_login] : []
-            }
-          >
-            {reviewers.map((reviewer) => (
-              <AccordionItem
-                key={reviewer.github_login}
-                value={reviewer.github_login}
-              >
-                <AccordionTrigger>
-                  {suggestedReviewerDisplayName(reviewer)}
-                </AccordionTrigger>
-                <AccordionContent>
-                  <div className="flex flex-col gap-2 pb-2 text-[12px] text-gray-11 leading-relaxed">
-                    {reviewer.relevant_commits.length > 0 ? (
-                      reviewer.relevant_commits.map((commit) => (
-                        <p key={commit.sha}>{commit.reason}</p>
-                      ))
-                    ) : (
-                      <p>Suggested by the agent</p>
-                    )}
-                  </div>
-                </AccordionContent>
-              </AccordionItem>
-            ))}
-          </Accordion>
+          <SuggestedReviewersList
+            reviewers={allReviewers}
+            disabled={isPending}
+          />
         </div>
         {currentReviewer && reviewerArtefact ? (
           <div className="border-(--gray-6) border-t p-2">
