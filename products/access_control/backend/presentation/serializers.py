@@ -285,8 +285,9 @@ class AccessControlResolutionAcceptResponseSerializer(serializers.Serializer):
     )
 
 
-class _AccessControlRuleRequestSerializer(serializers.Serializer):
-    """The scope and level of one rule write. Subclasses add the subject."""
+class AccessControlRuleRequestSerializer(serializers.Serializer):
+    """The scope and level of one rule write. On its own it is the default rule, for everyone in the
+    project without a member or role rule of their own. The subclasses add the subject."""
 
     resource = serializers.ChoiceField(
         choices=RULE_RESOURCE_CHOICES,
@@ -309,11 +310,7 @@ class _AccessControlRuleRequestSerializer(serializers.Serializer):
     )
 
 
-class AccessControlDefaultRuleRequestSerializer(_AccessControlRuleRequestSerializer):
-    """A rule for everyone in the project without a member or role rule of their own."""
-
-
-class AccessControlMemberRuleRequestSerializer(_AccessControlRuleRequestSerializer):
+class AccessControlMemberRuleRequestSerializer(AccessControlRuleRequestSerializer):
     """A rule for one organization member."""
 
     member_id = serializers.UUIDField(
@@ -321,7 +318,7 @@ class AccessControlMemberRuleRequestSerializer(_AccessControlRuleRequestSerializ
     )
 
 
-class AccessControlRoleRuleRequestSerializer(_AccessControlRuleRequestSerializer):
+class AccessControlRoleRuleRequestSerializer(AccessControlRuleRequestSerializer):
     """A rule for every member of one role."""
 
     role_id = serializers.UUIDField(help_text="The role id, as `role_id` in the roles endpoint.")
