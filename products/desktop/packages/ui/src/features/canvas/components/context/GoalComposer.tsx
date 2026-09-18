@@ -114,15 +114,11 @@ export function GoalComposer({
     },
   });
   const runMutate = run.mutate;
-  const latestMeasure = useRef(measure);
-  latestMeasure.current = measure;
 
   useEffect(() => {
-    const current = latestMeasure.current;
-    if (step === "review" && current?.kind === "hogql" && current.sql.trim()) {
-      runMutate(current.sql);
-    }
-  }, [step, runMutate]);
+    const saved = initial?.measure;
+    if (saved?.kind === "hogql" && saved.sql.trim()) runMutate(saved.sql);
+  }, [initial, runMutate]);
 
   useLayoutEffect(() => {
     const el = askRef.current;
@@ -151,6 +147,7 @@ export function GoalComposer({
     if (isHogQL) {
       setMeasure({ kind: "hogql", sql: text });
       setStep("review");
+      runMutate(text);
       return;
     }
     await askAgent({

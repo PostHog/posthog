@@ -18,7 +18,6 @@ import { goalMeasureTasks } from "@posthog/ui/features/canvas/goalMeasureTasks";
 import { useChannelFeed } from "@posthog/ui/features/canvas/hooks/useChannelFeed";
 import type { ContextDocumentStore } from "@posthog/ui/features/canvas/hooks/useContextDocumentStore";
 import { useGenerateContext } from "@posthog/ui/features/canvas/hooks/useGenerateContext";
-import { useContextLayerFlag } from "@posthog/ui/features/feature-flags/useContextLayerFlag";
 import { LoadingState } from "@posthog/ui/primitives/LoadingState";
 import {
   PageHeader,
@@ -31,7 +30,7 @@ import {
 import { RelativeTimestamp } from "@posthog/ui/primitives/RelativeTimestamp";
 import { Spinner } from "@posthog/ui/primitives/Spinner";
 import { navigateToChannelTask } from "@posthog/ui/router/navigationBridge";
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ContextEmptyHero } from "./ContextEmptyHero";
 import { GoalsList } from "./GoalsList";
 import { KnowledgeList } from "./KnowledgeList";
@@ -57,7 +56,6 @@ export function SpaceContextPage({
   const [agentOpen, setAgentOpen] = useState(false);
   const [editingContextFile, setEditingContextFile] = useState(false);
   const { tasks: channelTasks } = useChannelFeed(channelId);
-  const contextLayerEnabled = useContextLayerFlag();
   const { generate } = useGenerateContext();
   const doc = useMemo(
     () => parseContextDocument(store.content),
@@ -76,7 +74,17 @@ export function SpaceContextPage({
     [doc.goals, channelTasks],
   );
   const latest = useRef({ doc, store });
-  latest.current = { doc, store };
+  useEffect(() => {
+    latest.current = { doc, store };
+  });
+  const agentRunning = [...measureTasks.values()].some(
+    (task) => task.state === "running",
+  );
+  useEffect(() => {
+    if (!agentRunning) return;
+    const timer = setInterval(store.refetch, 30_000);
+    return () => clearInterval(timer);
+  }, [agentRunning, store.refetch]);
 
   const saveDoc = (next: ContextDocument) =>
     store.save(serializeContextDocument(next));
@@ -95,7 +103,7 @@ export function SpaceContextPage({
         channelName,
         channelId,
         goal,
-        contextLayerEnabled,
+        contextLayerEnabled: wikiPath !== null,
       }),
       title: goalMeasureTaskTitle(goal.name),
       agent: GOAL_MEASURE_AGENT,

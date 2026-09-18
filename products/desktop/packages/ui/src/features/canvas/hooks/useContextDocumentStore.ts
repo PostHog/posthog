@@ -32,7 +32,7 @@ export function useLegacyContextDocumentStore(
   const { publish, isPublishing, publishError } =
     useFolderInstructionsMutations(channelId);
   const version = latest.data?.version ?? 0;
-  const refetch = latest.refetch;
+  const refetch = useCallback(() => void latest.refetch(), [latest.refetch]);
 
   const save = useCallback(
     async (content: string) => {
@@ -51,7 +51,7 @@ export function useLegacyContextDocumentStore(
     isSaving: isPublishing,
     saveError: publishError,
     isConflict: publishError instanceof FolderInstructionsConflictError,
-    refetch: () => void refetch(),
+    refetch,
   };
 }
 
@@ -61,7 +61,7 @@ export function useWikiContextDocumentStore(
   const page = useContextWikiPage(path);
   const mutation = useContextWikiPageMutation();
   const head = page.data?.head_sha ?? null;
-  const refetch = page.refetch;
+  const refetch = useCallback(() => void page.refetch(), [page.refetch]);
   const mutateAsync = mutation.mutateAsync;
 
   const save = useCallback(
@@ -82,6 +82,6 @@ export function useWikiContextDocumentStore(
     isSaving: mutation.isPending,
     saveError: mutation.error,
     isConflict: mutation.error instanceof ContextWikiConflictError,
-    refetch: () => void refetch(),
+    refetch,
   };
 }

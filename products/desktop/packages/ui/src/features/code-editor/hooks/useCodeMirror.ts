@@ -15,7 +15,9 @@ export function useCodeMirror(options: UseCodeMirrorOptions) {
   const instanceRef = useRef<EditorView | null>(null);
   const compartmentRef = useRef(new Compartment());
   const latestRef = useRef(options);
-  latestRef.current = options;
+  useEffect(() => {
+    latestRef.current = options;
+  });
   const { openForFile } = useFileContextMenu();
   const hostClient = useHostTRPCClient();
   const { doc, extensions, filePath } = options;
