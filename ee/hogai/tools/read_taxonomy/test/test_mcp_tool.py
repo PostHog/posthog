@@ -5,7 +5,11 @@ from django.db import OperationalError
 
 from parameterized import parameterized
 
-from ee.hogai.tool_errors import MaxToolTransientError
+from posthog.hogql.errors import ExposedHogQLError
+
+from posthog.exceptions import ClickHouseAtCapacity, ClickHouseQueryMemoryLimitExceeded
+
+from ee.hogai.tool_errors import MaxToolRetryableError, MaxToolTransientError
 from ee.hogai.tools.read_taxonomy.core import ReadEventProperties, ReadEvents, ReadTaxonomyToolArgs
 from ee.hogai.tools.read_taxonomy.mcp_tool import ReadTaxonomyMCPTool
 
@@ -53,6 +57,52 @@ class TestReadTaxonomyMCPTool(NonAtomicBaseTest):
                 await self.tool.execute(
                     ReadTaxonomyToolArgs(query={"kind": "event_properties", "event_name": "$pageview"}),
                 )
+
+    @parameterized.expand(
+        [
+            ["clickhouse capacity is transient", ClickHouseAtCapacity(), MaxToolTransientError, "once"],
+            [
+                "memory limit is transient",
+                ClickHouseQueryMemoryLimitExceeded(),
+                MaxToolTransientError,
+                "once",
+            ],
+            [
+                "exposed hogql error is retryable",
+                ExposedHogQLError("bad expression"),
+                MaxToolRetryableError,
+                "adjusted",
+            ],
+        ]
+    )
+    async def test_query_failures_reach_the_caller_classified(
+        self, _name: str, error: Exception, expected_exception: type, expected_retry: str
+    ):
+        with patch("ee.hogai.tools.read_taxonomy.mcp_tool.execute_taxonomy_query", side_effect=error):
+            with self.assertRaises(expected_exception) as raised:
+                await self.tool.execute(
+                    ReadTaxonomyToolArgs(query={"kind": "event_properties", "event_name": "purchase"}),
+                )
+
+        self.assertEqual(raised.exception.retry_strategy, expected_retry)
+        self.assertIn("properties of event `purchase`", str(raised.exception))
+
+    async def test_unclassifiable_failure_stays_an_exception(self):
+        with patch("ee.hogai.tools.read_taxonomy.mcp_tool.execute_taxonomy_query", side_effect=RuntimeError("boom")):
+            with self.assertRaises(RuntimeError):
+                await self.tool.execute(ReadTaxonomyToolArgs(query={"kind": "events"}))
+
+    async def test_event_properties_survive_a_failed_description_lookup(self):
+        with patch(
+            "ee.hogai.tools.read_taxonomy.core.get_event_description",
+            side_effect=RuntimeError("description lookup failed"),
+        ):
+            content = await self.tool.execute(
+                ReadTaxonomyToolArgs(query={"kind": "event_properties", "event_name": "$pageview"}),
+            )
+
+        self.assertIsNotNone(content)
+        self.assertNotIn("Description of", content)
 
     async def test_schema_validates_query(self):
         validated = self.tool.args_schema.model_validate({"query": {"kind": "events"}})
