@@ -2,8 +2,8 @@ import {
   isNotification,
   POSTHOG_NOTIFICATIONS,
 } from "@posthog/agent/acp-extensions";
-import type { PostHogProductId } from "@posthog/agent/posthog-products";
 import { createAppendOnlyTracker } from "@posthog/core/sessions/appendOnlyTracker";
+import type { PostHogProductId } from "@posthog/shared";
 import { type AcpMessage, isJsonRpcNotification } from "@posthog/shared";
 
 export interface ResourceProduct {
