@@ -1,3 +1,5 @@
+import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
+
 import { expectLogic } from 'kea-test-utils'
 
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -571,6 +573,44 @@ describe('supportSettingsLogic', () => {
 
             await expectLogic(logic).toFinishAllListeners()
             expect(logic.values.playbookSaving).toBe(false)
+        })
+    })
+
+    describe('AI context account properties', () => {
+        it('saves selected ids and ignores a second submit while in flight', async () => {
+            useMocks({
+                get: {
+                    '/api/conversations/v1/email/status': { configs: [] },
+                    '/api/projects/:team_id/conversations/ai_reply_playbook/': PLAYBOOK_GET,
+                    '/api/projects/:team_id/conversations/ai_context_account_properties/': [
+                        { id: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee', name: 'Plan' },
+                    ],
+                },
+                patch: {
+                    '/api/environments/:team_id/': async ({ request }) => [200, await request.json()],
+                },
+            })
+            initKeaTests(true, {
+                ...MOCK_DEFAULT_TEAM,
+                conversations_settings: { ai_context_account_property_ids: [] },
+            } as unknown as TeamType)
+            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.CUSTOMER_ANALYTICS]: true })
+            logic = supportSettingsLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.accountPropertyOptions).toEqual([
+                { id: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee', name: 'Plan' },
+            ])
+
+            await expectLogic(logic, () => {
+                logic.actions.setAiContextAccountPropertyIds(['aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'])
+            })
+                .toDispatchActions(['setAiContextAccountPropertiesSaving', 'updateCurrentTeam'])
+                .toMatchValues({ aiContextAccountPropertiesSaving: true })
+
+            await expectLogic(logic, () => {
+                logic.actions.setAiContextAccountPropertyIds(['aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'])
+            }).toNotHaveDispatchedActions(['updateCurrentTeam'])
         })
     })
 })
