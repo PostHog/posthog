@@ -11,3 +11,5 @@ class EnforceLogsRetentionEntitlementsInput:
 class EnforceLogsRetentionEntitlementsOutput:
     teams_checked: int
     teams_reset: int
+    rules_checked: int = 0
+    rules_reset: int = 0

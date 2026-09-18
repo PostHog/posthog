@@ -282,6 +282,10 @@ class S3BatchExportInputs(BaseBatchExportInputs):
         kms_key_id: KMS key id to use when `encryption == "aws:kms"`, or None. AWS-only.
         use_virtual_style_addressing: Whether to use virtual-hosted-style
             addressing rather than path-style. None for AWS.
+        legacy_parquet_extension: Whether Parquet files keep the compression codec in their
+            extension, e.g. `.parquet.zst` rather than `.parquet`. Defaults to True because a
+            schedule created before this field existed has no value for it, so the missing field
+            decodes to this default and the export keeps the names it already writes.
     """
 
     bucket_name: str
@@ -293,6 +297,7 @@ class S3BatchExportInputs(BaseBatchExportInputs):
     encryption: str | None = None
     kms_key_id: str | None = None
     use_virtual_style_addressing: bool = False
+    legacy_parquet_extension: bool = True
 
 
 @dataclass(frozen=False, kw_only=True)
@@ -310,6 +315,7 @@ class S3FamilyBaseInputs(BaseBatchExportInputs):
     compression: str | None = None
     file_format: str = "JSONLines"
     max_file_size_mb: int | None = None
+    legacy_parquet_extension: bool = True
 
 
 @dataclass(kw_only=True)
@@ -511,7 +517,7 @@ class DatabricksBatchExportInputs(BaseBatchExportInputs):
     use_automatic_schema_evolution: bool = True
 
 
-@dataclass(kw_only=True)
+@dataclass(frozen=False, kw_only=True)
 class AzureBlobBatchExportInputs(BaseBatchExportInputs):
     """Inputs for Azure Blob Storage export workflow.
 
@@ -524,6 +530,7 @@ class AzureBlobBatchExportInputs(BaseBatchExportInputs):
     compression: str | None = None
     file_format: str = "JSONLines"
     max_file_size_mb: int | None = None
+    legacy_parquet_extension: bool = True
 
 
 @dataclass(kw_only=True)

@@ -5,7 +5,7 @@ import base64
 import asyncio
 import hashlib
 from collections.abc import AsyncGenerator, Iterator
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import Any, ClassVar, cast
 from urllib.parse import quote
@@ -2058,6 +2058,7 @@ class TestTaskAPI(BaseTaskAPITest):
             (Task.OriginProduct.SIGNALS_CHAT,),
             (Task.OriginProduct.TASK_ANALYSIS,),
             (Task.OriginProduct.REVIEW_HOG,),
+            (Task.OriginProduct.SLACK,),
         ]
     )
     def test_create_task_rejects_server_created_origin(self, origin_product: Task.OriginProduct):
@@ -5391,8 +5392,13 @@ class TestTaskAPI(BaseTaskAPITest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual({t["id"] for t in response.json()["results"]}, {str(mentioned.id)})
 
-    def test_filter_by_pr_state_uses_latest_run_not_any_run(self):
-        """A task whose latest run has no PR state must not match an older run's state."""
+    def test_filter_by_pr_state_uses_the_latest_run_that_opened_a_pr(self):
+        """A resume doesn't drop the task's PR, so the filter reads the run that opened it.
+
+        The task response inherits that PR onto `latest_run.output` (see `_inherited_pr_fields`),
+        so anchoring this filter on the newest run instead would make `?pr_state=open` disagree
+        with the `latest_run` the same endpoint returns for the same task.
+        """
         base_time = django_timezone.now()
 
         task = self.create_task("Task with mixed PR runs")
@@ -5409,10 +5415,35 @@ class TestTaskAPI(BaseTaskAPITest):
             status=TaskRun.Status.IN_PROGRESS,
             created_at=base_time + timedelta(seconds=1),
         )
+        self.create_task("Task that never opened a PR")
 
         response = self.client.get("/api/projects/@current/tasks/?pr_state=open")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["results"], [])
+        self.assertEqual([t["id"] for t in response.json()["results"]], [str(task.id)])
+
+    def test_filter_by_pr_state_prefers_the_newer_of_two_prs(self):
+        """Two runs with their own PRs: the newer one's state is the task's."""
+        base_time = datetime(2026, 1, 1, tzinfo=UTC)
+
+        task = self.create_task("Task with two PRs")
+        TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            status=TaskRun.Status.COMPLETED,
+            created_at=base_time,
+            output={"pr_url": "https://github.com/posthog/posthog/pull/1", "pr_state": "open"},
+        )
+        TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            status=TaskRun.Status.COMPLETED,
+            created_at=base_time + timedelta(seconds=1),
+            output={"pr_url": "https://github.com/posthog/posthog/pull/2", "pr_state": "closed"},
+        )
+
+        self.assertEqual(self.client.get("/api/projects/@current/tasks/?pr_state=open").json()["results"], [])
+        closed = self.client.get("/api/projects/@current/tasks/?pr_state=closed")
+        self.assertEqual([t["id"] for t in closed.json()["results"]], [str(task.id)])
 
     def test_filter_by_status_uses_latest_run_not_any_run(self):
         """A task whose latest run is in_progress must not match status=completed, even if an older run completed."""
@@ -12709,6 +12740,67 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
         self.assertEqual(call_kwargs["json"]["method"], "set_config_option")
         self.assertEqual(call_kwargs["json"]["params"]["configId"], "mode")
         self.assertEqual(call_kwargs["json"]["params"]["value"], "plan")
+
+    @patch("products.tasks.backend.models.TaskRun.publish_stream_state_event")
+    def test_patch_cannot_forge_the_gateway_pin_stamp(self, _mock_publish):
+        task = self.create_task()
+        run = TaskRun.objects.create(
+            task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS, state={"ai_gateway_product": "slack_app"}
+        )
+        url = f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/"
+
+        response = self.client.patch(url, {"state": {}, "state_remove_keys": ["ai_gateway_product"]}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response = self.client.patch(url, {"state": {"ai_gateway_product": "review_hog"}}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        run.refresh_from_db()
+        assert run.state["ai_gateway_product"] == "slack_app"
+
+    @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
+    @patch("products.tasks.backend.presentation.views.api.http_requests.post")
+    def test_command_refuses_a_model_outside_the_runs_gateway_pin(self, mock_post):
+        reset_sandbox_jwt_key_cache()
+        task = self.create_task()
+        run = self._create_run_with_sandbox(task)
+        TaskRun.objects.filter(id=run.id).update(state={**(run.state or {}), "ai_gateway_product": "slack_app"})
+
+        response = self.client.post(
+            self._command_url(task, run),
+            {
+                "jsonrpc": "2.0",
+                "method": "set_config_option",
+                "params": {"configId": "model", "value": "zai-org/glm-5.3"},
+                "id": "req-pin",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        mock_post.assert_not_called()
+
+    @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
+    @patch("products.tasks.backend.presentation.views.api.http_requests.post")
+    def test_command_proxies_a_model_inside_the_runs_gateway_pin(self, mock_post):
+        reset_sandbox_jwt_key_cache()
+        self._mock_agent_response(mock_post, {"jsonrpc": "2.0", "id": "req-pin", "result": {"updated": True}})
+        task = self.create_task()
+        run = self._create_run_with_sandbox(task)
+        TaskRun.objects.filter(id=run.id).update(state={**(run.state or {}), "ai_gateway_product": "slack_app"})
+
+        response = self.client.post(
+            self._command_url(task, run),
+            {
+                "jsonrpc": "2.0",
+                "method": "set_config_option",
+                "params": {"configId": "model", "value": "claude-opus-5"},
+                "id": "req-pin",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(mock_post.call_args[1]["json"]["params"]["value"], "claude-opus-5")
 
     @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
     @patch("products.tasks.backend.presentation.views.api.http_requests.post")
