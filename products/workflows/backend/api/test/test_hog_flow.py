@@ -223,13 +223,62 @@ class TestHogFlowAPI(APIBaseTest):
             ("case_insensitive", "WELCOME", {"Welcome email"}),
             ("description_match", "quarterly", {"Digest"}),
             ("space_matches_separators", "password reset", {"Password reset"}),
+            ("step_name_match", "monthly invoice", {"Billing"}),
+            ("email_subject_match", "for march", {"Billing"}),
+            ("email_preheader_match", "billing page", {"Billing"}),
+            ("email_body_not_searched", "footer-links", set()),
+            ("draft_email_subject_match", "beta access", {"Onboarding"}),
             ("no_match", "nonexistent", set()),
         ]
     )
-    def test_list_search_matches_name_and_description(self, _name, search, expected_names):
+    def test_list_search_matches_name_description_and_step_content(self, _name, search, expected_names):
         HogFlow.objects.create(team=self.team, name="Welcome email", created_by=self.user)
         HogFlow.objects.create(team=self.team, name="Password reset", created_by=self.user)
         HogFlow.objects.create(team=self.team, name="Digest", description="quarterly summary", created_by=self.user)
+        HogFlow.objects.create(
+            team=self.team,
+            name="Billing",
+            created_by=self.user,
+            actions=[
+                {
+                    "id": "email_1",
+                    "name": "Monthly invoice email",
+                    "type": "function_email",
+                    "config": {
+                        "template_id": "template-email",
+                        "inputs": {
+                            "email": {
+                                "value": {
+                                    "subject": "Your invoice for March is ready",
+                                    "preheader": "Download it from your billing page",
+                                    "text": "Your invoice is attached.",
+                                    "html": '<table class="footer-links"><tr><td>Your invoice is attached.</td></tr></table>',
+                                }
+                            }
+                        },
+                    },
+                }
+            ],
+        )
+        HogFlow.objects.create(
+            team=self.team,
+            name="Onboarding",
+            status=HogFlow.State.ACTIVE,
+            created_by=self.user,
+            draft={
+                "actions": [
+                    {
+                        "id": "email_1",
+                        "name": "Access email",
+                        "type": "function_email",
+                        "config": {
+                            "template_id": "template-email",
+                            "inputs": {"email": {"value": {"subject": "Your beta access starts today"}}},
+                        },
+                    }
+                ]
+            },
+        )
 
         response = self.client.get(f"/api/projects/{self.team.id}/hog_flows?search={search}")
         assert response.status_code == 200, response.json()

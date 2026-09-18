@@ -104007,7 +104007,7 @@ export namespace Schemas {
      */
     origin_product?: HogFlowsListOriginProduct;
     /**
-     * Case-insensitive search across workflow name and description.
+     * Case-insensitive search across workflow name and description, step names, and the subject line and preheader of email steps, in both the live workflow and its pending draft.
      */
     search?: string;
     /**

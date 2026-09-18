@@ -15,6 +15,7 @@ from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.signing import BadSignature, SignatureExpired, TimestampSigner
 from django.db import models, transaction
 from django.db.models import Q, QuerySet
+from django.db.models.expressions import RawSQL
 from django.http import Http404, HttpResponse
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
@@ -3755,6 +3756,32 @@ class HogFlowPagination(LimitOffsetPagination):
     max_limit = 500
 
 
+# What a person remembers about a message they received or authored. The email `html`, `text` and
+# `design` are left out because their markup and boilerplate would match almost any search term.
+_ACTION_SEARCH_TEXT_PATHS = (
+    "action ->> 'name'",
+    "action #>> '{config,inputs,email,value,subject}'",
+    "action #>> '{config,inputs,email,value,preheader}'",
+)
+
+
+def _action_content_matches(regex_pattern: str) -> RawSQL:
+    """A predicate that is true when a step in the live actions or the pending draft matches the search."""
+    table = HogFlow._meta.db_table
+    step_matches = " OR ".join(f"{path} ~* %s" for path in _ACTION_SEARCH_TEXT_PATHS)
+    clauses = []
+    for source in (f'"{table}"."actions"', f'"{table}"."draft" -> \'actions\''):
+        # `actions` defaults to {} on a workflow that never got a graph, and jsonb_array_elements raises on
+        # anything but an array, so guard the source rather than let one such row fail the whole list.
+        clauses.append(
+            "EXISTS (SELECT 1 FROM jsonb_array_elements("
+            f"CASE WHEN jsonb_typeof({source}) = 'array' THEN {source} ELSE '[]'::jsonb END"
+            f") AS action WHERE {step_matches})"
+        )
+    params = [regex_pattern] * (len(clauses) * len(_ACTION_SEARCH_TEXT_PATHS))
+    return RawSQL(" OR ".join(clauses), params, output_field=models.BooleanField())
+
+
 class StaleWorkflowUpdateError(exceptions.APIException):
     status_code = status.HTTP_409_CONFLICT
     default_detail = (
@@ -3823,7 +3850,7 @@ WRITABLE_DRAFT_CONTENT_FIELDS = frozenset(DRAFT_CONTENT_FIELDS) - frozenset(HogF
             OpenApiParameter(
                 "search",
                 OpenApiTypes.STR,
-                description="Case-insensitive search across workflow name and description.",
+                description="Case-insensitive search across workflow name and description, step names, and the subject line and preheader of email steps, in both the live workflow and its pending draft.",
             ),
             OpenApiParameter(
                 "created_by",
@@ -3978,7 +4005,11 @@ class HogFlowViewSet(
                     # Escape regex metacharacters, then let spaces match any run of space/dash/underscore
                     # so "welcome email" also matches "welcome-email" — same approach as feature flag search.
                     regex_pattern = re.escape(search).replace(r"\ ", r"[\s\-_]*")
-                    queryset = queryset.filter(Q(name__iregex=regex_pattern) | Q(description__iregex=regex_pattern))
+                    queryset = queryset.filter(
+                        Q(name__iregex=regex_pattern)
+                        | Q(description__iregex=regex_pattern)
+                        | Q(_action_content_matches(regex_pattern))
+                    )
 
             created_by = self.request.GET.get("created_by")
             if created_by:

@@ -26,7 +26,12 @@ export const HogFlowsListQueryParams = () => zod.object({
         .enum(['loops'])
         .optional()
         .describe('Filter to workflows owned by a product surface, e.g. `loops` for Desktop loops.'),
-    search: zod.string().optional().describe('Case-insensitive search across workflow name and description.'),
+    search: zod
+        .string()
+        .optional()
+        .describe(
+            'Case-insensitive search across workflow name and description, step names, and the subject line and preheader of email steps, in both the live workflow and its pending draft.'
+        ),
     status: zod
         .enum(['active', 'archived', 'draft'])
         .optional()
