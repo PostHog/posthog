@@ -13,6 +13,8 @@ const context: CustomerJourneyContext = {
     readiness_contract_version: 1,
     readiness_scope: 'visible_product_analytics_tiles',
     attempt_id: 'synthetic-attempt',
+    client_query_id: 'synthetic-query',
+    execution_path: 'recalculation',
     region: 'US',
     project_id: 101,
     organization_id: 'synthetic-organization',
@@ -42,9 +44,19 @@ function coreEvents(): CaptureResult[] {
         failed_count: 1,
         pending_count: 1,
         excluded_count: 2,
+        response_cached: false,
+        experiment_run_id: 'synthetic-run',
         insight_type_summary: { TRENDS: { total_count: 3, ready_count: 1, failed_count: 1, max_duration_ms: 10 } },
         tile_results: [
-            { tile_id: 1, insight_short_id: 'abc', insight_type: 'TRENDS', state: 'ready', duration_ms: 10 },
+            {
+                tile_id: 1,
+                insight_short_id: 'abc',
+                insight_type: 'TRENDS',
+                state: 'ready',
+                duration_ms: 10,
+                client_query_id: 'synthetic-tile-query',
+                response_cached: true,
+            },
             { tile_id: 2, insight_short_id: 'def', insight_type: 'TRENDS', state: 'failed' },
             { tile_id: 3, insight_short_id: 'ghi', insight_type: 'TRENDS', state: 'pending' },
         ],
@@ -122,6 +134,17 @@ describe('journey outbound SDK projection', () => {
     })
 
     it('preserves every current core output field while projecting nested metadata and envelope profile updates', () => {
+        expect(coreEvents()[0].properties).toMatchObject({
+            client_query_id: 'synthetic-query',
+            execution_path: 'recalculation',
+        })
+        expect(coreEvents()[1].properties).toMatchObject({
+            response_cached: false,
+            experiment_run_id: 'synthetic-run',
+            tile_results: expect.arrayContaining([
+                expect.objectContaining({ client_query_id: 'synthetic-tile-query', response_cached: true }),
+            ]),
+        })
         for (const event of coreEvents()) {
             const enriched = {
                 ...event,

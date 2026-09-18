@@ -19,7 +19,15 @@ export class QueryJourneyObserver {
     private readonly scope = new CustomerJourneyScope<{
         handle: CustomerJourney
         receipt: QueryJourneyReceipt | null
-    }>()
+    }>((attempt) => {
+        const response = attempt.receipt?.response
+        return response &&
+            typeof response === 'object' &&
+            'is_cached' in response &&
+            typeof response.is_cached === 'boolean'
+            ? { response_cached: response.is_cached }
+            : {}
+    })
     private readonly owners = new Set<symbol>()
 
     replace(): number {
