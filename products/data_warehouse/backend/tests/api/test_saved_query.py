@@ -1711,6 +1711,71 @@ class TestSavedQuery(APIBaseTest):
             # Verify get_columns was called
             mock_get_columns.assert_called_once()
 
+    def test_soft_update_with_query_change_skips_get_columns(self):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/",
+            {
+                "name": "event_view",
+                "query": {
+                    "kind": "HogQLQuery",
+                    "query": "select event as event from events LIMIT 100",
+                },
+            },
+        )
+        self.assertEqual(response.status_code, 201, response.content)
+        saved_query = response.json()
+
+        with patch.object(DataWarehouseSavedQuery, "get_columns", side_effect=AssertionError("inference ran")):
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query['id']}",
+                {
+                    "query": {
+                        "kind": "HogQLQuery",
+                        "query": "select event as event from events LIMIT 10",
+                    },
+                    "soft_update": True,
+                },
+            )
+
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(response.json()["query"]["query"], "select event as event from events LIMIT 10")
+
+    def test_update_refuses_saved_query_deleted_during_inference(self):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/",
+            {
+                "name": "event_view",
+                "query": {
+                    "kind": "HogQLQuery",
+                    "query": "select event as event from events LIMIT 100",
+                },
+            },
+        )
+        self.assertEqual(response.status_code, 201, response.content)
+        saved_query = response.json()
+
+        def delete_view_during_inference(*args: Any, **kwargs: Any) -> dict[str, dict[str, Any]]:
+            DataWarehouseSavedQuery.objects.filter(id=saved_query["id"]).update(deleted=True)
+            return {}
+
+        with patch.object(DataWarehouseSavedQuery, "get_columns", side_effect=delete_view_during_inference):
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query['id']}",
+                {
+                    "name": "renamed_event_view",
+                    "query": {
+                        "kind": "HogQLQuery",
+                        "query": "select event as event from events LIMIT 10",
+                    },
+                    "edited_history_id": saved_query["latest_history_id"],
+                },
+            )
+
+        self.assertEqual(response.status_code, 404, response.content)
+        saved_query_row = DataWarehouseSavedQuery.objects.get(id=saved_query["id"])
+        self.assertTrue(saved_query_row.deleted)
+        self.assertEqual(saved_query_row.name, "event_view")
+
     def test_create_with_activity_log(self):
         response = self.client.post(
             f"/api/environments/{self.team.id}/warehouse_saved_queries/",

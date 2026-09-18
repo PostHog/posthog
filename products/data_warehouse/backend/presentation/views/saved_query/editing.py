@@ -1,5 +1,6 @@
 """The writable saved-query serializer: validation, create, and update."""
 
+import copy
 import uuid
 from typing import Any, cast
 
@@ -342,11 +343,6 @@ class DataWarehouseSavedQuerySerializer(
         if instance.managed_viewset is not None:
             raise serializers.ValidationError("Cannot update a query from a managed viewset")
 
-        try:
-            before_update = DataWarehouseSavedQuery.objects.get(pk=instance.id)
-        except DataWarehouseSavedQuery.DoesNotExist:
-            before_update = None
-
         sync_frequency = validated_data.pop("sync_frequency", None)
 
         if sync_frequency and sync_frequency != "never":
@@ -377,7 +373,7 @@ class DataWarehouseSavedQuerySerializer(
 
         inferred_columns: dict[str, dict[str, Any]] | None = None
         inferred_external_tables: list[str] | None = None
-        if "query" in validated_data:
+        if "query" in validated_data and not soft_update:
             # Inference runs the query on ClickHouse, so it happens before the row lock, on a probe
             # carrying the pending query and name rather than the stored ones, as create() does.
             probe = DataWarehouseSavedQuery(
@@ -407,7 +403,13 @@ class DataWarehouseSavedQuerySerializer(
                 raise _view_types_validation_error(e)
 
         with transaction.atomic():
-            locked_instance = DataWarehouseSavedQuery.objects.select_for_update().get(pk=instance.pk)
+            try:
+                locked_instance = (
+                    DataWarehouseSavedQuery.objects.select_for_update().exclude(deleted=True).get(pk=instance.pk)
+                )
+            except DataWarehouseSavedQuery.DoesNotExist:
+                raise exceptions.NotFound("Not found.")
+            before_update = copy.copy(locked_instance)
 
             query_changed = "query" in validated_data and validated_data["query"] != locked_instance.query
 
