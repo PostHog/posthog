@@ -139,18 +139,6 @@ print_service_diagnostics() {
         echo ""
         echo "docker compose ps $svc:"
         compose ps "$svc" 2>&1 || true
-        # A missing container has three causes that read identically above: the
-        # stack never started, it started and went away, or it is running under a
-        # project name this script is not looking at. The two listings below say
-        # which, because otherwise the only clue is a 300s timeout on whichever
-        # service happened to be checked first.
-        echo ""
-        echo "Containers in project '${PROJECT}':"
-        docker ps -a --filter "label=com.docker.compose.project=${PROJECT}" \
-            --format '  {{.Label "com.docker.compose.service"}} ({{.Status}})' 2>&1 || true
-        echo "Compose projects with containers on this host:"
-        docker ps -a --format '{{.Label "com.docker.compose.project"}}' 2>&1 |
-            sort -u | grep -v '^$' | sed 's/^/  /' || true
     else
         echo "Container exists (id=${container_id:0:12}) but readiness state is: $status"
         echo ""
@@ -159,6 +147,25 @@ print_service_diagnostics() {
         echo ""
         echo "Health check log:"
         docker inspect --format='{{if .State.Health}}{{range .State.Health.Log}}{{.Output}}{{end}}{{else}}no health check configured{{end}}' "$container_id" 2>&1 | tail -5 || true
+    fi
+    echo "=========================================="
+}
+
+# A container reported as missing has three causes that the per-service report
+# cannot tell apart: the stack never started, it started and went away, or it
+# runs under a project name this script is not watching. One listing of every
+# container on the host answers all three. It is per-host rather than per
+# service, so it prints once however many services timed out.
+print_host_diagnostics() {
+    local containers
+    containers="$(docker ps -a --format '  {{.Label "com.docker.compose.project"}}/{{.Label "com.docker.compose.service"}} ({{.Status}})' 2>&1 | sort)"
+    echo ""
+    echo "=========================================="
+    echo "Containers on this host, as project/service. This script watches project '${PROJECT}':"
+    if [ -n "$containers" ]; then
+        echo "$containers"
+    else
+        echo "  (none)"
     fi
     echo "=========================================="
 }
@@ -279,10 +286,17 @@ while [ ${#pending[@]} -gt 0 ]; do
 done
 
 if [ ${#timed_out[@]} -gt 0 ]; then
+    missing_any=0
     for entry in "${timed_out[@]}"; do
         IFS='|' read -r svc status container_id <<< "$entry"
         print_service_diagnostics "$svc" "$SECONDS" "$status" "$container_id"
+        if [ -z "$container_id" ]; then
+            missing_any=1
+        fi
     done
+    if [ "$missing_any" -eq 1 ]; then
+        print_host_diagnostics
+    fi
     exit 1
 fi
 
