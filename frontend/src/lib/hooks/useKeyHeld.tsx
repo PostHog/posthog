@@ -18,12 +18,21 @@ export function useKeyHeld(key: string): boolean {
         }
     })
 
-    useEventListener('keyup', (event) => {
-        if (event.key === key && isHeldRef.current) {
+    const release = (): void => {
+        if (isHeldRef.current) {
             isHeldRef.current = false
             setKeyHeld(false)
         }
+    }
+
+    useEventListener('keyup', (event) => {
+        if (event.key === key) {
+            release()
+        }
     })
+
+    // Alt+Tab and similar shortcuts move focus away before the keyup, so without this the key stays held forever
+    useEventListener('blur', release)
 
     return keyHeld
 }
