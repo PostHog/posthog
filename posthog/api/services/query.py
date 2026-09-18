@@ -4,8 +4,6 @@ import time
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal, Optional, overload
 
-from django.conf import settings
-
 import structlog
 import pydantic_core
 from pydantic import BaseModel
@@ -72,7 +70,6 @@ if TYPE_CHECKING:
 
 logger = structlog.get_logger(__name__)
 
-_LEGACY_CATALOG_REVISION_PREFIX = "legacy-v1:"
 _WAREHOUSE_ALIAS_CATALOG_REVISION_PREFIX = "warehouse-aliases-v1:"
 
 
@@ -80,14 +77,6 @@ _WAREHOUSE_ALIAS_CATALOG_REVISION_PREFIX = "warehouse-aliases-v1:"
 class _DatabaseSchemaCatalog:
     response: DatabaseSchemaQueryResponse
     database: Database
-
-
-def _catalog_revision_matches_rollout(revision: object, *, publish_aliases: bool) -> bool:
-    if not isinstance(revision, str):
-        return False
-    if publish_aliases:
-        return revision.startswith(_WAREHOUSE_ALIAS_CATALOG_REVISION_PREFIX)
-    return revision.isdigit() or revision.startswith(_LEGACY_CATALOG_REVISION_PREFIX)
 
 
 def _language_service_eligible(query: HogQLAutocomplete | HogQLMetadata) -> bool:
@@ -123,16 +112,14 @@ def _language_service_call(
     except LanguageServiceError:
         return None
 
-    publish_aliases = settings.HOGQL_LANGUAGE_SERVICE_PUBLISH_WAREHOUSE_ALIASES
-    revision_prefix = _WAREHOUSE_ALIAS_CATALOG_REVISION_PREFIX if publish_aliases else _LEGACY_CATALOG_REVISION_PREFIX
-    if result is not None and _catalog_revision_matches_rollout(
-        result.body.get("catalogRevision"), publish_aliases=publish_aliases
-    ):
-        return result
+    if result is not None:
+        catalog_revision = result.body.get("catalogRevision")
+        if isinstance(catalog_revision, str) and catalog_revision.startswith(_WAREHOUSE_ALIAS_CATALOG_REVISION_PREFIX):
+            return result
 
     try:
         schema_catalog = _build_database_schema_query(team, DatabaseSchemaQuery(), user=user)
-        revision = f"{revision_prefix}{time.time_ns()}"
+        revision = f"{_WAREHOUSE_ALIAS_CATALOG_REVISION_PREFIX}{time.time_ns()}"
         client.publish(
             team.pk,
             user.pk,
@@ -142,7 +129,6 @@ def _language_service_call(
                 user,
                 schema_catalog.response,
                 database=schema_catalog.database,
-                publish_warehouse_aliases=publish_aliases,
             ),
         )
         result = call()

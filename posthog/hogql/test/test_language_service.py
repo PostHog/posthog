@@ -151,7 +151,7 @@ class TestLanguageServiceCatalog(SimpleTestCase):
             {"postgres.demo.orders": ("orders-id", ["demo_postgres_orders", "DEMO_POSTGRES_ORDERS"])}
         )
 
-        catalog = build_catalog(MagicMock(), MagicMock(), schema, database=database, publish_warehouse_aliases=True)
+        catalog = build_catalog(MagicMock(), MagicMock(), schema, database=database)
 
         assert catalog["tableAliases"] == {
             "demo_postgres_orders": "postgres.demo.orders",
@@ -176,7 +176,7 @@ class TestLanguageServiceCatalog(SimpleTestCase):
             }
         )
 
-        catalog = build_catalog(MagicMock(), MagicMock(), schema, database=database, publish_warehouse_aliases=True)
+        catalog = build_catalog(MagicMock(), MagicMock(), schema, database=database)
 
         assert catalog["tableAliases"] == {"demo_shared": "postgres.demo.customers"}
 
@@ -191,7 +191,6 @@ class TestLanguageServiceCatalog(SimpleTestCase):
                 MagicMock(),
                 schema,
                 database=self._database({"postgres.demo.orders": canonical}),
-                publish_warehouse_aliases=True,
             )
 
         alias = S3Table(name="orders_alias", fields={}, url="", table_id="resolver-id")
@@ -202,7 +201,6 @@ class TestLanguageServiceCatalog(SimpleTestCase):
                 MagicMock(),
                 schema,
                 database=self._database({"postgres.demo.orders": canonical, "demo_postgres_orders": alias}),
-                publish_warehouse_aliases=True,
             )
 
     @patch("posthog.hogql.language_service._properties_for_namespace", return_value=[])
@@ -214,7 +212,7 @@ class TestLanguageServiceCatalog(SimpleTestCase):
         schema = self._warehouse_schema({"postgres.demo.orders": ("orders-id", ["demo_postgres_orders"])})
 
         with self.assertRaisesRegex(LanguageServiceError, "is not visible"):
-            build_catalog(MagicMock(), MagicMock(), schema, database=hidden_database, publish_warehouse_aliases=True)
+            build_catalog(MagicMock(), MagicMock(), schema, database=hidden_database)
 
         ambiguous_schema = self._warehouse_schema(
             {
@@ -230,9 +228,7 @@ class TestLanguageServiceCatalog(SimpleTestCase):
             }
         )
         with self.assertRaisesRegex(LanguageServiceError, "has no unique visible target"):
-            build_catalog(
-                MagicMock(), MagicMock(), ambiguous_schema, database=ambiguous_database, publish_warehouse_aliases=True
-            )
+            build_catalog(MagicMock(), MagicMock(), ambiguous_schema, database=ambiguous_database)
 
     @patch("posthog.hogql.language_service._properties_for_namespace", return_value=[])
     def test_ignores_builtin_search_metadata_and_identity_aliases(self, _properties: MagicMock) -> None:
@@ -241,14 +237,6 @@ class TestLanguageServiceCatalog(SimpleTestCase):
         schema = self._warehouse_schema({"postgres.demo.orders": ("orders-id", ["postgres.demo.orders"])})
         schema.tables["events"] = DatabaseSchemaPostHogTable(fields={}, id="events", name="events")
 
-        catalog = build_catalog(MagicMock(), MagicMock(), schema, database=database, publish_warehouse_aliases=True)
+        catalog = build_catalog(MagicMock(), MagicMock(), schema, database=database)
 
         assert catalog["tableAliases"] == {}
-
-    @patch("posthog.hogql.language_service._properties_for_namespace", return_value=[])
-    def test_omits_alias_contract_when_publication_is_disabled(self, _properties: MagicMock) -> None:
-        schema = self._warehouse_schema({"postgres.demo.orders": ("orders-id", ["demo_postgres_orders"])})
-
-        catalog = build_catalog(MagicMock(), MagicMock(), schema)
-
-        assert "tableAliases" not in catalog

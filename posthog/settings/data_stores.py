@@ -662,9 +662,6 @@ HOGQL_LANGUAGE_SERVICE_URL = get_from_env(
 HOGQL_LANGUAGE_SERVICE_SIGNING_KEYS = get_list(
     get_from_env("HOGQL_LANGUAGE_SERVICE_SIGNING_KEYS", "local-development-key" if DEBUG and not TEST else "")
 )
-HOGQL_LANGUAGE_SERVICE_PUBLISH_WAREHOUSE_ALIASES = get_from_env(
-    "HOGQL_LANGUAGE_SERVICE_PUBLISH_WAREHOUSE_ALIASES", False, type_cast=str_to_bool
-)
 
 # Definitions fleet, which serves remote_config (the eval fleet 404s it). Falls back until set per env.
 FEATURE_FLAGS_DEFINITIONS_SERVICE_URL = os.getenv("FEATURE_FLAGS_DEFINITIONS_SERVICE_URL", FEATURE_FLAGS_SERVICE_URL)

@@ -4,7 +4,7 @@ from typing import cast
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
-from django.test import SimpleTestCase, override_settings
+from django.test import SimpleTestCase
 
 from parameterized import parameterized
 from rest_framework.exceptions import ValidationError
@@ -164,52 +164,42 @@ class TestLanguageServiceRouting(SimpleTestCase):
         assert response.errors == []
         assert response.warnings[0].message == 'Unknown property "missing"'
 
-    @parameterized.expand(
-        [
-            (False, "legacy-v1:cached"),
-            (False, "1789766573113832612"),
-            (True, "warehouse-aliases-v1:cached"),
-        ]
-    )
     @patch("posthog.api.services.query.is_language_service_enabled", return_value=True)
     @patch("posthog.api.services.query.LanguageServiceClient")
-    def test_accepts_a_cached_catalog_from_the_active_rollout_mode(
+    def test_accepts_a_cached_alias_catalog(
         self,
-        publish_aliases: bool,
-        revision: str,
         client_class: MagicMock,
         _enabled: MagicMock,
     ) -> None:
         client_class.return_value.validate.return_value = LanguageServiceResult(
-            body={"valid": True, "catalogRevision": revision}, duration_seconds=0, response_size_bytes=0
+            body={"valid": True, "catalogRevision": "warehouse-aliases-v1:cached"},
+            duration_seconds=0,
+            response_size_bytes=0,
         )
 
-        with override_settings(HOGQL_LANGUAGE_SERVICE_PUBLISH_WAREHOUSE_ALIASES=publish_aliases):
-            result = _language_service_call(
-                cast(Team, SimpleNamespace(pk=12)),
-                cast(User, SimpleNamespace(pk=34)),
-                HogQLMetadata(query="SELECT 1", language=HogLanguage.HOG_QL),
-            )
+        result = _language_service_call(
+            cast(Team, SimpleNamespace(pk=12)),
+            cast(User, SimpleNamespace(pk=34)),
+            HogQLMetadata(query="SELECT 1", language=HogLanguage.HOG_QL),
+        )
 
         assert result is not None
         client_class.return_value.publish.assert_not_called()
 
     @parameterized.expand(
         [
-            (True, "legacy-v1:cached", "warehouse-aliases-v1:"),
-            (False, "warehouse-aliases-v1:cached", "legacy-v1:"),
-            (True, None, "warehouse-aliases-v1:"),
+            ("legacy-v1:cached",),
+            ("1789766573113832612",),
+            (None,),
         ]
     )
     @patch("posthog.api.services.query.build_catalog", return_value={"tables": {}, "properties": {}})
     @patch("posthog.api.services.query._build_database_schema_query")
     @patch("posthog.api.services.query.is_language_service_enabled", return_value=True)
     @patch("posthog.api.services.query.LanguageServiceClient")
-    def test_refreshes_a_missing_or_wrong_mode_catalog_once(
+    def test_refreshes_a_missing_or_legacy_catalog_once(
         self,
-        publish_aliases: bool,
         cached_revision: str | None,
-        expected_prefix: str,
         client_class: MagicMock,
         _enabled: MagicMock,
         build_schema: MagicMock,
@@ -244,17 +234,16 @@ class TestLanguageServiceRouting(SimpleTestCase):
         client.validate.side_effect = validate
         build_schema.return_value = _DatabaseSchemaCatalog(response=MagicMock(), database=MagicMock())
 
-        with override_settings(HOGQL_LANGUAGE_SERVICE_PUBLISH_WAREHOUSE_ALIASES=publish_aliases):
-            result = _language_service_call(
-                cast(Team, SimpleNamespace(pk=12)),
-                cast(User, SimpleNamespace(pk=34)),
-                HogQLMetadata(query="SELECT 1", language=HogLanguage.HOG_QL),
-            )
+        result = _language_service_call(
+            cast(Team, SimpleNamespace(pk=12)),
+            cast(User, SimpleNamespace(pk=34)),
+            HogQLMetadata(query="SELECT 1", language=HogLanguage.HOG_QL),
+        )
 
         assert result is not None
-        assert published_revision[0].startswith(expected_prefix)
+        assert published_revision[0].startswith("warehouse-aliases-v1:")
         assert client.validate.call_count == 2
-        assert build_catalog_mock.call_args.kwargs["publish_warehouse_aliases"] is publish_aliases
+        assert build_catalog_mock.call_args.kwargs["database"] is build_schema.return_value.database
 
     @patch("posthog.api.services.query.build_catalog", return_value={"tableAliases": {"alias": "canonical"}})
     @patch("posthog.api.services.query._build_database_schema_query")
@@ -275,12 +264,11 @@ class TestLanguageServiceRouting(SimpleTestCase):
         client_class.return_value.publish.side_effect = LanguageServiceError("language service returned 400")
         build_schema.return_value = _DatabaseSchemaCatalog(response=MagicMock(), database=MagicMock())
 
-        with override_settings(HOGQL_LANGUAGE_SERVICE_PUBLISH_WAREHOUSE_ALIASES=True):
-            result = _language_service_call(
-                cast(Team, SimpleNamespace(pk=12)),
-                cast(User, SimpleNamespace(pk=34)),
-                HogQLMetadata(query="SELECT 1", language=HogLanguage.HOG_QL),
-            )
+        result = _language_service_call(
+            cast(Team, SimpleNamespace(pk=12)),
+            cast(User, SimpleNamespace(pk=34)),
+            HogQLMetadata(query="SELECT 1", language=HogLanguage.HOG_QL),
+        )
 
         assert result is None
         client_class.return_value.publish.assert_called_once()
@@ -310,12 +298,11 @@ class TestLanguageServiceRouting(SimpleTestCase):
         ]
         build_schema.return_value = _DatabaseSchemaCatalog(response=MagicMock(), database=MagicMock())
 
-        with override_settings(HOGQL_LANGUAGE_SERVICE_PUBLISH_WAREHOUSE_ALIASES=True):
-            result = _language_service_call(
-                cast(Team, SimpleNamespace(pk=12)),
-                cast(User, SimpleNamespace(pk=34)),
-                HogQLMetadata(query="SELECT 1", language=HogLanguage.HOG_QL),
-            )
+        result = _language_service_call(
+            cast(Team, SimpleNamespace(pk=12)),
+            cast(User, SimpleNamespace(pk=34)),
+            HogQLMetadata(query="SELECT 1", language=HogLanguage.HOG_QL),
+        )
 
         assert result is None
         assert client_class.return_value.validate.call_count == 2
@@ -384,7 +371,6 @@ class TestQueryService(APIBaseTest):
             self.user,
             schema_catalog.response,
             database=schema_catalog.database,
-            publish_warehouse_aliases=True,
         )
 
         assert catalog["tableAliases"][allowed.name] == "postgres.demo.orders"

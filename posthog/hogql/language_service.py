@@ -76,8 +76,7 @@ def build_catalog(
     user: User,
     schema: DatabaseSchemaQueryResponse,
     *,
-    database: Database | None = None,
-    publish_warehouse_aliases: bool = False,
+    database: Database,
 ) -> dict[str, Any]:
     tables: dict[str, Any] = {}
     for name, table in schema.tables.items():
@@ -98,12 +97,11 @@ def build_catalog(
         properties[f"group:{group_type_index}"] = _properties_for_namespace(
             team, user, PropertyDefinition.Type.GROUP, group_type_index
         )
-    catalog: dict[str, Any] = {"tables": tables, "properties": properties}
-    if publish_warehouse_aliases:
-        if database is None:
-            raise LanguageServiceError("warehouse aliases require the resolved database")
-        catalog["tableAliases"] = _warehouse_table_aliases(schema, database)
-    return catalog
+    return {
+        "tables": tables,
+        "properties": properties,
+        "tableAliases": _warehouse_table_aliases(schema, database),
+    }
 
 
 def _warehouse_table_aliases(schema: DatabaseSchemaQueryResponse, database: Database) -> dict[str, str]:
