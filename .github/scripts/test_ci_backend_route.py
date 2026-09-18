@@ -168,25 +168,46 @@ def test_main_writes_outputs(labels: str, tmp_path: Path, monkeypatch: pytest.Mo
     assert output.read_text() == "engine=depot\nreason=bucket 7 < 50%\n"
 
 
+@pytest.mark.parametrize("percent", ["", "0", "5"])
+def test_main_keeps_a_handed_off_commit_on_depot_after_rollback(
+    percent: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def fetch(repo: str, sha: str, token: str) -> list[dict[str, Any]]:
+        return [{"id": 1, "status": "completed", "conclusion": "success", "pull_requests": [{"number": 7}]}]
+
+    output = tmp_path / "out"
+    monkeypatch.setenv("GITHUB_OUTPUT", str(output))
+    monkeypatch.setenv("EVENT", "pull_request")
+    monkeypatch.setenv("PERCENT", percent)
+    monkeypatch.setenv("PR_NUMBER", "7")
+    monkeypatch.setenv("LABELS", "[]")
+    monkeypatch.setenv("REPO", "PostHog/posthog")
+    monkeypatch.setenv("SHA", "abc")
+    monkeypatch.setenv("GH_TOKEN", "t")
+    monkeypatch.setattr(route, "fetch_handoff_checks", fetch)
+    assert route.main() == 0
+    assert output.read_text().startswith("engine=depot\n")
+
+
 @pytest.mark.parametrize(
-    "percent,labels,reads",
+    "percent,labels,exit_code",
     [
-        ("", "[]", 0),
-        ("0", "[]", 1),
+        ("50", "[]", 1),
         ("", json.dumps(["ci-backend-depot"]), 1),
-        ("", json.dumps(["ci-backend-github"]), 1),
+        ("5", "[]", 0),
+        ("0", "[]", 0),
+        ("", "[]", 0),
+        ("50", json.dumps(["ci-backend-github"]), 0),
     ],
 )
-def test_main_reads_the_handoff_only_when_routing_is_possible(
-    percent: str, labels: str, reads: int, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+def test_main_fails_on_an_unreadable_handoff_only_when_depot_would_run(
+    percent: str, labels: str, exit_code: int, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    calls: list[str] = []
+    def failing(repo: str, sha: str, token: str) -> list[dict[str, Any]]:
+        raise route.HandoffReadError("boom")
 
-    def fetch(repo: str, sha: str, token: str) -> list[dict[str, Any]]:
-        calls.append(sha)
-        return []
-
-    monkeypatch.setenv("GITHUB_OUTPUT", str(tmp_path / "out"))
+    output = tmp_path / "out"
+    monkeypatch.setenv("GITHUB_OUTPUT", str(output))
     monkeypatch.setenv("EVENT", "pull_request")
     monkeypatch.setenv("PERCENT", percent)
     monkeypatch.setenv("PR_NUMBER", "7")
@@ -194,24 +215,10 @@ def test_main_reads_the_handoff_only_when_routing_is_possible(
     monkeypatch.setenv("REPO", "PostHog/posthog")
     monkeypatch.setenv("SHA", "abc")
     monkeypatch.setenv("GH_TOKEN", "t")
-    monkeypatch.setattr(route, "fetch_handoff_checks", fetch)
-    assert route.main() == 0
-    assert len(calls) == reads
-
-
-def test_main_fails_when_the_earlier_handoff_cannot_be_read(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    def failing(repo: str, sha: str, token: str) -> list[dict[str, Any]]:
-        raise route.HandoffReadError("boom")
-
-    monkeypatch.setenv("GITHUB_OUTPUT", str(tmp_path / "out"))
-    monkeypatch.setenv("EVENT", "pull_request")
-    monkeypatch.setenv("PERCENT", "5")
-    monkeypatch.setenv("PR_NUMBER", "7")
-    monkeypatch.setenv("LABELS", "[]")
-    monkeypatch.setenv("REPO", "PostHog/posthog")
-    monkeypatch.setenv("SHA", "abc")
-    monkeypatch.setenv("GH_TOKEN", "t")
     monkeypatch.setattr(route, "fetch_handoff_checks", failing)
     monkeypatch.setattr(route.time, "sleep", lambda seconds: None)
-    assert route.main() == 1
-    assert not (tmp_path / "out").exists()
+    assert route.main() == exit_code
+    if exit_code:
+        assert not output.exists()
+    else:
+        assert output.read_text().startswith("engine=github\n")

@@ -5,8 +5,9 @@ Only GitHub Actions runs this script. Its answer drives the `Hand off backend te
 to Depot CI` job, which Depot CI waits for before it runs anything, so Depot never
 routes on its own and the tests never run on both engines. Once that job has concluded
 for a commit, every later run of the same commit repeats its answer, whatever the
-percent or the labels say by then. A read of that record that keeps failing fails the
-run, so nothing is routed anywhere.
+percent or the labels say by then, even after the rollout variable is deleted. A read of
+that record that keeps failing fails the run when the event would go to Depot, so
+nothing is routed anywhere, and otherwise leaves the event on GitHub Actions.
 """
 
 import os
@@ -148,29 +149,37 @@ def main() -> int:
     pr_number = int(pr_raw) if pr_raw.isdigit() else None
     is_fork = env.get("IS_FORK", "false") == "true"
     labels = json.loads(env.get("LABELS") or "null") or []
-    # Until the rollout variable exists, only a label can route a commit, so every other
-    # pull request skips the read and its API call, and cannot fail on it.
-    routing_possible = bool(env.get("PERCENT")) or bool({LABEL_FORCE_DEPOT, LABEL_FORCE_GITHUB} & set(labels))
+
+    def route_with(prior_handoff: str | None) -> Decision:
+        return decide(
+            event=event,
+            percent=parse_percent(env.get("PERCENT")),
+            pr_number=pr_number,
+            labels=labels,
+            is_fork=is_fork,
+            is_draft=env.get("IS_DRAFT", "false") == "true",
+            prior_handoff=prior_handoff,
+            head_ref=env.get("HEAD_REF", ""),
+        )
+
     prior_handoff = None
-    if event == "pull_request" and pr_number is not None and not is_fork and routing_possible:
+    if event == "pull_request" and pr_number is not None and not is_fork:
         try:
             prior_handoff = handoff_conclusion(
                 fetch_handoff_checks(env["REPO"], env["SHA"], env["GH_TOKEN"]), pr_number
             )
         except HandoffReadError as error:
-            sys.stdout.write(f"::error::Cannot read the earlier hand-off, so this event is not routed: {error}\n")
-            return 1
-        sys.stdout.write(f"::notice::Earlier hand-off on this commit: {prior_handoff or 'none'}\n")
-    decision = decide(
-        event=event,
-        percent=parse_percent(env.get("PERCENT")),
-        pr_number=pr_number,
-        labels=labels,
-        is_fork=is_fork,
-        is_draft=env.get("IS_DRAFT", "false") == "true",
-        prior_handoff=prior_handoff,
-        head_ref=env.get("HEAD_REF", ""),
-    )
+            if route_with(None).engine == "depot":
+                sys.stdout.write(f"::error::Cannot read the earlier hand-off, so this event is not routed: {error}\n")
+                return 1
+            # Staying on GitHub Actions never sends a commit to Depot twice. The worst case is
+            # a GitHub rerun of a commit Depot already tested, which costs runners, not safety.
+            sys.stdout.write(
+                f"::warning::Cannot read the earlier hand-off, so this event stays on GitHub Actions: {error}\n"
+            )
+        else:
+            sys.stdout.write(f"::notice::Earlier hand-off on this commit: {prior_handoff or 'none'}\n")
+    decision = route_with(prior_handoff)
     sys.stdout.write(f"::notice::Backend CI engine: {decision.engine} ({decision.reason})\n")
     output_path = env.get("GITHUB_OUTPUT")
     if output_path:
