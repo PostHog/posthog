@@ -56,6 +56,32 @@ Those paths need independent exclusion and deployment-floor protection before su
 To roll back parsing, remove its reader consumer first while retaining opaque non-v1 reads and evaluator/producer rejection.
 Never restore a reader that interprets v2 data as v1.
 
+The dormant `evaluate_v2::Evaluator` consumes the reader's successful typed person-boolean config by reference.
+It prepares regexes once for reuse and reports its additional heap estimate separately from the cached config, using the same opaque-engine estimate as v1.
+It does not participate in the service cache or HTTP dispatch.
+Its caller supplies the resolved person distinct ID, complete or partial properties (or unavailable context), timezone, exact-matching setting, and a fixed evaluation time.
+The core truncates only the hashing subject to 200 Unicode scalar values without normalization; device and experience-continuity overrides are not part of this input.
+The service adapter must retain eligibility and load/merge property context before invoking it.
+
+Rules and their ANDed predicates run in stored order.
+The first conclusive predicate miss skips that rule; a reached error fails the evaluation, and negation applies only after a conclusive result.
+The property adapter reuses existing operator semantics and an explicit clock for relative dates.
+Invalid compiled regexes are errors in this evaluator, so negation cannot turn invalid syntax into success; v1 keeps its existing invalid-pattern behavior.
+Targeted matches and percentage inclusions return the rule's boolean, including false, with its UUID, kind, and original index.
+A terminal rollout miss returns the configured boolean/null default and the claiming rule; a continuing miss retains no terminal context.
+Exhaustion returns the default with no matched rule.
+Null means no configured value for the caller; errors and remote omission remain separate from successful false or null.
+
+Percentage rules use the stored seed and the shared SHA1/60-bit binary64 primitive with an empty salt.
+The comparison is inclusive, including hash zero at 0%.
+An empty subject always misses; a nonempty subject at 100% bypasses hashing.
+Repeated seeds reuse their hash within one evaluation.
+The evaluator has no database access, writes, events, identity allocation, or gate decisions.
+Experiment/variant/holdout/group/cohort/dependency families and non-boolean values remain unsupported.
+Public response projection and mixed-format service-cache/fallback integration require separate consumers.
+The evaluator corpus pin records an exact unreleased companion revision; release and consumer repinning remain required before that dependency is merge-ready.
+Rollback can remove this dormant consumer while retaining the format-aware readers and rejection required by stored data.
+
 The production `v1_bucketing` functions accept prescribed hashes for contract tests.
 Rollout returns included at 100% before identifier resolution or hashing; other percentages use `hash <= percentage / 100.0`.
 Variant selection adds each `weight / 100.0` from left to right and uses `hash < cumulative`.

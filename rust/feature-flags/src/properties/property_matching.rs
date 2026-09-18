@@ -65,6 +65,7 @@ pub fn to_string_representation(value: &Value) -> String {
 pub struct PropertyMatchingContext {
     team_timezone: Tz,
     use_explicit_exact_matching: bool,
+    evaluation_time: Option<DateTime<Utc>>,
 }
 
 impl PropertyMatchingContext {
@@ -72,7 +73,13 @@ impl PropertyMatchingContext {
         Self {
             team_timezone,
             use_explicit_exact_matching,
+            evaluation_time: None,
         }
+    }
+
+    pub fn at_time(mut self, now: DateTime<Utc>) -> Self {
+        self.evaluation_time = Some(now);
+        self
     }
 }
 
@@ -178,10 +185,36 @@ pub fn match_property(
     partial_props: bool,
     context: PropertyMatchingContext,
 ) -> Result<bool, FlagMatchingError> {
+    let lookup_key = lookup_key_for(property);
+    match_property_input(
+        PropertyMatchInput {
+            key: lookup_key.as_ref(),
+            value: property.value.as_ref(),
+            operator: property.operator.unwrap_or(OperatorType::Exact),
+            compiled_regex: property.compiled_regex.as_ref(),
+        },
+        matching_property_values,
+        partial_props,
+        context,
+    )
+}
+
+pub(crate) struct PropertyMatchInput<'a> {
+    pub key: &'a str,
+    pub value: Option<&'a Value>,
+    pub operator: OperatorType,
+    pub compiled_regex: Option<&'a CompiledRegex>,
+}
+
+pub(crate) fn match_property_input(
+    property: PropertyMatchInput<'_>,
+    matching_property_values: &HashMap<String, Value>,
+    partial_props: bool,
+    context: PropertyMatchingContext,
+) -> Result<bool, FlagMatchingError> {
     let team_timezone = context.team_timezone;
     let use_explicit_exact_matching = context.use_explicit_exact_matching;
-    let lookup_key = lookup_key_for(property);
-    let key: &str = lookup_key.as_ref();
+    let key = property.key;
 
     // only looks for matches where key exists in override_property_values
     // doesn't support operator is_not_set with partial_props
@@ -196,7 +229,7 @@ pub fn match_property(
         )));
     }
 
-    let operator = property.operator.unwrap_or(OperatorType::Exact);
+    let operator = property.operator;
     let match_value = matching_property_values.get(key);
 
     // first match operators that don't require a value
@@ -217,7 +250,7 @@ pub fn match_property(
     }
 
     // For all other operators, we need a value
-    let value = match &property.value {
+    let value = match property.value {
         Some(v) => v,
         None => return Ok(false), // No value means no match for value-requiring operators
     };
@@ -363,7 +396,7 @@ pub fn match_property(
             // - None: prepare_regex() was not called, compile on-the-fly (fallback
             //   for cohort property filters and test code)
             let compiled;
-            let regex: &fancy_regex::Regex = match &property.compiled_regex {
+            let regex: &fancy_regex::Regex = match property.compiled_regex {
                 Some(CompiledRegex::Compiled(regex)) => regex,
                 Some(CompiledRegex::InvalidPattern) => return Ok(false),
                 None => match RegexBuilder::new(&to_string_representation(value))
@@ -617,8 +650,11 @@ pub fn match_property(
             // Both the person value and the filter value are interpreted in the
             // team timezone (naive strings) or by their explicit offset, so the two
             // sides agree with each other and with HogQL/ClickHouse cohort evaluation.
-            let parsed_date =
-                determine_parsed_date_for_property_matching(match_value, team_timezone);
+            let parsed_date = determine_parsed_date_for_property_matching_at(
+                match_value,
+                team_timezone,
+                context.evaluation_time,
+            );
 
             if parsed_date.is_none() {
                 // When value doesn't exist:
@@ -627,7 +663,11 @@ pub fn match_property(
             }
 
             if let Some(override_value) = value.as_str() {
-                let override_date = match parse_date_string_in_tz(override_value, team_timezone) {
+                let override_date = match parse_date_string_in_tz_at(
+                    override_value,
+                    team_timezone,
+                    context.evaluation_time,
+                ) {
                     Some(date) => date,
                     None => {
                         return Ok(false);
@@ -698,9 +738,18 @@ const NAIVE_DATETIME_FORMATS: &[&str] = &[
 /// Values that carry an explicit offset (a trailing `Z` or `±HH:MM`) are honored
 /// as written, mirroring ClickHouse's `parseDateTime64BestEffort`, which respects
 /// the embedded offset regardless of the team timezone.
+#[cfg(test)]
 fn parse_date_string_in_tz(date_str: &str, team_timezone: Tz) -> Option<DateTime<Utc>> {
+    parse_date_string_in_tz_at(date_str, team_timezone, None)
+}
+
+fn parse_date_string_in_tz_at(
+    date_str: &str,
+    team_timezone: Tz,
+    now: Option<DateTime<Utc>>,
+) -> Option<DateTime<Utc>> {
     // Relative dates ("-7d", "-30d", …) are anchored to "now" in the team timezone.
-    if let Some(date) = relative_date::parse_relative_date_in_tz(date_str, team_timezone) {
+    if let Some(date) = relative_date::parse_relative_date_in_tz_at(date_str, team_timezone, now) {
         return Some(date);
     }
 
@@ -725,9 +774,18 @@ fn parse_date_string_in_tz(date_str: &str, team_timezone: Tz) -> Option<DateTime
     parse_date(date_str).ok()
 }
 
+#[cfg(test)]
 fn determine_parsed_date_for_property_matching(
     value: Option<&Value>,
     team_timezone: Tz,
+) -> Option<DateTime<Utc>> {
+    determine_parsed_date_for_property_matching_at(value, team_timezone, None)
+}
+
+fn determine_parsed_date_for_property_matching_at(
+    value: Option<&Value>,
+    team_timezone: Tz,
+    now: Option<DateTime<Utc>>,
 ) -> Option<DateTime<Utc>> {
     let value = value?;
 
@@ -737,7 +795,7 @@ fn determine_parsed_date_for_property_matching(
             return parse_float_timestamp(num);
         }
         // Otherwise interpret the string in the team timezone, like the filter side.
-        return parse_date_string_in_tz(date_str, team_timezone);
+        return parse_date_string_in_tz_at(date_str, team_timezone, now);
     }
 
     if let Some(num) = value.as_number() {
