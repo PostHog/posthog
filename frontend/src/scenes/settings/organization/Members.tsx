@@ -1,5 +1,4 @@
 import { useActions, useValues } from 'kea'
-import posthog from 'posthog-js'
 
 import { IconInfo } from '@posthog/icons'
 import { LemonBanner, LemonInput, LemonSwitch } from '@posthog/lemon-ui'
@@ -7,7 +6,7 @@ import { LemonBanner, LemonInput, LemonSwitch } from '@posthog/lemon-ui'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TZLabel } from 'lib/components/TZLabel'
-import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
+import { OrganizationMembershipLevel } from 'lib/constants'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
@@ -427,34 +426,30 @@ export function Members(): JSX.Element | null {
                 />
             </PayGateMini>
 
-            {posthog.isFeatureEnabled(FEATURE_FLAGS.MEMBERS_CAN_USE_PERSONAL_API_KEYS) && (
-                <>
-                    <h3 className="mt-4">Security settings</h3>
-                    <PayGateMini
-                        feature={AvailableFeature.ORGANIZATION_SECURITY_SETTINGS}
-                        featureDetail="organization-members-personal-api-key-access"
-                    >
-                        <p>Configure security permissions for organization members.</p>
-                        <LemonSwitch
-                            label={
-                                <span>
-                                    Members can use personal API keys{' '}
-                                    <Tooltip title="Organization admins and owners can always use personal API keys regardless of this setting.">
-                                        <IconInfo className="mr-1" />
-                                    </Tooltip>
-                                </span>
-                            }
-                            bordered
-                            data-attr="org-members-can-use-personal-api-keys-toggle"
-                            checked={!!currentOrganization?.members_can_use_personal_api_keys}
-                            onChange={(members_can_use_personal_api_keys) =>
-                                updateOrganization({ members_can_use_personal_api_keys })
-                            }
-                            disabledReason={adminRestrictionReason}
-                        />
-                    </PayGateMini>
-                </>
-            )}
+            <h3 className="mt-4">Security settings</h3>
+            <PayGateMini
+                feature={AvailableFeature.ORGANIZATION_SECURITY_SETTINGS}
+                featureDetail="organization-members-personal-api-key-access"
+            >
+                <p>Configure security permissions for organization members.</p>
+                <LemonSwitch
+                    label={
+                        <span>
+                            Members can use personal API keys{' '}
+                            <Tooltip title="Organization admins and owners can always use personal API keys regardless of this setting.">
+                                <IconInfo className="mr-1" />
+                            </Tooltip>
+                        </span>
+                    }
+                    bordered
+                    data-attr="org-members-can-use-personal-api-keys-toggle"
+                    checked={!!currentOrganization?.members_can_use_personal_api_keys}
+                    onChange={(members_can_use_personal_api_keys) =>
+                        updateOrganization({ members_can_use_personal_api_keys })
+                    }
+                    disabledReason={adminRestrictionReason}
+                />
+            </PayGateMini>
         </>
     )
 }
