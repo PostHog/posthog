@@ -30316,7 +30316,7 @@ class StickinessQuery(BaseModel):
     response: StickinessQueryResponse | None = None
     samplingFactor: float | None = Field(default=None, description="Sampling rate")
     series: list[Annotated[EventsNode | ActionsNode | DataWarehouseNode, Field(discriminator="kind")]] = Field(
-        ..., description="Events and actions to include"
+        ..., description="Events and actions to include", max_length=200
     )
     stickinessFilter: StickinessFilter | None = Field(
         default=None, description="Properties specific to the stickiness insight"
@@ -30507,7 +30507,7 @@ class TrendsQuery(BaseModel):
     response: TrendsQueryResponse | None = None
     samplingFactor: float | None = Field(default=None, description="Sampling rate")
     series: list[Annotated[EventsNode | ActionsNode | DataWarehouseNode | GroupNode, Field(discriminator="kind")]] = (
-        Field(..., description="Events and actions to include")
+        Field(..., description="Events and actions to include", max_length=200)
     )
     tags: QueryLogTags | None = Field(default=None, description="Tags that will be added to the Query log comment")
     trendsFilter: TrendsFilter | None = Field(default=None, description="Properties specific to the trends insight")
