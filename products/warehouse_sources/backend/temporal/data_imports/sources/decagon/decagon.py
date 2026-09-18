@@ -612,7 +612,20 @@ class _RowWalk:
             # server ever returns the cursor we just used, to guard against spinning on
             # one page forever.
             if not next_cursor or next_cursor == cursor:
-                if config.has_more_key is None and not next_cursor and len(batch.items) >= DECAGON_PAGE_SIZE:
+                if more:
+                    # The walk has to stop here, but the response says rows remain, so this
+                    # is a truncated stream rather than an exhausted one. The endpoints that
+                    # send has_more append with no merge and walk desc, so a completed run
+                    # advances the watermark past the newest rows this page held and every
+                    # later sync skips the pages this walk never reached.
+                    stopped = "repeated the cursor just used" if next_cursor else "carried no next-page cursor"
+                    self._logger.warning(
+                        f"Decagon: {self._endpoint} stopped after a page that {stopped} while "
+                        f"'{config.has_more_key}' reports {more!r} (response keys: {sorted(batch.data.keys())}, "
+                        f"cursor read from {list(config.next_cursor_keys or ())}). The rows past this page did "
+                        f"not sync; check the export pagination contract."
+                    )
+                elif config.has_more_key is None and not next_cursor and len(batch.items) >= DECAGON_PAGE_SIZE:
                     # A full page that ends the walk is legitimate only when the total row
                     # count happens to be a multiple of the page size; far more often it means
                     # Decagon renamed the pagination field again and rows were truncated.

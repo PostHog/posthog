@@ -471,10 +471,51 @@ class TestPaginationModes:
                 _make_response({"rows": [_row("r1")], "next_cursor": "cur-1", "has_more": True}),
                 _make_response({"rows": [_row("r2")], "next_cursor": "cur-stale", "has_more": False}),
             ]
-            sent_params, _ = _drive_rows(manager, responses, endpoint="synthetic")
+            logger = MagicMock()
+            sent_params, _ = _drive_rows(manager, responses, endpoint="synthetic", logger=logger)
         assert sent_params == [{}, {"cursor": "cur-1"}]
+        # An exhausted stream is the healthy case, so the truncation warning below must not
+        # fire on every sync of every endpoint that sends the flag.
+        logger.warning.assert_not_called()
         saved = [call.args[0] for call in manager.save_state.call_args_list]
         assert saved == [DecagonResumeConfig(cursor="cur-1")]
+
+    @parameterized.expand(
+        [
+            (
+                "carrying_no_next_page_cursor",
+                [{"rows": [_row("r1")], "has_more": True}],
+                "carried no next-page cursor",
+            ),
+            (
+                "repeating_the_cursor_just_used",
+                [
+                    {"rows": [_row("r1")], "next_cursor": "cur-1", "has_more": True},
+                    {"rows": [_row("r2")], "next_cursor": "cur-1", "has_more": True},
+                ],
+                "repeated the cursor just used",
+            ),
+        ]
+    )
+    def test_cursor_mode_logs_a_walk_that_ends_while_has_more_reports_rows(
+        self, _name: str, bodies: list[dict[str, Any]], stopped: str
+    ) -> None:
+        # Following a missing or repeated cursor would re-fetch or spin, so stopping is
+        # right, but the endpoints that send has_more append with no merge and walk desc:
+        # a completed run moves the watermark past this page and every later sync skips
+        # what the walk never reached. Silence here leaves a green job as the only trace.
+        cfg = _synthetic_endpoint(pagination="cursor", next_cursor_keys=("next_cursor",), has_more_key="has_more")
+        logger = MagicMock()
+        with patch.dict(DECAGON_ENDPOINTS, {"synthetic": cfg}):
+            manager = _fresh_manager()
+            responses = [_make_response(body) for body in bodies]
+            sent_params, batches = _drive_rows(manager, responses, endpoint="synthetic", logger=logger)
+
+        assert len(sent_params) == len(bodies)
+        assert [len(b) for b in batches] == [1] * len(bodies)
+        logged = logger.warning.call_args.args[0]
+        assert stopped in logged
+        assert "'has_more' reports True" in logged
 
     def test_keyless_stream_yields_rows_without_touching_a_primary_key(self) -> None:
         # Streams with no documented id must not KeyError on a dedupe key they don't have.
