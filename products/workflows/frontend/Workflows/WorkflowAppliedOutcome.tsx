@@ -92,14 +92,23 @@ export function WorkflowAppliedOutcome({
                             // index is zero, and stacked bars put one value per version either way.
                             data={[
                                 {
-                                    name: 'Applied',
+                                    name: 'The suggestion',
                                     values: charted.map((version) => (version.applied ? percent(version.target) : 0)),
                                     color: 'warning',
                                 },
                                 {
-                                    name: 'Opened',
-                                    values: charted.map((version) => (version.applied ? 0 : percent(version.target))),
+                                    name: 'Carrying the change',
+                                    values: charted.map((version) =>
+                                        !version.applied && version.carries_change ? percent(version.target) : 0
+                                    ),
                                     color: 'success',
+                                },
+                                {
+                                    name: 'Without the change',
+                                    values: charted.map((version) =>
+                                        version.applied || version.carries_change ? 0 : percent(version.target)
+                                    ),
+                                    color: 'muted',
                                 },
                             ]}
                             hideZerosInTooltip
@@ -117,7 +126,7 @@ export function WorkflowAppliedOutcome({
                                         v{version.version}
                                         {version.applied ? ' · applied' : ''}
                                     </span>
-                                    {version.other_changes && (
+                                    {version.carries_change && version.other_changes && (
                                         <Tooltip title="This version changed other things too, so its numbers hold more than this suggestion.">
                                             <span className="text-secondary">+ other edits</span>
                                         </Tooltip>
@@ -160,20 +169,30 @@ export function WorkflowAppliedOutcome({
                             key: 'changes',
                             header: 'What changed in each version',
                             content: (
-                                <div className="flex flex-col gap-3">
-                                    {[...charted].reverse().map((version) => (
-                                        <div key={version.version} className="flex flex-col gap-1">
-                                            <span className="flex items-center gap-2 flex-wrap text-sm">
-                                                <span className="font-semibold">v{version.version}</span>
-                                                {version.applied && <LemonTag type="warning">the suggestion</LemonTag>}
-                                                {version.published_by && (
-                                                    <span className="text-secondary">
-                                                        published by{' '}
-                                                        {version.published_by.first_name || version.published_by.email}
-                                                    </span>
-                                                )}
-                                                {version.published_at && <TZLabel time={version.published_at} />}
-                                            </span>
+                                <div className="flex flex-col">
+                                    {[...charted].reverse().map((version, index) => (
+                                        <div
+                                            key={version.version}
+                                            className={`flex flex-col gap-2 py-3 ${index > 0 ? 'border-t' : 'pt-0'}`}
+                                        >
+                                            <div className="flex flex-col gap-0.5">
+                                                <span className="flex items-center gap-2 flex-wrap">
+                                                    <h4 className="mb-0">Version {version.version}</h4>
+                                                    {version.applied && (
+                                                        <LemonTag type="warning">the suggestion</LemonTag>
+                                                    )}
+                                                </span>
+                                                <span className="flex items-center gap-1 flex-wrap text-xs text-secondary">
+                                                    {version.published_by && (
+                                                        <span>
+                                                            Published by{' '}
+                                                            {version.published_by.first_name ||
+                                                                version.published_by.email}
+                                                        </span>
+                                                    )}
+                                                    {version.published_at && <TZLabel time={version.published_at} />}
+                                                </span>
+                                            </div>
                                             {version.changes?.length ? (
                                                 <LemonTable
                                                     size="small"
