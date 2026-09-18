@@ -18,6 +18,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.cisco_duo.
     CISCO_DUO_ENDPOINTS,
     DEFAULT_LOOKBACK_DAYS,
     CiscoDuoEndpointConfig,
+    SigVersion,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import _is_host_safe
@@ -39,6 +40,10 @@ LIST_V1_PAGE_SIZE = 100
 ALLOWED_HOST_SUFFIXES = (".duosecurity.com", ".duofederal.com")
 
 HOST_NOT_ALLOWED_ERROR = "Cisco Duo API hostname is not allowed"
+
+# v5 signing covers a hash of the request body and of the signed X-Duo-* headers. Every request
+# this source makes is a GET with neither, so both slots are the hash of the empty string.
+_EMPTY_SHA512 = hashlib.sha512(b"").hexdigest()
 
 
 class CiscoDuoRetryableError(Exception):
@@ -65,8 +70,13 @@ class CiscoDuoResumeConfig:
     # v2 logs: window bounds (ms). v1 admin log: advancing mintime cursor (seconds).
     mintime: int | None = None
     maxtime: int | None = None
-    # v1 resource lists: integer pagination offset.
+    # Resource lists: integer pagination offset. For a fan-out endpoint this is the offset
+    # within the parent named by `parent_id`.
     offset: int | None = None
+    # Fan-out only: offset of the parent page being walked, and the parent whose children are
+    # next. `parent_id` of None means start at the top of that parent page.
+    parent_offset: int | None = None
+    parent_id: str | None = None
 
 
 def normalize_hostname(hostname: str) -> str:
@@ -95,18 +105,31 @@ def _canonicalize_params(params: dict[str, str]) -> str:
 
 
 def sign_request(
-    method: str, hostname: str, path: str, params: dict[str, str], integration_key: str, secret_key: str, date_str: str
+    method: str,
+    hostname: str,
+    path: str,
+    params: dict[str, str],
+    integration_key: str,
+    secret_key: str,
+    date_str: str,
+    sig_version: SigVersion = 2,
 ) -> dict[str, str]:
     """Build the Date + Authorization headers for a Duo Admin API request.
 
-    Duo authenticates every request with an HMAC-SHA1 signature over a canonical string of the
-    date, method, host, path, and sorted params, sent as HTTP Basic auth with the integration
-    key as the username.
+    Duo authenticates every request with an HMAC signature over a canonical string of the date,
+    method, host, path, and sorted params, sent as HTTP Basic auth with the integration key as
+    the username. v2 signs that string with SHA-1; v5 appends the body and signed-header hashes
+    and signs with SHA-512. Both carry the same two headers, so only the digest differs.
     """
-    canon = "\n".join([date_str, method.upper(), hostname.lower(), path, _canonicalize_params(params)])
-    # Duo's Admin API mandates HMAC-SHA1 request signing — not used for secrecy or collision resistance.
-    # nosemgrep: python.lang.security.insecure-hash-algorithms-sha1.insecure-hash-algorithm-sha1
-    signature = hmac.new(secret_key.encode("utf-8"), canon.encode("utf-8"), hashlib.sha1).hexdigest()
+    canon_parts = [date_str, method.upper(), hostname.lower(), path, _canonicalize_params(params)]
+    if sig_version == 5:
+        canon_parts += [_EMPTY_SHA512, _EMPTY_SHA512]
+        digestmod = hashlib.sha512
+    else:
+        # Duo's v2 signing mandates HMAC-SHA1 — not used for secrecy or collision resistance.
+        # nosemgrep: python.lang.security.insecure-hash-algorithms-sha1.insecure-hash-algorithm-sha1
+        digestmod = hashlib.sha1
+    signature = hmac.new(secret_key.encode("utf-8"), "\n".join(canon_parts).encode("utf-8"), digestmod).hexdigest()
     basic = base64.b64encode(f"{integration_key}:{signature}".encode()).decode()
     return {"Date": date_str, "Authorization": f"Basic {basic}", "Accept": "application/json"}
 
@@ -139,10 +162,13 @@ def _fetch_json_once(
     integration_key: str,
     secret_key: str,
     logger: FilteringBoundLogger,
+    sig_version: SigVersion = 2,
 ) -> dict[str, Any]:
     # The Date header is part of the signature and Duo rejects requests with too much clock
     # skew, so re-sign with a fresh date on every attempt (retries can back off for minutes).
-    headers = sign_request("GET", hostname, path, params, integration_key, secret_key, email.utils.formatdate())
+    headers = sign_request(
+        "GET", hostname, path, params, integration_key, secret_key, email.utils.formatdate(), sig_version
+    )
     url = _build_url(hostname, path, params)
 
     # Don't follow redirects: the customer-controlled host could 3xx at an internal address,
@@ -351,6 +377,13 @@ def _get_log_v1_rows(
             break
 
 
+def _redact(items: list[dict[str, Any]], config: CiscoDuoEndpointConfig) -> list[dict[str, Any]]:
+    for field_name in config.redact_fields or ():
+        for item in items:
+            item.pop(field_name, None)
+    return items
+
+
 def _get_list_v1_rows(
     session: requests.Session,
     hostname: str,
@@ -369,22 +402,128 @@ def _get_list_v1_rows(
 
     while True:
         params = {"limit": str(LIST_V1_PAGE_SIZE), "offset": str(offset)}
-        data = _fetch_json(session, hostname, config.path, params, integration_key, secret_key, logger)
+        data = _fetch_json(
+            session, hostname, config.path, params, integration_key, secret_key, logger, config.sig_version
+        )
         items = data.get("response") or []
         metadata = data.get("metadata") or {}
 
         if items:
-            if config.redact_fields:
-                for item in items:
-                    for field_name in config.redact_fields:
-                        item.pop(field_name, None)
-            yield items
+            yield _redact(items, config)
 
         raw_next_offset = metadata.get("next_offset")
         if raw_next_offset is None or raw_next_offset in ("", []):
             break
         offset = int(raw_next_offset)
         resumable_source_manager.save_state(CiscoDuoResumeConfig(offset=offset))
+
+
+def _first_parent_id(parents: list[dict[str, Any]], id_field: str) -> str | None:
+    for parent in parents:
+        parent_id = parent.get(id_field)
+        if parent_id:
+            return str(parent_id)
+    return None
+
+
+def _get_fanout_v1_rows(
+    session: requests.Session,
+    hostname: str,
+    integration_key: str,
+    secret_key: str,
+    config: CiscoDuoEndpointConfig,
+    logger: FilteringBoundLogger,
+    resumable_source_manager: ResumableSourceManager[CiscoDuoResumeConfig],
+) -> Iterator[list[dict[str, Any]]]:
+    """Page a child resource list once per parent, writing the parent id onto every child row.
+
+    Both levels use limit/offset paging. Each checkpoint names the work still to do — the parent
+    page, the parent within it, and the child offset — rather than the work just done, because
+    fan-out tables are full-refresh only: a resume that re-yielded a page would duplicate those
+    rows instead of merging over them.
+    """
+    if config.parent_endpoint is None or config.parent_id_field is None:
+        raise ValueError(f"Cisco Duo {config.name}: fan-out endpoint is missing its parent configuration")
+
+    parent_config = CISCO_DUO_ENDPOINTS[config.parent_endpoint]
+    id_field = config.parent_id_field
+
+    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+    parent_offset = resume.parent_offset if resume is not None and resume.parent_offset is not None else 0
+    pending_parent_id = resume.parent_id if resume is not None else None
+    pending_child_offset = resume.offset if resume is not None and resume.offset is not None else 0
+    if resume is not None:
+        logger.debug(
+            f"Cisco Duo: resuming {config.name} from parent_offset={parent_offset} "
+            f"{id_field}={pending_parent_id} offset={pending_child_offset}"
+        )
+
+    while True:
+        parent_params = {"limit": str(LIST_V1_PAGE_SIZE), "offset": str(parent_offset)}
+        parent_data = _fetch_json(
+            session,
+            hostname,
+            parent_config.path,
+            parent_params,
+            integration_key,
+            secret_key,
+            logger,
+            parent_config.sig_version,
+        )
+        parents = parent_data.get("response") or []
+        parent_metadata = parent_data.get("metadata") or {}
+
+        if pending_parent_id is not None:
+            ids = [str(parent.get(id_field) or "") for parent in parents]
+            if pending_parent_id in ids:
+                parents = parents[ids.index(pending_parent_id) :]
+            else:
+                # The checkpointed parent is gone, so every offset behind it in this page has
+                # shifted and there is no safe place to pick up mid-parent. Start the page over.
+                pending_child_offset = 0
+            pending_parent_id = None
+
+        for index, parent in enumerate(parents):
+            parent_id = parent.get(id_field)
+            if not parent_id:
+                continue
+
+            path = config.path.format(parent_id=quote(str(parent_id), safe=""))
+            child_offset = pending_child_offset
+            pending_child_offset = 0
+
+            while True:
+                child_params = {"limit": str(LIST_V1_PAGE_SIZE), "offset": str(child_offset)}
+                child_data = _fetch_json(
+                    session, hostname, path, child_params, integration_key, secret_key, logger, config.sig_version
+                )
+                items = child_data.get("response") or []
+                child_metadata = child_data.get("metadata") or {}
+
+                if items:
+                    for item in items:
+                        item[id_field] = parent_id
+                    yield _redact(items, config)
+
+                raw_next_offset = child_metadata.get("next_offset")
+                if raw_next_offset is None or raw_next_offset in ("", []):
+                    break
+                child_offset = int(raw_next_offset)
+                resumable_source_manager.save_state(
+                    CiscoDuoResumeConfig(parent_offset=parent_offset, parent_id=str(parent_id), offset=child_offset)
+                )
+
+            next_parent_id = _first_parent_id(parents[index + 1 :], id_field)
+            if next_parent_id is not None:
+                resumable_source_manager.save_state(
+                    CiscoDuoResumeConfig(parent_offset=parent_offset, parent_id=next_parent_id, offset=0)
+                )
+
+        raw_next_parent_offset = parent_metadata.get("next_offset")
+        if raw_next_parent_offset is None or raw_next_parent_offset in ("", []):
+            break
+        parent_offset = int(raw_next_parent_offset)
+        resumable_source_manager.save_state(CiscoDuoResumeConfig(parent_offset=parent_offset))
 
 
 def get_rows(
@@ -425,6 +564,10 @@ def get_rows(
     elif config.api_style == "log_v1":
         yield from _get_log_v1_rows(
             session, hostname, integration_key, secret_key, config, logger, resumable_source_manager, last_value
+        )
+    elif config.api_style == "fanout_v1":
+        yield from _get_fanout_v1_rows(
+            session, hostname, integration_key, secret_key, config, logger, resumable_source_manager
         )
     else:
         yield from _get_list_v1_rows(
