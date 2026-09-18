@@ -1,6 +1,7 @@
 import json
 import time
 from collections.abc import Callable
+from datetime import timedelta
 from typing import Any, Optional, cast
 
 import pytest
@@ -23,6 +24,7 @@ from common.hogvm.python.utils import (
     MAX_MEMORY,
     HogVMException,
     HogVMMemoryExceededException,
+    HogVMRuntimeExceededException,
     UncaughtHogVMException,
 )
 
@@ -371,6 +373,33 @@ class TestBytecodeExecute:
         _guard_sequence_length(_MAX_SEQUENCE_LENGTH)
         with pytest.raises(HogVMMemoryExceededException):
             _guard_sequence_length(_MAX_SEQUENCE_LENGTH + 1)
+
+    @parameterized.expand([("range(0, 200)",), ("(range)(0, 200)",)])
+    def test_range_checks_remaining_memory_before_allocating(self, expression: str) -> None:
+        bytecode = create_bytecode(parse_program("let retained := '" + "x" * 1000 + "'; return " + expression)).bytecode
+        with patch("common.hogvm.python.stl.list", side_effect=AssertionError("Allocated range"), create=True):
+            with pytest.raises(HogVMMemoryExceededException):
+                execute_bytecode(bytecode, memory_limit=2048)
+
+    @parameterized.expand([("range(7)", 7), ("range(3, 10)", 7), ("range(-1)", 0), ("range(10, 3)", 0)])
+    def test_range_within_memory_limit(self, expression: str, expected_length: int) -> None:
+        bytecode = create_bytecode(parse_expr(expression)).bytecode
+        response = execute_bytecode(bytecode, memory_limit=64)
+        assert len(response.result) == expected_length
+
+    @parameterized.expand([(op.RETURN,), (None,), ()])
+    def test_peak_memory_includes_temporary_values(self, *ending: op | None) -> None:
+        bytecode = [_H, VERSION, op.INTEGER, 7, op.CALL_GLOBAL, "range", 1, op.CALL_GLOBAL, "length", 1, *ending]
+        response = execute_bytecode(bytecode, memory_limit=64)
+        assert response.result == 7
+        assert response.max_memory_used == 64
+
+    @parameterized.expand([("length('hello')",), ("(length)('hello')",)])
+    def test_stl_call_cannot_return_after_deadline(self, expression: str) -> None:
+        bytecode = create_bytecode(parse_expr(expression)).bytecode
+        with patch("common.hogvm.python.execute.time.monotonic", side_effect=[0.0, 0.0, 0.0, 2.0]):
+            with pytest.raises(HogVMRuntimeExceededException):
+                execute_bytecode(bytecode, timeout=timedelta(seconds=1))
 
     def test_functions(self):
         def stringify(*args):
