@@ -74,7 +74,9 @@ function LineageGraphContent(props: LineageGraphProps): JSX.Element {
         }
         const nodes = layout.nodes.filter((node) => focusNodeIds.has(node.id))
         if (nodes.length > 0) {
-            void fitView({ nodes, padding: 0.2, maxZoom: 1 })
+            // Keep the match readable when a search term identifies one or a few nodes.
+            // The graph itself allows zooming to 2, so do not leave search focus capped at 1.
+            void fitView({ nodes, padding: 0.2, maxZoom: 2 })
         }
     }, [fitView, viewportInitialized, focusNodeIds, layout])
 
