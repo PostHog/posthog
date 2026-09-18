@@ -3,6 +3,8 @@ import '@testing-library/jest-dom'
 import { cleanup, configure, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+
 import { DataWarehouseNode, FunnelsDataWarehouseNode, NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
 import { buildFunnelsQuery, buildTrendsQuery, MockResponse, renderInsightPage } from '~/test/insight-testing'
 
@@ -13,9 +15,16 @@ import { buildFunnelsQuery, buildTrendsQuery, MockResponse, renderInsightPage } 
 configure({ asyncUtilTimeout: 5000 })
 jest.setTimeout(15000)
 
-// Monaco does not render under jsdom, and the SQL expression tab mounts it eagerly.
+// Monaco does not render under jsdom, and the SQL expression tab mounts it eagerly. The stand-in
+// exposes `sourceQuery`, which is the only place the editor's validation scope is observable.
 jest.mock('lib/monaco/CodeEditorInline', () => ({
-    CodeEditorInline: (): JSX.Element => <textarea aria-label="SQL expression" />,
+    CodeEditorInline: ({ sourceQuery }: { sourceQuery?: { query?: string } }): JSX.Element => (
+        <textarea
+            aria-label="SQL expression"
+            data-attr="sql-expression-editor"
+            data-source-query={sourceQuery?.query ?? ''}
+        />
+    ),
 }))
 
 jest.mock('lib/components/AutoSizer', () => ({
@@ -29,6 +38,15 @@ async function waitForBreakdownButton(): Promise<HTMLElement> {
         expect(button).toBeInTheDocument()
         return button
     })
+}
+
+// The picker lists its categories inside a dropdown, so an offered category is only in the DOM
+// once that dropdown is open. The rail toggle sits below the category list and does not depend on
+// which categories are offered, so waiting for it proves the menu rendered. That is what makes a
+// later "this category is absent" assertion mean something.
+async function openCategoryDropdown(): Promise<void> {
+    await userEvent.click(await screen.findByTestId('taxonomic-category-dropdown-trigger-pill'))
+    await screen.findByTestId('taxonomic-category-rail-toggle')
 }
 
 describe('TaxonomicBreakdownFilter', () => {
@@ -159,7 +177,7 @@ describe('TaxonomicBreakdownFilter', () => {
             aggregation_target_field: 'account_id',
         }
 
-        it('offers a joined table column and the SQL expression escape hatch', async () => {
+        it('offers a joined table column, and scopes its SQL expressions to the series table', async () => {
             renderInsightPage({
                 query: warehouseQuery,
                 mocks: { additionalMockResponses: schemaMocks },
@@ -169,7 +187,20 @@ describe('TaxonomicBreakdownFilter', () => {
             await waitFor(() => {
                 expect(screen.getAllByText('campaign.campaign_name').length).toBeGreaterThan(0)
             })
-            expect(screen.getByText(/SQL expression/i)).toBeInTheDocument()
+
+            await openCategoryDropdown()
+            await userEvent.click(
+                await screen.findByTestId(
+                    `taxonomic-category-dropdown-item-${TaxonomicFilterGroupType.HogQLExpression}`
+                )
+            )
+
+            // The editor defaults to the events table, which marks every warehouse column unknown
+            // without telling the user why.
+            const editors = await screen.findAllByTestId('sql-expression-editor')
+            expect(new Set(editors.map((editor) => editor.getAttribute('data-source-query')))).toEqual(
+                new Set(['SELECT * FROM ad_stats'])
+            )
         })
 
         it('withholds the SQL expression escape hatch when an events series is mixed in', async () => {
@@ -181,10 +212,10 @@ describe('TaxonomicBreakdownFilter', () => {
             })
             await userEvent.click(await waitForBreakdownButton())
 
-            await waitFor(() => {
-                expect(screen.getByTestId('taxonomic-filter-searchfield')).toBeInTheDocument()
-            })
-            expect(screen.queryAllByText(/SQL expression/i)).toHaveLength(0)
+            await openCategoryDropdown()
+            expect(
+                screen.queryByTestId(`taxonomic-category-dropdown-item-${TaxonomicFilterGroupType.HogQLExpression}`)
+            ).not.toBeInTheDocument()
         })
 
         it('offers a warehouse funnel only its own columns, without joined paths or SQL expressions', async () => {
@@ -198,7 +229,16 @@ describe('TaxonomicBreakdownFilter', () => {
                 expect(screen.getAllByText('campaign_id').length).toBeGreaterThan(0)
             })
             expect(screen.queryByText('campaign.campaign_name')).not.toBeInTheDocument()
-            expect(screen.queryByText(/SQL expression/i)).not.toBeInTheDocument()
+
+            await openCategoryDropdown()
+            expect(
+                screen.getByTestId(
+                    `taxonomic-category-dropdown-item-${TaxonomicFilterGroupType.DataWarehouseProperties}`
+                )
+            ).toBeInTheDocument()
+            expect(
+                screen.queryByTestId(`taxonomic-category-dropdown-item-${TaxonomicFilterGroupType.HogQLExpression}`)
+            ).not.toBeInTheDocument()
         })
     })
 
