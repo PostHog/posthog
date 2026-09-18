@@ -36,3 +36,35 @@ export const postgresErrorCounter = new Counter({
     help: 'Count of Postgres errors by type',
     labelNames: ['error_type', 'database_use'],
 })
+
+export const postgresPoolClientEventsCounter = new Counter({
+    name: 'postgres_pool_client_events',
+    help: 'node-postgres pool client lifecycle events, for measuring connection churn',
+    labelNames: ['pool', 'event'],
+})
+
+export const postgresPoolAcquireDurationHistogram = new Histogram({
+    name: 'postgres_pool_acquire_duration_seconds',
+    help: 'Time spent waiting for a pooled client, which rises when the pool is saturated',
+    labelNames: ['pool'],
+    buckets: [0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1, 5, 10, 30, 60],
+})
+
+export const postgresClientErrorCounter = new Counter({
+    name: 'postgres_client_errors',
+    help: 'Errors raised on a checked-out client, labelled with the statement in flight',
+    labelNames: ['pool', 'in_flight'],
+})
+
+export const postgresTransactionCounter = new Counter({
+    name: 'postgres_transactions',
+    help: 'Transaction outcomes',
+    labelNames: ['pool', 'tag', 'outcome'],
+})
+
+export const postgresTransactionDurationHistogram = new Histogram({
+    name: 'postgres_transaction_duration_seconds',
+    help: 'Transaction duration by outcome',
+    labelNames: ['pool', 'tag', 'outcome'],
+    buckets: [0.001, 0.01, 0.05, 0.1, 0.5, 1, 5, 15, 30, 60, 300],
+})
