@@ -5941,7 +5941,7 @@ requires-dist = [
     { name = "polars", specifier = "==1.37.1" },
     { name = "posthog-hogland", specifier = "==0.4.1" },
     { name = "posthog-owners", editable = "tools/owners" },
-    { name = "posthoganalytics", specifier = "==7.54.1" },
+    { name = "posthoganalytics", specifier = "==7.58.0" },
     { name = "protobuf", specifier = "~=5.29.6" },
     { name = "psycopg", extras = ["binary"], specifier = "==3.2.4" },
     { name = "psycopg2-binary", specifier = "==2.9.10" },
@@ -6120,7 +6120,7 @@ provides-extras = ["dev"]
 
 [[package]]
 name = "posthoganalytics"
-version = "7.54.1"
+version = "7.58.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "backoff" },
@@ -6128,9 +6128,9 @@ dependencies = [
     { name = "requests" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/c0/c2/152fccbef574765b323acc2b3f1ecc22ce22ca5f4c5cef858a3b49d1f4fe/posthoganalytics-7.54.1.tar.gz", hash = "sha256:676f1020a5b159d78d234533def83bf3a0c67ea34a934da3b0d7fdd3c7a6a290", size = 582272, upload-time = "2026-09-17T09:37:44.567Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/f2/51/6f3932daddf1b489b00eb7300a4015f19dd351bacc3b5720c82a31f3d08d/posthoganalytics-7.58.0.tar.gz", hash = "sha256:1611382ef6dea9a680f25bbf3c85cca027d95d7256c77e83aec3cb1ecdfc6362", size = 668496, upload-time = "2026-09-18T15:01:04.11Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/93/5f/395f88c0afa97c2d4d4839d38d8ab27844ea62c35ac2d2776b552fbb0c67/posthoganalytics-7.54.1-py3-none-any.whl", hash = "sha256:674758fc4cc239b7a7f2ab46a39626f7048bb3ce8119c1a68a19943c0027b6ee", size = 686346, upload-time = "2026-09-17T09:37:41.191Z" },
+    { url = "https://files.pythonhosted.org/packages/db/5c/df410065437cd877982fdffbfeb15a64d4f9ecb74523040cef2d6d478414/posthoganalytics-7.58.0-py3-none-any.whl", hash = "sha256:5afbdd26d9c49b44a8f2747abe40eb8441ee91f119e6f975faa1b4f9c03486f6", size = 786445, upload-time = "2026-09-18T15:01:02.051Z" },
 ]
 
 [[package]]
