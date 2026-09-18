@@ -143,7 +143,11 @@ export interface hogFunctionTemplateListLogicMeta {
             arg2: HogFunctionSubTemplateIdType[]
         ) => HogFunctionTemplateWithSubTemplateType[]
         templatesFuse: (templates: HogFunctionTemplateWithSubTemplateType[]) => Fuse
-        hasMultipleDeliveryTypes: (templates: HogFunctionTemplateWithSubTemplateType[]) => boolean
+        hasMultipleDeliveryTypes: (
+            templates: HogFunctionTemplateWithSubTemplateType[],
+            loading: boolean,
+            arg: HogFunctionTemplateType[]
+        ) => boolean
         filteredTemplates: (
             filters: HogFunctionTemplateListFilters,
             templates: HogFunctionTemplateWithSubTemplateType[],
@@ -276,11 +280,21 @@ export const hogFunctionTemplateListLogic = kea<hogFunctionTemplateListLogicType
             },
         ],
 
-        // Delivery type is only worth a column and a filter when realtime and batch templates are mixed.
+        // Delivery type is only worth a column and a filter when realtime and batch templates are mixed. A list
+        // that carries manual templates while it fetches more will mix them once the fetch lands, so the column
+        // is there from the first render instead of appearing after the load.
         hasMultipleDeliveryTypes: [
-            (s) => [s.templates],
-            (templates: HogFunctionTemplateWithSubTemplateType[]): boolean =>
-                new Set(templates.map(getHogFunctionDeliveryType)).size > 1,
+            (s) => [
+                s.templates,
+                s.loading,
+                (_, p: HogFunctionTemplateListLogicProps) => p.manualTemplates ?? EMPTY_ARRAY,
+            ],
+            (
+                templates: HogFunctionTemplateWithSubTemplateType[],
+                loading: boolean,
+                manualTemplates: HogFunctionTemplateType[]
+            ): boolean =>
+                new Set(templates.map(getHogFunctionDeliveryType)).size > 1 || (loading && manualTemplates.length > 0),
         ],
 
         filteredTemplates: [
