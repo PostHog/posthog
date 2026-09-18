@@ -495,13 +495,15 @@ def _select_relevant_events(
 
 
 def _event_property_names(team: Team, events: list[str], per_event_limit: int) -> dict[str, list[str]]:
-    # One indexed (team, event) query. Without it the planner gets no event-property schema and guesses
-    # property names — the top cause of InternalHogQLError.
+    # One indexed (project, event) query. Without it the planner gets no event-property schema and guesses
+    # property names — the top cause of InternalHogQLError. Project-scoped to match the event list it is
+    # given: a sibling environment can own the property rows of an event this one also reports.
     if not events:
         return {}
     by_event: dict[str, list[str]] = {}
     rows = (
-        EventProperty.objects.filter(team_id=team.pk, event__in=events)
+        EventProperty.objects.for_project(team.project_id)
+        .filter(event__in=events)
         .order_by("event", "property")
         # DB-tier backstop: a property-heavy event can otherwise pull its entire row set into Python
         # before the per-event cap below applies. Caps total rows read; rows are ordered by event name,
