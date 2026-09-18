@@ -1322,7 +1322,8 @@ data_deletion_requests: PostgresTable = PostgresTable(
     name="data_deletion_requests",
     postgres_table_name="posthog_datadeletionrequest",
     description="Self-service event deletion requests submitted for the project; one row per immutable HogQL query snapshot.",
-    predicates=[parse_expr("request_type = 'hogql_event_removal'")],
+    postgres_pushdown_values={"request_type": "hogql_event_removal"},
+    predicates=[parse_expr("request_type = 'hogql_event_removal'"), parse_expr("hogql_query != ''")],
     fields={
         "id": UUIDDatabaseField(name="id", description="Deletion request UUID."),
         "team_id": IntegerDatabaseField(name="team_id", hidden=True),

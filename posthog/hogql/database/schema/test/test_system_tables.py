@@ -1054,6 +1054,13 @@ class TestSystemTablesTeamIsolation(NonAtomicBaseTest):
             end_time=timezone.now(),
             status=RequestStatus.PENDING,
         )
+        DataDeletionRequest.objects.create(
+            team_id=self.team.pk,
+            request_type=RequestType.HOGQL_EVENT_REMOVAL,
+            execution_mode=ExecutionMode.DEFERRED,
+            hogql_query="",
+            status=RequestStatus.PENDING,
+        )
 
         response = execute_hogql_query("SELECT id FROM system.data_deletion_requests", team=self.team, user=self.user)
         ids = {str(row[0]) for row in response.results}

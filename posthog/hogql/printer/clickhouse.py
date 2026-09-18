@@ -1033,9 +1033,9 @@ class ClickHousePrinter(BasePrinter):
         # ClickHouse doesn't push the outer team_id guard through joins into a postgresql()
         # read, so a joined federated table gets COPY'd out of Postgres in full. Repeat the
         # filter adjacent to the table function, where it does get pushed down; the outer
-        # guard stays and column pruning still applies through the SELECT *. Skip tables
-        # that declare predicates: those print in the enclosing select, and the wrap would
-        # block them from being pushed into the federated read alongside the team guard.
+        # guard stays and column pruning still applies through the SELECT *. Tables with
+        # predicates can opt into the wrapper when they also declare equality filters that
+        # must prune the PostgreSQL read.
         from posthog.hogql.database.postgres_table import (
             PostgresTable,  # noqa: PLC0415 (keeps persons-DB deps off the printer import path)
         )
@@ -1050,7 +1050,11 @@ class ClickHousePrinter(BasePrinter):
             # filter that has to reach Postgres: it is indexed there, and the rows it prunes are
             # the ones the organization is not entitled to read at all. Its other predicates stay
             # in the enclosing select and run in ClickHouse over the already-bounded row set.
-            and (table.retention_field is not None or not table.get_predicates(self.context))
+            and (
+                table.retention_field is not None
+                or table.postgres_pushdown_values
+                or not table.get_predicates(self.context)
+            )
             and self.context.team_id is not None
         ):
             # The HogQL `team_id` field may map to a differently named DB column (e.g.
@@ -1059,6 +1063,10 @@ class ClickHousePrinter(BasePrinter):
             team_id_column = getattr(table.fields["team_id"], "name", None)
             if team_id_column:
                 conditions = [f"{team_id_column} = {int(self.context.team_id)}"]
+                for field_name, value in table.postgres_pushdown_values.items():
+                    column_name = getattr(table.fields[field_name], "name", None)
+                    if column_name:
+                        conditions.append(f"{column_name} = {self.context.add_value(value)}")
                 retention_start = self._postgres_retention_start(table)
                 if retention_start is not None:
                     conditions.append(f"{table.retention_field} >= {self.context.add_value(retention_start)}")
