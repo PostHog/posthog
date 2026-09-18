@@ -1,4 +1,5 @@
 import { AGENT_USE_CASE_SCOPES } from 'lib/agentScopes.generated'
+import { API_SCOPE_GROUPS } from 'lib/scopeGroups.generated'
 
 import type { APIScopeAction, APIScopeObject } from '~/types'
 
@@ -388,6 +389,16 @@ export const PROJECT_SECRET_API_KEY_SCOPE_PRESETS: ProjectSecretAPIKeyScopePrese
     { value: 'local_evaluation', label: 'Local feature flag evaluation', scopes: ['feature_flag:read'] },
     { value: 'llm_gateway', label: 'AI gateway access', scopes: ['llm_gateway:read'] },
 ]
+
+export const OTHER_SCOPE_GROUP_LABEL = 'Other'
+
+// An object that is not in the generated map gets OTHER_SCOPE_GROUP_LABEL, so it still renders.
+const SCOPE_GROUP_LABEL_BY_OBJECT: Record<string, string> = Object.fromEntries(
+    API_SCOPE_GROUPS.flatMap(({ label, objects }) => objects.map((object) => [object, label]))
+)
+
+export const getScopeGroupLabel = (scopeObject: string): string =>
+    SCOPE_GROUP_LABEL_BY_OBJECT[scopeObject] ?? OTHER_SCOPE_GROUP_LABEL
 
 export const DEFAULT_OAUTH_SCOPES = ['openid', 'email', 'profile']
 

@@ -2,6 +2,7 @@ import { MOCK_DEFAULT_USER } from 'lib/api.mock'
 
 import { decodeParams } from 'kea-router'
 
+import { getScopeGroupLabel } from 'lib/scopes'
 import { userLogic } from 'scenes/userLogic'
 
 import { useMocks } from '~/mocks/jest'
@@ -401,6 +402,47 @@ describe('oauthAuthorizeLogic', () => {
             ['a non-list field value', { state: 'Not a valid string.' }],
         ])('returns null for %s, so the caller falls back', (_name, data) => {
             expect(describeOAuthError(data)).toBeNull()
+        })
+    })
+    describe('grouping', () => {
+        it('keeps a short request flat and groups only past the threshold', () => {
+            logic.actions.setScopes(['openid', 'feature_flag:write', 'session_recording:write', 'insight:write'])
+            expect(logic.values.scopeRowsGrouped).toBe(false)
+            logic.actions.setScopes([
+                'openid',
+                ...[
+                    'insight',
+                    'dashboard',
+                    'query',
+                    'cohort',
+                    'action',
+                    'person',
+                    'survey',
+                    'experiment',
+                    'notebook',
+                    'logs',
+                    'error_tracking',
+                ].map((object) => `${object}:read`),
+            ])
+            expect(logic.values.scopeRowsGrouped).toBe(true)
+            const groups = logic.values.scopeGroups
+            expect(groups.flatMap((group) => group.rows)).toHaveLength(logic.values.adjustableScopeRows.length)
+            for (const group of groups) {
+                expect(group.rows.length).toBeGreaterThan(0)
+                expect(group.rows.map((row) => getScopeGroupLabel(row.key))).toEqual(group.rows.map(() => group.label))
+            }
+        })
+
+        it('sets every row of a group with one group action, clamped to each ceiling', () => {
+            logic.actions.setScopes(['openid', 'session_recording:write', 'session_recording_playlist:read'])
+            logic.actions.setScopeGroupAccess(['session_recording', 'session_recording_playlist'], 'none')
+            expect(logic.values.effectiveScopes).toEqual(['openid'])
+            logic.actions.setScopeGroupAccess(['session_recording', 'session_recording_playlist'], 'write')
+            expect(logic.values.effectiveScopes).toEqual([
+                'openid',
+                'session_recording:write',
+                'session_recording_playlist:read',
+            ])
         })
     })
 })
