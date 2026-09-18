@@ -45,6 +45,7 @@ if TYPE_CHECKING:
 from .artefact_schemas import NON_WRITABLE_ARTEFACT_TYPES
 from .daily_limit import reports_generated_today, team_day_start
 from .models import (
+    MAX_SCOUT_REPORT_NOTES,
     AutonomyPriority,
     SignalActorKind,
     SignalReport,
@@ -1111,6 +1112,13 @@ class SignalReportSerializer(serializers.ModelSerializer):
             "The general view lists every report regardless of this value."
         ),
     )
+    collapsed_note_count = serializers.SerializerMethodField(
+        help_text=(
+            "How many scout notes this report received beyond the few its work log keeps as entries. "
+            "0 when nothing was dropped. These say the finding still holds, so the count is shown in "
+            "place of the entries."
+        ),
+    )
 
     class Meta:
         model = SignalReport
@@ -1122,6 +1130,7 @@ class SignalReportSerializer(serializers.ModelSerializer):
             "total_weight",  # Used for priority scoring
             "signal_count",  # Used for occurrence count
             "signals_at_run",  # Snooze threshold: re-promote when signal_count >= this value
+            "collapsed_note_count",  # Scout notes the work log dropped, rendered as one line instead
             "created_at",
             "updated_at",
             "artefact_count",
@@ -1377,6 +1386,9 @@ class SignalReportSerializer(serializers.ModelSerializer):
         if report_id not in claims:
             claims[report_id] = get_active_claim(team_id=obj.team_id, report_id=report_id)
         return claims[report_id]
+
+    def get_collapsed_note_count(self, obj: SignalReport) -> int:
+        return max(0, (obj.corroboration_count or 0) - MAX_SCOUT_REPORT_NOTES)
 
     @extend_schema_field(SignalReportRefundSerializer(allow_null=True))
     def get_refund(self, obj: SignalReport) -> dict | None:
@@ -1828,11 +1840,16 @@ class SignalReportArtefactSerializer(serializers.ModelSerializer):
                 Mapping[str, User] | None,
                 self.context.get("signals_reviewer_user_uuid_map"),
             )
+            scout_display_names = cast(
+                Mapping[str, str] | None,
+                self.context.get("signals_scout_display_names"),
+            )
             return enrich_reviewer_dicts_with_org_members(
                 obj.team_id,
                 parsed,
                 login_to_user=reviewer_login_map,
                 uuid_to_user=reviewer_uuid_map,
+                scout_display_names=scout_display_names,
             )
 
         if obj.type == SignalReportArtefact.ArtefactType.CHECK_RESULT and isinstance(parsed, dict):
@@ -1846,21 +1863,30 @@ class SignalReportArtefactSerializer(serializers.ModelSerializer):
         The value was measured without a viewer, exactly like a report metric snapshot, so the same
         policy decides. The outcome tag stays so the timeline still reads; the numbers and the line
         that quotes them do not. A result whose check no longer exists fails closed.
+
+        An `agent` result is not measured that way and is not gated here. A scout run wrote it from
+        what its own token could read, which is the provenance every other thing that run writes on
+        the report already has, and the policy would refuse it outright because it judges a stored
+        query an agent check does not carry.
         """
         policy = report_metric_access_policy(self.context)
-        configs: dict[str, object] = self.context.setdefault("_signals_check_configs", {})
+        checks: dict[str, tuple[str, object] | None] = self.context.setdefault("_signals_check_configs", {})
         check_id = str(content.get("check_id"))
-        if check_id not in configs:
-            configs[check_id] = (
+        if check_id not in checks:
+            checks[check_id] = (
                 SignalReportCheck.all_teams.filter(id=check_id, report_id=obj.report_id)
-                .values_list("config", flat=True)
+                .values_list("kind", "config")
                 .first()
                 if _is_uuid(check_id)
                 else None
             )
-        config = configs[check_id]
-        if isinstance(config, Mapping) and policy.may_read_snapshot(config):
-            return content
+        check = checks[check_id]
+        if check is not None:
+            kind, config = check
+            if kind == SignalReportCheck.Kind.AGENT:
+                return content
+            if isinstance(config, Mapping) and policy.may_read_snapshot(config):
+                return content
         return {
             **content,
             "observed_value": None,

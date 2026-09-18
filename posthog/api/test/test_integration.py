@@ -2577,6 +2577,22 @@ class TestIntegrationAPIKeyAccess:
         assert len(results) == 1
         assert results[0]["kind"] == "twilio"
 
+    def test_paginated_list_covers_every_integration_once(self, client: HttpClient):
+        client.force_login(self.user)
+        now = timezone.now()
+        # Write the rows in the reverse of the order the endpoint must return, so a page that trusts
+        # the physical row order fails this.
+        Integration.objects.filter(pk=self.github_integration.pk).update(created_at=now)
+        Integration.objects.filter(pk=self.twilio_integration.pk).update(created_at=now - timedelta(minutes=1))
+
+        paged_ids = []
+        for offset in [0, 1]:
+            response = client.get(f"/api/environments/{self.team.pk}/integrations/?limit=1&offset={offset}")
+            assert response.status_code == status.HTTP_200_OK
+            paged_ids += [result["id"] for result in response.json()["results"]]
+
+        assert paged_ids == [self.twilio_integration.id, self.github_integration.id]
+
 
 class TestGithubAccountTypeHelper:
     @parameterized.expand(
@@ -6521,6 +6537,35 @@ class TestIntegrationRequestAccessAPI(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
         mock_task.delay.assert_not_called()
         mock_report.assert_not_called()
+
+
+class TestApplePushIntegrationAPI(APIBaseTest):
+    @parameterized.expand(
+        [
+            ("numeric_team_id", "team_id_apple", 12345),
+            ("object_signing_key", "signing_key", {"pem": "-----BEGIN PRIVATE KEY-----"}),
+        ]
+    )
+    def test_rejects_a_config_field_that_is_not_a_string(self, _name, field, value):
+        # `config` is a JSON field, so nothing types what a client posts into it. A wrong type has
+        # to read as a validation error, not as a server error.
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/integrations",
+            {
+                "kind": "apns",
+                "config": {
+                    "signing_key": "-----BEGIN PRIVATE KEY-----\nfake\n-----END PRIVATE KEY-----",
+                    "key_id": "KEY1",
+                    "team_id_apple": "TEAM123",
+                    "bundle_id": "com.example.app",
+                    field: value,
+                },
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert not Integration.objects.filter(team=self.team, kind="apns").exists()
 
 
 class TestPushIdentityVerificationAPI(APIBaseTest):

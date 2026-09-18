@@ -348,19 +348,25 @@ export const ConversationsViewsCreateBody = /* @__PURE__ */ zod.object({
                     zod
                         .enum([
                             'persisted',
+                            'suggested',
+                            'escalated_with_findings',
                             'escalated_with_best',
                             'escalated_no_reply',
                             'skipped_unactionable',
                             'blocked_unsafe',
                             'blocked_unsafe_reply',
+                            'clarified',
+                            'suggested_clarification',
                             'in_progress',
                         ])
                         .describe(
-                            '\* `persisted` - persisted\n\* `escalated_with_best` - escalated_with_best\n\* `escalated_no_reply` - escalated_no_reply\n\* `skipped_unactionable` - skipped_unactionable\n\* `blocked_unsafe` - blocked_unsafe\n\* `blocked_unsafe_reply` - blocked_unsafe_reply\n\* `in_progress` - in_progress'
+                            '\* `persisted` - persisted\n\* `suggested` - suggested\n\* `escalated_with_findings` - escalated_with_findings\n\* `escalated_with_best` - escalated_with_best\n\* `escalated_no_reply` - escalated_no_reply\n\* `skipped_unactionable` - skipped_unactionable\n\* `blocked_unsafe` - blocked_unsafe\n\* `blocked_unsafe_reply` - blocked_unsafe_reply\n\* `clarified` - clarified\n\* `suggested_clarification` - suggested_clarification\n\* `in_progress` - in_progress'
                         )
                 )
                 .optional()
-                .describe("AI triage outcomes to include. 'in_progress' matches tickets still being triaged."),
+                .describe(
+                    "AI triage outcomes to include. 'in_progress' matches tickets still being triaged. Valid values: persisted, suggested, escalated_with_findings, escalated_with_best, escalated_no_reply, skipped_unactionable, blocked_unsafe, blocked_unsafe_reply, clarified, suggested_clarification, in_progress."
+                ),
             assignee: zod
                 .array(
                     zod.union([
@@ -488,19 +494,25 @@ export const ConversationsViewsPartialUpdateBody = /* @__PURE__ */ zod.object({
                     zod
                         .enum([
                             'persisted',
+                            'suggested',
+                            'escalated_with_findings',
                             'escalated_with_best',
                             'escalated_no_reply',
                             'skipped_unactionable',
                             'blocked_unsafe',
                             'blocked_unsafe_reply',
+                            'clarified',
+                            'suggested_clarification',
                             'in_progress',
                         ])
                         .describe(
-                            '\* `persisted` - persisted\n\* `escalated_with_best` - escalated_with_best\n\* `escalated_no_reply` - escalated_no_reply\n\* `skipped_unactionable` - skipped_unactionable\n\* `blocked_unsafe` - blocked_unsafe\n\* `blocked_unsafe_reply` - blocked_unsafe_reply\n\* `in_progress` - in_progress'
+                            '\* `persisted` - persisted\n\* `suggested` - suggested\n\* `escalated_with_findings` - escalated_with_findings\n\* `escalated_with_best` - escalated_with_best\n\* `escalated_no_reply` - escalated_no_reply\n\* `skipped_unactionable` - skipped_unactionable\n\* `blocked_unsafe` - blocked_unsafe\n\* `blocked_unsafe_reply` - blocked_unsafe_reply\n\* `clarified` - clarified\n\* `suggested_clarification` - suggested_clarification\n\* `in_progress` - in_progress'
                         )
                 )
                 .optional()
-                .describe("AI triage outcomes to include. 'in_progress' matches tickets still being triaged."),
+                .describe(
+                    "AI triage outcomes to include. 'in_progress' matches tickets still being triaged. Valid values: persisted, suggested, escalated_with_findings, escalated_with_best, escalated_no_reply, skipped_unactionable, blocked_unsafe, blocked_unsafe_reply, clarified, suggested_clarification, in_progress."
+                ),
             assignee: zod
                 .array(
                     zod.union([

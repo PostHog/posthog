@@ -380,6 +380,11 @@ jobs:
             # Internal API auth needs a non-empty INTERNAL_API_SECRET when DEBUG/TEST are off, and
             # this job boots the app prod-like. The dev value is fine for CI.
             INTERNAL_API_SECRET: 'posthog123'
+            # ensure_migration_defaults seeds a first-party OAuth application that signs with
+            # RS256, which needs a key. This job does not set TEST=1, so it gets no generated
+            # one. A fake key, so the job also runs for external contributors, who cannot read
+            # secrets.
+            OIDC_RSA_PRIVATE_KEY: ${{ vars.OIDC_RSA_FAKE_PRIVATE_KEY }}
 
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2

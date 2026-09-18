@@ -576,6 +576,7 @@ from .heroku.source import HerokuSource
 from .hetzner.source import HetznerSource
 from .hex.source import HexSource
 from .heygen.source import HeyGenSource
+from .heyreach.source import HeyReachSource
 from .hibob.source import HiBobSource
 from .high_level.source import HighLevelSource
 from .hightouch.source import HightouchSource
@@ -777,6 +778,7 @@ from .mistral_ai.source import MistralAISource
 from .mixmax.source import MixMaxSource
 from .mixpanel.source import MixpanelSource
 from .mode.source import ModeSource
+from .moengage.source import MoEngageSource
 from .moesif.source import MoesifSource
 from .mollie.source import MollieSource
 from .monday.source import MondaySource
@@ -967,6 +969,7 @@ from .qualtrics.source import QualtricsSource
 from .qualys_vmdr.source import QualysVmdrSource
 from .quay.source import QuaySource
 from .quickbooks.source import QuickBooksSource
+from .quo.source import QuoSource
 from .railway.source import RailwaySource
 from .railz.source import RailzSource
 from .raisely.source import RaiselySource

@@ -1321,7 +1321,6 @@ export const SavedQuerySyncFrequencyEnumApi = {
 /**
  * * `tiered` - tiered
  * * `managed_viewset` - managed_viewset
- * * `legacy` - legacy
  * * `no_node` - no_node
  */
 export type FrequencyModeEnumApi = (typeof FrequencyModeEnumApi)[keyof typeof FrequencyModeEnumApi]
@@ -1329,7 +1328,6 @@ export type FrequencyModeEnumApi = (typeof FrequencyModeEnumApi)[keyof typeof Fr
 export const FrequencyModeEnumApi = {
     Tiered: 'tiered',
     ManagedViewset: 'managed_viewset',
-    Legacy: 'legacy',
     NoNode: 'no_node',
 } as const
 
@@ -1410,11 +1408,10 @@ export interface SyncFrequencyBoundApi {
 }
 
 export interface SyncFrequencyBoundsApi {
-    /** What governs this view's cadence. 'tiered' is the only mode where `options` is meaningful and `sync_frequency` is writable per view. 'managed_viewset' means PostHog owns the view, 'legacy' means the v1 backend, where any cadence is accepted and no bounds apply, and 'no_node' means the view has no data modeling node to store a cadence on.
+    /** What governs this view's cadence. 'tiered' is the only mode where `options` is meaningful and `sync_frequency` is writable per view. 'managed_viewset' means PostHog owns the view, and 'no_node' means the view has no data modeling node to store a cadence on.
      *
      * * `tiered` - tiered
      * * `managed_viewset` - managed_viewset
-     * * `legacy` - legacy
      * * `no_node` - no_node */
     frequency_mode: FrequencyModeEnumApi
     /** Every cadence a picker may show, coarsest-last, each marked allowed or blocked with its cause. Empty outside 'tiered' mode. */
@@ -3266,6 +3263,9 @@ export interface CredentialApi {
  * * `Substack` - Substack
  * * `ElectricityMaps` - ElectricityMaps
  * * `Amplemarket` - Amplemarket
+ * * `Quo` - Quo
+ * * `HeyReach` - HeyReach
+ * * `MoEngage` - MoEngage
  */
 export type ExternalDataSourceTypeEnumApi =
     (typeof ExternalDataSourceTypeEnumApi)[keyof typeof ExternalDataSourceTypeEnumApi]
@@ -4611,6 +4611,9 @@ export const ExternalDataSourceTypeEnumApi = {
     Substack: 'Substack',
     ElectricityMaps: 'ElectricityMaps',
     Amplemarket: 'Amplemarket',
+    Quo: 'Quo',
+    HeyReach: 'HeyReach',
+    MoEngage: 'MoEngage',
 } as const
 
 export interface SimpleExternalDataSourceSerializersApi {
@@ -5155,6 +5158,10 @@ export type WarehouseExpressionsListParams = {
 }
 
 export type WarehouseSavedQueriesListParams = {
+    /**
+     * Include column definitions. Set to false for table-only lists.
+     */
+    include_columns?: boolean
     /**
      * A page number within the paginated result set.
      */
