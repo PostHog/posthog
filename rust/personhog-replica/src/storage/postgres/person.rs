@@ -1337,8 +1337,8 @@ impl DependentRowCounts {
     }
 }
 
-/// Both exits of `delete_tombstoned_persons` call this. The early return for a call with no
-/// tombstoned candidate would otherwise report nothing and hide live persons from the histogram.
+/// Called by every exit that runs the resolve query. That query decides the counts, so the early
+/// return for a call with no tombstoned candidate would otherwise hide live persons here.
 fn record_tombstoned_delete_rows(outcome: &TombstonedDeleteOutcome, client: &str, method: &str) {
     for (operation, value) in [
         ("delete_tombstoned_persons_deleted", outcome.deleted),
