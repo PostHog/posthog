@@ -21,7 +21,7 @@ env:
 
 jobs:
     changes:
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         timeout-minutes: 5
         name: Determine need to run agent-proxy checks
         outputs:
@@ -53,7 +53,7 @@ jobs:
         name: Agent Proxy checks
         needs: changes
         if: needs.changes.outputs.agent_proxy == 'true'
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         timeout-minutes: 10
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -82,7 +82,7 @@ jobs:
     agent_proxy_ci:
         needs: [changes, agent-proxy]
         name: Agent Proxy CI Pass
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         timeout-minutes: 5
         # !cancelled(): a superseded run records cancelled (which branch protection
         # does not treat as a pass) instead of running on to report failure. A cancelled

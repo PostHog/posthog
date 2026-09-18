@@ -3,6 +3,7 @@ import {
     ActivityLogItem,
     ActivityLogUserName,
     HumanizedChange,
+    activityLogSummary,
     defaultDescriber,
 } from 'lib/components/ActivityLog/humanizeActivity'
 import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
@@ -159,6 +160,83 @@ function describeChange(change: ActivityChange): JSX.Element | null {
     return <>changed {humanizeField(change.field)}</>
 }
 
+function describeSavedQueryUpdate(logItem: ActivityLogItem, user: JSX.Element, viewName: JSX.Element): HumanizedChange {
+    const changes = logItem.detail?.changes ?? []
+    const parts = changes.map(describeChange).filter((p): p is JSX.Element => p !== null)
+    return {
+        summary: activityLogSummary(
+            logItem,
+            <SentenceList listParts={parts.length ? parts : ['Updated the view']} />,
+            viewName
+        ),
+        description: (
+            <SentenceList
+                listParts={parts.length > 0 ? parts : [<>updated the view</>]}
+                prefix={user}
+                suffix={<>on {viewName}</>}
+            />
+        ),
+    }
+}
+
+function describeMaterializationEnabled(
+    logItem: ActivityLogItem,
+    user: JSX.Element,
+    viewName: JSX.Element
+): HumanizedChange {
+    const changes = logItem.detail?.changes ?? []
+    const freqChange = changes.find((c) => c.field === 'sync_frequency_interval')
+    const parts: JSX.Element[] = [<>enabled materialization for {viewName}</>]
+    if (freqChange) {
+        const after = humanizeInterval(freqChange.after as string | null)
+        parts.push(
+            <>
+                with sync frequency <strong>{after}</strong>
+            </>
+        )
+    }
+    return {
+        summary: activityLogSummary(
+            logItem,
+            'Enabled materialization',
+            viewName,
+            freqChange ? `Sync frequency: ${humanizeInterval(freqChange.after as string | null)}` : undefined
+        ),
+        description: <SentenceList listParts={parts} prefix={user} />,
+    }
+}
+
+function describeSyncFrequencyReset(
+    logItem: ActivityLogItem,
+    user: JSX.Element,
+    viewName: JSX.Element
+): HumanizedChange {
+    const changes = logItem.detail?.changes ?? []
+    const freqChange = changes.find((c) => c.field === 'sync_frequency_interval')
+    const after = freqChange ? humanizeInterval(freqChange.after as string | null) : 'default'
+    return {
+        summary: activityLogSummary(logItem, <>Reset sync frequency to {after}</>, viewName),
+        description: (
+            <SentenceList
+                listParts={[
+                    <>
+                        auto-reset sync frequency to <strong>{after}</strong> for {viewName}
+                    </>,
+                ]}
+                prefix={user}
+            />
+        ),
+    }
+}
+
+const SAVED_QUERY_EVENTS = new Map([
+    ['created', { action: 'Created the view', description: 'created' }],
+    ['deleted', { action: 'Deleted the view', description: 'deleted' }],
+    ['sync_triggered', { action: 'Triggered an ad-hoc sync', description: 'triggered an ad-hoc sync on' }],
+    ['sync_cancelled', { action: 'Canceled a running sync', description: 'cancelled a running sync on' }],
+    ['materialization_disabled', { action: 'Disabled materialization', description: 'disabled materialization for' }],
+])
+
 export function dataWarehouseSavedQueryActivityDescriber(
     logItem: ActivityLogItem,
     asNotification?: boolean
@@ -170,70 +248,15 @@ export function dataWarehouseSavedQueryActivityDescriber(
 
     const user = <ActivityLogUserName logItem={logItem} />
     const viewName = logItem.detail?.name ? <strong>{logItem.detail.name}</strong> : <i>a view</i>
-
-    if (logItem.activity === 'created') {
+    const event = SAVED_QUERY_EVENTS.get(logItem.activity)
+    if (event) {
         return {
-            description: <SentenceList listParts={[<>created {viewName}</>]} prefix={user} />,
-        }
-    }
-
-    if (logItem.activity === 'updated') {
-        const changes = logItem.detail?.changes ?? []
-        const parts = changes.map(describeChange).filter((p): p is JSX.Element => p !== null)
-        return {
-            description: (
-                <SentenceList
-                    listParts={parts.length > 0 ? parts : [<>updated the view</>]}
-                    prefix={user}
-                    suffix={<>on {viewName}</>}
-                />
-            ),
-        }
-    }
-
-    if (logItem.activity === 'sync_triggered') {
-        return {
-            description: <SentenceList listParts={[<>triggered an ad-hoc sync on {viewName}</>]} prefix={user} />,
-        }
-    }
-
-    if (logItem.activity === 'sync_cancelled') {
-        return {
-            description: <SentenceList listParts={[<>cancelled a running sync on {viewName}</>]} prefix={user} />,
-        }
-    }
-
-    if (logItem.activity === 'materialization_enabled') {
-        const changes = logItem.detail?.changes ?? []
-        const freqChange = changes.find((c) => c.field === 'sync_frequency_interval')
-        const parts: JSX.Element[] = [<>enabled materialization for {viewName}</>]
-        if (freqChange) {
-            const after = humanizeInterval(freqChange.after as string | null)
-            parts.push(
-                <>
-                    with sync frequency <strong>{after}</strong>
-                </>
-            )
-        }
-        return { description: <SentenceList listParts={parts} prefix={user} /> }
-    }
-
-    if (logItem.activity === 'materialization_disabled') {
-        return {
-            description: <SentenceList listParts={[<>disabled materialization for {viewName}</>]} prefix={user} />,
-        }
-    }
-
-    if (logItem.activity === 'sync_frequency_reset') {
-        const changes = logItem.detail?.changes ?? []
-        const freqChange = changes.find((c) => c.field === 'sync_frequency_interval')
-        const after = freqChange ? humanizeInterval(freqChange.after as string | null) : 'default'
-        return {
+            summary: activityLogSummary(logItem, event.action, viewName),
             description: (
                 <SentenceList
                     listParts={[
                         <>
-                            auto-reset sync frequency to <strong>{after}</strong> for {viewName}
+                            {event.description} {viewName}
                         </>,
                     ]}
                     prefix={user}
@@ -242,10 +265,16 @@ export function dataWarehouseSavedQueryActivityDescriber(
         }
     }
 
-    if (logItem.activity === 'deleted') {
-        return {
-            description: <SentenceList listParts={[<>deleted {viewName}</>]} prefix={user} />,
-        }
+    if (logItem.activity === 'updated') {
+        return describeSavedQueryUpdate(logItem, user, viewName)
+    }
+
+    if (logItem.activity === 'materialization_enabled') {
+        return describeMaterializationEnabled(logItem, user, viewName)
+    }
+
+    if (logItem.activity === 'sync_frequency_reset') {
+        return describeSyncFrequencyReset(logItem, user, viewName)
     }
 
     return defaultDescriber(logItem, asNotification, viewName)

@@ -601,30 +601,31 @@ export interface AccessControlFilterWarning {
  */
 export type QueryScanFindingKind = 'no_event_filter' | 'no_start_date' | 'persons_join'
 
-/**
- * Why a filter the query does have did not narrow the read. `in_or`: it sits inside an OR. `wrapped`:
- * `event` is inside a function call. `negated`: it excludes events, which narrows nothing. `dynamic`:
- * `event` is compared to a column. `not_pruned`: ClickHouse reported it unused. `filters`: the date
- * range comes from `{filters}` and the insight left it open.
- */
-export type QueryScanFindingReason = 'in_or' | 'wrapped' | 'negated' | 'dynamic' | 'not_pruned' | 'filters'
+/** Where the change that fixes a finding goes. `insight_date_range` is the range a SQL insight takes through `{filters}`. */
+export type QueryScanFixLocation = 'query' | 'subquery' | 'view' | 'insight_date_range' | 'dashboard_date_filter'
 
 /** One finding of a query's analysis. */
 export interface QueryScanWarning {
     kind: QueryScanFindingKind
-    /** Only with `no_event_filter` and `no_start_date`. */
-    reason?: QueryScanFindingReason
+    /** A label for what in the query text kept the read wide, such as `in_or`. Only analytics and the assistant read it, and the labels can change. */
+    cause?: string
+    /** True when the query reads this much on purpose, so reading less would change the answer. Absent means no. */
+    by_design?: boolean
+    /** Where the change goes. Absent means the query itself. */
+    fix_location?: QueryScanFixLocation
     /** Shown to the person: what happened and what to do. */
     message: string
     /** What "Fix with AI" and the assistant are told to do. */
     fix: string
     /** The one fact the finding rests on. */
     evidence?: string
+    /** Whether the person can change the query so it reads less and still answers the same question. Surfaces show the full advice and "Fix with AI" only when a finding is actionable. */
+    actionable: boolean
 }
 
 /** The stored analysis of one query, kept for 30 days by cache key and put on every response for that query. */
 export interface QueryScanAnalysis {
-    /** Empty when the analysis found nothing to fix. */
+    /** Every finding, fixable or not. Empty when the analysis found none. */
     findings: QueryScanWarning[]
     /** How much of the project's events in the query's date range the query read, 0 to 1. */
     range_share?: number
@@ -5584,12 +5585,20 @@ export interface ExperimentApiMetric {
     uuid?: string
     /** Whether higher or lower values indicate success. */
     goal?: ExperimentMetricGoal
-    /** Conversion window duration. */
+    /** Only count metric events within this many units after the user's first exposure. Requires
+     *  conversion_window_unit: a window without a unit is ignored and the metric counts events until
+     *  the experiment ends. Omit both to count until the experiment ends. */
     conversion_window?: integer
+    /** Unit for conversion_window: 'second', 'minute', 'hour', 'day', 'week' or 'month'. Required when
+     *  conversion_window is set. */
+    conversion_window_unit?: FunnelConversionWindowTimeUnit
     /** For mean metrics: event source. */
     source?: ExperimentApiEventSource
     /** For funnel metrics: array of EventsNode/ActionsNode steps. */
     series?: ExperimentApiEventSource[]
+    /** For funnel metrics: how the steps must occur. 'ordered' (default) or 'unordered'. Do not use
+     *  'strict': experiment funnels give wrong counts with it. */
+    funnel_order_type?: StepOrderValue
     /** For ratio metrics: numerator source. */
     numerator?: ExperimentApiEventSource
     /** For ratio metrics: denominator source. */

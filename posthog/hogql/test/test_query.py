@@ -2402,6 +2402,8 @@ class TestQueryStatsRecording(BaseTest):
         assert len(stats.executions) == 1
         assert stats.executions[0].rows_read == 42
         assert stats.executions[0].tree is not None
+        recorded_settings = stats.executions[0].settings
+        assert recorded_settings is not None and recorded_settings.max_ast_elements == 4_000_000
 
         def killed(sql, values, **kwargs):
             record(rows_read=90, duration_ms=1.0)
