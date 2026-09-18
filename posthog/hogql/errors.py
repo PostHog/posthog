@@ -82,6 +82,24 @@ class TableAccessDeniedError(QueryError):
         self.table_name = table_name
 
 
+# Lives next to the class rather than inside a no-argument constructor: the single-flight rebuild
+# in `query_failure_handling` reconstructs a shareable exposed error as
+# `cls(message, start=..., end=..., fix=...)`, and a subclass that narrows the base signature
+# silently drops out of that path.
+POSTGRES_LINK_UNAVAILABLE_MESSAGE = (
+    "PostHog's own tables (the system.* schema) aren't available to background jobs. "
+    "Run this query in the SQL editor instead."
+)
+
+
+class PostgresLinkUnavailableError(ExposedHogQLError):
+    """The process has no credentials for the federated Postgres link that `system.*` tables read
+    through. Offline workers run without them, so a query the SQL editor prints happily cannot be
+    printed at all there: exposed and terminal, so callers stop retrying and say where to run it."""
+
+    code_name = "postgres_link_unavailable"
+
+
 class NotImplementedError(InternalHogQLError):
     """This feature isn't implemented in HogQL (yet)."""
 

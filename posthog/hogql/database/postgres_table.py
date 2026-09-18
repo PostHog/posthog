@@ -4,11 +4,13 @@ from typing import TYPE_CHECKING, Optional, cast
 
 from django.conf import settings
 
+import structlog
 from psycopg.conninfo import conninfo_to_dict
 
 from posthog.hogql.base import Expr
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import FunctionCallTable
+from posthog.hogql.errors import POSTGRES_LINK_UNAVAILABLE_MESSAGE, PostgresLinkUnavailableError
 from posthog.hogql.escape_sql import escape_hogql_identifier
 
 from posthog.person_db_router import PERSONS_DB_MODELS
@@ -17,6 +19,8 @@ from posthog.scopes import APIScopeObject
 
 if TYPE_CHECKING:
     from posthog.models.team.team import Team
+
+logger = structlog.get_logger(__name__)
 
 
 @cache
@@ -76,8 +80,28 @@ def build_function_call(postgres_table_name: str, context: Optional[HogQLContext
         user_var = settings.CLICKHOUSE_HOGQL_RDSPROXY_READ_USER
         password_var = settings.CLICKHOUSE_HOGQL_RDSPROXY_READ_PASSWORD
 
+        # A chain of `or` rather than a loop over a mapping, so mypy narrows each value to `str`
+        # for the `add_param` calls below.
         if not host_var or not port_var or not database_var or not user_var or not password_var:
-            raise ValueError("CLICKHOUSE_HOGQL_RDSPROXY env vars missing to create postgresql link from clickhouse")
+            # An exposed HogQL error reads as a user error, so nothing captures it. This log is
+            # the only record that the process runs without its CLICKHOUSE_HOGQL_RDSPROXY_READ_*
+            # deploy config.
+            logger.warning(
+                "hogql_postgres_link_credentials_missing",
+                postgres_table_name=postgres_table_name,
+                unset=[
+                    name
+                    for name, value in (
+                        ("HOST", host_var),
+                        ("PORT", port_var),
+                        ("DATABASE", database_var),
+                        ("USER", user_var),
+                        ("PASSWORD", password_var),
+                    )
+                    if not value
+                ],
+            )
+            raise PostgresLinkUnavailableError(POSTGRES_LINK_UNAVAILABLE_MESSAGE)
 
         address = add_param(f"{host_var}:{port_var}")
         db = add_param(database_var)

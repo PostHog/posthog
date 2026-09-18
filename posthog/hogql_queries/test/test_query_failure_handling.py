@@ -12,6 +12,8 @@ from rest_framework.exceptions import ValidationError
 
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.errors import (
+    POSTGRES_LINK_UNAVAILABLE_MESSAGE,
+    PostgresLinkUnavailableError,
     QueryError,
     SyntaxError as HogQLSyntaxError,
     TableAccessDeniedError,
@@ -81,6 +83,10 @@ class TestSharedFailures(SimpleTestCase):
             ),
             ("hogql_query_error", lambda: QueryError("Unknown field: nope", start=7, end=11)),
             ("hogql_syntax_error", lambda: HogQLSyntaxError("Unexpected token", start=0, end=3, fix="select")),
+            (
+                "postgres_link_unavailable",
+                lambda: PostgresLinkUnavailableError(POSTGRES_LINK_UNAVAILABLE_MESSAGE),
+            ),
         ]
     )
     def test_shared_failure_rebuilds_the_same_exception(self, _name, make_error):

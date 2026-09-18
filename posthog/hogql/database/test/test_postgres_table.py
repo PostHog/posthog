@@ -23,6 +23,7 @@ from posthog.hogql.database.models import (
 )
 from posthog.hogql.database.postgres_table import PostgresTable, build_function_call
 from posthog.hogql.database.schema.system import SystemTables
+from posthog.hogql.errors import ExposedHogQLError, PostgresLinkUnavailableError
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.query import create_default_modifiers_for_team
@@ -430,6 +431,39 @@ class TestPostgresTablePrimaryKey(BaseTest):
             f"but no single-column primary key (composite PK). "
             f"Object-level access control requires a single-column PK."
         )
+
+
+class TestPostgresLinkCredentials(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("host", "CLICKHOUSE_HOGQL_RDSPROXY_READ_HOST"),
+            ("port", "CLICKHOUSE_HOGQL_RDSPROXY_READ_PORT"),
+            ("database", "CLICKHOUSE_HOGQL_RDSPROXY_READ_DATABASE"),
+            ("user", "CLICKHOUSE_HOGQL_RDSPROXY_READ_USER"),
+            ("password", "CLICKHOUSE_HOGQL_RDSPROXY_READ_PASSWORD"),
+        ]
+    )
+    def test_missing_credentials_raise_an_exposed_error_without_naming_the_setting(
+        self, _name: str, missing_setting: str
+    ) -> None:
+        # An offline worker runs without these, and callers there can only classify the failure
+        # as terminal (instead of retrying a query that can never print) if it arrives as a typed
+        # exposed error. The setting name belongs in the log, not in what the user reads.
+        configured = {
+            "CLICKHOUSE_HOGQL_RDSPROXY_READ_HOST": "proxy.example.com",
+            "CLICKHOUSE_HOGQL_RDSPROXY_READ_PORT": "5432",
+            "CLICKHOUSE_HOGQL_RDSPROXY_READ_DATABASE": "posthog",
+            "CLICKHOUSE_HOGQL_RDSPROXY_READ_USER": "reader",
+            "CLICKHOUSE_HOGQL_RDSPROXY_READ_PASSWORD": "not-a-real-password",
+            missing_setting: None,
+        }
+        with self.settings(DEBUG=False, TEST=False, **configured):
+            with self.assertRaises(PostgresLinkUnavailableError) as caught:
+                build_function_call("posthog_dashboard")
+
+        assert isinstance(caught.exception, ExposedHogQLError)
+        assert "RDSPROXY" not in str(caught.exception)
+        assert "SQL editor" in str(caught.exception)
 
 
 class TestPostgresTableIdFieldType(SimpleTestCase):

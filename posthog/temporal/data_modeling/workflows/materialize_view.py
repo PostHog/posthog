@@ -100,6 +100,10 @@ NON_RETRYABLE_ERRORS = [
     "NodeNotFoundException",
     "EmptyHogQLResponseColumnsError",
     "DuplicateOutputColumnError",
+    # The worker has no credentials for the federated Postgres link, so a query over a
+    # system.* table cannot even be printed here. Another attempt prints the same query
+    # against the same missing config.
+    "PostgresLinkUnavailableError",
 ]
 
 
