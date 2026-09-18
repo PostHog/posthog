@@ -29,10 +29,10 @@ import {
     type ZodObjectAny,
 } from './types'
 
-/** Upper bound on a `search` regex pattern — keeps a pathological pattern from
- *  forcing catastrophic backtracking against tool metadata. Wide enough for an
- *  anchored alternation of every tool an agent holds, which is not pathological
- *  and used to hit the bound. */
+/** Upper bound on the size of a `search` regex — wide enough for an anchored
+ *  alternation of a whole toolset, the longest pattern an agent composes.
+ *  Length is all it bounds: matching cost rides on the pattern's shape, and a
+ *  dozen characters are enough to backtrack catastrophically. */
 const MAX_SEARCH_PATTERN_LENGTH = 800
 
 /** Advertised on `tools/list` and on the runtime Tool. OpenAI's plugin verifier
