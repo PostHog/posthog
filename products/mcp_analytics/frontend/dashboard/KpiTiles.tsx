@@ -26,6 +26,19 @@ interface TileSpec {
     subtitle?: string
 }
 
+export function kpiTileUrls(searchParams: Record<string, any>): {
+    sessions: string
+    toolQuality: string
+    intentClustering: string
+} {
+    const { landing: _landing, search: _search, ...sharedParams } = searchParams
+    return {
+        sessions: combineUrl(urls.mcpAnalyticsSessions(), sharedParams).url,
+        toolQuality: combineUrl(urls.mcpAnalyticsToolQuality(), sharedParams).url,
+        intentClustering: combineUrl(urls.mcpAnalyticsIntentClustering(), sharedParams).url,
+    }
+}
+
 function KPITile({
     tile,
     theme,
@@ -94,10 +107,11 @@ export function KpiTiles({
     // silently renders the partial bucket as settled data.
     incompleteTail: boolean
 }): JSX.Element {
-    const { landing: _landing, search: _search, ...sharedParams } = useValues(router).searchParams
-    const sessionsHref = combineUrl(urls.mcpAnalyticsSessions(), sharedParams).url
-    const toolQualityHref = combineUrl(urls.mcpAnalyticsToolQuality(), sharedParams).url
-    const intentClusteringHref = combineUrl(urls.mcpAnalyticsIntentClustering(), sharedParams).url
+    const {
+        sessions: sessionsHref,
+        toolQuality: toolQualityHref,
+        intentClustering: intentClusteringHref,
+    } = kpiTileUrls(useValues(router).searchParams)
 
     const tiles: TileSpec[] = [
         {
