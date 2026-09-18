@@ -32,7 +32,7 @@ describe('ShelfVisionOffer', () => {
         )
 
         // Project-prefixed by Link, so the assertion is on the destination the shelf chose.
-        expect(screen.getByRole('link', { name: 'Replay vision' })).toHaveAttribute(
+        expect(screen.getByText('Replay vision').closest('a')).toHaveAttribute(
             'href',
             expect.stringContaining(crossSell.url)
         )
