@@ -27,7 +27,12 @@ from products.notebooks.backend.facade.contracts import NotebookRunBusy, TeamRun
 from products.notebooks.backend.models import NotebookNodeRun, NotebookRun
 from products.notebooks.backend.notebook_run import finish_notebook_run, node_run_request_for, stop_current_cell
 from products.notebooks.backend.sql_v2_direct import sync_direct_run
-from products.notebooks.backend.sql_v2_dispatch import NodeRunDispatchFailed, NodeRunInvalid, dispatch_node_run
+from products.notebooks.backend.sql_v2_dispatch import (
+    NodeRunDispatchFailed,
+    NodeRunInvalid,
+    dispatch_node_run,
+    resume_node_run,
+)
 from products.notebooks.backend.sql_v2_metrics import OUTCOME_TIMED_OUT
 from products.notebooks.backend.sql_v2_runs import expire_stale_kernel_run
 from products.notebooks.backend.temporal.client import _start_workflow
@@ -137,6 +142,19 @@ def dispatch_notebook_cell_activity(input: NotebookRunCellInput) -> str:
         .first()
     )
     if already_dispatched is not None:
+        # The row only proves the previous attempt got as far as creating it. It is committed
+        # before the lane is told about it, so finish the handoff rather than assume it
+        # happened — otherwise the orchestrator polls a cell nothing is running until the
+        # cell budget expires. Repeating a handoff that did land is a no-op.
+        user = notebook_run.user if isinstance(notebook_run.user, User) else None
+        with team_scope(notebook_run.team_id, canonical=True):
+            resume_node_run(
+                notebook_run.notebook,
+                user,
+                notebook_run.notebook.team,
+                node_run_request_for(notebook_run, input.index),
+                already_dispatched,
+            )
         return str(already_dispatched.id)
 
     NotebookRun.objects.for_team(input.team_id).filter(id=notebook_run.id).update(current_index=input.index)
