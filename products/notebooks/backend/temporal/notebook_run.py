@@ -12,6 +12,7 @@ between calls, so no worker slot is held while a cell works.
 
 import asyncio
 from datetime import timedelta
+from typing import Any
 
 from temporalio import activity, common, workflow
 from temporalio.exceptions import ApplicationError, WorkflowAlreadyStartedError
@@ -120,6 +121,23 @@ def dispatch_notebook_cell_activity(input: NotebookRunCellInput) -> str:
     # notebook's slot under a run already recorded as interrupted.
     if notebook_run.status != NotebookRun.Status.RUNNING:
         raise ApplicationError("The run is no longer running.", type=_UNRECOVERABLE, non_retryable=True)
+
+    # A cell's identity within a run is (run, node), so a retry after the worker died between
+    # the hand-off and Temporal recording the result finds the row the first attempt created and
+    # returns it. Without this the retry would mint a new id and execute the cell a second time,
+    # repeating whatever side effects a Python cell already had.
+    plan: list[dict[str, Any]] = notebook_run.cell_plan or []
+    if input.index >= len(plan):
+        raise ApplicationError("The plan no longer has that cell.", type=_UNRECOVERABLE, non_retryable=True)
+    node_id = plan[input.index]["node_id"]
+    already_dispatched = (
+        NotebookNodeRun.objects.for_team(input.team_id)
+        .filter(notebook_run_id=notebook_run.id, node_id=node_id)
+        .order_by("-created_at")
+        .first()
+    )
+    if already_dispatched is not None:
+        return str(already_dispatched.id)
 
     NotebookRun.objects.for_team(input.team_id).filter(id=notebook_run.id).update(current_index=input.index)
     user = notebook_run.user if isinstance(notebook_run.user, User) else None
