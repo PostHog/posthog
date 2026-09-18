@@ -480,10 +480,13 @@ export const PromptInput = forwardRef<EditorHandle, PromptInputProps>(
     // only what you are writing plus the send button. Mirrors the addons' own
     // flex/gap/padding so the row keeps their spacing and left inset, and
     // carries the muted colour the addons would have supplied.
+    // The row wraps because a narrow host (the canvas side panel) cannot fit
+    // every chip on one line, and the host clips the overflow instead of
+    // scrolling it, so the last controls would be unreachable.
     const toolbar = (!hideDefaultToolbar ||
       toolbarEndSlot ||
       messagingModeToggle) && (
-      <div className="flex select-none items-center gap-1 whitespace-nowrap px-1 text-muted-foreground">
+      <div className="flex select-none flex-wrap items-center gap-1 whitespace-nowrap px-1 text-muted-foreground">
         {!hideDefaultToolbar && (
           <>
             <AttachmentMenu
@@ -524,7 +527,7 @@ export const PromptInput = forwardRef<EditorHandle, PromptInputProps>(
             )}
           </>
         )}
-        <span className="ml-auto flex items-center gap-1">
+        <span className="ml-auto flex flex-wrap items-center justify-end gap-1">
           {toolbarEndSlot}
           {!hideDefaultToolbar && historyButton}
           {messagingModeToggle}

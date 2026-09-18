@@ -547,6 +547,18 @@ export const NoToolbar: Story = {
   },
 };
 
+export const NarrowPanel: Story = {
+  name: "Toolbar: narrow panel (canvas side panel width)",
+  args: { sessionId: "sb-narrow" },
+  decorators: [
+    (Story) => (
+      <div className="w-[360px]">
+        <Story />
+      </div>
+    ),
+  ],
+};
+
 export const WithHeaderAddon: Story = {
   name: "Header addon above the editor",
   args: {
