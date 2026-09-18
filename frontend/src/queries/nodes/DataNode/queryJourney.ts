@@ -3,6 +3,7 @@ import { CustomerJourneyScope } from 'lib/customerJourneys/CustomerJourneyScope'
 
 export interface QueryJourneyDescriptor {
     startRequest: (queryId: string) => CustomerJourney | null
+    /** Only requests started while a result surface is observed belong to this journey. */
     requireObservedSurface?: boolean
 }
 
@@ -18,7 +19,7 @@ export class QueryJourneyObserver {
         handle: CustomerJourney
         receipt: QueryJourneyReceipt | null
     }>()
-    private owner: symbol | null = null
+    private readonly owners = new Set<symbol>()
 
     replace(): number {
         this.stop('superseded')
@@ -26,7 +27,7 @@ export class QueryJourneyObserver {
     }
 
     start(descriptor: QueryJourneyDescriptor | undefined, queryId: string): void {
-        if (descriptor && (!descriptor.requireObservedSurface || this.owner)) {
+        if (descriptor && (!descriptor.requireObservedSurface || this.owners.size > 0)) {
             this.scope.replace(() => {
                 const handle = descriptor.startRequest(queryId)
                 return handle ? { handle, receipt: null } : null
@@ -35,12 +36,11 @@ export class QueryJourneyObserver {
     }
 
     observe(owner: symbol): void {
-        this.owner = owner
+        this.owners.add(owner)
     }
 
     unobserve(owner: symbol): void {
-        if (this.owner === owner) {
-            this.owner = null
+        if (this.owners.delete(owner) && this.owners.size === 0) {
             this.stop('observation_stopped')
         }
     }
