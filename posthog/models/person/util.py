@@ -16,6 +16,7 @@ import structlog
 from dateutil.parser import isoparse
 
 from posthog.clickhouse.client import sync_execute
+from posthog.dataclasses import frozen
 from posthog.kafka_client.client import ClickhouseProducer
 from posthog.kafka_client.topics import KAFKA_PERSON, KAFKA_PERSON_DISTINCT_ID
 from posthog.models.person import Person
@@ -30,6 +31,7 @@ from posthog.personhog_client.client import personhog_call, require_personhog_cl
 from posthog.personhog_client.converters import proto_person_to_model
 from posthog.personhog_client.metrics import PERSONHOG_TEAM_MISMATCH_TOTAL, get_client_name
 from posthog.personhog_client.proto import (
+    DeletePersonsMode,
     DeletePersonsRequest,
     GetDistinctIdsForPersonRequest,
     GetDistinctIdsForPersonsRequest,
@@ -670,18 +672,91 @@ def get_person_uuids_and_matched_distinct_ids(team_id: int, distinct_ids: list[s
 
 
 def delete_persons_from_postgres(team_id: int, persons: list[Person]) -> None:
-    """Delete Person rows (and associated PersonDistinctId rows) via the personhog RPC.
+    """Remove Person rows (and associated PersonDistinctId rows) via the personhog RPC.
 
-    Processes in batches of 1000 (the RPC maximum).
+    Processes in batches of 1000 (the RPC maximum). Asks for a hard delete explicitly: the
+    caller has already published ClickHouse tombstones at version + 100, so the replica's own
+    default must not turn this into a tombstone.
     """
 
     def personhog_fn() -> None:
         uuids = [str(p.uuid) for p in persons]
         for i in range(0, len(uuids), 1000):
             batch = uuids[i : i + 1000]
-            _get_client().delete_persons(DeletePersonsRequest(team_id=team_id, person_uuids=batch))
+            _get_client().delete_persons(
+                DeletePersonsRequest(
+                    team_id=team_id, person_uuids=batch, mode=DeletePersonsMode.DELETE_PERSONS_MODE_HARD
+                )
+            )
 
     personhog_call("delete_persons", personhog_fn)
+
+
+@frozen
+class PersonTombstone:
+    """The versions the replica wrote when it tombstoned one person."""
+
+    uuid: UUID
+    version: int
+    distinct_ids: list[DistinctIdForPerson]
+
+
+def tombstone_persons_in_postgres(team_id: int, person_uuids: list[UUID]) -> list[PersonTombstone]:
+    """Tombstone Person rows via the personhog RPC and return the versions it wrote.
+
+    Processes in batches of 1000 (the RPC maximum). A person already tombstoned comes back
+    with the versions it holds, so a retry can publish the same ClickHouse tombstones again;
+    a person that no longer exists comes back with nothing.
+    """
+
+    def personhog_fn() -> list[PersonTombstone]:
+        tombstones: list[PersonTombstone] = []
+        uuids = [str(u) for u in person_uuids]
+        for i in range(0, len(uuids), 1000):
+            batch = uuids[i : i + 1000]
+            response = _get_client().delete_persons(
+                DeletePersonsRequest(
+                    team_id=team_id, person_uuids=batch, mode=DeletePersonsMode.DELETE_PERSONS_MODE_TOMBSTONE
+                )
+            )
+            tombstones.extend(
+                PersonTombstone(
+                    uuid=UUID(t.person_uuid),
+                    version=int(t.version),
+                    distinct_ids=[
+                        DistinctIdForPerson(id=d.distinct_id, version=int(d.version)) for d in t.distinct_ids
+                    ],
+                )
+                for t in response.tombstones
+            )
+        return tombstones
+
+    return personhog_call("tombstone_persons", personhog_fn)
+
+
+def publish_person_tombstone(
+    team_id: int, tombstone: PersonTombstone, created_at: Optional[datetime.datetime] = None
+) -> None:
+    """Produce ClickHouse deletion rows at exactly the versions the Postgres tombstone holds.
+
+    The rows outrank every earlier update of the person, and a revival at the next version
+    outranks them in turn, which is what makes the version + 100 offset unnecessary.
+    """
+    create_person(
+        uuid=str(tombstone.uuid),
+        team_id=team_id,
+        version=tombstone.version,
+        created_at=created_at,
+        is_deleted=True,
+    )
+    for distinct_id in tombstone.distinct_ids:
+        create_person_distinct_id(
+            team_id=team_id,
+            distinct_id=distinct_id.id,
+            person_id=str(tombstone.uuid),
+            version=distinct_id.version,
+            is_deleted=True,
+        )
 
 
 def delete_person(person: Person, distinct_ids: list[DistinctIdForPerson] | None = None) -> None:
