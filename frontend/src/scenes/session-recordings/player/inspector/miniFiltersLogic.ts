@@ -48,6 +48,16 @@ export const MiniFilters: SharedListMiniFilter[] = [
     },
     {
         type: 'console',
+        key: 'console-debug',
+        name: 'Debug',
+    },
+    {
+        type: 'console',
+        key: 'console-log',
+        name: 'Log',
+    },
+    {
+        type: 'console',
         key: 'console-info',
         name: 'Info',
     },
@@ -143,6 +153,8 @@ const defaultMinifilters = [
     'events-pageview',
     'events-autocapture',
     'events-exceptions',
+    'console-debug',
+    'console-log',
     'console-info',
     'console-warn',
     'console-error',
