@@ -78,7 +78,6 @@ from products.batch_exports.backend.temporal.utils import handle_non_retryable_e
 # Errors that any write to S3 can raise, whichever bucket it targets. The file download
 # export shares these, since it runs the same write against a PostHog-owned bucket.
 S3_WRITE_NON_RETRYABLE_ERROR_TYPES = (
-    "MissingRequiredInputsError",
     # S3 parameter validation failed.
     "ParamValidationError",
     # This error usually indicates credentials are incorrect or permissions are missing.
