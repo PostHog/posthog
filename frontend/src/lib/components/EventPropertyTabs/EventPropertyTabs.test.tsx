@@ -51,7 +51,7 @@ describe('EventPropertyTabs', () => {
             </EventPropertyTabContent>
         )
 
-        expect(screen.getByText('No feature flags were active when this event was sent.')).toBeInTheDocument()
+        expect(screen.getByText('This event has no feature flag properties.')).toBeInTheDocument()
         expect(container.querySelector('[data-attr="flags-table"]')).not.toBeInTheDocument()
     })
 })

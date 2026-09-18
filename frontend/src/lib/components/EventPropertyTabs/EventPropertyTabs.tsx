@@ -59,8 +59,8 @@ const PROPERTY_GROUP_COPY: Partial<Record<EventPropertyTabKey, PropertyGroupCopy
         description: 'Core fields PostHog records for every event.',
     },
     flags: {
-        description: 'Feature flags that were active when this event was sent.',
-        emptyMessage: 'No feature flags were active when this event was sent.',
+        description: 'Feature flag properties sent with this event.',
+        emptyMessage: 'This event has no feature flag properties.',
     },
     $set_properties: {
         description: (
