@@ -82,6 +82,15 @@ class TestStalledSchedules(BaseTest):
             ("deleted source", {}, {"deleted": True}),
             # A direct-query source has no schedule to stall.
             ("direct query source", {}, {"access_method": ExternalDataSource.AccessMethod.DIRECT}),
+            # A paused per-schema schedule is a streaming CDC schema's steady state:
+            # CDCExtractionWorkflow owns it and pauses it again on its own next tick
+            # (CDCHandledExternally). A source marked cdc_broken can drift the schema's status
+            # away from FAILED, so this is excluded here rather than relying on that status.
+            (
+                "streaming cdc schema",
+                {"sync_type": ExternalDataSchema.SyncType.CDC, "sync_type_config": {"cdc_mode": "streaming"}},
+                {},
+            ),
         ]
     )
     def test_schemas_without_a_stalled_schedule_are_not_reported(
@@ -234,6 +243,21 @@ class TestStalledSchedules(BaseTest):
 
         schema.sync_frequency_interval = None
         schema.save(update_fields=["sync_frequency_interval"])
+
+        with patch("products.data_warehouse.backend.facade.api.sync_external_data_job_workflow") as mock_sync:
+            repair_stalled_schema(stalled)
+
+        mock_sync.assert_not_called()
+
+    def test_repair_skips_a_schema_that_flipped_to_cdc_streaming_since_it_was_discovered(self) -> None:
+        # initial_sync_complete (and so the snapshot-to-streaming flip) can land in the window
+        # between discovery and this call. A paused schedule is streaming's steady state, so
+        # unpausing it here would just race CDCExtractionWorkflow for nothing.
+        schema = self._schema(synced_ago=timedelta(days=5), sync_type=ExternalDataSchema.SyncType.CDC)
+        stalled = next(s for s in find_stalled_schemas() if s.schema_id == str(schema.id))
+
+        schema.sync_type_config = {"cdc_mode": "streaming"}
+        schema.save(update_fields=["sync_type_config"])
 
         with patch("products.data_warehouse.backend.facade.api.sync_external_data_job_workflow") as mock_sync:
             repair_stalled_schema(stalled)

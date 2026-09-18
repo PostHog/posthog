@@ -96,15 +96,19 @@ class Command(BaseCommand):
                 "Narrow the targeting or raise --max-schemas explicitly."
             )
 
-        # --include-buffered only overrides the buffered-CDC exclusion; admin_paused and a
-        # missing sync interval stay excluded either way — neither is what that flag is for.
+        # --include-buffered only overrides the buffered-CDC exclusion; every other exclusion in
+        # repairable_here stays in force — none of them are what that flag is for.
         actionable = [
             s
             for s in stalled
-            if s.kind == "no_runs"
-            and not s.admin_paused
-            and s.has_sync_interval
-            and (s.cdc_ingest_mode != "buffered" or include_buffered)
+            if s.repairable_here
+            or (
+                include_buffered
+                and s.kind == "no_runs"
+                and not s.admin_paused
+                and s.has_sync_interval
+                and not s.cdc_streaming
+            )
         ]
         actionable_ids = {s.schema_id for s in actionable}
         skipped = [s for s in stalled if s.schema_id not in actionable_ids]
@@ -167,6 +171,8 @@ class Command(BaseCommand):
             return "paused for an in-flight admin-triggered run"
         if not schema.has_sync_interval:
             return "no sync_frequency_interval set"
+        if schema.cdc_streaming:
+            return "streaming CDC schema, use repair_cdc"
         return "buffered CDC source"
 
     def _confirm(self, prompt: str, yes: bool) -> None:

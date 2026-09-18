@@ -84,6 +84,11 @@ class StalledSchema:
     # raises. Repairing would fail every time with the same error, so this is excluded rather
     # than left to fail — rewriting the schema's own cadence is not this tool's job.
     has_sync_interval: bool
+    # True once a CDC schema has finished its initial snapshot and flipped to streaming
+    # (`mark_initial_sync_complete`). `stalled_schema_queryset` already excludes this at the
+    # source; this field backs `repairable_here` for the window between discovery and repair,
+    # where a schema can flip to streaming after being read as `no_runs`.
+    cdc_streaming: bool
 
     @property
     def repairable_here(self) -> bool:
@@ -99,12 +104,17 @@ class StalledSchema:
 
         A schema with no `sync_frequency_interval` is excluded because the schedule builder
         cannot turn a null interval into a cadence.
+
+        A streaming CDC schema is excluded because its own workflow paces the schedule; unpausing
+        it does not restart a sync, it just races that workflow into re-pausing it. Those go back
+        through `repair_cdc`.
         """
         return (
             self.kind == "no_runs"
             and self.cdc_ingest_mode != "buffered"
             and not self.admin_paused
             and self.has_sync_interval
+            and not self.cdc_streaming
         )
 
 
@@ -141,6 +151,13 @@ def stalled_schema_queryset(
         )
         .exclude(source__access_method=ExternalDataSource.AccessMethod.DIRECT)
         .exclude(status__in=SELF_REPORTING_STATUSES)
+        # A streaming CDC schema's per-schema schedule is paused by design once
+        # CDCExtractionWorkflow takes it over (CDCHandledExternally re-pauses it on every tick),
+        # so a paused schedule here is steady state, not a stall. Excluding it here — not just
+        # from repairable_here — matters because a source marked cdc_broken can drift a schema's
+        # status away from FAILED (see mark_initial_sync_complete / the streaming completion
+        # path), so SELF_REPORTING_STATUSES above cannot be relied on to catch every one.
+        .exclude(sync_type=ExternalDataSchema.SyncType.CDC, sync_type_config__cdc_mode="streaming")
         .annotate(
             stalled_after=ExpressionWrapper(
                 F("last_synced_at") + stall_window,
@@ -201,6 +218,7 @@ def find_stalled_schemas(
                 cdc_ingest_mode=(schema.source.job_inputs or {}).get("cdc_ingest_mode", "legacy"),
                 admin_paused=bool((schema.sync_type_config or {}).get("admin_unpause_schedule_after_run")),
                 has_sync_interval=schema.sync_frequency_interval is not None,
+                cdc_streaming=schema.is_cdc and schema.cdc_mode == "streaming",
             )
         )
     return stalled
@@ -255,6 +273,18 @@ def repair_stalled_schema(stalled: StalledSchema) -> None:
     if schema.sync_frequency_interval is None:
         logger.info(
             "repair_stalled_schema_schedules_skipped_no_sync_interval",
+            schema_id=str(schema.id),
+            team_id=schema.team_id,
+        )
+        return
+
+    # A paused schedule is steady state once a CDC schema is streaming — CDCExtractionWorkflow
+    # owns it and re-pauses it on its own next tick. Unpausing here does not restart a sync, it
+    # just races that workflow for nothing. Re-checked because initial_sync_complete (and so the
+    # snapshot-to-streaming flip) can land in the window between discovery and this call.
+    if schema.is_cdc and schema.cdc_mode == "streaming":
+        logger.info(
+            "repair_stalled_schema_schedules_skipped_cdc_streaming",
             schema_id=str(schema.id),
             team_id=schema.team_id,
         )

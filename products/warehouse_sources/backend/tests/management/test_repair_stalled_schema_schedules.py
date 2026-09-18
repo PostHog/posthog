@@ -86,6 +86,17 @@ class TestRepairStalledSchemaSchedules(BaseTest):
         assert str(schema.id) in output
         assert "admin-triggered run" in output
 
+    def test_a_streaming_cdc_schema_is_excluded_before_it_reaches_the_command(self) -> None:
+        # A paused per-schema schedule is a streaming CDC schema's steady state, so it is
+        # excluded at the predicate rather than surfaced here for --include-buffered to bypass.
+        self._stalled_schema(sync_type=ExternalDataSchema.SyncType.CDC, sync_type_config={"cdc_mode": "streaming"})
+
+        with patch(f"{_CMD}.repair_stalled_schema") as mock_repair:
+            output = self._run(live_run=True, include_buffered=True)
+
+        mock_repair.assert_not_called()
+        assert "No stalled schemas match" in output
+
     def test_the_cap_stops_an_unexpectedly_wide_repair(self) -> None:
         for name in ("users", "events", "orgs"):
             self._stalled_schema(name=name)
