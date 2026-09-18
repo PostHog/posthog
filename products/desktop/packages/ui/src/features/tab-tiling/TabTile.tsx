@@ -11,7 +11,6 @@ import { useActivitySelection } from "@posthog/ui/features/canvas/stores/activit
 import { TaskHeaderActions } from "@posthog/ui/features/task-detail/components/TaskHeaderActions";
 import { useTasks } from "@posthog/ui/features/tasks/useTasks";
 import { ChromeBar } from "@posthog/ui/primitives/ChromeBar";
-import { useHeaderStore } from "@posthog/ui/shell/headerStore";
 import type { ReactNode } from "react";
 import { BackgroundTileProvider } from "./backgroundTile";
 import { TileDropZones } from "./TileDropZones";
@@ -38,23 +37,7 @@ function useTileDrag(tabId: string) {
   return useDraggable({ id: `tile-tab-${tabId}`, data, feedback: "clone" });
 }
 
-function TileGrip({ tab }: { tab: BrowserTab }) {
-  const { ref, isDragSource } = useTileDrag(tab.id);
-  return (
-    <span
-      ref={ref}
-      title={`Move ${tileLabel(tab)}`}
-      className={cn(
-        "flex shrink-0 cursor-grab items-center rounded-sm p-0.5 text-muted-foreground hover:bg-muted",
-        isDragSource && "bg-background shadow-lg ring-1 ring-border",
-      )}
-    >
-      <DotsSixVerticalIcon size={12} />
-    </span>
-  );
-}
-
-function TileName({
+function TilePill({
   tab,
   isActive,
   onActivate,
@@ -65,24 +48,26 @@ function TileName({
 }) {
   const label = tileLabel(tab);
   const icon = tileIcon(tab);
+  const { ref, isDragSource } = useTileDrag(tab.id);
   return (
     <button
+      ref={ref}
       type="button"
-      className="flex h-full min-w-0 flex-1 items-center gap-1.5 text-left"
+      title={label}
       onClick={() => {
         if (!isActive) onActivate(tab);
       }}
-      title={label}
+      className={cn(
+        "flex h-6 min-w-0 max-w-[280px] cursor-grab items-center gap-1.5 rounded-md px-1.5 text-left",
+        isActive
+          ? "bg-background font-medium shadow-xs ring-1 ring-border"
+          : "text-muted-foreground hover:bg-background/60 hover:text-foreground",
+        isDragSource && "bg-background shadow-lg ring-1 ring-border",
+      )}
     >
+      <DotsSixVerticalIcon size={12} className="shrink-0 opacity-60" />
       {icon && <span className="flex shrink-0 items-center">{icon}</span>}
-      <Text
-        className={cn(
-          "truncate text-xs",
-          isActive ? "font-medium" : "text-muted-foreground",
-        )}
-      >
-        {label}
-      </Text>
+      <Text className="truncate text-xs">{label}</Text>
     </button>
   );
 }
@@ -96,24 +81,17 @@ function ActiveTileHeader({
   onActivate: (tab: BrowserTab) => void;
   onUntile: (tab: BrowserTab) => void;
 }) {
-  const content = useHeaderStore((state) => state.content);
   const activitySelection = useActivitySelection();
   const { data: tasks } = useTasks();
   const task = tab.taskId ? tasks?.find((t) => t.id === tab.taskId) : undefined;
   return (
     <ChromeBar
-      inset={content ? "control" : "text"}
+      inset="control"
       className="bg-background"
       actions={<RemoveButton tab={tab} onUntile={onUntile} />}
     >
-      <TileGrip tab={tab} />
-      {content ? (
-        <div className="flex h-full min-w-0 flex-1 items-center justify-between overflow-hidden">
-          {content}
-        </div>
-      ) : (
-        <TileName tab={tab} isActive onActivate={onActivate} />
-      )}
+      <TilePill tab={tab} isActive onActivate={onActivate} />
+      <div className="min-w-0 flex-1" />
       {task && <TaskHeaderActions task={task} />}
       {activitySelection?.kind === "task" && <ActivityDetailCloseButton />}
     </ChromeBar>
@@ -173,11 +151,12 @@ export function TabTile({
         />
       ) : (
         <ChromeBar
+          inset="control"
           className="bg-muted"
           actions={<RemoveButton tab={tab} onUntile={onUntile} />}
         >
-          <TileGrip tab={tab} />
-          <TileName tab={tab} isActive={false} onActivate={onActivate} />
+          <TilePill tab={tab} isActive={false} onActivate={onActivate} />
+          <div className="min-w-0 flex-1" />
         </ChromeBar>
       )}
       <div className="relative min-h-0 flex-1 overflow-hidden">
