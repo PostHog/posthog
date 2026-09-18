@@ -53,7 +53,7 @@ def _resolve_dispatched_check(team: Team, run: SignalScoutRun, check_id: str) ->
         uuid.UUID(str(check_id))
     except (ValueError, TypeError):
         raise InvalidCheckResultError(f"check {check_id} not found")
-    check = SignalReportCheck.all_teams.select_related("team").filter(id=check_id).first()
+    check = SignalReportCheck.all_teams.select_related("team__organization").filter(id=check_id).first()
     if check is None:
         raise InvalidCheckResultError(f"check {check_id} not found")
     canonical_team_id = team.parent_team_id or team.id
