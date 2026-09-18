@@ -48,6 +48,7 @@ from products.experiments.backend.models.web_experiment import WebExperiment
 from products.experiments.backend.presentation.experiment_saved_metrics import ExperimentToSavedMetricSerializer
 from products.experiments.backend.presentation.serializers import ExperimentSerializer
 from products.experiments.backend.presentation.views import LIST_DEFERRED_FIELDS, EnterpriseExperimentsViewSet
+from products.experiments.backend.test.helpers import create_experiment_via_api
 from products.feature_flags.backend.models.evaluation_context import EvaluationContext, FeatureFlagEvaluationContext
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
@@ -1260,24 +1261,11 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
 
         # Generate experiment to have saved metric
         ff_key = "a-b-tests"
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/experiments/",
-            {
-                "name": "Test Experiment",
-                "description": "",
-                "start_date": "2021-12-01T10:23",
-                "end_date": None,
-                "feature_flag_key": ff_key,
-                "parameters": None,
-                "filters": {
-                    "events": [
-                        {"order": 0, "id": "$pageview"},
-                        {"order": 1, "id": "$pageleave"},
-                    ],
-                    "properties": [],
-                },
-                "saved_metrics_ids": [{"id": saved_metric_id, "metadata": {"type": "secondary"}}],
-            },
+        response = create_experiment_via_api(
+            self.client,
+            self.team.id,
+            ff_key,
+            saved_metrics_ids=[{"id": saved_metric_id, "metadata": {"type": "secondary"}}],
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
