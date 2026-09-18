@@ -130,15 +130,20 @@ def _authorize(check: DataQualityCheck, suite_run: DataQualitySuiteRun) -> _Auth
       authorize against, returning ``None`` errors the run rather than bypassing the ACL.
     """
     if suite_run.trigger == SuiteRunTrigger.MANUAL:
-        if suite_run.created_by is None and check_type_reads_beyond_subject(check.check_type):
+        if suite_run.created_by is None and _needs_a_principal(check):
             return None
         return _Authorization(run_as=suite_run.created_by, bypass=suite_run.created_by is None)
-    if not check_type_reads_beyond_subject(check.check_type):
+    if not _needs_a_principal(check):
         return _Authorization(run_as=None, bypass=True)
     principal = check.definition_author or check.created_by
     if principal is None:
         return None
     return _Authorization(run_as=principal, bypass=False)
+
+
+def _needs_a_principal(check: DataQualityCheck) -> bool:
+    """Whether the run must execute as a user rather than under the service bypass."""
+    return check_type_reads_beyond_subject(check.check_type) or check.subject_type == SubjectType.POSTHOG_TABLE
 
 
 def _staged_database(
