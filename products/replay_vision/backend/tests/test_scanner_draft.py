@@ -1476,6 +1476,12 @@ class TestDraftV2(_VisionAPITestCase):
     def _drafted_with(self, generate, estimate):
         with (
             patch(f"{_MODULE}.fetch_visited_paths", return_value=(VisitedPath(pathname="/billing", sessions=10),)),
+            # Measure every candidate live, so these tests exercise the estimate-based fallback rather
+            # than the earlier measured-dead drop, which would remove the event before it is reached.
+            patch(
+                f"{_MODULE}._measured_events",
+                side_effect=lambda team, names: [_CandidateEvent(name=n, sessions=100) for n in names],
+            ),
             patch(_GENERATE_PATH, return_value=generate),
             patch(f"{_MODULE}.estimate_scanner_session_volume", side_effect=estimate),
         ):
@@ -1538,6 +1544,37 @@ class TestDraftV2(_VisionAPITestCase):
         assert draft.query is not None
         assert [e["id"] for e in draft.query["events"]] == ["billing_limit_set"]
         assert draft.estimated_monthly_observations == 0
+
+    def test_a_measured_dead_event_is_dropped_before_it_can_zero_the_scan(self):
+        # billing_limit_set is a real definition, so grounding's definition-lookup fallback would
+        # re-admit it even after it leaves the briefing. Measured at zero sessions it is dead, and one
+        # dead event ANDs the whole scan to nothing, so it must not reach the query. The page comes
+        # from live traffic, so it survives and narrows on its own.
+        EventDefinition.objects.create(team=self.team, name="billing_limit_set", last_seen_at=timezone.now())
+
+        with (
+            patch(f"{_MODULE}.fetch_visited_paths", return_value=(VisitedPath(pathname="/billing", sessions=10),)),
+            patch(f"{_MODULE}._measured_events", return_value=[_CandidateEvent(name="billing_limit_set", sessions=0)]),
+            patch(
+                _GENERATE_PATH,
+                return_value=_draft_v2(filter_pages=["/billing"], filter_events=["billing_limit_set"]),
+            ),
+            patch(
+                f"{_MODULE}.estimate_scanner_session_volume",
+                return_value=ScannerVolumeEstimate(matched_sessions=300, effective_window_days=30),
+            ),
+        ):
+            draft = draft_scanner_from_goal_v2(
+                team=self.team,
+                user=self.user,
+                goal="find out where people give up in billing",
+                monthly_credit_budget=10_000,
+                user_access_control=_access_control(allow=True),
+            )
+
+        assert draft.query is not None
+        assert "events" not in draft.query
+        assert draft.query["properties"][0]["key"] == "visited_page"
 
     def test_the_experiment_the_goal_named_is_carried_as_targeting_and_counted(self):
         # The whole point of the targeting: the projection has to count that experiment's

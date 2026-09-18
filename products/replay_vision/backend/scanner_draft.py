@@ -11,7 +11,7 @@ re-validates everything on save.
 
 import re
 import uuid
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
 from dataclasses import dataclass, replace
 from typing import Any, Literal, cast
 
@@ -686,7 +686,9 @@ def _event_names_by_lower(team_id: int, candidates: Sequence[str]) -> dict[str, 
         return {}
 
 
-def _grounded_events(proposed: list[str], allowed: Sequence[str], cap: int, team_id: int | None) -> list[str]:
+def _grounded_events(
+    proposed: list[str], allowed: Sequence[str], cap: int, team_id: int | None, excluded: Collection[str] = ()
+) -> list[str]:
     """The proposed event filters worth keeping: verbatim members of the briefing list, plus
     proposals that are real events on the team by exact (case-insensitive) name.
 
@@ -694,9 +696,15 @@ def _grounded_events(proposed: list[str], allowed: Sequence[str], cap: int, team
     sample missed and the model copies it faithfully. List membership alone would drop it and
     silently widen the scan. The definition lookup keeps `_grounded`'s anti-hallucination property,
     because an invented name matches no definition and still drops. Kept names come back in the
-    team's canonical casing, which is what the recordings query has to match."""
+    team's canonical casing, which is what the recordings query has to match.
+
+    `excluded` names are measured-dead events (0 sessions in the volume window). They drop before
+    both paths, so the definition lookup cannot re-admit one whose only liveness signal is a
+    non-null `last_seen_at` from long ago. Events AND with the rest of the filter, so one dead event
+    takes the whole scan to zero."""
     allowed_set = set(allowed)
-    cleaned = list(dict.fromkeys(v for raw in proposed if (v := raw.strip())))
+    excluded_lower = {e.lower() for e in excluded}
+    cleaned = list(dict.fromkeys(v for raw in proposed if (v := raw.strip()) and v.lower() not in excluded_lower))
     unknown = [v for v in cleaned if v not in allowed_set]
     canonical = _event_names_by_lower(team_id, unknown) if unknown and team_id is not None else {}
     kept = (
@@ -1655,6 +1663,7 @@ def _finalize_v2(
     allowed_pages: Sequence[str],
     allowed_events: Sequence[str],
     team_id: int,
+    excluded_events: Collection[str] = (),
     allowed_surveys: Sequence[_MatchedSurvey] = (),
     allowed_actions: Sequence[_MatchedAction] = (),
     allowed_cohorts: Sequence[_MatchedCohort] = (),
@@ -1678,7 +1687,7 @@ def _finalize_v2(
     # a definition-lookup match, because the briefing's events list is a sample and the goal can
     # name a real event the sample missed.
     pages = _grounded(proposed_pages, allowed_pages, _MAX_FILTER_PAGES)
-    events = _grounded_events(proposed_events, allowed_events, _MAX_V2_FILTER_EVENTS, team_id)
+    events = _grounded_events(proposed_events, allowed_events, _MAX_V2_FILTER_EVENTS, team_id, excluded=excluded_events)
 
     # Always exclude internal and test users: a scanner defaults to real-user sessions unless the
     # creator says otherwise (the recordings step can toggle it back on). No-op for a team that has
@@ -1807,7 +1816,13 @@ def draft_scanner_from_goal_v2(
         events = list(dict.fromkeys([*_SURVEY_EVENTS, *events]))
     # Measured here, not in `_events_for_goal`: that lookup is a name search, and only a session
     # count tells the model which of the matching names is worth filtering on.
-    candidates = _measured_events(team, events)
+    measured = _measured_events(team, events)
+    # A measured-zero event fired in no session in the window, so a filter on it (events AND with the
+    # rest) would take the whole scan to zero. Drop it from the briefing like a dead action, and carry
+    # its name so grounding's definition-lookup fallback cannot re-admit it. sessions=None is an
+    # unmeasured event, not a dead one, so it stays available.
+    dead_events = {c.name for c in measured if c.sessions == 0}
+    candidates = [c for c in measured if c.sessions != 0]
     user_content = _build_user_content_v2(
         goal,
         candidates,
@@ -1832,6 +1847,7 @@ def draft_scanner_from_goal_v2(
         cast(_LlmDraftV2, parsed),
         allowed_pages=[p.pathname for p in pages],
         allowed_events=[c.name for c in candidates],
+        excluded_events=dead_events,
         team_id=team.id,
         allowed_surveys=matches.surveys,
         allowed_actions=matches.actions,
