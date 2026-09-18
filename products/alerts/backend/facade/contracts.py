@@ -84,7 +84,7 @@ class SourceEvaluationInputs:
 
 
 @frozen
-class WIPAlertCheck:
+class PlatformAlertCheck:
     """One configuration and its runtime state, as a source adapter reads it.
 
     Flat rather than nested, because a source never holds the rows and has nothing to do with
@@ -117,7 +117,7 @@ class WIPAlertCheck:
 
 
 @frozen
-class WIPAlertUpsert:
+class PlatformAlertUpsert:
     """One configuration a source wants copied into the shared tables."""
 
     legacy_configuration_id: UUID
@@ -138,13 +138,16 @@ class WIPAlertUpsert:
 
 
 @frozen
-class WIPAlertOutcome:
+class PlatformAlertOutcome:
     """What one check decided. The platform turns this into rows."""
 
     configuration_id: UUID
     new_state: str
     notified: bool
     consecutive_failures: int
+    # Recording an outcome without it leaves a configuration discovery keeps handing back to an
+    # evaluation that cannot succeed.
+    disable: bool = False
 
 
 @frozen
@@ -167,6 +170,28 @@ class AlertDeliveryPreview:
     evaluation_key: str
     destination_names: tuple[str, ...]
     transitions: tuple[GroupTransition, ...]
+
+
+@frozen
+class SourceBatchEvaluation:
+    """What one batch decided, before any of it is written.
+
+    Evaluation returns this and the write runs as its own activity, so Temporal has the
+    deliveries in history before anything can advance a schedule past them.
+    """
+
+    outcomes: tuple[PlatformAlertOutcome, ...]
+    previews: tuple[AlertDeliveryPreview, ...]
+    # Pairs the payload bound left out. They keep their due time and a later tick re-evaluates
+    # them, the way a truncated cohort already behaves.
+    omitted: int = 0
+
+
+@frozen
+class SourceOutcomeInputs:
+    team_id: int
+    cutoff: str
+    outcomes: tuple[PlatformAlertOutcome, ...]
 
 
 @frozen

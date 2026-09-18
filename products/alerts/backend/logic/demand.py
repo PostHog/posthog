@@ -3,7 +3,7 @@ import datetime as dt
 from django.db.models import Q
 
 from products.alerts.backend.facade.contracts import AlertBatchKey, AlertDemand, SourceKind
-from products.alerts.backend.models import WIPAlertConfiguration
+from products.alerts.backend.models import PlatformAlertConfiguration
 
 # Keys per source in one manifest. A key is a team id and a minute, so unlike an id list it does not
 # grow with a team's alert count, and this bound is about how many distinct chunks one tick starts.
@@ -28,7 +28,7 @@ def discover_demand(cutoff: str, limit_per_source: int = DISCOVERY_LIMIT_PER_SOU
     # once per team. Oldest due first, so a key the bound leaves out grows more overdue and wins a
     # later tick; any stable ordering that is not by due time starves the same keys every tick.
     due = (
-        WIPAlertConfiguration.objects.unscoped()
+        PlatformAlertConfiguration.objects.unscoped()
         .filter(Q(enabled=True) & (Q(next_check_at__lte=cutoff_time) | Q(next_check_at__isnull=True)))
         .order_by("next_check_at", "id")
         .values_list("source_kind", "team_id", "next_check_at")

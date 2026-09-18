@@ -53,7 +53,7 @@ from products.alerts.backend.facade.temporal import (
     AlertsProductTelemetryInterceptor,
 )
 from products.alerts.backend.logic import demand
-from products.alerts.backend.models import WIPAlertConfiguration
+from products.alerts.backend.models import PlatformAlertConfiguration
 from products.alerts.backend.temporal import postgres
 from products.alerts.backend.temporal.workflows import (
     AlertsProductEvaluateWorkflow,
@@ -430,11 +430,11 @@ async def test_probe_workflow_cancellation_does_not_start_delivery() -> None:
 class TestDemandDiscovery(APIBaseTest):
     def _configuration(self, *, minutes_ago: int | None, enabled: bool = True, name: str = "alert"):
         with team_scope(self.team.id):
-            return WIPAlertConfiguration.objects.create(
+            return PlatformAlertConfiguration.objects.create(
                 team=self.team,
                 name=name,
                 enabled=enabled,
-                source_kind=WIPAlertConfiguration.SourceKind.LOGS,
+                source_kind=PlatformAlertConfiguration.SourceKind.LOGS,
                 source_config={},
                 threshold_count=1,
                 threshold_operator="above",

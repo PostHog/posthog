@@ -369,8 +369,8 @@ rules:
                               |Subscription
                               |SubscriptionContext
                               |SubscriptionDelivery
-                              |WIPAlert
-                              |WIPAlertConfiguration
+                              |PlatformAlert
+                              |PlatformAlertConfiguration
                               |Survey
                               |SurveyResponseArchive
                               |TableCertification
@@ -783,8 +783,8 @@ rules:
                         |Subscription
                         |SubscriptionContext
                         |SubscriptionDelivery
-                        |WIPAlert
-                        |WIPAlertConfiguration
+                        |PlatformAlert
+                        |PlatformAlertConfiguration
                         |Survey
                         |SurveyResponseArchive
                         |TableCertification

@@ -5,11 +5,16 @@ product's own tables are never touched: the production logs fleet evaluates the 
 against `LogsAlertConfiguration` on its own queue, so the two stacks keep separate state and
 neither can notify on the other's behalf. Delivery stops at a recorded preview.
 
+This reads and decides; it writes nothing. The platform records the batch in its own activity,
+after Temporal has the deliveries this returned, so an attempt that dies mid-flight costs its
+queries and nothing else.
+
 Cohorting and query execution reuse the production helpers, so an evaluation says what the
 logs stack would have said given the same configuration. The lifecycle decision comes from
 the shared machine configured with this source's policy, not from the logs product.
 """
 
+import time
 from collections.abc import Sequence
 from datetime import datetime, timedelta
 from itertools import batched
@@ -21,9 +26,10 @@ from posthog.models import Team
 from products.alerts.backend.facade.contracts import (
     AlertDeliveryPreview,
     GroupTransition,
+    PlatformAlertCheck,
+    PlatformAlertOutcome,
+    SourceBatchEvaluation,
     SourceKind,
-    WIPAlertCheck,
-    WIPAlertOutcome,
 )
 from products.alerts.backend.facade.destinations import list_active_alert_destinations
 from products.alerts.backend.facade.lifecycle import (
@@ -34,7 +40,15 @@ from products.alerts.backend.facade.lifecycle import (
     NotificationAction,
     evaluate_alert_check,
 )
-from products.alerts.backend.facade.wip_alerts import due_checks, record_outcomes
+from products.alerts.backend.facade.platform_alerts import due_checks
+from products.alerts.backend.facade.platform_metrics import (
+    increment_checks,
+    increment_deliveries_deferred,
+    increment_state_transition,
+    record_batch_duration,
+    record_scheduler_lag,
+    safe_record,
+)
 from products.logs.backend.alert_check_query import (
     BatchedAlertCheckQuery,
     BucketedCount,
@@ -54,7 +68,8 @@ from products.logs.backend.temporal.constants import MAX_ALERT_COHORT_SIZE
 logger = structlog.get_logger(__name__)
 
 # A fleet-wide burst would otherwise return one activity payload over Temporal's ~2 MiB limit,
-# which fails the whole batch rather than truncating it.
+# which fails the whole batch rather than truncating it. The bound drops an outcome along with
+# the preview it belongs to, so a breach this batch cannot announce keeps its due time.
 MAX_PREVIEWS_PER_CYCLE = 500
 
 # Cohorts run one after another in a single activity, so the batch caps how many it evaluates
@@ -70,7 +85,7 @@ _NOTIFICATION_EVENT_KINDS: dict[NotificationAction, EventKind] = {
 }
 
 
-def _cohort_key(check: WIPAlertCheck, checkpoint: datetime | None, now: datetime) -> tuple:
+def _cohort_key(check: PlatformAlertCheck, checkpoint: datetime | None, now: datetime) -> tuple:
     return (
         check.window_minutes,
         check.evaluation_periods,
@@ -80,7 +95,7 @@ def _cohort_key(check: WIPAlertCheck, checkpoint: datetime | None, now: datetime
     )
 
 
-def _is_in_quiet_hours(check: WIPAlertCheck, team: Team, now: datetime) -> bool:
+def _is_in_quiet_hours(check: PlatformAlertCheck, team: Team, now: datetime) -> bool:
     """True when the alert's schedule restriction blocks a check at `now`."""
     if not check.schedule_restriction:
         return False
@@ -98,7 +113,7 @@ def _is_in_quiet_hours(check: WIPAlertCheck, team: Team, now: datetime) -> bool:
         return False
 
 
-def _snapshot(check: WIPAlertCheck, prior_breached: tuple[bool, ...]) -> AlertSnapshot:
+def _snapshot(check: PlatformAlertCheck, prior_breached: tuple[bool, ...]) -> AlertSnapshot:
     return AlertSnapshot(
         state=AlertState(check.state),
         cooldown=timedelta(minutes=check.cooldown_minutes),
@@ -112,8 +127,8 @@ def _snapshot(check: WIPAlertCheck, prior_breached: tuple[bool, ...]) -> AlertSn
 
 
 def _evaluate_one(
-    check: WIPAlertCheck, buckets: list[BucketedCount], *, window_end: datetime, now: datetime
-) -> tuple[WIPAlertOutcome, AlertDeliveryPreview | None]:
+    check: PlatformAlertCheck, buckets: list[BucketedCount], *, window_end: datetime, now: datetime
+) -> tuple[PlatformAlertOutcome, AlertDeliveryPreview | None]:
     current_breached, *prior_windows_breached = _derive_breaches(
         buckets, check.threshold_count, check.threshold_operator, check.evaluation_periods
     ) or (False,)
@@ -126,12 +141,26 @@ def _evaluate_one(
         now,
         policy=LOGS_ALERT_POLICY,
     )
-    recorded = WIPAlertOutcome(
+    recorded = PlatformAlertOutcome(
         configuration_id=check.id,
         new_state=outcome.new_state.value,
         notified=outcome.update_last_notified_at,
         consecutive_failures=outcome.consecutive_failures,
+        disable=outcome.disable,
     )
+    safe_record("checks_total", increment_checks, SourceKind.LOGS.value, outcome.notification.value)
+    if check.state != outcome.new_state.value:
+        safe_record(
+            "state_transitions_total",
+            increment_state_transition,
+            SourceKind.LOGS.value,
+            check.state,
+            outcome.new_state.value,
+        )
+    if check.next_check_at is not None:
+        lag_ms = int((now - check.next_check_at).total_seconds() * 1000)
+        if lag_ms > 0:
+            safe_record("scheduler_lag_ms", record_scheduler_lag, SourceKind.LOGS.value, lag_ms)
     if outcome.notification == NotificationAction.NONE:
         return recorded, None
 
@@ -154,8 +183,8 @@ def _evaluate_one(
 
 
 def _evaluate_cohort(
-    team: Team, checks: Sequence[WIPAlertCheck], key: tuple, *, now: datetime, preview_budget: int
-) -> tuple[list[WIPAlertOutcome], list[AlertDeliveryPreview]]:
+    team: Team, checks: Sequence[PlatformAlertCheck], key: tuple, *, now: datetime
+) -> list[tuple[PlatformAlertOutcome, AlertDeliveryPreview | None]]:
     window_minutes, evaluation_periods, cadence_minutes, projection_eligible, date_to = key
     lookback = rolling_check_lookback_minutes(window_minutes, cadence_minutes, evaluation_periods)
 
@@ -176,44 +205,41 @@ def _evaluate_cohort(
             cohort_size=len(checks),
             error=str(error),
         )
-        return [], []
+        return []
 
-    outcomes: list[WIPAlertOutcome] = []
-    previews: list[AlertDeliveryPreview] = []
+    decided: list[tuple[PlatformAlertOutcome, AlertDeliveryPreview | None]] = []
     for check in checks:
         try:
-            outcome, preview = _evaluate_one(
-                check, result.per_alert.get(str(check.id), []), window_end=date_to, now=now
-            )
+            decided.append(_evaluate_one(check, result.per_alert.get(str(check.id), []), window_end=date_to, now=now))
         except Exception as error:
             logger.exception("Failed to evaluate a logs alert; skipping it", check_id=str(check.id), error=str(error))
-            continue
-        outcomes.append(outcome)
-        if preview is not None and len(previews) < preview_budget:
-            previews.append(preview)
-    return outcomes, previews
+    return decided
 
 
-def evaluate_logs_batch(team_id: int, slot: str, cutoff: datetime) -> tuple[AlertDeliveryPreview, ...]:
+def evaluate_logs_batch(team_id: int, slot: str, cutoff: datetime) -> SourceBatchEvaluation:
     """Evaluates one batch key: a team's alerts due in one minute, against the tick's cutoff.
 
     The dispatcher passes the key rather than a list of ids, so the set is read here and is the
     fresher one. `cutoff` is the tick occasion, not the clock, so a retried attempt evaluates
     the same alerts against the same windows and derives the same evaluation keys.
+
+    Writes nothing, which is what lets an attempt be retried: the alerts stay due, so the second
+    attempt reads the same batch and reaches the same decisions.
     """
+    started_at = time.monotonic()
     checks = due_checks(team_id, SourceKind.LOGS.value, slot, cutoff)
     # Production excludes a structurally broken filter before evaluating, so including one
     # would record a transition production would never record.
     checks = tuple(c for c in checks if _detect_broken_filter_config(c.source_config) is None)
     if not checks:
-        return ()
+        return SourceBatchEvaluation(outcomes=(), previews=())
 
     team = Team.objects.filter(id=team_id).first()
     if team is None:
-        return ()
+        return SourceBatchEvaluation(outcomes=(), previews=())
     checks = tuple(c for c in checks if not _is_in_quiet_hours(c, team, cutoff))
     if not checks:
-        return ()
+        return SourceBatchEvaluation(outcomes=(), previews=())
 
     # One checkpoint for the pass, matching the production discovery activity. A failure falls
     # back to wall-clock rather than ending the batch.
@@ -223,7 +249,7 @@ def evaluate_logs_batch(team_id: int, slot: str, cutoff: datetime) -> tuple[Aler
         logger.exception("Failed to fetch logs ingestion checkpoint; falling back to wall-clock", error=str(error))
         checkpoint = None
 
-    cohorts: dict[tuple, list[WIPAlertCheck]] = {}
+    cohorts: dict[tuple, list[PlatformAlertCheck]] = {}
     for check in checks:
         cohorts.setdefault(_cohort_key(check, checkpoint, cutoff), []).append(check)
 
@@ -234,17 +260,34 @@ def evaluate_logs_batch(team_id: int, slot: str, cutoff: datetime) -> tuple[Aler
             evaluated=MAX_COHORTS_PER_CYCLE,
         )
 
-    outcomes: list[WIPAlertOutcome] = []
+    outcomes: list[PlatformAlertOutcome] = []
     previews: list[AlertDeliveryPreview] = []
+    omitted = 0
     for key, cohort in list(cohorts.items())[:MAX_COHORTS_PER_CYCLE]:
         # Capped the way the production cohort query requires: one batched query carries one
         # countIf column per alert, so an uncapped cohort is an unbounded query.
         for chunk in batched(cohort, MAX_ALERT_COHORT_SIZE, strict=False):
-            chunk_outcomes, chunk_previews = _evaluate_cohort(
-                team, list(chunk), key, now=cutoff, preview_budget=MAX_PREVIEWS_PER_CYCLE - len(previews)
-            )
-            outcomes.extend(chunk_outcomes)
-            previews.extend(chunk_previews)
+            for outcome, preview in _evaluate_cohort(team, list(chunk), key, now=cutoff):
+                if preview is not None and len(previews) >= MAX_PREVIEWS_PER_CYCLE:
+                    omitted += 1
+                    continue
+                outcomes.append(outcome)
+                if preview is not None:
+                    previews.append(preview)
 
-    record_outcomes(team_id, outcomes, cutoff, team_timezone=team.timezone)
-    return tuple(previews[:MAX_PREVIEWS_PER_CYCLE])
+    if omitted:
+        logger.warning(
+            "Deferred logs alert deliveries over the batch payload bound",
+            team_id=team_id,
+            slot=slot,
+            delivered=len(previews),
+            deferred=omitted,
+        )
+        safe_record("deliveries_deferred_total", increment_deliveries_deferred, SourceKind.LOGS.value, omitted)
+    safe_record(
+        "batch_duration_ms",
+        record_batch_duration,
+        SourceKind.LOGS.value,
+        int((time.monotonic() - started_at) * 1000),
+    )
+    return SourceBatchEvaluation(outcomes=tuple(outcomes), previews=tuple(previews), omitted=omitted)
