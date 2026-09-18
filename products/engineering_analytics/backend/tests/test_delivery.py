@@ -620,10 +620,43 @@ class TestDeliveryReadsOnWarehouse(_WarehouseMixin):
         assert reopened.started_at == _dt(_ago(4))
         assert reopened.segments != []
 
+    def test_an_earlier_ready_event_still_wins_when_the_latest_is_after_the_close(self) -> None:
+        # PR 33 went ready, back to draft, then ready again; the events and pull-requests tables sync
+        # apart, so its last ready event lands after its own row's close. Picking the unbounded latest
+        # ready event and discarding it wholesale on an out-of-bounds read would lose the earlier,
+        # still-valid one and overstate the review timeline from created_at instead.
+        closed_at = _ago(2)
+        self._create_table(
+            "github_pull_requests",
+            PULL_REQUESTS_COLUMNS,
+            [_pr_row(33, "alice", "closed", 0, _ago(6), closed_at=closed_at)],
+        )
+        self._create_table(
+            "github_issue_events",
+            ISSUE_EVENTS_COLUMNS,
+            [
+                _issue_event_row(1, "ready_for_review", 33, _ago(5)),
+                _issue_event_row(2, "convert_to_draft", 33, _ago(4)),
+                _issue_event_row(3, "ready_for_review", 33, _ago(1)),
+            ],
+        )
+        self._create_table("github_workflow_runs", WORKFLOW_RUNS_COLUMNS, [])
+        curated = CuratedGitHubSource.for_team(self.team)
+        scope = DeliveryScope(
+            kind=DeliveryScopeKind.PULL_REQUEST, pr_number=33, repo_owner="PostHog", repo_name="posthog"
+        )
+
+        timelines = query_pull_request_timelines(
+            curated=curated, scope=scope, date_from=datetime.now(tz=UTC) - timedelta(days=7), date_to=None
+        )
+
+        reopened = next(item for item in timelines.items if item.number == 33)
+        assert reopened.started_at == _dt(_ago(5))
+
     def test_a_never_ready_pr_starts_at_its_own_created_at(self) -> None:
-        # PR 32 has an issue event, but never a ready_for_review one. ready_by_pr_cte's per-pr
-        # aggregate must read as "no ready event" here, not fall back to ClickHouse's zero-value
-        # DateTime default, which would read as truthy and pin the timeline to run_from instead.
+        # PR 32 has an issue event, but never a ready_for_review one. The bounded ready-at read must
+        # come back empty here, not fall back to ClickHouse's zero-value DateTime default, which would
+        # read as truthy and pin the timeline to run_from instead.
         created_at = _ago(6)
         self._create_table(
             "github_pull_requests",

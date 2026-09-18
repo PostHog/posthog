@@ -42,6 +42,7 @@ from products.engineering_analytics.backend.logic.queries._workflow_filters impo
     run_windowed_job_created_floor_constant,
 )
 from products.engineering_analytics.backend.logic.queries.pr_cost import query_pr_costs
+from products.engineering_analytics.backend.logic.views import issue_events
 
 _LIMIT = 200
 
@@ -64,10 +65,18 @@ _PRS_SELECT = f"""
 """
 
 _READY_AT_SELECT = f"""
-    WITH __READY_BY_PR__
-    SELECT pr_number, last_ready_at
-    FROM ready_by_pr
-    WHERE pr_number IN {{pr_numbers}} AND last_ready_at IS NOT NULL
+    SELECT
+        pr.number AS pr_number,
+        maxOrNullIf(
+            se.created_at,
+            se.event = '{issue_events.READY_FOR_REVIEW_EVENT}'
+                AND se.created_at <= coalesce(pr.merged_at, pr.closed_at, now())
+        ) AS last_ready_at
+    FROM __PR_SOURCE__ AS pr
+    JOIN __ISSUE_EVENTS_SOURCE__ AS se ON se.pr_number = pr.number
+    WHERE pr.number IN {{pr_numbers}}
+    GROUP BY pr.number
+    HAVING last_ready_at IS NOT NULL
     LIMIT {UNPAGED_SCAN_LIMIT}
 """
 
@@ -289,11 +298,16 @@ class PullRequestTimelinesQuery:
     def _query_ready_at(self, pr_numbers: list[int], run_from: datetime) -> dict[int, datetime]:
         # A timeline never starts before run_from, so an older ready event cannot move its start. The
         # floor keeps the scan from parsing the whole append-growing events history.
-        ready_by_pr = self._curated.ready_by_pr_cte(created_floor=True)
-        if ready_by_pr is None:
+        # Bounded to each PR's own end (not ready_by_pr_cte's unbounded latest event): the events and
+        # pull-requests tables sync apart, so a reopened PR's newest ready event can land after its own
+        # row's close. Picking the unbounded latest and discarding it wholesale on an out-of-bounds read
+        # would lose an earlier, still-valid ready event; bounding the aggregation itself keeps it.
+        pr_source = self._curated.pr_source()
+        events_source = self._curated.issue_events_source(created_floor=True)
+        if events_source is None:
             return {}
         response = self._curated.run(
-            _READY_AT_SELECT.replace("__READY_BY_PR__", ready_by_pr),
+            _READY_AT_SELECT.replace("__PR_SOURCE__", pr_source).replace("__ISSUE_EVENTS_SOURCE__", events_source),
             query_type="engineering_analytics.pull_request_timelines_ready_at",
             placeholders={
                 "pr_numbers": ast.Constant(value=pr_numbers),
