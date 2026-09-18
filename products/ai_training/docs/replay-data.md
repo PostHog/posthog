@@ -34,17 +34,29 @@ There is no separate consent model, DynamoDB consent entry, consent timestamp, o
 ## Keys and batch processing
 
 The independent DynamoDB table stores session keys, team image keys, deletion markers, and monthly key indexes.
+A team image key is wrapped by KMS.
+A session key is sealed under the team image key of its month, so KMS holds one key per team per month, not one key per session.
+A session key stored before this change carries its own KMS blob, and every reader opens both shapes.
+HKDF-SHA256 makes the key that seals session keys from the stored team image key, which still seals image data itself.
+The `recording_blob_ingestion_v2_ml_key_scheme_total` metric counts session keys by scheme and leaves team image keys out, so v2 reaches zero when no session key predates v3.
 ML outputs omit distinct IDs, including their hashes and pseudonyms.
 The metadata consumer projects supported fields before storage, including for messages already in Kafka.
 A session has one data key.
 A team has one image key per session start month.
-KMS wraps each data key with an encryption context that binds the team, the session or month, and the purpose.
+KMS wraps each key it holds with an encryption context that binds the team, the session or month, and the purpose.
+A sealed session key authenticates the same context.
 A team can change organization while a session is open, so the organization is not part of that context; keys wrapped before this change carry the organization they were wrapped under on their row, and the mirror unwraps them under it.
 Payload encryption uses XSalsa20-Poly1305.
 The authenticated payload also binds the dataset kind and, for images, the object or reference being encrypted.
 The envelope seals the raw payload with AES-256-GCM.
 Its additional authenticated data is the JSON of `{"v": 3, "context": ...}` with sorted keys and no whitespace, so every reader rebuilds the same bytes.
 The envelope is JSON with `v`, `context`, `nonce` (12 bytes, base64) and `ciphertext` (the sealed bytes followed by the 16-byte tag, base64).
+A sealed session key row carries `sealed_key` and `key_nonce`, and carries no `wrapped_key`.
+HKDF-SHA256 makes its 32-byte wrapping key from the stored team image key, with an empty salt and the info string `ml-session-key-wrap`.
+AES-256-GCM then seals the session key under that wrapping key.
+`key_nonce` holds the 12-byte nonce, and `sealed_key` holds the sealed bytes followed by the 16-byte tag.
+Its additional authenticated data is the JSON of `{"purpose": "ai-research-session", "team_id": ..., "session_id": ...}` with sorted keys and no whitespace, so every reader rebuilds the same bytes.
+The `seal` block in `nodejs/src/ingestion/pipelines/sessionreplay/ml-mirror/keys/encryption-vector.json` pins one seal, so a reader in another language can check its own bytes.
 
 Ingestion processes key state in batches:
 
@@ -66,8 +78,10 @@ A team block row is held once a read finds one, because nothing clears a block. 
 A tombstone is held, because a shred only ever sets one and a conditional put cannot overwrite a row that exists, so a deleted session stops costing a read and a refused write on every batch.
 A session key deleted out of band stays usable in a process that already read it, until that entry expires.
 `ROW_CACHE_LIFETIME_MS` therefore sets how soon ingestion observes a session deletion.
+A sealed session key keeps that same bound, because its seal lives on the session row and nothing else holds it.
+The team image key stays cached far longer, but it opens no session on its own.
 A team image key is one row per team per month, so it is held far longer than a session key: it survives eviction, and a short lifetime only buys re-reads.
-Data written under such a key stays unreadable, because the envelope stores no wrapped key and the stored row is a tombstone.
+Data written under such a key stays unreadable, because the envelope stores no key, and the stored row is a tombstone with no wrapped key, no seal, and no nonce.
 Training readers do not use this cache.
 Each process limits KMS concurrency and request rate; deployment capacity must account for the sum across replicas.
 Readers check live state before each batch and permit key use for at most five minutes from the start of that read.
@@ -76,7 +90,7 @@ An expired read must obtain permission again.
 The key table has no TTL or point-in-time recovery.
 Its resource policy denies backups, exports, and enabling continuous backups or Kinesis copies.
 Do not copy wrapped keys into object storage, logs, workflow payloads, or another persistent cache.
-Restoring a deleted wrapped key would defeat deletion.
+A restored key defeats deletion, whether KMS wrapped it or a team image key sealed it.
 
 ## Deletion
 
@@ -91,11 +105,11 @@ Consent changes do not enqueue deletion requests.
 The outbox survives removal of the source team or organization.
 Its team IDs refer to the original environment, without resolving a child environment to its parent.
 
-| Scope   | Effect                                                                              |
-| ------- | ----------------------------------------------------------------------------------- |
-| Session | Remove its wrapped key and permanently block that session ID.                       |
-| Person  | Resolve its session IDs through replay, then apply session deletion to each result. |
-| Team    | Permanently block the team and remove its session and image keys.                   |
+| Scope   | Effect                                                                                   |
+| ------- | ---------------------------------------------------------------------------------------- |
+| Session | Remove its wrapped key, its seal, and its nonce, then permanently block that session ID. |
+| Person  | Resolve its session IDs through replay, then apply session deletion to each result.      |
+| Team    | Permanently block the team and remove its session and image keys.                        |
 
 The person lookup matches any available replay row for the requested IDs, then deduplicates and paginates sessions.
 It does not filter out recordings marked deleted or past their replay retention date while their index rows remain.

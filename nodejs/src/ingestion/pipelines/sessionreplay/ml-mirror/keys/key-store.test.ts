@@ -158,7 +158,8 @@ describe('ML session key batches', () => {
     it('deduplicates repeated sessions and stores only keys and month indexes', async () => {
         const identities = Array.from({ length: 120 }, () => ({ ...session }))
         const batch = await store.prepare(identities)
-        expect(generated).toBe(2)
+        // KMS makes the team month key. The lane makes each session key locally and seals it under that key.
+        expect(generated).toBe(1)
         await batch.commit()
         expect(boundary.items.size).toBe(4)
         expect(Math.max(...boundary.readSizes)).toBeLessThanOrEqual(100)
@@ -184,8 +185,8 @@ describe('ML session key batches', () => {
             expect(boundary.items.has(tableKeyString(monthKeyIndexId({ ...session }, location)))).toBe(true)
             // Two index rows and two keys. A retry that re-sent the whole batch would store an index row twice.
             expect(boundary.writes).toBe(4)
-            // One batch write, one retry carrying the single deferred row, and a put for each key.
-            expect(boundary.writeRequests).toBe(4)
+            // Each phase makes one batch write, the retry carries the deferred row, and each key takes one put.
+            expect(boundary.writeRequests).toBe(5)
         }
     })
 
@@ -202,8 +203,9 @@ describe('ML session key batches', () => {
         // 60 session keys and one team image key. Each is one conditional put, and their 61 index entries pack into
         // three batches of at most 25, so 122 requests become 64.
         expect(boundary.writes).toBe(122)
-        expect(boundary.writeRequests).toBe(64)
-        expect([...boundary.writeBatchSizes].sort((a, b) => b - a)).toEqual([25, 25, 11])
+        // The team month key commits before the keys it seals, so that phase adds one request.
+        expect(boundary.writeRequests).toBe(65)
+        expect([...boundary.writeBatchSizes].sort((a, b) => b - a)).toEqual([25, 25, 10, 1])
     })
 
     it('reads every row a batch needs in one pass', async () => {
@@ -236,6 +238,8 @@ describe('ML session key batches', () => {
         const keys = await reader.read(identities.map((identity) => sessionKeyId(identity.teamId, identity.sessionId)))
         expect(keys.size).toBe(identities.length)
         expect(boundary.conditionalFailures).toBe(0)
+        // These 120 sessions share one team month, so KMS made one key.
+        expect(generated).toBe(1)
     })
 
     it.each([
@@ -468,12 +472,14 @@ describe('ML session key batches', () => {
         const generates = kmsSend.mock.calls
             .map(([command]) => command)
             .filter((c) => c instanceof GenerateDataKeyCommand)
-        expect(generates).toHaveLength(2)
+        expect(generates).toHaveLength(1)
         for (const command of generates) {
             expect(command.input.EncryptionContext).not.toHaveProperty('organization_id')
         }
         const stored = boundary.items.get(tableKeyString(sessionKeyId(session.teamId, session.sessionId)))!
         expect(stored).not.toHaveProperty('organization_id')
+        expect(stored).toHaveProperty('sealed_key')
+        expect(stored).not.toHaveProperty('wrapped_key')
     })
 
     it('unwraps a key stored under the organization it was wrapped with', async () => {
@@ -529,15 +535,23 @@ describe('ML session key batches', () => {
     })
 
     it.each([
-        ['session', () => sessionKeyId(session.teamId, session.sessionId)],
-        ['monthly image', () => imageKeyId(session.teamId, '2025-09')],
+        // A session key opens under its month key only, so an unusable month key makes its sessions unusable too.
+        ['session', () => sessionKeyId(session.teamId, session.sessionId), [['wrapped_key_missing', 1]]],
+        [
+            'monthly image',
+            () => imageKeyId(session.teamId, '2025-09'),
+            [
+                ['month_key_unavailable', 1],
+                ['wrapped_key_missing', 1],
+            ],
+        ],
     ])(
-        'drops the sessions behind a stored %s key that has no wrapped key and no tombstone, reporting it once',
-        async (_kind, keyId) => {
+        'drops the sessions behind a stored %s key that has no wrapped key and no tombstone, naming why',
+        async (_kind, keyId, reported) => {
             const first = await store.prepare([session])
             await first.commit()
             const location = tableKeyString(keyId())
-            const { wrapped_key: _wrapped, ...stored } = boundary.items.get(location)!
+            const { wrapped_key: _wrapped, sealed_key: _sealed, ...stored } = boundary.items.get(location)!
             boundary.items.set(location, stored)
             coldCache()
             const unusable = jest.spyOn(MlMirrorMetrics, 'incrementMlKeyIdentityMismatch')
@@ -545,10 +559,128 @@ describe('ML session key batches', () => {
             expect(next.get(session.teamId, session.sessionId)).toBeUndefined()
             await next.commit()
             expect(boundary.items.get(location)).toEqual(stored)
-            expect(unusable).toHaveBeenCalledTimes(1)
-            expect(unusable).toHaveBeenCalledWith('wrapped_key_missing', 1)
+            expect(unusable.mock.calls.sort()).toEqual(reported)
         }
     )
+
+    it('leaves the team month key out of the scheme counter, so v2 can reach zero', async () => {
+        const scheme = jest.spyOn(MlMirrorMetrics, 'incrementMlKeyScheme')
+        await (await store.prepare([session])).commit()
+        coldCache()
+        await store.prepare([session])
+        expect(scheme.mock.calls.map(([value]) => value)).toEqual(['v3'])
+    })
+
+    it('counts a session key that KMS wrapped as v2', async () => {
+        const sessionKey = await encryption.generate({ teamId: session.teamId, sessionId: session.sessionId })
+        const location = sessionKeyId(session.teamId, session.sessionId)
+        boundary.items.set(tableKeyString(location), {
+            ...encodeKey(location),
+            wrapped_key: { B: sessionKey.wrapped },
+            team_id: { N: String(session.teamId) },
+            session_month: { S: '2025-09' },
+        })
+        const scheme = jest.spyOn(MlMirrorMetrics, 'incrementMlKeyScheme')
+        await store.prepare([session])
+        expect(scheme.mock.calls.map(([value]) => value)).toEqual(['v2'])
+    })
+
+    it('drops the sessions of a month key that lost its put to a tombstone, and still commits', async () => {
+        const batch = await store.prepare([session])
+        const monthLocation = imageKeyId(session.teamId, '2025-09')
+        boundary.items.set(tableKeyString(monthLocation), { ...encodeKey(monthLocation), deleted: { BOOL: true } })
+        await expect(batch.commit()).resolves.toBeUndefined()
+        expect(batch.get(session.teamId, session.sessionId)).toBeUndefined()
+        expect(boundary.items.has(tableKeyString(sessionKeyId(session.teamId, session.sessionId)))).toBe(false)
+    })
+
+    it('leaves the team month key out of the reader scheme counter, so v2 can reach zero', async () => {
+        await (await store.prepare([session])).commit()
+        coldCache()
+        const scheme = jest.spyOn(MlMirrorMetrics, 'incrementMlKeyScheme')
+        await reader.read([imageKeyId(session.teamId, '2025-09')])
+        expect(scheme).not.toHaveBeenCalled()
+        await reader.read([sessionKeyId(session.teamId, session.sessionId)])
+        expect(scheme.mock.calls.map(([value]) => value)).toEqual(['v3'])
+    })
+
+    it('drops the sessions of a month key that KMS refuses, and still serves the rest of the batch', async () => {
+        const other = { ...session, sessionId: '01994569-4380-7000-8000-00000000000a' }
+        await (await store.prepare([session, other])).commit()
+        coldCache()
+        const monthLocation = tableKeyString(imageKeyId(session.teamId, '2025-09'))
+        const stored = boundary.items.get(monthLocation)!
+        boundary.items.set(monthLocation, { ...stored, wrapped_key: { B: Buffer.from('not-a-kms-blob') } })
+        const legacy = sessionKeyId(other.teamId, '01994569-4380-7000-8000-00000000000b')
+        const legacyKey = await encryption.generate({
+            teamId: other.teamId,
+            sessionId: legacy.sk.slice('session:'.length),
+        })
+        boundary.items.set(tableKeyString(legacy), {
+            ...encodeKey(legacy),
+            wrapped_key: { B: legacyKey.wrapped },
+            team_id: { N: String(other.teamId) },
+            session_month: { S: '2025-09' },
+        })
+        const mismatch = jest.spyOn(MlMirrorMetrics, 'incrementMlKeyIdentityMismatch')
+        const keys = await reader.read([
+            sessionKeyId(session.teamId, session.sessionId),
+            sessionKeyId(other.teamId, other.sessionId),
+            legacy,
+        ])
+        expect(keys.has(tableKeyString(sessionKeyId(session.teamId, session.sessionId)))).toBe(false)
+        expect(keys.has(tableKeyString(sessionKeyId(other.teamId, other.sessionId)))).toBe(false)
+        expect(keys.has(tableKeyString(legacy))).toBe(true)
+        // One refused month key counts once, however many sessions needed it, so the writer and the reader mean the same thing.
+        expect(mismatch.mock.calls).toEqual([['month_key_unavailable', 1]])
+    })
+
+    it('counts no month key failure for a blocked team, so the metric stays a corruption signal', async () => {
+        await (await store.prepare([session])).commit()
+        const block = teamBlockId(session.teamId)
+        boundary.items.set(tableKeyString(block), { ...encodeKey(block), deleted: { BOOL: true } })
+        coldCache()
+        const mismatch = jest.spyOn(MlMirrorMetrics, 'incrementMlKeyIdentityMismatch')
+        expect((await reader.read([sessionKeyId(session.teamId, session.sessionId)])).size).toBe(0)
+        expect(mismatch).not.toHaveBeenCalled()
+    })
+
+    it('fails the read when KMS throttles a month key, so the caller retries instead of dropping', async () => {
+        await (await store.prepare([session])).commit()
+        coldCache()
+        encryption.clear()
+        kmsSend.mockImplementation(() => Promise.reject(transientError('ThrottlingException')))
+        await expect(reader.read([sessionKeyId(session.teamId, session.sessionId)])).rejects.toThrow(
+            'ThrottlingException'
+        )
+    })
+
+    it('counts an unusable row once however often the batch re-reads it', async () => {
+        await (await store.prepare([session])).commit()
+        const location = tableKeyString(sessionKeyId(session.teamId, session.sessionId))
+        const { sealed_key: _sealed, ...stripped } = boundary.items.get(location)!
+        boundary.items.set(location, stripped)
+        coldCache()
+        const mismatch = jest.spyOn(MlMirrorMetrics, 'incrementMlKeyIdentityMismatch')
+        const batch = await store.prepare([session])
+        await batch.read()
+        await batch.read()
+        expect(mismatch.mock.calls).toEqual([['wrapped_key_missing', 1]])
+    })
+
+    it('drops a session whose seal does not open, and still serves the rest of the batch', async () => {
+        const other = { ...session, sessionId: '01994569-4380-7000-8000-000000000009' }
+        await (await store.prepare([session, other])).commit()
+        const location = sessionKeyId(session.teamId, session.sessionId)
+        const stored = boundary.items.get(tableKeyString(location))!
+        boundary.items.set(tableKeyString(location), { ...stored, sealed_key: { B: Buffer.alloc(48, 9) } })
+        coldCache()
+        const mismatch = jest.spyOn(MlMirrorMetrics, 'incrementMlKeyIdentityMismatch')
+        const next = await store.prepare([session, other])
+        expect(next.get(session.teamId, session.sessionId)).toBeUndefined()
+        expect(next.get(other.teamId, other.sessionId)).not.toBeUndefined()
+        expect(mismatch).toHaveBeenCalledWith('seal_unopenable', 1)
+    })
 
     it('adopts a competing writer key when the refusal omits the stored row', async () => {
         const send = boundary.send.bind(boundary)
@@ -715,7 +847,7 @@ describe('ML session key batches', () => {
         expect(keys.session.plaintext).toEqual(original.session.plaintext)
         expect(keys.image.plaintext).toEqual(original.image.plaintext)
         expect((await reader.read([sessionKeyId(session.teamId, session.sessionId)])).size).toBe(1)
-        expect(generated).toBe(2)
+        expect(generated).toBe(1)
         // Only the team block row, because it decides whether the batch may mint new keys and is never cached.
         expect(keysRead).toBe(1)
     })
@@ -737,7 +869,7 @@ describe('ML session key batches', () => {
         for (let index = 0; index < 20; index++) {
             await controller.defer(input, (value) => {
                 expect(
-                    boundary.items.get(tableKeyString(sessionKeyId(identity.teamId, identity.sessionId)))?.wrapped_key
+                    boundary.items.get(tableKeyString(sessionKeyId(identity.teamId, identity.sessionId)))?.sealed_key
                 ).not.toBeUndefined()
                 started += 1
                 return Promise.resolve(ok(value, [delivery]))
