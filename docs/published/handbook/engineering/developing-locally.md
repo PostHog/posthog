@@ -7,6 +7,52 @@ showTitle: true
 > ❗️ This guide is intended only for development of PostHog itself. If you're looking to deploy PostHog
 > for your product analytics needs, go to [Self-host PostHog](https://posthog.com/docs/self-host).
 
+## Browser terminal experiment
+
+Open `/project/<project-id>/terminal` and select **Start Linux** to boot a Linux VM in your browser.
+The terminal uses xterm.js and v86, with a 9P filesystem that connects Linux file operations to the existing authenticated PostHog APIs.
+The first start downloads a checksum-verified Linux image from `i.copy.sh` and pinned firmware from the v86 GitHub repository.
+The VM receives no session cookies or API keys and has no network connection.
+
+Your project tree appears under `/posthog/files`.
+Markdown notebooks have a `.md` extension, and saving an existing markdown file updates the notebook with optimistic version checks.
+Other objects appear as read-only `.json` files; notebooks, insights, dashboards, and feature flags expose their API representations, while other types expose their filesystem records.
+`/posthog/api` provides the same JSON representations grouped by type and ID.
+Extensions only affect this filesystem view, not names stored in PostHog.
+
+```sh
+cd /posthog/files
+ls --color=auto
+find . -name '*.md'
+grep -r 'revenue' .
+cat '/posthog/files/Research/Notes.md'
+vi '/posthog/files/Research/Notes.md'
+```
+
+The guest includes BusyBox tools, `vi`, `joe`, `less`, `tree`, and Lua.
+Pipes, redirection, completion, terminal colors, Ctrl+C, and scrollback use the real shell and terminal.
+Midnight Commander is not included in this image.
+Directories are a snapshot from startup; restart the terminal to discover newly created or renamed objects.
+Contents are fetched when a file opens, with a 4 MiB limit per file.
+
+Notebook writes commit on `fsync` or close.
+A rejected save returns an I/O error, shows a browser error banner, and preserves the edit under `/posthog/recovery`.
+Check that banner after saving: some programs do not check errors returned from `close`.
+Creating, deleting, moving, and replacing PostHog files are unsupported.
+For editors that save by renaming temporary files, edit a copy in `/tmp`, then use `cat /tmp/edited.md > '/posthog/files/Research/Notes.md'`.
+Local Linux files and recovery copies disappear when you stop the VM or leave the page.
+
+Browser agents can send input to the same terminal and read its recent output:
+
+```js
+window.posthogTerminal.write('find /posthog/files -name "*.md"\n')
+window.posthogTerminal.read()
+```
+
+This interface exists while the terminal is ready and is removed when it stops.
+`read()` returns the latest one million characters, including ANSI escape sequences.
+Commands run asynchronously; poll for the shell prompt or a marker printed by your command.
+
 ## What does PostHog look like on the inside?
 
 Before jumping into setup, let's dissect a PostHog.
