@@ -1,3 +1,5 @@
+from typing import Protocol, cast
+
 from rest_framework.exceptions import ValidationError
 
 from posthog.schema import AggregationType, EntityType, RetentionQuery
@@ -7,10 +9,27 @@ from posthog.hogql.database.models import DateDatabaseField, DateTimeDatabaseFie
 
 from posthog.hogql_queries.utils.breakdowns import has_breakdown_filter
 from posthog.hogql_queries.utils.data_warehouse_schema_mixin import resolve_warehouse_field
+from posthog.hogql_queries.utils.query_date_range import QueryDateRangeWithIntervals
 from posthog.hogql_queries.validation.validation import QueryValidationContext
 
 # Well above the 32 intervals the insight editor allows, so only a hand-written query reaches it.
 MAX_RETENTION_INTERVALS = 100
+
+# One cohort row per interval the date range spans. Well above an all-time daily chart on a project that
+# has collected events for years, which is the widest shape a saved insight reaches.
+MAX_RETENTION_COHORTS = 10_000
+
+# Both axes at their own limit would still be a million cells, and a breakdown repeats the whole matrix once
+# per breakdown value, so the product carries the limit that decides how much memory one query can take.
+MAX_RETENTION_CELLS = 100_000
+
+
+class SupportsRetentionMatrixSize(Protocol):
+    @property
+    def query_date_range(self) -> QueryDateRangeWithIntervals: ...
+
+    @property
+    def lookahead_period_count(self) -> int: ...
 
 
 class DisallowCumulativeWith24HourWindows:
@@ -150,15 +169,17 @@ class DisallowPropertyAggregationWith24HourWindows:
 
 class DisallowExcessiveIntervals:
     """The result matrix has one cell for each pair of a start interval and a return interval, and the query
-    builds every cell in Python, so its cost is quadratic in the interval count. The request controls that
-    count through `totalIntervals` or through the custom brackets, which lets one query allocate for millions
-    of cells before any result reaches the user."""
+    builds every cell in Python, so its cost is the product of the two axes. The request sets each axis on its
+    own: the columns through `totalIntervals` or the custom brackets, the rows through the number of intervals
+    the date range spans, which is why a limit on one axis alone still leaves a query that allocates for
+    millions of cells. The row count also sizes the `date_range` array that ClickHouse builds for every
+    actor."""
 
     code = "retention_too_many_intervals"
 
     def validate(self, context: QueryValidationContext[RetentionQuery]) -> None:
         retention_filter = context.query.retentionFilter
-        requested = retention_filter.totalIntervals or 0
+        requested: float = retention_filter.totalIntervals or 0
         brackets = retention_filter.retentionCustomBrackets
         if brackets:
             requested = max(requested, len(brackets), sum(brackets))
@@ -166,5 +187,22 @@ class DisallowExcessiveIntervals:
             raise ValidationError(
                 f"Retention supports up to {MAX_RETENTION_INTERVALS} intervals. "
                 "Ask for fewer intervals, or use a longer period.",
+                code=self.code,
+            )
+
+        runner = cast(SupportsRetentionMatrixSize, context.runner)
+        cohorts = runner.query_date_range.intervals_between
+        if cohorts > MAX_RETENTION_COHORTS:
+            raise ValidationError(
+                f"Retention supports up to {MAX_RETENTION_COHORTS:,} cohorts. "
+                "Shorten the date range, or use a longer period.",
+                code=self.code,
+            )
+
+        cells = cohorts * runner.lookahead_period_count
+        if cells > MAX_RETENTION_CELLS:
+            raise ValidationError(
+                f"Retention supports up to {MAX_RETENTION_CELLS:,} cells, and this query asks for {cells:,}. "
+                "Shorten the date range, or ask for fewer intervals.",
                 code=self.code,
             )
