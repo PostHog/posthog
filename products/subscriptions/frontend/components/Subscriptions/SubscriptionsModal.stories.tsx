@@ -1,8 +1,6 @@
 import { MOCK_DEFAULT_ORGANIZATION } from 'lib/api.mock'
 
 import { Meta, StoryObj } from '@storybook/react'
-import { within } from '@testing-library/react'
-import userEvent from '@testing-library/user-event'
 import { useRef, useState } from 'react'
 
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -18,6 +16,7 @@ import { SubscriptionsModal, SubscriptionsModalProps } from './SubscriptionsModa
 
 type StoryArgs = SubscriptionsModalProps & {
     formScenario?: 'default' | 'ai-summary-limit' | 'free-tier-limit' | 'long-ai-prompt'
+    openAsModal?: boolean
 }
 
 const DASHBOARD = {
@@ -200,13 +199,13 @@ const meta: Meta<StoryArgs> = {
         },
     },
     render: (args) => {
-        const { formScenario = 'default', ...props } = args
+        const { formScenario = 'default', openAsModal = false, ...props } = args
         const aiSummaryAtLimit = formScenario === 'ai-summary-limit'
         const freeTierSubscriptionCount = formScenario === 'free-tier-limit' ? 5 : undefined
         const insightShortIdRef = useRef(props.insightShortId || (uuid() as InsightShortId))
         // Dashboard-context stories must not also pass an insight, or the modal renders the insight flow.
         const insightShortId = props.dashboard ? undefined : insightShortIdRef.current
-        const [modalOpen, setModalOpen] = useState(false)
+        const [modalOpen, setModalOpen] = useState(openAsModal)
         const contextualSubscriptions: SubscriptionType[] = props.dashboard
             ? DASHBOARD_SUBSCRIPTIONS
             : INSIGHT_SUBSCRIPTIONS
@@ -304,14 +303,10 @@ export const LongAiPrompt: Story = {
         ...AI_PROMPT_PARAMETERS,
         pageUrl: '/subscriptions/21/edit',
         testOptions: {
-            snapshotTargetSelector: 'body',
             viewport: { width: 1032, height: 900 },
         },
     },
-    args: { subscriptionId: 21, formScenario: 'long-ai-prompt' },
-    play: async ({ canvasElement }) => {
-        await userEvent.click(await within(canvasElement).findByText('Open as Modal'))
-    },
+    args: { subscriptionId: 21, formScenario: 'long-ai-prompt', openAsModal: true },
 }
 
 // Tabbed overview, dashboard context: This dashboard / Insights / AI prompt reports tabs.
