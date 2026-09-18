@@ -147,8 +147,6 @@ export const AGENT_USE_CASE_SCOPES = [
     'user_interview:write',
     'visual_review:read',
     'visual_review:write',
-    'warehouse_objects:read',
-    'warehouse_objects:write',
     'warehouse_table:read',
     'warehouse_table:write',
     'warehouse_view:read',

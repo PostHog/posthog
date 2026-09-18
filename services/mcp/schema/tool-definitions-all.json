@@ -3144,7 +3144,7 @@
         "feature": "data_quality",
         "summary": "Create a data quality check",
         "title": "Create a data quality check",
-        "required_scopes": ["warehouse_objects:write", "data_catalog:write", "query:read"],
+        "required_scopes": ["query:read"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -3159,7 +3159,7 @@
         "feature": "data_quality",
         "summary": "Delete a data quality check",
         "title": "Delete a data quality check",
-        "required_scopes": ["warehouse_objects:write", "data_catalog:write", "query:read"],
+        "required_scopes": ["query:read"],
         "annotations": {
             "destructiveHint": true,
             "idempotentHint": true,
@@ -3174,7 +3174,7 @@
         "feature": "data_quality",
         "summary": "Recent results of a data quality check",
         "title": "Recent results of a data quality check",
-        "required_scopes": ["warehouse_objects:read", "data_catalog:read", "query:read"],
+        "required_scopes": ["query:read"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -3189,7 +3189,7 @@
         "feature": "data_quality",
         "summary": "Run a data quality check",
         "title": "Run a data quality check",
-        "required_scopes": ["warehouse_objects:write", "data_catalog:write", "query:read"],
+        "required_scopes": ["query:read"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": false,
@@ -3204,7 +3204,7 @@
         "feature": "data_quality",
         "summary": "Change when a metric's data quality checks run",
         "title": "Change when a metric's data quality checks run",
-        "required_scopes": ["warehouse_objects:write", "data_catalog:write", "query:read"],
+        "required_scopes": ["query:read"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -3219,7 +3219,7 @@
         "feature": "data_quality",
         "summary": "List data quality check types",
         "title": "List data quality check types",
-        "required_scopes": ["warehouse_objects:read", "query:read"],
+        "required_scopes": ["query:read"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -3234,7 +3234,7 @@
         "feature": "data_quality",
         "summary": "Update a data quality check",
         "title": "Update a data quality check",
-        "required_scopes": ["warehouse_objects:write", "data_catalog:write", "query:read"],
+        "required_scopes": ["query:read"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -3244,12 +3244,12 @@
         "feature_flag": "data-quality-checks"
     },
     "data-quality-subjects": {
-        "description": "Every table, view and metric in this project you can put a check on, with each one's columns. Start here: a check names its subject by the subject_type and id this returns.",
+        "description": "Every table, view and metric in this project you can read, with each one's columns and whether you can put a check on it. Start here: a check names its subject by the subject_type and id this returns, and a relationships check can point at a subject you can only read.",
         "category": "Data quality",
         "feature": "data_quality",
         "summary": "List what a data quality check can be authored on",
         "title": "List what a data quality check can be authored on",
-        "required_scopes": ["warehouse_objects:write", "data_catalog:write", "query:read"],
+        "required_scopes": ["query:read"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,

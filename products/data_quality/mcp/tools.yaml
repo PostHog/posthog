@@ -13,8 +13,6 @@ tools:
         operation: data_quality_checks_create
         enabled: true
         scopes:
-            - warehouse_objects:write
-            - data_catalog:write
             - query:read
         annotations:
             readOnly: false
@@ -52,8 +50,6 @@ tools:
         operation: data_quality_checks_destroy
         enabled: true
         scopes:
-            - warehouse_objects:write
-            - data_catalog:write
             - query:read
         annotations:
             readOnly: false
@@ -68,8 +64,6 @@ tools:
         operation: data_quality_checks_runs_list
         enabled: true
         scopes:
-            - warehouse_objects:read
-            - data_catalog:read
             - query:read
         annotations:
             readOnly: true
@@ -84,8 +78,6 @@ tools:
         operation: data_quality_checks_run_create
         enabled: true
         scopes:
-            - warehouse_objects:write
-            - data_catalog:write
             - query:read
         annotations:
             readOnly: false
@@ -100,8 +92,6 @@ tools:
         operation: data_quality_checks_schedule_partial_update
         enabled: true
         scopes:
-            - warehouse_objects:write
-            - data_catalog:write
             - query:read
         annotations:
             readOnly: false
@@ -123,7 +113,6 @@ tools:
         operation: data_quality_checks_check_types_list
         enabled: true
         scopes:
-            - warehouse_objects:read
             - query:read
         annotations:
             readOnly: true
@@ -138,8 +127,6 @@ tools:
         operation: data_quality_checks_partial_update
         enabled: true
         scopes:
-            - warehouse_objects:write
-            - data_catalog:write
             - query:read
         annotations:
             readOnly: false
@@ -190,8 +177,6 @@ tools:
         operation: data_quality_checks_subjects_list
         enabled: true
         scopes:
-            - warehouse_objects:write
-            - data_catalog:write
             - query:read
         annotations:
             readOnly: true

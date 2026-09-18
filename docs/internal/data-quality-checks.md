@@ -27,7 +27,7 @@ All routes below also require `query:read`. Write scopes include read access; re
 
 The per-kind `warehouse_table` and `warehouse_view` scopes do not reach these routes: one route spans both kinds, so it answers to the family scope. A token may select only the subject kinds its scopes permit. An unnamed manual sweep skips inaccessible checks; an explicitly selected inaccessible check is rejected. Cross-subject references must also fall within the caller's permitted subject types.
 
-The table above applies to the REST routes only. A raw HogQL query against `system.information_schema.data_quality_*` needs `query:read` and no other scope. The user's own permissions still apply to each row. A token with `query:read` reads metric checks only if its user has catalog access.
+The table above applies to the REST routes only. The MCP tools declare `query:read` alone, because a tool's scope list must be met in full and the two subject families are authorized independently; a token with no subject family is refused by the route. A raw HogQL query against `system.information_schema.data_quality_*` needs `query:read` and no other scope. The user's own permissions still apply to each row. A token with `query:read` reads metric checks only if its user has catalog access.
 
 ## Custom SQL
 
