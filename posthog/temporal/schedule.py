@@ -127,6 +127,7 @@ from products.replay_vision.backend.temporal.reconciler import create_replay_vis
 from products.replay_vision.backend.temporal.search_suggestions import create_replay_vision_search_suggestions_schedule
 from products.replay_vision.backend.temporal.vision_alerts.schedule import create_vision_alert_check_schedule
 from products.review_hog.backend.temporal.outcomes_schedule import create_review_hog_finding_outcomes_schedule
+from products.security.backend.facade.temporal import create_sync_access_rules_schedule
 from products.signals.backend.emission.conversations_schedule import create_conversations_signals_coordinator_schedule
 from products.signals.backend.temporal.agentic.schedule import (
     create_scout_suggestions_coordinator_schedule,
@@ -956,6 +957,7 @@ schedules = [
     create_ci_signals_coordinator_schedule,
     create_cleanup_data_quality_check_runs_schedule,
     create_reconcile_metric_schedules_schedule,
+    create_sync_access_rules_schedule,
 ]
 
 # AI observability summarization and clustering call the cloud-only guard in
