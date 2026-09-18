@@ -10,6 +10,8 @@ from posthog.test.base import (
     snapshot_clickhouse_queries,
 )
 
+from parameterized import parameterized
+
 from posthog.schema import (
     CompareFilter,
     DateRange,
@@ -531,7 +533,25 @@ class TestWebGoalsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
 
 class TestSelectGoalActions(APIBaseTest):
-    def test_action_whose_filter_does_not_compile_is_skipped(self):
+    @parameterized.expand(
+        [
+            ("unparseable hogql filter", [{"key": "1 person_id", "type": "hogql"}]),
+            (
+                "behavioral filter",
+                [
+                    {
+                        "type": "behavioral",
+                        "key": "signed_up",
+                        "value": "performed_event",
+                        "event_type": "events",
+                        "time_value": 30,
+                        "time_interval": "day",
+                    }
+                ],
+            ),
+        ]
+    )
+    def test_action_whose_filter_does_not_compile_is_skipped(self, _name, properties):
         Action.objects.create(
             team=self.team,
             name="Works",
@@ -539,8 +559,8 @@ class TestSelectGoalActions(APIBaseTest):
         )
         Action.objects.create(
             team=self.team,
-            name="Broken HogQL filter",
-            steps_json=[{"event": "$pageview", "properties": [{"key": "1 person_id", "type": "hogql"}]}],
+            name="Does not compile",
+            steps_json=[{"event": "$pageview", "properties": properties}],
         )
 
         assert [action.name for action, _ in select_goal_actions(self.team)] == ["Works"]
