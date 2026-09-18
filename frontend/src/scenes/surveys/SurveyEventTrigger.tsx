@@ -256,9 +256,10 @@ export function SurveyEventTrigger(): JSX.Element {
     return (
         <div className="space-y-2">
             <LemonBanner type="info" dismissKey="survey-event-trigger-client-side-only">
-                Events must be captured in the user's browser or app by a PostHog SDK to trigger a survey. Events sent
-                from your backend (for example posthog-node, Python, or a server-side integration) can't trigger
-                surveys, since eligibility is evaluated on the client.{' '}
+                Only events captured in the user's browser or app can trigger a survey. Events that you send from your
+                backend, such as posthog-node or posthog-python, never reach the browser, so they do not fire a trigger.
+                To show a survey after a backend event, set a person property on that event and target that property
+                instead.{' '}
                 <Link to="https://posthog.com/docs/surveys/troubleshooting" target="_blank">
                     Learn more
                 </Link>
