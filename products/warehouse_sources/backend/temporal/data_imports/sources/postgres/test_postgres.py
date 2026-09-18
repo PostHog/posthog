@@ -432,6 +432,10 @@ class TestPostgresSourceNonRetryableErrors:
             'could not translate host name "bad-hostname.example.com" to address: Name or service not known',
             'FATAL:  password authentication failed for user "myuser"',
             'FATAL: no such database "nonexistent_db"',
+            # A connection pooler (e.g. PgBouncer) rejects a username it doesn't recognize.
+            # Distinct from "password authentication failed for user", which means the username
+            # exists but the password is wrong.
+            'connection failed: connection to server at "10.0.0.1", port 6543 failed: FATAL:  no such user',
             "Name or service not known",
             "OperationalError: [Errno -5] No address associated with hostname",
             "BaseSSHTunnelForwarderError: Could not establish session to SSH gateway",

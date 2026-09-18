@@ -648,6 +648,17 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                 "dashboard for this branch's connection settings, then re-enable the sync."
             ),
             "FATAL: no such database": None,
+            # A connection pooler (e.g. PgBouncer) rejects the connection because the configured
+            # username isn't in its own user list — distinct from Postgres's own
+            # "password authentication failed for user", which means the username exists but the
+            # password is wrong. Deterministic until the customer fixes the pooler username, so
+            # retrying just re-hits it. Match without "FATAL:" since the driver pads the severity
+            # with a variable number of spaces.
+            "no such user": (
+                "Your database connection pooler rejected the connection because it doesn't "
+                'recognize the configured username ("no such user"). Check the username for this '
+                "source against your pooler's configuration, then re-enable the sync."
+            ),
             # A relation or column the sync reads was dropped or renamed on the source, so the
             # streaming query fails with SQLSTATE 42P01 ("relation ... does not exist") or 42703
             # ("column ... does not exist"). The stored schema/query is fixed until the customer
