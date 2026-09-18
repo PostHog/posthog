@@ -2,6 +2,7 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { MCP_TOOL_CALL_EVENT } from 'lib/components/TaxonomicFilter/utils/mcpProperties'
 
 import { DataTableNode, HogQLFilters, NodeKind } from '~/queries/schema/schema-general'
+import { AnyPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
 
 export const MCP_ACTIVITY_DATA_COLLECTION_ID = 'mcp-analytics-activity'
 export const MCP_ACTIVITY_PAGE_SIZE = 100
@@ -66,4 +67,24 @@ export function buildRecentToolCallsQuery(filters: HogQLFilters): DataTableNode 
         showPropertyFilter: false,
         showReload: false,
     }
+}
+
+// Matches both encodings the backend counts as failures (see MCP_ERROR_VALUES in ToolCallFeed).
+const FAILED_CALLS_FILTER: AnyPropertyFilter = {
+    key: '$mcp_is_error',
+    value: ['true', '1'],
+    operator: PropertyOperator.Exact,
+    type: PropertyFilterType.Event,
+}
+
+/** The feed narrowed to failed calls, keeping any other filter the user already applied. */
+export function withFailedCallsOnly(query: DataTableNode): DataTableNode {
+    if (query.source.kind !== NodeKind.EventsQuery) {
+        return query
+    }
+    const otherFilters = (query.source.properties ?? []).filter(
+        (filter) =>
+            !(filter.type === FAILED_CALLS_FILTER.type && 'key' in filter && filter.key === FAILED_CALLS_FILTER.key)
+    )
+    return { ...query, source: { ...query.source, properties: [...otherFilters, FAILED_CALLS_FILTER] } }
 }
