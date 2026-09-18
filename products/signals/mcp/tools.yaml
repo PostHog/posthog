@@ -616,27 +616,27 @@ tools:
             than authoring a duplicate that carries the right one, or the `NO_REPO` sentinel for a report where nothing
             under version control could change. It re-runs autostart too, and omitting it leaves the report's target
             alone. A scout configured with repositories can only name one of them: any other value is refused and the
-            report keeps the target it had. A scout configured with no repositories can name any repo the team
-            reaches. The response carries `repository`, the target the report holds after the edit, read back from the
-            report — check it against what you sent, because the call fails when a correction you named did not land.
-            Prefer `append_note` over rewriting a report you didn't author (additive and audit-friendly); title/summary
-            edits are best-effort, since the pipeline may later re-research and overwrite them. Optional
-            `append_evidence` adds observations to the report's evidence rail, each becoming a bound signal that moves
-            the report's signal count and weight — use it for a new observation a reader should be able to check, and
-            `append_note` for commentary. Optional `charts` is the full set of queries the inbox renders on the report —
-            it replaces the report's charts rather than adding to them (omit it to leave them alone), so read the report
-            first when you mean to add one. Optional `metrics` is the report's complete typed impact-metric set: omit it
-            or send null to preserve the set, send an empty list to clear it, or send the complete replacement. Every
-            submitted metric requires a bounded live InsightVizNode/TrendsQuery built only from EventsNode or
-            ActionsNode sources, with no more than 1,000 estimated longitudinal points; its snapshot is only an optional
-            cached fallback. An affected-users metric uses one series with `math: dau`. Consumers derive a `BoldNumber`
-            query for each metric's whole-window `aggregated_value` and an `ActionsBar` query for its longitudinal
-            buckets; never sum affected-user buckets. NOT idempotent - a retried `append_note` appends a second note.
-            Set `supersedes_implementation` alongside a rewrite when the fix itself changed. Verified automated
-            predecessor PRs close only after the replacement completes with verified open PRs. More evidence for the
-            same fix belongs in `append_note`. Free-form notes always stay in the work log. Set `corroboration_only`
-            only for confirmations with no new information; the first four stay as entries and later confirmations raise
-            the corroboration count. Opt-in: only available to scouts that list `edit_report` in their skill's
+            report keeps the target it had. A scout configured with no repositories can name any repo the team reaches.
+            The response carries `repository`, the target the report holds after the edit, read back from the report —
+            check it against what you sent, because the call fails when a correction you named did not land. Prefer
+            `append_note` over rewriting a report you didn't author (additive and audit-friendly); title/summary edits
+            are best-effort, since the pipeline may later re-research and overwrite them. Optional `append_evidence`
+            adds observations to the report's evidence rail, each becoming a bound signal that moves the report's signal
+            count and weight — use it for a new observation a reader should be able to check, and `append_note` for
+            commentary. Optional `charts` is the full set of queries the inbox renders on the report — it replaces the
+            report's charts rather than adding to them (omit it to leave them alone), so read the report first when you
+            mean to add one. Optional `metrics` is the report's complete typed impact-metric set: omit it or send null
+            to preserve the set, send an empty list to clear it, or send the complete replacement. Every submitted
+            metric requires a bounded live InsightVizNode/TrendsQuery built only from EventsNode or ActionsNode sources,
+            with no more than 1,000 estimated longitudinal points; its snapshot is only an optional cached fallback. An
+            affected-users metric uses one series with `math: dau`. Consumers derive a `BoldNumber` query for each
+            metric's whole-window `aggregated_value` and an `ActionsBar` query for its longitudinal buckets; never sum
+            affected-user buckets. NOT idempotent - a retried `append_note` appends a second note. Set
+            `supersedes_implementation` alongside a rewrite when the fix itself changed. Verified automated predecessor
+            PRs close only after the replacement completes with verified open PRs. More evidence for the same fix
+            belongs in `append_note`. Free-form notes always stay in the work log. Set `corroboration_only` only for
+            confirmations with no new information; the first four stay as entries and later confirmations raise the
+            corroboration count. Opt-in: only available to scouts that list `edit_report` in their skill's
             `allowed_tools`.
     scout-emit-report:
         operation: signals_scout_emit_report
@@ -665,15 +665,14 @@ tools:
             name one of them: any other value is refused, and a target derived from an omitted `repository` is limited
             to the same list. A scout configured with no repositories can name any repo the team reaches. Optional
             `charts` attach queries the inbox renders inline — reference one from `summary` as
-            `[label](chart:<chart_id>)` to place it in the body, or leave it unreferenced and it renders below.
-            Optional `metrics` adds at most six typed impact measurements: one primary metric for the key observation
-            and supporting facts around it. Every metric requires a bounded
-            live InsightVizNode/TrendsQuery built only from EventsNode or ActionsNode sources, with no more than 1,000
-            estimated longitudinal points; its snapshot is only an optional cached fallback. An affected-users metric
-            counts distinct people through one series with `math: dau`. Consumers derive a `BoldNumber` query for each
-            metric's whole-window `aggregated_value` and an `ActionsBar` query for its longitudinal buckets; never sum
-            affected-user buckets. Opt-in: only available to scouts that list `emit_report` in their skill's
-            `allowed_tools`.
+            `[label](chart:<chart_id>)` to place it in the body, or leave it unreferenced and it renders below. Optional
+            `metrics` adds at most six typed impact measurements: one primary metric for the key observation and
+            supporting facts around it. Every metric requires a bounded live InsightVizNode/TrendsQuery built only from
+            EventsNode or ActionsNode sources, with no more than 1,000 estimated longitudinal points; its snapshot is
+            only an optional cached fallback. An affected-users metric counts distinct people through one series with
+            `math: dau`. Consumers derive a `BoldNumber` query for each metric's whole-window `aggregated_value` and an
+            `ActionsBar` query for its longitudinal buckets; never sum affected-user buckets. Opt-in: only available to
+            scouts that list `emit_report` in their skill's `allowed_tools`.
     scout-emit-signal:
         operation: signals_scout_emit_signal
         enabled: true
