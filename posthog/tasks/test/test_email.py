@@ -1231,6 +1231,30 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
             == f"hog_function_filters_uncompilable_{hog_function.id}_{digest}_enabled"
         )
 
+    def test_send_hog_function_filters_uncompilable_subject_survives_a_newline_in_a_name(
+        self, MockEmailMessage: MagicMock
+    ) -> None:
+        # A CR or LF in either name would make Django reject the whole email as a multiline
+        # header. The send path swallows that error, so every recipient would lose this notice.
+        mock_email_messages(MockEmailMessage)
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        self.team.name = "Production\nBcc: sneaky@example.com"
+        self.team.save()
+        hog_function = HogFunction.objects.create(
+            team=self.team, name="Broken destination\nBcc: sneaky@example.com", enabled=True
+        )
+        HogFunction.objects.filter(id=hog_function.id).update(
+            filters={"bytecode": None, "bytecode_error": "Cohort membership can't be evaluated"}
+        )
+
+        send_hog_function_filters_uncompilable(str(hog_function.id))
+
+        subject = MockEmailMessage.call_args.kwargs["subject"]
+        assert "\n" not in subject
+        assert "\r" not in subject
+        assert "Broken destination" in subject
+
     def test_send_hog_function_filters_uncompilable_sends_nothing_without_an_error(
         self, MockEmailMessage: MagicMock
     ) -> None:

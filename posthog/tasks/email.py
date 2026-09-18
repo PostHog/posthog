@@ -808,9 +808,13 @@ def send_hog_function_filters_uncompilable(hog_function_id: str) -> None:
     # error alone would dedupe that second email away.
     state = "enabled" if hog_function.enabled else "disabled"
     campaign_key: str = f"hog_function_filters_uncompilable_{hog_function_id}_{error_digest}_{state}"
+    # No urgency prefix in the subject: a bracketed one got the suspension emails filtered to junk
+    # in production. single_line because a CR or LF in a name raises BadHeaderError, which the send
+    # path swallows, so every recipient would silently lose the email.
+    destination_label = single_line(hog_function.name or "an unnamed destination")
     message = EmailMessage(
         campaign_key=campaign_key,
-        subject=f"[Action required] Destination '{hog_function.name}' in project '{team}' is not delivering events",
+        subject=f"Destination '{destination_label}' in project '{single_line(str(team))}' is not delivering events",
         template_name="hog_function_filters_uncompilable",
         template_context={"hog_function": hog_function, "team": team, "bytecode_error": bytecode_error},
     )
