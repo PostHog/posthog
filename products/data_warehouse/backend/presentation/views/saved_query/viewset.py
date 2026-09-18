@@ -28,7 +28,12 @@ from posthog.rbac.query_access import assert_user_can_read_query
 from posthog.temporal.common.client import sync_connect
 
 from products.access_control.backend.presentation.access_control import AccessControlViewSetMixin
-from products.data_modeling.backend.facade.models import DataModelingJob, DataModelingJobEngine, DataWarehouseSavedQuery
+from products.data_modeling.backend.facade.models import (
+    DataModelingJob,
+    DataModelingJobEngine,
+    DataWarehouseSavedQuery,
+    DataWarehouseSavedQueryColumnAnnotation,
+)
 from products.warehouse_sources.backend.facade.models import sync_frequency_to_sync_frequency_interval
 
 from . import editing, incremental_config, lifecycle, lineage, sync_cadence, view_state
@@ -149,11 +154,22 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
         return editing.DataWarehouseSavedQuerySerializer
 
     def safely_get_queryset(self, queryset):
+        column_free_list = self.action == "list" and not self._include_columns
+        # A column-free page renders the view-level description only, which is the annotation with
+        # an empty column name. Every other annotation row of a wide view is read for nothing.
+        annotations_prefetch: str | Prefetch = (
+            Prefetch(
+                "column_annotations",
+                queryset=DataWarehouseSavedQueryColumnAnnotation.objects.filter(column_name=""),
+            )
+            if column_free_list
+            else "column_annotations"
+        )
         base_queryset = (
             queryset.prefetch_related(
                 "created_by",
                 "managed_viewset",
-                "column_annotations",
+                annotations_prefetch,
                 Prefetch(
                     "datamodelingjob_set",
                     queryset=DataModelingJob.objects.filter(engine=DataModelingJobEngine.CLICKHOUSE).order_by(
@@ -178,8 +194,10 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
                 "query", "external_tables", "incremental_state"
             )
 
-        if self.action == "list" and not self._include_columns:
-            base_queryset = base_queryset.defer("columns")
+        if column_free_list:
+            # `column_order` feeds `hogql_fields()` alone, and `get_columns` returns before it
+            # reaches that call on this branch.
+            base_queryset = base_queryset.defer("columns", "column_order")
 
         # Detect whether we should include managed views in the queryset
         is_managed_viewset_enabled = posthoganalytics.feature_enabled(

@@ -798,7 +798,7 @@ class TestSavedQuery(APIBaseTest):
                 "query",
                 "external_tables",
                 "incremental_state",
-                *(("columns",) if not include_columns else ()),
+                *(("columns", "column_order") if not include_columns else ()),
             ):
                 self.assertNotIn(f'"{table}"."{column}"', sql)
 
@@ -2687,10 +2687,28 @@ class TestSavedQueryDescription(APIBaseTest):
         assert described[column_name] == "The order amount in cents."
 
     def test_list_includes_view_description(self):
-        self._create(name="described_view", description="Listed description.")
-        results = self.client.get(self._base()).json()["results"]
+        view = self._create(name="described_view", description="Listed description.")
+        column_name = self.client.get(f"{self._base()}{view['id']}/").json()["columns"][0]["name"]
+        annotate = self.client.post(
+            f"/api/projects/{self.team.id}/saved_query_column_annotations/",
+            {"saved_query": view["id"], "column_name": column_name, "description": "The order amount."},
+        )
+        assert annotate.status_code == 201, annotate.content
+
+        with CaptureQueriesContext(connection) as queries:
+            results = self.client.get(self._base()).json()["results"]
+
         described = {v["name"]: v.get("description") for v in results}
         assert described["described_view"] == "Listed description."
+        # A column-free page renders no per-column description, so it must read the view-level
+        # annotation alone rather than a row per column.
+        annotations = DataWarehouseSavedQueryColumnAnnotation._meta.db_table
+        annotation_selects = [q["sql"] for q in queries.captured_queries if f'FROM "{annotations}"' in q["sql"]]
+        assert annotation_selects
+        for sql in annotation_selects:
+            filters = sql.split(" WHERE ", 1)
+            assert len(filters) == 2, sql
+            assert "column_name" in filters[1], sql
 
 
 class TestSavedQueryStateComesFromTheServingRun(APIBaseTest):
