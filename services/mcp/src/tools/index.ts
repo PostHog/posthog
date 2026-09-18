@@ -28,6 +28,8 @@ import notebookAddCell from './notebooks/addCell'
 import notebookCreateMarkdown from './notebooks/createMarkdown'
 import notebookDeleteCell from './notebooks/deleteCell'
 import notebookEdit from './notebooks/edit'
+import notebookRun from './notebooks/runNotebook'
+import notebookRunStatus from './notebooks/runNotebookStatus'
 import notebookSetVariables from './notebooks/setVariables'
 import notebookUpdateCell from './notebooks/updateCell'
 // Organizations
@@ -113,6 +115,8 @@ export const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
     'notebooks-add-cell': notebookAddCell,
     'notebooks-create-markdown': notebookCreateMarkdown,
     'notebooks-delete-cell': notebookDeleteCell,
+    'notebooks-run': notebookRun,
+    'notebooks-run-status': notebookRunStatus,
     'notebooks-set-variables': notebookSetVariables,
     'notebooks-update-cell': notebookUpdateCell,
 
