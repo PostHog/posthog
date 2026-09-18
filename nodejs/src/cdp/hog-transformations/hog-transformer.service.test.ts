@@ -853,12 +853,14 @@ describe('HogTransformer', () => {
                 ? await hogTransformer.transformEvent(event, [dropEverything])
                 : await hogTransformer.transformEventAndProduceMessages(event)
 
-            if (dropped) {
-                expect(result.event).toBeNull()
-                expect(result.droppedBy?.id).toBe(dropEverything.id)
-            } else {
-                expect(result.event).toBe(event)
-                expect(result.invocationResults).toEqual([])
+            for (const result of results) {
+                if (dropped) {
+                    expect(result.event).toBeNull()
+                    expect(result.droppedBy?.id).toBe(dropEverything.id)
+                } else {
+                    expect(result.event).toBe(event)
+                    expect(result.invocationResults).toEqual([])
+                }
             }
         })
 

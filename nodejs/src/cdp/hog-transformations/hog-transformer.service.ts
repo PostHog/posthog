@@ -186,6 +186,11 @@ export class HogTransformerService implements HogTransformer {
 
         hogTransformationInvocations.inc()
 
+        if (isProtectedInternalEvent(event.event)) {
+            hogTransformationProtectedEventSkips.inc()
+            return { event, invocationResults: [] }
+        }
+
         // Early return if no transformations to run
         if (teamHogFunctions.length === 0) {
             return {

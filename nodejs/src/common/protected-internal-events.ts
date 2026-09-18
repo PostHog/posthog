@@ -1,7 +1,7 @@
 /**
  * PostHog-emitted product events that customer event filters and transformations never drop.
- * Replay Vision reads `$recording_observed` back from the events table; dropping it hides
- * observations and re-scans sessions.
+ *
+ * $recording_observed: Replay Vision reads observations from this event
  */
 export const PROTECTED_INTERNAL_EVENTS: ReadonlySet<string> = new Set(['$recording_observed'])
 
