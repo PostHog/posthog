@@ -656,6 +656,7 @@ class TestStripeNestedResourceGetRows:
         assert rows == []
         # Checkpointed after the 3rd and 6th parent; the 7th and 8th are still in flight.
         assert [call.args[0].starting_after for call in manager.save_state.call_args_list] == ["cus_2", "cus_5"]
+        assert manager.commit.call_count == 2
         # The pipeline kills this loop mid-sweep on a worker shutdown, so every checkpoint carries
         # the running fan-out size instead of leaving the attempt's only line until after the loop.
         assert [call.kwargs["rows_total"] for call in logger.info.call_args_list] == [3, 6, 8]

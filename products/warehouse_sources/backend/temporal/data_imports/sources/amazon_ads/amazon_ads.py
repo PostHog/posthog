@@ -376,6 +376,7 @@ def _report_rows(
                         report_id=report_id,
                     )
                 )
+                resumable_source_manager.commit()
 
             url = client.await_report_url(report, profile_id, report_id)
             if not url:
