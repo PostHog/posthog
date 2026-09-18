@@ -1592,7 +1592,7 @@ class MarketingAnalyticsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
         # sitting there, which reads as the apply having silently failed.
         _invalidate_setup_plan_cache(self.team.pk)
 
-        # `_update_marketing_analytics_config` in posthog/api/team.py only diffs
+        # `_update_marketing_analytics_config` in posthog/api/team/team_serializer.py only diffs
         # sources_map / attribution_window_days / attribution_mode into the team
         # activity log, so mapping and goal changes made here would otherwise leave no
         # trace at all. This is the interim record; wiring `log_activity` properly is a

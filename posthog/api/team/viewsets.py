@@ -288,17 +288,6 @@ class TeamViewSet(
         team.rotate_secret_token_and_save(user=request.user, is_impersonated_session=is_impersonated(request))
         return response.Response(team_serializer.TeamSerializer(team, context=self.get_serializer_context()).data)
 
-    @action(
-        methods=["PATCH"],
-        detail=True,
-        # Only ADMIN or higher users are allowed to access this project
-        permission_classes=[TeamMemberStrictManagementPermission],
-    )
-    def delete_secret_token_backup(self, request: request.Request, id: str, **kwargs) -> response.Response:
-        team = self.get_object()
-        team.delete_secret_token_backup_and_save(user=request.user, is_impersonated_session=is_impersonated(request))
-        return response.Response(team_serializer.TeamSerializer(team, context=self.get_serializer_context()).data)
-
     @extend_schema(request=None, responses=team_serializer.TeamSerializer)
     @action(
         methods=["PATCH"],
@@ -311,6 +300,17 @@ class TeamViewSet(
         team.rotate_heatmaps_screenshot_secret_and_save(
             user=request.user, is_impersonated_session=is_impersonated(request)
         )
+        return response.Response(team_serializer.TeamSerializer(team, context=self.get_serializer_context()).data)
+
+    @action(
+        methods=["PATCH"],
+        detail=True,
+        # Only ADMIN or higher users are allowed to access this project
+        permission_classes=[TeamMemberStrictManagementPermission],
+    )
+    def delete_secret_token_backup(self, request: request.Request, id: str, **kwargs) -> response.Response:
+        team = self.get_object()
+        team.delete_secret_token_backup_and_save(user=request.user, is_impersonated_session=is_impersonated(request))
         return response.Response(team_serializer.TeamSerializer(team, context=self.get_serializer_context()).data)
 
     @action(

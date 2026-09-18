@@ -36,7 +36,7 @@ from products.logs.backend.presentation.filter_group_validation import (
 )
 
 # Retention tiers a rule may assign. Derived from the same source as the team-wide setting in
-# `TeamSerializer` (`posthog/api/team.py`): 14 is the always-available default, and every other
+# `TeamSerializer` (`posthog/api/team/team_serializer.py`): 14 is the always-available default, and every other
 # tier must have an entitlement feature in `LOGS_RETENTION_FEATURES_BY_DAYS` (currently just 30).
 # Deriving it keeps rules in lockstep with the team-wide setting — a per-log rule can never grant a
 # tier the org couldn't set team-wide, and a new tier (e.g. 90) becomes available here the moment it
