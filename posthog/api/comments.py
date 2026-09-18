@@ -553,7 +553,10 @@ class CommentErrorSerializer(serializers.Serializer):
 
 
 class CommentPagination(pagination.CursorPagination):
-    ordering = "-created_at"
+    # `created_at` is not unique, and DRF encodes only the first ordering field in the cursor,
+    # resolving ties with an offset. That offset is reproducible only when rows sharing a
+    # timestamp come back in a stable order, which Postgres does not otherwise guarantee.
+    ordering = ("-created_at", "-id")
     page_size = 100
 
 
