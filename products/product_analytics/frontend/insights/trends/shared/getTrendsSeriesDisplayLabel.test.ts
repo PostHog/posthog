@@ -35,6 +35,12 @@ describe('getTrendsSeriesDisplayLabel', () => {
 
     it.each([
         ['the series name and breakdown value for multiple series', {}, {}, 'Signups · Chrome'],
+        [
+            'the series letter when display names collide',
+            {},
+            { seriesIdentification: 'letter-and-name' },
+            'A Signups · Chrome',
+        ],
         ['the breakdown value alone for a single-series query', {}, { isSingleSeriesDefinition: true }, 'Chrome'],
         [
             'the formula name and breakdown value for a formula row',
@@ -48,6 +54,11 @@ describe('getTrendsSeriesDisplayLabel', () => {
             breakdown_value: 'Chrome',
             ...(resultOverrides as Partial<IndexedTrendResult>),
         })
-        expect(getTrendsSeriesDisplayLabel(result, { ...BREAKDOWN_DEPS, ...depOverrides })).toBe(expected)
+        expect(
+            getTrendsSeriesDisplayLabel(result, {
+                ...BREAKDOWN_DEPS,
+                ...(depOverrides as Partial<TrendsSeriesLabelDeps>),
+            })
+        ).toBe(expected)
     })
 })
