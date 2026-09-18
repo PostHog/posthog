@@ -24925,6 +24925,25 @@
             "required": ["conversionRateInputType"],
             "type": "object"
         },
+        "ExperimentExposureNode": {
+            "additionalProperties": false,
+            "description": "Sentinel start source for retention metrics. It carries no event of its own: at query time it resolves to the experiment's exposure, so one shared metric anchors correctly on any experiment regardless of that experiment's exposure event.",
+            "properties": {
+                "kind": {
+                    "const": "ExperimentExposureNode",
+                    "type": "string"
+                },
+                "response": {
+                    "type": "object"
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
+                }
+            },
+            "required": ["kind"],
+            "type": "object"
+        },
         "ExperimentExposureQuery": {
             "additionalProperties": false,
             "properties": {
@@ -25975,7 +25994,7 @@
                     "type": "number"
                 },
                 "start_event": {
-                    "$ref": "#/definitions/ExperimentMetricSource"
+                    "$ref": "#/definitions/ExperimentRetentionStart"
                 },
                 "start_handling": {
                     "enum": ["first_seen", "last_seen"],
@@ -26021,7 +26040,7 @@
                     "$ref": "#/definitions/FunnelConversionWindowTimeUnit"
                 },
                 "start_event": {
-                    "$ref": "#/definitions/ExperimentMetricSource"
+                    "$ref": "#/definitions/ExperimentRetentionStart"
                 },
                 "start_handling": {
                     "enum": ["first_seen", "last_seen"],
@@ -26037,6 +26056,30 @@
                 "retention_window_unit",
                 "start_handling"
             ],
+            "type": "object"
+        },
+        "ExperimentRetentionStart": {
+            "$ref": "#/definitions/ExperimentRetentionStartUnion"
+        },
+        "ExperimentRetentionStartUnion": {
+            "discriminator": {
+                "propertyName": "kind"
+            },
+            "oneOf": [
+                {
+                    "$ref": "#/definitions/EventsNode"
+                },
+                {
+                    "$ref": "#/definitions/ActionsNode"
+                },
+                {
+                    "$ref": "#/definitions/ExperimentDataWarehouseNode"
+                },
+                {
+                    "$ref": "#/definitions/ExperimentExposureNode"
+                }
+            ],
+            "required": ["kind"],
             "type": "object"
         },
         "ExperimentRunningTimeCalculation": {
@@ -38070,6 +38113,7 @@
                 "ExperimentTrendsQuery",
                 "ExperimentFunnelsQuery",
                 "ExperimentDataWarehouseNode",
+                "ExperimentExposureNode",
                 "DatabaseSchemaQuery",
                 "SuggestedQuestionsQuery",
                 "TeamTaxonomyQuery",
@@ -57548,6 +57592,29 @@
         },
         "integer": {
             "type": "integer"
+        },
+        "isExperimentExposureNode": {
+            "$comment": "(node: { kind: NodeKind }) => node is ExperimentExposureNode",
+            "properties": {
+                "namedArgs": {
+                    "additionalProperties": false,
+                    "properties": {
+                        "node": {
+                            "additionalProperties": false,
+                            "properties": {
+                                "kind": {
+                                    "$ref": "#/definitions/NodeKind"
+                                }
+                            },
+                            "required": ["kind"],
+                            "type": "object"
+                        }
+                    },
+                    "required": ["node"],
+                    "type": "object"
+                }
+            },
+            "type": "object"
         },
         "isExperimentFunnelMetric": {
             "$comment": "(metric: ExperimentMetric) => metric is ExperimentFunnelMetric",
