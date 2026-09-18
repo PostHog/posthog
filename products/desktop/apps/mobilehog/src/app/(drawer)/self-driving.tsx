@@ -123,7 +123,7 @@ export default function SelfDrivingScreen() {
       <View style={[styles.header, { paddingTop: insets.top + 6 }]}>
         {showDeck ? (
           <GlassCircleButton onPress={() => setDeck([])}>
-            <Text style={styles.headerChevron}>›</Text>
+            <Text style={styles.headerGlyph}>×</Text>
           </GlassCircleButton>
         ) : (
           <GlassCircleButton onPress={() => navigation.openDrawer()}>
@@ -159,7 +159,6 @@ export default function SelfDrivingScreen() {
             { paddingBottom: insets.bottom + 100 },
           ]}
         >
-          {notice ? <Text style={styles.notice}>{notice}</Text> : null}
           <Text style={styles.sectionTitle}>
             {all.length === 0 && !reports.isLoading ? "All clear" : "Reports"}
           </Text>
@@ -188,6 +187,17 @@ export default function SelfDrivingScreen() {
           ))}
         </Animated.ScrollView>
       )}
+      {notice ? (
+        <Animated.View
+          key={notice}
+          entering={FadeInDown.duration(220)}
+          exiting={FadeOutDown.duration(180)}
+          style={[styles.toast, { bottom: insets.bottom + 124 }]}
+          pointerEvents="none"
+        >
+          <Text style={styles.notice}>{notice}</Text>
+        </Animated.View>
+      ) : null}
       {!showDeck && all.length > 0 ? (
         <Animated.View
           entering={FadeInDown.duration(260)}
@@ -225,22 +235,23 @@ const styles = StyleSheet.create({
     paddingBottom: 6,
   },
   title: { fontFamily: fonts.sansBold, fontSize: 22, color: colors.ink },
-  // A down chevron: triage sits over the list like a sheet.
-  headerChevron: {
-    fontSize: 30,
-    lineHeight: 32,
+  headerGlyph: {
+    fontSize: 26,
+    lineHeight: 28,
     color: colors.ink,
-    marginTop: -4,
-    transform: [{ rotate: "90deg" }],
+    marginTop: -2,
   },
   list: { paddingHorizontal: 18, paddingTop: 8, gap: 10 },
+  toast: { position: "absolute", left: 18, right: 18, alignItems: "center" },
   notice: {
-    fontFamily: fonts.sans,
+    fontFamily: fonts.sansMedium,
     fontSize: 14,
-    color: colors.inkSoft,
-    backgroundColor: colors.surface,
-    padding: 12,
-    borderRadius: 14,
+    color: colors.darkText,
+    backgroundColor: colors.dark,
+    paddingHorizontal: 16,
+    paddingVertical: 11,
+    borderRadius: radius.pill,
+    overflow: "hidden",
   },
   floating: {
     position: "absolute",

@@ -86,6 +86,40 @@ export function CardsIcon({ color = colors.ink }: { color?: ColorValue }) {
   );
 }
 
+// A rubbish bin: handle, lid, then the body with two slats.
+export function BinIcon({ color = colors.ink }: { color?: ColorValue }) {
+  return (
+    <View style={styles.bin}>
+      <View style={[styles.binHandle, { borderColor: color }]} />
+      <View style={[styles.binLid, { backgroundColor: color }]} />
+      <View style={[styles.binBody, { borderColor: color }]}>
+        <View style={[styles.binSlat, { backgroundColor: color }]} />
+        <View style={[styles.binSlat, { backgroundColor: color }]} />
+      </View>
+    </View>
+  );
+}
+
+// A speech bubble with a plus inside: start a new chat.
+export function NewChatIcon({ color = colors.ink }: { color?: ColorValue }) {
+  return (
+    <View style={styles.bubbleWrap}>
+      <View style={[styles.bubble, { borderColor: color }]}>
+        <View style={[styles.plusBar, { backgroundColor: color }]} />
+        <View
+          style={[
+            styles.plusBar,
+            { backgroundColor: color, transform: [{ rotate: "90deg" }] },
+          ]}
+        />
+      </View>
+      <View style={styles.bubbleTailClip}>
+        <View style={[styles.bubbleTail, { backgroundColor: color }]} />
+      </View>
+    </View>
+  );
+}
+
 export function LockIcon({ color = colors.inkSoft }: { color?: ColorValue }) {
   return (
     <View style={styles.lock}>
@@ -96,6 +130,56 @@ export function LockIcon({ color = colors.inkSoft }: { color?: ColorValue }) {
 }
 
 const styles = StyleSheet.create({
+  bubbleWrap: { width: 24, height: 24 },
+  bubble: {
+    width: 22,
+    height: 19,
+    borderWidth: 2.2,
+    borderRadius: 8,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  plusBar: { position: "absolute", width: 9, height: 2.2, borderRadius: 1 },
+  // The tail is the bottom half of a rotated square, clipped below the bubble.
+  bubbleTailClip: {
+    position: "absolute",
+    left: 4,
+    top: 17,
+    width: 10,
+    height: 6,
+    overflow: "hidden",
+  },
+  bubbleTail: {
+    position: "absolute",
+    left: 1,
+    top: -5,
+    width: 7,
+    height: 7,
+    transform: [{ rotate: "45deg" }],
+  },
+  bin: { alignItems: "center" },
+  binHandle: {
+    width: 10,
+    height: 5,
+    borderWidth: 2.5,
+    borderBottomWidth: 0,
+    borderTopLeftRadius: 3,
+    borderTopRightRadius: 3,
+  },
+  binLid: { width: 24, height: 2.5, borderRadius: 2 },
+  binBody: {
+    width: 18,
+    height: 18,
+    marginTop: 2,
+    borderWidth: 2.5,
+    borderTopWidth: 0,
+    borderBottomLeftRadius: 5,
+    borderBottomRightRadius: 5,
+    flexDirection: "row",
+    justifyContent: "space-evenly",
+    paddingTop: 2,
+  },
+  binSlat: { width: 2.5, height: 9, borderRadius: 2 },
   menu: { gap: 3.5, alignItems: "flex-start" },
   bar: { height: 2, borderRadius: 1 },
   glyph: { fontSize: 20, fontFamily: fonts.sansBold, marginTop: -1 },

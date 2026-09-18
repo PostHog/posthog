@@ -20,6 +20,7 @@ import Animated, {
 } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Glass, GlassCircleButton } from "@/components/Glass";
+import { BinIcon } from "@/components/Icons";
 import {
   CardButton,
   ReportDetail,
@@ -258,7 +259,7 @@ export function TriageDeck({
               disabled={!top}
               onPress={() => swipe(-1)}
             >
-              <Text style={styles.dismissGlyph}>×</Text>
+              <BinIcon />
             </GlassCircleButton>
             <Text style={styles.caption}>Dismiss</Text>
           </View>
@@ -338,13 +339,7 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: colors.inkMute,
   },
-  dismissGlyph: {
-    fontSize: 34,
-    lineHeight: 36,
-    color: colors.ink,
-    marginTop: -3,
-  },
-  goClip: { width: 44, height: 44, overflow: "hidden", marginTop: 4 },
+  goClip: { width: 44, height: 44, overflow: "hidden", marginTop: -6 },
   // First idle frame of the 25-frame strip, scaled to sit in the circle.
   goSprite: { width: 44 * 25, height: 44 },
 });
