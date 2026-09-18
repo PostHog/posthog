@@ -480,6 +480,12 @@ class TestEventDefinitionAPI(APIBaseTest):
         assert response.json()["count"] == 1
         assert response.json()["results"][0]["name"] == "$pageview"
 
+    def test_unknown_event_type_is_rejected(self):
+        response = self.client.get("/api/projects/@current/event_definitions/?event_type=events")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == "event_type"
+
     @patch("posthog.settings.EE_AVAILABLE", True)
     @patch("posthog.models.Organization.is_feature_available", return_value=True)
     def test_update_event_definition_with_taxonomy_entitlement(self, *mocks):
