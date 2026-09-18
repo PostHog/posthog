@@ -9,6 +9,9 @@ feature: conversations
 url_prefix: /support/tickets
 ui_apps: {}
 tools:
+    conversations-ticket-patterns-list:
+        operation: conversations_ticket_patterns_list
+        enabled: false
     conversations-tickets-ai-feedback-create:
         operation: conversations_tickets_ai_feedback_create
         enabled: false
