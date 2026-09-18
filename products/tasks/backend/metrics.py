@@ -359,6 +359,12 @@ TASK_RUN_WIZARD_UNBOUND_TOTAL = Counter(
     labelnames=["status"],
 )
 
+TURN_COMPLETED_SUPPRESSED_TOTAL = Counter(
+    "posthog_tasks_turn_completed_suppressed_total",
+    "Interactive turn completion notifications and activity updates suppressed by ingest",
+    labelnames=["reason"],
+)
+
 PUSH_DISPATCHER_FAILURES_TOTAL = Counter(
     "posthog_tasks_push_dispatcher_failures_total",
     "Push-notification dispatch attempts that failed and were swallowed by the best-effort dispatcher",
