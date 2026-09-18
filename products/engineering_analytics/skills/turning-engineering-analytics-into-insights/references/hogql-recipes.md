@@ -222,9 +222,11 @@ A saved insight then scans one extra day of job history for every day since you 
 The floor trims that scan only: the view's re-run-copy duplicate scan reads no `created_at_raw`, so keep the window as tight as the tile needs.
 
 Grain is one row per job attempt, so `sum` is correct across retries.
-`estimated_cost_usd` is NULL (skipped by `sum`) for three reasons: a job on a tier the model does not price, a job that has not finished (queued or still running), or a re-run copy that never executed (GitHub re-lists an already-passed job under a later `run_attempt`, so Depot billed nothing).
-Disambiguate a NULL by `provider` together with `os` (only Depot Linux is priced, so a github-hosted, unclassifiable, or Depot macOS / Windows tier reads NULL), `completed_at` (unsettled), or `is_rerun_copy` (never executed).
+`estimated_cost_usd` is NULL (skipped by `sum`) for three reasons: a job on a tier the model does not price, a job with no usable elapsed time, or a re-run copy that never executed (GitHub re-lists an already-passed job under a later `run_attempt`, so Depot billed nothing).
+Disambiguate a NULL by `provider` together with `os` (only Depot Linux is priced, so a github-hosted, unclassifiable, or Depot macOS / Windows tier reads NULL), `duration_seconds IS NULL` (no elapsed time), or `is_rerun_copy` (never executed).
 Read `provider` alone and a Depot macOS job looks billable, because only its `os` says otherwise.
+Elapsed time is missing mostly because the job is queued or still running, but a finished job whose `started_at` or `completed_at` did not parse reads NULL too.
+So test `duration_seconds`, not `completed_at`: an unparsable `started_at` leaves `completed_at` set, and that job then looks settled.
 Test `is_rerun_copy` first: a copy keeps the earlier attempt's timestamps, so it reads as settled on a priced tier, and only the flag explains it.
 Add `WHERE pr_number = <n>` for one PR's cost — it matches `engineering-analytics-pr-cost`, since the tool reads the same rendered cost SELECT.
 With several connected sources, filter `repo_owner` / `repo_name`.
