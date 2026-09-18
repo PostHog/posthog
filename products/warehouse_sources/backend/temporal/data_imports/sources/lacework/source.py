@@ -123,6 +123,7 @@ Your account name is the first part of your FortiCNAPP URL: `https://<account na
                 supports_incremental=LACEWORK_ENDPOINTS[endpoint].supports_incremental,
                 supports_append=LACEWORK_ENDPOINTS[endpoint].supports_append,
                 incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
+                detected_primary_keys=LACEWORK_ENDPOINTS[endpoint].primary_keys,
                 description=LACEWORK_ENDPOINTS[endpoint].description,
             )
             for endpoint in ENDPOINTS

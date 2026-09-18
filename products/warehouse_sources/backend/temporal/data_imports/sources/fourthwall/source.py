@@ -33,6 +33,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.fourthwall
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.fourthwall.settings import (
     ENDPOINTS,
+    FOURTHWALL_ENDPOINTS,
     INCREMENTAL_ENDPOINTS,
     INCREMENTAL_FIELDS,
     SCHEMA_TO_WEBHOOK_EVENTS,
@@ -115,6 +116,7 @@ class FourthwallSource(
             names,
             merge_only=INCREMENTAL_ENDPOINTS,
             supports_webhooks=WEBHOOK_SCHEMA_NAMES,
+            primary_keys={name: config.primary_key for name, config in FOURTHWALL_ENDPOINTS.items()},
         )
 
     def validate_credentials(

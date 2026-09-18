@@ -30,6 +30,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.kong_konne
     DEFAULT_REGION,
     ENDPOINTS,
     INCREMENTAL_FIELDS,
+    KONG_KONNECT_ENDPOINTS,
     REGION_BASE_URLS,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
@@ -138,6 +139,7 @@ How far back the initial sync can reach depends on your Konnect plan's Advanced 
                 incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
                 description="Detailed records for every request proxied through the gateway (Advanced Analytics). "
                 "Historical depth on initial sync is limited by your Konnect plan's data retention.",
+                detected_primary_keys=KONG_KONNECT_ENDPOINTS[endpoint].primary_keys,
             )
 
         schemas = [_build_schema(endpoint) for endpoint in ENDPOINTS]

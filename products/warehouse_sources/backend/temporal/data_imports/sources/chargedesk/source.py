@@ -13,6 +13,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.chargedesk
     validate_credentials as validate_chargedesk_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.chargedesk.settings import (
+    CHARGEDESK_ENDPOINTS,
     ENDPOINTS,
     INCREMENTAL_FIELDS,
     SHOULD_SYNC_DEFAULT,
@@ -97,7 +98,13 @@ Each company has its own secret key. Create one in your ChargeDesk account under
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names, should_sync_default=SHOULD_SYNC_DEFAULT)
+        return build_endpoint_schemas(
+            ENDPOINTS,
+            INCREMENTAL_FIELDS,
+            names,
+            should_sync_default=SHOULD_SYNC_DEFAULT,
+            primary_keys={name: config.primary_keys for name, config in CHARGEDESK_ENDPOINTS.items()},
+        )
 
     def validate_credentials(
         self,

@@ -24,6 +24,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 from products.warehouse_sources.backend.temporal.data_imports.sources.taboola.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,
+    TABOOLA_ENDPOINTS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.taboola.taboola import (
     TaboolaResumeConfig,
@@ -118,7 +119,12 @@ Backstage API credentials (client ID and secret) are issued by your Taboola acco
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+        return build_endpoint_schemas(
+            ENDPOINTS,
+            INCREMENTAL_FIELDS,
+            names,
+            primary_keys={name: config.primary_keys for name, config in TABOOLA_ENDPOINTS.items()},
+        )
 
     def validate_credentials(
         self,

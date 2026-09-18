@@ -21,6 +21,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 from products.warehouse_sources.backend.temporal.data_imports.sources.square.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,
+    SQUARE_ENDPOINTS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.square.square import (
     SquareResumeConfig,
@@ -124,6 +125,7 @@ Grant these read permissions to the token for the data you want to sync:
                 supports_incremental=len(INCREMENTAL_FIELDS.get(endpoint, [])) > 0,
                 supports_append=len(INCREMENTAL_FIELDS.get(endpoint, [])) > 0,
                 incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
+                detected_primary_keys=SQUARE_ENDPOINTS[endpoint].primary_keys,
             )
             for endpoint in ENDPOINTS
         ]

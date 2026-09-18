@@ -30,6 +30,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.rootly.roo
 from products.warehouse_sources.backend.temporal.data_imports.sources.rootly.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,
+    ROOTLY_ENDPOINTS,
     SHOULD_SYNC_DEFAULT,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
@@ -91,7 +92,13 @@ You can create an API key in your [Rootly account settings](https://rootly.com/a
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names, should_sync_default=SHOULD_SYNC_DEFAULT)
+        return build_endpoint_schemas(
+            ENDPOINTS,
+            INCREMENTAL_FIELDS,
+            names,
+            should_sync_default=SHOULD_SYNC_DEFAULT,
+            primary_keys={name: config.primary_keys for name, config in ROOTLY_ENDPOINTS.items()},
+        )
 
     def validate_credentials(
         self,

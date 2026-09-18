@@ -142,6 +142,7 @@ You can generate an API key in Checkmarx One under **Settings** → **Identity a
                 incremental_fields=endpoint_config.incremental_fields,
                 should_sync_default=endpoint_config.should_sync_default,
                 description=_description(endpoint),
+                detected_primary_keys=endpoint_config.primary_keys,
             )
 
         schemas = [_build_schema(endpoint) for endpoint in ENDPOINTS]

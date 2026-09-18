@@ -15,6 +15,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.cliniko.cl
 from products.warehouse_sources.backend.temporal.data_imports.sources.cliniko.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,
+    PRIMARY_KEY,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
@@ -64,7 +65,9 @@ class ClinikoSource(ResumableSource[ClinikoSourceConfig, ClinikoResumeConfig]):
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+        return build_endpoint_schemas(
+            ENDPOINTS, INCREMENTAL_FIELDS, names, primary_keys=dict.fromkeys(ENDPOINTS, PRIMARY_KEY)
+        )
 
     def validate_credentials(
         self,

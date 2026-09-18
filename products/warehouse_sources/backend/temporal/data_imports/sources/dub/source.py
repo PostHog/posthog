@@ -25,6 +25,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.dub.dub im
     validate_credentials as validate_dub_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.dub.settings import (
+    DUB_ENDPOINTS,
     ENDPOINTS,
     INCREMENTAL_FIELDS,
     PLAN_GATED_ENDPOINTS,
@@ -64,7 +65,12 @@ class DubSource(ResumableSource[DubSourceConfig, DubResumeConfig]):
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+        return build_endpoint_schemas(
+            ENDPOINTS,
+            INCREMENTAL_FIELDS,
+            names,
+            primary_keys={name: [config.primary_key] for name, config in DUB_ENDPOINTS.items()},
+        )
 
     def validate_credentials(
         self, config: DubSourceConfig, team_id: int, schema_name: Optional[str] = None, api_version: str | None = None

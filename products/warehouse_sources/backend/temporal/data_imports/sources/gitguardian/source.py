@@ -123,6 +123,7 @@ Workspaces on the EU instance should set the API URL to `https://api.eu1.gitguar
                 supports_append=has_incremental,
                 incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
                 should_sync_default=GITGUARDIAN_ENDPOINTS[endpoint].should_sync_default,
+                detected_primary_keys=GITGUARDIAN_ENDPOINTS[endpoint].primary_keys,
             )
 
         schemas = [_build_schema(endpoint) for endpoint in ENDPOINTS]

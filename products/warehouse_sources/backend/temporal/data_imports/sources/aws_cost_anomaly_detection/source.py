@@ -14,6 +14,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.aws_cost_a
     validate_credentials as validate_aws_cost_anomaly_detection_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.aws_cost_anomaly_detection.settings import (
+    AWS_COST_ANOMALY_DETECTION_ENDPOINTS,
     ENDPOINT_DESCRIPTIONS,
     ENDPOINTS,
     INCREMENTAL_FIELDS,
@@ -74,7 +75,13 @@ class AwsCostAnomalyDetectionSource(
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names, descriptions=ENDPOINT_DESCRIPTIONS)
+        return build_endpoint_schemas(
+            ENDPOINTS,
+            INCREMENTAL_FIELDS,
+            names,
+            descriptions=ENDPOINT_DESCRIPTIONS,
+            primary_keys={name: config.primary_key for name, config in AWS_COST_ANOMALY_DETECTION_ENDPOINTS.items()},
+        )
 
     def validate_credentials(
         self,

@@ -121,6 +121,7 @@ Generate an API key under **My Settings → API keys** in TestRail, and make sur
                 supports_incremental=endpoint_config.incremental_param is not None,
                 supports_append=endpoint_config.incremental_param is not None,
                 incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
+                detected_primary_keys=endpoint_config.primary_keys,
             )
             for endpoint, endpoint_config in TESTRAIL_ENDPOINTS.items()
         ]

@@ -133,6 +133,7 @@ To connect, create an API application in Pipeliner under **Administration → Un
                 supports_incremental=bool(INCREMENTAL_FIELDS.get(endpoint)),
                 supports_append=bool(INCREMENTAL_FIELDS.get(endpoint)),
                 incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
+                detected_primary_keys=PIPELINER_ENDPOINTS[endpoint].primary_keys,
             )
             for endpoint in ENDPOINTS
         ]

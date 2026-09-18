@@ -109,6 +109,7 @@ Note that Honeybadger's API is limited to 360 requests per hour, so large backfi
                 incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
                 should_sync_default=HONEYBADGER_ENDPOINTS[endpoint].should_sync_default,
                 description=_description(endpoint),
+                detected_primary_keys=HONEYBADGER_ENDPOINTS[endpoint].primary_keys,
             )
             for endpoint in ENDPOINTS
         ]

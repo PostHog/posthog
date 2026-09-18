@@ -29,6 +29,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.matomo.mat
 from products.warehouse_sources.backend.temporal.data_imports.sources.matomo.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,
+    MATOMO_ENDPOINTS,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
@@ -121,7 +122,12 @@ Works with Matomo Cloud and self-hosted instances. Enter your instance URL (e.g.
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+        return build_endpoint_schemas(
+            ENDPOINTS,
+            INCREMENTAL_FIELDS,
+            names,
+            primary_keys={name: config.primary_keys for name, config in MATOMO_ENDPOINTS.items()},
+        )
 
     def validate_credentials(
         self,

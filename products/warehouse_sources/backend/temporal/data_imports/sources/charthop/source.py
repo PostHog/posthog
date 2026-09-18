@@ -113,7 +113,12 @@ The organization ID (or slug) is optional — it's detected automatically when y
         # Table set, incremental fields, and primary keys are identical across versions —
         # only the `changes` request path/filter differs (see settings.version_overrides),
         # so discovery doesn't vary by pin.
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+        return build_endpoint_schemas(
+            ENDPOINTS,
+            INCREMENTAL_FIELDS,
+            names,
+            primary_keys={name: config.primary_key for name, config in CHARTHOP_ENDPOINTS.items()},
+        )
 
     def validate_credentials(
         self,

@@ -91,6 +91,7 @@ class WikipediaPageviewsSource(ResumableSource[WikipediaPageviewsSourceConfig, W
             # The per-article table needs article titles configured; don't default-enable a
             # table whose sync would immediately fail.
             should_sync_default={ARTICLE_PAGEVIEWS_ENDPOINT: bool(_parse_articles(config.article_names))},
+            primary_keys={name: endpoint.primary_keys for name, endpoint in WIKIPEDIA_PAGEVIEWS_ENDPOINTS.items()},
         )
 
     def validate_credentials(

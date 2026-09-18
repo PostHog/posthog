@@ -23,7 +23,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.dixa.dixa 
     dixa_source,
     validate_credentials as validate_dixa_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.dixa.settings import ENDPOINTS, INCREMENTAL_FIELDS
+from products.warehouse_sources.backend.temporal.data_imports.sources.dixa.settings import (
+    DIXA_ENDPOINTS,
+    ENDPOINTS,
+    INCREMENTAL_FIELDS,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.dixa import DixaSourceConfig
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
@@ -91,7 +95,12 @@ An admin can generate an API token in Dixa under Settings > Integrations > API T
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+        return build_endpoint_schemas(
+            ENDPOINTS,
+            INCREMENTAL_FIELDS,
+            names,
+            primary_keys={name: [config.primary_key] for name, config in DIXA_ENDPOINTS.items()},
+        )
 
     def validate_credentials(
         self, config: DixaSourceConfig, team_id: int, schema_name: Optional[str] = None, api_version: str | None = None

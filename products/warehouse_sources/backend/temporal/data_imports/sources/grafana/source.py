@@ -32,6 +32,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.grafana.gr
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.grafana.settings import (
     ENDPOINTS,
+    GRAFANA_ENDPOINTS,
     INCREMENTAL_FIELDS,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
@@ -192,6 +193,7 @@ Self-hosted Grafana OSS can alternatively authenticate with a username and passw
                 supports_append=False,
                 incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
                 description=_description(endpoint),
+                detected_primary_keys=GRAFANA_ENDPOINTS[endpoint].primary_keys,
             )
             for endpoint in ENDPOINTS
         ]

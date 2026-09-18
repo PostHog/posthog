@@ -162,6 +162,7 @@ Instantly webhooks require the Hypergrowth plan or above, and automatic creation
             descriptions={
                 name: config_.description for name, config_ in INSTANTLY_ENDPOINTS.items() if config_.description
             },
+            primary_keys={name: config_.primary_keys for name, config_ in INSTANTLY_ENDPOINTS.items()},
         )
         schemas.append(
             SourceSchema(

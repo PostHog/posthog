@@ -80,6 +80,7 @@ class ZendeskSource(SimpleSource[ZendeskSourceConfig]):
                 supports_incremental=ZENDESK_INCREMENTAL_FIELDS.get(endpoint, None) is not None,
                 supports_append=ZENDESK_INCREMENTAL_FIELDS.get(endpoint, None) is not None,
                 incremental_fields=ZENDESK_INCREMENTAL_FIELDS.get(endpoint, []),
+                detected_primary_keys=["id"],
             )
             for endpoint in list(BASE_ENDPOINTS)
             + [resource for resource, endpoint_url, data_key, cursor_paginated in SUPPORT_ENDPOINTS]
@@ -90,6 +91,7 @@ class ZendeskSource(SimpleSource[ZendeskSourceConfig]):
                 supports_incremental=bool(endpoint_config.incremental_fields),
                 supports_append=bool(endpoint_config.incremental_fields),
                 incremental_fields=endpoint_config.incremental_fields,
+                detected_primary_keys=endpoint_config.primary_key,
             )
             for endpoint_config in ZENDESK_ENDPOINTS.values()
         ]

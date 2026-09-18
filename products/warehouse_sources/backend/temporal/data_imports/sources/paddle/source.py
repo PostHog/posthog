@@ -111,7 +111,12 @@ class PaddleSource(ResumableSource[PaddleSourceConfig, PaddleResumeConfig]):
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        return build_endpoint_schemas(PADDLE_ENDPOINTS, PADDLE_INCREMENTAL_FIELDS, names)
+        return build_endpoint_schemas(
+            PADDLE_ENDPOINTS,
+            PADDLE_INCREMENTAL_FIELDS,
+            names,
+            primary_keys={name: ["id"] for name in PADDLE_ENDPOINTS},
+        )
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[PaddleResumeConfig]:
         return ResumableSourceManager[PaddleResumeConfig](inputs, PaddleResumeConfig)

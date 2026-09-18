@@ -102,6 +102,7 @@ Note that Atlassian has announced Opsgenie's end of support: its APIs are schedu
                 supports_incremental=OPSGENIE_ENDPOINTS[endpoint].supports_search_window,
                 supports_append=False,
                 incremental_fields=OPSGENIE_ENDPOINTS[endpoint].incremental_fields,
+                detected_primary_keys=[OPSGENIE_ENDPOINTS[endpoint].primary_key],
             )
             for endpoint in ENDPOINTS
         ]

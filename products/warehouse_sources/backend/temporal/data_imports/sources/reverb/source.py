@@ -27,6 +27,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.reverb.rev
 from products.warehouse_sources.backend.temporal.data_imports.sources.reverb.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,
+    REVERB_ENDPOINTS,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
@@ -95,7 +96,12 @@ Create a token from **My Profile → API & Integrations** in your Reverb account
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+        return build_endpoint_schemas(
+            ENDPOINTS,
+            INCREMENTAL_FIELDS,
+            names,
+            primary_keys={name: config.primary_keys for name, config in REVERB_ENDPOINTS.items()},
+        )
 
     def validate_credentials(
         self,

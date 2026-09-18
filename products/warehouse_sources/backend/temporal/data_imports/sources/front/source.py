@@ -98,6 +98,7 @@ Grant read scopes for the resources you want to sync (e.g. `shared_resources:rea
             INCREMENTAL_FIELDS,
             names,
             descriptions={"events": "Only syncs the last 365 days on initial sync"},
+            primary_keys={name: config.primary_keys for name, config in FRONT_ENDPOINTS.items()},
         )
 
     def validate_credentials(

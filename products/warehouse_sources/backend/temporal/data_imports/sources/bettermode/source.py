@@ -15,6 +15,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.bettermode
     validate_credentials as validate_bettermode_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.bettermode.settings import (
+    BETTERMODE_ENDPOINTS,
     ENDPOINTS,
     INCREMENTAL_FIELDS,
 )
@@ -153,7 +154,13 @@ If your community is hosted in the EU (eu-central-1), select the EU region so re
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names, descriptions=_SCHEMA_DESCRIPTIONS)
+        return build_endpoint_schemas(
+            ENDPOINTS,
+            INCREMENTAL_FIELDS,
+            names,
+            descriptions=_SCHEMA_DESCRIPTIONS,
+            primary_keys={name: config.primary_keys for name, config in BETTERMODE_ENDPOINTS.items()},
+        )
 
     def validate_credentials(
         self,

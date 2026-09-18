@@ -122,6 +122,7 @@ The audit logs table requires a workspace-admin token and is a Windmill Enterpri
                 incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
                 should_sync_default=WINDMILL_ENDPOINTS[endpoint].should_sync_default,
                 description=WINDMILL_ENDPOINTS[endpoint].description,
+                detected_primary_keys=WINDMILL_ENDPOINTS[endpoint].primary_keys,
             )
             for endpoint in ENDPOINTS
         ]

@@ -24,6 +24,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.fillout.se
     ALLOWED_FILLOUT_API_BASE_URLS,
     DEFAULT_FILLOUT_API_BASE_URL,
     ENDPOINTS,
+    FILLOUT_ENDPOINTS,
     INCREMENTAL_FIELDS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.fillout import (
@@ -108,12 +109,14 @@ You can generate an API key in your Fillout account under **Settings → Develop
 
             incremental_fields = INCREMENTAL_FIELDS.get(endpoint, [])
             supports_incremental = bool(incremental_fields)
+            primary_key = FILLOUT_ENDPOINTS[endpoint].primary_key
             schemas.append(
                 SourceSchema(
                     name=endpoint,
                     supports_incremental=supports_incremental,
                     supports_append=supports_incremental,
                     incremental_fields=incremental_fields,
+                    detected_primary_keys=primary_key if isinstance(primary_key, list) else [primary_key],
                 )
             )
         return schemas

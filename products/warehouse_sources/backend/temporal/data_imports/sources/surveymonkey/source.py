@@ -25,6 +25,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.surveymonk
     DEFAULT_DATA_CENTER,
     ENDPOINTS,
     INCREMENTAL_FIELDS,
+    SURVEYMONKEY_ENDPOINTS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.surveymonkey.surveymonkey import (
     SurveyMonkeyResumeConfig,
@@ -123,6 +124,7 @@ Make sure to grant the following read scopes:
                 supports_incremental=len(INCREMENTAL_FIELDS.get(endpoint, [])) > 0,
                 supports_append=len(INCREMENTAL_FIELDS.get(endpoint, [])) > 0,
                 incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
+                detected_primary_keys=[SURVEYMONKEY_ENDPOINTS[endpoint].primary_key],
             )
             for endpoint in list(ENDPOINTS)
         ]

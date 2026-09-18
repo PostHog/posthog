@@ -108,6 +108,7 @@ class RoktAdsSource(ResumableSource[RoktAdsSourceConfig, RoktAdsResumeConfig]):
             INCREMENTAL_FIELDS,
             names,
             descriptions=DESCRIPTIONS,
+            primary_keys=PRIMARY_KEYS,
         )
         for schema in schemas:
             # Rokt attributes acquisitions by conversion time, so a day keeps changing after it

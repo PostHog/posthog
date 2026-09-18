@@ -36,6 +36,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.langfuse.s
     ENDPOINTS,
     INCREMENTAL_FIELDS,
     LANGFUSE_API_VERSION_V1,
+    LANGFUSE_ENDPOINTS,
     SUPPORTED_VERSIONS,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
@@ -155,6 +156,7 @@ Find your project API keys in your Langfuse **Project settings > API Keys**. Set
                 supports_incremental=bool(INCREMENTAL_FIELDS.get(endpoint)),
                 supports_append=bool(INCREMENTAL_FIELDS.get(endpoint)),
                 incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
+                detected_primary_keys=LANGFUSE_ENDPOINTS[endpoint].primary_keys,
             )
             for endpoint in ENDPOINTS
         ]

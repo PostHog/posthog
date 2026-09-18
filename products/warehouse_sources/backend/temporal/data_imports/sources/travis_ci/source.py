@@ -112,6 +112,7 @@ The token can read every repository its owning user has access to; only those re
                 incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
                 should_sync_default=TRAVIS_CI_ENDPOINTS[endpoint].should_sync_default,
                 description=_description(endpoint),
+                detected_primary_keys=TRAVIS_CI_ENDPOINTS[endpoint].primary_keys,
             )
             for endpoint in ENDPOINTS
         ]

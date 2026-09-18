@@ -97,7 +97,12 @@ You can create a personal access token in the [Oura developer portal](https://cl
     ) -> list[SourceSchema]:
         # Only endpoints with incremental fields (i.e. a server-side date filter) sync
         # incrementally; the others (personal_info, ring_configuration) are full refresh only.
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+        return build_endpoint_schemas(
+            ENDPOINTS,
+            INCREMENTAL_FIELDS,
+            names,
+            primary_keys={name: config.primary_keys for name, config in OURA_ENDPOINTS.items()},
+        )
 
     def validate_credentials(
         self, config: OuraSourceConfig, team_id: int, schema_name: Optional[str] = None, api_version: str | None = None

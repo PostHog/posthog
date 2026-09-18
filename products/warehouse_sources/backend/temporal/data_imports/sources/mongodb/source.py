@@ -25,6 +25,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 from products.warehouse_sources.backend.temporal.data_imports.sources.mongodb.mongo import (
     DATABASE_NAME_REQUIRED_ERROR,
     MONGO_DOCUMENT_MISSING_ID_ERROR,
+    _get_primary_keys,
     _parse_connection_string,
     filter_mongo_incremental_fields,
     get_collection_names,
@@ -292,6 +293,7 @@ class MongoDBSource(SimpleSource[MongoDBSourceConfig], ValidateDatabaseHostMixin
 
         connection_params = _parse_connection_string(config.connection_string, config.database_name)
         leading_keys_by_collection: dict[str, set[str] | None] = {}
+        primary_keys_by_collection: dict[str, list[str] | None] = {}
         with mongo_client(config.connection_string, team_id=team_id) as client:
             db = client[connection_params["database"]]
             filtered_results = [
@@ -300,6 +302,7 @@ class MongoDBSource(SimpleSource[MongoDBSourceConfig], ValidateDatabaseHostMixin
             ]
             for collection_name in mongo_schemas:
                 leading_keys_by_collection[collection_name] = get_leading_index_keys(db[collection_name])
+                primary_keys_by_collection[collection_name] = _get_primary_keys(db[collection_name], collection_name)
 
         return [
             SourceSchema(
@@ -320,6 +323,7 @@ class MongoDBSource(SimpleSource[MongoDBSourceConfig], ValidateDatabaseHostMixin
                     }
                     for field_name, field_type in incremental_fields
                 ],
+                detected_primary_keys=primary_keys_by_collection.get(name),
             )
             for name, incremental_fields in filtered_results
         ]

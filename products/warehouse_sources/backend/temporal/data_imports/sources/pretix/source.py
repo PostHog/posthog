@@ -124,6 +124,7 @@ Self-hosted users should set the API URL to their own pretix host (for example `
                 supports_incremental=endpoint in INCREMENTAL_ENDPOINTS,
                 supports_append=endpoint in INCREMENTAL_ENDPOINTS,
                 incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
+                detected_primary_keys=PRETIX_ENDPOINTS[endpoint].primary_keys,
             )
             for endpoint in ENDPOINTS
         ]

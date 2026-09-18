@@ -13,6 +13,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.autumn.aut
     validate_credentials as validate_autumn_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.autumn.settings import (
+    AUTUMN_ENDPOINTS,
     ENDPOINTS,
     INCREMENTAL_FIELDS,
 )
@@ -70,7 +71,12 @@ class AutumnSource(ResumableSource[AutumnSourceConfig, AutumnResumeConfig]):
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+        return build_endpoint_schemas(
+            ENDPOINTS,
+            INCREMENTAL_FIELDS,
+            names,
+            primary_keys={name: config.primary_keys for name, config in AUTUMN_ENDPOINTS.items()},
+        )
 
     def validate_credentials(
         self,

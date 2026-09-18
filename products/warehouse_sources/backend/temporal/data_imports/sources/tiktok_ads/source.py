@@ -235,6 +235,9 @@ class TikTokAdsSource(ResumableSource[TikTokAdsSourceConfig, TikTokAdsResumeConf
                 supports_append=False,
                 incremental_fields=endpoint_config.incremental_fields or [],
                 should_sync_default=endpoint_config.should_sync_default,
+                detected_primary_keys=list(endpoint_config.resource["primary_key"])
+                if isinstance(endpoint_config.resource["primary_key"], list | tuple)
+                else None,
             )
             for endpoint_config in TIKTOK_ADS_CONFIG.values()
         ]

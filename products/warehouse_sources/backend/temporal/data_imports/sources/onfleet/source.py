@@ -100,6 +100,7 @@ You can create an API key in your [Onfleet dashboard](https://onfleet.com/dashbo
             INCREMENTAL_FIELDS,
             names,
             should_sync_default={name: config.should_sync_default for name, config in ONFLEET_ENDPOINTS.items()},
+            primary_keys={name: config.primary_keys for name, config in ONFLEET_ENDPOINTS.items()},
         )
 
     def validate_credentials(

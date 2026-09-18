@@ -184,6 +184,7 @@ class GoogleSearchConsoleSource(
             # Never default-on a non-web table: each one costs a full history backfill,
             # and picking a search type shouldn't silently start one.
             should_sync_default=schema["should_sync_default"] and is_default_type,
+            detected_primary_keys=list(schema["primary_key"]),
         )
 
     def get_schemas(

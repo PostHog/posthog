@@ -25,6 +25,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.kalshi.kal
 from products.warehouse_sources.backend.temporal.data_imports.sources.kalshi.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,
+    KALSHI_ENDPOINTS,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
@@ -81,7 +82,12 @@ It syncs markets, events, series, trades, and milestones. Portfolio data (your o
     ) -> list[SourceSchema]:
         # Only `trades` carries incremental fields, so build_endpoint_schemas marks it (and only it)
         # incremental and leaves the rest full-refresh.
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+        return build_endpoint_schemas(
+            ENDPOINTS,
+            INCREMENTAL_FIELDS,
+            names,
+            primary_keys={name: config.primary_keys for name, config in KALSHI_ENDPOINTS.items()},
+        )
 
     def validate_credentials(
         self,

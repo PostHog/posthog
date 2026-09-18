@@ -155,7 +155,12 @@ To also sync account-level tables, use an OAuth access token instead. Collection
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+        return build_endpoint_schemas(
+            ENDPOINTS,
+            INCREMENTAL_FIELDS,
+            names,
+            primary_keys={name: config.primary_keys for name, config in SHUTTERSTOCK_ENDPOINTS.items()},
+        )
 
     def validate_credentials(
         self,

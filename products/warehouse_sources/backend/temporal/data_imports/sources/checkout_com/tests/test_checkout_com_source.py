@@ -145,6 +145,12 @@ class TestCheckoutComSource:
         assert report_table.supports_append is False
         assert [f["field"] for f in report_table.incremental_fields] == ["report_created_on"]
         mock_discover.assert_called_once_with("production", "ack_id", "secret")
+        for schema in schemas:
+            inputs = mock.MagicMock(
+                schema_name=schema.name, should_use_incremental_field=True, db_incremental_field_last_value=None
+            )
+            response = self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)
+            assert schema.detected_primary_keys == response.primary_keys, schema.name
 
     @mock.patch(DISCOVER_PATCH)
     def test_get_schemas_without_credentials_never_discovers(self, mock_discover):

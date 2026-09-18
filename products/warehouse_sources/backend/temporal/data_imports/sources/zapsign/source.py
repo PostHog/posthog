@@ -35,6 +35,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.zapsign.se
     DOCUMENTS_RESOURCE,
     ENDPOINTS,
     INCREMENTAL_FIELDS,
+    PRIMARY_KEYS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.zapsign.zapsign import ZapSignResumeConfig
 from products.warehouse_sources.backend.types import ExternalDataSourceType
@@ -104,6 +105,7 @@ class ZapSignSource(
             names,
             merge_only=(DOCUMENTS_RESOURCE,),
             supports_webhooks=(DOCUMENTS_RESOURCE,),
+            primary_keys=PRIMARY_KEYS,
         )
 
     def validate_credentials(

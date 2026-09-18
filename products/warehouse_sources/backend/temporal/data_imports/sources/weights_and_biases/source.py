@@ -127,6 +127,7 @@ If you use W&B Dedicated Cloud or a self-managed server, set the host to your de
                 supports_append=False,
                 incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
                 description=WANDB_ENDPOINTS[endpoint].description,
+                detected_primary_keys=list(WANDB_ENDPOINTS[endpoint].primary_keys),
             )
             for endpoint in ENDPOINTS
         ]

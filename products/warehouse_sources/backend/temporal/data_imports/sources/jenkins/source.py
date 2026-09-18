@@ -31,6 +31,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.jenkins.je
 from products.warehouse_sources.backend.temporal.data_imports.sources.jenkins.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,
+    JENKINS_ENDPOINTS,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
@@ -127,6 +128,7 @@ Create an API token from your Jenkins user page under **Configure > API Token**.
                 supports_append=has_incremental,
                 incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
                 description=descriptions.get(endpoint),
+                detected_primary_keys=JENKINS_ENDPOINTS[endpoint].primary_keys,
             )
 
         schemas = [_build_schema(endpoint) for endpoint in ENDPOINTS]

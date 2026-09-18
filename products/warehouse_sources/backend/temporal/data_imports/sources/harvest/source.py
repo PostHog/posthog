@@ -30,6 +30,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.harvest.se
     DESCRIPTIONS,
     ENDPOINTS,
     HARVEST_API_VERSION,
+    HARVEST_ENDPOINTS,
     HARVEST_SUPPORTED_VERSIONS,
     INCREMENTAL_FIELDS,
 )
@@ -69,7 +70,13 @@ class HarvestSource(ResumableSource[HarvestSourceConfig, HarvestResumeConfig]):
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names, descriptions=DESCRIPTIONS)
+        return build_endpoint_schemas(
+            ENDPOINTS,
+            INCREMENTAL_FIELDS,
+            names,
+            descriptions=DESCRIPTIONS,
+            primary_keys={name: config.primary_keys for name, config in HARVEST_ENDPOINTS.items()},
+        )
 
     def validate_credentials(
         self,

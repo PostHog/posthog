@@ -204,6 +204,7 @@ If automatic creation failed, note that only Chatwoot administrators can manage 
                 incremental_fields=CHATWOOT_ENDPOINTS[endpoint].incremental_fields,
                 supports_webhooks=CHATWOOT_ENDPOINTS[endpoint].supports_webhooks,
                 description=CHATWOOT_ENDPOINTS[endpoint].description,
+                detected_primary_keys=CHATWOOT_ENDPOINTS[endpoint].primary_keys,
             )
             for endpoint in ENDPOINTS
         ]

@@ -110,6 +110,7 @@ class StatuscakeSource(ResumableSource[StatuscakeSourceConfig, StatusCakeResumeC
                 incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
                 should_sync_default=STATUSCAKE_ENDPOINTS[endpoint].should_sync_default,
                 description=_description(endpoint),
+                detected_primary_keys=STATUSCAKE_ENDPOINTS[endpoint].primary_key,
             )
             for endpoint in list(ENDPOINTS)
         ]

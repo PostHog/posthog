@@ -121,6 +121,7 @@ If your account is a brand (advertiser) account, use the impact.com source inste
                 incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
                 should_sync_default=IMPACT_PARTNER_ENDPOINTS[endpoint].should_sync_default,
                 description=IMPACT_PARTNER_ENDPOINTS[endpoint].description,
+                detected_primary_keys=IMPACT_PARTNER_ENDPOINTS[endpoint].primary_keys,
             )
 
         schemas = [_build_schema(endpoint) for endpoint in ENDPOINTS]

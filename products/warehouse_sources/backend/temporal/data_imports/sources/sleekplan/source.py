@@ -25,6 +25,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.sleekplan.
     ENDPOINTS,
     INCREMENTAL_FIELDS,
     MERGE_ONLY_ENDPOINTS,
+    SLEEKPLAN_ENDPOINTS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.sleekplan.sleekplan import (
     SleekplanResumeConfig,
@@ -68,7 +69,13 @@ class SleekplanSource(ResumableSource[SleekplanSourceConfig, SleekplanResumeConf
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names, merge_only=MERGE_ONLY_ENDPOINTS)
+        return build_endpoint_schemas(
+            ENDPOINTS,
+            INCREMENTAL_FIELDS,
+            names,
+            merge_only=MERGE_ONLY_ENDPOINTS,
+            primary_keys={name: config.primary_key for name, config in SLEEKPLAN_ENDPOINTS.items()},
+        )
 
     def validate_credentials(
         self,

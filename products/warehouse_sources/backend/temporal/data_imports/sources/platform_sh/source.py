@@ -139,6 +139,7 @@ Create an API token in the Console under **My profile > API tokens** ([Platform.
                     incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
                     should_sync_default=endpoint_config.should_sync_default,
                     default_incremental_lookback_seconds=endpoint_config.default_incremental_lookback_seconds,
+                    detected_primary_keys=endpoint_config.primary_keys,
                 )
             )
         if names is not None:

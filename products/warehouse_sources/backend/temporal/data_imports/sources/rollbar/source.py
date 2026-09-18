@@ -29,6 +29,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.rollbar.ro
 from products.warehouse_sources.backend.temporal.data_imports.sources.rollbar.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,
+    ROLLBAR_ENDPOINTS,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
@@ -93,7 +94,12 @@ You can find or create a project access token in your Rollbar project under Sett
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+        return build_endpoint_schemas(
+            ENDPOINTS,
+            INCREMENTAL_FIELDS,
+            names,
+            primary_keys={name: [config.primary_key] for name, config in ROLLBAR_ENDPOINTS.items()},
+        )
 
     def validate_credentials(
         self,

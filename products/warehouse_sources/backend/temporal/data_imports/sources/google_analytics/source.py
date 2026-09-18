@@ -119,6 +119,7 @@ class GoogleAnalyticsSource(ResumableSource[GoogleAnalyticsSourceConfig, GoogleA
                 incremental_fields=[GOOGLE_ANALYTICS_INCREMENTAL_FIELD],
                 description=schema["description"],
                 should_sync_default=schema["should_sync_default"],
+                detected_primary_keys=list(schema["primary_key"]),
             )
             for name, schema in build_report_schemas(config.custom_reports).items()
         ]

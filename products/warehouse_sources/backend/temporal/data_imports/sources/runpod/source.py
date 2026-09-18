@@ -97,6 +97,7 @@ Create an API key in your [RunPod console settings](https://console.runpod.io/us
                 incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
                 should_sync_default=endpoint_config.should_sync_default,
                 default_incremental_lookback_seconds=endpoint_config.default_incremental_lookback_seconds,
+                detected_primary_keys=endpoint_config.primary_keys,
             )
 
         schemas = [_build_schema(endpoint) for endpoint in ENDPOINTS]

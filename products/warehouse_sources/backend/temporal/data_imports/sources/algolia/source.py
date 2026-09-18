@@ -161,6 +161,7 @@ Set the region to match where your Algolia application is hosted. It selects the
             merge_only=ENDPOINTS,
             descriptions=_ENDPOINT_DESCRIPTIONS,
             should_sync_default={name: cfg.should_sync_default for name, cfg in ALGOLIA_ENDPOINTS.items()},
+            primary_keys={name: cfg.primary_keys for name, cfg in ALGOLIA_ENDPOINTS.items() if cfg.primary_keys},
         )
 
     def validate_credentials(

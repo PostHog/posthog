@@ -62,7 +62,12 @@ class DebugbearSource(SimpleSource[DebugbearSourceConfig]):
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+        return build_endpoint_schemas(
+            ENDPOINTS,
+            INCREMENTAL_FIELDS,
+            names,
+            primary_keys={"Projects": ["id"], "PageMetrics": ["project_id", "page_id", "analysis_date"]},
+        )
 
     def validate_credentials(
         self,

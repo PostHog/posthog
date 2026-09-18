@@ -118,7 +118,12 @@ You can find your **user application key** and **user API key** under **Account 
         # Conversions and clicks reports accept a server-side start_date/end_date window, so they
         # sync incrementally; campaigns and the reference catalogs expose no timestamp filter and
         # are full refresh only.
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+        return build_endpoint_schemas(
+            ENDPOINTS,
+            INCREMENTAL_FIELDS,
+            names,
+            primary_keys={name: config.primary_keys for name, config in PARTNERIZE_ENDPOINTS.items()},
+        )
 
     def validate_credentials(
         self,

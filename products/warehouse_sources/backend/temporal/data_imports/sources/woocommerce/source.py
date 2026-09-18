@@ -127,7 +127,13 @@ class WooCommerceSource(
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names, supports_webhooks=WEBHOOK_SCHEMA_NAMES)
+        return build_endpoint_schemas(
+            ENDPOINTS,
+            INCREMENTAL_FIELDS,
+            names,
+            supports_webhooks=WEBHOOK_SCHEMA_NAMES,
+            primary_keys={name: ["id"] for name in ENDPOINTS},
+        )
 
     def validate_credentials(
         self,

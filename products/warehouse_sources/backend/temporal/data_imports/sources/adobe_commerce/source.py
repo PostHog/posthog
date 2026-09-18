@@ -191,7 +191,13 @@ class AdobeCommerceSource(ResumableSource[AdobeCommerceSourceConfig, AdobeCommer
     ) -> list[SourceSchema]:
         # Sales and catalog rows are rewritten in place (an order's status advances, a product's
         # price changes), so append mode would duplicate them — merge is the only incremental mode.
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names, merge_only=ENDPOINTS)
+        return build_endpoint_schemas(
+            ENDPOINTS,
+            INCREMENTAL_FIELDS,
+            names,
+            merge_only=ENDPOINTS,
+            primary_keys={name: config.primary_keys for name, config in ADOBE_COMMERCE_ENDPOINTS.items()},
+        )
 
     def validate_credentials(
         self,

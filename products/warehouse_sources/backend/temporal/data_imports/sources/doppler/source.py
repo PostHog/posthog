@@ -103,6 +103,7 @@ Use a [personal token](https://docs.doppler.com/docs/personal-tokens) or a [serv
                 supports_append=False,
                 incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
                 should_sync_default=endpoint_config.should_sync_default,
+                detected_primary_keys=endpoint_config.primary_keys,
                 description=(
                     "Workplace activity log of project, config, and access changes. Incremental syncs "
                     "stop paging once they reach already-synced entries."

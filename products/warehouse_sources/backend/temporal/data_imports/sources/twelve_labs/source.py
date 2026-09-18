@@ -106,6 +106,7 @@ You can create an API key in your [Twelve Labs dashboard](https://playground.twe
                 endpoint: endpoint_config.should_sync_default
                 for endpoint, endpoint_config in TWELVE_LABS_ENDPOINTS.items()
             },
+            primary_keys={name: config.primary_keys for name, config in TWELVE_LABS_ENDPOINTS.items()},
         )
 
     def validate_credentials(

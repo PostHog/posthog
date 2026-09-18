@@ -106,7 +106,13 @@ You can find your account API key under **Account Settings → API** in the [bun
         # filter, so there is no incremental cursor to advance. The statistics endpoints and the
         # CDN access logs do filter on a start date, and are merge only: appending would re-add
         # a row per run for every interval the window still covers.
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names, merge_only=tuple(INCREMENTAL_FIELDS))
+        return build_endpoint_schemas(
+            ENDPOINTS,
+            INCREMENTAL_FIELDS,
+            names,
+            merge_only=tuple(INCREMENTAL_FIELDS),
+            primary_keys={name: config.primary_keys for name, config in BUNNY_ENDPOINTS.items()},
+        )
 
     def validate_credentials(
         self, config: BunnySourceConfig, team_id: int, schema_name: Optional[str] = None, api_version: str | None = None

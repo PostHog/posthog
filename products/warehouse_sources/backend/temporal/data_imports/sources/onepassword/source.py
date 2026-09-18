@@ -124,7 +124,13 @@ Select the region where your 1Password account is hosted — the Events API is s
         # incremental. Events are immutable, but incremental runs re-pull a boundary window that
         # only merge dedupes on `uuid` — append would materialize the overlap as duplicates, so
         # every stream is merge-only.
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names, merge_only=set(ENDPOINTS))
+        return build_endpoint_schemas(
+            ENDPOINTS,
+            INCREMENTAL_FIELDS,
+            names,
+            merge_only=set(ENDPOINTS),
+            primary_keys={name: config.primary_keys for name, config in ONEPASSWORD_ENDPOINTS.items()},
+        )
 
     def validate_credentials(
         self,

@@ -41,6 +41,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mailgun.ma
 from products.warehouse_sources.backend.temporal.data_imports.sources.mailgun.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,
+    MAILGUN_ENDPOINTS,
     SCHEMA_TO_WEBHOOK_RESOURCE,
     WEBHOOK_EVENTS_ENDPOINT,
     WEBHOOK_TYPES,
@@ -185,6 +186,7 @@ Note: Mailgun only retains events for a limited period (1 day on free plans, up 
                 supports_incremental=endpoint in INCREMENTAL_FIELDS,
                 supports_append=endpoint in INCREMENTAL_FIELDS,
                 incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
+                detected_primary_keys=MAILGUN_ENDPOINTS[endpoint].primary_keys,
             )
             for endpoint in ENDPOINTS
         ]

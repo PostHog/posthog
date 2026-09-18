@@ -13,6 +13,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.clockify.c
     validate_credentials as validate_clockify_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.clockify.settings import (
+    CLOCKIFY_ENDPOINTS,
     ENDPOINTS,
     INCREMENTAL_FIELDS,
 )
@@ -97,7 +98,12 @@ The key is user-scoped — it can read exactly what your Clockify user can. Use 
         api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Only time_entries has a server-side timestamp filter; everything else is full refresh.
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+        return build_endpoint_schemas(
+            ENDPOINTS,
+            INCREMENTAL_FIELDS,
+            names,
+            primary_keys={name: config.primary_keys for name, config in CLOCKIFY_ENDPOINTS.items()},
+        )
 
     def validate_credentials(
         self,

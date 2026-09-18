@@ -105,6 +105,7 @@ Some reports (investment balance, software capitalization, effort) map to Swarmi
                 incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
                 description=endpoint_config.description,
                 default_incremental_lookback_seconds=endpoint_config.default_incremental_lookback_seconds,
+                detected_primary_keys=endpoint_config.primary_keys,
             )
 
         schemas = [_build_schema(endpoint) for endpoint in ENDPOINTS]

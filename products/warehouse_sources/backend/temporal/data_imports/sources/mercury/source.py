@@ -66,7 +66,12 @@ class MercurySource(ResumableSource[MercurySourceConfig, MercuryResumeConfig]):
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        schemas = build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+        schemas = build_endpoint_schemas(
+            ENDPOINTS,
+            INCREMENTAL_FIELDS,
+            names,
+            primary_keys={name: [config.primary_key] for name, config in MERCURY_ENDPOINTS.items()},
+        )
         for schema in schemas:
             if schema.name == "Transactions":
                 # Pending transactions mutate (status, postedAt) after creation; re-read a

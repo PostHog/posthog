@@ -85,6 +85,18 @@ class TestFirebaseSource:
             "firestore_logs": False,
         }
         assert [schema.incremental_fields for schema in schemas if schema.name == "firestore_rooms"] == [[_UPDATED_ON]]
+        incremental_inputs = source_inputs(
+            "firestore_rooms",
+            should_use_incremental_field=True,
+            incremental_field="updatedOn",
+            incremental_field_type=IncrementalFieldType.DateTime,
+        )
+        response = self.source.source_for_pipeline(firebase_config(), mock.MagicMock(), incremental_inputs)
+        assert {schema.name: schema.detected_primary_keys for schema in schemas} == {
+            AUTH_USERS_TABLE: None,
+            "firestore_rooms": response.primary_keys,
+            "firestore_logs": None,
+        }
 
     def test_get_schemas_samples_only_the_tables_it_was_asked_for(self) -> None:
         # Discovery costs one request per Firestore collection, and the sync settings for one table

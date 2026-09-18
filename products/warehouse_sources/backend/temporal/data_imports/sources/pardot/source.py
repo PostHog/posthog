@@ -32,6 +32,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.pardot.par
 from products.warehouse_sources.backend.temporal.data_imports.sources.pardot.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,
+    PARDOT_ENDPOINTS,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
@@ -125,7 +126,12 @@ Connect a Salesforce account that has access to Account Engagement, then enter t
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+        return build_endpoint_schemas(
+            ENDPOINTS,
+            INCREMENTAL_FIELDS,
+            names,
+            primary_keys={name: [config.primary_key] for name, config in PARDOT_ENDPOINTS.items()},
+        )
 
     def validate_credentials(
         self,

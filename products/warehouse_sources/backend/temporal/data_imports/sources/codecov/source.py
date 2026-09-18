@@ -15,6 +15,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.codecov.co
     validate_credentials as validate_codecov_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.codecov.settings import (
+    CODECOV_ENDPOINTS,
     ENDPOINTS,
     INCREMENTAL_FIELDS,
 )
@@ -151,6 +152,7 @@ By default all of the owner's active repositories are synced; enter a comma-sepa
                 supports_append=False,
                 incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
                 description=_ENDPOINT_DESCRIPTIONS.get(endpoint),
+                detected_primary_keys=CODECOV_ENDPOINTS[endpoint].primary_keys,
             )
             for endpoint in ENDPOINTS
         ]

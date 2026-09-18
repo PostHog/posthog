@@ -24,6 +24,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.dynamics_3
     validate_credentials as validate_business_central_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.dynamics_365_business_central.settings import (
+    BUSINESS_CENTRAL_ENDPOINTS,
     ENDPOINTS,
     INCREMENTAL_FIELDS,
 )
@@ -129,7 +130,12 @@ Every table except companies is synced for all companies in the environment, wit
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+        return build_endpoint_schemas(
+            ENDPOINTS,
+            INCREMENTAL_FIELDS,
+            names,
+            primary_keys={name: endpoint.primary_keys for name, endpoint in BUSINESS_CENTRAL_ENDPOINTS.items()},
+        )
 
     def validate_credentials(
         self,

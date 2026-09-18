@@ -106,6 +106,7 @@ class BlandAISource(ResumableSource[BlandAISourceConfig, BlandAIResumeConfig]):
             names,
             descriptions={name: config.description for name, config in BLAND_AI_ENDPOINTS.items()},
             should_sync_default={name: config.should_sync_default for name, config in BLAND_AI_ENDPOINTS.items()},
+            primary_keys={name: config.primary_keys for name, config in BLAND_AI_ENDPOINTS.items()},
         )
 
     def validate_credentials(

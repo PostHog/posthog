@@ -24,6 +24,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.convertkit
     validate_credentials as validate_convertkit_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.convertkit.settings import (
+    CONVERTKIT_ENDPOINTS,
     ENDPOINTS,
     INCREMENTAL_FIELDS,
 )
@@ -89,7 +90,12 @@ You can create a v4 API key in your [Kit account settings](https://app.kit.com/a
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+        return build_endpoint_schemas(
+            ENDPOINTS,
+            INCREMENTAL_FIELDS,
+            names,
+            primary_keys={name: config.primary_keys for name, config in CONVERTKIT_ENDPOINTS.items()},
+        )
 
     def validate_credentials(
         self,

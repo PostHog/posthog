@@ -26,6 +26,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.typeform.s
     INCREMENTAL_FIELDS,
     RESPONSE_TYPE_ALL,
     RESPONSE_TYPE_COMPLETED_ONLY,
+    TYPEFORM_ENDPOINTS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.typeform.typeform import (
     typeform_source,
@@ -152,12 +153,14 @@ You can generate a personal access token in your [Typeform account settings](htt
             if endpoint == "responses" and include_partials:
                 incremental_fields = []
             supports_incremental = bool(incremental_fields)
+            primary_key = TYPEFORM_ENDPOINTS[endpoint].primary_key
             schemas.append(
                 SourceSchema(
                     name=endpoint,
                     supports_incremental=supports_incremental,
                     supports_append=supports_incremental,
                     incremental_fields=incremental_fields,
+                    detected_primary_keys=primary_key if isinstance(primary_key, list) else [primary_key],
                 )
             )
         return schemas

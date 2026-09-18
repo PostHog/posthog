@@ -94,6 +94,7 @@ class MarketstackSource(ResumableSource[MarketstackSourceConfig, MarketstackResu
                 supports_append=bool(endpoint.incremental_fields),
                 incremental_fields=list(endpoint.incremental_fields),
                 description=endpoint.description,
+                detected_primary_keys=endpoint.primary_keys,
             )
             for endpoint in MARKETSTACK_ENDPOINTS.values()
         ]

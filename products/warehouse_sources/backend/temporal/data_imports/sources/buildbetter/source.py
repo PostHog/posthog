@@ -13,6 +13,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.buildbette
     validate_credentials as validate_buildbetter_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.buildbetter.settings import (
+    BUILDBETTER_ENDPOINTS,
     ENDPOINTS,
     INCREMENTAL_FIELDS,
 )
@@ -75,7 +76,12 @@ class BuildBetterSource(ResumableSource[BuildBetterSourceConfig, BuildBetterResu
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+        return build_endpoint_schemas(
+            ENDPOINTS,
+            INCREMENTAL_FIELDS,
+            names,
+            primary_keys={name: config.primary_keys for name, config in BUILDBETTER_ENDPOINTS.items()},
+        )
 
     def validate_credentials(
         self,

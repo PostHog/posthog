@@ -203,6 +203,7 @@ class HubspotSource(ResumableSource[HubspotSourceConfig | HubspotSourceOldConfig
                         supports_append=False,
                         incremental_fields=[],
                         should_sync_default=metadata_config.should_sync_default,
+                        detected_primary_keys=metadata_config.primary_keys,
                     )
                 )
                 continue
@@ -216,6 +217,7 @@ class HubspotSource(ResumableSource[HubspotSourceConfig | HubspotSourceOldConfig
                     supports_append=supports_incremental,
                     incremental_fields=endpoint_config.incremental_fields,
                     should_sync_default=endpoint_config.should_sync_default,
+                    detected_primary_keys=["id"],
                 )
             )
 

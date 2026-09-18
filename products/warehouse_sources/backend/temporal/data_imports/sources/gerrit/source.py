@@ -24,6 +24,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.gerrit.ger
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.gerrit.settings import (
     ENDPOINTS,
+    GERRIT_ENDPOINTS,
     INCREMENTAL_FIELDS,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
@@ -110,6 +111,7 @@ Generate an HTTP password in your Gerrit account under **Settings > HTTP Credent
                 supports_incremental=INCREMENTAL_FIELDS.get(endpoint) is not None,
                 supports_append=INCREMENTAL_FIELDS.get(endpoint) is not None,
                 incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
+                detected_primary_keys=GERRIT_ENDPOINTS[endpoint].primary_keys,
             )
             for endpoint in ENDPOINTS
         ]

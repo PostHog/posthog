@@ -81,6 +81,7 @@ class MetronomeSource(ResumableSource[MetronomeSourceConfig, MetronomeResumeConf
             # table has to merge on its primary key.
             merge_only=tuple(USAGE_HISTORY),
             should_sync_default={name: METRONOME_ENDPOINTS[name].should_sync_default for name in ENDPOINTS},
+            primary_keys={name: config.primary_key for name, config in METRONOME_ENDPOINTS.items()},
         )
         for schema in schemas:
             schema.default_incremental_lookback_seconds = METRONOME_ENDPOINTS[

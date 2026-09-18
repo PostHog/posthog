@@ -90,7 +90,15 @@ class TemporalIOSource(ValidateDatabaseHostMixin, ResumableSource[TemporalIOSour
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+        return build_endpoint_schemas(
+            ENDPOINTS,
+            INCREMENTAL_FIELDS,
+            names,
+            primary_keys={
+                TemporalIOResource.Workflows: ["id", "run_id"],
+                TemporalIOResource.WorkflowHistories: ["id"],
+            },
+        )
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[TemporalIOResumeConfig]:
         return ResumableSourceManager[TemporalIOResumeConfig](inputs, TemporalIOResumeConfig)

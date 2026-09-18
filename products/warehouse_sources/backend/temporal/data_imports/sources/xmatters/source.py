@@ -24,6 +24,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 from products.warehouse_sources.backend.temporal.data_imports.sources.xmatters.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,
+    XMATTERS_ENDPOINTS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.xmatters.xmatters import (
     XmattersResumeConfig,
@@ -110,7 +111,13 @@ Use HTTP Basic auth with a REST Web Service User (or an API key as the username 
         api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Only `events` carries incremental fields; every endpoint is merge/full-refresh (no append).
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names, merge_only=ENDPOINTS)
+        return build_endpoint_schemas(
+            ENDPOINTS,
+            INCREMENTAL_FIELDS,
+            names,
+            merge_only=ENDPOINTS,
+            primary_keys={name: [config.primary_key] for name, config in XMATTERS_ENDPOINTS.items()},
+        )
 
     def validate_credentials(
         self,

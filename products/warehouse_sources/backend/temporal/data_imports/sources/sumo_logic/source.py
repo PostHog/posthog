@@ -145,6 +145,7 @@ The `logs` table runs your log search query through the Search Job API over roll
                     if endpoint == "logs"
                     else None
                 ),
+                detected_primary_keys=SUMO_LOGIC_ENDPOINTS[endpoint].primary_keys,
             )
             for endpoint in ENDPOINTS
         ]

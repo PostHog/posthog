@@ -85,6 +85,7 @@ class SalesforceSource(ResumableSource[SalesforceSourceConfig, SalesforceResumeC
                 supports_incremental=INCREMENTAL_FIELDS.get(endpoint, None) is not None,
                 supports_append=INCREMENTAL_FIELDS.get(endpoint, None) is not None,
                 incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
+                detected_primary_keys=["id"],
             )
             for endpoint in ENDPOINTS
         ]

@@ -13,6 +13,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.cast_ai.ca
     validate_credentials as validate_castai_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.cast_ai.settings import (
+    CASTAI_ENDPOINTS,
     ENDPOINTS,
     INCREMENTAL_FIELDS,
 )
@@ -62,7 +63,15 @@ class CastAiSource(ResumableSource[CastAiSourceConfig, CastAiResumeConfig]):
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+        return build_endpoint_schemas(
+            ENDPOINTS,
+            INCREMENTAL_FIELDS,
+            names,
+            primary_keys={
+                name: config.primary_key if isinstance(config.primary_key, list) else [config.primary_key]
+                for name, config in CASTAI_ENDPOINTS.items()
+            },
+        )
 
     def validate_credentials(
         self,

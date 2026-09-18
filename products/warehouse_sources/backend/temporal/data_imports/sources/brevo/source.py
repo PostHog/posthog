@@ -96,7 +96,9 @@ You can create an API key in your [Brevo account settings](https://app.brevo.com
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+        return build_endpoint_schemas(
+            ENDPOINTS, INCREMENTAL_FIELDS, names, primary_keys={name: ["id"] for name in ENDPOINTS}
+        )
 
     def validate_credentials(
         self, config: BrevoSourceConfig, team_id: int, schema_name: Optional[str] = None, api_version: str | None = None

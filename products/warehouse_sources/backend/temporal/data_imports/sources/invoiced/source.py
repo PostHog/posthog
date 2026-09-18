@@ -97,7 +97,12 @@ You can create an API key under **Settings → Developers → API Keys** in [Inv
     ) -> list[SourceSchema]:
         # Every list endpoint documents a server-side `updated_after` UNIX-timestamp filter, so
         # each schema advertises `updated_at` as a genuine incremental cursor.
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+        return build_endpoint_schemas(
+            ENDPOINTS,
+            INCREMENTAL_FIELDS,
+            names,
+            primary_keys={name: config.primary_keys for name, config in INVOICED_ENDPOINTS.items()},
+        )
 
     def validate_credentials(
         self,

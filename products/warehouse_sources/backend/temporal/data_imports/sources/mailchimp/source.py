@@ -26,6 +26,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mailchimp.
 from products.warehouse_sources.backend.temporal.data_imports.sources.mailchimp.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,
+    MAILCHIMP_ENDPOINTS,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
@@ -110,6 +111,7 @@ The API key format is: `key-dc` (e.g., `abc123def456-us6`), where `dc` is the da
                 supports_incremental=bool(INCREMENTAL_FIELDS.get(endpoint)),
                 supports_append=bool(INCREMENTAL_FIELDS.get(endpoint)),
                 incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
+                detected_primary_keys=MAILCHIMP_ENDPOINTS[endpoint].primary_keys,
             )
             for endpoint in list(ENDPOINTS)
         ]

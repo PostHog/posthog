@@ -23,6 +23,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 from products.warehouse_sources.backend.temporal.data_imports.sources.twenty.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,
+    TWENTY_ENDPOINTS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.twenty.twenty import (
     HOST_NOT_ALLOWED_ERROR,
@@ -71,7 +72,12 @@ class TwentySource(ResumableSource[TwentySourceConfig, TwentyResumeConfig]):
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+        return build_endpoint_schemas(
+            ENDPOINTS,
+            INCREMENTAL_FIELDS,
+            names,
+            primary_keys={name: [config.primary_key] for name, config in TWENTY_ENDPOINTS.items()},
+        )
 
     def validate_credentials(
         self,

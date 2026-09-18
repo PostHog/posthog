@@ -132,6 +132,7 @@ The Works table covers Crossref's full DOI registry (160 million+ records), so s
             # duplicate row per re-fetch of the same DOI; only merge (dedupe on DOI) is offered.
             merge_only={"Works"},
             descriptions={name: cfg.description for name, cfg in ENDPOINTS.items() if cfg.description},
+            primary_keys={name: cfg.primary_keys for name, cfg in ENDPOINTS.items()},
         )
 
     def _has_scope(self, config: CrossrefSourceConfig) -> bool:

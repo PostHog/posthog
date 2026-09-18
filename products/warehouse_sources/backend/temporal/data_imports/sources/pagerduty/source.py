@@ -29,6 +29,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.pagerduty.
 from products.warehouse_sources.backend.temporal.data_imports.sources.pagerduty.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,
+    PAGERDUTY_ENDPOINTS,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
@@ -89,7 +90,13 @@ You can create a read-only API key in your PagerDuty account under **Integration
         api_version: str | None = None,
     ) -> list[SourceSchema]:
         # incidents mutates after creation, so it merges (incremental) but is never append-only.
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names, merge_only={"incidents"})
+        return build_endpoint_schemas(
+            ENDPOINTS,
+            INCREMENTAL_FIELDS,
+            names,
+            merge_only={"incidents"},
+            primary_keys={name: [config.primary_key] for name, config in PAGERDUTY_ENDPOINTS.items()},
+        )
 
     def validate_credentials(
         self,

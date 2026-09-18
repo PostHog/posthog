@@ -94,7 +94,12 @@ You can create an API key under **Account → Developer** in [Paperform](https:/
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+        return build_endpoint_schemas(
+            ENDPOINTS,
+            INCREMENTAL_FIELDS,
+            names,
+            primary_keys={name: config.primary_keys for name, config in PAPERFORM_ENDPOINTS.items()},
+        )
 
     def validate_credentials(
         self,

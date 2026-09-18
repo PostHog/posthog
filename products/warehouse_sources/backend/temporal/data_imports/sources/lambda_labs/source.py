@@ -31,6 +31,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.lambda_lab
 from products.warehouse_sources.backend.temporal.data_imports.sources.lambda_labs.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,
+    LAMBDA_LABS_ENDPOINTS,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
@@ -69,7 +70,12 @@ class LambdaLabsSource(ResumableSource[LambdaLabsSourceConfig, LambdaLabsResumeC
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+        return build_endpoint_schemas(
+            ENDPOINTS,
+            INCREMENTAL_FIELDS,
+            names,
+            primary_keys={name: config.primary_keys for name, config in LAMBDA_LABS_ENDPOINTS.items()},
+        )
 
     def validate_credentials(
         self,

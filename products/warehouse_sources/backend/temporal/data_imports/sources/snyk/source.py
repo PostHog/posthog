@@ -21,7 +21,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.snyk import SnykSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.snyk.settings import ENDPOINTS, INCREMENTAL_FIELDS
+from products.warehouse_sources.backend.temporal.data_imports.sources.snyk.settings import (
+    ENDPOINTS,
+    INCREMENTAL_FIELDS,
+    SNYK_ENDPOINTS,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.snyk.snyk import (
     SnykResumeConfig,
     snyk_source,
@@ -120,7 +124,12 @@ Pick the region your Snyk account is hosted on — Snyk's regional stacks are in
     ) -> list[SourceSchema]:
         # Only endpoints with incremental fields (issues) advertise incremental/append; the rest
         # stay full refresh — build_endpoint_schemas derives that from INCREMENTAL_FIELDS.
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+        return build_endpoint_schemas(
+            ENDPOINTS,
+            INCREMENTAL_FIELDS,
+            names,
+            primary_keys={name: config.primary_keys for name, config in SNYK_ENDPOINTS.items()},
+        )
 
     def validate_credentials(
         self, config: SnykSourceConfig, team_id: int, schema_name: Optional[str] = None, api_version: str | None = None

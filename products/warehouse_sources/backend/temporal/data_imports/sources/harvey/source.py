@@ -146,6 +146,7 @@ Each token carries a per-endpoint permissions list — grant access for the endp
                 incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
                 should_sync_default=HARVEY_ENDPOINTS[endpoint].should_sync_default,
                 description=_description(endpoint),
+                detected_primary_keys=HARVEY_ENDPOINTS[endpoint].primary_keys,
             )
 
         schemas = [_build_schema(endpoint) for endpoint in ENDPOINTS]

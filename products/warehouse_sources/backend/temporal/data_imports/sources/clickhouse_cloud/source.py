@@ -107,6 +107,7 @@ Generate an API key from your [ClickHouse Cloud console](https://console.clickho
                 should_sync_default=endpoint_config.should_sync_default,
                 default_incremental_lookback_seconds=endpoint_config.default_incremental_lookback_seconds,
                 description=endpoint_config.description,
+                detected_primary_keys=endpoint_config.primary_keys,
             )
 
         schemas = [_build_schema(endpoint) for endpoint in ENDPOINTS]

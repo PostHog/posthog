@@ -158,6 +158,7 @@ The **Search query** drives the `articles` table (keyword search), and the **Cat
                 incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
                 should_sync_default=GNEWS_ENDPOINTS[endpoint].should_sync_default,
                 description=_description(endpoint),
+                detected_primary_keys=GNEWS_ENDPOINTS[endpoint].primary_keys,
             )
 
         schemas = [_build_schema(endpoint) for endpoint in ENDPOINTS]

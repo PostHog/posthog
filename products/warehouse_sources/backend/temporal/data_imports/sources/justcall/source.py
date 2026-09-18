@@ -29,6 +29,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.justcall.j
 from products.warehouse_sources.backend.temporal.data_imports.sources.justcall.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,
+    JUSTCALL_ENDPOINTS,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
@@ -102,7 +103,12 @@ Generate an API key and secret under **Account Settings → Developers (APIs and
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+        return build_endpoint_schemas(
+            ENDPOINTS,
+            INCREMENTAL_FIELDS,
+            names,
+            primary_keys={name: [config.primary_key] for name, config in JUSTCALL_ENDPOINTS.items()},
+        )
 
     def validate_credentials(
         self,

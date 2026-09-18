@@ -131,6 +131,7 @@ Use the permanent token from **your profile → API Credentials** in Ubidots —
                 supports_incremental=UBIDOTS_ENDPOINTS[endpoint].supports_incremental,
                 supports_append=UBIDOTS_ENDPOINTS[endpoint].supports_incremental,
                 incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
+                detected_primary_keys=UBIDOTS_ENDPOINTS[endpoint].primary_keys,
             )
             for endpoint in ENDPOINTS
         ]

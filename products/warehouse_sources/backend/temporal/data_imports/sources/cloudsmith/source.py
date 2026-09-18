@@ -13,6 +13,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.cloudsmith
     validate_credentials as validate_cloudsmith_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.cloudsmith.settings import (
+    CLOUDSMITH_ENDPOINTS,
     ENDPOINTS,
     INCREMENTAL_FIELDS,
 )
@@ -69,7 +70,16 @@ class CloudsmithSource(ResumableSource[CloudsmithSourceConfig, CloudsmithResumeC
     ) -> list[SourceSchema]:
         # packages is merge-only: the `uploaded` filter is inclusive at its lower bound, so each
         # incremental run re-reads the boundary packages and append mode would duplicate them.
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names, merge_only=("packages",))
+        return build_endpoint_schemas(
+            ENDPOINTS,
+            INCREMENTAL_FIELDS,
+            names,
+            merge_only=("packages",),
+            primary_keys={
+                name: config.primary_key if isinstance(config.primary_key, list) else [config.primary_key]
+                for name, config in CLOUDSMITH_ENDPOINTS.items()
+            },
+        )
 
     def validate_credentials(
         self,

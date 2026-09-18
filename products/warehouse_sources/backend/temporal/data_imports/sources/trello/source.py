@@ -22,6 +22,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 from products.warehouse_sources.backend.temporal.data_imports.sources.trello.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,
+    TRELLO_ENDPOINTS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.trello.trello import (
     TrelloResumeConfig,
@@ -101,7 +102,12 @@ Get your API key from [trello.com/power-ups/admin](https://trello.com/power-ups/
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+        return build_endpoint_schemas(
+            ENDPOINTS,
+            INCREMENTAL_FIELDS,
+            names,
+            primary_keys={name: [config.primary_key] for name, config in TRELLO_ENDPOINTS.items()},
+        )
 
     def validate_credentials(
         self,

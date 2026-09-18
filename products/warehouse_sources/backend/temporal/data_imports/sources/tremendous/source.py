@@ -114,7 +114,13 @@ You can create an API key under **Team settings → Developers** in [Tremendous]
     ) -> list[SourceSchema]:
         # Only /orders and /balance_transactions expose a server-side timestamp filter
         # (`created_at[gte]`); everything else is full refresh (see settings.py).
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names, should_sync_default=SHOULD_SYNC_DEFAULT)
+        return build_endpoint_schemas(
+            ENDPOINTS,
+            INCREMENTAL_FIELDS,
+            names,
+            should_sync_default=SHOULD_SYNC_DEFAULT,
+            primary_keys={name: config.primary_keys for name, config in TREMENDOUS_ENDPOINTS.items()},
+        )
 
     def validate_credentials(
         self,

@@ -135,6 +135,7 @@ Inngest retains event and run history for a plan-dependent window (from 24 hours
                 should_sync_default=endpoint_config.should_sync_default,
                 description=_description(endpoint),
                 default_incremental_lookback_seconds=endpoint_config.default_incremental_lookback_seconds,
+                detected_primary_keys=endpoint_config.primary_keys,
             )
 
         schemas = [_build_schema(endpoint) for endpoint in ENDPOINTS]

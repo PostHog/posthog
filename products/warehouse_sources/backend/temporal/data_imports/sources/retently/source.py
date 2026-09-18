@@ -100,7 +100,14 @@ You can create an API key under **Settings → Integrations → API** in [Retent
         # Only feedback supports incremental sync — its `startDate` query param filters responses
         # server-side by creation date. See settings.py for why the other endpoints are full
         # refresh only.
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+        return build_endpoint_schemas(
+            ENDPOINTS,
+            INCREMENTAL_FIELDS,
+            names,
+            primary_keys={
+                name: config.primary_keys for name, config in RETENTLY_ENDPOINTS.items() if config.primary_keys
+            },
+        )
 
     def validate_credentials(
         self,

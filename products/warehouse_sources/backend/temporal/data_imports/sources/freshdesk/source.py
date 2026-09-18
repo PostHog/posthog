@@ -122,6 +122,7 @@ Your **API key** is on your Freshdesk profile settings page (click your profile 
                 supports_incremental=endpoint.updated_since_param is not None,
                 supports_append=endpoint.updated_since_param is not None,
                 incremental_fields=endpoint.incremental_fields,
+                detected_primary_keys=["id"],
             )
             for name, endpoint in FRESHDESK_ENDPOINTS.items()
         ]

@@ -109,7 +109,9 @@ WHO refreshes each indicator on its own publication cycle, typically annually, s
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names, descriptions=ENDPOINT_DESCRIPTIONS)
+        return build_endpoint_schemas(
+            ENDPOINTS, INCREMENTAL_FIELDS, names, descriptions=ENDPOINT_DESCRIPTIONS, primary_keys=PRIMARY_KEYS
+        )
 
     def validate_credentials(
         self,

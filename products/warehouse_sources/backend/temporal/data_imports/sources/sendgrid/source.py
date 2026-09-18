@@ -86,6 +86,7 @@ class SendGridSource(ResumableSource[SendGridSourceConfig, SendGridResumeConfig]
             # the only safe incremental mode.
             merge_only=("message_activity",),
             should_sync_default=SHOULD_SYNC_DEFAULT,
+            primary_keys={name: config.primary_keys for name, config in SENDGRID_ENDPOINTS.items()},
         )
 
     def validate_credentials(

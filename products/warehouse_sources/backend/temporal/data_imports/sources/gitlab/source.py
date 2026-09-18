@@ -25,6 +25,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.gitlab.git
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.gitlab.settings import (
     ENDPOINTS,
+    GITLAB_ENDPOINTS,
     INCREMENTAL_FIELDS,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
@@ -129,6 +130,7 @@ For self-managed GitLab, set the instance URL (for example `https://gitlab.examp
                 supports_incremental=bool(INCREMENTAL_FIELDS.get(endpoint)),
                 supports_append=bool(INCREMENTAL_FIELDS.get(endpoint)),
                 incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
+                detected_primary_keys=[GITLAB_ENDPOINTS[endpoint].primary_key],
             )
             for endpoint in ENDPOINTS
         ]

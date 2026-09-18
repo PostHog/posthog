@@ -29,6 +29,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.select_sta
 from products.warehouse_sources.backend.temporal.data_imports.sources.select_star.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,
+    SELECTSTAR_ENDPOINTS,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
@@ -66,7 +67,12 @@ class SelectStarSource(ResumableSource[SelectStarSourceConfig, SelectStarResumeC
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+        return build_endpoint_schemas(
+            ENDPOINTS,
+            INCREMENTAL_FIELDS,
+            names,
+            primary_keys={name: config.primary_keys for name, config in SELECTSTAR_ENDPOINTS.items()},
+        )
 
     def validate_credentials(
         self,

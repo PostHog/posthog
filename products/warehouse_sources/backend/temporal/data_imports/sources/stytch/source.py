@@ -112,6 +112,7 @@ The `organizations` and `members` tables are only available for Stytch B2B proje
                 incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
                 should_sync_default=STYTCH_ENDPOINTS[endpoint].should_sync_default,
                 description=STYTCH_ENDPOINTS[endpoint].description,
+                detected_primary_keys=STYTCH_ENDPOINTS[endpoint].primary_keys,
             )
             for endpoint in ENDPOINTS
         ]

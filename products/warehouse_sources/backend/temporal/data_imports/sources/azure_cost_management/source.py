@@ -154,6 +154,7 @@ The scope is the Azure Resource Manager path to read cost for, without a leading
                 incremental_fields=endpoint_config.incremental_fields,
                 description=endpoint_config.description,
                 default_incremental_lookback_seconds=endpoint_config.default_incremental_lookback_seconds,
+                detected_primary_keys=endpoint_config.primary_keys,
             )
             for endpoint_config in AZURE_COST_MANAGEMENT_ENDPOINTS.values()
         ]

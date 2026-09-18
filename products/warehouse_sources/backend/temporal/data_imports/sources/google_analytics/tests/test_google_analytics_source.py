@@ -27,6 +27,13 @@ def _config(property_id: str = "123456789", custom_reports: str | None = None) -
     )
 
 
+def _sync_primary_keys(config: GoogleAnalyticsSourceConfig, schema_name: str) -> list[str] | None:
+    inputs = mock.MagicMock(
+        schema_name=schema_name, team_id=1, should_use_incremental_field=True, db_incremental_field_last_value=None
+    )
+    return GoogleAnalyticsSource().source_for_pipeline(config, mock.MagicMock(), inputs).primary_keys
+
+
 def test_get_schemas_returns_all_schemas_with_date_incremental():
     schemas = GoogleAnalyticsSource().get_schemas(_config(), team_id=1)
 
@@ -42,6 +49,7 @@ def test_get_schemas_returns_all_schemas_with_date_incremental():
                 "field_type": IncrementalFieldType.Date,
             }
         ]
+        assert schema.detected_primary_keys == _sync_primary_keys(_config(), schema.name)
 
 
 def test_get_schemas_default_sync_set():
@@ -78,6 +86,9 @@ def test_get_schemas_includes_user_defined_custom_reports():
     assert "paid_campaigns" in by_name
     assert by_name["paid_campaigns"].should_sync_default is True
     assert by_name["paid_campaigns"].supports_incremental is True
+    assert by_name["paid_campaigns"].detected_primary_keys == _sync_primary_keys(
+        _config(custom_reports=custom), "paid_campaigns"
+    )
 
 
 def test_parse_custom_reports_prepends_date_and_derives_primary_key():

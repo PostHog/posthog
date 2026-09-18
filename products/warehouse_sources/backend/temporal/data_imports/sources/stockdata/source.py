@@ -73,6 +73,7 @@ class StockDataSource(ResumableSource[StockDataSourceConfig, StockDataResumeConf
                 supports_append=bool(endpoint.incremental_fields),
                 incremental_fields=list(endpoint.incremental_fields),
                 description=endpoint.description,
+                detected_primary_keys=endpoint.primary_keys,
             )
             for endpoint in STOCKDATA_ENDPOINTS.values()
         ]

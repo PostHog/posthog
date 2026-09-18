@@ -28,6 +28,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.infisical.
 from products.warehouse_sources.backend.temporal.data_imports.sources.infisical.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,
+    INFISICAL_ENDPOINTS,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
@@ -138,6 +139,7 @@ In Infisical, create a machine identity under **Organization settings > Access c
                 description="The first sync fetches your plan's full retained history"
                 if endpoint == "audit_logs"
                 else None,
+                detected_primary_keys=[INFISICAL_ENDPOINTS[endpoint].primary_key],
             )
             for endpoint in ENDPOINTS
         ]

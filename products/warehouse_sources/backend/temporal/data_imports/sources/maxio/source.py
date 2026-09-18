@@ -81,6 +81,7 @@ class MaxioSource(ResumableSource[MaxioSourceConfig, MaxioResumeConfig]):
                 default_incremental_lookback_seconds=(
                     TIMEZONE_SKEW_LOOKBACK_SECONDS if endpoint.incremental_date_field else None
                 ),
+                detected_primary_keys=endpoint.primary_keys,
             )
             for name, endpoint in ENDPOINTS.items()
         ]

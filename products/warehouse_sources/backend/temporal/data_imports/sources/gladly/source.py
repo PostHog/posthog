@@ -28,6 +28,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.gladly.gla
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.gladly.settings import (
     ENDPOINTS,
+    GLADLY_ENDPOINTS,
     INCREMENTAL_FIELDS,
     REPORT_ENDPOINTS,
     REPORT_INCREMENTAL_LOOKBACK_SECONDS,
@@ -172,6 +173,7 @@ Your organization is the part of your Gladly URL before `.gladly.com`. For `myor
             names,
             merge_only=REPORT_ENDPOINTS,
             should_sync_default=SHOULD_SYNC_DEFAULT,
+            primary_keys={name: [config.primary_key] for name, config in GLADLY_ENDPOINTS.items()},
         )
         # Conversation-report rows restate in place as records change, so its
         # incremental runs re-read a trailing window to catch the restatements.

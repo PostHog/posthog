@@ -84,6 +84,7 @@ class ZyloSource(ResumableSource[ZyloSourceConfig, ZyloResumeConfig]):
                 supports_incremental=len(endpoint_config.incremental_fields) > 0,
                 supports_append=len(endpoint_config.incremental_fields) > 0,
                 incremental_fields=endpoint_config.incremental_fields,
+                detected_primary_keys=endpoint_config.primary_keys,
             )
             for endpoint_config in ZYLO_ENDPOINTS.values()
         ]

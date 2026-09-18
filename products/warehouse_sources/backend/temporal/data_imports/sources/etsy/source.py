@@ -23,7 +23,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.etsy.etsy 
     etsy_source,
     validate_credentials as validate_etsy_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.etsy.settings import ENDPOINTS, INCREMENTAL_FIELDS
+from products.warehouse_sources.backend.temporal.data_imports.sources.etsy.settings import (
+    ENDPOINTS,
+    ETSY_ENDPOINTS,
+    INCREMENTAL_FIELDS,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.etsy import EtsySourceConfig
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
@@ -132,7 +136,12 @@ Register a personal app in the [Etsy developer portal](https://www.etsy.com/deve
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+        return build_endpoint_schemas(
+            ENDPOINTS,
+            INCREMENTAL_FIELDS,
+            names,
+            primary_keys={name: config.primary_keys for name, config in ETSY_ENDPOINTS.items()},
+        )
 
     def validate_credentials(
         self,

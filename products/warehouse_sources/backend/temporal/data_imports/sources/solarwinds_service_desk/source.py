@@ -133,6 +133,7 @@ SolarWinds Service Desk runs independent regional stacks that do not share data 
                 supports_incremental=endpoint in INCREMENTAL_FIELDS,
                 supports_append=endpoint in INCREMENTAL_FIELDS,
                 incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
+                detected_primary_keys=SOLARWINDS_SERVICE_DESK_ENDPOINTS[endpoint].primary_keys,
             )
             for endpoint in ENDPOINTS
         ]

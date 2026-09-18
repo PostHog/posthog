@@ -177,6 +177,7 @@ class LemonSqueezySource(
             names,
             merge_only=INCREMENTAL_ENDPOINTS,
             supports_webhooks=WEBHOOK_SCHEMA_NAMES,
+            primary_keys={name: ["id"] for name in ENDPOINTS},
         )
 
     def validate_credentials(

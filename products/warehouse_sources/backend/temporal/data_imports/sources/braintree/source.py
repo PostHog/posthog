@@ -19,6 +19,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.braintree.
     validate_credentials as validate_braintree_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.braintree.settings import (
+    BRAINTREE_ENDPOINTS,
     ENDPOINTS,
     INCREMENTAL_FIELDS,
 )
@@ -123,7 +124,12 @@ You can find your public and private keys in the [Braintree control panel](https
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+        return build_endpoint_schemas(
+            ENDPOINTS,
+            INCREMENTAL_FIELDS,
+            names,
+            primary_keys={name: [config.primary_key] for name, config in BRAINTREE_ENDPOINTS.items()},
+        )
 
     def validate_credentials(
         self,

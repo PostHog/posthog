@@ -13,6 +13,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.clickup.cl
     validate_credentials as validate_clickup_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.clickup.settings import (
+    CLICKUP_ENDPOINTS,
     ENDPOINTS,
     INCREMENTAL_FIELDS,
     SHOULD_SYNC_DEFAULTS,
@@ -121,6 +122,7 @@ The **Workspace ID** is the numeric ID in your ClickUp URL: `https://app.clickup
             names,
             merge_only=ENDPOINTS,
             should_sync_default=SHOULD_SYNC_DEFAULTS,
+            primary_keys={name: config.primary_keys for name, config in CLICKUP_ENDPOINTS.items()},
         )
 
     def validate_credentials(

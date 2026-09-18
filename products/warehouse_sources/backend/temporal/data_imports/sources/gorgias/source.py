@@ -73,6 +73,7 @@ class GorgiasSource(ResumableSource[GorgiasSourceConfig, GorgiasResumeConfig]):
                 supports_incremental=GORGIAS_ENDPOINTS[endpoint].supports_incremental,
                 supports_append=False,
                 incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
+                detected_primary_keys=["id"],
             )
             for endpoint in ENDPOINTS
         ]

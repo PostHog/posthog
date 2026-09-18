@@ -14,6 +14,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.canvas_lms
     validate_credentials as validate_canvas_lms_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.canvas_lms.settings import (
+    CANVAS_ENDPOINTS,
     ENDPOINTS,
     INCREMENTAL_FIELDS,
 )
@@ -128,6 +129,7 @@ Find your account ID in the URL when you view **Admin → [your account] → Set
             # Submissions mutate in place (grades/scores change after submission), so append-only
             # would duplicate rows for every graded update -- merge is the only incremental mode.
             merge_only=("submissions",),
+            primary_keys={name: config.primary_keys for name, config in CANVAS_ENDPOINTS.items()},
         )
 
     def validate_credentials(

@@ -365,10 +365,7 @@ class TestGoogleAdsLookbackDefault:
         # get_schemas() queries the Google Ads API for selectable fields; the static incremental-field
         # map (real, not mocked) is what marks a table incremental, so stub the network call with one
         # stats table (has a segments.date filter) and one dimension table (does not).
-        fake_tables = {
-            "campaign_stats": SimpleNamespace(description=None, should_sync_default=True),
-            "campaign": SimpleNamespace(description=None, should_sync_default=True),
-        }
+        fake_tables = {"campaign_stats": _stats_table(), "campaign": _single_row_table()}
         with mock.patch(self._SCHEMAS_PATH, return_value=fake_tables):
             schemas = {s.name: s for s in GoogleAdsSource().get_schemas(config, team_id=1)}
 
@@ -383,6 +380,15 @@ class TestGoogleAdsLookbackDefault:
         # would reject it. It must also stay under 30 days: that window re-read a trailing month of
         # the stats tables on every incremental run, multiplying both synced rows and warehouse spend.
         assert 0 < GOOGLE_ADS_STATS_INCREMENTAL_LOOKBACK_SECONDS < 2_592_000
+
+    def test_discovery_reports_the_key_the_sync_merges_on(self):
+        config = GoogleAdsSourceConfig(customer_id="1234567890", google_ads_integration_id=1)
+        fake_tables = {"campaign_stats": _stats_table(), "campaign": _single_row_table()}
+        with mock.patch(self._SCHEMAS_PATH, return_value=fake_tables):
+            schemas = {s.name: s for s in GoogleAdsSource().get_schemas(config, team_id=1)}
+
+        assert schemas["campaign_stats"].detected_primary_keys == ["campaign_id", "segments_date"]
+        assert schemas["campaign"].detected_primary_keys is None
 
 
 class TestGrpcReceiveLimit:

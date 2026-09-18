@@ -98,7 +98,12 @@ You can create an API token under **Settings → API Integration** in [Tempo](ht
     ) -> list[SourceSchema]:
         # Only worklogs expose a server-side incremental filter (`updatedFrom`); an endpoint with
         # incremental fields supports both incremental and append, everything else is full refresh.
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+        return build_endpoint_schemas(
+            ENDPOINTS,
+            INCREMENTAL_FIELDS,
+            names,
+            primary_keys={name: config.primary_keys for name, config in TEMPO_ENDPOINTS.items()},
+        )
 
     def validate_credentials(
         self, config: TempoSourceConfig, team_id: int, schema_name: Optional[str] = None, api_version: str | None = None

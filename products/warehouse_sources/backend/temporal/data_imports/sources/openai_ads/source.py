@@ -122,6 +122,7 @@ Create an API key in the Settings tab of [OpenAI Ads Manager](https://ads.openai
                 supports_append=False,
                 incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
                 default_incremental_lookback_seconds=endpoint_config.default_incremental_lookback_seconds,
+                detected_primary_keys=endpoint_config.primary_keys,
             )
 
         schemas = [_build_schema(endpoint) for endpoint in ENDPOINTS]

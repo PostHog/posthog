@@ -141,7 +141,13 @@ Gusto rotates refresh tokens, so the token you paste here is exchanged on every 
         # configuration tables have no updated-since parameter, so they stay full refresh. Those
         # three are merge-only: a payroll is restated as it moves from calculated to processed, so
         # appending would leave duplicate rows behind.
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names, merge_only=tuple(INCREMENTAL_FIELDS))
+        return build_endpoint_schemas(
+            ENDPOINTS,
+            INCREMENTAL_FIELDS,
+            names,
+            merge_only=tuple(INCREMENTAL_FIELDS),
+            primary_keys={name: config.primary_keys for name, config in GUSTO_ENDPOINTS.items()},
+        )
 
     def validate_credentials(
         self,

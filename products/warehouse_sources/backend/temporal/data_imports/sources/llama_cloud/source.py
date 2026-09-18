@@ -144,6 +144,7 @@ You can create an API key in [LlamaCloud](https://cloud.llamaindex.ai) under **S
                     incremental_fields=endpoint_config.incremental_fields,
                     description=endpoint_config.description,
                     default_incremental_lookback_seconds=endpoint_config.default_incremental_lookback_seconds,
+                    detected_primary_keys=endpoint_config.primary_keys,
                 )
             )
         return schemas

@@ -118,6 +118,9 @@ You can create an Uptime API token in your [Better Stack dashboard](https://upti
             should_sync_default={
                 name: endpoint_config.should_sync_default for name, endpoint_config in BETTER_STACK_ENDPOINTS.items()
             },
+            primary_keys={
+                name: endpoint_config.primary_keys for name, endpoint_config in BETTER_STACK_ENDPOINTS.items()
+            },
         )
 
     def validate_credentials(

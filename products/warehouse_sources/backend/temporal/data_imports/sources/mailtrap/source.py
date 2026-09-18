@@ -96,7 +96,12 @@ You can create an API token under **Settings → API Tokens** in [Mailtrap](http
     ) -> list[SourceSchema]:
         # Only email_logs (filters[sent_after]) and suppressions (start_time) expose a server-side
         # timestamp bound; the other endpoints are unpaginated full-refresh lists.
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+        return build_endpoint_schemas(
+            ENDPOINTS,
+            INCREMENTAL_FIELDS,
+            names,
+            primary_keys={name: config.primary_keys for name, config in MAILTRAP_ENDPOINTS.items()},
+        )
 
     def validate_credentials(
         self,

@@ -132,6 +132,7 @@ Works with Plausible Cloud and self-hosted instances. Create an API key under **
                 supports_append=incremental_fields is not None,
                 incremental_fields=incremental_fields or [],
                 should_sync_default=PLAUSIBLE_ENDPOINTS[endpoint].should_sync_default,
+                detected_primary_keys=PLAUSIBLE_ENDPOINTS[endpoint].primary_keys,
             )
 
         schemas = [_build_schema(endpoint) for endpoint in ENDPOINTS]

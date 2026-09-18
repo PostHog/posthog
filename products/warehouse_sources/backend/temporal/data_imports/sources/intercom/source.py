@@ -118,6 +118,7 @@ class IntercomSource(SimpleSource[IntercomSourceConfig], OAuthMixin):
                     supports_incremental=supports_incremental,
                     supports_append=supports_incremental,
                     incremental_fields=incremental_fields,
+                    detected_primary_keys=endpoint_config.primary_keys,
                 )
             )
         if names is not None:

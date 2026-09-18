@@ -119,6 +119,7 @@ Create a user token under **Organization settings → Tokens** in Dagster+, then
                 supports_append=False,
                 incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
                 should_sync_default=DAGSTER_CLOUD_ENDPOINTS[endpoint].should_sync_default,
+                detected_primary_keys=DAGSTER_CLOUD_ENDPOINTS[endpoint].primary_keys,
             )
             for endpoint in ENDPOINTS
         ]

@@ -26,6 +26,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.wasabi.set
     UTILIZATION_LOOKBACK_SECONDS,
     UTILIZATIONS,
     WASABI_BASE_URL,
+    WASABI_ENDPOINTS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.wasabi.wasabi import (
     WasabiResumeConfig,
@@ -73,6 +74,7 @@ class WasabiSource(ResumableSource[WasabiSourceConfig, WasabiResumeConfig]):
             INCREMENTAL_FIELDS,
             names,
             merge_only=(UTILIZATIONS, BUCKET_UTILIZATIONS),
+            primary_keys={name: config.primary_keys for name, config in WASABI_ENDPOINTS.items()},
         )
         for schema in schemas:
             if schema.name in (UTILIZATIONS, BUCKET_UTILIZATIONS):

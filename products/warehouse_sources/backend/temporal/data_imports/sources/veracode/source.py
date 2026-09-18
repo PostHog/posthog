@@ -127,6 +127,7 @@ class VeracodeSource(ResumableSource[VeracodeSourceConfig, VeracodeResumeConfig]
                 supports_append=bool(INCREMENTAL_FIELDS.get(name)),
                 incremental_fields=INCREMENTAL_FIELDS.get(name, []),
                 should_sync_default=endpoint.should_sync_default,
+                detected_primary_keys=endpoint.primary_keys,
             )
             for name, endpoint in VERACODE_ENDPOINTS.items()
         ]

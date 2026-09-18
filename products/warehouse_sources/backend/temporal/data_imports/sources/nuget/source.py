@@ -98,6 +98,7 @@ The public NuGet V3 API allows anonymous read access, so no API key is needed. E
                 incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
                 should_sync_default=endpoint_config.should_sync_default,
                 description=endpoint_config.description,
+                detected_primary_keys=endpoint_config.primary_keys,
             )
             for endpoint, endpoint_config in NUGET_ENDPOINTS.items()
         ]

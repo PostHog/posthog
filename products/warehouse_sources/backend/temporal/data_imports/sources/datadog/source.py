@@ -153,6 +153,7 @@ Logs, audit logs, and events read access is governed by your Datadog account's d
                     if endpoint in LIMITED_RETENTION_ENDPOINTS
                     else None
                 ),
+                detected_primary_keys=[DATADOG_ENDPOINTS[endpoint].primary_key],
             )
             for endpoint in list(ENDPOINTS)
         ]

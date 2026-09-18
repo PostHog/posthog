@@ -28,6 +28,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.checkout_c
     checkout_com_payments_source,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.checkout_com.reports import (
+    BUSINESS_KEYED_REPORT_TABLES,
     REPORTS_METADATA_ENDPOINT,
     checkout_com_reports_source,
     discover_report_types,
@@ -264,6 +265,15 @@ Payments, payment actions, financial actions, customers and instruments sync fro
                 REPORTS_METADATA_ENDPOINT: "Generated report files available for your account.",
                 **_PAYMENTS_ENDPOINT_DESCRIPTIONS,
             },
+            primary_keys={
+                "disputes": ["id"],
+                REPORTS_METADATA_ENDPOINT: ["id"],
+                "payments": ["id"],
+                "payment_actions": ["payment_id", "id"],
+                "financial_actions": ["payment_id", "action_id"],
+                "customers": ["id"],
+                "instruments": ["id"],
+            },
         )
 
         # One table per report type the account generates. Discovery needs the API, so
@@ -296,6 +306,9 @@ Payments, payment actions, financial actions, customers and instruments sync fro
                         supports_append=False,
                         incremental_fields=_REPORT_ROWS_INCREMENTAL_FIELDS,
                         description=f'Rows from your generated "{discovered[table_name]}" report files.',
+                        detected_primary_keys=list(
+                            BUSINESS_KEYED_REPORT_TABLES.get(table_name, ("file_id", "file_row_index"))
+                        ),
                     )
                 )
 

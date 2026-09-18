@@ -26,6 +26,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.railway.ra
 from products.warehouse_sources.backend.temporal.data_imports.sources.railway.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,
+    RAILWAY_ENDPOINTS,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
@@ -120,6 +121,7 @@ Note that Railway rate limits API requests per plan (as low as 100 requests/hour
                 # Deployments still building/deploying keep changing status after creation; re-read a
                 # trailing day each incremental run so those rows settle without a full refresh.
                 default_incremental_lookback_seconds=86400 if endpoint == "deployments" else None,
+                detected_primary_keys=RAILWAY_ENDPOINTS[endpoint].primary_keys,
             )
 
         schemas = [_build_schema(endpoint) for endpoint in ENDPOINTS]

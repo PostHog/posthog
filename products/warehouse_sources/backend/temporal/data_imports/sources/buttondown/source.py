@@ -14,6 +14,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.buttondown
     validate_credentials as validate_buttondown_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.buttondown.settings import (
+    BUTTONDOWN_ENDPOINTS,
     ENDPOINTS,
     INCREMENTAL_FIELDS,
 )
@@ -96,7 +97,12 @@ You can find your API key on the [API page](https://buttondown.com/requests) in 
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+        return build_endpoint_schemas(
+            ENDPOINTS,
+            INCREMENTAL_FIELDS,
+            names,
+            primary_keys={name: config.primary_keys for name, config in BUTTONDOWN_ENDPOINTS.items()},
+        )
 
     def validate_credentials(
         self,

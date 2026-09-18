@@ -13,6 +13,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.capsule_cr
     validate_credentials as validate_capsule_crm_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.capsule_crm.settings import (
+    CAPSULE_CRM_ENDPOINTS,
     ENDPOINTS,
     INCREMENTAL_FIELDS,
 )
@@ -99,7 +100,12 @@ The token inherits your user's permissions, so make sure your user can see the r
     ) -> list[SourceSchema]:
         # Only the `?since`-capable endpoints declare incremental fields in settings, so the
         # fields-driven default matches the old supports_since check exactly.
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+        return build_endpoint_schemas(
+            ENDPOINTS,
+            INCREMENTAL_FIELDS,
+            names,
+            primary_keys={name: config.primary_keys for name, config in CAPSULE_CRM_ENDPOINTS.items()},
+        )
 
     def validate_credentials(
         self,

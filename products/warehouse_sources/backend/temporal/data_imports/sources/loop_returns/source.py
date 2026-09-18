@@ -37,6 +37,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.loop_retur
 from products.warehouse_sources.backend.temporal.data_imports.sources.loop_returns.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,
+    LOOP_RETURNS_ENDPOINTS,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
@@ -116,7 +117,12 @@ Start date is optional and sets how far back the first sync reaches. Without it,
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+        return build_endpoint_schemas(
+            ENDPOINTS,
+            INCREMENTAL_FIELDS,
+            names,
+            primary_keys={name: config.primary_keys for name, config in LOOP_RETURNS_ENDPOINTS.items()},
+        )
 
     def validate_credentials(
         self,

@@ -23,6 +23,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 from products.warehouse_sources.backend.temporal.data_imports.sources.singlestore.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,
+    SINGLESTORE_ENDPOINTS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.singlestore.singlestore import (
     singlestore_source,
@@ -64,7 +65,12 @@ class SinglestoreSource(SimpleSource[SinglestoreSourceConfig]):
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+        return build_endpoint_schemas(
+            ENDPOINTS,
+            INCREMENTAL_FIELDS,
+            names,
+            primary_keys={name: config.primary_keys for name, config in SINGLESTORE_ENDPOINTS.items()},
+        )
 
     def validate_credentials(
         self,

@@ -13,6 +13,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.campfire.c
     validate_credentials as validate_campfire_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.campfire.settings import (
+    CAMPFIRE_ENDPOINTS,
     ENDPOINTS,
     INCREMENTAL_FIELDS,
     probe_path,
@@ -94,7 +95,12 @@ Create an API user and key on the [API keys page](https://app.meetcampfire.com/v
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+        return build_endpoint_schemas(
+            ENDPOINTS,
+            INCREMENTAL_FIELDS,
+            names,
+            primary_keys={name: config.primary_keys for name, config in CAMPFIRE_ENDPOINTS.items()},
+        )
 
     def validate_credentials(
         self,

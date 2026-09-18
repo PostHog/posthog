@@ -22,7 +22,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.okta.okta 
     okta_source,
     validate_credentials as validate_okta_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.okta.settings import ENDPOINTS, INCREMENTAL_FIELDS
+from products.warehouse_sources.backend.temporal.data_imports.sources.okta.settings import (
+    ENDPOINTS,
+    INCREMENTAL_FIELDS,
+    OKTA_ENDPOINTS,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
@@ -115,6 +119,7 @@ The token's user should have read access to the resources you want to sync, for 
                 supports_append=bool(INCREMENTAL_FIELDS.get(endpoint)),
                 incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
                 description="Only syncs the last 90 days on initial sync" if endpoint == "logs" else None,
+                detected_primary_keys=[OKTA_ENDPOINTS[endpoint].primary_key],
             )
             for endpoint in ENDPOINTS
         ]

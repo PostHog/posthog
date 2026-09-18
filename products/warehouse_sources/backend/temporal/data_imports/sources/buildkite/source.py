@@ -16,6 +16,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.buildkite.
     CANONICAL_DESCRIPTIONS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.buildkite.settings import (
+    BUILDKITE_ENDPOINTS,
     DESCRIPTIONS,
     ENDPOINTS,
     INCREMENTAL_FIELDS,
@@ -128,6 +129,7 @@ Make sure to grant the following read scopes:
             merge_only=MERGE_ONLY,
             descriptions=DESCRIPTIONS,
             should_sync_default=SHOULD_SYNC_DEFAULT,
+            primary_keys={name: config.primary_keys for name, config in BUILDKITE_ENDPOINTS.items()},
         )
 
     def validate_credentials(

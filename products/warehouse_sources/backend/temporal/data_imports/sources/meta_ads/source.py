@@ -56,6 +56,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.m
 from products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.schemas import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,
+    RESOURCE_SCHEMAS,
     SHOULD_SYNC_DEFAULT,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
@@ -198,7 +199,13 @@ class MetaAdsSource(ResumableSource[MetaAdsSourceConfig, MetaAdsResumeConfig], O
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names, should_sync_default=SHOULD_SYNC_DEFAULT)
+        return build_endpoint_schemas(
+            ENDPOINTS,
+            INCREMENTAL_FIELDS,
+            names,
+            should_sync_default=SHOULD_SYNC_DEFAULT,
+            primary_keys={name: schema["primary_keys"] for name, schema in RESOURCE_SCHEMAS.items()},
+        )
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[MetaAdsResumeConfig]:
         return ResumableSourceManager[MetaAdsResumeConfig](inputs, MetaAdsResumeConfig)

@@ -46,8 +46,8 @@ class TestDoItSource:
         ):
             schemas = self.source.get_schemas(CONFIG, team_id=1)
 
-        assert [(s.name, s.label, s.schema_metadata) for s in schemas] == [
-            ("cost_by_product", "Cost by product", {"report_id": "r1"})
+        assert [(s.name, s.label, s.schema_metadata, s.detected_primary_keys) for s in schemas] == [
+            ("cost_by_product", "Cost by product", {"report_id": "r1"}, ["id"])
         ]
 
     def test_source_for_pipeline_fetches_the_report_id_from_schema_metadata(self):

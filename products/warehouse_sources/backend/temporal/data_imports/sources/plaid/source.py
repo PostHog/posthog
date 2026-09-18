@@ -29,6 +29,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.plaid.plai
 from products.warehouse_sources.backend.temporal.data_imports.sources.plaid.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,
+    PLAID_ENDPOINTS,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
@@ -121,7 +122,12 @@ You can find your client ID and secret in the [Plaid dashboard](https://dashboar
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+        return build_endpoint_schemas(
+            ENDPOINTS,
+            INCREMENTAL_FIELDS,
+            names,
+            primary_keys={name: [config.primary_key] for name, config in PLAID_ENDPOINTS.items()},
+        )
 
     def validate_credentials(
         self, config: PlaidSourceConfig, team_id: int, schema_name: Optional[str] = None, api_version: str | None = None
