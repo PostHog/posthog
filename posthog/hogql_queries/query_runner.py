@@ -1587,6 +1587,18 @@ def get_query_runner(
             user=user,
         )
 
+    if kind == "MetricsHistogramQuery":
+        from products.metrics.backend.facade.queries import MetricsHistogramQueryRunner
+
+        return MetricsHistogramQueryRunner(
+            query=query,
+            team=team,
+            timings=timings,
+            modifiers=modifiers,
+            limit_context=limit_context,
+            user=user,
+        )
+
     # Registered here for server-side CSV export only (ExportedAsset + Celery).
     # Direct queries are blocked by LogsQueryRunner.validate_query_runner_access.
     if kind == "LogsQuery":
@@ -2127,6 +2139,9 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
 
         if self.is_query_service:
             tag_queries(chargeable=1)
+        # Only the /query view and the inline endpoint run set api_queries_budgeted; the product
+        # tag is caller-supplied via query.tags.productKey, so it cannot opt a query in or out.
+        if get_query_tag_value("api_queries_budgeted"):
             self._enforce_api_queries_budget()
 
         with (

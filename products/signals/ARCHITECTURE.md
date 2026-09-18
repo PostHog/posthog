@@ -461,21 +461,21 @@ The activity log shows PR references as title links with repository, number, and
 
 **Artefact types** (`SignalReportArtefact.ArtefactType` enum):
 
-| Type                     | Content                                                                                                                                                                                                         |
-| ------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `video_segment`          | Video segment data from session clustering                                                                                                                                                                      |
-| `safety_judgment`        | `{"choice": bool, "explanation": "..."}` — true = safe                                                                                                                                                          |
-| `actionability_judgment` | `{"actionability": "immediately_actionable" \| "requires_human_input" \| "not_actionable", "explanation": "...", "already_addressed": bool}`                                                                    |
-| `priority_judgment`      | `{"priority": "P0"\|"P1"\|"P2"\|"P3"\|"P4", "explanation": "..."}`                                                                                                                                              |
-| `signal_finding`         | `{"signal_id": "...", "relevant_code_paths": [...], "relevant_commit_hashes": {"abc1234": "reason"}, "data_queried": "...", "verified": bool}`                                                                  |
-| `repo_selection`         | `{"repository": "owner/repo" \| null, "reason": "...", "task_id"?: "..."}`                                                                                                                                      |
-| `suggested_reviewers`    | `[{"github_login": "...", "github_name": "...", "relevant_commits": [...]}]` — enriched with current PostHog user data at serializer read time                                                                  |
-| `dismissal`              | `{"reason"?, "note"?, "selected_repository"?, "corrected_repository"?, "user_id"?, "user_uuid"?, "slack_user_id"?}` — stacking dismissal entries; the repository fields are set on `wrong_repo` dismissals      |
-| `code_reference`         | `{"file_path": "...", "start_line": int, "end_line": int, "contents": "...", "relevance_note": "..."}` — a span of source lines (single line = equal start/end)                                                 |
-| `commit`                 | `{"repository": "owner/repo", "branch": "...", "commit_sha": "...", "message": "...", "note"?: "..."}` — one pushed commit                                                                                      |
-| `task_run`               | `{"task_id": "...", "run_id"?: "...", "product": "...", "type": "..."}` — a task run associated with the report (see below)                                                                                     |
-| `note`                   | `{"note": "...", "author"?: "..."}` — free-form note (markdown allowed)                                                                                                                                         |
-| `check_result`           | `{"check_id": "...", "kind": "...", "title": "...", "outcome": "passed"\|"failed"\|"errored", "explanation": "...", "observed_value"?, "baseline_value"?, "threshold"?, "run_id"?}` — one run of a report check |
+| Type                     | Content                                                                                                                                                                                                                                                                                                        |
+| ------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `video_segment`          | Video segment data from session clustering                                                                                                                                                                                                                                                                     |
+| `safety_judgment`        | `{"choice": bool, "explanation": "..."}` — true = safe                                                                                                                                                                                                                                                         |
+| `actionability_judgment` | `{"actionability": "immediately_actionable" \| "requires_human_input" \| "not_actionable", "explanation": "...", "already_addressed": bool}`                                                                                                                                                                   |
+| `priority_judgment`      | `{"priority": "P0"\|"P1"\|"P2"\|"P3"\|"P4", "explanation": "..."}`                                                                                                                                                                                                                                             |
+| `signal_finding`         | `{"signal_id": "...", "relevant_code_paths": [...], "relevant_commit_hashes": {"abc1234": "reason"}, "data_queried": "...", "verified": bool}`                                                                                                                                                                 |
+| `repo_selection`         | `{"repository": "owner/repo" \| null, "reason": "...", "task_id"?: "..."}`                                                                                                                                                                                                                                     |
+| `suggested_reviewers`    | `[{"github_login": "..." \| null, "user_uuid": "..." \| null, "github_name": "...", "relevant_commits": [...], "reason"?: "...", "source_skill"?: "...", "is_skill_owner"?: bool}]` — stored reviewers can use either identity and gain current PostHog user data and display metadata at serializer read time |
+| `dismissal`              | `{"reason"?, "note"?, "selected_repository"?, "corrected_repository"?, "user_id"?, "user_uuid"?, "slack_user_id"?}` — stacking dismissal entries; the repository fields are set on `wrong_repo` dismissals                                                                                                     |
+| `code_reference`         | `{"file_path": "...", "start_line": int, "end_line": int, "contents": "...", "relevance_note": "..."}` — a span of source lines (single line = equal start/end)                                                                                                                                                |
+| `commit`                 | `{"repository": "owner/repo", "branch": "...", "commit_sha": "...", "message": "...", "note"?: "..."}` — one pushed commit                                                                                                                                                                                     |
+| `task_run`               | `{"task_id": "...", "run_id"?: "...", "product": "...", "type": "..."}` — a task run associated with the report (see below)                                                                                                                                                                                    |
+| `note`                   | `{"note": "...", "author"?: "..."}` — free-form note (markdown allowed)                                                                                                                                                                                                                                        |
+| `check_result`           | `{"check_id": "...", "kind": "...", "title": "...", "outcome": "passed"\|"failed"\|"errored", "explanation": "...", "observed_value"?, "baseline_value"?, "threshold"?, "run_id"?}` — one run of a report check                                                                                                |
 
 **Content schemas.** `artefact_schemas.py` is the canonical, pydantic-only home of every content shape, collected in `ARTEFACT_CONTENT_SCHEMAS` (one model per type; a test asserts exact coverage). Raw payloads become typed models once, at the boundaries (`parse_artefact_content`); the model helpers derive a row's type from the content model's class (`artefact_type_for`), so a type can never mismatch its content. `repo_selection` reuses the tasks product's `RepoSelectionResult` DTO directly (kept in the dependency-light leaf module `repo_selection/types.py` so importing the schema registry doesn't pull in the sandbox runtime). Reads of legacy rows stay tolerant — parse failures are skipped or degraded, never raised.
 
@@ -1086,7 +1086,8 @@ Generated MCP tool names:
 - **`SignalReportArtefactSerializer`**
   - Exposes `id`, `type`, `content`, `created_at`
   - Parses JSON text into structured content
-  - For `suggested_reviewers`, enriches the stored GitHub-only payload with fresh PostHog org-member data at read time
+- For `suggested_reviewers`, enriches the stored payload with fresh PostHog org-member data, the source skill, a source label, and a concise explanation. Scout labels use the current team config display name when set. Reasons are limited to 500 characters on write, and older oversized reasons are omitted from the explanation on read. Inbox and scout reviewer edits discard oversized legacy reason text while keeping the reviewer and valid commit evidence. The inbox marks reviewers without a linked PostHog member.
+  - The inbox groups reviewers only when their displayed explanations and source categories match, then shows the explanation once below the grouped people. Scouts with different display names share one category and one badge; code history and other sources remain separate.
 
 ---
 
@@ -1117,7 +1118,7 @@ Telemetry is best-effort; failures are logged, not raised.
 
 ## LLM Integration
 
-Most direct LLM calls use Anthropic via the shared `call_llm()` helper in `backend/temporal/llm.py`, with model selection driven by `SIGNAL_MATCHING_LLM_MODEL` (default: `claude-sonnet-5`). The emission stage (summarization, actionability) uses its own `SIGNAL_EMISSION_LLM_MODEL`, and the two safety stages use `SIGNAL_SAFETY_LLM_MODEL` (both default to `claude-sonnet-5`). `call_llm()` takes a `model` argument so a stage can pin its own model; the safety stages pass `SAFETY_MODEL` so a matching-model swap can never silently retune the security gate. Each model's request shape (assistant prefill, per-request temperature, extended thinking) is resolved from `MODEL_CAPABILITIES` in `backend/temporal/llm.py`, so swapping either default is a config change. Adaptive-thinking models run every call at `ADAPTIVE_MODEL_EFFORT` (`medium`), set through `effort_kwargs()` in the same module.
+Most direct LLM calls use Anthropic via the shared `call_llm()` helper in `backend/temporal/llm.py`, with model selection driven by `SIGNAL_MATCHING_LLM_MODEL` (default: `claude-sonnet-5`). The emission stage (summarization, actionability) uses its own `SIGNAL_EMISSION_LLM_MODEL`, and the two safety stages use `SIGNAL_SAFETY_LLM_MODEL` (both default to `claude-sonnet-5`). `call_llm()` takes a `model` argument so a stage can pin its own model; the safety stages pass `SAFETY_MODEL` so a matching-model swap can never silently retune the security gate. Each model's request shape (assistant prefill, per-request temperature, extended thinking) is resolved from `MODEL_CAPABILITIES` in `backend/temporal/llm.py`, so swapping either default is a config change. Adaptive-thinking models run every call at `ADAPTIVE_MODEL_EFFORT` (`medium`), set through `effort_kwargs()` in the same module. `call_llm()` also takes `cache_system_prompt`, which marks the system prompt as a prompt-cache prefix. The per-signal safety filter opts in because its prompt is above the model's cache minimum and runs continuously. No other stage opts in, for two different reasons: the report judge, matching and specificity prompts are static but sit below the minimum, so there is nothing to cache; query generation builds its prompt per team from the current signal type examples (`_build_query_generation_system_prompt()`), so the prefix changes between batches and a cache write would never be read.
 
 That said, **not all “LLM-ish” behavior in Signals goes through `call_llm()` anymore**:
 
@@ -1180,6 +1181,14 @@ Returns:
 - `{"safe": false, "threat_type": "...", "explanation": "..."}`
 
 If the provider returns an empty response, the signal is treated as unsafe with threat type `provider_safety_filter`.
+
+A block fires a `signal_blocked_by_safety_filter` event in the internal project, carrying the threat type and the explanation, but not the full signal text.
+The explanation quotes the fragment that caused the block, so the event holds a short excerpt of the signal.
+Product analytics keeps that excerpt indefinitely.
+For this reason the prompt tells the classifier to describe a secret value instead of quoting it.
+The full text of a blocked signal goes to the LLM analytics store for the safety-filter judge scout: the activity captures an `$ai_span` named `safety_filter_block` (`BLOCKED_SIGNAL_SPAN_NAME`) through the SDK's AI capture lane, with the description and source in `$ai_input_state` and the verdict in `$ai_output_state`.
+That lands in `posthog.ai_events`, which drops content after its retention period (30 days by default), and the block event links to it through `$ai_trace_id`.
+The pipeline keeps this copy itself because the LLM gateway that served the call is not a reliable source: the Go gateway's mirrored generation events carry no input or output.
 
 This is the first line of defense; it prevents adversarial signals from consuming embedding / search / matching work.
 
@@ -1279,18 +1288,23 @@ Once the pull request exists, `link_report_tracker_issues` (scheduled from the t
 
 An irreversible end closes the tracker issue: a resolve asked for through the state API, a merged pull request (closed as done), or a deleted report. A suppressed or snoozed report keeps its issue open, because both come back, and so does a failed run, because its report stays in the inbox and the work item is still real.
 
-**One assignee per pull request** (`backend/reviewer_pr_assignment.py`).
+**One DRI per pull request** (`backend/reviewer_pr_assignment.py`).
 
 Every self-driving pull request opens with no assignee, so it never reaches a GitHub "Assigned to me" view. `schedule_reviewer_pr_assignment` runs when a pull request first reaches a report and applies two rules on a worker:
 
 - A suggested reviewer who turned on `SignalUserAutonomyConfig.github_assign_on_pull_request` is always added.
-- A pull request that still has no assignee gets exactly one directly responsible individual (DRI). The claimant of the report comes first (for a task claim, the user who started the task). The next candidates come from one of two sources:
+- A pull request that nobody assigned by hand gets exactly one directly responsible individual (DRI), unless an opted-in reviewer already owns it. An opted-in reviewer owns it only as the claimant or as a member of the owning team, because a reviewer who opted in is often suggested for other teams' code too. The claimant of the report comes first (for a task claim, the user who started the task). The next candidates come from one of two sources:
   - When the repository declares its ownership in `owners.yaml` files, the candidates are the members of the GitHub team that owns most of the changed files, in random order (`backend/pr_owning_team.py`). The engineering analytics facade (`resolve_path_owners`) resolves the team. GitHub teams are the canonical team identity, so the team members come from GitHub's team members API. That call needs the organization members read permission on the GitHub app.
   - Otherwise, or when that team has no candidate, the candidates are the suggested reviewers in rank order.
 
   A candidate must be an organization member with a connected GitHub account. Each candidate is checked with GitHub's read-only assignee check first, because the add-assignees call drops a login without push access instead of failing. A candidate GitHub cannot assign moves the walk to the next one, for up to four checks, and a failed check stops it.
 
-The DRI rule is involuntary on purpose. A pull request that several people could pick up diffuses responsibility, and a wrong owner costs one reassignment. It rolls out per organization behind the `signals-pr-dri-assignee` flag. Assignment is additive: nobody is unassigned, and a pull request somebody already assigned gets no DRI.
+The DRI rule is involuntary on purpose. A pull request that several people could pick up diffuses responsibility, and a wrong owner costs one reassignment. It rolls out per organization behind the `signals-pr-dri-assignee` flag. Assignment is additive: nobody is unassigned, and a pull request somebody already assigned gets no DRI. A pull request that somebody ever unassigned by hand gets no DRI either, because a later report event must not undo that decision. When the result of the opted-in assignment call is unknown (a request that failed in transit), no DRI is added on top of it.
+
+> [!WARNING]
+> Keep the `signals-pr-dri-assignee` flag on the PostHog organization only until a team-level off switch exists in the inbox settings. Assigning people on a customer's GitHub is that team's decision, and today a team cannot turn the rule off: removing `owners.yaml` only changes who gets picked.
+
+The ownership lookup reads `owners.yaml` only, and only for a public repository, because the engineering analytics lookup reads files anonymously. A repository with only CODEOWNERS, or a private repository, falls back to the suggested reviewers. The planned `owners_yaml` resolver adapter covers both: CODEOWNERS as a second format behind the same resolver interface, and files read through the GitHub app.
 
 **Fleet steering in the task description** (`load_report_steering` in `backend/report_steering.py`).
 

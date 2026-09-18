@@ -10,14 +10,14 @@ import {
 
 import { wrapWithPosthogContext } from 'products/posthog_ai/frontend/utils/posthogContextBlock'
 
-import { featureFlagContextItems } from './featureFlagAiContext'
+import { featureFlagContextItems, mutationTargetsFeatureFlag } from './featureFlagAiContext'
 
 // The backend's own cap on a text attachment (MAX_TEXT_LENGTH in the posthog_ai backend). Asserting
 // the literal rather than importing the frontend constant is deliberate: raising the frontend cap
 // past what the backend accepts is exactly the regression these cases guard against.
 const MAX_BACKEND_TEXT_LENGTH = 4096
 
-describe('featureFlagContextItems', () => {
+describe('featureFlagAiContext', () => {
     const baseFeatureFlag: FeatureFlagType = {
         id: 1,
         key: 'test-flag',
@@ -131,5 +131,20 @@ describe('featureFlagContextItems', () => {
         // Without the count the agent can't tell a flag with no targeting from one whose targeting
         // was too large to send.
         expect(JSON.parse(value).release_condition_count).toBe(1)
+    })
+
+    test.each([
+        ['the same id as a number', { id: 1 }, true],
+        ['the same id as a string', { id: '1' }, true],
+        // Every mutation tool declares these spellings as aliases for `id`, and the server resolves
+        // them after this matcher has already seen the raw arguments the model wrote.
+        ['the flagId alias', { flagId: 1 }, true],
+        ['the feature_flag_id alias', { feature_flag_id: '1' }, true],
+        ['an alias naming another flag', { flagId: 2 }, false],
+        ['another flag', { id: 2 }, false],
+        ['no id', { key: 'test-flag' }, false],
+        ['unparseable args', null, false],
+    ])('matches a mutation against the open flag with %s', (_name, innerInput, expected) => {
+        expect(mutationTargetsFeatureFlag(innerInput, 1)).toBe(expected)
     })
 })
