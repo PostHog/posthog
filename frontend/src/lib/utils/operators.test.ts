@@ -39,6 +39,7 @@ describe('operators utils', () => {
             ['version', true],
             ['sdk.version', true],
             ['appVersion', true],
+            ['SDKVersion', true],
             ['$geoip_city_name', false],
             ['conversion', false],
             ['email', false],
