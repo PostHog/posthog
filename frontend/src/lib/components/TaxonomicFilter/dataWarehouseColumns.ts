@@ -23,41 +23,59 @@ export function dataWarehouseColumnsWithJoins(
     tablesMap: Record<string, DatabaseSchemaTable>,
     { includeJoinedColumns }: { includeJoinedColumns: boolean }
 ): DatabaseSchemaField[] {
+    const columnsPerTable = tableNames.map((tableName) => columnsForTable(tableName, tablesMap, includeJoinedColumns))
+
+    const [firstTableColumns, ...remainingTableColumns] = columnsPerTable
+    if (remainingTableColumns.length === 0) {
+        return firstTableColumns ?? []
+    }
+
+    // A breakdown resolves against each series' own table, so a column that only some of the
+    // tables have fails the whole insight.
+    const remainingColumnNames = remainingTableColumns.map(
+        (tableColumns) => new Set(tableColumns.map((column) => column.name))
+    )
+    return firstTableColumns.filter((column) => remainingColumnNames.every((names) => names.has(column.name)))
+}
+
+function columnsForTable(
+    tableName: string,
+    tablesMap: Record<string, DatabaseSchemaTable>,
+    includeJoinedColumns: boolean
+): DatabaseSchemaField[] {
     const columns: DatabaseSchemaField[] = []
 
-    for (const tableName of tableNames) {
-        for (const field of Object.values(tablesMap[tableName]?.fields ?? {})) {
-            if (!HIDDEN_FIELD_TYPES.includes(field.type)) {
-                columns.push(field)
+    for (const field of Object.values(tablesMap[tableName]?.fields ?? {})) {
+        if (!HIDDEN_FIELD_TYPES.includes(field.type)) {
+            columns.push(field)
+            continue
+        }
+        if (!includeJoinedColumns || !field.table) {
+            continue
+        }
+        // `field.table` carries the joined table's printed HogQL name, which is backquoted when
+        // the name is not a bare identifier. A connector-synced table is registered under its
+        // dotted chain, so it arrives as a backquoted "stripe.campaigns" while `tablesMap` is
+        // keyed by the bare form. Strip the quotes as a fallback, the same way the SQL editor
+        // sidebar does in `normalizeTableLookupKey`.
+        const joinedTable = tablesMap[field.table] ?? tablesMap[field.table.replaceAll('`', '')]
+        for (const joinedField of Object.values(joinedTable?.fields ?? {})) {
+            if (HIDDEN_FIELD_TYPES.includes(joinedField.type)) {
                 continue
             }
-            if (!includeJoinedColumns || !field.table) {
+            // A traverser reaches another field through a chain, and the chain can end at a table
+            // instead of a value. `events.person` is one, so a warehouse table joined to `events`
+            // would offer a breakdown the printer rejects with "Can't select a table when a
+            // column is expected". Telling the two apart needs the chain resolved, so the scalar
+            // traversers such as `$virt_revenue` on persons and groups are dropped as well.
+            if (joinedField.type === 'field_traverser') {
                 continue
             }
-            // `field.table` carries the joined table's printed HogQL name, which is backquoted when
-            // the name is not a bare identifier. A connector-synced table is registered under its
-            // dotted chain, so it arrives as a backquoted "stripe.campaigns" while `tablesMap` is
-            // keyed by the bare form. Strip the quotes as a fallback, the same way the SQL editor
-            // sidebar does in `normalizeTableLookupKey`.
-            const joinedTable = tablesMap[field.table] ?? tablesMap[field.table.replaceAll('`', '')]
-            for (const joinedField of Object.values(joinedTable?.fields ?? {})) {
-                if (HIDDEN_FIELD_TYPES.includes(joinedField.type)) {
-                    continue
-                }
-                // A traverser reaches another field through a chain, and the chain can end at a table
-                // instead of a value. `events.person` is one, so a warehouse table joined to `events`
-                // would offer a breakdown the printer rejects with "Can't select a table when a
-                // column is expected". Telling the two apart needs the chain resolved, so the scalar
-                // traversers such as `$virt_revenue` on persons and groups are dropped as well.
-                if (joinedField.type === 'field_traverser') {
-                    continue
-                }
-                columns.push({
-                    ...joinedField,
-                    name: `${field.name}.${joinedField.name}`,
-                    hogql_value: `${field.hogql_value}.${joinedField.hogql_value}`,
-                })
-            }
+            columns.push({
+                ...joinedField,
+                name: `${field.name}.${joinedField.name}`,
+                hogql_value: `${field.hogql_value}.${joinedField.hogql_value}`,
+            })
         }
     }
 

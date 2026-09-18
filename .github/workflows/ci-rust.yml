@@ -962,7 +962,7 @@ jobs:
     rust_tests:
         needs: [changes, affected, build, test, linting]
         name: Rust Tests Pass
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         timeout-minutes: 5
         if: ${{ !cancelled() }}
         permissions: {}

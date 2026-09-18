@@ -1,0 +1,27 @@
+{
+    "letter": "XB",
+    "id": "XB3",
+    "cluster": null,
+    "is_real": false,
+    "severity": null,
+    "votes": [
+        {
+            "is_real": false,
+            "severity": null,
+            "evidence": "/tmp/frozen-75215/products/stamphog/backend/tasks/tasks.py:205-207 maps an unresolved acting reviewer to opted_out, but its only user-facing distinction is the dismissal message at 70-73, selected at 894-897: no reviewer currently has Stamphog inbox reviews enabled for this PR, so it will not re-review. The text does not claim a particular user turned a switch off or promise that an assignee exists. review_hog/backend/receivers.py:151-155 returns None when no reviewer resolves or the effective reviewer's toggle is off; either case means there is no eligible opted-in acting reviewer. No registered resolver is handled separately at tasks.py:201-204. Both outcomes correctly skip a new review and retract a stale approval on a head-changing event (889-903).",
+            "refutation": "I first read the actual message and followed every use of opted_out to test the alleged misleading consequence. Missing assignment does not contradict 'No reviewer currently has ... enabled for this ... PR'; it is a valid reason no eligible reviewer exists. The internal log reason inbox_opt_out at tasks.py:908 is broader than a literal toggle transition, but does not alter review safety or user behavior. Splitting the return type could improve diagnostic precision, yet the finding establishes no incorrect decision or false user-facing claim. This is optional terminology/diagnostic refinement."
+        },
+        {
+            "is_real": false,
+            "severity": null,
+            "evidence": "The actual text at /tmp/frozen-75215/products/stamphog/backend/tasks/tasks.py:70-73 says 'No reviewer currently has stamphog inbox reviews enabled for this self-driving PR'; it does not claim an assigned user explicitly disabled a toggle. That statement is also true when no eligible reviewer resolves. /tmp/frozen-75215/products/review_hog/backend/receivers.py:151-155 returns None for either missing reviewer or disabled toggle, and tasks.py:205-207,887-912 correctly declines re-review while still retracting an approval from the prior head.",
+            "refutation": "First read the rendered dismissal message and checked whether conflating the reasons changes eligibility or cleanup. Both reasons require the same no-review outcome, and the wording describes the present absence of an enabled reviewer without asserting an opt-out event. tests/test_tasks.py:796-826 confirms None still dismisses stale approvals and creates no new run. Distinct internal result variants could permit more specific copy or logs, but the current message is not factually false in the reported state and no functional defect follows; this is a wording/diagnostic preference."
+        },
+        {
+            "is_real": false,
+            "severity": null,
+            "evidence": "The resolver intentionally returns None whenever there is no eligible opted-in acting reviewer (products/review_hog/backend/receivers.py:144-155), including absent/unresolved assignment at 180-205. The user-visible dismissal says 'No reviewer currently has stamphog inbox reviews enabled for this self-driving PR' (products/stamphog/backend/tasks/tasks.py:70-73); it does not claim that a particular reviewer turned the toggle off. With no assigned/resolvable reviewer, no reviewer is enabled to review this PR, so the statement and the skip decision remain correct.",
+            "refutation": "I read the actual dismissal wording and the caller rather than inferring meaning from the internal opted_out field name. tasks.py:205-207 maps absence to the same outcome, and 887-898 uses it only while retracting an old-head approval, which must happen whether preference or assignment prevents a replacement. No unsafe approval, missed eligible reviewer, or materially false user statement follows. Distinguishing the two internal reasons could improve diagnostic detail, but this finding is a wording/representation preference rather than a proved defect."
+        }
+    ]
+}
