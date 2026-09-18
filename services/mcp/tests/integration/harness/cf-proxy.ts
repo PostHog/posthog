@@ -47,11 +47,10 @@ export async function startCfProxyHarness(env: IntegrationEnv): Promise<Integrat
             // `cloudflare:workers`'s `env` export. `MCP_HONO_URL` collapses
             // both per-region targets onto the local Hono. `POSTHOG_API_BASE_URL`
             // points the worker's token-probe path at the same backend Hono
-            // talks to. The worker listens on 127.0.0.1, so tests simulate the
-            // public hostnames through X-Forwarded-Host, like a local tunnel.
+            // talks to. MCP_TRUST_FORWARDED_HOST stays unset, so the suite runs
+            // the production rule: the worker ignores X-Forwarded-Host.
             vars: {
                 MCP_HONO_URL: hono.baseUrl.toString().replace(/\/$/, ''),
-                MCP_TRUST_FORWARDED_HOST: 'true',
                 POSTHOG_API_BASE_URL: env.apiBaseUrl,
                 POSTHOG_ANALYTICS_API_KEY: '',
                 POSTHOG_ANALYTICS_HOST: '',

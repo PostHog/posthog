@@ -25,6 +25,22 @@ describe('getPublicUrl', () => {
         expect(getPublicUrl(request).toString()).toBe('https://dev-tunnel.example.com/mcp')
     })
 
+    it('keeps a port that X-Forwarded-Host carries', () => {
+        process.env.MCP_TRUST_FORWARDED_HOST = 'true'
+        const request = new Request('http://localhost:8787/mcp', {
+            headers: { 'X-Forwarded-Host': 'dev-tunnel.example.com:8443' },
+        })
+        expect(getPublicUrl(request).toString()).toBe('http://dev-tunnel.example.com:8443/mcp')
+    })
+
+    it('ignores an X-Forwarded-Host that is not a host', () => {
+        process.env.MCP_TRUST_FORWARDED_HOST = 'true'
+        const request = new Request('http://localhost:8787/mcp', {
+            headers: { 'X-Forwarded-Host': 'first.example.com, second.example.com' },
+        })
+        expect(getPublicUrl(request).toString()).toBe('http://localhost:8787/mcp')
+    })
+
     it('applies X-Forwarded-Proto behind a TLS-terminating load balancer', () => {
         const request = new Request('http://mcp.us.posthog.com/mcp', {
             headers: { 'X-Forwarded-Proto': 'https' },

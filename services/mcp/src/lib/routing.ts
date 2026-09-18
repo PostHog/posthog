@@ -13,9 +13,13 @@ export function getPublicUrl(request: Request): URL {
 
     const forwardedHost = trustForwardedHost() ? request.headers.get('X-Forwarded-Host') : null
     if (forwardedHost) {
-        // Setting `host` without a port keeps the local port, which the public host does not serve.
-        url.port = ''
-        url.host = forwardedHost
+        // Parse the value, so a header that is not a host leaves the URL alone. Assigning `host`
+        // on its own would keep the local port, which the public host does not serve.
+        const parsed = parseHost(url.protocol, forwardedHost)
+        if (parsed) {
+            url.host = parsed.host
+            url.port = parsed.port
+        }
     }
 
     const forwardedProto = request.headers.get('X-Forwarded-Proto')
@@ -29,6 +33,14 @@ export function getPublicUrl(request: Request): URL {
 function trustForwardedHost(): boolean {
     const value = env.MCP_TRUST_FORWARDED_HOST
     return value === 'true' || value === '1'
+}
+
+function parseHost(protocol: string, host: string): URL | null {
+    try {
+        return new URL(`${protocol}//${host}`)
+    } catch {
+        return null
+    }
 }
 
 // Detect region from the request hostname.
