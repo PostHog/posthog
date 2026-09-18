@@ -9000,7 +9000,6 @@ class TestExperimentApiMetricParity(unittest.TestCase):
     how ``conversion_window_unit`` and ``funnel_order_type`` stayed unsettable over the API.
     """
 
-    # Runtime fields deliberately kept off the write schema.
     INTENTIONALLY_OMITTED = {
         # Server-computed or internal.
         "fingerprint",
