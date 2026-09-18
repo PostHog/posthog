@@ -6,6 +6,7 @@ from posthog.models.organization import Organization
 from posthog.models.team import Team
 from posthog.models.user import User
 
+from products.signals.backend.models import SignalReport
 from products.tasks.backend.models import Channel, Task
 
 
@@ -48,3 +49,17 @@ class TestTaskCaptureEvent(TestCase):
         task.capture_event("task_created", capture_fn=capture)
 
         self.assertEqual(capture.call_args.kwargs["properties"]["channel_id"], str(channel.id))
+
+    def test_signal_report_id_reaches_analytics_for_a_task_started_from_a_report(self):
+        # Carried whatever the origin is: a task started from a report's Slack thread has origin
+        # `slack`, so without the id its report link is invisible in event data.
+        report = SignalReport.objects.create(team=self.team, status=SignalReport.Status.READY, title="Checkout fails")
+        capture = MagicMock()
+
+        linked = self._task(signal_report=report)
+        linked.capture_event("task_created", capture_fn=capture)
+        self.assertEqual(capture.call_args.kwargs["properties"]["signal_report_id"], str(report.id))
+
+        capture.reset_mock()
+        self._task().capture_event("task_created", capture_fn=capture)
+        self.assertNotIn("signal_report_id", capture.call_args.kwargs["properties"])

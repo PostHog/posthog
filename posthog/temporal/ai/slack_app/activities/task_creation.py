@@ -676,6 +676,21 @@ def create_posthog_code_task_for_repo_activity(
             user_id=user_id,
         )
 
+    # A mention in a report's notification thread is a conversation about that report, so the task
+    # is filed against it and shows in the report's run history. Any other thread resolves to None
+    # and the task stays unlinked.
+    from products.signals.backend.facade.api import (  # noqa: PLC0415 — cross-product read kept off the activity import path
+        TASK_RUN_TYPE_DISCUSSION,
+        report_id_for_slack_thread,
+    )
+
+    signal_report_id = report_id_for_slack_thread(
+        team_id=integration.team_id,
+        integration_id=integration.id,
+        channel=channel,
+        thread_ts=thread_ts,
+    )
+
     # 1. Create task + run WITHOUT starting the workflow
     try:
         created = tasks_facade.create_and_run_task(
@@ -684,6 +699,8 @@ def create_posthog_code_task_for_repo_activity(
             description=description,
             origin_product=tasks_facade.TaskOriginProduct.SLACK,
             user_id=user_id,
+            signal_report_id=signal_report_id,
+            signal_report_task_relationship=TASK_RUN_TYPE_DISCUSSION if signal_report_id else None,
             repository=repository,
             create_pr=allow_pr_creation,
             mode="interactive",

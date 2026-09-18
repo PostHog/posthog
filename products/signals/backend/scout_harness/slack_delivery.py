@@ -36,6 +36,7 @@ from products.signals.backend.slack_formatting import (
     split_markdown_by_headings,
     strip_chart_references,
 )
+from products.signals.backend.slack_report_threads import record_report_slack_thread
 
 logger = structlog.get_logger(__name__)
 
@@ -757,6 +758,16 @@ def post_scout_report_to_slack(
         raise
 
     thread_ts = response.get("ts")
+    if isinstance(thread_ts, str) and thread_ts:
+        record_report_slack_thread(
+            team_id=report.team_id,
+            report_id=str(report.id),
+            integration_id=integration.id,
+            # Slack names the conversation it posted to, which for a DM is the `D…` id a reply
+            # carries rather than the `U…` recipient we addressed.
+            channel=str(response.get("channel") or channel_id),
+            thread_ts=thread_ts,
+        )
     if threaded:
         _post_scout_report_thread_replies(
             client,

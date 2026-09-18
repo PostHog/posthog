@@ -33,6 +33,7 @@ from products.signals.backend.slack_inbox_notifications import (
     dispatch_inbox_item_notifications,
     dispatch_reviewer_added_notifications,
 )
+from products.signals.backend.slack_report_threads import report_id_for_slack_thread
 from products.signals.backend.tasks import send_reviewer_added_slack_notifications
 
 
@@ -1277,3 +1278,43 @@ def test_reviewer_added_task_decodes_uuid_from_the_legacy_argument(org_and_team)
 
     assert mock_dispatch.call_args.kwargs["added_github_logins"] == ["linked-user"]
     assert mock_dispatch.call_args.kwargs["added_user_uuids"] == ["019f0000-0000-7000-8000-000000000001"]
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    ("posted_channel", "expected_channel"),
+    [
+        # A channel post lands where it was addressed.
+        ("CTEAM", "CTEAM"),
+        # A direct message is addressed to the member but lands in the `D…` conversation Slack
+        # opened, and that is the id a reply event carries.
+        ("D_INBOX", "D_INBOX"),
+        # Slack answered without naming a conversation.
+        (None, "CTEAM"),
+    ],
+)
+def test_dispatch_records_the_thread_the_report_was_delivered_to(org_and_team, posted_channel, expected_channel):
+    org, team = org_and_team
+    reviewer = _make_reviewer_user(org, "thread-link@example.com", "link-bot")
+    integration = _make_slack_integration(team, reviewer)
+    _set_team_channel(team, "CTEAM|#posthog-signals")
+    report = _make_ready_report(team, priority=AutonomyPriority.P2, suggested_logins=["link-bot"])
+
+    fake_client = MagicMock()
+    fake_client.chat_postMessage.return_value = {"ts": "1700000000.000100", "channel": posted_channel}
+    with (
+        patch("products.signals.backend.slack_inbox_notifications.SlackIntegration") as slack_cls,
+        patch(
+            "products.signals.backend.slack_inbox_notifications.lookup_slack_user_id_by_email",
+            return_value="U_LINK",
+        ),
+    ):
+        slack_cls.return_value.client = fake_client
+        assert dispatch_inbox_item_notifications(str(report.id), team.id) == 1
+
+    assert report_id_for_slack_thread(
+        team_id=team.id,
+        integration_id=integration.id,
+        channel=expected_channel,
+        thread_ts="1700000000.000100",
+    ) == str(report.id)

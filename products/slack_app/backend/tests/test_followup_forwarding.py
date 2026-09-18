@@ -23,6 +23,8 @@ from posthog.temporal.ai.slack_app import (
 from posthog.temporal.ai.slack_app.activities.task_creation import _build_terminal_recovery_prompt
 from posthog.temporal.ai.slack_app.helpers import safe_react
 
+from products.signals.backend.models import SignalReport
+from products.signals.backend.slack_report_threads import record_report_slack_thread
 from products.slack_app.backend.api import SlackUserContext
 from products.slack_app.backend.models import SlackThreadTaskMapping
 from products.slack_app.backend.services.run_preferences import SLACK_DEFAULT_MODEL
@@ -687,6 +689,56 @@ class TestCreatePostHogCodeTaskForRepoActivity(TestCase):
         mock_execute_workflow.assert_not_called()
 
         _assert_quota_denial_posted(mock_slack_instance, "C123", "1234.5678")
+
+    @parameterized.expand([("report_thread", True), ("ordinary_thread", False)])
+    @patch("products.tasks.backend.facade.temporal.dispatch_task_processing_workflow")
+    @patch("posthog.models.integration.SlackIntegration")
+    def test_mention_in_a_report_thread_files_the_task_against_the_report(
+        self,
+        _name: str,
+        is_report_thread: bool,
+        mock_slack_cls,
+        _mock_execute_workflow,
+    ):
+        mock_slack_instance = MagicMock()
+        mock_slack_instance.client.chat_getPermalink.return_value = {
+            "ok": True,
+            "permalink": "https://slack.example.com/thread",
+        }
+        mock_slack_cls.return_value = mock_slack_instance
+        report = SignalReport.objects.create(team=self.team, status=SignalReport.Status.READY, title="Checkout fails")
+        if is_report_thread:
+            record_report_slack_thread(
+                team_id=self.team.id,
+                report_id=str(report.id),
+                integration_id=self.integration.id,
+                channel="C123",
+                thread_ts="1234.5678",
+            )
+
+        inputs = _make_inputs(self.integration.id, self.user.id)
+        create_posthog_code_task_for_repo_activity(
+            inputs,
+            "C123",
+            "1234.5678",
+            "U_ALICE",
+            self.user.id,
+            inputs.event,
+            [SlackThreadMessage(user="U_ALICE", text="can you fix this")],
+            None,
+        )
+
+        task = self.Task.objects.get(team=self.team)
+        # Provenance stays Slack either way — the report link is what the report's run history
+        # and the lifecycle dashboards read.
+        assert task.origin_product == self.Task.OriginProduct.SLACK
+        runs = SignalReport.associated_task_runs(report_id=str(report.id), team_id=self.team.id)
+        if is_report_thread:
+            assert str(task.signal_report_id) == str(report.id)
+            assert [(run.type, run.task_id) for run in runs] == [("discussion", str(task.id))]
+        else:
+            assert task.signal_report_id is None
+            assert runs == []
 
 
 class TestForwardPostHogCodeFollowupActivity(TestCase):

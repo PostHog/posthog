@@ -1051,6 +1051,40 @@ class SignalReportPullRequest(TeamScopedRootMixin, UUIDModel):
         ]
 
 
+class SignalReportSlackThread(TeamScopedRootMixin, UUIDModel):
+    """The Slack thread a report's notification opened.
+
+    Slack invites the reader to answer in that thread and mention the app, which starts a task. The
+    mention event carries only the channel and the thread, so without this row the task cannot name
+    the report the conversation is about, and the report's run history never shows it. One row per
+    delivered thread: a report delivered to several channels gets one row for each.
+    """
+
+    all_teams = models.Manager()  # noqa: DJ012
+
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
+    report = models.ForeignKey(SignalReport, on_delete=models.CASCADE, related_name="slack_threads")
+    integration = models.ForeignKey("posthog.Integration", on_delete=models.CASCADE, related_name="+")
+    # Both as Slack reports them on the posted message, so a mention event's own `channel` and
+    # `thread_ts` match without translation. For a direct message that is the `D…` conversation
+    # Slack opened, not the `U…` recipient the message was addressed to.
+    channel = models.CharField(max_length=64)
+    thread_ts = models.CharField(max_length=64)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        default_manager_name = "all_teams"
+        verbose_name = "Signal report Slack thread"
+        verbose_name_plural = "Signal report Slack threads"
+        constraints = [
+            # Also the index the mention lookup reads: one thread belongs to one report.
+            models.UniqueConstraint(
+                fields=["integration", "channel", "thread_ts"], name="signals_report_slack_thread_unique"
+            ),
+        ]
+
+
 class SignalEmissionRecord(UUIDModel):
     """Tracks which source records have been emitted as signals.
 

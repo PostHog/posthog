@@ -1602,6 +1602,7 @@ def create_and_run_task(
     scheduled_at: datetime | None = None,
     branch: str | None = None,
     signal_report_id: str | None = None,
+    signal_report_task_relationship: str | None = None,
     free_trial_enabled: bool | None = None,
     internal: bool = False,
     sandbox_environment_id: str | None = None,
@@ -1624,6 +1625,11 @@ def create_and_run_task(
 
     ``scheduled_at`` creates the run in NOT_STARTED and defers its workflow until the dispatcher
     materializes it at or after that time. The run still stores its complete execution settings.
+
+    ``signal_report_task_relationship`` names how the task relates to ``signal_report_id`` and
+    records the task↔report association, so the run shows on the report. Callers that write that
+    association themselves (auto-start, which must write it under the report row lock) leave it
+    unset.
     """
     # create_pr=False sessions (research, repo selection, custom agents) can never open the
     # billable PR, so the quota gate must not block them.
@@ -1657,6 +1663,18 @@ def create_and_run_task(
         **extra,
     )
     latest = task.latest_run
+    if signal_report_id and signal_report_task_relationship:
+        from products.signals.backend.task_run_artefacts import (  # noqa: PLC0415 — cross-product write kept off the api import path
+            record_report_task,
+        )
+
+        record_report_task(
+            team_id=task.team_id,
+            report_id=signal_report_id,
+            task_id=str(task.id),
+            relationship=signal_report_task_relationship,
+            run_id=str(latest.id) if latest is not None else None,
+        )
     return contracts.CreatedTaskDTO(
         task_id=task.id,
         team_id=task.team_id,
