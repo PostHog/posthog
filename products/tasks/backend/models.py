@@ -73,6 +73,8 @@ MCP_GATEWAY_SERVER_ALLOWLIST_STATE_KEY = "mcp_gateway_server_ids"
 TASK_OWNERSHIP_VERSION_STATE_KEY = "task_ownership_version"
 TASK_RUN_SUMMARY_STATE_KEY = "task_summary"
 PRIOR_RUN_SUMMARY_STATE_KEY = "prior_run_summary"
+TASK_RUN_SUMMARY_UPDATE_COUNT_STATE_KEY = "task_summary_update_count"
+TASK_RUN_SUMMARY_UPDATED_AT_STATE_KEY = "task_summary_updated_at"
 
 # Stage `Task.create_run` stamps on a person-started signals run, so it resolves a mintable
 # gateway product. Keyed by origin value.
@@ -2354,6 +2356,23 @@ class TaskRun(models.Model):
         return None
 
     @property
+    def summary_update_count(self) -> int:
+        state = self.state if isinstance(self.state, dict) else {}
+        count = state.get(TASK_RUN_SUMMARY_UPDATE_COUNT_STATE_KEY)
+        return count if isinstance(count, int) and count > 0 else 0
+
+    @property
+    def seconds_since_summary_update(self) -> float | None:
+        state = self.state if isinstance(self.state, dict) else {}
+        updated_at = state.get(TASK_RUN_SUMMARY_UPDATED_AT_STATE_KEY)
+        if not isinstance(updated_at, str):
+            return None
+        try:
+            return max((django_timezone.now() - datetime.fromisoformat(updated_at)).total_seconds(), 0.0)
+        except (ValueError, TypeError):
+            return None
+
+    @property
     def mode(self) -> str:
         """Get the execution mode from state. Defaults to 'background'."""
         return (self.state or {}).get("mode", "background")
@@ -2473,6 +2492,21 @@ class TaskRun(models.Model):
                 stamp_pending_user_message_id(state, refresh=True)
 
         return cls.mutate_state_atomic(run_id, _mutator)
+
+    @classmethod
+    def record_summary_atomic(cls, run_id: str | uuid.UUID, summary: str) -> bool:
+        """Replace the run summary. Returns False, and saves nothing, when the text is unchanged."""
+        with transaction.atomic():
+            locked_task_run = cls.objects.select_for_update().get(id=run_id)
+            state = dict(locked_task_run.state or {})
+            if state.get(TASK_RUN_SUMMARY_STATE_KEY) == summary:
+                return False
+            state[TASK_RUN_SUMMARY_STATE_KEY] = summary
+            state[TASK_RUN_SUMMARY_UPDATE_COUNT_STATE_KEY] = locked_task_run.summary_update_count + 1
+            state[TASK_RUN_SUMMARY_UPDATED_AT_STATE_KEY] = django_timezone.now().isoformat()
+            locked_task_run.state = state
+            locked_task_run.save(update_fields=["state", "updated_at"])
+            return True
 
     @classmethod
     def update_output_atomic(

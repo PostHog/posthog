@@ -104,6 +104,8 @@ from products.tasks.backend.models import (
     PRIOR_RUN_SUMMARY_STATE_KEY,
     TASK_OWNERSHIP_VERSION_STATE_KEY,
     TASK_RUN_SUMMARY_STATE_KEY,
+    TASK_RUN_SUMMARY_UPDATE_COUNT_STATE_KEY,
+    TASK_RUN_SUMMARY_UPDATED_AT_STATE_KEY,
     Channel,
     ChannelContextGeneration,
     ChannelFeedMessage,
@@ -2414,6 +2416,8 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         "verified_pr_urls",
         TASK_RUN_SUMMARY_STATE_KEY,
         PRIOR_RUN_SUMMARY_STATE_KEY,
+        TASK_RUN_SUMMARY_UPDATE_COUNT_STATE_KEY,
+        TASK_RUN_SUMMARY_UPDATED_AT_STATE_KEY,
         "sandbox_id",
         # Sandbox connection state is written only by the provisioning activity. A PATCHable
         # sandbox_backend/sandbox_url would let a task controller point the account-wide hogland
@@ -3210,9 +3214,9 @@ def set_task_run_summary(
     run = _get_visible_run(run_id, task_id, team_id)
     if run is None:
         return None
-    run.state = TaskRun.update_state_atomic(run.id, updates={TASK_RUN_SUMMARY_STATE_KEY: summary})
-    run.refresh_from_db()
-    run.publish_stream_state_event()
+    if TaskRun.record_summary_atomic(run.id, summary):
+        run.refresh_from_db()
+        run.publish_stream_state_event()
     return _task_run_detail_to_dto(run, include_agent_state=include_agent_state, user_id=user_id)
 
 

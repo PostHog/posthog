@@ -6134,6 +6134,22 @@ class TestTaskRunAPI(BaseTaskAPITest):
         self.assertEqual(updated.status_code, status.HTTP_200_OK)
         self.assertEqual(updated.json()["task_summary"], "Writing the fix")
 
+        run.refresh_from_db()
+        first_updated_at = run.state["task_summary_updated_at"]
+        for summary in ("Writing the fix", "  Writing the fix  ", "Opening the pull request"):
+            client.patch(
+                f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/set_summary/",
+                {"summary": summary},
+                format="json",
+            )
+            run.refresh_from_db()
+            if summary.strip() == "Writing the fix":
+                self.assertEqual(run.state["task_summary_update_count"], 1)
+                self.assertEqual(run.state["task_summary_updated_at"], first_updated_at)
+
+        self.assertEqual(run.state["task_summary"], "Opening the pull request")
+        self.assertEqual(run.state["task_summary_update_count"], 2)
+
     def test_unbound_sandbox_scope_does_not_bypass_task_visibility(self):
         owner = self.create_organization_user("sandbox-owner")
         task = self.create_task(created_by=owner)
@@ -6448,6 +6464,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
                 "interaction_origin": "slack",
                 "slack_actor_user_id": self.user.id,
                 "run_source": "manual",
+                "task_summary_update_count": 2,
             },
         )
 
@@ -6529,6 +6546,8 @@ class TestTaskRunAPI(BaseTaskAPITest):
                     "interaction_origin": "desktop",
                     "slack_actor_user_id": credential_target.id,
                     "run_source": "signal_report",
+                    "task_summary_update_count": 99,
+                    "task_summary_updated_at": "2020-01-01T00:00:00+00:00",
                     "dev_stack_preview": {"port": 8080, "sandbox_id": "sb-real"},
                     "scratch": "ok",
                 }
@@ -6588,6 +6607,8 @@ class TestTaskRunAPI(BaseTaskAPITest):
         assert run.state["interaction_origin"] == "slack"
         assert run.state["slack_actor_user_id"] == self.user.id
         assert run.state["run_source"] == "manual"
+        assert run.state["task_summary_update_count"] == 2
+        assert "task_summary_updated_at" not in run.state
         assert run.state["scratch"] == "ok"  # non-protected keys still merge
         assert run.state["systemPrompt"] == system_prompt
 
@@ -6636,6 +6657,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
                     "interaction_origin",
                     "slack_actor_user_id",
                     "run_source",
+                    "task_summary_update_count",
                     "scratch",
                 ],
             },
@@ -6683,6 +6705,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
         assert run.state["interaction_origin"] == "slack"
         assert run.state["slack_actor_user_id"] == self.user.id
         assert run.state["run_source"] == "manual"
+        assert run.state["task_summary_update_count"] == 2
         assert "scratch" not in run.state  # non-protected key removed
         assert run.state["systemPrompt"] == system_prompt
 

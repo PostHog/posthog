@@ -48,6 +48,11 @@ Send a JSON object with a `summary` string of 1 to 1,500 characters after trimmi
 The endpoint requires permission to control the task. A task-bound sandbox token can update only its own task.
 The update does not complete the run or change its structured `output`.
 Generic run-state updates cannot change the summary or its inherited value.
+A write with unchanged text saves nothing and publishes no stream event.
+Each accepted write increments `task_summary_update_count` and sets `task_summary_updated_at` in the run state.
+Generic run-state updates cannot change these two keys.
+The `task_run_completed` event reports `summary_update_count` and `seconds_since_summary_update`.
+Only the latest summary text is stored.
 
 A resumed run uses its source run's summary until it saves a new summary.
 Task details, paginated task lists, and task summaries include the effective `task_summary`.
