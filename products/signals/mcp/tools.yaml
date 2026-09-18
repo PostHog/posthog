@@ -123,8 +123,8 @@ tools:
             idempotent: false
         title: Write a follow-up check (removed)
         description: >
-            Removed. A scout run writes checks with scout-report-check-create, and the research pipeline writes its
-            own; there is no create surface for a person or a task token. Read a report's checks with
+            Removed. A scout run writes checks with scout-report-check-create, and the research pipeline writes its own;
+            there is no create surface for a person or a task token. Read a report's checks with
             inbox-report-checks-list.
     inbox-report-checks-list:
         operation: signals_report_checks_list
