@@ -120,7 +120,10 @@ describe('customer task filter helpers', () => {
     test.each([
         ['the inbox defaults', {}],
         ['a filtered view', { status: 'all', assignee: 'unassigned', due: 'overdue', archive: 'archived', page: '3' }],
-        ['a named member and an account', { assignee: '42', account: 'account-1', sort: '-updated_at' }],
+        [
+            'a named member and an account',
+            { assignee: '42', account: '0199ed4a-5c03-0000-3220-df21df612e95', sort: '-updated_at' },
+        ],
         ['a search', { search: 'renewal' }],
         ['a whitespace search the query still sends', { search: '  ' }],
     ])('round-trips %s through the search params', (_, params) => {
@@ -133,7 +136,9 @@ describe('customer task filter helpers', () => {
         ['an unknown archive state', { archive: 'deleted' }, { archiveState: 'active' }],
         ['a non-member assignee', { assignee: 'someone' }, { assignee: 'me' }],
         ['a negative member id', { assignee: '-1' }, { assignee: 'me' }],
+        ['an out-of-range member id', { assignee: '2147483648' }, { assignee: 'me' }],
         ['an empty account', { account: '' }, { account: null }],
+        ['a path-shaped account', { account: '../../x' }, { account: null }],
     ])('falls back to the inbox default for %s', (_, params, expected) => {
         expect(parseCustomerTaskSearchParams(params).filters).toMatchObject(expected)
     })

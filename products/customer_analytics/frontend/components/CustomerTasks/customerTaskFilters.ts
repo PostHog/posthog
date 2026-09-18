@@ -1,6 +1,7 @@
 import type { Sorting } from '@posthog/lemon-ui'
 
 import { dayjs, dayjsLocalToTimezone, dayjsNowInTimezone } from 'lib/dayjs'
+import { isUUIDLike } from 'lib/utils/guards'
 
 import type {
     CustomerTaskApi,
@@ -14,6 +15,8 @@ export type CustomerTaskStatusFilter = 'open' | 'completed' | 'canceled' | 'all'
 export type CustomerTaskAssigneeFilter = 'any' | 'me' | 'unassigned' | number
 export type CustomerTaskDueFilter = 'any' | 'overdue' | 'today' | 'upcoming' | 'no_due_date'
 export type CustomerTaskAccountFilter = { id: string; name: string }
+
+const MAX_CUSTOMER_TASK_ASSIGNEE_ID = 2_147_483_647
 const CUSTOMER_TASK_ORDERINGS = [
     'name',
     '-name',
@@ -252,7 +255,7 @@ function parseAssignee(value: unknown): CustomerTaskAssigneeFilter | null {
         return value
     }
     const memberId = Number(value)
-    return Number.isInteger(memberId) && memberId > 0 ? memberId : null
+    return Number.isInteger(memberId) && memberId > 0 && memberId <= MAX_CUSTOMER_TASK_ASSIGNEE_ID ? memberId : null
 }
 
 function parseOneOf<T extends string>(value: unknown, allowed: readonly T[]): T | null {
@@ -279,7 +282,7 @@ export function parseCustomerTaskSearchParams(searchParams: Record<string, any>)
             assignee: parseAssignee(searchParams.assignee) ?? defaults.assignee,
             archiveState: parseOption(searchParams.archive, CUSTOMER_TASK_ARCHIVE_OPTIONS) ?? defaults.archiveState,
             account:
-                typeof searchParams.account === 'string' && searchParams.account
+                typeof searchParams.account === 'string' && isUUIDLike(searchParams.account)
                     ? { id: searchParams.account, name: '' }
                     : null,
             due: parseOption(searchParams.due, CUSTOMER_TASK_DUE_OPTIONS) ?? defaults.due,
