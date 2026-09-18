@@ -42,7 +42,7 @@ function getInstruments(): LogsIngestionInstruments {
                 unit: 'By',
             }),
             jsonEnrichmentSkipped: createCounterWithExemplars(meter, 'logs_ingestion_json_enrichment_skipped_total', {
-                description: 'Log body JSON enrichment skipped because a size or traversal budget was exceeded',
+                description: 'Log JSON enrichment skipped because a size or traversal budget was exceeded',
             }),
             recordsReceived: createCounterWithExemplars(meter, 'logs_ingestion_records_received_total', {
                 description: 'Total log records received',
@@ -89,8 +89,8 @@ export const recordLogsReceived = swallowing((bytes: number, records: number): v
     addPositive(recordsReceived, records)
 })
 
-export const recordJsonEnrichmentSkipped = swallowing((reason: string): void => {
-    getInstruments().jsonEnrichmentSkipped.add(1, { reason })
+export const recordJsonEnrichmentSkipped = swallowing((reason: string, source: string): void => {
+    getInstruments().jsonEnrichmentSkipped.add(1, { reason, source })
 })
 
 export const recordLogsAllowed = swallowing((bytes: number, records: number): void => {
@@ -117,7 +117,12 @@ export const recordLogMessageDlq = swallowing((reason: string, teamId: string): 
 export const recordLogProcessingDuration = swallowing(
     (
         seconds: number,
-        attributes: { json_parse_enabled: string; pii_scrub_enabled: string; compression_codec: string }
+        attributes: {
+            json_parse_enabled: string
+            pii_scrub_enabled: string
+            attribute_extraction_enabled: string
+            compression_codec: string
+        }
     ): void => {
         getInstruments().processingDuration.record(seconds, attributes)
     }
