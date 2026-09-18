@@ -360,6 +360,8 @@ pr_metadata.head_branch` is threaded (as explicit kwargs, alongside `team_id` / 
     Started carries the arm as the turn began; completed the arm at the end,
     which differs when a person's trigger lifted the tier mid-turn or, rarely, when the registry dropped the
     arm's model mid-turn (`review_arm_fallback`). Best-effort: telemetry can never fail a review.
+    Turn event IDs distinguish Full and Flash while preserving the legacy Full IDs across deployments.
+    Completion-rate calculations match failures and completions by report, turn, and mode; an absent mode means Full for legacy events.
 
 ---
 

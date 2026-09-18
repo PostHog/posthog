@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Literal
+from uuid import NAMESPACE_URL, uuid5
 
 from pydantic import BaseModel, ValidationError
 
@@ -26,6 +27,14 @@ class _FindingModelContext(BaseModel):
     review_mode: Literal["full", "flash"]
     review_arm: ReviewArm
     validation_arm: ReviewArm
+
+
+def review_event_uuid(event_name: str, *, report_id: str, run_index: int, review_mode: str) -> str:
+    """Preserve legacy Full event IDs while separating retry histories by review mode."""
+    identity = f"{event_name}:{report_id}:{run_index}"
+    if review_mode != REVIEW_MODE_FULL:
+        identity = f"{identity}:{review_mode}"
+    return str(uuid5(NAMESPACE_URL, identity))
 
 
 def review_routing_properties(report: ReviewReport, *, review_mode: str | None = None) -> dict[str, str | bool | None]:

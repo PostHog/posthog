@@ -194,35 +194,42 @@ class TestTrackReviewCompleted(BaseTest):
         assert props["findings_total"] == 0
 
     @parameterized.expand([("completed",), ("failed",), ("started",)])
-    def test_event_uuid_is_stable_across_retries(self, event: str) -> None:
-        # A Temporal retry after a successful capture re-emits the event; a stable uuid lets
-        # ingestion dedupe it instead of double-counting the turn.
+    def test_event_uuid_is_stable_across_retries_and_separate_for_each_mode(self, event: str) -> None:
         report_id = self._review_report()
         emit = {
-            "completed": lambda: _track_review_completed(self._tracking_input(report_id)),
-            "failed": lambda: _track_review_failed(
+            "completed": lambda mode: _track_review_completed(self._tracking_input(report_id, review_mode=mode)),
+            "failed": lambda mode: _track_review_failed(
                 TrackReviewFailedInput(
-                    team_id=self.team.id, report_id=report_id, run_index=1, turn_trigger_source="manual"
+                    team_id=self.team.id,
+                    report_id=report_id,
+                    run_index=1,
+                    turn_trigger_source="manual",
+                    review_mode=mode,
                 )
             ),
-            "started": lambda: _track_review_started(
+            "started": lambda mode: _track_review_started(
                 TrackReviewStartedInput(
                     team_id=self.team.id,
                     report_id=report_id,
                     head_sha="sha1",
                     run_index=1,
                     turn_trigger_source="manual",
+                    review_mode=mode,
                 )
             ),
         }[event]
 
         with patch("products.review_hog.backend.temporal.activities.posthoganalytics.capture") as capture:
-            emit()
-            emit()
+            emit(REVIEW_MODE_FULL)
+            emit(REVIEW_MODE_FULL)
+            emit(REVIEW_MODE_FLASH)
+            emit(REVIEW_MODE_FLASH)
 
-        first, second = capture.call_args_list
-        assert first.kwargs["uuid"]
-        assert first.kwargs["uuid"] == second.kwargs["uuid"]
+        full, full_retry, flash, flash_retry = capture.call_args_list
+        assert full.kwargs["uuid"] == str(uuid.uuid5(uuid.NAMESPACE_URL, f"reviewhog_review_{event}:{report_id}:1"))
+        assert full.kwargs["uuid"] == full_retry.kwargs["uuid"]
+        assert flash.kwargs["uuid"] == flash_retry.kwargs["uuid"]
+        assert full.kwargs["uuid"] != flash.kwargs["uuid"]
 
     def test_capture_failure_is_swallowed(self) -> None:
         # Telemetry must never fail a review — losing this guard would fail review turns on any

@@ -14,7 +14,6 @@ access goes through `database_sync_to_async(..., thread_sensitive=False)`; `@sco
 `@close_db_connections` mirror the Signals report activities.
 """
 
-import uuid
 import logging
 import datetime
 from collections import Counter
@@ -104,7 +103,7 @@ from products.review_hog.backend.reviewer.status_comment import (
     finalize_status_comment,
     maybe_refresh_status_comment,
 )
-from products.review_hog.backend.reviewer.telemetry import review_routing_properties
+from products.review_hog.backend.reviewer.telemetry import review_event_uuid, review_routing_properties
 from products.review_hog.backend.reviewer.tools.github_client import GitHubAPIError, github_api_request
 from products.review_hog.backend.reviewer.tools.github_meta import (
     PRFetcher,
@@ -1390,9 +1389,13 @@ def _track_review_started(input: TrackReviewStartedInput) -> None:
     posthoganalytics.capture(
         distinct_id=_review_event_identity(report),
         event="reviewhog_review_started",
-        # Deterministic per turn, like the completed event: a parent retry re-runs the gates and
-        # re-captures the same uuid, so a turn starts once however many attempts it takes.
-        uuid=str(uuid.uuid5(uuid.NAMESPACE_URL, f"reviewhog_review_started:{input.report_id}:{input.run_index}")),
+        # A parent retry must not count another start for the same turn and mode.
+        uuid=review_event_uuid(
+            "reviewhog_review_started",
+            report_id=input.report_id,
+            run_index=input.run_index,
+            review_mode=input.review_mode,
+        ),
         properties={
             **_turn_event_properties(report, run_index=input.run_index, turn_trigger_source=input.turn_trigger_source),
             **review_routing_properties(report, review_mode=input.review_mode),
@@ -1445,9 +1448,13 @@ def _track_review_completed(input: TrackReviewCompletedInput) -> None:
     posthoganalytics.capture(
         distinct_id=_review_event_identity(report),
         event="reviewhog_review_completed",
-        # Deterministic per turn: an activity retry that re-captures after a worker crash emits the
-        # same event uuid, so ingestion dedupes it instead of double-counting the review.
-        uuid=str(uuid.uuid5(uuid.NAMESPACE_URL, f"reviewhog_review_completed:{input.report_id}:{input.run_index}")),
+        # Activity retries must not double-count a completed turn within its review mode.
+        uuid=review_event_uuid(
+            "reviewhog_review_completed",
+            report_id=input.report_id,
+            run_index=input.run_index,
+            review_mode=input.review_mode,
+        ),
         properties={
             **_turn_event_properties(report, run_index=input.run_index, turn_trigger_source=input.turn_trigger_source),
             "published": input.published,
@@ -1492,10 +1499,13 @@ def _track_review_failed(input: TrackReviewFailedInput) -> None:
     posthoganalytics.capture(
         distinct_id=_review_event_identity(report),
         event="reviewhog_review_failed",
-        # Deterministic per turn, like the completed event: repeated failures of the same turn (a
-        # re-trigger that dies again before finalize bumps run_count) dedupe to one event, so
-        # completion rate counts turns, not attempts.
-        uuid=str(uuid.uuid5(uuid.NAMESPACE_URL, f"reviewhog_review_failed:{input.report_id}:{input.run_index}")),
+        # Failures of the same turn and mode dedupe so retries do not lower its completion rate.
+        uuid=review_event_uuid(
+            "reviewhog_review_failed",
+            report_id=input.report_id,
+            run_index=input.run_index,
+            review_mode=input.review_mode,
+        ),
         properties={
             **_turn_event_properties(report, run_index=input.run_index, turn_trigger_source=input.turn_trigger_source),
             **review_routing_properties(report, review_mode=input.review_mode),
@@ -1522,9 +1532,10 @@ async def track_review_failed_activity(input: TrackReviewFailedInput) -> None:
     The completed event alone hides failures: a run that dies never emits it, so an arm of the
     reviewer-model experiment that crashes on its hardest PRs would silently shed them from every
     per-review metric. This event is the denominator's other half, but do NOT naively sum event
-    counts: the parent workflow retry makes fail-then-complete at the same (report_id, run_index)
-    common, so a turn counts as failed only when it has a failed event and NO completed event
-    (anti-join on report_id + run_index). Best-effort, like the completed event.
+    counts: a parent retry can fail and then complete at the same (report_id, run_index, review_mode),
+    so a turn counts as failed only when that combination has a failed event and no completed event.
+    Anti-join on report_id + run_index + review_mode, treating an absent mode as Full for legacy events.
+    Best-effort, like the completed event.
     """
     await database_sync_to_async(_track_review_failed_safe, thread_sensitive=False)(input)
 
