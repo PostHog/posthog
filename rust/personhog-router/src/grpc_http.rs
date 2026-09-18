@@ -5,6 +5,7 @@
 use bytes::Bytes;
 use http::HeaderValue;
 use http_body_util::{BodyExt, Empty};
+use personhog_common::grpc::NOT_APPLIED_HEADER;
 use tonic::body::BoxBody;
 use tonic::Code;
 
@@ -52,6 +53,27 @@ pub(crate) fn grpc_status_code(response: &http::Response<BoxBody>) -> Option<i32
         .and_then(|s| s.parse::<i32>().ok())
 }
 
+/// Any other status may have applied the call. The slug is bounded for the label.
+pub(crate) fn unapplied_refusal_reason(response: &http::Response<BoxBody>) -> Option<&str> {
+    if grpc_status_code(response) != Some(Code::Unavailable as i32) {
+        return None;
+    }
+    response
+        .headers()
+        .get(NOT_APPLIED_HEADER)
+        .and_then(|v| v.to_str().ok())
+        .map(|r| {
+            if r.len() <= 64
+                && r.chars()
+                    .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_'))
+            {
+                r
+            } else {
+                "unknown"
+            }
+        })
+}
+
 /// Percent-encode a gRPC status message so it is safe to carry in the
 /// ASCII-only `grpc-message` header.
 fn percent_encode_grpc(s: &str) -> String {
@@ -86,6 +108,37 @@ mod tests {
             Code::NotFound,
             "not found"
         )));
+    }
+
+    #[test]
+    fn only_a_marked_unavailable_reads_as_unapplied() {
+        let marked = |code| {
+            let mut r = grpc_error_response(code, "Server at capacity");
+            r.headers_mut()
+                .insert(NOT_APPLIED_HEADER, HeaderValue::from_static("load_shed"));
+            r
+        };
+        assert_eq!(
+            unapplied_refusal_reason(&marked(Code::Unavailable)),
+            Some("load_shed")
+        );
+        assert_eq!(unapplied_refusal_reason(&marked(Code::Ok)), None);
+        assert_eq!(unapplied_refusal_reason(&marked(Code::Internal)), None);
+        assert_eq!(
+            unapplied_refusal_reason(&grpc_error_response(
+                Code::Unavailable,
+                "Database pool exhausted"
+            )),
+            None
+        );
+    }
+
+    #[test]
+    fn an_unsafe_reason_slug_falls_back() {
+        let mut resp = grpc_error_response(Code::Unavailable, "shed");
+        resp.headers_mut()
+            .insert(NOT_APPLIED_HEADER, HeaderValue::from_static("a b/c"));
+        assert_eq!(unapplied_refusal_reason(&resp), Some("unknown"));
     }
 
     #[test]

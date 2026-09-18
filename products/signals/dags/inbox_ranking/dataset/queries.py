@@ -10,6 +10,7 @@ day.
 import uuid
 import datetime
 from typing import Any
+from urllib.parse import urlparse
 
 import dagster
 
@@ -17,6 +18,7 @@ from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
 from posthog.hogql.query import execute_hogql_query
 
+from posthog import settings
 from posthog.clickhouse.client.connection import Workload
 from posthog.cloud_utils import is_cloud
 from posthog.models import Team
@@ -39,6 +41,18 @@ def labels_team() -> Team:
             f"Labels team {LABELS_TEAM_ID} does not exist in this environment; the inbox ranking "
             "dataset can only be built where the dogfood project is present"
         )
+
+
+def region_app_host() -> str:
+    """The app host this deployment serves the inbox on.
+
+    Team 2 collects the inbox telemetry of every region, and the label streams keep the other
+    regions' rows on purpose (label-only rows, README.md). A read that needs report state cannot:
+    the scoring pool (`training/unseen.py`) builds it from this region's Postgres, so a report
+    another region served can never hold a score. `$host` is the only property on those events
+    that says which app rendered the page.
+    """
+    return urlparse(settings.SITE_URL).netloc
 
 
 def etl_workload() -> Workload:
@@ -380,10 +394,14 @@ STATUS_SQL = (
     """
 SELECT
     report_id,
-    nullIf(minIf(first_timestamp, outcome = 'resolved'), fromUnixTimestamp(0)) AS first_resolved_at,
-    nullIf(minIf(first_timestamp, outcome = 'dismissed'), fromUnixTimestamp(0)) AS first_dismissed_server_at,
-    nullIf(minIf(first_timestamp, outcome = 'failed'), fromUnixTimestamp(0)) AS first_failed_at,
-    nullIf(minIf(first_timestamp, outcome = 'snoozed'), fromUnixTimestamp(0)) AS first_snoozed_at,
+    -- Each restricted to the latest transition's tenant, like the reason and the count below: team_id
+    -- rides on event properties, so an event naming another team would otherwise win these min()
+    -- calls and date an outcome this tenant never had, while still passing the provenance check.
+    -- Claimed is not proven — an event naming the report's real team passes.
+    nullIf(minIf(first_timestamp, outcome = 'resolved' AND event_team_id = latest_event_team_id), fromUnixTimestamp(0)) AS first_resolved_at,
+    nullIf(minIf(first_timestamp, outcome = 'dismissed' AND event_team_id = latest_event_team_id), fromUnixTimestamp(0)) AS first_dismissed_server_at,
+    nullIf(minIf(first_timestamp, outcome = 'failed' AND event_team_id = latest_event_team_id), fromUnixTimestamp(0)) AS first_failed_at,
+    nullIf(minIf(first_timestamp, outcome = 'snoozed' AND event_team_id = latest_event_team_id), fromUnixTimestamp(0)) AS first_snoozed_at,
     argMax(status, last_timestamp) AS latest_status_event,
     max(last_timestamp) AS latest_status_event_at,
     -- argMax skips NULL values, so this is the reason from the latest *reasoned* transition (the
@@ -399,11 +417,6 @@ SELECT
     -- NULL rather than handing over the next dismissal's reason: a dismissal carries no reason
     -- whenever no artefact accompanies the transition, and this column has to describe the earliest
     -- dismissal itself.
-    --
-    -- Caveat until posthog#101565 lands: this reason is restricted to the latest transition's
-    -- tenant while first_dismissed_server_at above is not, so an earlier dismissal naming another
-    -- team can date that column while this one reads a later genuine dismissal. Treat the two as
-    -- separate reads, not as one event.
     nullIf(
         argMinIf(
             bucket_first_dismissal_reason,

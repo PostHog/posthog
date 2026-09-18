@@ -57,7 +57,7 @@ import { AISection } from 'products/conversations/frontend/scenes/settings/AISec
 import { GeneralSection } from 'products/conversations/frontend/scenes/settings/GeneralSection'
 import { NotificationsSection } from 'products/conversations/frontend/scenes/settings/NotificationsSection'
 import { ZendeskImportSection } from 'products/conversations/frontend/scenes/settings/ZendeskImportSection'
-import { CustomerAnalyticsEventStream } from 'products/customer_analytics/frontend/components/EventStream/CustomerAnalyticsEventStream'
+import { CustomerAnalyticsNotifications } from 'products/customer_analytics/frontend/components/TaskDigest/CustomerAnalyticsNotifications'
 import { AccountTrackRules } from 'products/customer_analytics/frontend/scenes/CustomerAnalyticsConfigurationScene/account/AccountTrackRules'
 import { CustomerAnalyticsAccountConfig } from 'products/customer_analytics/frontend/scenes/CustomerAnalyticsConfigurationScene/account/CustomerAnalyticsAccountConfig'
 import {
@@ -66,6 +66,7 @@ import {
 } from 'products/customer_analytics/frontend/scenes/CustomerAnalyticsConfigurationScene/account/WarehousePersonPropertiesSetting'
 import { CalendarSyncConfig } from 'products/customer_analytics/frontend/scenes/CustomerAnalyticsConfigurationScene/calendar/CalendarSyncConfig'
 import { CustomerAnalyticsDashboardEvents } from 'products/customer_analytics/frontend/scenes/CustomerAnalyticsConfigurationScene/events/CustomerAnalyticsDashboardEvents'
+import { DataQualityGateToggle } from 'products/data_quality/frontend/settings/DataQualityGateToggle'
 import { ExceptionAutocaptureToggle } from 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/exception_autocapture/ExceptionAutocaptureSettings'
 import { SuppressionRules } from 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/suppression_rules/SuppressionRules'
 import { MAX_LOOKBACK_DAYS, MIN_LOOKBACK_DAYS } from 'products/experiments/frontend/constants'
@@ -74,6 +75,7 @@ import { LogsMetricRulesSection } from 'products/logs/frontend/components/LogsMe
 import { LogsRetentionSection } from 'products/logs/frontend/components/LogsRetention/LogsRetentionSection'
 import { LogsSamplingSection } from 'products/logs/frontend/components/LogsSampling/LogsSamplingSection'
 import { LogsFeatureFlagKeys } from 'products/logs/frontend/logsFeatureFlagKeys'
+import { HeatmapScreenshotCookieSettings } from 'products/web_analytics/frontend/heatmaps/components/HeatmapScreenshotCookieSettings'
 import { WorkflowsEmailTrackingConsentSettings } from 'products/workflows/frontend/scenes/settings/WorkflowsEmailTrackingConsentSettings'
 import { WorkflowsEngagementEventsSettings } from 'products/workflows/frontend/scenes/settings/WorkflowsEngagementEventsSettings'
 import { WorkflowsTaskLimitsSettings } from 'products/workflows/frontend/scenes/settings/WorkflowsTaskLimitsSettings'
@@ -476,6 +478,23 @@ export const SETTINGS_MAP: SettingSection[] = [
     },
     {
         level: 'environment',
+        id: 'environment-data-quality',
+        title: 'Data quality',
+        flag: 'DATA_QUALITY_CHECKS',
+        group: 'Products',
+        settings: [
+            {
+                id: 'data-quality-materialization-gate',
+                title: 'Materialization on failing checks',
+                description:
+                    'When an error-severity check fails, the materialized view keeps serving its previous version instead of being replaced. Applies to every materialized view in this project.',
+                component: <DataQualityGateToggle />,
+                keywords: ['data quality', 'check', 'materialization', 'materialized view', 'block', 'gate'],
+            },
+        ],
+    },
+    {
+        level: 'environment',
         id: 'environment-customer-analytics',
         title: 'Customer analytics',
         flag: 'CUSTOMER_ANALYTICS',
@@ -532,12 +551,11 @@ export const SETTINGS_MAP: SettingSection[] = [
             },
             {
                 id: 'customer-analytics-event-stream',
-                title: 'Event stream',
-                description:
-                    "Stream selected customers' events to a Slack channel of your choice in real time. Each team member configures their own stream: pick your events and channel here, then add customers from their account profiles.",
-                component: <CustomerAnalyticsEventStream />,
-                flag: ['CUSTOMER_ANALYTICS', 'CUSTOMER_ANALYTICS_CSP'],
-                keywords: ['event', 'stream', 'live', 'slack', 'accounts'],
+                title: 'Notifications',
+                description: 'Configure your task digest emails and customer event stream for this project.',
+                component: <CustomerAnalyticsNotifications />,
+                flag: 'CUSTOMER_ANALYTICS',
+                keywords: ['notifications', 'email', 'digest', 'tasks', 'event', 'stream', 'live', 'slack', 'accounts'],
             },
             {
                 id: 'customer-analytics-person-properties',
@@ -865,6 +883,24 @@ export const SETTINGS_MAP: SettingSection[] = [
                 platformSupport: FEATURE_SUPPORT.heatmaps,
                 component: <HeatmapsSettings />,
                 keywords: ['click map', 'scroll', 'rage click', 'mouse', 'touch'],
+            },
+            {
+                id: 'heatmap-screenshot-cookie',
+                title: 'Screenshot request cookie',
+                description:
+                    'Heatmap backgrounds are screenshots of your site. Generate a value your screenshots send as a cookie, so bot protection can tell them apart from other headless browsers and allow them.',
+                docsUrl: 'https://posthog.com/docs/toolbar/heatmaps',
+                component: <HeatmapScreenshotCookieSettings />,
+                keywords: [
+                    'waf',
+                    'bot protection',
+                    'firewall',
+                    'cloudflare',
+                    'screenshot',
+                    'blocked',
+                    'allowlist',
+                    'cookie',
+                ],
             },
         ],
     },

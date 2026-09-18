@@ -1,55 +1,4 @@
-import {
-    AnyPropertyFilter,
-    EventPropertyFilter,
-    PropertyFilterType,
-    PropertyGroupFilter,
-    PropertyGroupFilterValue,
-    PropertyOperator,
-} from '~/types'
-
-/** Cleans properties of insights. These are either a simple list of property filters or a property group filter. The property group filter has
- * a type (AND, OR) and a list of values that are property group filter values, which are either property group filter values or a simple list of
- * property filters.
- */
-export const cleanGlobalProperties = (
-    properties: Record<string, any> | Record<string, any>[] | undefined
-): AnyPropertyFilter[] | PropertyGroupFilter | undefined => {
-    if (
-        properties == undefined ||
-        (Array.isArray(properties) && properties.length == 0) ||
-        Object.keys(properties).length == 0
-    ) {
-        // empty properties
-        return undefined
-    } else if (isOldStyleProperties(properties)) {
-        // old style properties
-        properties = transformOldStyleProperties(properties)
-        properties = {
-            type: 'AND',
-            values: [{ type: 'AND', values: properties }],
-        }
-        return cleanPropertyGroupFilter(properties)
-    } else if (Array.isArray(properties)) {
-        // list of property filters
-        properties = {
-            type: 'AND',
-            values: [{ type: 'AND', values: properties }],
-        }
-        return cleanPropertyGroupFilter(properties)
-    } else if (
-        (properties['type'] === 'AND' || properties['type'] === 'OR') &&
-        !properties['values'].some((property: any) => property['type'] === 'AND' || property['type'] === 'OR')
-    ) {
-        // property group filter value
-        properties = {
-            type: 'AND',
-            values: [properties],
-        }
-        return cleanPropertyGroupFilter(properties)
-    }
-    // property group filter
-    return cleanPropertyGroupFilter(properties)
-}
+import { AnyPropertyFilter, EventPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
 
 /** Cleans properties of entities i.e. event and action nodes. These are a simple list of property filters. */
 export const cleanEntityProperties = (
@@ -76,29 +25,6 @@ export const cleanEntityProperties = (
         return properties.values.map(cleanProperty)
     }
     throw new Error('Unexpected format of entity properties.')
-}
-
-const cleanPropertyGroupFilter = (properties: Record<string, any>): PropertyGroupFilter => {
-    properties['values'] = cleanPropertyGroupFilterValues(properties.values)
-    return properties as PropertyGroupFilter
-}
-
-const cleanPropertyGroupFilterValues = (
-    properties: (AnyPropertyFilter | PropertyGroupFilterValue)[]
-): (AnyPropertyFilter | PropertyGroupFilterValue)[] => {
-    return properties.map(cleanPropertyGroupFilterValue)
-}
-
-const cleanPropertyGroupFilterValue = (
-    property: AnyPropertyFilter | PropertyGroupFilterValue
-): AnyPropertyFilter | PropertyGroupFilterValue => {
-    if (property['type'] == 'AND' || property['type'] == 'OR') {
-        // property group filter value
-        property['values'] = cleanPropertyGroupFilterValues(property['values'] as PropertyGroupFilterValue[])
-        return property
-    }
-    // property filter
-    return cleanProperty(property)
 }
 
 const cleanProperty = (property: Record<string, any>): AnyPropertyFilter => {

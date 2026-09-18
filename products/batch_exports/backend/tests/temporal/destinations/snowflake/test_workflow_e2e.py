@@ -72,6 +72,7 @@ async def _run_workflow(
         batch_export_schema=batch_export_schema,
         batch_export_model=batch_export_model,
         backfill_details=backfill_details,
+        integration_id=snowflake_batch_export.destination.integration_id,
         **snowflake_batch_export.destination.config,
     )
 
@@ -317,6 +318,7 @@ async def test_snowflake_export_workflow_handles_cancellation(
         batch_export_id=str(snowflake_batch_export.id),
         data_interval_end=data_interval_end.isoformat(),
         interval=interval,
+        integration_id=snowflake_batch_export.destination.integration_id,
         **snowflake_batch_export.destination.config,
     )
 

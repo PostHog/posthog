@@ -1,4 +1,6 @@
 import uuid
+from datetime import UTC, datetime
+from typing import Any
 
 import pytest
 from posthog.test.base import BaseTest
@@ -15,6 +17,7 @@ from products.customer_analytics.backend.max_tools import (
     UpsertAccountTool,
 )
 from products.customer_analytics.backend.models import Account, AccountRelationship, AccountRelationshipDefinition
+from products.customer_analytics.backend.test.factories import enroll_account
 
 
 class TestUpsertAccountTool(BaseTest):
@@ -31,8 +34,10 @@ class TestUpsertAccountTool(BaseTest):
         )()
 
     @sync_to_async
-    def _create_definition(self, name: str = "CSM") -> AccountRelationshipDefinition:
-        return AccountRelationshipDefinition.objects.for_team(self.team.id).create(team_id=self.team.id, name=name)
+    def _create_definition(self, name: str = "CSM", **kwargs: Any) -> AccountRelationshipDefinition:
+        return AccountRelationshipDefinition.objects.for_team(self.team.id).create(
+            team_id=self.team.id, name=name, **kwargs
+        )
 
     async def _active_holder_ids(self, account: Account) -> set[int]:
         return await sync_to_async(
@@ -106,6 +111,21 @@ class TestUpsertAccountTool(BaseTest):
         await self._tool()._arun_impl(
             action=UpdateAccountAction(account_id=str(account.id), relationships={"CSM": None})
         )
+        assert await self._active_holder_ids(account) == set()
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_update_cannot_change_a_managed_controlled_relationship(self):
+        definition = await self._create_definition("CSM", is_controlled=True)
+        account = await sync_to_async(Account.objects.unscoped().create)(team=self.team, name="Acme")
+        await sync_to_async(enroll_account)(account, definition, controlled_at=datetime(2026, 1, 1, tzinfo=UTC))
+
+        content, artifact = await self._tool()._arun_impl(
+            action=UpdateAccountAction(account_id=str(account.id), relationships={"CSM": self.user.id})
+        )
+
+        assert artifact["error"] == "invalid_relationship_assignment"
+        assert "controlled in Customer analytics" in content
         assert await self._active_holder_ids(account) == set()
 
     @pytest.mark.django_db

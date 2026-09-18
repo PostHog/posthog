@@ -9,6 +9,8 @@ from rest_framework import status
 from posthog.egress.github.transport import GitHubRateLimitError
 
 from products.review_hog.backend.models import ReviewReport
+from products.review_hog.backend.reviewer.constants import REVIEW_ARMS_BY_TIER, ReviewTier
+from products.review_hog.backend.reviewer.persistence import load_review_arm
 from products.review_hog.backend.reviewer.tools.github_client import GitHubAPIError
 
 _START = "products.review_hog.backend.api.reviews.start_review_pr_workflow"
@@ -65,22 +67,33 @@ class TestReviewHogUiTriggerApi(APIBaseTest):
             trigger_source="ui",
             # None = the requester's resolve_comments setting decides whether resolution chains.
             resolve_comments=None,
+            review_mode="full",
         )
 
+    @parameterized.expand(
+        [
+            # (run_mode, expected review_mode)
+            ("review_only", "full"),
+            ("flash", "flash"),
+        ]
+    )
     @patch(_META, return_value=_pr_meta())
     @patch(_ACCESS, return_value=object())
     @patch(_START_RESOLUTION)
     @patch(_START, return_value="wf-ui-1")
-    def test_review_only_mode_pins_resolution_off_for_the_run(
-        self, mock_start, mock_start_resolution, _mock_access, _mock_meta
+    def test_review_only_and_flash_modes_pin_resolution_off_for_the_run(
+        self, run_mode, expected_review_mode, mock_start, mock_start_resolution, _mock_access, _mock_meta
     ):
-        # The split button's "review without resolving": the per-run override must reach the
-        # workflow as an explicit False — passing None would fall back to the user's setting.
+        # The split button's "review without resolving" and "flash": the per-run override must reach
+        # the workflow as an explicit False — passing None would fall back to the user's setting, and
+        # a flash review that resolved would write code. Flash must also carry its mode, or the
+        # workflow runs the full pipeline under a flash label.
         with override_settings(REVIEWHOG_TEAM_IDS=[self.team.id]):
-            resp = self._trigger("https://github.com/PostHog/posthog.com/pull/123", run_mode="review_only")
+            resp = self._trigger("https://github.com/PostHog/posthog.com/pull/123", run_mode=run_mode)
 
         self.assertEqual(resp.status_code, status.HTTP_202_ACCEPTED, resp.content)
         self.assertIs(mock_start.call_args.kwargs["resolve_comments"], False)
+        self.assertEqual(mock_start.call_args.kwargs["review_mode"], expected_review_mode)
         mock_start_resolution.assert_not_called()
 
     @patch(_META, return_value=_pr_meta(head_sha="abc123"))
@@ -151,14 +164,28 @@ class TestReviewHogUiTriggerApi(APIBaseTest):
         mock_start.assert_not_called()
         mock_start_resolution.assert_not_called()
 
+    @parameterized.expand(
+        [
+            ("full", None, ReviewTier.HUMAN),
+            ("review_only", "review_only", ReviewTier.HUMAN),
+            ("flash", "flash", ReviewTier.AGENT_P2),
+        ]
+    )
     @patch(_META, return_value=_pr_meta())
     @patch(_ACCESS, return_value=object())
     @patch(_START, return_value="wf-ui-1")
-    def test_trigger_during_a_running_cheaper_review_lifts_the_tier_and_says_so(
-        self, mock_start, _mock_access, _mock_meta
-    ):
-        # Same join as the label path: the requester's source never reaches the fetch upsert, so the
-        # lift is written here and the UI is told no new run started.
+    def test_joined_trigger_lifts_cheaper_tier_only_for_full_reviews(
+        self,
+        _name: str,
+        run_mode: str | None,
+        expected_tier: ReviewTier,
+        mock_start: MagicMock,
+        _mock_access: MagicMock,
+        _mock_meta: MagicMock,
+    ) -> None:
+        # Joined starts retain their original inputs, so Full requests need an explicit tier lift
+        # while Flash must preserve the stored arm. The response still reports the shared join.
+        original_arm = REVIEW_ARMS_BY_TIER[ReviewTier.AGENT_P2]
         report = ReviewReport.objects.for_team(self.team.id).create(
             team=self.team,
             repository="posthog/posthog.com",
@@ -167,17 +194,23 @@ class TestReviewHogUiTriggerApi(APIBaseTest):
             head_branch="fix",
             base_branch="master",
             review_tier="agent_p2",
-            review_reasoning_effort="medium",
+            review_runtime_adapter=original_arm.runtime_adapter.value,
+            review_model=original_arm.model,
+            review_reasoning_effort=original_arm.reasoning_effort.value,
+            review_initial_permission_mode=original_arm.initial_permission_mode,
         )
         self.mock_busy.side_effect = lambda workflow_id: workflow_id.startswith("review-pr:")
         with override_settings(REVIEWHOG_TEAM_IDS=[self.team.id]):
-            resp = self._trigger("https://github.com/PostHog/posthog.com/pull/123")
+            resp = self._trigger("https://github.com/PostHog/posthog.com/pull/123", run_mode=run_mode)
 
         self.assertEqual(resp.status_code, status.HTTP_202_ACCEPTED, resp.content)
         self.assertEqual(resp.json(), {"workflow_id": "wf-ui-1", "status": "joined_running_review"})
         mock_start.assert_called_once()
         report.refresh_from_db()
-        self.assertEqual((report.review_tier, report.review_reasoning_effort), ("human", "xhigh"))
+        self.assertEqual(report.review_tier, expected_tier.value)
+        self.assertEqual(
+            load_review_arm(team_id=self.team.id, report_id=str(report.id)), REVIEW_ARMS_BY_TIER[expected_tier]
+        )
 
     @patch(_ACCESS, return_value=object())
     @patch(_START_RESOLUTION)

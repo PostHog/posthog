@@ -54,10 +54,9 @@ func Validate(schema *catalog.PreparedCatalog, query string) Result {
 	seenTableNames := map[string]bool{}
 	for statement := range document.Statements() {
 		for table := range statement.Tables() {
-			lowerName := strings.ToLower(table.Name)
-			if !seenTableNames[lowerName] {
+			if !seenTableNames[table.Name] {
 				referencedTableNames = append(referencedTableNames, table.Name)
-				seenTableNames[lowerName] = true
+				seenTableNames[table.Name] = true
 			}
 			if !table.Known && len(diagnostics) < querylimits.MaxDiagnostics {
 				diagnostics = append(diagnostics, Diagnostic{
@@ -65,6 +64,17 @@ func Validate(schema *catalog.PreparedCatalog, query string) Result {
 					Suggestions: closest(table.Name, slices.Values(schema.Tables().Entries()), 5),
 				})
 			}
+		}
+		for source := range statement.DuplicateSources() {
+			if len(diagnostics) >= querylimits.MaxDiagnostics {
+				break
+			}
+			diagnostics = append(diagnostics, Diagnostic{
+				Code:    "duplicate_table",
+				Message: fmt.Sprintf("Table name %q is used more than once. Use a distinct alias for each table.", source.Qualifier()),
+				Start:   source.Start(),
+				End:     source.End(),
+			})
 		}
 		ignoredIdents := map[*clickhouse.Ident]bool{}
 		statement.Walk(func(node clickhouse.Expr) bool {
@@ -136,7 +146,7 @@ func Validate(schema *catalog.PreparedCatalog, query string) Result {
 					}
 				}
 			case *clickhouse.Ident:
-				if ignoredIdents[typed] || typed.Name == "*" {
+				if ignoredIdents[typed] || typed.Name == "*" || analysis.IsBooleanLiteral(typed) {
 					return true
 				}
 				bindings := statement.BindingsAt(int(node.Pos()), int(node.End()))
@@ -221,6 +231,9 @@ func validateUnqualifiedField(diagnostics *[]Diagnostic, seen map[string]bool, b
 	if len(*diagnostics) >= querylimits.MaxDiagnostics || document.LimitError() != nil {
 		return
 	}
+	if _, ok := bindings.SelectAlias(ident.Name); ok {
+		return
+	}
 	uniqueTables := map[string]analysis.Relation{}
 	for binding := range bindings.UniqueRelations() {
 		uniqueTables[binding.Name()] = binding
@@ -231,7 +244,7 @@ func validateUnqualifiedField(diagnostics *[]Diagnostic, seen map[string]bool, b
 			return
 		}
 	}
-	candidates := make([]catalog.Entry, 0)
+	candidates := slices.Collect(bindings.SelectAliases(""))
 	for _, binding := range uniqueTables {
 		candidates = slices.AppendSeq(candidates, binding.Fields())
 		if document.LimitError() != nil {

@@ -35,6 +35,7 @@ class TestBehavioralBackfillDependencies(BaseTest):
         extra_person_hash: str | None = None,
         behavioral_hash: str | None = "stable-condition-hash",
         group_type: str = "AND",
+        cohort_ref: int | None = None,
     ) -> dict:
         values = []
         if window_days is not None:
@@ -64,6 +65,8 @@ class TestBehavioralBackfillDependencies(BaseTest):
                         "conditionHash": leaf_hash,
                     }
                 )
+        if cohort_ref is not None:
+            values.append({"type": "cohort", "value": cohort_ref})
         return {"properties": {"type": group_type, "values": values}}
 
     def _cohort(self, window_days: int | None = 7, *, person_hash: str | None = None) -> Cohort:
@@ -309,18 +312,39 @@ class TestBehavioralBackfillDependencies(BaseTest):
 
         self._assert_one_debounced_task_per_kind(enqueue, redis, cohort, "cohort_created")
 
-    def test_edit_touching_both_leaf_kinds_enqueues_one_task_per_kind(self) -> None:
+    @parameterized.expand(
+        [
+            (
+                "both_leaf_shapes",
+                {"window_days": 7, "person_hash": "person-a"},
+                {"window_days": 30, "person_hash": "person-b"},
+            ),
+            (
+                "group_operator_on_mixed",
+                {"window_days": 7, "person_hash": "person-a"},
+                {"window_days": 7, "person_hash": "person-a", "group_type": "OR"},
+            ),
+            (
+                "first_behavioral_leaf_added_with_the_group_operator",
+                {"window_days": None, "person_hash": "person-a", "extra_person_hash": "person-b"},
+                {"window_days": 7, "person_hash": "person-a", "extra_person_hash": "person-b", "group_type": "OR"},
+            ),
+        ]
+    )
+    def test_edit_owing_both_kinds_enqueues_one_task_per_kind(self, _name: str, before: dict, after: dict) -> None:
         # The kinds seed different stores, so one save that moves both shapes owes a task to each, on
-        # keys that cannot debounce one another. The cohort is created before the trigger allowlist
-        # opens, so the create dispatches nothing real behind the edit's mocks.
-        cohort = self._cohort(7, person_hash="person-a")
+        # keys that cannot debounce one another. A composition edit on a mixed cohort owes both as
+        # well: a pruning person run stores state valid only for the tree it pinned, and the
+        # behavioral run is what nulls the events stamp flags route on. The cohort is created before
+        # the trigger allowlist opens, so the create dispatches nothing real behind the edit's mocks.
+        cohort = Cohort.objects.create(team=self.team, cohort_type=CohortType.REALTIME, filters=self._filters(**before))
         redis = self._redis()
         with (
             override_settings(COHORT_BACKFILL_TRIGGER_TEAM_ALLOWLIST="all"),
             mock.patch("products.cohorts.backend.models.dependencies.get_redis_client", return_value=redis),
             mock.patch("posthog.tasks.calculate_cohort.trigger_cohort_backfill_run_task.apply_async") as enqueue,
         ):
-            cohort.filters = self._filters(30, person_hash="person-b")
+            cohort.filters = self._filters(**after)
             cohort.save()
 
         self._assert_one_debounced_task_per_kind(enqueue, redis, cohort, "cohort_edited")
@@ -330,16 +354,14 @@ class TestBehavioralBackfillDependencies(BaseTest):
             args=[self.team.id, cohort.id, "cohort_edited", kind],
             countdown=300,
         )
-        redis.set.assert_called_once_with(f"cohort_backfill_{kind.value}_pending:{cohort.id}", 1, nx=True, ex=300)
+        # The value is the pending task's trigger kind, which the cohort API reads to show a build
+        # as queued during the countdown, before any run row exists.
+        redis.set.assert_called_once_with(
+            f"cohort_backfill_{kind.value}_pending:{cohort.id}", "cohort_edited", nx=True, ex=300
+        )
 
     @parameterized.expand(
         [
-            (
-                "group_operator_on_mixed",
-                {"window_days": 7, "person_hash": "person-a"},
-                {"window_days": 7, "person_hash": "person-a", "group_type": "OR"},
-                CohortBackfillKind.BEHAVIORAL,
-            ),
             (
                 "group_operator_on_person_only",
                 {"window_days": None, "person_hash": "person-a", "extra_person_hash": "person-b"},
@@ -350,6 +372,18 @@ class TestBehavioralBackfillDependencies(BaseTest):
                     "group_type": "OR",
                 },
                 CohortBackfillKind.PERSON_PROPERTY,
+            ),
+            (
+                "cohort_reference_swapped_on_person_only",
+                {"window_days": None, "person_hash": "person-a", "cohort_ref": 4242},
+                {"window_days": None, "person_hash": "person-a", "cohort_ref": 9999},
+                CohortBackfillKind.PERSON_PROPERTY,
+            ),
+            (
+                "cohort_reference_swapped_on_mixed",
+                {"window_days": 7, "person_hash": "person-a", "cohort_ref": 4242},
+                {"window_days": 7, "person_hash": "person-a", "cohort_ref": 9999},
+                CohortBackfillKind.BEHAVIORAL,
             ),
             (
                 "last_person_leaf_removed",
@@ -369,8 +403,10 @@ class TestBehavioralBackfillDependencies(BaseTest):
         self, _name: str, before: dict, after: dict, kind: CohortBackfillKind
     ) -> None:
         # Reconcile evaluates the whole tree whichever kind it runs for, so one run repairs the
-        # cohort. Removing the last person leaf is in this set because the person run its hash change
-        # would ask for is refused: the cohort has no person leaf left to pin.
+        # cohort. A reference swap moves no person-view fingerprint, so the person run is owed only
+        # where no behavioral run re-walks the tree. Removing the last person leaf is in this set
+        # because the person run its hash change would ask for is refused: the cohort has no person
+        # leaf left to pin.
         cohort = Cohort.objects.create(team=self.team, cohort_type=CohortType.REALTIME, filters=self._filters(**before))
         redis = self._redis()
         with (
@@ -384,7 +420,7 @@ class TestBehavioralBackfillDependencies(BaseTest):
         self._assert_one_debounced_task(enqueue, redis, cohort, kind)
 
     @parameterized.expand([("group_operator", None), ("empty_and", "AND"), ("empty_or", "OR")])
-    def test_composition_edit_nulls_the_events_stamp_and_moves_no_kind_hash(
+    def test_composition_edit_nulls_both_stamps_and_moves_no_kind_hash(
         self, _name: str, empty_group: str | None
     ) -> None:
         cohort = self._cohort(7, person_hash="person-a")
@@ -414,7 +450,7 @@ class TestBehavioralBackfillDependencies(BaseTest):
         self.assertEqual(cohort.behavioral_filters_shape_hash, old_behavioral_hash)
         self.assertEqual(cohort.person_filters_shape_hash, old_person_hash)
         self.assertIsNone(cohort.last_backfill_events_at)
-        self.assertEqual(cohort.last_backfill_person_properties_at, ready_at)
+        self.assertIsNone(cohort.last_backfill_person_properties_at)
         self.assertIsNone(cohort.last_realtime_cohort_calculation_at)
         self.assertEqual(self._orphan_count(), before + 1)
 
@@ -547,9 +583,11 @@ class TestBehavioralBackfillDependencies(BaseTest):
             args=[self.team.id, cohort.id, "cohort_edited", kind],
             countdown=300,
         )
+        # The value is the pending task's trigger kind, which the cohort API reads to show a build
+        # as queued during the countdown, before any run row exists.
         self.assertEqual(
             redis.set.call_args_list,
-            [mock.call(f"cohort_backfill_{kind.value}_pending:{cohort.id}", 1, nx=True, ex=300)] * 2,
+            [mock.call(f"cohort_backfill_{kind.value}_pending:{cohort.id}", "cohort_edited", nx=True, ex=300)] * 2,
         )
 
     @parameterized.expand(

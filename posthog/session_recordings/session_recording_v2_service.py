@@ -8,6 +8,7 @@ from asgiref.sync import async_to_sync
 from prometheus_client import Counter
 
 from posthog.session_recordings.models.session_recording import SessionRecording
+from posthog.session_recordings.recordings.errors import RecordingApiConfigurationError
 from posthog.session_recordings.recordings.recording_api_client import recording_api_client
 
 logger = structlog.get_logger(__name__)
@@ -91,6 +92,10 @@ def list_blocks(recording: SessionRecording) -> list[RecordingBlock]:
 
     try:
         blocks = async_to_sync(fetch_blocks_from_recording_api)(recording.session_id, recording.team_id)
+    except RecordingApiConfigurationError:
+        # An empty listing is how a caller learns a recording has no blocks. A missing setting means no
+        # call was made at all, and no retry will change that, so it must not be reported as no blocks.
+        raise
     except Exception:
         logger.exception(
             "recording_api_list_blocks_failed",
@@ -113,6 +118,8 @@ async def list_blocks_async(recording: SessionRecording) -> list[RecordingBlock]
 
     try:
         blocks = await fetch_blocks_from_recording_api(recording.session_id, recording.team_id)
+    except RecordingApiConfigurationError:
+        raise
     except Exception:
         logger.exception(
             "recording_api_list_blocks_failed",

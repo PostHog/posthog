@@ -5,7 +5,7 @@ import logging
 from collections import Counter
 from collections.abc import Collection, Iterable, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timedelta
 from typing import Any, Literal
 from urllib.parse import urlparse
@@ -19,6 +19,7 @@ from django.core.exceptions import (
 )
 from django.db import IntegrityError, transaction
 from django.db.models import (
+    BooleanField,
     Case,
     CharField,
     Count,
@@ -38,7 +39,7 @@ from django.db.models import (
     When,
 )
 from django.db.models.fields.json import KeyTextTransform, KeyTransform
-from django.db.models.functions import Coalesce
+from django.db.models.functions import Cast, Coalesce
 from django.utils import timezone as django_timezone
 from django.utils.http import content_disposition_header
 
@@ -46,6 +47,7 @@ import posthoganalytics
 
 from posthog.dataclasses import frozen
 from posthog.event_usage import groups
+from posthog.ingress.contracts import WebhookDelivery
 from posthog.models import Team, User
 from posthog.models.integration import Integration
 from posthog.models.oauth import OAuthAccessToken, OAuthRefreshToken
@@ -66,7 +68,6 @@ from products.tasks.backend.constants import (
     DEV_STACK_PREVIEW_STATE_KEY,
     MAX_CUSTOM_IMAGES_PER_TEAM,
     MAX_CUSTOM_IMAGES_PER_USER,
-    PI_CLOUD_RUNTIME_FEATURE_FLAG,
     PR_LOOP_ENABLED_STATE_KEY,
     PR_STATES as PR_STATES,  # re-exported for presentation
     RESERVED_SANDBOX_ENVIRONMENT_VARIABLE_KEYS,
@@ -80,10 +81,15 @@ from products.tasks.backend.constants import (
     is_same_run_resume_state,
 )
 from products.tasks.backend.error_telemetry import truncate_error_message
-from products.tasks.backend.feature_flags import get_model_access_error, is_workflow_dispatch_shadow_enabled
+from products.tasks.backend.feature_flags import (
+    get_model_access_error,
+    is_workflow_dispatch_shadow_enabled,
+    pi_cloud_runtime_enabled,
+)
 from products.tasks.backend.github_repository_access import (
     inaccessible_repositories_via_integration as _inaccessible_repositories_via_integration,
 )
+from products.tasks.backend.logic.services.gateway_model_pin import GATEWAY_PRODUCT_STATE_KEY, pinned_run_allows_model
 from products.tasks.backend.logic.services.image_builder import (
     ensure_image_builder_task,
     is_custom_images_enabled,
@@ -98,7 +104,9 @@ from products.tasks.backend.logic.services.workflow_step_resume import resume_wo
 from products.tasks.backend.mentions import resolve_mentioned_user_ids
 from products.tasks.backend.models import (
     MCP_CREDENTIAL_OWNER_STATE_KEY,
+    PRIOR_RUN_SUMMARY_STATE_KEY,
     TASK_OWNERSHIP_VERSION_STATE_KEY,
+    TASK_RUN_SUMMARY_STATE_KEY,
     Channel,
     ChannelContextGeneration,
     ChannelFeedMessage,
@@ -186,6 +194,7 @@ __all__ = [
     "WarmRunActivationUnavailable",
     "append_task_run_log",
     "apply_task_run_model_config",
+    "task_run_model_outside_gateway_pin",
     "ensure_task_run_session",
     "beacon_task_presence",
     "bootstrap_task_run",
@@ -290,6 +299,7 @@ __all__ = [
     "send_cancel",
     "select_repository_for_message",
     "set_task_run_output",
+    "set_task_run_summary",
     "set_task_title",
     "slack_actor_state_updates",
     "signal_report_queryset",
@@ -304,6 +314,7 @@ __all__ = [
     "task_exists",
     "task_ids_with_pr_url_subquery",
     "get_pull_requests_for_tasks",
+    "get_prior_pr_output_by_task",
     "read_pr_urls",
     "task_run_has_slack_mapping",
     "task_run_is_terminal",
@@ -506,8 +517,28 @@ def _task_run_log_url(run: TaskRun) -> str | None:
     return presigned_url
 
 
+def _task_run_summary_for_viewer(
+    run: TaskRun,
+    *,
+    task: Task | None = None,
+    user_id: int | None = None,
+    include_agent_state: bool = False,
+) -> str | None:
+    if include_agent_state:
+        return run.task_summary
+    parent = task if task is not None else run.task
+    if parent.origin_product == Task.OriginProduct.WORKFLOW and parent.created_by_id != user_id:
+        return None
+    return run.task_summary
+
+
 def _task_run_detail_to_dto(
-    run: TaskRun, *, include_agent_state: bool = False, include_log_url: bool = True
+    run: TaskRun,
+    *,
+    task: Task | None = None,
+    include_agent_state: bool = False,
+    user_id: int | None = None,
+    include_log_url: bool = True,
 ) -> contracts.TaskRunDetailDTO:
     """Map a ``TaskRun`` to its HTTP detail DTO.
 
@@ -534,6 +565,9 @@ def _task_run_detail_to_dto(
         log_url=_task_run_log_url(run) if include_log_url else None,
         error_message=run.error_message,
         output=run.output,
+        task_summary=_task_run_summary_for_viewer(
+            run, task=task, user_id=user_id, include_agent_state=include_agent_state
+        ),
         state=_public_task_run_state(run.state, include_agent_keys=include_agent_state),
         artifacts=run.artifacts or [],
         created_at=run.created_at,
@@ -548,6 +582,49 @@ class _LatestRunUnset:
 
 
 _LATEST_RUN_UNSET = _LatestRunUnset()
+
+
+class _PriorPrOutputUnset:
+    pass
+
+
+_PRIOR_PR_OUTPUT_UNSET = _PriorPrOutputUnset()
+
+# The fields that identify the PR a task points at. A run that opened no PR of its own
+# borrows these from the run that did; everything else in an output stays run-local.
+_INHERITED_PR_OUTPUT_KEYS = ("pr_url", "pr_urls", "pr_summaries", "pr_state", "pr_merged")
+
+
+def _inherited_pr_fields(output: object) -> dict[str, Any]:
+    if not isinstance(output, dict):
+        return {}
+    urls = read_pr_urls(output)
+    if not urls:
+        return {}
+    fields = {key: output[key] for key in _INHERITED_PR_OUTPUT_KEYS if key in output}
+    # An output can carry `pr_urls` without `pr_url`, and some readers look only at the latter
+    # (the feed's `has_pr` predicate, `get_latest_pr_url_by_task`), so mirror the primary-first
+    # shape `merge_pr_output` stores.
+    primary = output.get("pr_url")
+    if not isinstance(primary, str) or not primary:
+        primary = urls[0]
+    fields["pr_url"] = primary
+    fields["pr_urls"] = [primary, *(url for url in urls if url != primary)]
+    return fields
+
+
+def _prior_pr_output_from_runs(task: Task) -> dict[str, Any] | None:
+    """The task's most recent PR-carrying run output, taken from the runs already in memory.
+
+    Every caller that maps one task prefetches ``runs``, and ``Task.latest_run`` has just walked
+    them, so the row this needs is loaded — a query for it would be a second trip for rows the
+    request already holds. Same team scoping and same recency rule as ``Task.latest_run``. The
+    list path batches its own lookup instead and passes the result in.
+    """
+    pr_runs = [run for run in task.runs.all() if run.team_id == task.team_id and read_pr_urls(run.output)]
+    if not pr_runs:
+        return None
+    return max(pr_runs, key=lambda run: (run.created_at, run.id)).output
 
 
 def _task_slack_thread_references(task: Task) -> list[contracts.SlackThreadReferenceDTO]:
@@ -640,11 +717,19 @@ def has_slack_thread_reference(
 def _task_detail_to_dto(
     task: Task,
     *,
+    user_id: int | None = None,
     include_latest_run: bool = True,
     latest_run: TaskRun | None | _LatestRunUnset = _LATEST_RUN_UNSET,
     include_latest_run_log_url: bool = True,
+    prior_pr_output: dict[str, Any] | None | _PriorPrOutputUnset = _PRIOR_PR_OUTPUT_UNSET,
 ) -> contracts.TaskDetailDTO:
-    """Map a ``Task`` to its HTTP detail DTO."""
+    """Map a ``Task`` to its HTTP detail DTO.
+
+    ``prior_pr_output`` is the task's most recent PR-carrying run output, which backfills
+    the PR onto ``latest_run`` when that run opened none itself. Callers that map a page of
+    tasks pass it to keep the lookup to one query; a single task leaves it unset and the
+    answer comes from the runs that caller already prefetched.
+    """
     if not include_latest_run:
         resolved_latest_run = None
     elif isinstance(latest_run, _LatestRunUnset):
@@ -654,6 +739,23 @@ def _task_detail_to_dto(
     latest_run_id = getattr(task, "_latest_run_id", None)
     if latest_run_id is None and resolved_latest_run is not None:
         latest_run_id = resolved_latest_run.id
+    latest_run_dto = (
+        _task_run_detail_to_dto(
+            resolved_latest_run, task=task, user_id=user_id, include_log_url=include_latest_run_log_url
+        )
+        if resolved_latest_run is not None
+        else None
+    )
+    if latest_run_dto is not None and not read_pr_urls(latest_run_dto.output):
+        # A resumed run starts with an empty output, so the PR an earlier run opened drops
+        # out of `latest_run` — and with it the PR button every client reads from there.
+        # Logs and artifacts already survive a resume; the PR has to as well.
+        resolved_prior_pr_output = (
+            _prior_pr_output_from_runs(task) if isinstance(prior_pr_output, _PriorPrOutputUnset) else prior_pr_output
+        )
+        inherited = _inherited_pr_fields(resolved_prior_pr_output)
+        if inherited:
+            latest_run_dto = replace(latest_run_dto, output={**(latest_run_dto.output or {}), **inherited})
     return contracts.TaskDetailDTO(
         id=task.id,
         task_number=task.task_number,
@@ -673,11 +775,7 @@ def _task_detail_to_dto(
         archived=task.archived,
         archived_at=task.archived_at,
         ci_prompt=task.ci_prompt,
-        latest_run=(
-            _task_run_detail_to_dto(resolved_latest_run, include_log_url=include_latest_run_log_url)
-            if resolved_latest_run is not None
-            else None
-        ),
+        latest_run=latest_run_dto,
         created_at=task.created_at,
         updated_at=task.updated_at,
         last_activity_at=task.last_activity_at or task.updated_at,
@@ -997,6 +1095,24 @@ def get_tasks_by_ids(task_ids: Iterable[str | UUID], team_ids: Iterable[int]) ->
     return [_task_to_dto(task) for task in Task.objects.filter(id__in=ids, team_id__in=teams)]
 
 
+def get_signal_report_implementation_runs(
+    team_id: int, report_id: str, task_ids: Iterable[str | UUID]
+) -> list[contracts.TaskRunDTO]:
+    return [
+        _task_run_to_dto(run)
+        for run in TaskRun.objects.filter(
+            team_id=team_id,
+            task_id__in=task_ids,
+            task__team_id=team_id,
+            task__signal_report_id=report_id,
+            task__origin_product=Task.OriginProduct.SIGNAL_REPORT,
+            task__deleted=False,
+        )
+        .select_related("task", "task__created_by")
+        .order_by("-created_at", "-id")
+    ]
+
+
 def _pull_request_state(output: Mapping[str, object]) -> str:
     """The state of the PR in ``output.pr_url``. ``pr_merged`` wins over ``pr_state``: it is the
     webhook-attested flag, and runs merged before ``pr_state`` existed only carry it."""
@@ -1032,29 +1148,67 @@ def get_pull_requests_for_tasks(
     return result
 
 
+def _jsonb_path_exists(path: str) -> Func:
+    """``jsonb_path_exists(output, <literal path>)``. The path is always a literal here, so no
+    caller input reaches the expression."""
+    return Func("output", Value(path), function="jsonb_path_exists", output_field=BooleanField())
+
+
+# A run carries a PR when its output yields a usable URL — the rule ``read_pr_urls`` applies in
+# Python: a non-empty *string* under ``pr_url``, or any non-empty string in ``pr_urls``. Both
+# halves check the JSON type, so SQL selects a run exactly when Python can read a URL out of it.
+# Without that, `{"pr_url": 123}` satisfies a bare non-empty test and wins the newest-run pick,
+# then Python finds no URL and an older run holding the real PR is never reached. Indexing
+# ``pr_urls[0]`` would be wrong for the same reason: it misses ``["", "…/pull/1"]``.
+_PR_CARRYING_OUTPUT_Q = Q(_jsonb_path_exists('$.pr_url ? (@.type() == "string" && @ != "")')) | Q(
+    _jsonb_path_exists('$.pr_urls[*] ? (@.type() == "string" && @ != "")')
+)
+
+
 def get_latest_pr_url_by_task(task_ids: Iterable[str | UUID], *conditions: Q) -> dict[str, str]:
-    """Latest non-empty ``output.pr_url`` per task, for the supplied task ids."""
+    """Latest usable PR URL per task, for the supplied task ids.
+
+    Reads the same normalized shape as everything else: the newest run that carries a PR, and its
+    primary URL whether the run recorded ``pr_url`` or only ``pr_urls``. Matching ``pr_url`` alone
+    left a ``pr_urls``-only run with no URL here, which is how Slack App Home lost the link.
+    """
     ids = [str(t) for t in task_ids]
     if not ids:
         return {}
     rows = (
-        TaskRun.objects.filter(*conditions, task_id__in=ids, output__pr_url__isnull=False)
-        .exclude(output__pr_url="")
+        TaskRun.objects.filter(*conditions, task_id__in=ids)
+        .filter(_PR_CARRYING_OUTPUT_Q)
         .order_by("task_id", "-created_at", "-id")
-        .annotate(output_pr_url_text=KeyTextTransform("pr_url", "output"))
-        .values("task_id", "output_pr_url_text")
         .distinct("task_id")
+        .values_list("task_id", "output")
     )
-    return {str(row["task_id"]): row["output_pr_url_text"] for row in rows if row["output_pr_url_text"]}
+    urls_by_task = ((str(task_id), read_pr_urls(output)) for task_id, output in rows)
+    return {task_id: urls[0] for task_id, urls in urls_by_task if urls}
+
+
+def get_prior_pr_output_by_task(team_id: int, task_ids: Iterable[str | UUID]) -> dict[str, dict[str, Any]]:
+    """Most recent run ``output`` that carries a PR, per task.
+
+    A run records the PR it opened in its own ``output``. A later run — a resume, a follow-up
+    message — starts with an empty ``output``, so a reader that sees only the newest run finds
+    no PR on a task that plainly has one. This supplies the PR that run inherits.
+    """
+    ids = [str(task_id) for task_id in task_ids]
+    if not ids:
+        return {}
+    rows = (
+        TaskRun.objects.filter(team_id=team_id, task_id__in=ids)
+        .filter(_PR_CARRYING_OUTPUT_Q)
+        .order_by("task_id", "-created_at", "-id")
+        .distinct("task_id")
+        .values_list("task_id", "output")
+    )
+    return {str(task_id): output for task_id, output in rows if isinstance(output, dict)}
 
 
 def task_ids_with_pr_url_subquery(team_id: int, *conditions: Q) -> QuerySet[TaskRun, Any]:
     """Find same-team tasks with a primary PR or a PR array, including array-only outputs."""
-    return (
-        TaskRun.objects.filter(*conditions, team_id=team_id)
-        .filter((Q(output__pr_url__isnull=False) & ~Q(output__pr_url="")) | Q(output__pr_urls__0__isnull=False))
-        .values("task_id")
-    )
+    return TaskRun.objects.filter(*conditions, team_id=team_id).filter(_PR_CARRYING_OUTPUT_Q).values("task_id")
 
 
 def latest_task_run_pr_url_subquery(*conditions: Q, **task_run_filter) -> Subquery:
@@ -1448,6 +1602,7 @@ def create_and_run_task(
     create_pr: bool = True,
     mode: str = "background",
     start_workflow: bool = True,
+    scheduled_at: datetime | None = None,
     branch: str | None = None,
     signal_report_id: str | None = None,
     free_trial_enabled: bool | None = None,
@@ -1469,6 +1624,9 @@ def create_and_run_task(
     ``free_trial_enabled`` is a free-trial verdict the caller already resolved. Auto-start reads
     that flag before it takes the report row lock, so handing the result over keeps the flag
     request out of the lock. Left NULL, the gate reads the flag itself.
+
+    ``scheduled_at`` creates the run in NOT_STARTED and defers its workflow until the dispatcher
+    materializes it at or after that time. The run still stores its complete execution settings.
     """
     # create_pr=False sessions (research, repo selection, custom agents) can never open the
     # billable PR, so the quota gate must not block them.
@@ -1494,6 +1652,7 @@ def create_and_run_task(
         create_pr=create_pr,
         mode=mode,
         start_workflow=start_workflow,
+        scheduled_at=scheduled_at,
         branch=branch,
         signal_report_id=signal_report_id,
         internal=internal,
@@ -2261,6 +2420,8 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         "pr_authorship_mode",
         "repositories",
         "verified_pr_urls",
+        TASK_RUN_SUMMARY_STATE_KEY,
+        PRIOR_RUN_SUMMARY_STATE_KEY,
         "sandbox_id",
         # Sandbox connection state is written only by the provisioning activity. A PATCHable
         # sandbox_backend/sandbox_url would let a task controller point the account-wide hogland
@@ -2337,6 +2498,8 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         # is_interactive_signals_run reads it the same way, so forging it would move the run off
         # the interactive budget and out of its per-run spend ceiling.
         "ai_stage",
+        # A removed stamp lets a model change leave the token's pin, and the gateway denies every turn.
+        GATEWAY_PRODUCT_STATE_KEY,
         # Names the agent (scout, custom agent, workflow) the run executes, lifted onto its
         # $ai_generation events. A PATCHable value would bill a caller's spend to another agent.
         "ai_agent_name",
@@ -2361,6 +2524,10 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         "rtk_effective",
         "benjamin_effective",
         "usage_metrics_recorded",
+        # get_task_run_actor_user mints the sandbox OAuth token for slack_actor_user_id when
+        # interaction_origin is "slack"; a removed actor falls back to the task creator.
+        "interaction_origin",
+        "slack_actor_user_id",
     }
 )
 
@@ -2499,10 +2666,12 @@ def task_accessible_for_run_view(
     return task_filter.exists()
 
 
-def list_task_runs(task_id: str | UUID, team_id: int) -> list[contracts.TaskRunDetailDTO]:
+def list_task_runs(
+    task_id: str | UUID, team_id: int, *, user_id: int | None = None
+) -> list[contracts.TaskRunDetailDTO]:
     """All runs for a task, team-scoped. Caller enforces task visibility."""
     runs = _task_run_queryset().filter(team_id=team_id, task_id=task_id)
-    return [_task_run_detail_to_dto(run) for run in runs]
+    return [_task_run_detail_to_dto(run, user_id=user_id) for run in runs]
 
 
 def get_task_run_source(run_id: str | UUID, task_id: str | UUID, team_id: int) -> str | None:
@@ -2522,7 +2691,12 @@ def get_task_run_claude_model_access(run_id: str | UUID, task_id: str | UUID, te
 
 
 def get_task_run_detail(
-    run_id: str | UUID, task_id: str | UUID, team_id: int, *, include_agent_state: bool = False
+    run_id: str | UUID,
+    task_id: str | UUID,
+    team_id: int,
+    *,
+    include_agent_state: bool = False,
+    user_id: int | None = None,
 ) -> contracts.TaskRunDetailDTO | None:
     """A single run as a detail DTO, scoped to its task + team.
 
@@ -2530,7 +2704,11 @@ def get_task_run_detail(
     boot-prompt keys that are withheld from human readers.
     """
     run = _get_visible_run(run_id, task_id, team_id)
-    return _task_run_detail_to_dto(run, include_agent_state=include_agent_state) if run is not None else None
+    return (
+        _task_run_detail_to_dto(run, include_agent_state=include_agent_state, user_id=user_id)
+        if run is not None
+        else None
+    )
 
 
 def get_task_run_stream_info(
@@ -2984,6 +3162,9 @@ def update_task_run(
     return _task_run_detail_to_dto(run)
 
 
+TASK_RUN_SUMMARY_MAX_CHARS = 1500
+
+
 def validate_set_output(run_id: str | UUID, task_id: str | UUID, team_id: int, *, output: dict) -> str | None:
     """Validate output against the task's json_schema. Returns an error message or ``None``."""
     import jsonschema  # noqa: PLC0415 — only needed when a json_schema is set
@@ -3023,6 +3204,24 @@ def set_task_run_output(
     if merged.get("pr_url"):
         post_pr_created_thread_update(run, merged["pr_url"])
     return _task_run_detail_to_dto(run)
+
+
+def set_task_run_summary(
+    run_id: str | UUID,
+    task_id: str | UUID,
+    team_id: int,
+    *,
+    summary: str,
+    include_agent_state: bool = False,
+    user_id: int | None = None,
+) -> contracts.TaskRunDetailDTO | None:
+    run = _get_visible_run(run_id, task_id, team_id)
+    if run is None:
+        return None
+    run.state = TaskRun.update_state_atomic(run.id, updates={TASK_RUN_SUMMARY_STATE_KEY: summary})
+    run.refresh_from_db()
+    run.publish_stream_state_event()
+    return _task_run_detail_to_dto(run, include_agent_state=include_agent_state, user_id=user_id)
 
 
 def _entries_show_agent_activity(entries: list[dict]) -> bool:
@@ -4430,6 +4629,10 @@ def apply_task_run_model_config(
         # gated model the caller could not have started the run on.
         logger.warning("Model access denied switching task run %s to %s", run.id, model)
         return False
+    if model and not pinned_run_allows_model(run.state, model):
+        # A gateway denial does not fall back, so an off-pin model fails every turn.
+        logger.warning("Model %s is outside the gateway pin of task run %s", model, run.id)
+        return False
 
     auth_token = (
         create_sandbox_connection_token(run, user_id=actor.id, distinct_id=distinct_id)
@@ -4448,6 +4651,13 @@ def apply_task_run_model_config(
     if applied:
         TaskRun.update_state_atomic(run.id, updates=applied)
     return len(applied) == len(requested)
+
+
+def task_run_model_outside_gateway_pin(
+    run_id: str | UUID, task_id: str | UUID, team_id: int, model: str | None
+) -> bool:
+    run = _get_visible_run(run_id, task_id, team_id)
+    return run is not None and not pinned_run_allows_model(run.state, model)
 
 
 def get_task_run_sandbox_connection(
@@ -5060,8 +5270,9 @@ _STARTABLE_TASK_RUN_STATUSES = (TaskRun.Status.NOT_STARTED, TaskRun.Status.QUEUE
 def check_task_run_startable(run_id: str | UUID, task_id: str | UUID, team_id: int) -> tuple[str, str | None]:
     """Whether a run can be started via the start endpoint.
 
-    Returns ``"not_found"`` (run missing), ``"not_cloud"``, ``"bad_status:<current>"``, or
-    ``"ok"``, together with the stored run source. The view applies the usage gate before ``start_task_run``.
+    Returns ``"not_found"`` (run missing), ``"not_cloud"``, ``"scheduled"``,
+    ``"bad_status:<current>"``, or ``"ok"``, together with the stored run source. The view
+    applies the usage gate before ``start_task_run``.
     """
     run = _get_visible_run(run_id, task_id, team_id)
     if run is None:
@@ -5069,6 +5280,8 @@ def check_task_run_startable(run_id: str | UUID, task_id: str | UUID, team_id: i
     run_source = (run.state or {}).get("run_source")
     if run.environment != TaskRun.Environment.CLOUD:
         return "not_cloud", run_source
+    if run.status == TaskRun.Status.NOT_STARTED and run.scheduled_at is not None:
+        return "scheduled", run_source
     if run.status not in _STARTABLE_TASK_RUN_STATUSES:
         return f"bad_status:{run.status}", run_source
     return "ok", run_source
@@ -5373,7 +5586,7 @@ def get_task_detail(
         .filter(id=task_id)
         .first()
     )
-    return _task_detail_to_dto(task) if task is not None else None
+    return _task_detail_to_dto(task, user_id=user_id) if task is not None else None
 
 
 def get_conversation_task_dtos(
@@ -5397,26 +5610,7 @@ def get_conversation_task_dtos(
         .prefetch_related(Prefetch("team", queryset=Team.objects.only("id", "name")))
         .annotate(_latest_run_id=Subquery(latest_run_id_sq))
     )
-    return {task.id: _task_detail_to_dto(task, include_latest_run=False) for task in tasks}
-
-
-def pi_cloud_runtime_enabled(team: Team, user: User) -> bool:
-    distinct_id = user.distinct_id or f"user_{user.id}"
-    organization_id = str(team.organization_id)
-    try:
-        return bool(
-            posthoganalytics.feature_enabled(
-                PI_CLOUD_RUNTIME_FEATURE_FLAG,
-                distinct_id,
-                groups={"organization": organization_id},
-                group_properties={"organization": {"id": organization_id}},
-                only_evaluate_locally=False,
-                send_feature_flag_events=False,
-            )
-        )
-    except Exception:
-        logger.exception("pi-harness flag check failed; treating as disabled")
-        return False
+    return {task.id: _task_detail_to_dto(task, user_id=user_id, include_latest_run=False) for task in tasks}
 
 
 def task_analysis_enabled(team: Team, user: User) -> bool:
@@ -5599,19 +5793,23 @@ def _list_tasks_queryset(
         qs = qs.annotate(_latest_run_status=Subquery(latest_run_status)).filter(_latest_run_status=status_filter)
 
     # PR/CI state filters read the snapshot the PR webhook and the CI follow-up
-    # loop persist onto the latest run's output (same latest-run subquery shape
-    # as the status filter, so "the task's PR" means what the API's latest_run
-    # shows). KeyTextTransform, so the comparison is text = text.
+    # loop persist onto a run's output. KeyTextTransform, so the comparison is
+    # text = text.
     pr_state = filters.get("pr_state")
     if pr_state:
-        latest_run_pr_state = latest_run.annotate(_pr_state=KeyTextTransform("pr_state", "output")).values("_pr_state")[
-            :1
-        ]
+        # Anchored on the newest PR-carrying run, the one `_task_detail_to_dto` inherits
+        # `latest_run.output` from. A resumed run never gains a `pr_state` of its own, so reading
+        # the newest run would answer `pr_state=open` differently from the `latest_run` this same
+        # endpoint returns.
+        latest_pr_run = latest_run.filter(_PR_CARRYING_OUTPUT_Q)
+        latest_run_pr_state = latest_pr_run.annotate(_pr_state=KeyTextTransform("pr_state", "output")).values(
+            "_pr_state"
+        )[:1]
         qs = qs.annotate(_latest_run_pr_state=Subquery(latest_run_pr_state))
         if pr_state == "merged":
             # Runs merged before pr_state existed only carry the older
             # pr_merged flag; honor both spellings.
-            latest_run_pr_merged = latest_run.annotate(_pr_merged=KeyTextTransform("pr_merged", "output")).values(
+            latest_run_pr_merged = latest_pr_run.annotate(_pr_merged=KeyTextTransform("pr_merged", "output")).values(
                 "_pr_merged"
             )[:1]
             qs = qs.annotate(_latest_run_pr_merged=Subquery(latest_run_pr_merged)).filter(
@@ -5619,6 +5817,8 @@ def _list_tasks_queryset(
             )
         else:
             qs = qs.filter(_latest_run_pr_state=pr_state)
+
+    # `ci_status` stays on the newest run: unlike the PR, it is not inherited across a resume.
 
     ci_status = filters.get("ci_status")
     if ci_status:
@@ -5704,15 +5904,30 @@ def _latest_runs_by_task_id(task_ids: Iterable[UUID], team_id: int) -> dict[UUID
     return {run.task_id: run for run in runs}
 
 
-def _tasks_to_dtos(tasks: Iterable[Task], team_id: int) -> list[contracts.TaskDetailDTO]:
+def _tasks_to_dtos(tasks: Iterable[Task], team_id: int, user_id: int | None = None) -> list[contracts.TaskDetailDTO]:
     task_list = list(tasks)
     latest_runs_by_task_id = _latest_runs_by_task_id((task.id for task in task_list), team_id)
-    return [_task_detail_to_dto(task, latest_run=latest_runs_by_task_id.get(task.id)) for task in task_list]
+    # Resolved for the whole page in one query, rather than one per task inside the mapper.
+    needs_prior_pr = [
+        task.id
+        for task in task_list
+        if (run := latest_runs_by_task_id.get(task.id)) is not None and not read_pr_urls(run.output)
+    ]
+    prior_pr_output_by_task_id = get_prior_pr_output_by_task(team_id, needs_prior_pr)
+    return [
+        _task_detail_to_dto(
+            task,
+            user_id=user_id,
+            latest_run=latest_runs_by_task_id.get(task.id),
+            prior_pr_output=prior_pr_output_by_task_id.get(str(task.id)),
+        )
+        for task in task_list
+    ]
 
 
 def list_tasks(team_id: int, user_id: int | None, *, filters: dict) -> list[contracts.TaskDetailDTO]:
     """All visible tasks for the team as DTOs, mirroring the task list view filters."""
-    return _tasks_to_dtos(_list_tasks_queryset(team_id, user_id, filters=filters), team_id)
+    return _tasks_to_dtos(_list_tasks_queryset(team_id, user_id, filters=filters), team_id, user_id)
 
 
 _SEARCH_KIND_ORDER = (
@@ -5860,22 +6075,30 @@ def list_task_repositories(team_id: int, user_id: int | None) -> list[str]:
     return sorted(set(plural) | {repository for repository in legacy if repository})
 
 
-def _latest_run_summary(raw: object) -> contracts.TaskLatestRunSummaryDTO | None:
+def _latest_run_summary(
+    raw: object, prior_pr: object = None, *, can_read_summary: bool
+) -> contracts.TaskLatestRunSummaryDTO | None:
     if not isinstance(raw, dict):
         return None
-    pr_url = raw.get("pr_url")
-    pr_url = pr_url if isinstance(pr_url, str) and pr_url else None
+    # Same inheritance the task detail response applies: a run that opened no PR of its own shows
+    # the one an earlier run opened, so the sidebar and the detail view agree about a resumed task.
+    pr_source = raw if read_pr_urls(raw) else (prior_pr if isinstance(prior_pr, dict) else {})
+    urls = read_pr_urls(pr_source)
+    pr_url = urls[0] if urls else None
     return contracts.TaskLatestRunSummaryDTO(
         id=raw["id"],
         status=raw.get("status"),
         environment=raw.get("environment"),
         mode=raw.get("mode", "background"),
         pr_url=pr_url,
-        pr_state=_pull_request_state(raw) if pr_url else None,
+        pr_state=_pull_request_state(pr_source) if pr_url else None,
+        task_summary=(raw.get("task_summary") or raw.get("prior_run_summary")) if can_read_summary else None,
     )
 
 
-def get_task_summaries(team_id: int, user_id: int | None, *, ids: list) -> list[contracts.TaskSummaryDTO]:
+def get_task_summaries(
+    team_id: int, user_id: int | None, *, ids: list, limit: int | None = None, offset: int = 0
+) -> tuple[list[contracts.TaskSummaryDTO], int]:
     """Summary fields for the requested tasks, mirroring ``TaskViewSet.summaries``."""
     from django.db.models.functions import JSONObject  # noqa: PLC0415
 
@@ -5894,30 +6117,58 @@ def get_task_summaries(team_id: int, user_id: int | None, *, ids: list) -> list[
                 environment="environment",
                 mode="_mode",
                 pr_url=KeyTransform("pr_url", "output"),
+                pr_urls=KeyTransform("pr_urls", "output"),
                 pr_state=KeyTransform("pr_state", "output"),
                 pr_merged=KeyTransform("pr_merged", "output"),
+                task_summary="state__task_summary",
+                prior_run_summary="state__prior_run_summary",
             ),
+        )
+    )
+    # The newest run that opened a PR, which is not always the newest run.
+    latest_pr_run = (
+        TaskRun.objects.filter(task=OuterRef("pk"), team_id=team_id)
+        .filter(_PR_CARRYING_OUTPUT_Q)
+        .order_by("-created_at", "-id")
+        .annotate(
+            _pr=JSONObject(
+                pr_url=KeyTransform("pr_url", "output"),
+                pr_urls=KeyTransform("pr_urls", "output"),
+                pr_state=KeyTransform("pr_state", "output"),
+                pr_merged=KeyTransform("pr_merged", "output"),
+            )
         )
     )
     tasks = (
         Task.objects.filter(team_id=team_id, deleted=False, id__in=ids)
         .filter(task_visibility_q(user_id))
-        .annotate(_latest_run=Subquery(latest_run.values("_data")[:1]))
+        .annotate(
+            _latest_run=Subquery(latest_run.values("_data")[:1]),
+            _latest_pr_run=Subquery(latest_pr_run.values("_pr")[:1]),
+        )
         .order_by("-created_at", "id")
     )
-    return [
-        contracts.TaskSummaryDTO(
-            id=task.id,
-            title=task.title,
-            repository=task.repository,
-            created_by_id=task.created_by_id,
-            created_at=task.created_at,
-            updated_at=task.updated_at,
-            origin_product=task.origin_product,
-            latest_run=_latest_run_summary(getattr(task, "_latest_run", None)),
+    count = tasks.count()
+    if limit is not None:
+        tasks = tasks[offset : offset + limit]
+    summaries: list[contracts.TaskSummaryDTO] = []
+    for task in tasks:
+        raw = getattr(task, "_latest_run", None)
+        can_read_summary = task.origin_product != Task.OriginProduct.WORKFLOW or task.created_by_id == user_id
+        latest = _latest_run_summary(raw, getattr(task, "_latest_pr_run", None), can_read_summary=can_read_summary)
+        summaries.append(
+            contracts.TaskSummaryDTO(
+                id=task.id,
+                title=task.title,
+                repository=task.repository,
+                created_by_id=task.created_by_id,
+                created_at=task.created_at,
+                updated_at=task.updated_at,
+                origin_product=task.origin_product,
+                latest_run=latest,
+            )
         )
-        for task in tasks
-    ]
+    return summaries, count
 
 
 def compute_repository_readiness(team_id: int, *, repository: str, window_days: int, refresh: bool) -> dict:
@@ -7700,6 +7951,8 @@ def run_task(
         assert previous_run is not None and previous_state is not None
         prev_state = previous_state
         extra_state = extra_state or {}
+        if previous_run.task_summary:
+            extra_state[PRIOR_RUN_SUMMARY_STATE_KEY] = previous_run.task_summary
         if not is_pi_task:
             extra_state["resume_from_run_id"] = str(resume_from_run_id)
             extra_state.update(prev_state.resume_snapshot_carry_state())
@@ -9404,10 +9657,70 @@ def _task_activity_qs(team_id: int, user_id: int) -> QuerySet[TaskActivity]:
     return TaskActivity.objects.for_team(team_id).filter(user_id=user_id, task__in=visible_tasks)
 
 
+def _visible_canvas_comment_ids(team_id: int, user_id: int) -> QuerySet[Canvas, dict[str, str]]:
+    return (
+        Canvas.objects.for_team(team_id)
+        .filter(deleted=False)
+        .filter(visible_channels_q(user_id, relation="channel"))
+        .annotate(comment_item_id=Cast("id", output_field=CharField()))
+        .values("comment_item_id")
+    )
+
+
 def _comment_activity_qs(team_id: int, user_id: int) -> QuerySet[TaskCommentActivity]:
     visible_tasks = _activity_visible_task_qs(team_id, user_id)
-    return TaskCommentActivity.objects.for_team(team_id).filter(
-        user_id=user_id, task__in=visible_tasks, comment__deleted=False
+    return (
+        TaskCommentActivity.objects.for_team(team_id)
+        .filter(user_id=user_id, comment__deleted=False)
+        .filter(
+            Q(comment__scope="desktop_canvas", comment__item_id__in=_visible_canvas_comment_ids(team_id, user_id))
+            | (~Q(comment__scope="desktop_canvas") & Q(task__in=visible_tasks))
+        )
+    )
+
+
+def _visible_canvases_by_id(
+    team_id: int, user_id: int, comment_rows: Sequence[TaskCommentActivity]
+) -> dict[str, Canvas]:
+    canvas_ids: list[UUID] = []
+    for row in comment_rows:
+        if row.comment.scope != "desktop_canvas":
+            continue
+        try:
+            canvas_ids.append(UUID(row.comment.item_id))
+        except ValueError:
+            continue
+    if not canvas_ids:
+        return {}
+    canvases = (
+        Canvas.objects.for_team(team_id)
+        .filter(id__in=canvas_ids, deleted=False)
+        .filter(visible_channels_q(user_id, relation="channel"))
+        .select_related("channel")
+    )
+    return {str(canvas.id): canvas for canvas in canvases}
+
+
+@frozen
+class _ActivityTaskDetails:
+    title: str
+    channel_id: UUID | None
+    channel_name: str | None
+
+
+def _activity_task_details(
+    row: TaskActivity | TaskCommentActivity, canvases_by_id: dict[str, Canvas]
+) -> _ActivityTaskDetails:
+    if isinstance(row, TaskCommentActivity) and row.comment.scope == "desktop_canvas" and row.comment.item_id:
+        canvas = canvases_by_id.get(row.comment.item_id)
+        if canvas is not None:
+            return _ActivityTaskDetails(
+                title=canvas.name, channel_id=canvas.channel_id, channel_name=canvas.channel.name
+            )
+    return _ActivityTaskDetails(
+        title=row.task.title,
+        channel_id=row.task.channel_id,
+        channel_name=row.task.channel.name if row.task.channel else None,
     )
 
 
@@ -9443,8 +9756,12 @@ def list_task_activity(
         task_qs = task_qs.filter(cursor)
         comment_qs = comment_qs.filter(cursor)
     task_rows = task_qs.select_related("task__channel", "message__author").order_by("-activity_at", "-id")[: limit + 1]
-    comment_rows = comment_qs.select_related("task__channel", "comment__created_by").order_by("-activity_at", "-id")[
-        : limit + 1
+    comment_rows = list(
+        comment_qs.select_related("task__channel", "comment__created_by").order_by("-activity_at", "-id")[: limit + 1]
+    )
+    canvases_by_id = _visible_canvases_by_id(team_id, user_id, comment_rows)
+    comment_rows = [
+        row for row in comment_rows if row.comment.scope != "desktop_canvas" or row.comment.item_id in canvases_by_id
     ]
     activity_rows: list[TaskActivity | TaskCommentActivity] = [*task_rows, *comment_rows]
     rows: list[TaskActivity | TaskCommentActivity] = sorted(
@@ -9461,9 +9778,9 @@ def list_task_activity(
             contracts.TaskActivityDTO(
                 id=row.id,
                 task_id=row.task_id,
-                task_title=row.task.title,
-                channel_id=row.task.channel_id,
-                channel_name=row.task.channel.name if row.task.channel else None,
+                task_title=task_details.title,
+                channel_id=task_details.channel_id,
+                channel_name=task_details.channel_name,
                 activity_at=row.activity_at,
                 activity_kind=row.kind,
                 snippet=_bounded_activity_snippet(
@@ -9483,6 +9800,7 @@ def list_task_activity(
                 is_unread=row.read_at is None,
             )
             for row in rows
+            for task_details in [_activity_task_details(row, canvases_by_id)]
         ],
         unread_count=count_unread_task_activity(team_id, user_id),
         next_before=next_row.activity_at if next_row else None,
@@ -10155,3 +10473,30 @@ def post_pr_created_thread_update(run: TaskRun, pr_url: str) -> None:
             )
     except Exception:
         logger.exception("Failed to post pr-created thread update", extra={"task_id": str(run.task_id)})
+
+
+# --- Inbound GitHub App deliveries (entered from backend/webhook_consumers.py) ---
+
+
+def accept_github_pull_request(delivery: WebhookDelivery) -> None:
+    """The PR backstop that records a pull request the agent output never reported."""
+    # Deferred to keep the GitHub client off the facade import path.
+    from products.tasks.backend.webhooks import handle_pull_request_event  # noqa: PLC0415
+
+    handle_pull_request_event(dict(delivery.payload))
+
+
+def accept_github_pull_request_review(delivery: WebhookDelivery) -> None:
+    """A review on a PR a task opened, which can resume the run that is waiting on it."""
+    # Deferred to keep the GitHub client off the facade import path.
+    from products.tasks.backend.webhooks import handle_pull_request_review_event  # noqa: PLC0415
+
+    handle_pull_request_review_event(dict(delivery.payload))
+
+
+def accept_github_event_for_loops(delivery: WebhookDelivery) -> None:
+    """Every event type a loop trigger can match on, which fires the loops whose filters accept it."""
+    # Deferred to keep the Redis client off the facade import path.
+    from products.tasks.backend.loop_github_events import handle_github_event_for_loops  # noqa: PLC0415
+
+    handle_github_event_for_loops(delivery.event_type, dict(delivery.payload), delivery.delivery_id or "")
