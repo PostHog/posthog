@@ -33,7 +33,7 @@ import { scannerTypeLabel } from 'products/replay_vision/frontend/replay_scanner
 
 import { NOT_A_FUNNEL_REASON } from '../utils'
 import { ExperimentBehaviorComparison, ExperimentBehaviorComparisonToggle } from './ExperimentBehaviorComparison'
-import { EXPERIMENT_RECORDING_MODE_OPTIONS } from './experimentRecordingModes'
+import { EXPERIMENT_RECORDING_MODE_OPTIONS, METRIC_UNSELECTABLE_COPY } from './experimentRecordingModes'
 import { type ExperimentReplayMetricFilterMode, isFunnelMode } from './experimentRecordingsDeepLink'
 import { ExperimentRecordingsListEmptyState } from './ExperimentRecordingsListEmptyState'
 import {
@@ -265,6 +265,8 @@ export function ExperimentReplayTab({ experiment }: { experiment: Experiment }):
         effectiveMetricUuids,
         metricOptions,
         metricFilterMode,
+        droppedMetricReason,
+        filtersCustomized,
         sessionBucket,
         sessionBucketLoading,
         sessionBucketError,
@@ -475,9 +477,15 @@ export function ExperimentReplayTab({ experiment }: { experiment: Experiment }):
                 <ExperimentBehaviorComparisonToggle experiment={experiment} />
             </div>
             {/* The default mode also uses the endpoint for a single multi-source metric, so the
-                caption follows the request, not the mode. */}
+                caption follows the request, not the mode. The dropped-metric caption claims a whole
+                population, so a filter the viewer added in the playlist bar makes it wrong and takes
+                it away. The telemetry nulls the reason on the same condition. */}
             <div className="mb-2 flex items-center gap-2 text-xs text-secondary">
-                {clientSideFilterApplied ? null : !sessionBucketRequest && metricFilterMode === 'fired_all' ? (
+                {clientSideFilterApplied ? null : droppedMetricReason && !filtersCustomized ? (
+                    <span data-attr="experiment-recordings-dropped-metric-caption">
+                        {METRIC_UNSELECTABLE_COPY[droppedMetricReason].onTab}
+                    </span>
+                ) : !sessionBucketRequest && metricFilterMode === 'fired_all' ? (
                     <span data-attr="experiment-recordings-population-caption">
                         {effectiveExposureScope === 'in_session' ? inSessionCopy.caption : ALL_EXPOSED_CAPTION}
                     </span>
@@ -510,6 +518,10 @@ export function ExperimentReplayTab({ experiment }: { experiment: Experiment }):
                         {...playlistLogicProps}
                         analyticsSource="experiment-recordings-tab"
                         filters={recordingsFilters}
+                        // The tab's own controls own these filters, so the filter bar resets to them
+                        // rather than to replay's defaults, which would list people outside the
+                        // experiment under the variant's label.
+                        resetToCallerFilters
                         onFiltersChange={(filters) => playlistFiltersChanged(filters)}
                         onRecordingsLoaded={(recordings, isFirstPage) => recordingsLoaded(recordings, isFirstPage)}
                         onRecordingSelected={(recordingId) => recordingOpened(recordingId)}

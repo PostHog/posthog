@@ -475,7 +475,7 @@ CREATE TABLE posthog.kafka_flag_evaluations (
   created_at DateTime64(6, 'UTC'),
   person_id UUID,
   inserted_at DateTime64(6, 'UTC')
-) ENGINE = Kafka(warpstream_ingestion) SETTINGS kafka_format = 'JSONEachRow', kafka_group_name = 'clickhouse_flag_evaluations', kafka_skip_broken_messages = 100, kafka_topic_list = 'clickhouse_flag_evaluations';
+) ENGINE = Kafka(warpstream_ingestion) SETTINGS kafka_flush_interval_ms = 7500, kafka_format = 'JSONEachRow', kafka_group_name = 'clickhouse_flag_evaluations', kafka_max_block_size = 10000, kafka_num_consumers = 1, kafka_poll_max_batch_size = 10000, kafka_poll_timeout_ms = 10000, kafka_skip_broken_messages = 100, kafka_topic_list = 'clickhouse_flag_evaluations';
 CREATE TABLE posthog.kafka_groups (
   group_type_index UInt8,
   group_key String,
@@ -1461,6 +1461,7 @@ CREATE TABLE posthog.metrics2 (
   INDEX idx_trace_id_bf trace_id TYPE bloom_filter(0.01) GRANULARITY 1,
   INDEX idx_resource_fingerprint resource_fingerprint TYPE bloom_filter(0.01) GRANULARITY 1,
   INDEX idx_observed_minmax observed_timestamp TYPE minmax GRANULARITY 1,
+  INDEX idx_timestamp_minmax timestamp TYPE minmax GRANULARITY 1,
   PROJECTION projection_series_activity (SELECT
   team_id,
   service_name,

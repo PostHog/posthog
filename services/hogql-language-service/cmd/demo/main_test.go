@@ -51,6 +51,7 @@ func TestDemoEmbeddedService(t *testing.T) {
 		method, path, body string
 		status             int
 	}{
+		{http.MethodGet, "/api/health", "", http.StatusOK},
 		{http.MethodPost, "/api/validate", `{"query":"WITH t AS (SELECT uuid FROM events) SELECT uuid FROM t"}`, http.StatusOK},
 		{http.MethodPost, "/api/autocomplete", `{"query":"SELECT events.tim FROM events","position":17}`, http.StatusOK},
 		{http.MethodPost, "/api/validate", `{"query":"SELECT 1","unknown":true}`, http.StatusBadRequest},
@@ -66,7 +67,7 @@ func TestDemoEmbeddedService(t *testing.T) {
 			if response.Code != test.status {
 				t.Fatalf("response = %d %s, want %d", response.Code, response.Body.String(), test.status)
 			}
-			if test.status != http.StatusOK {
+			if test.status != http.StatusOK || test.path == "/api/health" {
 				return
 			}
 			var revision struct {
@@ -87,6 +88,23 @@ func TestDemoEmbeddedService(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestDemoHealthForwardsServiceFailure(t *testing.T) {
+	backend := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.Path != "/health" {
+			t.Fatalf("forwarded request = %s %s", r.Method, r.URL.Path)
+		}
+		http.Error(w, "unhealthy", http.StatusServiceUnavailable)
+	})
+	request := httptest.NewRequest(http.MethodGet, "http://127.0.0.1:8092/api/health", nil)
+	response := httptest.NewRecorder()
+
+	demoHandler(backend, "127.0.0.1:8092", nil).ServeHTTP(response, request)
+
+	if response.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want %d", response.Code, http.StatusServiceUnavailable)
 	}
 }
 
