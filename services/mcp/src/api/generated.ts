@@ -108999,8 +108999,6 @@ export namespace Schemas {
 
 
     export const EventDefinitionsListEventType = {
-      ActionEvent: 'action_event',
-      All: 'all',
       Event: 'event',
       EventCustom: 'event_custom',
       EventPosthog: 'event_posthog',
