@@ -1,6 +1,6 @@
-# Depot CI shadow of .github/workflows/ci-backend.yml. Lives under .depot/ so
-# GitHub Actions ignores it; only Depot CI parses this file. Statuses posted
-# from here are non-blocking; canonical is the authoritative signal.
+# Depot CI copy of .github/workflows/ci-backend.yml. Lives under .depot/ so
+# GitHub Actions ignores it; only Depot CI parses this file. Canonical's required
+# `Django Tests Pass` relays this workflow's gate for the events routed here.
 #
 # Apples-to-apples is the whole point — keep action pins, env vars, runner
 # sizes, and pytest flags in sync with the canonical workflow. A drift-check
@@ -8,8 +8,10 @@
 # changes without a matching depot bump.
 #
 # Intentional deltas vs canonical (everything else is kept apples-to-apples):
-# - The `sample` job waits for GitHub Actions to hand the event off and exposes `sampled`
-#   and `side_effects`, both true only when GitHub Actions handed the tests to this engine.
+# - The `wait-for-handoff` job waits for GitHub Actions to hand the event off and exposes
+#   `handed_off`, true only when GitHub Actions handed the tests to this engine. Canonical's
+#   `Django Tests Pass` gate then relays this workflow's gate verdict. Neither the hand-off
+#   job nor the relay has a counterpart here.
 # - runs-on: depot-* labels instead of ubuntu-latest
 # - action paths: ./.depot/actions/... instead of ./.github/actions/... (pnpm-install,
 #   setup-sqlx-cli, setup-python-cached, setup-uv, setup-turbo, and paths-filter mirror
@@ -64,7 +66,7 @@
 #   status remains optional.
 # - events_json variants: gated on the test-new-events-schema label only; canonical also
 #   doubles the matrices on workflow_dispatch, but shadow dispatches stay legacy-only so
-#   trial runs do the same work as sampled PR runs
+#   trial runs do the same work as handed-off PR runs
 # - per-segment split plans (.test_durations.core/.temporal): the restore steps mirror
 #   canonical but miss until the depot timing refresher saves those files to Depot Cache;
 #   shards fall back to the union .test_durations
@@ -72,18 +74,19 @@
 #   so shared keys with canonical (schema, uv, pnpm) do not collide
 # - hypothesis constants cache: the restore and save steps mirror canonical verbatim, but the
 #   save only fires on master test-matrix runs and the shadow skips those, so the Depot Cache
-#   entry only exists after a master workflow_dispatch. Sampled PR shards run cold (they rebuild
-#   the pool, as canonical did before this cache existed) until then: bounded, documented, and
-#   harmless because the shadow never gates merges.
+#   entry only exists after a master workflow_dispatch. Routed PR shards run cold (they rebuild
+#   the pool, as canonical did before this cache existed) until then: bounded and documented.
 # - GITHUB_TOKEN / OTEL_SERVICE_NAME neutralized (ambient on Depot, not on GHA)
 # - GitHub App tokens: the mint steps' vars.* / secrets.* resolve from Depot's store, not
 #   GitHub's. A name missing there makes the setup-action mints (continue-on-error) fall
 #   back to the ambient GITHUB_TOKEN, the Depot Code Access installation token that every
 #   Depot CI job across repos shares, and fails the paths-filter mint outright. Mints whose
-#   only consumer is a stripped side effect (migration-risk check run, OpenAPI auto-commit,
-#   snapshot commit, telemetry) are stripped with it.
-# - `depot ci run` fires with event_name `api`; the sample gate treats it like
-#   workflow_dispatch. Depot caps an inline workflow at 64 KiB, which this file exceeds, so
+#   only consumer is a stripped side effect (OpenAPI auto-commit, snapshot commit,
+#   telemetry) are stripped with it. The migration-risk check run is published here
+#   because stamphog waits for it on every pull request.
+# - `depot ci run` fires with event_name `api`; the hand-off wait treats it like
+#   workflow_dispatch: it runs only when GitHub Actions already handed the commit off.
+#   Depot caps an inline workflow at 64 KiB, which this file exceeds, so
 #   trial a branch with `depot ci dispatch --workflow ci-backend.yml --ref <branch>` instead.
 # - Three data-modeling tests deselected (Depot-only MinIO 403 quarantine)
 # - COMPOSE_PROJECT_NAME pinned to posthog because bin/wait-for-docker filters by that
@@ -103,9 +106,8 @@
 # - Test durations restored from Depot Cache (posthog-test-durations- prefix), refreshed by
 #   .depot/workflows/ci-backend-update-test-timing.yml, so shard counts match GitHub Actions.
 #   Committed .test_durations is the fallback.
-# - master (push) runs only check-migrations to prime the shared schema cache; the
-#   test matrices are skipped on master (canonical runs them). Sampled source PRs and
-#   dispatches run the full graph — that is where the apples-to-apples comparison happens.
+# - No push trigger: canonical primes the shared schema cache on master, and Depot Cache
+#   serves both engines. The `github.event_name != 'push'` guards stay to mirror canonical.
 #   Trunk merge-queue PRs are excluded because they would repeat a source PR's trial run.
 # - Fresh-master cache waiting is canonical-only: it waits on the GitHub Actions
 #   warmer, which cannot signal readiness for Depot's separate cache channel.
@@ -114,19 +116,16 @@
 #
 # Shards derive from .test_durations (Amdahl), restored from Depot Cache (else committed);
 # .depot/workflows/ci-backend-update-test-timing.yml keeps that cache fresh.
-name: '[optional, does not block merge] Backend CI'
-# OPTIONAL, non-blocking shadow of canonical Backend CI: its statuses must never gate
-# merging (hence the "[optional, does not block merge]" name prefix). Each event runs on
-# exactly one engine, and GitHub Actions picks it. The `sample` job waits for the
+name: Backend CI on Depot
+# Depot CI copy of canonical Backend CI. Branch protection requires only canonical's
+# `Django Tests Pass`, which relays this workflow's gate when the event ran here. Each event runs on
+# exactly one engine, and GitHub Actions picks it. The `wait-for-handoff` job waits for the
 # `Hand off backend tests to Depot CI` check from .github/workflows/ci-backend.yml and
 # `changes` (root of the needs graph) only runs when that check succeeded, so the whole
-# workflow cascades off otherwise. Manual triggers always run here.
+# workflow cascades off otherwise. A manual run needs that check on its commit too.
 # The drift check (.github/workflows/ci-backend-shadow-drift.yml) keeps this file in sync
 # with canonical; it runs whenever either file changes, independent of the percent.
 on:
-    push:
-        branches:
-            - master
     workflow_dispatch:
         inputs:
             clickhouseServerVersion:
@@ -140,7 +139,7 @@ on:
         # `no-ci` label silences the workflow on a draft entirely. No
         # labeled/unlabeled triggers, so a label takes effect from the next push
         # or from ready_for_review. Every event, merge-queue PRs included, runs here
-        # only when GitHub Actions hands it off (see the `sample` job).
+        # only when GitHub Actions hands it off (see the `wait-for-handoff` job).
         types: [opened, synchronize, reopened, ready_for_review]
 concurrency:
     # PRs: one active run per branch, cancel stale. Push: per-SHA so master
@@ -203,21 +202,20 @@ jobs:
     # GitHub Actions alone decides which engine runs an event. Every other job here
     # needs this one, so Depot CI runs nothing GitHub Actions did not hand off, and the
     # tests and their side effects never run on both engines.
-    sample:
+    wait-for-handoff:
         if: >-
             github.event_name != 'pull_request'
             || github.event.pull_request.draft != true
             || !contains(github.event.pull_request.labels.*.name, 'no-ci')
         runs-on: depot-ubuntu-24.04
         timeout-minutes: 15
-        name: '[optional, does not block merge] Wait for GitHub Actions to hand off backend tests'
+        name: Wait for GitHub Actions to hand off backend tests
         # Depot scopes the ambient token by this block, and the workflow-level block has no
         # `checks`, so without it the check-runs read below answers 403.
         permissions:
             checks: read
         outputs:
-            sampled: ${{ steps.handoff.outputs.handed_off }}
-            side_effects: ${{ steps.handoff.outputs.handed_off }}
+            handed_off: ${{ steps.handoff.outputs.handed_off }}
         steps:
             - name: Wait for the hand-off check from GitHub Actions
               id: handoff
@@ -230,6 +228,9 @@ jobs:
                   # A no-ci draft marked ready keeps its SHA, so its earlier skipped hand-off
                   # check is still on the commit. Only a check that started after this event counts.
                   EVENT_AT: ${{ github.event.pull_request.updated_at }}
+                  # Two open PRs can share a head SHA, so only this PR's hand-off counts.
+                  # A manual run has no PR and accepts the newest hand-off from any PR.
+                  PR_NUMBER: ${{ github.event.pull_request.number }}
                   # Must match the job name in .github/workflows/ci-backend.yml.
                   HANDOFF_CHECK: Hand off backend tests to Depot CI
                   GITHUB_ACTIONS_APP_ID: '15368'
@@ -237,22 +238,27 @@ jobs:
                   set -uo pipefail
                   handed_off=false
                   state=absent
-                  if [ "$EVENT" = workflow_dispatch ] || [ "$EVENT" = api ]; then
-                      echo "::notice::A person started this run on Depot CI, so it runs here."
-                      handed_off=true
-                  elif [ "$IS_FORK" = true ]; then
+                  # A person's run does not wait: it runs only when GitHub Actions already handed
+                  # this commit off, so the tests never run on both engines.
+                  attempts=30
+                  [ "$EVENT" = pull_request ] || attempts=1
+                  if [ "$IS_FORK" = true ]; then
                       # The fork controls its own copy of the GitHub Actions workflow, so its hand-off is not trusted.
                       echo "::notice::Fork pull requests never run on Depot CI."
+                  elif [ "$EVENT" != pull_request ] && [ "$EVENT" != workflow_dispatch ] && [ "$EVENT" != api ]; then
+                      # A reused commit can still carry a pull request's hand-off, and GitHub Actions
+                      # runs every non-PR event itself.
+                      echo "::notice::$EVENT events never run on Depot CI."
                   else
                       url="https://api.github.com/repos/$REPO/commits/$SHA/check-runs?check_name=$(jq -rn --arg n "$HANDOFF_CHECK" '$n | @uri')&app_id=$GITHUB_ACTIONS_APP_ID"
-                      for attempt in $(seq 1 60); do
+                      for attempt in $(seq 1 "$attempts"); do
                           # curl rewrites the saved ETag empty on a 304, so promote it only after a 200.
                           code=$(curl -s -o /tmp/handoff-body -w '%{http_code}' --max-time 15 --etag-compare /tmp/handoff-etag --etag-save /tmp/handoff-etag.new \
                               -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" "$url")
                           case "$code" in
                               200)
                                   mv /tmp/handoff-etag.new /tmp/handoff-etag
-                                  state=$(jq -r --arg since "$EVENT_AT" '[.check_runs[] | select((.started_at // "") >= $since)] | max_by(.id) | if . == null then "absent" elif .status == "completed" then .conclusion else .status end' /tmp/handoff-body)
+                                  state=$(jq -r --arg since "$EVENT_AT" --argjson pr "${PR_NUMBER:-null}" '[.check_runs[] | select((.started_at // "") >= $since and ($pr == null or any(.pull_requests[]?; .number == $pr)))] | max_by(.id) | if . == null then "absent" elif .status == "completed" then .conclusion else .status end' /tmp/handoff-body)
                                   ;;
                               304) ;;
                               401|403) echo "::warning::check-runs API returned $code; cannot read the hand-off"; break ;;
@@ -263,7 +269,7 @@ jobs:
                               absent|queued|in_progress|pending|waiting|requested) ;;
                               *) break ;;
                           esac
-                          [ "$attempt" -lt 60 ] && sleep 10
+                          [ "$attempt" -lt "$attempts" ] && sleep 20
                       done
                       if [ "$handed_off" = true ]; then
                           echo "::notice::GitHub Actions handed the backend tests to Depot CI."
@@ -275,10 +281,10 @@ jobs:
     # Job to decide if we should run backend ci
     # See .github/actions/paths-filter/README.md for filter semantics
     changes:
-        # Root of the `needs` graph: skipped when `sample` says skip (or is itself skipped),
+        # Root of the `needs` graph: skipped when `wait-for-handoff` saw no hand-off (or is itself skipped),
         # which cascades the whole workflow off.
-        needs: sample
-        if: needs.sample.outputs.sampled == 'true'
+        needs: wait-for-handoff
+        if: needs.wait-for-handoff.outputs.handed_off == 'true'
         runs-on: depot-ubuntu-24.04
         timeout-minutes: 5
         name: Determine need to run backend and migration checks
@@ -368,6 +374,7 @@ jobs:
                         # widening or fixing the script doesn't trigger
                         # tests it controls.
                         - 'products/*/package.json'
+                        - 'products/canvas/packages/canvas_builder/**'
                         - bin/build-schema-latest-versions.py
                         - bin/build-taxonomy-json.py
                         - bin/check_uv_python_compatibility.py
@@ -577,6 +584,9 @@ jobs:
                         - 'services/mcp/src/tools/generated/**/*'
                         - 'services/mcp/schema/generated-tool-definitions.json'
                         - 'services/mcp/schema/tool-definitions-all.json'
+                        # Exec command reference templates - feed generate-exec-docs.ts
+                        - 'services/mcp/src/templates/sections/**/*'
+                        - 'services/mcp/schema/exec-command-reference.md'
 
     detect-snapshot-mode:
         name: Detect snapshot mode
@@ -601,7 +611,7 @@ jobs:
     # Only needs pnpm + node — no Python, Docker, or services
     # Runs on depot for turbo remote cache access (cache status drives Django gating)
     turbo-discover:
-        needs: [sample, changes]
+        needs: [wait-for-handoff, changes]
         # Not on master push: master only primes the schema cache; this cascades the matrices off.
         if: needs.changes.outputs.backend == 'true' && github.event_name != 'push'
         runs-on: depot-ubuntu-24.04
@@ -800,7 +810,7 @@ jobs:
                   enable-cache: false
 
             - name: Snapshot the sharding plan for this run
-              if: ${{ needs.sample.outputs.side_effects == 'true' }}
+              if: ${{ needs.wait-for-handoff.outputs.handed_off == 'true' }}
               # The timing caches float to their newest entry, so a re-run can shard
               # differently from attempt 1 and, under "re-run failed jobs", a failing
               # test can move to a shard that never re-runs while the gate goes green.
@@ -873,7 +883,7 @@ jobs:
               # test-selection-verdict reads it instead of running the selector again. An
               # upload failure must not fail this job; the verdict regenerates the selection.
               continue-on-error: true
-              if: ${{ needs.sample.outputs.side_effects == 'true' && (always() && steps.select.outcome == 'success') }}
+              if: ${{ needs.wait-for-handoff.outputs.handed_off == 'true' && (always() && steps.select.outcome == 'success') }}
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               with:
                   name: select-tests-output
@@ -1012,7 +1022,7 @@ jobs:
     turbo-tests:
         needs:
             [
-                sample,
+                wait-for-handoff,
                 changes,
                 turbo-discover,
                 prime-schema-cache,
@@ -1191,7 +1201,7 @@ jobs:
                   gh run download "$run_id" --repo "$GITHUB_REPOSITORY" --name test-durations --dir . \
                       || echo "::warning::Timing artifact of run $run_id unavailable, sharding without durations"
             - name: Download the run's sharding plan snapshot
-              if: ${{ needs.sample.outputs.side_effects == 'true' }}
+              if: ${{ needs.wait-for-handoff.outputs.handed_off == 'true' }}
               # Same pinning as the Django job; falls back to the floating cache.
               id: pinned-plan
               continue-on-error: true
@@ -1201,7 +1211,7 @@ jobs:
                   path: /tmp/test-durations-plan
 
             - name: Apply the pinned sharding plan
-              if: ${{ needs.sample.outputs.side_effects == 'true' && (steps.pinned-plan.outcome == 'success') }}
+              if: ${{ needs.wait-for-handoff.outputs.handed_off == 'true' && (steps.pinned-plan.outcome == 'success') }}
               shell: bash
               run: |
                   if [ ! -f /tmp/test-durations-plan/.test_durations ]; then
@@ -1212,12 +1222,12 @@ jobs:
                   echo "Sharding plan pinned to this run's snapshot"
 
             - name: Warn when a re-run reshards unpinned
-              if: ${{ needs.sample.outputs.side_effects == 'true' && (github.run_attempt != '1' && steps.pinned-plan.outcome != 'success') }}
+              if: ${{ needs.wait-for-handoff.outputs.handed_off == 'true' && (github.run_attempt != '1' && steps.pinned-plan.outcome != 'success') }}
               shell: bash
               run: echo "::warning::Sharding-plan snapshot unavailable, this re-run reshards from the floating timing cache and may not re-execute tests that failed in earlier attempts"
 
             - name: Run product tests
-              continue-on-error: ${{ needs.sample.outputs.side_effects == 'true' }}
+              continue-on-error: ${{ needs.wait-for-handoff.outputs.handed_off == 'true' }}
               id: run-product-tests
               # --force: discover already decided this product needs testing, skip turbo cache
               # --log-order=stream: stream pytest output live instead of buffering until completion
@@ -1254,8 +1264,8 @@ jobs:
                   PYTEST_ADDOPTS: >-
                       --reuse-db
                       --durations-path ../../.test_durations
-                      ${{ needs.sample.outputs.side_effects == 'true' && github.ref == 'refs/heads/master' && '--store-durations' || '' }}
-                      ${{ needs.sample.outputs.side_effects == 'true' && '--junitxml=junit-product.xml' || '' }}
+                      ${{ needs.wait-for-handoff.outputs.handed_off == 'true' && github.ref == 'refs/heads/master' && '--store-durations' || '' }}
+                      ${{ needs.wait-for-handoff.outputs.handed_off == 'true' && '--junitxml=junit-product.xml' || '' }}
                       ${{ needs.detect-snapshot-mode.outputs.mode == 'update' && '--snapshot-update --snapshot-warn-unused' || '' }}
                       ${{ github.event_name == 'pull_request' && '--cov=backend --cov-report=xml:coverage.xml' || '' }}
                   # turbo runs each product's backend:test with the product dir as CWD, so --cov=backend
@@ -1316,7 +1326,7 @@ jobs:
 
             - name: Prepare product JUnit for Trunk
               id: prepare_product_junit
-              if: ${{ needs.sample.outputs.side_effects == 'true' && (always()) }}
+              if: ${{ needs.wait-for-handoff.outputs.handed_off == 'true' && (always()) }}
               shell: bash
               env:
                   PRODUCT_FILTERS: ${{ matrix.filters }}
@@ -1328,7 +1338,7 @@ jobs:
             - name: Quarantine gate
               id: quarantine_gate
               continue-on-error: true
-              if: ${{ needs.sample.outputs.side_effects == 'true' && (!cancelled() && env.RUNS_ON_INTERNAL_PR == 'true' && github.repository == 'PostHog/posthog' && github.actor != 'dependabot[bot]' && vars.TRUNK_UPLOAD_ENABLED == 'true') }}
+              if: ${{ needs.wait-for-handoff.outputs.handed_off == 'true' && (!cancelled() && env.RUNS_ON_INTERNAL_PR == 'true' && github.repository == 'PostHog/posthog' && github.actor != 'dependabot[bot]' && vars.TRUNK_UPLOAD_ENABLED == 'true') }}
               uses: ./.github/actions/trunk-quarantine-gate
               with:
                   junit-paths: trunk-junit/junit-product-*.xml
@@ -1336,12 +1346,12 @@ jobs:
                   token: ${{ secrets.TRUNK_API_TOKEN }}
 
             - name: Fail on test failure
-              if: ${{ needs.sample.outputs.side_effects == 'true' && (!cancelled() && (steps.prepare_product_junit.outcome == 'failure' || (steps.run-product-tests.outcome == 'failure' && (vars.TRUNK_QUARANTINE_ENABLED != 'true' || steps.quarantine_gate.outcome != 'success')))) }}
+              if: ${{ needs.wait-for-handoff.outputs.handed_off == 'true' && (!cancelled() && (steps.prepare_product_junit.outcome == 'failure' || (steps.run-product-tests.outcome == 'failure' && (vars.TRUNK_QUARANTINE_ENABLED != 'true' || steps.quarantine_gate.outcome != 'success')))) }}
               shell: bash
               run: exit 1
 
             - name: Stage product JUnit
-              if: ${{ needs.sample.outputs.side_effects == 'true' && (always()) }}
+              if: ${{ needs.wait-for-handoff.outputs.handed_off == 'true' && (always()) }}
               shell: bash
               run: |
                   mkdir -p junit-staging
@@ -1352,7 +1362,7 @@ jobs:
 
             - name: Upload product test results
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
-              if: ${{ needs.sample.outputs.side_effects == 'true' && (always()) }}
+              if: ${{ needs.wait-for-handoff.outputs.handed_off == 'true' && (always()) }}
               with:
                   name: product-junit-results-${{ strategy.job-index }}
                   path: junit-staging/junit-product-*.xml
@@ -1363,7 +1373,7 @@ jobs:
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               # Only the legacy-schema variant uploads durations — both schema variants run the
               # same test IDs, and two artifacts for the same tests would race in the merge.
-              if: ${{ needs.sample.outputs.side_effects == 'true' && (github.ref == 'refs/heads/master' && !matrix.new-events-schema) }}
+              if: ${{ needs.wait-for-handoff.outputs.handed_off == 'true' && (github.ref == 'refs/heads/master' && !matrix.new-events-schema) }}
               with:
                   name: timing_data-Products-${{ strategy.job-index }}
                   path: .test_durations
@@ -1373,7 +1383,7 @@ jobs:
             - name: Stage product coverage
               # Rename each products/<name>/coverage.xml to <name>.xml so the product name
               # survives upload-artifact's least-common-ancestor path collapse.
-              if: ${{ needs.sample.outputs.side_effects == 'true' && (always() && github.event_name == 'pull_request') }}
+              if: ${{ needs.wait-for-handoff.outputs.handed_off == 'true' && (always() && github.event_name == 'pull_request') }}
               shell: bash
               run: |
                   mkdir -p cov-staging
@@ -1386,7 +1396,7 @@ jobs:
             - name: Upload product coverage
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               # always(): a failing test shard still has partial coverage worth reporting.
-              if: ${{ needs.sample.outputs.side_effects == 'true' && (always() && github.event_name == 'pull_request') }}
+              if: ${{ needs.wait-for-handoff.outputs.handed_off == 'true' && (always() && github.event_name == 'pull_request') }}
               with:
                   name: coverage-xml-${{ strategy.job-index }}
                   path: cov-staging/*.xml
@@ -1539,7 +1549,7 @@ jobs:
     # This job needs Docker + DB. Canonical master is checked out beside the comparison
     # branch so repository switches cannot disturb live Compose bind mounts.
     check-migrations:
-        needs: [sample, changes]
+        needs: [wait-for-handoff, changes]
         # migration_replay is listed because it reaches files the others miss:
         # products/db_routing.yaml is neither Python nor under a backend/ directory, and
         # a migration in a future top-level app matches none of them. Without it the
@@ -1703,11 +1713,85 @@ jobs:
             - name: Install python dependencies for this PR
               run: |
                   UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
-            # Depot shadow: migration SQL-comment + risk-analysis-comment steps stripped.
-            # Keep the risk check itself so blocked migrations still fail the job.
+            # The migration SQL preview and the CI report section stay stripped (see the
+            # header). The check run is published, because stamphog waits for it on every
+            # pull request and a routed PR would otherwise never get a verdict.
             - name: Run migration risk analysis
               if: github.event_name == 'pull_request'
-              run: python manage.py analyze_migration_risk --fail-on-blocked
+              # A hang fails this step, which the publish below still reports as a verdict.
+              timeout-minutes: 5
+              run: python manage.py analyze_migration_risk --fail-on-blocked --output-json migration_analysis.json > migration_analysis.md 2>/dev/null
+
+            - name: Get app token for Migration risk check
+              # The posthog-tests app owns the check, so it lands in that app's own check
+              # suite instead of under an arbitrary run. continue-on-error: a mint failure
+              # must not redden migration validation; the publish step skips on an empty token.
+              # !cancelled(): a superseded run leaves the verdict to the run that replaced it.
+              if: ${{ !cancelled() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork == false }}
+              id: migration-risk-app-token
+              continue-on-error: true
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ secrets.GH_APP_POSTHOG_TESTS_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_TESTS_PRIVATE_KEY }}
+
+            - name: Publish Migration risk check
+              # Same contract as canonical: one completed `Migration risk` check on the head
+              # commit for every pull request, with the stamphog marker first in the summary.
+              # An analyzer crash publishes a failure, so consumers never wait forever.
+              if: ${{ !cancelled() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork == false && steps.migration-risk-app-token.outputs.token != '' }}
+              env:
+                  GITHUB_TOKEN: ${{ steps.migration-risk-app-token.outputs.token }}
+                  HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+                  REPO: ${{ github.repository }}
+              run: |
+                  if [ ! -f migration_analysis.json ]; then
+                    echo "No migration_analysis.json — analyzer didn't run; publishing failure check"
+                    jq -n \
+                      --arg name "Migration risk" \
+                      --arg head_sha "$HEAD_SHA" \
+                      '{name: $name, head_sha: $head_sha, status: "completed",
+                        conclusion: "failure",
+                        output: {title: "❌ Analyzer failed",
+                                 summary: "<!-- stamphog:v1 [] -->\nMigration analyzer did not produce migration_analysis.json. Re-run the Backend CI job; if it keeps failing, inspect the analyzer step logs."}}' \
+                      | gh api "repos/$REPO/check-runs" --method POST --input -
+                    exit 0
+                  fi
+
+                  MAX_LEVEL=$(jq -r '.max_level // "none"' migration_analysis.json)
+
+                  case "$MAX_LEVEL" in
+                    "Safe")          CONCLUSION=success; TITLE="✅ All migrations safe" ;;
+                    "Needs Review")  CONCLUSION=neutral; TITLE="⚠️ Needs review" ;;
+                    "Blocked")       CONCLUSION=failure; TITLE="❌ Blocked migrations" ;;
+                    "none"|"null")
+                      CONCLUSION=success
+                      TITLE="✅ No Django migrations to analyze"
+                      ;;
+                    *)
+                      echo "Unknown max_level '$MAX_LEVEL' — publishing failure"
+                      CONCLUSION=failure
+                      TITLE="❌ Unknown analyzer output"
+                      ;;
+                  esac
+
+                  # Stamphog scopes its deny-list bypass to exactly the files the analyzer
+                  # classified, so the marker stays first and survives truncation.
+                  ANALYZED_PATHS=$(jq -c '[.migrations[].file_path | select(. != null)]' migration_analysis.json 2>/dev/null || echo '[]')
+                  MARKER="<!-- stamphog:v1 ${ANALYZED_PATHS} -->"
+                  REPORT_BODY=$([ -s migration_analysis.md ] && head -c 59000 migration_analysis.md || echo "See the workflow log")
+                  SUMMARY=$(printf '%s\n%s' "$MARKER" "$REPORT_BODY")
+
+                  jq -n \
+                    --arg name "Migration risk" \
+                    --arg head_sha "$HEAD_SHA" \
+                    --arg conclusion "$CONCLUSION" \
+                    --arg title "$TITLE" \
+                    --arg summary "$SUMMARY" \
+                    '{name: $name, head_sha: $head_sha, status: "completed",
+                      conclusion: $conclusion,
+                      output: {title: $title, summary: $summary}}' \
+                    | gh api "repos/$REPO/check-runs" --method POST --input -
             - name: Run migrations for this PR
               run: |
                   # Run Django migrations first (excluding managed=False models)
@@ -1755,7 +1839,7 @@ jobs:
                   gunzip -t schema.sql.gz
 
             - name: Upload migrated schema artifact
-              if: ${{ needs.sample.outputs.side_effects == 'true' && (github.event_name == 'push') }}
+              if: ${{ needs.wait-for-handoff.outputs.handed_off == 'true' && (github.event_name == 'push') }}
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               with:
                   name: migrated-schema
@@ -2221,7 +2305,15 @@ jobs:
                   echo "include=$include" >> "$GITHUB_OUTPUT"
                   echo "Django matrix size: $(jq -r 'length' <<< "$include") (mode=$MODE)"
     django:
-        needs: [sample, changes, turbo-discover, detect-snapshot-mode, get_clickhouse_versions, build_django_matrix]
+        needs:
+            [
+                wait-for-handoff,
+                changes,
+                turbo-discover,
+                detect-snapshot-mode,
+                get_clickhouse_versions,
+                build_django_matrix,
+            ]
         # Run legacy pytest if:
         # 1. Legacy code directly changed (ee/, posthog/)
         # 2. OR product changes affect legacy code (turbo-discover outputs run_legacy=true)
@@ -2239,7 +2331,7 @@ jobs:
              needs.turbo-discover.outputs.run_legacy == 'true' ||
              (needs.turbo-discover.result != 'success' && needs.turbo-discover.result != 'skipped'))
         # increase for tmate testing
-        # 45 to match canonical; the shadow is non-blocking so no deploy-gate coupling.
+        # 45 to match canonical.
         timeout-minutes: 45
         name: Django tests – ${{ matrix.segment }}${{ matrix.compat && ' compat' || '' }} (persons-on-events ${{ (matrix.segment == 'Core' && !matrix.person-on-events && !matrix.compat) && 'on' || 'off' }}, events schema ${{ matrix.new-events-schema && 'json' || 'legacy' }}), Py ${{ matrix.python-version }}, ${{ matrix.clickhouse-server-image }} (${{matrix.group}}/${{ matrix.concurrency }})
         # Match canonical's runner size. The shadow restores the same master-primed
@@ -2599,7 +2691,7 @@ jobs:
                   docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}" || true
                   echo "==================================="
             - name: Download the run's sharding plan snapshot
-              if: ${{ needs.sample.outputs.side_effects == 'true' }}
+              if: ${{ needs.wait-for-handoff.outputs.handed_off == 'true' }}
               # Pin every attempt to the plan turbo-discover snapshotted (rationale on
               # that step); a missing snapshot falls back to the floating caches above.
               id: pinned-plan
@@ -2610,7 +2702,7 @@ jobs:
                   path: /tmp/test-durations-plan
 
             - name: Apply the pinned sharding plan
-              if: ${{ needs.sample.outputs.side_effects == 'true' && (steps.pinned-plan.outcome == 'success') }}
+              if: ${{ needs.wait-for-handoff.outputs.handed_off == 'true' && (steps.pinned-plan.outcome == 'success') }}
               shell: bash
               run: |
                   if [ ! -f /tmp/test-durations-plan/.test_durations ]; then
@@ -2626,12 +2718,12 @@ jobs:
                   echo "Sharding plan pinned to this run's snapshot"
 
             - name: Warn when a re-run reshards unpinned
-              if: ${{ needs.sample.outputs.side_effects == 'true' && (github.run_attempt != '1' && steps.pinned-plan.outcome != 'success') }}
+              if: ${{ needs.wait-for-handoff.outputs.handed_off == 'true' && (github.run_attempt != '1' && steps.pinned-plan.outcome != 'success') }}
               shell: bash
               run: echo "::warning::Sharding-plan snapshot unavailable, this re-run reshards from the floating timing caches and may not re-execute tests that failed in earlier attempts"
 
             - name: Run Core tests
-              continue-on-error: ${{ needs.sample.outputs.side_effects == 'true' }}
+              continue-on-error: ${{ needs.wait-for-handoff.outputs.handed_off == 'true' }}
               id: run-core-tests
               if: ${{ needs.changes.outputs.backend == 'true' && matrix.segment == 'Core' }}
               env:
@@ -2738,7 +2830,7 @@ jobs:
                         --ignore=posthog/test/repo_invariants \
                         "${full_ignores[@]}" \
                         --splits ${{ matrix.concurrency }} --group ${{ matrix.group }} \
-                        --durations=1000 --durations-min=1.0 ${{ needs.sample.outputs.side_effects == 'true' && '--store-durations' || '' }} \
+                        --durations=1000 --durations-min=1.0 ${{ needs.wait-for-handoff.outputs.handed_off == 'true' && '--store-durations' || '' }} \
                         --pytest-durations=100 \
                         --splitting-algorithm="$SPLITTING_ALGORITHM" \
                         "${SPLIT_GRANULARITY[@]}" \
@@ -2778,7 +2870,7 @@ jobs:
                   docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}" || true
                   echo "==================================="
             - name: Run Temporal tests
-              continue-on-error: ${{ needs.sample.outputs.side_effects == 'true' }}
+              continue-on-error: ${{ needs.wait-for-handoff.outputs.handed_off == 'true' }}
               id: run-temporal-tests
               if: ${{ needs.changes.outputs.backend == 'true' && matrix.segment == 'Temporal' }}
               shell: 'signal-fanout bash --noprofile --norc -eo pipefail {0}'
@@ -2836,7 +2928,7 @@ jobs:
                       # no protection beyond the job timeout.
                       pytest -v --tb=short --reuse-db -o junit_duration_report=call posthog/temporal products/signals/backend/emission -m "not async_migrations" \
                           --splits ${{ matrix.concurrency }} --group ${{ matrix.group }} \
-                          --durations=100 --durations-min=1.0 ${{ needs.sample.outputs.side_effects == 'true' && '--store-durations' || '' }} \
+                          --durations=100 --durations-min=1.0 ${{ needs.wait-for-handoff.outputs.handed_off == 'true' && '--store-durations' || '' }} \
                           --pytest-durations=100 \
                           --splitting-algorithm="$SPLITTING_ALGORITHM" \
                           "${SPLIT_GRANULARITY[@]}" \
@@ -2881,7 +2973,7 @@ jobs:
 
             - name: Upload test results
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
-              if: ${{ needs.sample.outputs.side_effects == 'true' && (always()) }}
+              if: ${{ needs.wait-for-handoff.outputs.handed_off == 'true' && (always()) }}
               with:
                   # Re-run attempts suffix the name: a same-name upload supersedes attempt 1's
                   # artifact, and the timing reporter needs both to pair a re-run recovery
@@ -2893,7 +2985,7 @@ jobs:
 
             - name: Archive email renders
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
-              if: ${{ needs.sample.outputs.side_effects == 'true' && (needs.changes.outputs.backend == 'true' && matrix.segment == 'Core' && !matrix.person-on-events && !matrix.new-events-schema && !matrix.compat) }}
+              if: ${{ needs.wait-for-handoff.outputs.handed_off == 'true' && (needs.changes.outputs.backend == 'true' && matrix.segment == 'Core' && !matrix.person-on-events && !matrix.new-events-schema && !matrix.compat) }}
               with:
                   name: email_renders-${{ github.sha }}-${{ github.run_attempt }}-${{ matrix.segment }}-${{ matrix.person-on-events }}-${{ matrix.group }}
                   path: posthog/tasks/test/__emails__
@@ -2901,7 +2993,7 @@ jobs:
 
             - name: Upload core coverage
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
-              if: ${{ needs.sample.outputs.side_effects == 'true' && (always() && github.event_name == 'pull_request' && needs.turbo-discover.outputs.mode != 'selected' && matrix.segment == 'Core') }}
+              if: ${{ needs.wait-for-handoff.outputs.handed_off == 'true' && (always() && github.event_name == 'pull_request' && needs.turbo-discover.outputs.mode != 'selected' && matrix.segment == 'Core') }}
               with:
                   name: coverage-core-${{ strategy.job-index }}
                   path: coverage-core.xml
@@ -2912,7 +3004,7 @@ jobs:
             - name: Upload updated timing data as artifacts
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               # Upload on master, or on PRs that change timing/sharding scripts (for validation)
-              if: ${{ needs.sample.outputs.side_effects == 'true' && ((github.ref == 'refs/heads/master' || needs.changes.outputs.timing_scripts == 'true') && needs.changes.outputs.backend == 'true' && !matrix.person-on-events && !matrix.new-events-schema && matrix.clickhouse-server-image == needs.get_clickhouse_versions.outputs.oldest_supported_image) }}
+              if: ${{ needs.wait-for-handoff.outputs.handed_off == 'true' && ((github.ref == 'refs/heads/master' || needs.changes.outputs.timing_scripts == 'true') && needs.changes.outputs.backend == 'true' && !matrix.person-on-events && !matrix.new-events-schema && matrix.clickhouse-server-image == needs.get_clickhouse_versions.outputs.oldest_supported_image) }}
               with:
                   name: timing_data-${{ matrix.segment }}-${{ matrix.group }}
                   path: .test_durations
@@ -2924,7 +3016,7 @@ jobs:
             # the PR head ref, which may predate the script. Without it the uploader keeps reading
             # .github/CODEOWNERS, as it did before.
             - name: Build the Trunk ownership map
-              if: ${{ needs.sample.outputs.side_effects == 'true' && (!cancelled() && needs.changes.outputs.backend == 'true' && env.RUNS_ON_INTERNAL_PR == 'true' && github.repository == 'PostHog/posthog' && github.actor != 'dependabot[bot]' && vars.TRUNK_UPLOAD_ENABLED == 'true') }}
+              if: ${{ needs.wait-for-handoff.outputs.handed_off == 'true' && (!cancelled() && needs.changes.outputs.backend == 'true' && env.RUNS_ON_INTERNAL_PR == 'true' && github.repository == 'PostHog/posthog' && github.actor != 'dependabot[bot]' && vars.TRUNK_UPLOAD_ENABLED == 'true') }}
               shell: bash
               run: |
                   script=.github/scripts/trunk-codeowners.sh
@@ -2933,7 +3025,7 @@ jobs:
             - name: Quarantine gate (Core)
               id: quarantine_gate_core
               continue-on-error: true
-              if: ${{ needs.sample.outputs.side_effects == 'true' && (!cancelled() && matrix.segment == 'Core' && needs.changes.outputs.backend == 'true' && env.RUNS_ON_INTERNAL_PR == 'true' && github.repository == 'PostHog/posthog' && github.actor != 'dependabot[bot]' && vars.TRUNK_UPLOAD_ENABLED == 'true') }}
+              if: ${{ needs.wait-for-handoff.outputs.handed_off == 'true' && (!cancelled() && matrix.segment == 'Core' && needs.changes.outputs.backend == 'true' && env.RUNS_ON_INTERNAL_PR == 'true' && github.repository == 'PostHog/posthog' && github.actor != 'dependabot[bot]' && vars.TRUNK_UPLOAD_ENABLED == 'true') }}
               uses: trunk-io/analytics-uploader@385f1ccdf345b4532dc4b6c665dd432b702b8e28 # v2.1.2
               with:
                   junit-paths: junit-core.xml,junit-core-retry-failures.xml
@@ -2946,7 +3038,7 @@ jobs:
             - name: Quarantine gate (Temporal)
               id: quarantine_gate_temporal
               continue-on-error: true
-              if: ${{ needs.sample.outputs.side_effects == 'true' && (!cancelled() && matrix.segment == 'Temporal' && needs.changes.outputs.backend == 'true' && env.RUNS_ON_INTERNAL_PR == 'true' && github.repository == 'PostHog/posthog' && github.actor != 'dependabot[bot]' && vars.TRUNK_UPLOAD_ENABLED == 'true') }}
+              if: ${{ needs.wait-for-handoff.outputs.handed_off == 'true' && (!cancelled() && matrix.segment == 'Temporal' && needs.changes.outputs.backend == 'true' && env.RUNS_ON_INTERNAL_PR == 'true' && github.repository == 'PostHog/posthog' && github.actor != 'dependabot[bot]' && vars.TRUNK_UPLOAD_ENABLED == 'true') }}
               uses: trunk-io/analytics-uploader@385f1ccdf345b4532dc4b6c665dd432b702b8e28 # v2.1.2
               with:
                   junit-paths: junit-temporal.xml,junit-temporal-retry-failures.xml
@@ -2957,7 +3049,7 @@ jobs:
                   token: ${{ secrets.TRUNK_API_TOKEN }}
 
             - name: Fail on test failure
-              if: ${{ needs.sample.outputs.side_effects == 'true' && (!cancelled() && ((steps.run-core-tests.outcome == 'failure' && (vars.TRUNK_QUARANTINE_ENABLED != 'true' || steps.quarantine_gate_core.outcome != 'success')) || (steps.run-temporal-tests.outcome == 'failure' && (vars.TRUNK_QUARANTINE_ENABLED != 'true' || steps.quarantine_gate_temporal.outcome != 'success')))) }}
+              if: ${{ needs.wait-for-handoff.outputs.handed_off == 'true' && (!cancelled() && ((steps.run-core-tests.outcome == 'failure' && (vars.TRUNK_QUARANTINE_ENABLED != 'true' || steps.quarantine_gate_core.outcome != 'success')) || (steps.run-temporal-tests.outcome == 'failure' && (vars.TRUNK_QUARANTINE_ENABLED != 'true' || steps.quarantine_gate_temporal.outcome != 'success')))) }}
               shell: bash
               run: exit 1
 
@@ -3053,7 +3145,7 @@ jobs:
     django_tests:
         needs:
             [
-                sample,
+                wait-for-handoff,
                 changes,
                 get_clickhouse_versions,
                 build_django_matrix,
@@ -3066,13 +3158,13 @@ jobs:
                 detect-snapshot-mode,
                 repo-checks,
             ]
-        name: '[optional, does not block merge] Django Tests Pass'
+        name: Django Tests Pass on Depot
         runs-on: depot-ubuntu-24.04
         timeout-minutes: 8
         # !cancelled() collates skipped/failed matrix jobs without reporting failure on a
-        # superseded run (mirrors canonical); gated on the sampling result so it doesn't
-        # spin up a lone runner when this run was sampled out (or the shadow is off).
-        if: ${{ !cancelled() && needs.sample.outputs.sampled == 'true' }}
+        # superseded run (mirrors canonical); gated on the hand-off so it doesn't
+        # spin up a lone runner when GitHub Actions kept this event.
+        if: ${{ !cancelled() && needs.wait-for-handoff.outputs.handed_off == 'true' }}
         steps:
             - name: Summarize dependency results
               run: |
@@ -3093,7 +3185,7 @@ jobs:
                   } | tee -a "$GITHUB_STEP_SUMMARY"
 
             - name: Download shard JUnit results
-              if: ${{ needs.sample.outputs.side_effects == 'true' && (always() && (needs.django.result != 'success' || needs.turbo-tests.result != 'success')) }}
+              if: ${{ needs.wait-for-handoff.outputs.handed_off == 'true' && (always() && (needs.django.result != 'success' || needs.turbo-tests.result != 'success')) }}
               continue-on-error: true
               uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
               with:
@@ -3101,7 +3193,7 @@ jobs:
                   path: /tmp/junit-gate/
 
             - name: Keep only each shard's latest attempt
-              if: ${{ needs.sample.outputs.side_effects == 'true' && (always() && (needs.django.result != 'success' || needs.turbo-tests.result != 'success')) }}
+              if: ${{ needs.wait-for-handoff.outputs.handed_off == 'true' && (always() && (needs.django.result != 'success' || needs.turbo-tests.result != 'success')) }}
               continue-on-error: true
               run: |
                   cd /tmp/junit-gate 2>/dev/null || exit 0
@@ -3114,10 +3206,7 @@ jobs:
                   done
 
             - name: Check dependency results
-              env:
-                  SIDE_EFFECTS: ${{ needs.sample.outputs.side_effects }}
               run: |
-                  if [ "$SIDE_EFFECTS" = "true" ]; then
                   # Per-test failure rollup, emitted from THIS step because GitHub only
                   # auto-expands the failed step in the log view. Best-effort via `|| true`
                   # so a parser hiccup never changes the verdict computed below.
@@ -3181,8 +3270,6 @@ jobs:
                           print(f"::error {loc}title={title}::{body}")
                   PY
 
-                  fi
-
                   check_required_result() {
                     local label="$1"
                     local result="$2"
@@ -3203,7 +3290,7 @@ jobs:
                   check_required_result "Django test matrix" "${{ needs.django.result }}"
                   check_required_result "Migration checks" "${{ needs.check-migrations.result }}"
                   check_required_result "OpenAPI type checks" "${{ needs.check-openapi-types.result }}"
-                  check_required_result "Hand-off wait" "${{ needs.sample.result }}"
+                  check_required_result "Hand-off wait" "${{ needs.wait-for-handoff.result }}"
                   check_required_result "Repo checks" "${{ needs.repo-checks.result }}"
                   check_required_result "Turbo discover" "${{ needs.turbo-discover.result }}"
                   check_required_result "Product test matrix build" "${{ needs.build-product-test-matrix.result }}"
@@ -3211,4 +3298,4 @@ jobs:
                   check_required_result "Snapshot mode detection" "${{ needs.detect-snapshot-mode.result }}"
 
                   echo "All backend and product checks passed."
-    # Depot shadow: calculate-running-time is omitted so shadow runs are not recorded as canonical CI data.
+    # calculate-running-time is omitted so Depot runs are not recorded as canonical CI data.
