@@ -147,16 +147,7 @@ export class DashboardRefreshJourneyController {
         this.dispose('superseded')
 
         const visible = [...this.visibleTiles.values()]
-        // The manifest must contain every insight tile, including offscreen tiles. A saved insight duplicated
-        // anywhere on the dashboard shares product state by short ID, so none of its visible copies are eligible.
-        const insightOccurrences = new Map<string, number>()
-        for (const tile of dashboardTiles) {
-            insightOccurrences.set(tile.insightShortId, (insightOccurrences.get(tile.insightShortId) ?? 0) + 1)
-        }
-        const required = visible.filter(
-            (tile): tile is DashboardJourneyRequiredTile =>
-                tile.insightType !== null && insightOccurrences.get(tile.insightShortId) === 1
-        )
+        const required = this.requiredTiles(visible, dashboardTiles)
         if (required.length === 0) {
             return null
         }
@@ -269,22 +260,31 @@ export class DashboardRefreshJourneyController {
         return this.initial?.attemptId ?? this.active?.attemptId ?? null
     }
 
+    private requiredTiles(
+        visible: readonly DashboardJourneyTileContext[],
+        manifest: readonly DashboardJourneyTileManifestEntry[]
+    ): DashboardJourneyRequiredTile[] {
+        // The manifest must contain every insight tile, including offscreen tiles. A saved insight duplicated
+        // anywhere on the dashboard shares product state by short ID, so none of its visible copies are eligible.
+        const insightOccurrences = new Map<string, number>()
+        for (const tile of manifest) {
+            insightOccurrences.set(tile.insightShortId, (insightOccurrences.get(tile.insightShortId) ?? 0) + 1)
+        }
+        return visible.filter(
+            (tile): tile is DashboardJourneyRequiredTile =>
+                tile.insightType !== null && insightOccurrences.get(tile.insightShortId) === 1
+        )
+    }
+
     private activateInitialIfObserved(): DashboardJourneyActivation | null {
         const initial = this.initial
         if (!initial?.manifest || !initial.manifest.every(({ tileId }) => this.observedTileIds.has(tileId))) {
             return null
         }
 
-        const insightOccurrences = new Map<string, number>()
-        for (const tile of initial.manifest) {
-            insightOccurrences.set(tile.insightShortId, (insightOccurrences.get(tile.insightShortId) ?? 0) + 1)
-        }
         const manifestTileIds = new Set(initial.manifest.map(({ tileId }) => tileId))
         const visible = [...this.visibleTiles.values()].filter(({ tileId }) => manifestTileIds.has(tileId))
-        const required = visible.filter(
-            (tile): tile is DashboardJourneyRequiredTile =>
-                tile.insightType !== null && insightOccurrences.get(tile.insightShortId) === 1
-        )
+        const required = this.requiredTiles(visible, initial.manifest)
         const requiredTiles = Object.fromEntries(required.map((tile) => [tile.tileId, tile]))
         const active: ActiveDashboardJourney = {
             attemptId: initial.attemptId,
@@ -362,20 +362,12 @@ export class DashboardRefreshJourneyController {
             .slice(0, CUSTOMER_JOURNEY_TILE_RESULTS_LIMIT)
             .map((tile) => {
                 const duration = active.ready[tile.tileId]
-                if (duration !== undefined) {
-                    return {
-                        tile_id: tile.tileId,
-                        insight_short_id: tile.insightShortId,
-                        insight_type: tile.insightType,
-                        state: 'ready',
-                        duration_ms: duration,
-                    }
-                }
                 return {
                     tile_id: tile.tileId,
                     insight_short_id: tile.insightShortId,
                     insight_type: tile.insightType,
-                    state: active.failed[tile.tileId] ? 'failed' : 'pending',
+                    state: duration !== undefined ? 'ready' : active.failed[tile.tileId] ? 'failed' : 'pending',
+                    ...(duration !== undefined ? { duration_ms: duration } : {}),
                 }
             })
         return {

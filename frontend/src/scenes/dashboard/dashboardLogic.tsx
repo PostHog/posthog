@@ -704,6 +704,13 @@ export interface dashboardLogicActions {
         order: number
         tile: any
     }
+    refreshDashboardInsights: (
+        source: 'automatic' | 'manual',
+        refreshId?: string
+    ) => {
+        refreshId: string
+        source: 'automatic' | 'manual'
+    }
     refreshDashboardItem: (payload: { tile: DashboardTile<QueryBasedInsightModel> }) => {
         tile: DashboardTile<QueryBasedInsightModel<Node<Record<string, any>>>>
     }
@@ -1472,6 +1479,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
         setInitialLoadResponseBytes: (responseBytes: number) => ({ responseBytes }),
         /** Manually refresh the entire dashboard. */
         triggerDashboardRefresh: (source: 'manual' | 'automatic' = 'manual') => ({ source, refreshId: uuid() }),
+        refreshDashboardInsights: (source: 'manual' | 'automatic', refreshId: string = uuid()) => ({
+            source,
+            refreshId,
+        }),
         /**
          * If the latest tile data is older than SHARED_DASHBOARD_AUTO_FORCE_IF_STALE_MINUTES,
          * queue a single force-blocking refresh on the next microtask. Reads
@@ -4259,6 +4270,19 @@ export const dashboardLogic = kea<dashboardLogicType>([
         /** Triggered from dashboard refresh button, when user refreshes entire dashboard */
         triggerDashboardRefresh: ({ source, refreshId }) => {
             actions.resetInterval()
+            actions.refreshDashboardInsights(source, refreshId)
+            if (
+                values.dashboardWidgetsEnabled &&
+                values.placement !== DashboardPlacement.Export &&
+                values.placement !== DashboardPlacement.Public
+            ) {
+                const widgetTileIds = values.widgetTiles.map((tile) => tile.id)
+                if (widgetTileIds.length > 0) {
+                    actions.refreshDashboardWidgets({ tileIds: widgetTileIds, forceRefresh: true })
+                }
+            }
+        },
+        refreshDashboardInsights: ({ source, refreshId }) => {
             const controller = (cache.dashboardRefreshJourneyController ??=
                 new DashboardRefreshJourneyController()) as DashboardRefreshJourneyController
             const dashboardTileManifest = values.dashboardTileInventoryComplete
@@ -4283,16 +4307,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 journeyAttemptId: snapshot?.attemptId,
                 journeyTileIds: snapshot ? Object.keys(snapshot.requiredTiles).map(Number) : undefined,
             })
-            if (
-                values.dashboardWidgetsEnabled &&
-                values.placement !== DashboardPlacement.Export &&
-                values.placement !== DashboardPlacement.Public
-            ) {
-                const widgetTileIds = values.widgetTiles.map((tile) => tile.id)
-                if (widgetTileIds.length > 0) {
-                    actions.refreshDashboardWidgets({ tileIds: widgetTileIds, forceRefresh: true })
-                }
-            }
         },
         /** Called when a single insight is refreshed manually on the dashboard */
         refreshDashboardItem: async ({ tile }, breakpoint) => {
@@ -4914,39 +4928,17 @@ export const dashboardLogic = kea<dashboardLogicType>([
         },
         resetInterval: () => {
             if (values.autoRefresh.enabled) {
-                const triggerAutomaticRefresh = (): void => {
-                    const controller = (cache.dashboardRefreshJourneyController ??=
-                        new DashboardRefreshJourneyController()) as DashboardRefreshJourneyController
-                    const dashboardTileManifest = values.dashboardTileInventoryComplete
-                        ? values.insightTiles.map((tile) => ({
-                              tileId: tile.id,
-                              insightShortId: tile.insight!.short_id,
-                          }))
-                        : null
-                    const refreshId = uuid()
-                    const snapshot = dashboardTileManifest
-                        ? controller.start(props.id, refreshId, dashboardTileManifest, 'automatic_refresh')
-                        : null
-                    cache.acceptedDashboardJourneyAttemptId = snapshot?.attemptId ?? null
-                    actions.clearDashboardJourneyRenderReadiness()
-                    actions.refreshDashboardItems({
-                        action: RefreshDashboardItemsAction.Refresh,
-                        forceRefresh: true,
-                        journeyAttemptId: snapshot?.attemptId,
-                        journeyTileIds: snapshot ? Object.keys(snapshot.requiredTiles).map(Number) : undefined,
-                    })
-                }
                 // Refresh right now after enabling if we haven't refreshed recently
                 if (
                     !values.itemsLoading &&
                     values.lastDashboardRefresh &&
                     values.lastDashboardRefresh.isBefore(now().subtract(values.autoRefresh.interval, 'seconds'))
                 ) {
-                    triggerAutomaticRefresh()
+                    actions.refreshDashboardInsights('automatic')
                 }
                 cache.disposables.add(() => {
                     const intervalId = window.setInterval(() => {
-                        triggerAutomaticRefresh()
+                        actions.refreshDashboardInsights('automatic')
                     }, values.autoRefresh.interval * 1000)
                     return () => clearInterval(intervalId)
                 }, 'autoRefreshInterval')
