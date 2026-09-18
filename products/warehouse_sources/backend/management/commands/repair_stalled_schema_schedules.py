@@ -139,10 +139,11 @@ class Command(BaseCommand):
         self._confirm(f"Repair {len(actionable)} schema(s)? Type 'repair' to continue: ", options["yes"])
 
         failures = 0
+        skipped_on_reload = 0
         for schema in actionable:
             # One schema that cannot be repaired must not abort the rest of the sweep.
             try:
-                repair_stalled_schema(schema)
+                repaired = repair_stalled_schema(schema)
             except Exception:
                 failures += 1
                 logger.exception(
@@ -151,6 +152,14 @@ class Command(BaseCommand):
                     team_id=schema.team_id,
                 )
                 self.stdout.write(self.style.ERROR(f"  schema={schema.schema_id} FAILED (see logs) - continuing"))
+                continue
+            if not repaired:
+                # A revalidation guard inside repair_stalled_schema found the row no longer
+                # eligible on reload (e.g. disabled, or flipped to a state a fresh sweep would
+                # skip) and returned without raising. That is not the same outcome as a rewrite,
+                # so it must not count or log as one.
+                skipped_on_reload += 1
+                self.stdout.write(self.style.WARNING(f"  schema={schema.schema_id} skipped (no longer eligible)"))
                 continue
             logger.info(
                 "repair_stalled_schema_schedules_repaired",
@@ -161,8 +170,8 @@ class Command(BaseCommand):
             )
             self.stdout.write(self.style.SUCCESS(f"  schema={schema.schema_id} rescheduled"))
 
-        repaired = len(actionable) - failures
-        self.stdout.write(f"Repaired {repaired} schema(s), {failures} failed.")
+        repaired = len(actionable) - failures - skipped_on_reload
+        self.stdout.write(f"Repaired {repaired} schema(s), {failures} failed, {skipped_on_reload} skipped on reload.")
         self.stdout.write("Each schema runs on its own next tick; no run was triggered, so nothing was billed.")
 
     def _skip_reason(self, schema: StalledSchema) -> str:

@@ -56,6 +56,19 @@ class TestRepairStalledSchemaSchedules(BaseTest):
 
         assert [call.args[0].schema_id for call in mock_repair.call_args_list] == [str(schema.id)]
 
+    def test_a_schema_skipped_on_reload_is_not_counted_as_repaired(self) -> None:
+        # repair_stalled_schema returns False, not an exception, when a revalidation guard finds
+        # the row no longer eligible on reload. That must not be reported the same as a rewrite.
+        schema = self._stalled_schema()
+
+        with patch(f"{_CMD}.repair_stalled_schema", return_value=False) as mock_repair:
+            output = self._run(live_run=True)
+
+        mock_repair.assert_called_once()
+        assert str(schema.id) in output
+        assert "skipped (no longer eligible)" in output
+        assert "Repaired 0 schema(s), 0 failed, 1 skipped on reload." in output
+
     def test_a_wedged_run_is_listed_but_left_for_the_unstick_command(self) -> None:
         schema = self._stalled_schema()
         ExternalDataJob.objects.create(

@@ -243,13 +243,17 @@ def find_stalled_schemas(
     return stalled
 
 
-def repair_stalled_schema(stalled: StalledSchema) -> None:
+def repair_stalled_schema(stalled: StalledSchema) -> bool:
     """Put a stalled schema back on its schedule.
 
     Rewrites the Temporal schedule from the schema's current `should_sync`, which clears a
     paused flag left behind out of band and recreates a schedule that went missing. The rewrite
     does not fire a run: every scheduled run bills, so the repair waits for the schema's own
     next tick rather than charging for one now.
+
+    Returns whether the schedule was actually rewritten. A revalidation guard below can skip
+    without raising, and that is not the same outcome as a rewrite — the caller counts and logs
+    them differently.
     """
     # data_load.service imports temporalio at module scope, so a top-level import here would
     # put the Temporal client on the import path of the sweep's Celery autodiscovery.
@@ -274,7 +278,7 @@ def repair_stalled_schema(stalled: StalledSchema) -> None:
             schema_id=str(schema.id),
             team_id=schema.team_id,
         )
-        return
+        return False
 
     # Same reasoning as should_sync above: an admin-triggered run can pause the schedule and set
     # this marker after discovery. Unpausing here would race the admin run's own workflow, which
@@ -285,7 +289,7 @@ def repair_stalled_schema(stalled: StalledSchema) -> None:
             schema_id=str(schema.id),
             team_id=schema.team_id,
         )
-        return
+        return False
 
     # A null interval crashes the schedule builder below, so skip rather than fail. Re-checked
     # for the same staleness reason as the two guards above.
@@ -295,7 +299,7 @@ def repair_stalled_schema(stalled: StalledSchema) -> None:
             schema_id=str(schema.id),
             team_id=schema.team_id,
         )
-        return
+        return False
 
     # A paused schedule is steady state once a CDC schema is streaming — CDCExtractionWorkflow
     # owns it and re-pauses it on its own next tick. Unpausing here does not restart a sync, it
@@ -307,7 +311,7 @@ def repair_stalled_schema(stalled: StalledSchema) -> None:
             schema_id=str(schema.id),
             team_id=schema.team_id,
         )
-        return
+        return False
 
     # The halt marker exists precisely to stop anything else from touching the schedule until
     # `repair_cdc` clears it. Re-checked for the same staleness reason as the guards above.
@@ -317,7 +321,7 @@ def repair_stalled_schema(stalled: StalledSchema) -> None:
             schema_id=str(schema.id),
             team_id=schema.team_id,
         )
-        return
+        return False
 
     # A schema whose run never reached finalization still reads RUNNING, and the scheduler
     # treats that as a live run. Repainting it first stops the next tick being skipped.
@@ -345,3 +349,4 @@ def repair_stalled_schema(stalled: StalledSchema) -> None:
         should_sync=schema.should_sync,
         trigger_immediately=False,
     )
+    return True
