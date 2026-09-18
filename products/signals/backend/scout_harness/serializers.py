@@ -83,7 +83,11 @@ from products.signals.backend.scout_harness.tools.structured_output import (
     StructuredOutputSchemaError,
     validate_structured_output_schema,
 )
-from products.signals.backend.serializers import ReportChartSerializer, ReportMetricWriteSerializer
+from products.signals.backend.serializers import (
+    ReportChartSerializer,
+    ReportMetricWriteSerializer,
+    SignalReportCheckWriteSerializer,
+)
 from products.skills.backend.api.skill_serializers import (
     MAX_SKILL_FILE_COUNT,
     SPEC_DESCRIPTION_MAX_LENGTH,
@@ -733,6 +737,47 @@ class RecordCheckResultResponseSerializer(serializers.Serializer):
         )
     )
     runs_remaining = serializers.IntegerField(help_text="Evaluations the check still owes after this one.")
+
+
+class CreateReportCheckRequestSerializer(SignalReportCheckWriteSerializer):
+    """Request body for `scout-report-check-create`: one forward-looking check on a report.
+
+    The REST body plus the report it attaches to. Subclassed rather than restated so the schedule
+    bounds a scout writes under are the ones the endpoint enforces, with no second copy to drift.
+    """
+
+    report_id = serializers.UUIDField(help_text="The report the check attaches to.")
+
+
+class CancelReportCheckRequestSerializer(serializers.Serializer):
+    """Request body for `scout-report-check-cancel`."""
+
+    check_id = serializers.UUIDField(help_text="The check to stop. Its recorded results stay on the report.")
+
+
+class ListReportChecksQuerySerializer(serializers.Serializer):
+    """Query for `scout-report-check-list`."""
+
+    report_id = serializers.UUIDField(help_text="The report whose checks to list.")
+
+
+class ScoutCheckSummarySerializer(serializers.Serializer):
+    """One check as a scout run reads it back."""
+
+    check_id = serializers.UUIDField(help_text="The check.")
+    report_id = serializers.UUIDField(help_text="The report it is attached to.")
+    title = serializers.CharField(help_text="The expectation the check states.")
+    kind = serializers.CharField(help_text="`metric_threshold` (the coordinator measures it) or `agent` (a run does).")
+    status = serializers.CharField(
+        help_text=(
+            "`pending` while the check waits for the report to resolve, `active` while it still runs; "
+            "every other value is terminal."
+        )
+    )
+    next_run_at = serializers.DateTimeField(help_text="When the check next runs. Provisional while it is `pending`.")
+    last_outcome = serializers.CharField(
+        allow_null=True, help_text="Verdict of the most recent run; null before the first."
+    )
 
 
 class FleetFindingsSummarySerializer(serializers.Serializer):
