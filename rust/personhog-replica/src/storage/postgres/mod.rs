@@ -48,6 +48,7 @@ pub struct PostgresStorage {
 
 impl PostgresStorage {
     /// Create a new PostgresStorage with separate primary, replica, and bulk pools.
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         primary_pool: PgPool,
         replica_pool: PgPool,

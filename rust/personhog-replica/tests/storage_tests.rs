@@ -540,30 +540,48 @@ async fn test_delete_persons_hard_deletes_when_tombstones_disabled() {
 }
 
 #[tokio::test]
-async fn test_delete_persons_batch_for_team_tombstones_and_terminates() {
+async fn test_delete_persons_batch_for_team_hard_deletes_with_tombstones_enabled() {
     let ctx = TestContext::new_with_tombstone_deletes(true).await;
-    let p1 = ctx.insert_person("batch_tomb_1", None).await.unwrap();
-    let p2 = ctx.insert_person("batch_tomb_2", None).await.unwrap();
-    let p3 = ctx.insert_person("batch_tomb_3", None).await.unwrap();
+    let live = ctx.insert_person("batch_live", None).await.unwrap();
+    let tombstoned = ctx.insert_person("batch_tombstoned", None).await.unwrap();
+    ctx.storage
+        .delete_persons(ctx.team_id, &[tombstoned.uuid])
+        .await
+        .unwrap();
+    let (is_deleted, _, _, _) = tombstone_state(&ctx.pool, ctx.team_id, tombstoned.id).await;
+    assert!(is_deleted);
 
-    // The loop must skip rows it already tombstoned, or it never reaches 0.
+    // Team teardown removes every row, tombstoned or not, and terminates.
     let mut counts = Vec::new();
-    for _ in 0..3 {
+    for _ in 0..2 {
         counts.push(
             ctx.storage
-                .delete_persons_batch_for_team(ctx.team_id, 2)
+                .delete_persons_batch_for_team(ctx.team_id, 10)
                 .await
                 .unwrap(),
         );
     }
-    assert_eq!(counts, vec![2, 1, 0]);
+    assert_eq!(counts, vec![2, 0]);
 
-    for person in [&p1, &p2, &p3] {
-        let (is_deleted, version, _, distinct_ids) =
-            tombstone_state(&ctx.pool, ctx.team_id, person.id).await;
-        assert!(is_deleted);
-        assert_eq!(version, 1);
-        assert_eq!(distinct_ids, vec![(true, 1)]);
+    for person in [&live, &tombstoned] {
+        let remaining: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM posthog_person WHERE team_id = $1 AND id = $2",
+        )
+        .bind(ctx.team_id)
+        .bind(person.id)
+        .fetch_one(&ctx.pool)
+        .await
+        .unwrap();
+        assert_eq!(remaining, 0);
+        let mappings: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM posthog_persondistinctid WHERE team_id = $1 AND person_id = $2",
+        )
+        .bind(ctx.team_id)
+        .bind(person.id)
+        .fetch_one(&ctx.pool)
+        .await
+        .unwrap();
+        assert_eq!(mappings, 0);
     }
 
     ctx.cleanup().await.ok();

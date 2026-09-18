@@ -520,36 +520,21 @@ impl PersonLookup for PostgresStorage {
         ];
         let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
 
-        let tombstone = self.tombstone_deletes;
-
-        // Select up to batch_size person IDs. The tombstone path must skip
-        // rows it already tombstoned, or the caller's "loop until 0" never
-        // terminates.
-        let mut person_ids: Vec<i64> = if tombstone {
-            sqlx::query_scalar!(
-                r#"
-                SELECT id::bigint as "id!" FROM posthog_person
-                WHERE team_id = $1 AND is_deleted = false
-                LIMIT $2
-                "#,
-                team_id as i32,
-                batch_size
-            )
-            .fetch_all(&self.bulk_primary_pool)
-            .await?
-        } else {
-            sqlx::query_scalar!(
-                r#"
-                SELECT id::bigint as "id!" FROM posthog_person
-                WHERE team_id = $1
-                LIMIT $2
-                "#,
-                team_id as i32,
-                batch_size
-            )
-            .fetch_all(&self.bulk_primary_pool)
-            .await?
-        };
+        // Team teardown is the caller, so the rows always go: a tombstone here
+        // would keep the team's identifiers forever, because nothing sweeps a
+        // deleted team's ClickHouse tombstones into the cleanup queue. Rows
+        // tombstoned earlier are removed too.
+        let mut person_ids: Vec<i64> = sqlx::query_scalar!(
+            r#"
+            SELECT id::bigint as "id!" FROM posthog_person
+            WHERE team_id = $1
+            LIMIT $2
+            "#,
+            team_id as i32,
+            batch_size
+        )
+        .fetch_all(&self.bulk_primary_pool)
+        .await?;
 
         if person_ids.is_empty() {
             return Ok(0);
@@ -570,21 +555,20 @@ impl PersonLookup for PostgresStorage {
             )],
             chunks.len() as f64,
         );
-        let results: Vec<i64> = stream::iter(chunks.into_iter().map(|chunk| {
-            let pool = pool.clone();
-            let client = client.clone();
-            // Team teardown clears cohortpeople separately, by cohort, before this runs.
-            async move {
-                if tombstone {
-                    tombstone_persons_by_ids_chunk(&pool, team_id, &chunk, &client, false).await
-                } else {
-                    delete_persons_by_ids_chunk(&pool, team_id, &chunk, &client, false).await
-                }
-            }
-        }))
-        .buffer_unordered(self.bulk_max_concurrent_chunks)
-        .try_collect()
-        .await?;
+        let results: Vec<i64> =
+            stream::iter(
+                chunks.into_iter().map(|chunk| {
+                    let pool = pool.clone();
+                    let client = client.clone();
+                    // Team teardown clears cohortpeople separately, by cohort, before this runs.
+                    async move {
+                        delete_persons_by_ids_chunk(&pool, team_id, &chunk, &client, false).await
+                    }
+                }),
+            )
+            .buffer_unordered(self.bulk_max_concurrent_chunks)
+            .try_collect()
+            .await?;
 
         Ok(results.iter().sum())
     }
@@ -1267,6 +1251,11 @@ async fn tombstone_persons_by_ids_chunk(
     let _chunk_timer = common_metrics::timing_guard(DB_QUERY_DURATION, &chunk_labels);
 
     let mut tx = pool.begin().await?;
+    // A held row means a merge or revival in flight: fail fast and let the
+    // caller retry, as the tombstone drain does, instead of queueing behind it.
+    sqlx::query("SET LOCAL lock_timeout = '2s'")
+        .execute(&mut *tx)
+        .await?;
 
     // Take the person and distinct-id row locks up front, in id order. The
     // multi-row updates below lock in whatever order the plan visits rows,
