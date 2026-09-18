@@ -3760,12 +3760,16 @@ class HogFlowPagination(LimitOffsetPagination):
 
 
 # The email body as a person reads it: the editor's plain-text export when it exists, otherwise the HTML
-# with style blocks and tags removed, so CSS and markup never match a search term. The first quantifier
-# is non-greedy because Postgres gives a whole regex the greediness of its first quantifier.
+# with style and script blocks and tags removed, so CSS, script and markup never match a search term.
+# The block patterns start with a non-greedy quantifier because Postgres gives a whole regex the
+# greediness of its first quantifier. The tag pattern skips over quoted attribute values, so a '>' inside
+# one (a liquid comparison, say) does not end the tag early and leak the rest of the attribute into the
+# searchable text. Mirrored by emailBodyText in the frontend's workflowSearchMatches.ts.
 _EMAIL_BODY_TEXT_SQL = (
     "COALESCE(NULLIF(action #>> '{config,inputs,email,value,text}', ''), "
-    "regexp_replace(regexp_replace(action #>> '{config,inputs,email,value,html}', "
-    "'<style[^>]*?>.*?</style>', ' ', 'gi'), '<[^>]+>', ' ', 'g'))"
+    "regexp_replace(regexp_replace(regexp_replace(action #>> '{config,inputs,email,value,html}', "
+    "'<style[^>]*?>.*?</style>', ' ', 'gi'), '<script[^>]*?>.*?</script>', ' ', 'gi'), "
+    "'<[^>\"'']*((\"[^\"]*\"|''[^'']*'')[^>\"'']*)*>', ' ', 'g'))"
 )
 
 # What a person remembers about a message they received or authored.

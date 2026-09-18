@@ -25,7 +25,7 @@ export function WorkflowStepMatches({
                 return canOpenStep ? (
                     <Link
                         key={match.actionId}
-                        to={`${urls.workflow(workflow.id, 'workflow')}?node=${match.actionId}`}
+                        to={`${urls.workflow(workflow.id, 'workflow')}?node=${encodeURIComponent(match.actionId)}`}
                         className="block truncate"
                         data-attr="workflow-search-step-match"
                     >

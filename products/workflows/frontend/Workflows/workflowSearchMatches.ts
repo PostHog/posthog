@@ -11,17 +11,24 @@ export interface WorkflowStepMatch {
 
 const EXCERPT_PADDING = 40
 
+// Mirrors _EMAIL_BODY_TEXT_SQL in the list API (products/workflows/backend/api/hog_flow.py), so the hint
+// shows the text the API matched. The tag pattern skips over quoted attribute values, so a '>' inside
+// one does not end the tag early and leak the rest of the attribute into the searchable text.
+const HTML_STYLE_BLOCK = /<style[^>]*>[\s\S]*?<\/style>/gi
+const HTML_SCRIPT_BLOCK = /<script[^>]*>[\s\S]*?<\/script>/gi
+const HTML_TAG = /<[^>"']*(?:(?:"[^"]*"|'[^']*')[^>"']*)*>/g
+
 function escapeRegExp(value: string): string {
     return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
-/** The body as a person reads it: the editor's plain-text export, else the HTML without styles and tags. */
+/** The body as a person reads it: the editor's plain-text export, else the HTML without styles, scripts and tags. */
 function emailBodyText(email: Record<string, unknown> | undefined): string | null {
     if (typeof email?.text === 'string' && email.text.trim()) {
         return email.text
     }
     if (typeof email?.html === 'string') {
-        return email.html.replace(/<style[^>]*>[\s\S]*?<\/style>/gi, ' ').replace(/<[^>]+>/g, ' ')
+        return email.html.replace(HTML_STYLE_BLOCK, ' ').replace(HTML_SCRIPT_BLOCK, ' ').replace(HTML_TAG, ' ')
     }
     return null
 }

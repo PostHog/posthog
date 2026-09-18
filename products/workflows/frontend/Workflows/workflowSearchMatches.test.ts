@@ -40,6 +40,11 @@ const receiptEmail = emailAction('email_2', 'Receipt email', {
     html: '<style type="text/css">.footer { color: #111111; }</style><p>Thanks for your <strong>payment</strong></p>',
 })
 
+const orderEmail = emailAction('email_3', 'Order email', {
+    subject: 'Order update',
+    html: '<script>trackVisit()</script><td style="{% if orders > 1 %}color:#ffffff{% endif %}">Thanks for your order</td>',
+})
+
 describe('findMatchingWorkflowSteps', () => {
     test.each([
         ['step name', 'monthly invoice', { actionId: 'email_1', field: 'Step', value: 'Monthly invoice email' }],
@@ -76,8 +81,13 @@ describe('findMatchingWorkflowSteps', () => {
             'for your payment',
             { actionId: 'email_2', field: 'Email body', value: 'Thanks for your payment' },
         ],
+        [
+            'email HTML content after an attribute that contains a literal >',
+            'for your order',
+            { actionId: 'email_3', field: 'Email body', value: 'Thanks for your order' },
+        ],
     ])('matches the %s', (_field, search, expected) => {
-        const workflow = workflowWith({ actions: [invoiceEmail, receiptEmail] })
+        const workflow = workflowWith({ actions: [invoiceEmail, receiptEmail, orderEmail] })
         expect(findMatchingWorkflowSteps(workflow, search)).toEqual([expected])
     })
 
@@ -85,9 +95,11 @@ describe('findMatchingWorkflowSteps', () => {
         ['the search is blank', '   '],
         ['only the HTML markup matched', 'footer-links'],
         ['only a style block matched', '111111'],
+        ['only a script block matched', 'trackVisit'],
+        ['only an attribute value with a literal > in it matched', 'color:#ffffff'],
         ['the search has regex characters that appear nowhere', 'invoice (march)'],
     ])('returns nothing when %s', (_reason, search) => {
-        const workflow = workflowWith({ actions: [invoiceEmail, receiptEmail] })
+        const workflow = workflowWith({ actions: [invoiceEmail, receiptEmail, orderEmail] })
         expect(findMatchingWorkflowSteps(workflow, search)).toEqual([])
     })
 

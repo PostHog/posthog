@@ -248,6 +248,8 @@ class TestHogFlowAPI(APIBaseTest):
             ("body_phrase_across_newlines", "search=upgrade now to keep", {"Nurture"}),
             ("shared_subject_returns_every_workflow", "search=seat is confirmed", {"Alpha", "Beta"}),
             ("html_with_liquid_in_attribute_still_matches_content", "search=thanks for your order", {"Promo"}),
+            ("html_attribute_css_not_searched", "search=color:%23ffffff", set()),
+            ("html_script_not_searched", "search=trackVisit", set()),
             ("name_tier_hides_step_matches", "search=march", {"March campaign"}),
             ("tier_decision_respects_status_filter", "search=march&status=draft", {"Billing"}),
             ("tier_decision_respects_type_filter", "search=march&type=messaging", {"Billing"}),
@@ -296,7 +298,10 @@ class TestHogFlowAPI(APIBaseTest):
                     "email_1",
                     "Order email",
                     subject="Order update",
-                    html='<td style="{% if person.properties.orders > 1 %}color:#ffffff{% endif %}">Thanks for your order</td>',
+                    html=(
+                        "<script>trackVisit()</script>"
+                        '<td style="{% if person.properties.orders > 1 %}color:#ffffff{% endif %}">Thanks for your order</td>'
+                    ),
                 )
             ],
         )
