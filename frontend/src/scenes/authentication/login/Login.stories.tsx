@@ -22,6 +22,7 @@ type StoryArgs = {
     ssoEnforcement: 'none' | 'google-oauth2' | 'github' | 'gitlab' | 'saml'
     generalError: 'none' | 'invalid_credentials' | 'code_based_verification_sent'
     pendingOAuthConnection: boolean
+    passkeyOnlyAccount: boolean
 }
 
 const meta: Meta<StoryArgs> = {
@@ -49,6 +50,7 @@ const meta: Meta<StoryArgs> = {
             options: ['none', 'invalid_credentials', 'code_based_verification_sent'],
         },
         pendingOAuthConnection: { control: 'boolean', name: 'Pending OAuth connection' },
+        passkeyOnlyAccount: { control: 'boolean', name: 'Passkey-only account' },
     },
     args: {
         cloud: true,
@@ -60,6 +62,7 @@ const meta: Meta<StoryArgs> = {
         ssoEnforcement: 'none',
         generalError: 'none',
         pendingOAuthConnection: false,
+        passkeyOnlyAccount: false,
     },
 }
 export default meta
@@ -74,6 +77,7 @@ const Template: StoryFn<StoryArgs> = ({
     ssoEnforcement,
     generalError,
     pendingOAuthConnection,
+    passkeyOnlyAccount,
 }) => {
     const enforcement = ssoEnforcement === 'none' ? null : ssoEnforcement
     // Set synchronously: the scene reads the cookie while it mounts during this same render.
@@ -97,16 +101,34 @@ const Template: StoryFn<StoryArgs> = ({
             },
         },
         post: {
-            '/api/login/precheck': { sso_enforcement: enforcement, saml_available: samlAvailable },
+            '/api/login/precheck': {
+                sso_enforcement: enforcement,
+                saml_available: samlAvailable,
+                // A passwordless account whose only method is a passkey: no password box, so no
+                // "Forgot password?" link, and the passkey is the only way in.
+                ...(passkeyOnlyAccount
+                    ? {
+                          password_login_available: false,
+                          social_providers: [],
+                          webauthn_credentials: [{ id: 'cred-1', type: 'public-key' }],
+                      }
+                    : {}),
+            },
+            // The page starts the passkey on its own once the precheck reports one, so a failing
+            // assertion is what the person actually sees on this account.
+            '/api/webauthn/login/begin/': () => [
+                400,
+                { error: 'Authentication failed.', code: 'passkey_login_failed' },
+            ],
         },
     })
 
     useEffect(() => {
-        if (enforcement) {
+        if (enforcement || passkeyOnlyAccount) {
             loginLogic.actions.setLoginValue('email', 'test@posthog.com')
             loginLogic.actions.precheck({ email: 'test@posthog.com' })
         }
-    }, [enforcement])
+    }, [enforcement, passkeyOnlyAccount])
 
     useEffect(() => {
         if (generalError !== 'none') {
@@ -146,3 +168,7 @@ PendingOAuthConnection.args = { pendingOAuthConnection: true }
 
 export const EmailVerification: StoryFn<StoryArgs> = Template.bind({})
 EmailVerification.args = { generalError: 'code_based_verification_sent' }
+
+export const PasskeyOnlyAccountError: StoryFn<StoryArgs> = Template.bind({})
+PasskeyOnlyAccountError.storyName = 'Passkey-only account after a failed passkey'
+PasskeyOnlyAccountError.args = { passkeyOnlyAccount: true }

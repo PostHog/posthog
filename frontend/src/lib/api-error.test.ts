@@ -105,6 +105,8 @@ describe('api-error', () => {
             ['a 409 that is not an approvals gate', { status: 409, data: {} }, true],
             ['a 500 backend exception', { status: 500 }, true],
             ['a 400 validation error', { status: 400 }, true],
+            // A passkey that did not get in is an expected sign-in outcome, stated by the login form.
+            ['a failed passkey login', { status: 400, code: 'passkey_login_failed' }, false],
             // A route the backend does not serve stays reportable here. Only a caller that already
             // degrades excuses one, through `isUnavailableEndpointError`.
             ['a 404', { status: 404 }, true],

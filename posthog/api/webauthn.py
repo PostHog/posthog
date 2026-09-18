@@ -54,8 +54,15 @@ WEBAUTHN_LOGIN_CHALLENGE_KEY = "webauthn_login_challenge"
 WEBAUTHN_2FA_CHALLENGE_KEY = "webauthn_2fa_challenge"
 
 
+# Every outcome this reports is an expected end to a sign-in attempt rather than a defect: a
+# challenge that expired, an assertion that did not verify, or a policy that blocks the account.
+# The browser reads the code to keep these out of error tracking, the way a wrong password already
+# is. Keep it in sync with `PASSKEY_LOGIN_FAILED_ERROR_CODE` in frontend/src/lib/api-error.ts.
+PASSKEY_LOGIN_FAILED_CODE = "passkey_login_failed"
+
+
 def _login_error(message: str) -> Response:
-    return Response({"error": message}, status=status.HTTP_400_BAD_REQUEST)
+    return Response({"error": message, "code": PASSKEY_LOGIN_FAILED_CODE}, status=status.HTTP_400_BAD_REQUEST)
 
 
 def user_uuid_to_handle(user_uuid: uuid.UUID) -> bytes:

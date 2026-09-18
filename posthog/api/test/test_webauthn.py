@@ -329,6 +329,8 @@ class TestWebAuthnLogin(APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("authentication failed", response.json()["error"].lower())
+        # The browser reads this code to keep an expected sign-in failure out of error tracking.
+        self.assertEqual(response.json()["code"], "passkey_login_failed")
 
     @patch("posthog.auth.verify_passkey_authentication_response")
     def test_login_rejects_spoofed_user_handle(self, mock_verify):

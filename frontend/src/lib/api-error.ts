@@ -95,6 +95,9 @@ export function isScopeNotFoundError(error: unknown): boolean {
     return typeof detail === 'string' && SCOPE_NOT_FOUND_DETAILS.has(detail)
 }
 
+/** DRF code for a passkey login that did not get in (`posthog/api/webauthn.py`). Keep in sync with the backend. */
+export const PASSKEY_LOGIN_FAILED_ERROR_CODE = 'passkey_login_failed'
+
 /** The 403 gates `apiStatusLogic` recovers from, keyed by the DRF `code` the backend sends. */
 const HANDLED_AUTH_GATE_CODES: ReadonlySet<string> = new Set([
     'two_factor_setup_required',
@@ -167,6 +170,9 @@ export function isBrowserNetworkFailure(error: unknown): boolean {
  *   request under it fails the same way. The scene routing takes the user off that URL, and until
  *   it does, a poll on the dead scope would otherwise file one exception per tick.
  * - 502/503/504 — the gateway couldn't reach the backend, so application code is not at fault.
+ * - 400 `passkey_login_failed` — an assertion that did not verify, an expired challenge, or a
+ *   policy that blocks the account. The login form states the reason and offers the recovery route,
+ *   and a wrong password never reaches here either, because the password form keeps its rejection.
  *
  * Left unreported for a second reason, that there is nothing to fix:
  * - a `fetch` the browser never completed. No request reached us, so no code of ours failed, and
@@ -203,6 +209,9 @@ export function shouldReportApiFailure(error: unknown): boolean {
         return false
     }
     if (isAccessDeniedError(failure)) {
+        return false
+    }
+    if (status === 400 && failure.code === PASSKEY_LOGIN_FAILED_ERROR_CODE) {
         return false
     }
     if (status === 403 && failure.code != null && HANDLED_AUTH_GATE_CODES.has(failure.code)) {

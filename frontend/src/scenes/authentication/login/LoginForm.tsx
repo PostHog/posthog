@@ -116,6 +116,7 @@ export function LoginForm(): JSX.Element {
         codeVerificationEmail,
         codeVerification,
         hasNoConfiguredLoginMethod,
+        hasOnlyPasskeyLoginMethod,
         restrictToProviders,
         autoRedirectingToProvider,
         availableLoginMethods,
@@ -443,6 +444,22 @@ export function LoginForm(): JSX.Element {
                             showPasskey={!isPasswordLoginUnavailable || !!precheckResponse.webauthn_credentials?.length}
                         />
                     )}
+                {/* The passkey is the whole sign-in for this account, so a passkey that stops working
+                    leaves the page with no exit. A reset email sets a password and gets them in. */}
+                {!isCodeSent && hasOnlyPasskeyLoginMethod && (
+                    <p className="mt-3 mb-0 text-sm text-secondary text-center">
+                        <span>Passkey not working?</span>{' '}
+                        <Link
+                            to={[urls.passwordReset(), { email: login.email }]}
+                            // Autocapture reports the click. Each reset entry point has its own
+                            // `data-attr`, so one funnel can tell them apart.
+                            data-attr="login-passkey-only-reset-password"
+                            className="font-semibold no-underline cursor-pointer hover:underline hover:underline-offset-2 text-warning"
+                        >
+                            Set a password by email
+                        </Link>
+                    </p>
+                )}
             </AuthSceneCard>
         </AuthScene>
     )

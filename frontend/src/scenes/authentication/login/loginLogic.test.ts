@@ -373,7 +373,20 @@ describe('loginLogic', () => {
             })
             expect(logic.values.availableLoginMethods).toEqual(['passkey'])
             expect(logic.values.hasNoConfiguredLoginMethod).toBe(false)
+            // The passkey is the whole sign-in, so a passkey that fails needs the reset route offered.
+            expect(logic.values.hasOnlyPasskeyLoginMethod).toBe(true)
             expect(logic.values.restrictToProviders).toEqual([])
+        })
+
+        it('keeps the passkey recovery route hidden when another method can get the account in', async () => {
+            await precheck({
+                saml_available: false,
+                password_login_available: false,
+                social_providers: ['google-oauth2'],
+                webauthn_credentials: [{ id: 'cred-1', type: 'public-key' }],
+            })
+            expect(logic.values.availableLoginMethods).toEqual(['google-oauth2', 'passkey'])
+            expect(logic.values.hasOnlyPasskeyLoginMethod).toBe(false)
         })
 
         it('offers SAML for a passwordless account on a SAML domain', async () => {
@@ -398,6 +411,8 @@ describe('loginLogic', () => {
             expect(logic.values.isPasswordLoginUnavailable).toBe(true)
             expect(logic.values.availableLoginMethods).toEqual([])
             expect(logic.values.hasNoConfiguredLoginMethod).toBe(true)
+            // That account has no passkey either, so the existing dead-end notice owns this case.
+            expect(logic.values.hasOnlyPasskeyLoginMethod).toBe(false)
         })
 
         it('defers entirely to enforced SSO', async () => {
