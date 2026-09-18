@@ -33,7 +33,7 @@ class Migration(migrations.Migration):
                         max_length=16,
                     ),
                 ),
-                ("position", models.PositiveSmallIntegerField(default=0)),
+                ("position", models.PositiveSmallIntegerField()),
                 ("description", models.TextField(blank=True, null=True)),
                 ("video_start_ms", models.PositiveIntegerField()),
                 ("video_end_ms", models.PositiveIntegerField(blank=True, null=True)),
