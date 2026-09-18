@@ -10,7 +10,7 @@ is visible in one place.
 (``posthog/test/repo_invariants/test_startup_import_budget.py``) forbids both that module
 and ``temporalio`` on the ``django.setup()`` path. Core config-time consumers import this
 facade, so it reaches the service only through ``_service()``, which imports it at call
-time. For the same reason the Temporal client is built in ``_temporal_client()``.
+time. For the same reason the Temporal client is built in ``_get_temporal_client()``.
 
 Temporal workflow and activity registration crosses as objects, not data, so it lives in
 ``facade/temporal.py``; the pipeline internals the warehouse writers reuse live in
@@ -60,7 +60,7 @@ __all__ = [
     "get_teams_with_billable_rows_exported",
     "list_batch_exports_using_integration",
     "list_latest_failed_runs",
-    "supported_intervals",
+    "list_supported_intervals",
 ]
 
 logger = structlog.get_logger(__name__)
@@ -88,7 +88,7 @@ def _service() -> ModuleType:
     return service
 
 
-def _temporal_client() -> "Client":
+def _get_temporal_client() -> "Client":
     """Connect to Temporal at call time. See the module docstring for why."""
     from posthog.temporal.common.client import sync_connect
 
@@ -248,7 +248,7 @@ def delete_batch_exports_for_teams(team_ids: Sequence[int]) -> None:
     deleted with its destination and its schedule together.
     """
     service = _service()
-    temporal = _temporal_client()
+    temporal = _get_temporal_client()
 
     for batch_export in BatchExport.objects.filter(team_id__in=team_ids, deleted=False):
         schedule_id = batch_export.id
@@ -361,9 +361,9 @@ def backfill_batch_export(
     the export.
     """
     service = _service()
-    return service.backfill_export(_temporal_client(), str(export_id), team_id, start_at, end_at)
+    return service.backfill_export(_get_temporal_client(), str(export_id), team_id, start_at, end_at)
 
 
-def supported_intervals() -> tuple[str, ...]:
+def list_supported_intervals() -> tuple[str, ...]:
     """Return the intervals a batch export may be scheduled on."""
     return tuple(interval for interval, _ in BATCH_EXPORT_INTERVALS)

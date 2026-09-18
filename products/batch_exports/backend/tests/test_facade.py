@@ -40,7 +40,7 @@ def team(organization):
     return create_team(organization=organization)
 
 
-def _export(team, *, name="export", destination_type=S3, config=None, **fields):
+def _create_export(team, *, name="export", destination_type=S3, config=None, **fields):
     return testing.create_batch_export(
         team.pk,
         name=name,
@@ -50,7 +50,7 @@ def _export(team, *, name="export", destination_type=S3, config=None, **fields):
     )
 
 
-def _run(*, finished_at, records=0, status=BatchExportRun.Status.COMPLETED, created_at=None, **parent):
+def _create_run(*, finished_at, records=0, status=BatchExportRun.Status.COMPLETED, created_at=None, **parent):
     run_id = testing.create_batch_export_run(
         status=status,
         data_interval_start=finished_at - dt.timedelta(hours=1),
@@ -66,14 +66,14 @@ def _run(*, finished_at, records=0, status=BatchExportRun.Status.COMPLETED, crea
 
 
 def test_billable_rows_exported_sums_scheduled_and_on_demand_runs_per_team(team):
-    scheduled = _export(team, name="scheduled")
+    scheduled = _create_export(team, name="scheduled")
     on_demand = testing.create_batch_export_on_demand(team.pk, destination_type=FILE_DOWNLOAD, destination_config={})
 
-    _run(batch_export_id=scheduled, finished_at=IN_WINDOW, records=10)
-    _run(batch_export_id=scheduled, finished_at=IN_WINDOW, records=5)
-    _run(on_demand_id=on_demand, finished_at=IN_WINDOW, records=7)
-    _run(batch_export_id=scheduled, finished_at=WINDOW_END + dt.timedelta(hours=1), records=100)
-    _run(batch_export_id=scheduled, finished_at=IN_WINDOW, records=100, status=BatchExportRun.Status.FAILED)
+    _create_run(batch_export_id=scheduled, finished_at=IN_WINDOW, records=10)
+    _create_run(batch_export_id=scheduled, finished_at=IN_WINDOW, records=5)
+    _create_run(on_demand_id=on_demand, finished_at=IN_WINDOW, records=7)
+    _create_run(batch_export_id=scheduled, finished_at=WINDOW_END + dt.timedelta(hours=1), records=100)
+    _create_run(batch_export_id=scheduled, finished_at=IN_WINDOW, records=100, status=BatchExportRun.Status.FAILED)
 
     assert api.get_teams_with_billable_rows_exported(WINDOW_BEGIN, WINDOW_END) == [
         contracts.TeamTotal(team_id=team.pk, total=22)
@@ -91,8 +91,8 @@ def test_billable_rows_exported_sums_scheduled_and_on_demand_runs_per_team(team)
     ids=["http destination", "workflows destination", "hogql model", "deleted export"],
 )
 def test_billable_rows_exported_drops_non_billable_runs(team, destination_type, export_fields, deleted):
-    export_id = _export(team, destination_type=destination_type, **export_fields)
-    _run(batch_export_id=export_id, finished_at=IN_WINDOW, records=10)
+    export_id = _create_export(team, destination_type=destination_type, **export_fields)
+    _create_run(batch_export_id=export_id, finished_at=IN_WINDOW, records=10)
     if deleted:
         testing.update_batch_export(export_id, team_id=team.pk, deleted=True)
 
@@ -100,10 +100,10 @@ def test_billable_rows_exported_drops_non_billable_runs(team, destination_type, 
 
 
 def test_active_batch_exports_excludes_paused_and_deleted_exports(team):
-    _export(team, name="running")
-    _export(team, name="paused", paused=True)
+    _create_export(team, name="running")
+    _create_export(team, name="paused", paused=True)
     # Deletion leaves paused False, so a deleted export only drops out on the deleted filter.
-    deleted = _export(team, name="deleted")
+    deleted = _create_export(team, name="deleted")
     testing.update_batch_export(deleted, team_id=team.pk, deleted=True)
 
     # The query spans every team, so read this team's row rather than the whole list.
@@ -112,18 +112,18 @@ def test_active_batch_exports_excludes_paused_and_deleted_exports(team):
 
 
 def test_latest_failed_runs_reports_only_exports_whose_most_recent_run_failed(team):
-    recovered = _export(team, name="recovered")
-    _run(
+    recovered = _create_export(team, name="recovered")
+    _create_run(
         batch_export_id=recovered,
         finished_at=IN_WINDOW,
         status=BatchExportRun.Status.FAILED,
         created_at=IN_WINDOW,
     )
-    _run(batch_export_id=recovered, finished_at=IN_WINDOW, created_at=IN_WINDOW + dt.timedelta(hours=1))
+    _create_run(batch_export_id=recovered, finished_at=IN_WINDOW, created_at=IN_WINDOW + dt.timedelta(hours=1))
 
-    failing = _export(team, name="failing")
-    _run(batch_export_id=failing, finished_at=IN_WINDOW, created_at=IN_WINDOW)
-    _run(
+    failing = _create_export(team, name="failing")
+    _create_run(batch_export_id=failing, finished_at=IN_WINDOW, created_at=IN_WINDOW)
+    _create_run(
         batch_export_id=failing,
         finished_at=IN_WINDOW + dt.timedelta(hours=1),
         status=BatchExportRun.Status.TIMEDOUT,
@@ -142,16 +142,16 @@ def test_latest_failed_runs_reports_only_exports_whose_most_recent_run_failed(te
 
 @pytest.mark.parametrize("field", ["paused", "deleted"])
 def test_latest_failed_runs_ignores_paused_and_deleted_exports(team, field):
-    export_id = _export(team)
-    _run(batch_export_id=export_id, finished_at=IN_WINDOW, status=BatchExportRun.Status.FAILED)
+    export_id = _create_export(team)
+    _create_run(batch_export_id=export_id, finished_at=IN_WINDOW, status=BatchExportRun.Status.FAILED)
     testing.update_batch_export(export_id, team_id=team.pk, **{field: True})
 
     assert api.list_latest_failed_runs(team.pk) == []
 
 
 def test_run_failure_describes_a_scheduled_export(team):
-    export_id = _export(team, name="nightly")
-    run_id = _run(batch_export_id=export_id, finished_at=IN_WINDOW, status=BatchExportRun.Status.FAILED)
+    export_id = _create_export(team, name="nightly")
+    run_id = _create_run(batch_export_id=export_id, finished_at=IN_WINDOW, status=BatchExportRun.Status.FAILED)
 
     failure = api.get_run_failure(run_id, team.pk)
 
@@ -166,13 +166,13 @@ def test_run_failure_describes_a_scheduled_export(team):
 
 def test_run_failure_is_none_for_an_on_demand_export(team):
     on_demand = testing.create_batch_export_on_demand(team.pk, destination_type=FILE_DOWNLOAD, destination_config={})
-    run_id = _run(on_demand_id=on_demand, finished_at=IN_WINDOW, status=BatchExportRun.Status.FAILED)
+    run_id = _create_run(on_demand_id=on_demand, finished_at=IN_WINDOW, status=BatchExportRun.Status.FAILED)
 
     assert api.get_run_failure(run_id, team.pk) is None
 
 
 def test_batch_export_by_name_carries_the_event_filters_and_no_destination_secrets(team):
-    export_id = _export(
+    export_id = _create_export(
         team,
         name="migration",
         destination_type=HTTP,
@@ -196,32 +196,32 @@ def test_batch_export_by_name_carries_the_event_filters_and_no_destination_secre
 
 
 def test_batch_export_by_name_is_none_when_nothing_matches(team):
-    _export(team, name="migration", destination_type=HTTP)
+    _create_export(team, name="migration", destination_type=HTTP)
 
     assert api.get_batch_export_by_name(team.pk, "migration", S3) is None
 
 
 def test_batch_export_by_name_rejects_an_ambiguous_match(team):
-    _export(team, name="migration", destination_type=HTTP)
-    _export(team, name="migration", destination_type=HTTP)
+    _create_export(team, name="migration", destination_type=HTTP)
+    _create_export(team, name="migration", destination_type=HTTP)
 
     with pytest.raises(api.MultipleBatchExportsError):
         api.get_batch_export_by_name(team.pk, "migration", HTTP)
 
 
 def test_latest_run_is_by_creation_and_latest_completed_run_is_by_finish(team):
-    export_id = _export(team)
-    finished_last = _run(
+    export_id = _create_export(team)
+    finished_last = _create_run(
         batch_export_id=export_id,
         finished_at=IN_WINDOW + dt.timedelta(hours=2),
         created_at=IN_WINDOW,
     )
-    _run(
+    _create_run(
         batch_export_id=export_id,
         finished_at=IN_WINDOW + dt.timedelta(hours=1),
         created_at=IN_WINDOW + dt.timedelta(hours=1),
     )
-    created_last = _run(
+    created_last = _create_run(
         batch_export_id=export_id,
         finished_at=IN_WINDOW + dt.timedelta(hours=3),
         status=BatchExportRun.Status.FAILED,
@@ -236,8 +236,8 @@ def test_latest_run_is_by_creation_and_latest_completed_run_is_by_finish(team):
 
 
 def test_deleting_team_batch_exports_continues_past_a_missing_schedule(team):
-    first = _export(team, name="first")
-    second = _export(team, name="second")
+    first = _create_export(team, name="first")
+    second = _create_export(team, name="second")
     destination_ids = list(BatchExport.objects.filter(id__in=[first, second]).values_list("destination_id", flat=True))
 
     def delete_schedule(_temporal, schedule_id):
@@ -245,7 +245,7 @@ def test_deleting_team_batch_exports_continues_past_a_missing_schedule(team):
             raise BatchExportServiceScheduleNotFound(schedule_id)
 
     with (
-        mock.patch("products.batch_exports.backend.facade.api._temporal_client"),
+        mock.patch("products.batch_exports.backend.facade.api._get_temporal_client"),
         mock.patch("products.batch_exports.backend.service.batch_export_delete_schedule", side_effect=delete_schedule),
     ):
         api.delete_batch_exports_for_teams([team.pk])

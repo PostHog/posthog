@@ -192,7 +192,7 @@ def list_backfills(
     return [_to_backfill_summary(backfill) for backfill in backfills]
 
 
-def noop_inputs(*, arg: str, team_id: int, batch_export_id: str) -> "NoOpInputs":
+def build_noop_inputs(*, arg: str, team_id: int, batch_export_id: str) -> "NoOpInputs":
     """Build the inputs of the no-op workflow, which core uses to exercise the payload codec.
 
     A builder rather than a re-export of the class: ``NoOpInputs`` lives in ``service.py``,
