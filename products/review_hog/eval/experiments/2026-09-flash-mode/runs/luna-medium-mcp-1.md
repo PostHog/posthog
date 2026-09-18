@@ -10,6 +10,12 @@
 - runtime / model / effort: `codex` / `gpt-5.6-sol` / `xhigh`
 - single-chunk gate / chunk target / soft-max additions = 400 / 300 / 600
 
+The `gpt-5.6-sol` and `xhigh` values above are stale.
+They repeat the report row's stored arm, not the arm this run used.
+This run used `gpt-5.6-luna` at `medium` for review, blind-spot, and validation.
+Selection and dedup used Sonnet.
+Read the measured arm from [`luna-medium-mcp-1.usage.md`](luna-medium-mcp-1.usage.md) and [`luna-medium-mcp-1.provenance.json`](luna-medium-mcp-1.provenance.json).
+
 ## Funnel & cost
 
 | chunks | review units | raw issues | after dedup | passed validator |
