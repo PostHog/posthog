@@ -44,7 +44,7 @@ A new destination type normally requires all of these:
 
 1. Add the enum value in `products/alerts/backend/facade/contracts.py`, and the HogFunction template ID and required fields in `products/alerts/backend/logic/destination_configs.py`.
 2. Extend validation and `build_alert_destination_config(...)` without changing existing payloads.
-3. Add or update the transport template under `posthog/cdp/templates/<destination>/template_<destination>.py` and its adjacent tests.
+3. Add the transport template under `nodejs/src/cdp/templates/_destinations/<destination>/<destination>.template.ts`, register it in `nodejs/src/cdp/templates/index.ts`, and test it with `TemplateTester` next to it. Django tests that need the template in the database sync a stand-in from `posthog/cdp/templates/fixtures.py`; its inputs schema must track which inputs are secret, because that decides what a saved destination keeps in `inputs` versus `encrypted_inputs`. Only update an existing template under `posthog/cdp/templates/` when it already lives there.
 4. Add alert-specific template compatibility in `frontend/src/scenes/hog-functions/sub-templates/sub-templates.ts`.
 5. Decide which products explicitly allow the destination and update their destination editors or display logic.
 6. Add the option to `AlertWizard` only where supported by the relevant sub-template.
