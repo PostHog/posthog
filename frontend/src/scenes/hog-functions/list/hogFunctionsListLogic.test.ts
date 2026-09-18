@@ -58,4 +58,22 @@ describe('hogFunctionsListLogic', () => {
             hiddenHogFunctions: [INSIGHT_ALERT],
         })
     })
+
+    it.each([
+        ['drops the row when the API accepts the delete', false, [INSIGHT_ALERT]],
+        ['keeps the row when the API refuses the delete', true, [INSIGHT_ALERT, ERROR_TRACKING]],
+    ])('%s', async (_, refused, expected) => {
+        useMocks({
+            patch: {
+                '/api/projects/:team_id/hog_functions/:id': refused
+                    ? () => [400, { detail: 'Alert notification destinations are managed through the alert API.' }]
+                    : { ...ERROR_TRACKING, deleted: true },
+            },
+        })
+
+        logic.actions.deleteHogFunction(ERROR_TRACKING)
+        await expectLogic(logic).toFinishAllListeners()
+
+        await expectLogic(logic).toMatchValues({ hogFunctions: expected })
+    })
 })

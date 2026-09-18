@@ -290,6 +290,10 @@ export const hogFunctionsListLogic = kea<hogFunctionsListLogicType>([
                     return await api.hogFunctions.rearrange(newOrders)
                 },
                 deleteHogFunction: async ({ hogFunction }) => {
+                    // deleteWithUndo turns an API rejection into a toast, so the callback firing is
+                    // the only signal that the row really went. Destinations a product manages are
+                    // refused, and dropping those rows here makes the table disagree with the server.
+                    let deleted = false
                     await deleteWithUndo({
                         endpoint: `projects/${values.currentProjectId}/hog_functions`,
                         object: {
@@ -301,12 +305,13 @@ export const hogFunctionsListLogic = kea<hogFunctionsListLogicType>([
                                 actions.loadHogFunctions()
                                 refreshTreeItem('hog_function/', hogFunction.id)
                             } else {
+                                deleted = true
                                 deleteFromTree('hog_function/', hogFunction.id)
                             }
                         },
                     })
 
-                    return values.hogFunctions.filter((x) => x.id !== hogFunction.id)
+                    return deleted ? values.hogFunctions.filter((x) => x.id !== hogFunction.id) : values.hogFunctions
                 },
                 toggleEnabled: async ({ hogFunction, enabled }) => {
                     const { hogFunctions } = values
