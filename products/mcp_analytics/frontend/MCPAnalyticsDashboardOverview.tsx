@@ -16,6 +16,7 @@ import { HarnessBarChart } from './dashboard/HarnessBarChart'
 import { KpiTiles } from './dashboard/KpiTiles'
 import { ModelBarChart } from './dashboard/ModelBarChart'
 import { NotableSessionsTable } from './dashboard/NotableSessionsTable'
+import { RecentToolCallsCard } from './dashboard/RecentToolCallsCard'
 import { ToolErrorRateChart } from './dashboard/ToolErrorRateChart'
 import { ToolUsageChart } from './dashboard/ToolUsageChart'
 import { MCP_ANALYTICS_DASHBOARD_FEEDBACK_PROMPT } from './feedback/constants'
@@ -161,6 +162,7 @@ export function MCPAnalyticsDashboardOverview(): JSX.Element {
                     <NotableSessionsTable sessions={notableSessions} loading={sessionRowsLoading} />
                 </div>
             </section>
+            <RecentToolCallsCard filters={queryFilters} />
         </div>
     )
 }
