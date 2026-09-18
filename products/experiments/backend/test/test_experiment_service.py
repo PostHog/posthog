@@ -1092,7 +1092,7 @@ class TestExperimentService(APIBaseTest):
             experiment, {"metrics": [deepcopy(stored), added]}, allow_unknown_events=True
         )
 
-        assert [metric["uuid"] for metric in updated.metrics] == [self._STORED_UNITLESS_UUID, added["uuid"]]
+        assert [metric["uuid"] for metric in updated.metrics or []] == [self._STORED_UNITLESS_UUID, added["uuid"]]
 
     def test_update_experiment_rejects_changed_window_on_stored_unitless_metric(self) -> None:
         stored = self._metric_with_window(self._STORED_UNITLESS_UUID, 7, None)
@@ -1121,8 +1121,9 @@ class TestExperimentService(APIBaseTest):
 
         dup = self._service().duplicate_experiment(experiment)
 
-        assert dup.metrics[0]["conversion_window"] == 7
-        assert "conversion_window_unit" not in dup.metrics[0]
+        duplicated_metric = (dup.metrics or [])[0]
+        assert duplicated_metric["conversion_window"] == 7
+        assert "conversion_window_unit" not in duplicated_metric
 
     # ------------------------------------------------------------------
     # validate_experiment_metrics — threshold / math-type compatibility
