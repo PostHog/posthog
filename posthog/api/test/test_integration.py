@@ -281,6 +281,34 @@ class TestSlackIntegration:
 
         assert channel is not None
         assert channel["id"] == "C123"
+        assert channel["name"] == "huge_channel"
+
+    @patch("posthog.models.integration.slack.WebClient")
+    def test_get_channel_by_id_masks_a_private_name_it_cannot_prove_access_to(self, mock_webclient_class):
+        mock_client = MagicMock()
+        mock_webclient_class.return_value = mock_client
+
+        # Keeping the channel is about availability, not access. An unfinished scan cannot prove the
+        # connecting user is in a private channel, so the name stays masked.
+        mock_client.conversations_info.return_value = {
+            "channel": {
+                "id": "CP123",
+                "name": "secret_leadership_channel",
+                "is_private": True,
+                "is_ext_shared": False,
+                "num_members": 50000,
+            }
+        }
+        mock_client.conversations_members.return_value = {
+            "members": ["U1"],
+            "response_metadata": {"next_cursor": "keep-going"},
+        }
+
+        channel = SlackIntegration(self.integration).get_channel_by_id("CP123", True, "test_user_id")
+
+        assert channel is not None
+        assert channel["name"] == PRIVATE_CHANNEL_WITHOUT_ACCESS
+        assert channel["is_private_without_access"] is True
 
     @patch("posthog.models.integration.slack.WebClient")
     def test_get_channel_by_id_finds_a_member_past_the_first_page(self, mock_webclient_class):

@@ -178,17 +178,25 @@ class SlackIntegration:
             response = self.client.conversations_info(channel=channel_id, include_num_members=True)
             channel = response["channel"]
 
+            membership_unknown = False
             try:
                 is_member = self._is_channel_member(channel_id, authed_user)
             except SlackMembershipUnknown:
                 # The scan could not finish, so membership is unproven rather than disproven. Return
                 # the channel: the picker shows it and flags that the app may not be in it, which is
                 # recoverable, while hiding it is the silent empty result this change exists to stop.
+                membership_unknown = True
                 is_member = True
             if not is_member:
                 return None
 
-            isPrivateWithoutAccess = channel["is_private"] and not should_include_private_channels
+            # A private name is only shown to someone proven to be in the channel. Unproven is not
+            # proven, so an unfinished scan masks the name the way a caller without access sees it.
+            # The listing cannot surface this channel either, because it lists only the private
+            # channels the connecting user is in.
+            isPrivateWithoutAccess = channel["is_private"] and (
+                not should_include_private_channels or membership_unknown
+            )
 
             return {
                 "id": channel["id"],
