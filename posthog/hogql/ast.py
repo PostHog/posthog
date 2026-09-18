@@ -486,7 +486,7 @@ class CTETableAliasType(BaseTableType):
         return self.cte_table_type.resolve_column_constant_type(name, context)
 
 
-@dataclass(kw_only=True, slots=True)
+@dataclass(kw_only=True, slots=True, frozen=False)
 class SelectQueryAliasType(Type):
     alias: str
     select_query_type: SelectQueryType | SelectSetQueryType
