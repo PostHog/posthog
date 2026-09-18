@@ -1,6 +1,8 @@
 import { MOCK_DEFAULT_ORGANIZATION } from 'lib/api.mock'
 
 import { Meta, StoryObj } from '@storybook/react'
+import { within } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { useRef, useState } from 'react'
 
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -15,7 +17,7 @@ import { DashboardType, InsightShortId, Realm, SubscriptionType } from '~/types'
 import { SubscriptionsModal, SubscriptionsModalProps } from './SubscriptionsModal'
 
 type StoryArgs = SubscriptionsModalProps & {
-    formScenario?: 'default' | 'ai-summary-limit' | 'free-tier-limit'
+    formScenario?: 'default' | 'ai-summary-limit' | 'free-tier-limit' | 'long-ai-prompt'
 }
 
 const DASHBOARD = {
@@ -164,6 +166,19 @@ const AI_PROMPT_SUBSCRIPTIONS = [
     }),
 ]
 
+const LONG_AI_PROMPT_SUBSCRIPTION = createMockSubscription({
+    id: 21,
+    resource_type: 'ai_prompt',
+    title: 'Weekly product health report',
+    prompt: Array.from(
+        { length: 18 },
+        () => 'Compare activation, retention, and revenue with the previous week. Explain each important change.'
+    ).join('\n\n'),
+    target_type: 'email',
+    target_value: 'reports@example.com',
+    created_by: mockBasicUser,
+})
+
 const AI_PROMPT_PARAMETERS = {
     featureFlags: {
         [FEATURE_FLAGS.SUBSCRIPTION_AI_PROMPT]: true,
@@ -181,7 +196,7 @@ const meta: Meta<StoryArgs> = {
     argTypes: {
         formScenario: {
             control: 'select',
-            options: ['default', 'ai-summary-limit', 'free-tier-limit'],
+            options: ['default', 'ai-summary-limit', 'free-tier-limit', 'long-ai-prompt'],
         },
     },
     render: (args) => {
@@ -222,7 +237,9 @@ const meta: Meta<StoryArgs> = {
 
                     return { count: results.length, results }
                 },
-                '/api/environments/:id/subscriptions/:subId': createMockSubscription(),
+                '/api/environments/:id/subscriptions/:subId':
+                    formScenario === 'long-ai-prompt' ? LONG_AI_PROMPT_SUBSCRIPTION : createMockSubscription(),
+                '/api/projects/:id/subscriptions/:subId/deliveries': { results: [] },
                 ...(freeTierSubscriptionCount !== undefined
                     ? { '/api/projects/:id/subscriptions/': { count: freeTierSubscriptionCount, results: [] } }
                     : {}),
@@ -280,6 +297,21 @@ export const SubscriptionWizardNew: Story = {
         },
     },
     args: { isCreating: true, formScenario: 'default' },
+}
+
+export const LongAiPrompt: Story = {
+    parameters: {
+        ...AI_PROMPT_PARAMETERS,
+        pageUrl: '/subscriptions/21/edit',
+        testOptions: {
+            snapshotTargetSelector: 'body',
+            viewport: { width: 1032, height: 900 },
+        },
+    },
+    args: { subscriptionId: 21, formScenario: 'long-ai-prompt' },
+    play: async ({ canvasElement }) => {
+        await userEvent.click(await within(canvasElement).findByText('Open as Modal'))
+    },
 }
 
 // Tabbed overview, dashboard context: This dashboard / Insights / AI prompt reports tabs.
