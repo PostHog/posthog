@@ -157,8 +157,9 @@ def github_request(
             session=session,
             **kwargs,
         )
-        if isinstance(response.url, str):
-            span.set_attribute("server.address", urlparse(response.url).hostname or "unknown")
+        response_url = getattr(response, "url", None)
+        if isinstance(response_url, str):
+            span.set_attribute("server.address", urlparse(response_url).hostname or "unknown")
         span.set_attribute("http.response.status_code", response.status_code)
         if response.status_code >= 400:
             span.set_status(Status(StatusCode.ERROR))
