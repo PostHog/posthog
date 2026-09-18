@@ -51,6 +51,7 @@ from ..logic.subject_access import (
     visible_checks,
     without_denied_runs,
 )
+from ..logic.subject_schedules import runs_on_a_schedule
 from ..logic.subjects import resolve_metric_subjects, resolve_subject, selectable_subjects, testable_metric_subjects
 from ..logic.triggers import materialization_audit_mode as quality_audit_mode
 from .contracts import CheckTypeInfo, MetricSubject, OutputColumn, SelectableSubject
@@ -106,6 +107,7 @@ __all__ = [
     "resolve_metric_subjects",
     "roll_up_health",
     "set_gate_materialization_on_checks",
+    "runs_on_a_schedule",
     "set_schedule",
     "schedule_with_history",
     "soft_delete_check",

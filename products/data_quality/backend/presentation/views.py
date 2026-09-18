@@ -36,7 +36,6 @@ from ..facade import api
 from ..facade.enums import CheckRunStatus, CheckType, SubjectStatus, SubjectType
 from ..facade.flags import is_data_quality_checks_enabled
 from ..facade.models import DataQualityCheck, DataQualityCheckRun, DataQualitySuiteRun
-from ..logic.subject_schedules import SCHEDULE_TYPES
 from .serializers import (
     CheckTypeSerializer,
     DataQualityCheckCreateSerializer,
@@ -716,7 +715,7 @@ class DataQualityCheckViewSet(_ProjectQualityViewSet, viewsets.ModelViewSet):
         writing = request.method == "PATCH"
         subject = self._named_subject(request.data if writing else request.query_params)
         self._require_subject(subject, write=writing)
-        if SubjectType(subject.subject_type) not in SCHEDULE_TYPES:
+        if not api.runs_on_a_schedule(SubjectType(subject.subject_type)):
             raise ValidationError(
                 {"subject_type": f"A {subject.subject_type}'s checks run when its data changes, not on a schedule."}
             )

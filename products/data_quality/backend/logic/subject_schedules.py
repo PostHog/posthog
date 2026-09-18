@@ -29,6 +29,12 @@ from ..facade.enums import ScheduleInterval, SubjectType, SuiteRunTrigger
 
 SCHEDULE_TYPES: dict[SubjectType, str] = {SubjectType.METRIC: "data-quality-metric"}
 SCHEDULE_TYPE_SUBJECTS = {schedule_type: kind for kind, schedule_type in SCHEDULE_TYPES.items()}
+
+
+def runs_on_a_schedule(subject_type: SubjectType) -> bool:
+    return subject_type in SCHEDULE_TYPES
+
+
 CATCHUP_WINDOW = timedelta(minutes=15)
 INTERVALS = {
     ScheduleInterval.ONE_HOUR: timedelta(hours=1),
