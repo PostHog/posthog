@@ -12,15 +12,13 @@ export interface TrendsSeriesLabelDeps {
     breakdownFilter: BreakdownFilter | null | undefined
     cohorts: CohortType[] | undefined
     formatPropertyValueForDisplay: FormatPropertyValueForDisplayFunction | undefined
+    isSingleSeriesDefinition?: boolean
 }
 
-/** Legend/series label for a single trends result. The user's custom rename (`action.custom_name`,
- *  set via the series rename UI) wins over the raw event/action name; breakdown series resolve to
- *  their formatted breakdown value. The `action` is shared across a series' breakdown values, so the
- *  breakdown guard must come first — otherwise every breakdown band would collapse onto one label. */
 export function getTrendsSeriesDisplayLabel(r: IndexedTrendResult, deps: TrendsSeriesLabelDeps): string {
+    const seriesName = getDisplayNameFromEntityFilter(r.action) ?? humanizeSeriesLabel(r.label)
     if (r.breakdown_value != null) {
-        return formatBreakdownLabel(
+        const breakdownLabel = formatBreakdownLabel(
             r.breakdown_value,
             deps.breakdownFilter,
             deps.cohorts,
@@ -28,6 +26,7 @@ export function getTrendsSeriesDisplayLabel(r: IndexedTrendResult, deps: TrendsS
             undefined,
             r.label
         )
+        return deps.isSingleSeriesDefinition ? breakdownLabel : `${seriesName} · ${breakdownLabel}`
     }
-    return getDisplayNameFromEntityFilter(r.action) ?? humanizeSeriesLabel(r.label)
+    return seriesName
 }
