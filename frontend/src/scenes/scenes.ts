@@ -152,7 +152,7 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     [Scene.DebugHog]: { projectBased: true, name: 'Hog Repl' },
     [Scene.ProjectFiles]: { projectBased: true, name: 'Files', layout: 'app-full-scene-height' },
     [Scene.DebugQuery]: { projectBased: true },
-    [Scene.Terminal]: { projectBased: true, name: 'Terminal' },
+    [Scene.Terminal]: { projectBased: true, name: 'Terminal', layout: 'app-full-scene-height' },
 
     [Scene.Error404]: { name: 'Not found', projectBased: true },
     [Scene.ErrorAccessDenied]: { name: 'Access denied' },

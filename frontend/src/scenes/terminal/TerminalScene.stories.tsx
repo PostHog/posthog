@@ -158,7 +158,11 @@ const meta: Meta<typeof TerminalScene> = {
                 },
             },
         })
-        return <TerminalScene />
+        return (
+            <div className="h-[calc(100vh-2rem)]">
+                <TerminalScene />
+            </div>
+        )
     },
 }
 export default meta
