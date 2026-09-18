@@ -1,7 +1,13 @@
 import { EventEmitter } from 'events'
 
-import { postgresClientErrorCounter } from './metrics'
+import { postgresClientErrorCounter, postgresOpenAtShutdownCounter, postgresOpenTransactionsGauge } from './metrics'
 import { PostgresRouter, PostgresUse } from './postgres'
+
+async function metricValue(metric: { get: () => Promise<any> }, labels: Record<string, string>): Promise<number> {
+    const values = (await metric.get()).values as { labels: Record<string, string>; value: number }[]
+    const match = values.find((sample) => Object.entries(labels).every(([key, value]) => sample.labels[key] === value))
+    return match?.value ?? 0
+}
 
 type FakeClient = EventEmitter & { query: jest.Mock; release: jest.Mock }
 
@@ -17,7 +23,41 @@ describe('postgres transaction client failures', () => {
 
         router = new PostgresRouter({ DATABASE_URL: 'postgres://fake', POSTGRES_CONNECTION_POOL_SIZE: 1 })
         // pg pools connect lazily, so the real ones built by the constructor never dial.
-        ;(router as any).pools = new Map([[PostgresUse.COMMON_WRITE, { connect: jest.fn().mockResolvedValue(client) }]])
+        ;(router as any).pools = new Map([
+            [PostgresUse.COMMON_WRITE, { connect: jest.fn().mockResolvedValue(client), end: jest.fn() }],
+        ])
+    })
+
+    it('reports a transaction as open only while it is running', async () => {
+        const open = (): Promise<number> => metricValue(postgresOpenTransactionsGauge, { tag: 'gaugeCheck' })
+
+        let during = -1
+        await router.transaction(PostgresUse.COMMON_WRITE, 'gaugeCheck', async () => {
+            during = await open()
+        })
+
+        expect(during).toBe(1)
+        expect(await open()).toBe(0)
+    })
+
+    it('names a transaction that is still open when the pools close', async () => {
+        let reached: () => void = () => {}
+        let finish: () => void = () => {}
+        const entered = new Promise<void>((resolve) => (reached = resolve))
+
+        const running = router.transaction(PostgresUse.COMMON_WRITE, 'mergePeopleFold', async (tx) => {
+            await router.query(tx, 'DELETE FROM lifecycle_op', undefined, 'releaseLifecycleMarks')
+            reached()
+            await new Promise<void>((resolve) => (finish = resolve))
+        })
+        await entered
+
+        await router.end()
+
+        expect(await metricValue(postgresOpenAtShutdownCounter, { tag: 'mergePeopleFold' })).toBeGreaterThan(0)
+
+        finish()
+        await running
     })
 
     it('releases a client that errored so the pool destroys it instead of reusing it', async () => {

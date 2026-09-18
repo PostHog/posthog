@@ -1,5 +1,6 @@
 // Postgres
 import { DateTime } from 'luxon'
+import { hostname } from 'os'
 import { Client, Pool, PoolClient, QueryConfig, QueryResult, QueryResultRow, types as pgTypes } from 'pg'
 
 import { withSpan } from '~/common/tracing/tracing-utils'
@@ -10,6 +11,9 @@ import { DependencyUnavailableError } from './error'
 import {
     postgresClientErrorCounter,
     postgresErrorCounter,
+    postgresLongOpenTransactionCounter,
+    postgresOpenAtShutdownCounter,
+    postgresOpenTransactionsGauge,
     postgresPoolAcquireDurationHistogram,
     postgresPoolClientEventsCounter,
     postgresTransactionCounter,
@@ -86,12 +90,19 @@ export class TransactionClient {
     readonly client: PoolClient
     /** Statement currently in flight, so a connection lost mid-transaction can be attributed to it. */
     inFlightTag: string = 'none'
+    /** Last statement that finished, which names where a stalled transaction stopped progressing. */
+    lastCompletedTag: string = 'none'
 
     constructor(target: PostgresUse, client: PoolClient) {
         this.target = target
         this.client = client
     }
 }
+
+type OpenTransaction = { pool: string; tag: string; client: TransactionClient }
+
+/** Process-wide, so shutdown can name the transactions that never finished. */
+const openTransactions = new Set<OpenTransaction>()
 
 /** Pool client churn is invisible from inside the app without these. */
 function instrumentPool(pool: Pool, poolLabel: string): Pool {
@@ -107,7 +118,9 @@ export class PostgresRouter {
     constructor(serverConfig: PostgresRouterConfig, appName?: string) {
         installPostgresTypeParsers()
 
-        const app_name = appName ?? 'unknown'
+        // Postgres truncates application_name at 63 bytes. The mode stays the prefix so existing
+        // filters still match, and the hostname names the pod holding a stuck session.
+        const app_name = `${appName ?? 'unknown'}/${hostname()}`.slice(0, 63)
         logger.info('🤔', `Connecting to common Postgresql...`)
         const commonClient = instrumentPool(
             createPostgresPool(serverConfig.DATABASE_URL, serverConfig.POSTGRES_CONNECTION_POOL_SIZE, app_name),
@@ -226,6 +239,7 @@ export class PostgresRouter {
                     target.target
                 )
             } finally {
+                target.lastCompletedTag = tag
                 target.inFlightTag = 'none'
             }
         } else {
@@ -244,12 +258,43 @@ export class PostgresRouter {
         const poolLabel = PostgresUse[usage]
 
         return withSpan('postgres', 'query.postgres_transaction', { tag: wrappedTag }, async () => {
-            const timeout = timeoutGuard(`Postgres slow transaction warning after 30 sec!`)
+            // An exhausted pool waits here forever, so the acquire gets its own guard.
+            const acquireGuard = timeoutGuard(
+                `Postgres transaction still waiting for a pooled client!`,
+                () => ({ tag: wrappedTag }),
+                undefined,
+                true,
+                () => postgresLongOpenTransactionCounter.inc({ pool: poolLabel, tag, in_flight: 'acquiring' })
+            )
             const acquireStart = performance.now()
-            const client = await this.pools.get(usage)!.connect()
+            let client: PoolClient
+            try {
+                client = await this.pools.get(usage)!.connect()
+            } finally {
+                clearTimeout(acquireGuard)
+            }
             postgresPoolAcquireDurationHistogram.observe({ pool: poolLabel }, (performance.now() - acquireStart) / 1000)
 
             const transactionClient = new TransactionClient(usage, client)
+            const timeout = timeoutGuard(
+                `Postgres slow transaction warning after 30 sec!`,
+                () => ({
+                    tag: wrappedTag,
+                    inFlight: transactionClient.inFlightTag,
+                    lastCompleted: transactionClient.lastCompletedTag,
+                }),
+                undefined,
+                true,
+                () =>
+                    postgresLongOpenTransactionCounter.inc({
+                        pool: poolLabel,
+                        tag,
+                        in_flight: transactionClient.inFlightTag,
+                    })
+            )
+            const openEntry: OpenTransaction = { pool: poolLabel, tag, client: transactionClient }
+            openTransactions.add(openEntry)
+            postgresOpenTransactionsGauge.inc({ pool: poolLabel, tag })
             let clientError: Error | undefined
             // pg drops the pool's idle error listener while a client is checked out, so without
             // this an unhandled 'error' is thrown synchronously and takes the process down before
@@ -288,6 +333,8 @@ export class PostgresRouter {
                 throw e
             } finally {
                 client.removeListener('error', onClientError)
+                openTransactions.delete(openEntry)
+                postgresOpenTransactionsGauge.dec({ pool: poolLabel, tag })
                 postgresTransactionCounter.inc({ pool: poolLabel, tag, outcome })
                 postgresTransactionDurationHistogram.observe(
                     { pool: poolLabel, tag, outcome },
@@ -305,6 +352,17 @@ export class PostgresRouter {
     }
 
     async end(): Promise<void> {
+        // Ending a pool under an open transaction abandons it, so name them before closing.
+        for (const open of openTransactions) {
+            postgresOpenAtShutdownCounter.inc({ pool: open.pool, tag: open.tag })
+            logger.warn('🔌', 'Postgres transaction still open at shutdown', {
+                pool: open.pool,
+                tag: open.tag,
+                inFlight: open.client.inFlightTag,
+                lastCompleted: open.client.lastCompletedTag,
+            })
+        }
+
         // Close all the connection pools
         const uniquePools: Set<Pool> = new Set(this.pools.values())
         for (const pool of uniquePools) {

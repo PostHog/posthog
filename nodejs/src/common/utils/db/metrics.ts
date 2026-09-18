@@ -1,4 +1,4 @@
-import { Counter, Histogram } from 'prom-client'
+import { Counter, Gauge, Histogram } from 'prom-client'
 
 export const personUpdateVersionMismatchCounter = new Counter({
     name: 'person_update_version_mismatch',
@@ -67,4 +67,22 @@ export const postgresTransactionDurationHistogram = new Histogram({
     help: 'Transaction duration by outcome',
     labelNames: ['pool', 'tag', 'outcome'],
     buckets: [0.001, 0.01, 0.05, 0.1, 0.5, 1, 5, 15, 30, 60, 300],
+})
+
+export const postgresOpenTransactionsGauge = new Gauge({
+    name: 'postgres_open_transactions',
+    help: 'Transactions currently holding a client; a floor above zero means they are leaking',
+    labelNames: ['pool', 'tag'],
+})
+
+export const postgresLongOpenTransactionCounter = new Counter({
+    name: 'postgres_long_open_transactions',
+    help: 'Transactions past the slow-transaction threshold, by the statement they are stuck on',
+    labelNames: ['pool', 'tag', 'in_flight'],
+})
+
+export const postgresOpenAtShutdownCounter = new Counter({
+    name: 'postgres_transactions_open_at_shutdown',
+    help: 'Transactions still open when the pools were told to close',
+    labelNames: ['pool', 'tag'],
 })
