@@ -228,6 +228,32 @@ describe('createApplyEventFiltersStep', () => {
         expect(values).toEqual([{ labels: { outcome: 'ingested' }, value: 1 }])
     })
 
+    it.each(['live', 'dry_run'] as const)(
+        'passes protected internal events through an allowlist filter in %s mode without counting them',
+        async (mode) => {
+            mockManager.getFilter.mockReturnValue({
+                id: 'f1',
+                team_id: 1,
+                mode,
+                filter_tree: not(cond('event_name', 'exact', 'allowed')),
+            })
+            const metrics = new EventFiltersBatchAppMetrics(mockOutputs)
+            const step = createApplyEventFiltersStep(mockManager)
+
+            const result = await step({
+                team: createTestTeam({ id: 1 }),
+                headers: createTestEventHeaders({ event: '$recording_observed' }),
+                eventFiltersBatchAppMetrics: metrics,
+            })
+
+            expect(isOkResult(result)).toBe(true)
+            const values = await getMetricValues('ingestion_filters_events_evaluated')
+            expect(values).toEqual([{ labels: { outcome: 'protected' }, value: 1 }])
+            await metrics.flush()
+            expect(mockOutputs.queueMessages).not.toHaveBeenCalled()
+        }
+    )
+
     it('does not increment prometheus metric when no filter exists', async () => {
         mockManager.getFilter.mockReturnValue(null)
         const metrics = new EventFiltersBatchAppMetrics(mockOutputs)
