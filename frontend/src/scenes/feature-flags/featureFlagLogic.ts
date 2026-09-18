@@ -20,6 +20,7 @@ import type { DeepPartial, FieldName } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { beforeUnload, router, urlToAction } from 'kea-router'
 import { CombinedLocation } from 'kea-router/lib/utils'
+import posthog from 'posthog-js'
 import { createElement } from 'react'
 import { toast } from 'react-toastify'
 
@@ -944,6 +945,8 @@ export interface featureFlagLogicValues {
     featureFlagKey: string
     featureFlagLoading: boolean
     featureFlagManualErrors: Record<string, any>
+    featureFlagLoadErrored: boolean
+    featureFlagLoadFailed: boolean
     featureFlagMissing: boolean
     featureFlagRefresh: FeatureFlagType | null
     featureFlagRefreshLoading: boolean
@@ -2037,6 +2040,14 @@ export interface featureFlagLogicMeta {
     }
     __keaTypeGenInternalSelectorTypes: {
         props: (arg: any) => any
+        featureFlagLoadFailed: (
+            featureFlagLoadErrored: boolean,
+            featureFlagLoading: boolean,
+            featureFlagMissing: boolean,
+            accessDeniedToFeatureFlag: boolean,
+            originalFeatureFlag: FeatureFlagType | null,
+            props: any
+        ) => boolean
         availableTabs: (featureFlag: FeatureFlagType, props: any) => FeatureFlagsTab[]
         activeTab: (selectedTab: FeatureFlagsTab, availableTabs: FeatureFlagsTab[]) => FeatureFlagsTab
         hasUnsavedChanges: (featureFlag: FeatureFlagType, originalFeatureFlag: FeatureFlagType | null) => boolean
@@ -2574,7 +2585,16 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 setSelectedTab: (_, { tab }) => tab,
             },
         ],
-        featureFlagMissing: [false, { setFeatureFlagMissing: () => true }],
+        // A later successful load clears this, so a retry that works leaves no dead end behind.
+        featureFlagMissing: [false, { setFeatureFlagMissing: () => true, loadFeatureFlagSuccess: () => false }],
+        featureFlagLoadErrored: [
+            false,
+            {
+                loadFeatureFlag: () => false,
+                loadFeatureFlagSuccess: () => false,
+                loadFeatureFlagFailure: () => true,
+            },
+        ],
         isEditingFlag: [
             false,
             {
@@ -3013,9 +3033,12 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     } catch (e: any) {
                         if (isAccessDeniedError(e)) {
                             actions.setAccessDeniedToFeatureFlag()
-                        } else {
+                        } else if (e?.status === 404) {
                             actions.setFeatureFlagMissing()
                         }
+                        // Any other failure is a transport or server problem, not a deleted flag.
+                        // `featureFlagLoadFailed` covers it and the scene offers a retry, because
+                        // telling someone a live flag does not exist is worse than saying nothing.
                         throw e
                     }
                 }
@@ -3539,7 +3562,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             loadFeatureFlagStatusFailure: () => null,
         },
     }),
-    listeners(({ actions, values, props, sharedListeners }) => ({
+    listeners(({ actions, values, props, cache, sharedListeners }) => ({
         loadCopyDependencyRequirements: async (_, breakpoint): Promise<void> => {
             const { copyDestinationProject, currentOrganizationId, currentProjectId, featureFlag } = values
 
@@ -3862,6 +3885,20 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 return
             }
 
+            // A save that never reached the server carries no status, so the generic toast in
+            // initKea stays silent and the edits sit there with nothing said about them. Say what
+            // happened and offer the retry, because the edits are still in the form.
+            if (errorObject?.status === undefined) {
+                posthog.capture('feature flag save failed', { reason: errorObject?.name ?? null })
+                lemonToast.error("We couldn't save this feature flag. Your changes are still here.", {
+                    button: {
+                        label: 'Try again',
+                        action: () => actions.saveFeatureFlag(cache.lastSaveAttempt),
+                    },
+                })
+                return
+            }
+
             if (errorObject?.code !== 'unique' || errorObject?.attr !== 'key') {
                 return
             }
@@ -4075,6 +4112,30 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             } else {
                 actions.setMultivariateOptions(null)
             }
+        },
+        loadFeatureFlagFailure: ({ errorObject }) => {
+            // Count each dead end once per mount. A retry that fails again is the same dead end,
+            // and a reload that fails while the flag is on screen never reaches the reader.
+            if (values.featureFlagMissing) {
+                if (!cache.hasCapturedFlagMissing) {
+                    cache.hasCapturedFlagMissing = true
+                    posthog.capture('feature flag not found')
+                }
+                return
+            }
+            if (values.featureFlagLoadFailed && !cache.hasCapturedFlagLoadFailure) {
+                cache.hasCapturedFlagLoadFailure = true
+                // `status` separates a transport failure from a server one. Nothing distinguished
+                // either from a real 404 before, so the share of dead ends was not measurable.
+                posthog.capture('feature flag load failed', {
+                    status: (errorObject as { status?: number } | null)?.status ?? null,
+                })
+            }
+        },
+        // The payload the retry below replays. A create carries a folder the working copy does
+        // not, so re-reading `values.featureFlag` would file the new flag somewhere else.
+        saveFeatureFlag: (updatedFlag) => {
+            cache.lastSaveAttempt = updatedFlag
         },
         loadFeatureFlagSuccess: async ({ featureFlag }) => {
             toast.dismiss(agentChangeToastId(props.id))
@@ -4520,6 +4581,37 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
     })),
     selectors({
         props: [() => [(_, props) => props], (props) => props],
+        /**
+         * The load failed for a reason that says nothing about whether the flag exists, so the
+         * reader gets a retry instead of "not found". A null `originalFeatureFlag` means no
+         * server state ever reached the page, which keeps a failed background reload from
+         * replacing a flag someone is already reading. A new flag is never loaded from the
+         * server, so its form must not be replaced either.
+         */
+        featureFlagLoadFailed: [
+            (s) => [
+                s.featureFlagLoadErrored,
+                s.featureFlagLoading,
+                s.featureFlagMissing,
+                s.accessDeniedToFeatureFlag,
+                s.originalFeatureFlag,
+                s.props,
+            ],
+            (
+                featureFlagLoadErrored: boolean,
+                featureFlagLoading: boolean,
+                featureFlagMissing: boolean,
+                accessDeniedToFeatureFlag: boolean,
+                originalFeatureFlag: FeatureFlagType | null,
+                props: FeatureFlagLogicProps
+            ): boolean =>
+                featureFlagLoadErrored &&
+                !featureFlagLoading &&
+                !featureFlagMissing &&
+                !accessDeniedToFeatureFlag &&
+                originalFeatureFlag === null &&
+                props.id !== 'new',
+        ],
         // Which tabs the flag offers; FeatureFlag.tsx renders exactly this set
         availableTabs: [
             (s) => [s.featureFlag, s.props],

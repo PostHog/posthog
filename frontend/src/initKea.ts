@@ -71,6 +71,7 @@ const ERROR_FILTER_ALLOW_LIST = [
     'loadCoreMemory', // The PostHog AI memory setting renders its own load error banner with a retry
     'updateCoreMemory', // maxSettingsLogic's updateCoreMemoryFailure listener shows its own save-failure toast
     'loadSessionEventDeltas', // The experiment watch shelf renders the refusal, or the failure with a retry
+    'loadFeatureFlag', // The flag scene renders its own retry banner instead of the not-found screen
 ]
 
 /*

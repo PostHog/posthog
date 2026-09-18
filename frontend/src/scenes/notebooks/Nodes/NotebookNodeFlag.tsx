@@ -6,6 +6,7 @@ import { IconFlag, IconRocket } from '@posthog/icons'
 import { NotFound } from 'lib/components/NotFound'
 import { JSONContent } from 'lib/components/RichContentEditor/types'
 import { IconRecording, IconSurveys } from 'lib/lemon-ui/icons'
+import { FeatureFlagLoadError } from 'scenes/feature-flags/FeatureFlagLoadError'
 import { FeatureFlagLogicProps, featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
 import {
     FEATURE_FLAG_NOTEBOOK_WIDGET_VIEWS,
@@ -111,11 +112,14 @@ function FeatureFlagNotebookActions({ attributes }: NotebookNodeProps<FeatureFla
 
 const Component = ({ attributes }: NotebookNodeProps<FeatureFlagNotebookWidgetAttributes>): JSX.Element => {
     const { id } = attributes
-    const { featureFlag, featureFlagMissing } = useValues(featureFlagLogic({ id }))
+    const { featureFlag, featureFlagMissing, featureFlagLoadFailed } = useValues(featureFlagLogic({ id }))
     const { expanded } = useValues(notebookNodeLogic)
 
     if (featureFlagMissing) {
         return <NotFound object="feature flag" />
+    }
+    if (featureFlagLoadFailed) {
+        return <FeatureFlagLoadError id={id} />
     }
 
     return (
