@@ -219,6 +219,8 @@ An existing workflow keeps its original inputs, and an existing report's status 
 If a review fails, the next attempt keeps cached reviewer results for the same commit and model.
 Deduplication retires superseded findings from the unfinished turn and reuses a verdict only when its finding, commit, review mode, and model configurations are unchanged.
 Completed turns remain in the report history.
+Flash finding-outcome events use the model configuration saved with the finding, even if the Flash defaults change before classification.
+Full findings retain report-level model attribution, and findings without readable saved context have an unknown review mode.
 When recovering a failed Flash publish with `python manage.py publish_review`, pass `--review-mode flash` to preserve the Flash labels.
 The recovery command defaults to Full and does not infer the mode from the stored report.
 

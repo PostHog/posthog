@@ -57,7 +57,7 @@ class ReviewIssueFinding(BaseModel):
     )
     validation_context: str | None = Field(
         default=None,
-        description="The reviewed head, mode, and model configurations required to reuse this finding's verdict.",
+        description="The reviewed head, mode, and model configurations for verdict reuse and Flash outcome attribution.",
     )
     title: str = Field(description="Issue title.")
     file: str = Field(description="Repository-relative path to the file containing the issue.")

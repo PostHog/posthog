@@ -350,10 +350,13 @@ pr_metadata.head_branch` is threaded (as explicit kwargs, alongside `team_id` / 
     gate (`track_review_started_activity`) and, after the publish stage, one **`reviewhog_review_completed`** per
     finalized turn (published or stored), carrying repository / PR / trigger / finding-count / PR-size properties
     (`track_review_completed_activity`); a dead turn gets `reviewhog_review_failed` instead. All three, and the
-    per-finding `reviewhog_finding_outcome`, carry `review_routing_properties` (`reviewer/telemetry.py`): the tier,
-    the reviewer arm as resolved for that report, the validator / resolver pins, and the turn's `review_mode`, so
-    every event says which model and effort the review spent (a flash turn's three per-turn events name the flash
-    arm in both seats; the outcome event, classified later without the turn's mode, names the stored arm).
+    per-finding `reviewhog_finding_outcome`, carry routing properties from `reviewer/telemetry.py`: the tier,
+    reviewer configuration, validator and resolver pins, and review mode when known.
+    Flash turn events name the Flash arm in both seats.
+    Flash finding outcomes use the mode and model configurations saved in the finding's `validation_context`,
+    so later changes to the Flash defaults do not relabel an earlier finding.
+    Full finding outcomes retain the report's arm at classification time; tier and resolver labels remain report-level and module-level values.
+    Findings with no readable context retain the legacy report-level labels and `review_mode: null`.
     Started carries the arm as the turn began; completed the arm at the end,
     which differs when a person's trigger lifted the tier mid-turn or, rarely, when the registry dropped the
     arm's model mid-turn (`review_arm_fallback`). Best-effort: telemetry can never fail a review.
