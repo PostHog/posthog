@@ -959,6 +959,13 @@ describe('insightVizDataLogic', () => {
                 { aggregated_value: 6 },
                 true,
             ],
+            ['renders time series rows under a scatter plot', ChartDisplayType.ScatterPlot, { data: [1, 2, 3] }, true],
+            [
+                'renders time series rows under a two dimensional heatmap',
+                ChartDisplayType.TwoDimensionalHeatmap,
+                { data: [1, 2, 3] },
+                true,
+            ],
         ])('%s', (_, display, row, expected) => {
             builtInsightVizDataLogic.actions.updateQuerySource({ ...trendsQueryDefault, trendsFilter: { display } })
             builtInsightDataLogic.actions.loadDataSuccess({ results: [row] })
