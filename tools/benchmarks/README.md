@@ -38,15 +38,15 @@ To run the all the benchmarks locally, [get access to the clickhouse node](https
 
 ```bash
 # Set up machine
-asv machine --machine ci-benchmarks --config ee/benchmarks/asv.conf.json
+asv machine --machine ci-benchmarks --config tools/benchmarks/asv.conf.json
 # Replace X with appropriate credentials
-CLICKHOUSE_HOST=X CLICKHOUSE_USER=X CLICKHOUSE_PASSWORD=X CLICKHOUSE_DATABASE=posthog asv run --config ee/benchmarks/asv.conf.json
+CLICKHOUSE_HOST=X CLICKHOUSE_USER=X CLICKHOUSE_PASSWORD=X CLICKHOUSE_DATABASE=posthog asv run --config tools/benchmarks/asv.conf.json
 ```
 
 You'll probably want to be running one test, with quick iteration. Running e.g.:
 
 ```bash
-asv run --config ee/benchmarks/asv.conf.json --bench track_lifecycle --quick
+asv run --config tools/benchmarks/asv.conf.json --bench track_lifecycle --quick
 ```
 
 will run any benchmark regex-matching `track_lifecycle` only once.
@@ -59,8 +59,8 @@ Edit the `benchmarks.py` file as needed. Use `@benchmark_clickhouse` decorator t
 
 ## Backfilling benchmarks
 
-- Clone `https://github.com/PostHog/benchmark-results` locally under ee/benchmarks/results
-- Run something like `CLICKHOUSE_HOST=X CLICKHOUSE_USER=X CLICKHOUSE_PASSWORD=X CLICKHOUSE_DATABASE=posthog asv run --config ee/benchmarks/asv.conf.json --date-period 4d master~500..`
+- Clone `https://github.com/PostHog/benchmark-results` locally under tools/benchmarks/results
+- Run something like `CLICKHOUSE_HOST=X CLICKHOUSE_USER=X CLICKHOUSE_PASSWORD=X CLICKHOUSE_DATABASE=posthog asv run --config tools/benchmarks/asv.conf.json --date-period 4d master~500..`
 - Run `asv publish` and commit the changes to benchmark-results repo
 
 If you have questions, use benchmark.yml github action as a guide.

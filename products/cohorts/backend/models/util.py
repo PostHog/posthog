@@ -257,7 +257,7 @@ def run_cohort_query(
 def get_clickhouse_query_stats(tag_matcher: str, cohort_id: int, start_time: datetime, team_id: int) -> Optional[dict]:
     """
     Retrieve query statistics from ClickHouse query_log_archive using query tags.
-    Similar to approach in ee/benchmarks/helpers.py but adapted for cohort calculations.
+    Similar to approach in tools/benchmarks/helpers.py but adapted for cohort calculations.
     """
     if not tag_matcher:
         return None

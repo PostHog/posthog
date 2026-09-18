@@ -53,7 +53,6 @@ debug.log
 docs/internal/logs-sampling-discovery.md
 docs/internal/logs-sampling-runbook.md
 docker-compose.prod.yml
-ee/benchmarks/results
 frontend/storybook-static
 max-test-venv/
 mts_example_*.json
@@ -73,6 +72,7 @@ staticfiles
 storybook-static
 temp_test_run_data.json
 tmp*/
+tools/benchmarks/results
 upgrade/
 venv
 yalc.lock
