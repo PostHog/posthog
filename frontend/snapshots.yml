@@ -9100,6 +9100,10 @@ snapshots:
         hash: v1.k794b7964.dfd3cfa4c22429f905144ad610de438cd4685b2f160970762ee53a0c57b51f7c.36ljh4-ECCoIoGsxSqYp-Bl_q4ndSo-sORGvmxkm75A
     scenes-app-insights-mcp-missing-capability--mcp-missing-capability--light:
         hash: v1.k794b7964.1b1a18bc74d3513095cfeb8a172f426cbda4d1b9b5df5ba59479d8ceb2399535.1TyzFZmRmUYsqc9Q5dnyZQtCF7gppER5cdCkVWMsNdc
+    scenes-app-insights-posthog-ai-suggestion--default--dark:
+        hash: v1.k794b7964.9b9cc1445c7ce703d3b0dbb3d4a92be579932829994f414f1de80f8016ea1154.jb54m6G-4sIokLRkpEnOPhJu-hxlxtfJcQ7ri7sI3WY
+    scenes-app-insights-posthog-ai-suggestion--default--light:
+        hash: v1.k794b7964.63299b5e251d2a6beb724655ad8791f82f58ae681bb2c931ba6339dd8fe92a56.vHLJvasOolcLGCjkSmIZqRFJ0CQmc5nTTpBBT40kSc0
     scenes-app-insights-side-panel-actions--saved-data-visualization--dark:
         hash: v1.k794b7964.3911a695d4b7b073bd0bfbaa183acb078d81df968e2cfecd18f84bc1c181bb66.2Hh9UrgF9n3vN3ZVif3FKqyz4F9mFROKhyLIEflEvDY
     scenes-app-insights-side-panel-actions--saved-data-visualization--light:
