@@ -1081,16 +1081,14 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
 
     subscriptions(({ actions, values }) => ({
         matchingFilters: (filters, previousFilters) => {
+            // The panel renders the pick-an-event-by-name selector only while this is false, so
+            // returning here is what leaves a deliberate pick alone.
             if (previousFilters === undefined || !values.shouldLoadSampleGlobals) {
                 return
             }
             // The selector rebuilds on any workflow edit, so compare the filters themselves rather
             // than the object identity, or an unrelated change to a step would refetch the event.
             if (JSON.stringify(filters) === JSON.stringify(previousFilters)) {
-                return
-            }
-            // Someone who picked an event by name chose it on purpose; leave it alone.
-            if (values.lastSearchedEventName) {
                 return
             }
             actions.loadSampleGlobals()

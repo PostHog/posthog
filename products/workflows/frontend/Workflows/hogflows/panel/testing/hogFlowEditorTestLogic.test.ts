@@ -309,6 +309,40 @@ describe('hogFlowEditorTestLogic', () => {
             expect(logic.values.matchingFilters).not.toEqual(before)
         })
 
+        it('reloads the sample event for a trigger that follows an event picked by name', async () => {
+            // The by-name selector renders only for a trigger this panel cannot query, so the
+            // picked name outlives that trigger. It must not stop the panel from following the
+            // filters once the trigger is one the panel does query.
+            logic = hogFlowEditorTestLogic({ id: 'test-workflow' })
+            logic.mount()
+            const flowLogic = workflowLogic({ id: 'test-workflow' })
+
+            const setTriggerConfig = (config: Record<string, any>): void => {
+                flowLogic.actions.setWorkflowValue(
+                    'actions',
+                    WORKFLOW_FIXTURE.actions.map((action) =>
+                        action.id === 'trigger_node' ? { ...action, config } : action
+                    )
+                )
+            }
+
+            // Consume the load that mounting always does, so the assertion below can only pass on
+            // a later one.
+            await expectLogic(logic).toDispatchActions(['loadSampleGlobals'])
+            await expectLogic(flowLogic).toDispatchActions(['loadWorkflowSuccess'])
+
+            setTriggerConfig({ type: 'webhook', filters: {} })
+            logic.actions.loadSampleEventByName({ eventName: '$pageview' })
+            expect(logic.values.lastSearchedEventName).toEqual('$pageview')
+
+            await expectLogic(logic, () => {
+                setTriggerConfig({
+                    type: 'event',
+                    filters: { events: [{ id: 'user logged in', type: 'events', properties: [] }] },
+                })
+            }).toDispatchActions(['loadSampleGlobals'])
+        })
+
         it('keeps the newest sample event when an older query answers last', async () => {
             // Two loads overlap and the first query answers second. The stale answer must be
             // discarded, or the panel shows an event the current filters never asked for.
