@@ -65,6 +65,13 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
     product_intents = serializers.SerializerMethodField()
     managed_viewsets = serializers.SerializerMethodField()
     available_setup_task_ids = serializers.SerializerMethodField()
+    revenue_analytics_config = team_config.TeamRevenueAnalyticsConfigSerializer(required=False)
+    marketing_analytics_config = marketing_config.TeamMarketingAnalyticsConfigSerializer(required=False)
+    customer_analytics_config = team_config.TeamCustomerAnalyticsConfigSerializer(required=False)
+    workflows_config = team_config.TeamWorkflowsConfigSerializer(required=False)
+    feature_flag_policy_config = team_config.TeamFeatureFlagPolicyConfigSerializer(required=False)
+    base_currency = serializers.ChoiceField(choices=CURRENCY_CODE_CHOICES, default=DEFAULT_CURRENCY)
+
     heatmaps_screenshot_secret = serializers.SerializerMethodField(
         help_text=(
             "Value this project's heatmap screenshots send as a cookie scoped to your domain, "
@@ -72,12 +79,6 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "everyone else and when none has been generated."
         ),
     )
-    revenue_analytics_config = team_config.TeamRevenueAnalyticsConfigSerializer(required=False)
-    marketing_analytics_config = marketing_config.TeamMarketingAnalyticsConfigSerializer(required=False)
-    customer_analytics_config = team_config.TeamCustomerAnalyticsConfigSerializer(required=False)
-    workflows_config = team_config.TeamWorkflowsConfigSerializer(required=False)
-    feature_flag_policy_config = team_config.TeamFeatureFlagPolicyConfigSerializer(required=False)
-    base_currency = serializers.ChoiceField(choices=CURRENCY_CODE_CHOICES, default=DEFAULT_CURRENCY)
 
     class Meta:
         model = Team
@@ -91,13 +92,13 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "api_token",
             "secret_api_token",
             "secret_api_token_backup",
+            "heatmaps_screenshot_secret",
             "created_at",
             "updated_at",
             "ingested_event",
             "default_modifiers",
             "person_on_events_querying_enabled",
             "user_access_level",
-            "heatmaps_screenshot_secret",
             # Config fields
             *team_config.TEAM_CONFIG_FIELDS,
             # Computed fields

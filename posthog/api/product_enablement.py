@@ -61,7 +61,7 @@ def _enable_conversations(team: Team, touched: set[str]) -> str:
         return "already_enabled"
     team.conversations_enabled = True
     touched.add("conversations_enabled")
-    # Mirror handle_conversations_token_on_update (posthog/api/team.py): mint a widget
+    # Mirror handle_conversations_token_on_update (posthog/api/team/conversations_settings.py): mint a widget
     # token but leave the widget off — tickets need a connected channel (the report CTA).
     settings = dict(team.conversations_settings or {})
     if not settings.get("widget_public_token"):
