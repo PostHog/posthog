@@ -61,11 +61,11 @@ export class MlKeyReader {
         const state = await this.db.read([...monthKeys.values()])
         const months = new Map<string, MlDataKey>()
         const refused: { id: string; error: string }[] = []
-        // A deleted month key is an answer, not a failure, so it does not count against the month key.
         let unavailable = 0
         await Promise.all(
             [...monthKeys.keys()].map(async (id) => {
                 const item = state.get(id)
+                // A tombstoned month key is an answer, not a failure, so it does not count as unavailable. It also ends the month, because no reader can open the session keys that are sealed under it. See products/ai_training/docs/replay-data.md.
                 if (item?.deleted?.BOOL === true) {
                     return
                 }
