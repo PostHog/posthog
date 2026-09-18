@@ -36,8 +36,10 @@ describe('dataWarehouseSavedQueryActivityDescriber', () => {
 
     it.each([
         ['column_order', ['id', 'name'], ['name', 'id'], 'reordered 2 columns'],
-        ['folder', null, 'folder-1', 'moved the view to a folder'],
+        ['folder', null, 'folder-1', 'moved the view to the folder-1 folder'],
         ['folder', 'folder-1', null, 'removed the view from its folder'],
+        ['is_test', false, true, 'marked the view as a test view'],
+        ['is_test', true, false, 'unmarked the view as a test view'],
         ['new_field', 'before', 'after', 'changed new field'],
     ])('describes %s changes', (field, before, after, expected) => {
         expect(describeText([change(field, before, after)])).toContain(expected)
@@ -56,6 +58,16 @@ describe('dataWarehouseSavedQueryActivityDescriber', () => {
             'disabled incremental materialization',
         ],
         [{ enabled: true, incremental_key: 'day' }, {}, 'disabled incremental materialization'],
+        [
+            { enabled: true, incremental_key: 'day', unique_key: ['id'] },
+            { enabled: false, incremental_key: 'day', unique_key: ['id'] },
+            'disabled incremental materialization',
+        ],
+        [
+            { enabled: false, incremental_key: 'day', unique_key: ['id'] },
+            { enabled: true, incremental_key: 'day', unique_key: ['id'] },
+            'enabled incremental materialization with incremental key day, unique key id',
+        ],
         [
             { enabled: true, incremental_key: 'day', lookback_seconds: 3600 },
             { enabled: true, incremental_key: 'hour', lookback_seconds: 7200 },

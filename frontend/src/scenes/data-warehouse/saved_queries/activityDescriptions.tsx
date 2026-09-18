@@ -50,8 +50,15 @@ function humanizeLookback(raw: unknown): string {
     return `${raw} seconds`
 }
 
-function isEmptyIncrementalConfig(config: unknown): boolean {
-    return config == null || (typeof config === 'object' && !Array.isArray(config) && Object.keys(config).length === 0)
+// `enabled` is what the backend reads in `get_incremental_config`, so a stored config that still
+// carries keys but has `enabled: false` is off.
+function isIncrementalEnabled(config: unknown): boolean {
+    return (
+        typeof config === 'object' &&
+        config !== null &&
+        !Array.isArray(config) &&
+        !!(config as Record<string, unknown>).enabled
+    )
 }
 
 function incrementalSettingLabel(field: string): string {
@@ -78,7 +85,7 @@ function describeIncrementalConfig(change: ActivityChange): JSX.Element {
     const before = change.before
     const after = change.after
 
-    if (isEmptyIncrementalConfig(before) && !isEmptyIncrementalConfig(after)) {
+    if (!isIncrementalEnabled(before) && isIncrementalEnabled(after)) {
         const config = after as Record<string, unknown>
         const settings = ['incremental_key', 'unique_key', 'lookback_seconds']
             .filter((field) => config[field] !== undefined)
@@ -91,7 +98,7 @@ function describeIncrementalConfig(change: ActivityChange): JSX.Element {
         )
     }
 
-    if (!isEmptyIncrementalConfig(before) && isEmptyIncrementalConfig(after)) {
+    if (isIncrementalEnabled(before) && !isIncrementalEnabled(after)) {
         return <>disabled incremental materialization</>
     }
 
@@ -136,7 +143,18 @@ function describeChange(change: ActivityChange): JSX.Element | null {
         return describeIncrementalConfig(change)
     }
     if (change.field === 'folder') {
-        return change.after == null ? <>removed the view from its folder</> : <>moved the view to a folder</>
+        const folder = change.after == null ? null : String(change.after)
+        if (!folder) {
+            return <>removed the view from its folder</>
+        }
+        return (
+            <>
+                moved the view to the <strong>{folder}</strong> folder
+            </>
+        )
+    }
+    if (change.field === 'is_test') {
+        return change.after ? <>marked the view as a test view</> : <>unmarked the view as a test view</>
     }
     return <>changed {humanizeField(change.field)}</>
 }

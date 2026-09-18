@@ -781,7 +781,6 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         "table",
         "managed_viewset",
         "origin",
-        "is_test",
         "expires_at",
         "incremental_state",
         "semantic_enrichment_hash",
