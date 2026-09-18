@@ -48,6 +48,7 @@ from products.replay_vision.backend.models.replay_scanner import (
     apply_experiment_targeting,
 )
 from products.replay_vision.backend.queries.action_volume import recent_action_sessions
+from products.replay_vision.backend.queries.event_volume import recent_event_sessions
 from products.replay_vision.backend.queries.scanner_candidate_query import MIN_SAMPLING_RATE, SAMPLE_RATE_PRECISION
 from products.replay_vision.backend.queries.scanner_volume_estimate import (
     PREVIEW_ESTIMATE_BUDGET,
@@ -897,6 +898,12 @@ class _LlmDraftV2(BaseModel):
         "rather than surveys in general. Only use a property and value the briefing showed; anything else is "
         "dropped. Leave empty when the event alone is what the goal means.",
     )
+    filter_operand: Literal["and", "or"] = Field(
+        default="and",
+        description="How the filters combine. 'and' (default) scans a session only when it matches every "
+        "filter. 'or' scans a session that matches ANY filter, for a goal that names alternatives ('sessions "
+        "that created OR edited OR deleted a scanner'). See the drafting rules before choosing 'or'.",
+    )
     sampling_mode: Literal["comprehensive", "balanced", "focused"] = Field(
         default="comprehensive",
         description="Which sessions deserve the budget when it cannot cover everything; see the drafting rules.",
@@ -931,15 +938,28 @@ there, so a broad draft is the right answer, not a guess at what they meant.
 Pick the single type that best fits the goal, then draft the scanner:
 - name: short and specific, under 8 words.
 - description: one sentence saying what the scanner looks for.
-- prompt: a direct, specific instruction grounded in behavior observable in a recording. Reference the
-  product's real pages and events where relevant so the scanner knows what to look at. Avoid vague
-  adjectives, multi-part questions, and data the model cannot see in a recording (revenue, account tier).
-  - monitor prompts state a yes/no question, what counts as a yes, and ask for a one-sentence reason.
-  - classifier prompts describe the dimension to categorize by; do NOT list the tags in the prompt
-    (the vocabulary is configured separately via `tags`).
-  - scorer prompts describe what a low score versus a high score means; the numeric scale is configured
-    separately via `scale_min`/`scale_max`.
-  - summarizer prompts say what the summary should focus on.
+- prompt: the instruction one scanner follows while it watches one recording. Write it the way you would
+  brief a careful analyst who sees only the video: specific, grounded in behavior visible on screen, and
+  detailed enough that two people watching the same session reach the same answer. A one-line prompt is the
+  most common cause of a low-quality scanner, so spend the words. Reference the product's real pages and
+  events so the scanner knows where to look. Avoid vague adjectives ("frustrated", "confused") without
+  saying what they look like, and never ask for data the recording cannot show (revenue, plan tier, A/B
+  variant).
+  - monitor prompts: state the yes/no question. Then list the concrete on-screen signals that count as a
+    yes (e.g. "the user clicks Place order and the confirmation page does not load within a few seconds").
+    Then list what does NOT count, so a near miss is not read as a hit. Give a tiebreak for an ambiguous
+    recording: when the evidence is unclear, answer no (or set allow_inconclusive, below). Ask for a
+    one-sentence reason citing what was seen. This yes / not-yes / tiebreak shape is what keeps a monitor
+    from firing on everything.
+  - classifier prompts: name the single dimension to sort by, and describe what each category means in
+    observable terms so the boundaries are sharp. Say how to handle a session that shows more than one
+    behavior (pick the dominant one, unless multi_label is on). Do NOT list the tag names in the prompt;
+    the vocabulary is configured separately via `tags`.
+  - scorer prompts: anchor the scale with observable behavior at the low end, the middle, and the high end,
+    so a score is reproducible rather than a feeling. Say which way to round an ambiguous session. The
+    numeric range is configured separately via `scale_min`/`scale_max`.
+  - summarizer prompts: say what the summary should focus on and what to leave out, so every summary
+    covers the same ground and stays comparable across sessions.
 - Fill only the fields relevant to the chosen type; leave the rest at their defaults.
 - For monitors: set allow_inconclusive to true when many sessions won't even reach the flow the question
   is about (e.g. a checkout question when most sessions never open checkout), so those sessions aren't
@@ -959,10 +979,12 @@ Pick the single type that best fits the goal, then draft the scanner:
     specific one.
   - filter_events: when a specific action is the sharpest signal for the goal, pick the one or two
     custom events that mark it, each copied EXACTLY from the briefing's events list. An event is often
-    more precise than a page for "did the user DO X" (e.g. an event fired when a flow starts).
-  - Prefer the single strongest signal. Events AND with each other and with the pages, so a session
-    must satisfy ALL of them: only combine when a session genuinely has both, or the filter matches
-    nothing. Anything not copied from the briefing's lists is discarded.
+    more precise than a page for "did the user DO X" (e.g. an event fired when a flow starts). Each event
+    shows its recent session count: prefer a busier event when several fit the goal, and do not filter on
+    one showing 0, because an event that fires in no session takes the whole scan to zero.
+  - Prefer the single strongest signal. By default the filters AND together (see filter_operand), so a
+    session must satisfy ALL of them: only combine an event with a page when a session genuinely has both,
+    or the filter matches nothing. Anything not copied from the briefing's lists is discarded.
   - Leave both empty ONLY when the goal genuinely spans the whole product ("summarize what users do
     here").
 - filter_event_properties: use ONLY when the goal names one specific thing its event cannot identify
@@ -994,6 +1016,14 @@ Pick the single type that best fits the goal, then draft the scanner:
   audience, so use one when the goal is about WHO the user is ('what do power users struggle with')
   rather than what they did. Copy the name exactly; anything not in the list is discarded. Usually
   one cohort; it ANDs with every other filter.
+- filter_operand: how the filters above combine, over the whole set of pages, events, and actions.
+  - 'and' (the default): a session is scanned only when it matches EVERY filter. This is what almost
+    every goal wants, and what you use whenever you are unsure.
+  - 'or': a session is scanned when it matches ANY filter. Use it ONLY when the goal names alternatives
+    that a single AND set cannot express: "sessions where someone created, edited, or deleted a scanner"
+    is three events that OR together, because a session has one of them, not all three. It applies to the
+    whole filter, so pages OR with events too. It widens the scan, so pick it deliberately and keep the
+    filter to the alternatives the goal actually lists.
 - sampling_mode: who deserves the budget when it cannot cover every matching session. Each session
   carries a score of how eventful it looks; the mode drops the lowest-scoring sessions before random
   sampling. Choose by what the goal hunts:
@@ -1036,6 +1066,7 @@ def _build_user_content_v2(
     events: list[str],
     pages: Sequence[VisitedPath],
     *,
+    event_sessions: dict[str, int] | None = None,
     scanners: list[_ExistingScanner] | None = None,
     surveys: Sequence[_MatchedSurvey] = (),
     actions: Sequence[_MatchedAction] = (),
@@ -1067,9 +1098,16 @@ def _build_user_content_v2(
                 + "\n- ".join(f"{p.pathname} ({p.sessions})" for p in pages)
             )
         if events:
+            # Goal matches lead the list (the briefing is read in order), each shown with its recent
+            # session count where measured, so the model can prefer a busier event and avoid a dead one
+            # the way it already does for pages and actions. A name match with no count is still a valid
+            # pick — it just carries no volume signal.
+            sessions = event_sessions or {}
+            event_lines = [f"{e} ({sessions[e]})" if e in sessions else e for e in events]
             taxonomy_lines.append(
-                "The product's most active custom events (use to ground the prompt, and pick from these "
-                "for filter_events when an action is the sharpest signal):\n- " + "\n- ".join(events)
+                "The product's custom events, goal matches first (recent sessions in parentheses where "
+                "known; use to ground the prompt, and pick from these for filter_events when an event is "
+                "the sharpest signal):\n- " + "\n- ".join(event_lines)
             )
         lines.append("\n" + as_untrusted_data("product-data", taxonomy_lines, source="collected from product traffic"))
     if scanners:
@@ -1386,15 +1424,20 @@ def _v2_query(
     event_properties: Sequence[_LlmEventPropertyFilter] = (),
     actions: Sequence[_MatchedAction] = (),
     cohorts: Sequence[_MatchedCohort] = (),
+    operand: str = "and",
 ) -> dict[str, Any] | None:
     """The scanner's recording filter from the grounded pages, events, and event properties.
 
     Pages become ONE multi-value `visited_page` property (its values OR). Each value is a regex that
     matches the collapsed page against real URLs, with ":id" runs wildcarded. Events go in the
-    `events` list, where each event ANDs, with the other events and with the page property. A
-    property filter rides on its event's entry, so "survey sent where $survey_id is X" stays one
-    condition rather than matching every survey. The estimate the caller runs, and the review page's
-    Save-at-zero gate, catch an over-constrained AND before it ever becomes a scanner.
+    `events` list, and actions in the `actions` list. A property filter rides on its event's entry,
+    so "survey sent where $survey_id is X" stays one condition rather than matching every survey.
+
+    `operand` sets how the top-level filters combine. It defaults to AND, which the query builder also
+    defaults to, so the key is emitted only for OR. AND scans a session that matches every filter; OR
+    scans a session that matches any one, for a goal naming alternatives. The estimate the caller
+    runs, and the review page's Save-at-zero gate, catch an over-constrained AND before it ever
+    becomes a scanner.
     """
     query: dict[str, Any] = {"kind": "RecordingsQuery"}
     properties: list[dict[str, Any]] = []
@@ -1432,6 +1475,10 @@ def _v2_query(
         ]
     if not any(key in query for key in ("properties", "events", "actions")):
         return None
+    # Emitted only for OR, so an AND query stays byte-identical to a query with no operand at all
+    # (the builder already treats a missing operand as AND).
+    if operand == "or":
+        query["operand"] = "OR"
     return query
 
 
@@ -1613,7 +1660,7 @@ def _finalize_v2(
     targeting = _grounded_targeting(
         parsed.filter_experiment, parsed.filter_experiment_variant, allowed=allowed_experiments
     )
-    narrowing = _v2_query(pages, events, event_properties, kept_actions, kept_cohorts)
+    narrowing = _v2_query(pages, events, event_properties, kept_actions, kept_cohorts, parsed.filter_operand)
     query: dict[str, Any] = narrowing if narrowing is not None else {"kind": "RecordingsQuery"}
     query["filter_test_accounts"] = True
 
@@ -1699,10 +1746,18 @@ def draft_scanner_from_goal_v2(
         # the survey events may not have matched on their own. A property filter is useless without
         # the event it rides on, so offer those events whenever a survey matched.
         events = list(dict.fromkeys([*_SURVEY_EVENTS, *events]))
+    try:
+        # Recent session counts for the candidate events, so the briefing can steer the model toward a
+        # busy event and away from a dead one. Fails open: an unmeasured event is shown without a count.
+        event_sessions = recent_event_sessions(team=team, event_names=events)
+    except Exception:
+        logger.warning("replay_vision.scanner_draft.event_volume_failed", team_id=team.id, exc_info=True)
+        event_sessions = {}
     user_content = _build_user_content_v2(
         goal,
         events,
         pages,
+        event_sessions=event_sessions,
         scanners=_existing_scanners(team, user_access_control),
         surveys=matches.surveys,
         actions=matches.actions,

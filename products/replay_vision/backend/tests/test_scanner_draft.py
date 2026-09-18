@@ -27,6 +27,7 @@ from products.replay_vision.backend.scanner_draft import (
     DraftError,
     ScannerDraft,
     _build_user_content,
+    _build_user_content_v2,
     _business_context,
     _events_for_goal,
     _existing_scanners,
@@ -144,6 +145,22 @@ class TestBuildUserContent:
         # Both grounding blocks must reach the model; losing one silently makes drafts generic again.
         assert "Acme sells anvils to coyotes." in content
         assert "Checkout drop-off (monitor): Flags abandoned checkouts." in content
+
+
+class TestBuildUserContentV2:
+    def test_events_show_recent_session_counts_where_known(self):
+        # The count lets the model prefer a busy event and skip a dead one, the way the pages and
+        # actions lists already carry volume. An unmeasured event stays a valid pick, just without a count.
+        content = _build_user_content_v2(
+            "goal",
+            ["checkout_started", "legacy_event"],
+            (),
+            event_sessions={"checkout_started": 1234},
+        )
+
+        assert "checkout_started (1234)" in content
+        assert "legacy_event" in content
+        assert "legacy_event (" not in content
 
 
 class TestFinalize:
@@ -1005,6 +1022,17 @@ class TestV2Query:
     def test_no_pages_and_no_events_is_no_query(self):
         assert _v2_query([], []) is None
 
+    def test_or_operand_is_emitted_only_when_requested_and_a_filter_survives(self):
+        # OR turns the filter from "matches every condition" into "matches any", which a goal naming
+        # alternatives needs.
+        or_query = _v2_query(["/billing"], ["checkout_started"], operand="or")
+        assert or_query is not None
+        assert or_query["operand"] == "OR"
+        # AND stays implicit, so an AND query is byte-identical to one built with no operand at all.
+        assert "operand" not in _v2_query(["/billing"], ["checkout_started"])
+        # OR over nothing is still no query, not an empty query carrying an operand.
+        assert _v2_query([], [], operand="or") is None
+
     def test_a_collapsed_id_becomes_a_wildcard(self):
         # The grounding list says "/invoice/:id" but real URLs hold real IDs. The regex wildcards the
         # id so it matches "/invoice/<any>" without matching a bare "/invoices-archive".
@@ -1246,6 +1274,19 @@ class TestFinalizeV2:
         assert draft.sampling_mode == "focused"
         assert draft.sampling_rate is None
         assert draft.estimated_monthly_observations is None
+
+    def test_or_operand_flows_from_the_draft_into_the_query(self):
+        # Wiring guard: filter_operand must reach the query, or a union goal silently scans the
+        # intersection of its filters instead.
+        draft = _finalize_v2(
+            _draft_v2(filter_events=["real_event"], filter_operand="or"),
+            allowed_pages=["/billing"],
+            allowed_events=["real_event"],
+            team_id=1,
+        )
+
+        assert draft.query is not None
+        assert draft.query["operand"] == "OR"
 
 
 class TestSolveBudget(_VisionAPITestCase):
