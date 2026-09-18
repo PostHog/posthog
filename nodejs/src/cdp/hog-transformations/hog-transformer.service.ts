@@ -2,6 +2,7 @@ import { Counter, Gauge } from 'prom-client'
 
 import { HogTransformationResult, HogTransformer } from '~/common/hog-transformations/hog-transformer.interface'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
+import { isProtectedInternalEvent } from '~/common/protected-internal-events'
 import { instrumentFn } from '~/common/tracing/tracing-utils'
 import { PostgresRouter } from '~/common/utils/db/postgres'
 import { GeoIPService, GeoIp } from '~/common/utils/geoip'
@@ -56,6 +57,11 @@ export const hogTransformationCompleted = new Counter({
 export const hogTransformationPendingInvocationResults = new Gauge({
     name: 'hog_transformation_pending_invocation_results',
     help: 'Number of invocation results accumulated and waiting to be processed. High values indicate memory accumulation.',
+})
+
+export const hogTransformationProtectedEventSkips = new Counter({
+    name: 'hog_transformation_protected_event_skips_total',
+    help: 'Number of events skipped by every transformation because they are PostHog-emitted product output',
 })
 
 export const hogTransformationUnexpectedErrors = new Counter({
@@ -140,6 +146,11 @@ export class HogTransformerService implements HogTransformer {
     }
 
     private async transformEventAndProduceMessagesImpl(event: PluginEvent): Promise<TransformationResult> {
+        if (isProtectedInternalEvent(event.event)) {
+            hogTransformationProtectedEventSkips.inc()
+            return { event, invocationResults: [] }
+        }
+
         hogTransformationAttempts.inc({ type: 'with_messages' })
 
         const teamHogFunctions = await this.hogFunctionManager.getHogFunctionsForTeam(event.team_id, ['transformation'])

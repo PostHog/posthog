@@ -811,6 +811,37 @@ describe('HogTransformer', () => {
             })
         })
 
+        it.each([
+            {
+                name: 'skips every transformation for protected internal events',
+                eventName: '$recording_observed',
+                dropped: false,
+            },
+            { name: 'still runs transformations for other events', eventName: 'purchase', dropped: true },
+        ])('$name', async ({ eventName, dropped }) => {
+            const dropEverything = createHogFunction({
+                type: 'transformation',
+                name: 'Drop everything',
+                team_id: teamId,
+                enabled: true,
+                bytecode: await compileHog('return null'),
+            })
+            await insertHogFunction(hub.postgres, teamId, dropEverything)
+            hogTransformer['hogFunctionManager']['onHogFunctionsReloaded'](teamId, [dropEverything.id])
+
+            const event = createPluginEvent({ event: eventName, properties: { original: true } }, teamId)
+
+            const result = await hogTransformer.transformEventAndProduceMessages(event)
+
+            if (dropped) {
+                expect(result.event).toBeNull()
+                expect(result.droppedBy?.id).toBe(dropEverything.id)
+            } else {
+                expect(result.event).toBe(event)
+                expect(result.invocationResults).toEqual([])
+            }
+        })
+
         it('should strip incoming transformation tracking properties', async () => {
             const successTemplate: HogFunctionTemplate = {
                 free: true,
