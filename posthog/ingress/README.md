@@ -25,6 +25,7 @@ Adding a provider is another `<provider>/` folder, not a change to the mechanism
 1. **Method** — anything but `POST` is 405, before any secret is read.
 2. **Throttle** — `provider.throttle_class`, when the provider sets one. A refusal is 429 with a `Retry-After`.
 3. **Verify** — `provider.verify(request)` over the raw body, answering a `Verification`. A bad signature never reaches a consumer.
+   It asks `scheme.rejects_headers(request.headers)` first, so a signature header that is missing or the wrong shape is refused before `request.body` is read.
 4. **Parse** — `provider.parse(request)`, which decodes the verified body. The default is JSON; an `InvalidPayload` is 400.
 5. **Handshake** — `provider.pre_dispatch_response(request, payload)`, for a challenge the protocol demands.
 6. **Dispatch** — `provider.deliveries(request, payload, facts)`, then ownership, the forward and the consumers, all inside one wall-clock budget.
@@ -45,6 +46,8 @@ An HMAC over raw bytes proves only the signature, so its `facts` are empty and `
 
 `verify/schemes.py` holds `HmacSha256` and `SnsSignature`; `verify/jwt.py` holds `BearerJwt`, for a provider that authenticates with a signed token instead of a shared secret.
 Each class docstring carries its own reasoning.
+
+A scheme also answers `rejects_headers(headers)`, the part of the check that needs no body: `HmacSha256` refuses a missing or malformed signature header and a missing timestamp header there, and `BearerJwt` refuses a request that carries no bearer token. The answer is the same INVALID the full check would reach, with the same status, log line and metric outcome, so an unauthenticated caller cannot make an endpoint read a body of up to the request limit for it. A scheme that cannot decide from headers alone answers `False`, which is what `SnsSignature` does.
 
 Three duties fall on the incarnation rather than on `BearerJwt`, and none is enforced:
 

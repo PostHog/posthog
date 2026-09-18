@@ -84,6 +84,14 @@ def signatures_match(expected: str, provided: str) -> bool:
 class SignatureScheme(Protocol):
     def verify(self, *, body: bytes, headers: Mapping[str, str]) -> Verification: ...
 
+    def rejects_headers(self, headers: Mapping[str, str]) -> bool:
+        """Whether the headers alone already fail the check, so the body need not be read.
+
+        `WebhookProvider.verify` asks this first, and a `True` answers exactly what an INVALID
+        verification answers. A scheme that cannot decide from headers alone answers `False`.
+        """
+        ...
+
 
 @frozen
 class HmacSha256:
@@ -121,16 +129,24 @@ class HmacSha256:
     def _expected_signature(self, secret: str, signed: bytes) -> str:
         return hmac_sha256_signature(secret, signed, encoding=self.encoding, prefix=self.prefix)
 
+    def rejects_headers(self, headers: Mapping[str, str]) -> bool:
+        provided = header_value(headers, self.signature_header)
+        if not provided:
+            return True
+        if self.signature_pattern is not None and not self.signature_pattern.match(provided):
+            return True
+        # Freshness needs the clock rather than the headers, so it stays in `_outcome`.
+        return self.timestamp_header is not None and not header_value(headers, self.timestamp_header)
+
     def _outcome(self, *, body: bytes, headers: Mapping[str, str]) -> VerificationOutcome:
         secret = self.secret_getter()
         if not secret:
             return VerificationOutcome.NOT_CONFIGURED
+        if self.rejects_headers(headers):
+            return VerificationOutcome.INVALID
 
-        provided = header_value(headers, self.signature_header)
-        if not provided:
-            return VerificationOutcome.INVALID
-        if self.signature_pattern is not None and not self.signature_pattern.match(provided):
-            return VerificationOutcome.INVALID
+        # Present and well-shaped, because `rejects_headers` just said so.
+        provided = header_value(headers, self.signature_header) or ""
 
         timestamp: str | None = None
         if self.timestamp_header is not None:
@@ -160,6 +176,11 @@ class SnsSignature:
 
     verify_message: Callable[[Mapping[str, Any]], bool]
     allowed_topic_arns: Callable[[], frozenset[str]]
+
+    def rejects_headers(self, headers: Mapping[str, str]) -> bool:
+        # SNS signs the JSON envelope and carries nothing in the headers, so there is no
+        # header-only refusal to make here.
+        return False
 
     def _outcome(self, *, body: bytes, headers: Mapping[str, str]) -> VerificationOutcome:
         allowed = self.allowed_topic_arns()

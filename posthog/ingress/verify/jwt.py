@@ -56,6 +56,9 @@ class BearerJwt:
             return None
         return provided[len(self.token_prefix) :]
 
+    def rejects_headers(self, headers: Mapping[str, str]) -> bool:
+        return self._token(headers) is None
+
     def verify(self, *, body: bytes, headers: Mapping[str, str]) -> Verification:
         # The header comes before the getters, unlike the HMAC scheme, because a getter that
         # discovers its `jwks_uri` costs an HTTP request a token-less probe must not buy.
