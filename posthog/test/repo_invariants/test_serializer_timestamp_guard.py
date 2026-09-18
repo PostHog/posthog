@@ -74,7 +74,6 @@ ALLOWED_WRITABLE: dict[str, str] = {
     "products.actions.backend.api.action.ActionSerializer.last_calculated_at": "TODO: server-owned, written by the action calculation job",
     "products.batch_exports.backend.api.batch_export.BatchExportSerializer.last_paused_at": "TODO: written by the pause action, make read-only",
     "products.dashboards.backend.api.dashboard.DashboardSerializer.last_accessed_at": "TODO: server-owned, written when a dashboard is opened",
-    "products.product_analytics.backend.presentation.insight.InsightBasicSerializer.last_modified_at": "TODO: server-owned, written on each save",
 }
 
 # Views and serializers the guard cannot read, each with a reason. An entry hides part
@@ -180,8 +179,102 @@ def _function_scope(tree: ast.AST, scope: dict[str, Any], view_class: type) -> t
     return scope, bound
 
 
-def _serializer_choices(view_class: type) -> tuple[set[type], list[str]]:
-    """Every serializer a view could hand to a write request, and what would not resolve.
+def _action_literals(test: ast.expr) -> set[str] | None:
+    """The actions a test requires, or `None` when it constrains the action not at all.
+
+    Only a plain `self.action == "x"` or `self.action in (...)` counts. Anything else
+    reads as unconstrained, so an unrecognised guard widens the search rather than
+    narrowing it.
+    """
+    match test:
+        case ast.BoolOp(op=ast.And(), values=values):
+            # Every operand must hold, so any one of them can supply the constraint.
+            required = {action for value in values for action in (_action_literals(value) or set())}
+            return required or None
+        case ast.Compare(
+            left=ast.Attribute(value=ast.Name(id="self"), attr="action"),
+            ops=[ast.Eq()],
+            comparators=[ast.Constant(value=str(action))],
+        ):
+            return {action}
+        case ast.Compare(
+            left=ast.Attribute(value=ast.Name(id="self"), attr="action"),
+            ops=[ast.In()],
+            comparators=[ast.Tuple(elts=elements) | ast.List(elts=elements) | ast.Set(elts=elements)],
+        ):
+            actions = {element.value for element in elements if isinstance(element, ast.Constant)}
+            return {action for action in actions if isinstance(action, str)} or None
+        case _:
+            return None
+
+
+def _required_actions(test: ast.expr, view_class: type) -> set[str] | None:
+    """The actions a branch test requires, following a `self.is_x()` guard one level.
+
+    `InsightViewSet` gates its basic serializer on `self._is_basic_request()`, and that
+    helper is where `self.action in ("list", "retrieve")` lives, so a guard that reads
+    only the branch test would miss the constraint entirely.
+    """
+    direct = _action_literals(test)
+    if direct is not None:
+        return direct
+    match test:
+        case ast.Call(func=ast.Attribute(value=ast.Name(id="self"), attr=str(name)), args=[], keywords=[]):
+            for klass in view_class.__mro__:
+                helper = vars(klass).get(name)
+                if helper is None:
+                    continue
+                try:
+                    tree = ast.parse(textwrap.dedent(inspect.getsource(helper)))
+                except Exception:
+                    return None
+                returned = [
+                    node.value for node in ast.walk(tree) if isinstance(node, ast.Return) and node.value is not None
+                ]
+                return _action_literals(returned[0]) if len(returned) == 1 else None
+    return None
+
+
+def _returns_by_action(body: list[ast.stmt], view_class: type) -> list[tuple[ast.expr, set[str] | None]]:
+    """Each returned expression, paired with the actions that have to hold to reach it.
+
+    Only the taken branch of an action guard narrows. An `else` inherits the enclosing
+    constraint instead of the complement, which keeps the result a superset.
+    """
+    found: list[tuple[ast.expr, set[str] | None]] = []
+
+    def walk(statements: list[ast.stmt], required: set[str] | None) -> None:
+        for statement in statements:
+            if isinstance(statement, ast.Return):
+                if statement.value is not None:
+                    found.append((statement.value, required))
+                continue
+            if isinstance(statement, ast.If):
+                actions = _required_actions(statement.test, view_class)
+                narrowed = required & actions if required and actions else actions or required
+                walk(statement.body, narrowed)
+                walk(statement.orelse, required)
+                continue
+            for field in ("body", "orelse", "finalbody"):
+                nested = getattr(statement, field, None)
+                if isinstance(nested, list):
+                    walk(nested, required)
+
+    walk(body, None)
+    return found
+
+
+def _is_super_delegation(expression: ast.expr) -> bool:
+    """`return super().get_serializer_class()`, which the MRO walk already covers."""
+    match expression:
+        case ast.Call(func=ast.Attribute(value=ast.Call(func=ast.Name(id="super")), attr="get_serializer_class")):
+            return True
+        case _:
+            return False
+
+
+def _serializer_choices(view_class: type, action: str) -> tuple[set[type], list[str]]:
+    """Every serializer a view could hand to this action, and what would not resolve.
 
     `get_serializer_class` is read statically rather than called, because calling it
     returns the one serializer that matches a synthesized request: a view that branches
@@ -208,15 +301,15 @@ def _serializer_choices(view_class: type) -> tuple[set[type], list[str]]:
         module_scope = vars(module) if module is not None else {}
         scope, locally_bound = _function_scope(tree, module_scope, view_class)
         found.update(locally_bound)
-        for node in ast.walk(tree):
-            if not isinstance(node, ast.Return) or node.value is None:
+        for returned, required in _returns_by_action(tree.body, view_class):
+            if required is not None and action not in required:
                 continue
-            resolved = _resolve(node.value, scope, view_class)
+            resolved = _resolve(returned, scope, view_class)
             serializer_classes = [entry for entry in resolved if _is_serializer(entry)]
             if serializer_classes:
                 found.update(serializer_classes)
-            elif not resolved and not isinstance(node.value, ast.Call):
-                unresolved.append(f"{klass.__qualname__}.get_serializer_class -> {ast.unparse(node.value)[:60]}")
+            elif not resolved and not _is_super_delegation(returned):
+                unresolved.append(f"{klass.__qualname__}.get_serializer_class -> {ast.unparse(returned)[:60]}")
     return found, unresolved
 
 
@@ -271,14 +364,14 @@ def _write_exposed_serializers() -> tuple[set[type], dict[str, str]]:
         view_class = getattr(callback, "cls", None)
         if method not in WRITE_METHODS or view_class is None:
             continue
-        choices, problems = _serializer_choices(view_class)
+        # A viewset routes the method to an action; a plain APIView handles it by name.
+        actions = getattr(callback, "actions", None) or {}
+        action = actions.get(method.lower()) or method.lower()
+        choices, problems = _serializer_choices(view_class, action)
         found.update(choices)
         if problems:
             unresolved[_dotted_name(view_class)] = "; ".join(problems)
-        # A viewset routes the method to an action; a plain APIView handles it by name.
-        actions = getattr(callback, "actions", None) or {}
-        handler_names = {method.lower(), actions.get(method.lower())}
-        found.update(_request_body_serializers(view_class, {name for name in handler_names if name}))
+        found.update(_request_body_serializers(view_class, {method.lower(), action}))
     return found, unresolved
 
 
@@ -360,6 +453,72 @@ def test_discovery_reaches_dynamically_selected_serializers() -> None:
         "Discovery no longer reaches these serializers, so a server-owned timestamp on one of them "
         "would pass the sweep above. Reading get_serializer_class statically is what finds them:\n" + "\n".join(missing)
     )
+
+
+# Fixtures for the discovery tests below. They sit at module level because a view
+# resolves a serializer name against the globals of the module that defines it, which
+# is where every real serializer lives.
+class ReadShapeSerializer(serializers.Serializer):
+    pass
+
+
+class WriteShapeSerializer(serializers.Serializer):
+    pass
+
+
+class BranchingViewSet(viewsets.GenericViewSet):
+    def _wants_read_shape(self) -> bool:
+        return self.action in ("list", "retrieve")
+
+    def get_serializer_class(self) -> type[serializers.Serializer]:
+        if self._wants_read_shape():
+            return ReadShapeSerializer
+        return WriteShapeSerializer
+
+
+class OpaqueGuardViewSet(viewsets.GenericViewSet):
+    def get_serializer_class(self) -> type[serializers.Serializer]:
+        if self.request.headers.get("x-shape") == "read":
+            return ReadShapeSerializer
+        return WriteShapeSerializer
+
+
+def _choose_serializer(action: str) -> type[serializers.Serializer]:
+    return WriteShapeSerializer
+
+
+class FactoryViewSet(viewsets.GenericViewSet):
+    def get_serializer_class(self) -> type[serializers.Serializer]:
+        return _choose_serializer(self.action)
+
+
+class DelegatingViewSet(viewsets.GenericViewSet):
+    def get_serializer_class(self) -> type[serializers.BaseSerializer]:
+        return super().get_serializer_class()
+
+
+def test_read_only_action_serializers_are_not_write_route_violations() -> None:
+    # A serializer a view hands only to list or retrieve is not exposed to a write
+    # request, so reporting it would send an owning team after a hole that is not there.
+    # The guard follows `_wants_read_shape` to find the constraint, because a helper is
+    # where InsightViewSet keeps it.
+    assert _serializer_choices(BranchingViewSet, "create")[0] == {WriteShapeSerializer}
+    assert _serializer_choices(BranchingViewSet, "list")[0] == {ReadShapeSerializer, WriteShapeSerializer}
+
+
+def test_unrecognized_action_guard_keeps_every_serializer() -> None:
+    # Narrowing on a guard the parser does not understand would drop a serializer a
+    # write route can still reach, so an unreadable guard must constrain nothing.
+    assert _serializer_choices(OpaqueGuardViewSet, "create")[0] == {ReadShapeSerializer, WriteShapeSerializer}
+
+
+def test_unresolvable_serializer_factory_is_reported() -> None:
+    # A factory call resolves to nothing, so the route would pass unchecked unless the
+    # guard reports it. super().get_serializer_class() is the one call the MRO covers.
+    assert _serializer_choices(FactoryViewSet, "create")[1] == [
+        "FactoryViewSet.get_serializer_class -> _choose_serializer(self.action)"
+    ]
+    assert _serializer_choices(DelegatingViewSet, "create")[1] == []
 
 
 def test_request_body_declarations_stay_readable() -> None:
