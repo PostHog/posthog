@@ -3,6 +3,7 @@ from typing import Any
 
 import temporalio.workflow as wf
 from temporalio import common
+from temporalio.exceptions import ApplicationError, TimeoutType
 
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.search_attributes import POSTHOG_SESSION_RECORDING_ID_KEY, POSTHOG_TEAM_ID_KEY
@@ -41,6 +42,8 @@ from .activities import (
     record_rasterization_failure,
 )
 from .types import (
+    RASTERIZE_BUDGET_EXHAUSTED_TYPE,
+    RASTERIZE_POST_RENDER_RESERVE,
     RASTERIZE_RENDER_MAX_ATTEMPTS,
     RASTERIZE_RENDER_TIMEOUT,
     BuildRasterizationResult,
@@ -54,6 +57,10 @@ from .types import (
 # their history without it, so replaying them against an unconditional call fails as non-determinism.
 _RECORD_FAILURE_PATCH = "rasterize-record-failure-2026-08"
 
+# Gates the render's schedule_to_close. In-flight executions scheduled the render without one, so the
+# marker keeps them on their recorded command sequence.
+_RENDER_BUDGET_PATCH = "rasterize-render-budget-2026-09"
+
 
 def _resolve_error_code(exc: BaseException) -> str:
     """The code recorded onto the asset when the renderer produced none of its own.
@@ -63,6 +70,17 @@ def _resolve_error_code(exc: BaseException) -> str:
     classify as an opaque `ActivityError` and land in the unknown bucket.
     """
     return "ACTIVITY_TIMEOUT" if find_temporal_timeout_error(exc) else resolve_exception_class(exc)
+
+
+# Only a deadline the running attempt blew through shows that a worker died. A schedule-to-close
+# timeout caps the whole retry chain and counts the queue wait, so it fires on a spent budget —
+# sometimes before any worker opened the recording.
+_KILLED_WORKER_TIMEOUT_TYPES = frozenset({TimeoutType.HEARTBEAT, TimeoutType.START_TO_CLOSE})
+
+
+def _is_killed_worker_timeout(exc: BaseException) -> bool:
+    timeout = find_temporal_timeout_error(exc)
+    return timeout is not None and timeout.type in _KILLED_WORKER_TIMEOUT_TYPES
 
 
 def _record_outcome(counter: Counter, inputs: RasterizeRecordingInputs) -> None:
@@ -88,14 +106,12 @@ class RasterizeRecordingWorkflow(PostHogWorkflow):
         try:
             result = await self._run(inputs)
         except Exception as exc:
-            # Resolved once so the recorded code and the quarantine decision cannot drift apart.
-            error_code = _resolve_error_code(exc)
             # Count runs, not attempts: only the final scheduled attempt is a failed run.
             if self._is_final_attempt():
                 _record_outcome(RASTERIZATION_FAILED_COUNTER, inputs)
                 if wf.patched(_RECORD_FAILURE_PATCH):
-                    await self._record_failure(inputs, exc, error_code)
-            await self._maybe_bump_stuck_counter(error_code)
+                    await self._record_failure(inputs, exc, _resolve_error_code(exc))
+            await self._maybe_bump_stuck_counter(exc)
             raise
         await self._maybe_clear_stuck_counter()
         _record_outcome(RASTERIZATION_COMPLETED_COUNTER, inputs)
@@ -132,7 +148,7 @@ class RasterizeRecordingWorkflow(PostHogWorkflow):
         except Exception as record_exc:
             wf.logger.warning("rasterize.record_failure_failed", extra={"error": str(record_exc)})
 
-    async def _maybe_bump_stuck_counter(self, error_code: str) -> None:
+    async def _maybe_bump_stuck_counter(self, exc: BaseException) -> None:
         info = wf.info()
         max_attempts = self._max_attempts()
         # Bump only on the final scheduled attempt; recoverable failures would otherwise over-count.
@@ -148,11 +164,11 @@ class RasterizeRecordingWorkflow(PostHogWorkflow):
         team_id = info.typed_search_attributes.get(POSTHOG_TEAM_ID_KEY)
         if session_id is None or team_id is None:
             return
-        # A timeout-class final failure during the render phase means the worker died mid-render
-        # (OOM, wedge): the recording already took a pod down, so it quarantines at once instead of
-        # after a second envelope. The phase guard keeps a timed-out prep or finalize activity (a
-        # Postgres incident, not the recording) on the ordinary two-strike path.
-        killed_worker = error_code == "ACTIVITY_TIMEOUT" and self._phase == "rendering"
+        # A worker killed mid-render (OOM, wedge) means the recording already took a pod down, so it
+        # quarantines at once instead of after a second envelope. The phase guard keeps a timed-out
+        # prep or finalize activity (a Postgres incident, not the recording) on the ordinary
+        # two-strike path.
+        killed_worker = _is_killed_worker_timeout(exc) and self._phase == "rendering"
         try:
             await wf.execute_activity(
                 bump_stuck_counter_activity,
@@ -179,6 +195,26 @@ class RasterizeRecordingWorkflow(PostHogWorkflow):
         except Exception as exc:
             wf.logger.warning("rasterize.stuck_counter_clear_failed", extra={"error": str(exc)})
 
+    @staticmethod
+    def _render_retry_budget() -> dt.timedelta | None:
+        """Cap the render's retry chain at what is left of this workflow's own execution_timeout.
+
+        A caller can fund fewer render attempts than `RASTERIZE_RENDER_MAX_ATTEMPTS` asks for. The
+        cap turns that shortfall into a typed activity timeout the caller can classify, instead of an
+        untyped execution timeout that kills the run mid-render.
+
+        The elapsed time runs from `workflow_start_time`, not this run's `start_time`: execution_timeout
+        covers the whole retry chain, so a retried run that measured from its own start would read a
+        near-full budget against an envelope that is nearly spent.
+        """
+        if not wf.patched(_RENDER_BUDGET_PATCH):
+            return None
+        info = wf.info()
+        if info.execution_timeout is None:
+            return None
+        remaining = info.execution_timeout - (wf.now() - info.workflow_start_time)
+        return remaining - RASTERIZE_POST_RENDER_RESERVE
+
     async def _run(self, inputs: RasterizeRecordingInputs) -> RasterizationActivityOutput:
         retry_policy = common.RetryPolicy(maximum_attempts=3)
 
@@ -196,6 +232,15 @@ class RasterizeRecordingWorkflow(PostHogWorkflow):
 
         assert prep.activity_input is not None  # tagged-union invariant
 
+        render_budget = self._render_retry_budget()
+        if render_budget is not None and render_budget <= dt.timedelta(0):
+            # Starting a render the envelope cannot hold burns a browser pod to reach the same failure.
+            raise ApplicationError(
+                "no render budget left in the workflow's execution timeout",
+                type=RASTERIZE_BUDGET_EXHAUSTED_TYPE,
+                non_retryable=True,
+            )
+
         self._phase = "rendering"
         # Plain dict from Node.js across the cross-language boundary.
         raw_result: dict[str, Any] = await wf.execute_activity(
@@ -206,6 +251,7 @@ class RasterizeRecordingWorkflow(PostHogWorkflow):
             # task-queue attribute, and a mid-flight change only redirects retries.
             task_queue=inputs.task_queue or settings.RASTERIZATION_TASK_QUEUE,
             start_to_close_timeout=RASTERIZE_RENDER_TIMEOUT,
+            schedule_to_close_timeout=render_budget,
             heartbeat_timeout=dt.timedelta(seconds=30),
             retry_policy=common.RetryPolicy(maximum_attempts=RASTERIZE_RENDER_MAX_ATTEMPTS),
         )
