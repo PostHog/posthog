@@ -114,6 +114,7 @@ from products.signals.backend.models import (
     SignalReportArtefact,
     SignalReportCheck,
     SignalReportRefund,
+    SignalScoutConfig,
     SignalSourceConfig,
     SignalTeamConfig,
     SignalUserAutonomyConfig,
@@ -137,12 +138,14 @@ from products.signals.backend.report_claims import (
 from products.signals.backend.report_generation.research import ActionabilityChoice
 from products.signals.backend.report_generation.resolve_reviewers import (
     ReviewerPayloadIndex,
+    bounded_reviewer_reason,
     get_org_member_github_logins_by_user_uuid,
     get_org_member_users_by_uuid,
     normalized_github_logins_from_suggested_reviewer_artefacts,
     normalized_user_uuids_from_suggested_reviewer_artefacts,
     resolve_org_github_login_to_users,
     resolve_org_users_by_uuid,
+    source_skills_from_suggested_reviewer_artefacts,
 )
 from products.signals.backend.report_generation.reviewer_telemetry import capture_suggested_reviewers_resolved
 from products.signals.backend.report_metric_access import ReportMetricAccessPolicy
@@ -4104,16 +4107,28 @@ def append_suggested_reviewers(
             # Same rule for reason. Only fall back to the manual-add note when the field was
             # omitted for a brand-new reviewer — an explicit null clears the reason, as for kept ones.
             effective_name = resolved.github_name if resolved.explicit_name else prior_name
-            effective_reason = resolved.reason if resolved.explicit_reason else prior_reason
+            effective_reason = resolved.reason if resolved.explicit_reason else bounded_reviewer_reason(prior_reason)
             if not resolved.explicit_reason and prior is None:
                 effective_reason = manual_add_reason
+            safe_commits = (
+                [
+                    {**commit, "reason": bounded_reviewer_reason(commit.get("reason")) or ""}
+                    if isinstance(commit, dict)
+                    else commit
+                    for commit in prior_commits
+                ]
+                if isinstance(prior_commits, list)
+                else []
+            )
             new_content.append(
                 {
                     "github_login": resolved.github_login,
                     "user_uuid": resolved.user_uuid,
                     "github_name": effective_name if isinstance(effective_name, str) else None,
-                    "relevant_commits": prior_commits if isinstance(prior_commits, list) else [],
+                    "relevant_commits": safe_commits,
                     "reason": effective_reason or None,
+                    "source_skill": prior.get("source_skill") if prior else None,
+                    "is_skill_owner": bool(prior.get("is_skill_owner")) if prior else False,
                 }
             )
 
@@ -4461,7 +4476,9 @@ class SignalReportArtefactViewSet(
     - PUT edits a report's suggested reviewers: it appends a new `suggested_reviewers` status
       artefact (latest-wins, so the new row becomes current) with bespoke reviewer enrichment,
       merging commits/names forward from the current reviewers. Other types return 400.
-    - POST / PATCH / DELETE manage artefacts of *any* type — no type is writer-restricted.
+    - POST / PATCH / DELETE manage artefacts, except for the types the pipeline owns
+      (`NON_WRITABLE_ARTEFACT_TYPES`) and, for DELETE, the append-only `task_run` log; all of
+      those return 400 naming the type.
       Log entries accumulate; status types (judgments, repo selection, suggested reviewers, channel assignments)
       are latest-wins, so appending a new version supersedes the previous one as the report's
       canonical status. Content is validated against the type's schema. Team scoping is
@@ -4529,6 +4546,16 @@ class SignalReportArtefactViewSet(
         login_map = resolve_org_github_login_to_users(self.team.id, logins_union) if logins_union else {}
         uuids_union = normalized_user_uuids_from_suggested_reviewer_artefacts(artefacts)
         uuid_map = resolve_org_users_by_uuid(self.team.id, uuids_union) if uuids_union else {}
+        skills_union = source_skills_from_suggested_reviewer_artefacts(artefacts)
+        scout_display_names = (
+            dict(
+                SignalScoutConfig.objects.for_team(self.team.id)
+                .filter(skill_name__in=skills_union)
+                .values_list("skill_name", "display_name")
+            )
+            if skills_union
+            else {}
+        )
         serializer = SignalReportArtefactSerializer(
             artefacts,
             many=True,
@@ -4536,6 +4563,7 @@ class SignalReportArtefactViewSet(
                 **self.get_serializer_context(),
                 "signals_github_login_to_user_map": login_map,
                 "signals_reviewer_user_uuid_map": uuid_map,
+                "signals_scout_display_names": scout_display_names,
             },
         )
         if page is not None:
@@ -4800,7 +4828,10 @@ class SignalReportArtefactViewSet(
         description=(
             "Delete an artefact, addressed by id. Deleting the latest row of a status type reverts "
             "the report's canonical status to the previous version (latest-wins over what remains). "
-            "`task_run` artefacts are an append-only work log and cannot be deleted."
+            "`task_run` artefacts are an append-only work log and cannot be deleted. Neither can the "
+            "types this API cannot write, which the pipeline owns: "
+            # Interpolated from the constant the guard tests, so the contract cannot drift from it.
+            f"{', '.join(f'`{artefact_type}`' for artefact_type in sorted(NON_WRITABLE_ARTEFACT_TYPES))}."
         ),
         parameters=[_REPORT_ID_PARAMETER],
         operation_id="signals_report_artefacts_destroy",
@@ -4817,6 +4848,14 @@ class SignalReportArtefactViewSet(
             # a client at the cap free its own slots.
             return Response(
                 {"error": f"{artefact.type} artefacts are an append-only work log and cannot be deleted."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if artefact.type in NON_WRITABLE_ARTEFACT_TYPES:
+            # System-generated types can't be created or edited through the API, so they can't be
+            # deleted through it either. Deleting the latest row of one reverts the report's canonical
+            # status — e.g. resurfacing a superseded implementation_decision, which then reopens a PR.
+            return Response(
+                {"error": f"Artefact type '{artefact.type}' is read-only and cannot be deleted through the API."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
         was_reviewers = artefact.type == SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS

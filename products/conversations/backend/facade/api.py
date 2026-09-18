@@ -114,6 +114,26 @@ def accept_github_event(delivery: WebhookDelivery) -> None:
     github_events.accept_github_event(delivery)
 
 
+def accept_slack_event(delivery: WebhookDelivery) -> None:
+    """The inbound SupportHog Slack webhook enters conversations here, so its consumer needs no internal import."""
+    # Deferred to keep the Celery task module off the facade import path.
+    from products.conversations.backend.services import slack_events  # noqa: PLC0415
+
+    slack_events.accept_slack_event(delivery)
+
+
+def slack_delivery_ownership(delivery: WebhookDelivery) -> DeliveryOwnership:
+    """Whether this region holds the team the delivery's Slack workspace is connected to.
+
+    Ingress asks before it dispatches, and forwards the signed request to the other region when
+    the answer is elsewhere.
+    """
+    # Deferred to keep the Celery task module off the facade import path.
+    from products.conversations.backend.services import slack_events  # noqa: PLC0415
+
+    return slack_events.slack_delivery_ownership(delivery)
+
+
 def accept_teams_event(delivery: WebhookDelivery) -> None:
     """The inbound SupportHog Teams webhook enters conversations here, so its consumer needs no internal import."""
     # Deferred to keep the Celery task module off the facade import path.

@@ -204,6 +204,8 @@ async def prepare_s3_files_for_querying(
                 # S3's SlowDown rate limiting on the destination prefix.
                 await s3._cp_file(file, f"{s3_path_for_querying}/{file_name}")
 
+        import deltalake.exceptions  # noqa: PLC0415 — keeps the heavy deltalake dep off this module's top-level import path
+
         from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.errors import (  # noqa: PLC0415 — keeps the heavy deltalake dep off this module's top-level import path
             is_transient_object_store_error,
         )
@@ -228,7 +230,20 @@ async def prepare_s3_files_for_querying(
                     level="error",
                 )
                 await asyncio.sleep(2**attempt)
-                file_uris = await refresh_file_uris()
+                try:
+                    file_uris = await refresh_file_uris()
+                except deltalake.exceptions.TableNotFoundError as refresh_error:
+                    # Re-listing reopens the same table mid-race, and can lose it the same way the
+                    # copy above did: delta-rs raises this (not FileNotFoundError/OSError) when the
+                    # rewrite in progress has left the log segment with zero readable commits for the
+                    # moment before its own commit lands. Keep the stale listing so the next attempt's
+                    # copy fails the same way and this loop retries the refresh again, instead of the
+                    # delta-kernel error escaping uncaught on the first unlucky refresh.
+                    await _log(
+                        f"Refreshing file listing hit the same table race (attempt "
+                        f"{attempt}/{_COPY_FILES_MAX_ATTEMPTS}), retrying: {refresh_error}",
+                        level="error",
+                    )
             except OSError as e:
                 # s3fs wraps a CopyObject/PutObject 5xx (e.g. S3's InternalError, already retried to
                 # exhaustion at the boto layer) as a plain OSError. That's a blip on S3's side, not a
