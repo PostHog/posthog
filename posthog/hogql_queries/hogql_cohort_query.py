@@ -27,6 +27,7 @@ from posthog.schema import (
     StickinessActorsQuery,
     StickinessCriteria,
     StickinessFilter,
+    StickinessOperator,
     StickinessQuery,
     TrendsFilter,
     TrendsQuery,
@@ -78,6 +79,25 @@ def parse_and_validate_positive_integer(value: Optional[Union[str, int]], value_
     if parsed_value <= 0:
         raise ValueError(f"{value_name} must be greater than 0, got {value}")
     return parsed_value
+
+
+def build_stickiness_criteria(operator: Optional[str], operator_value: int) -> StickinessCriteria:
+    if operator == "gte":
+        return StickinessCriteria(operator=StickinessOperator.GTE, value=operator_value)
+    elif operator == "lte":
+        return StickinessCriteria(operator=StickinessOperator.LTE, value=operator_value)
+    # Stickiness has no strict comparison, so move the bound by one. Counts are integers,
+    # which keeps the result the same as the legacy `>` and `<` comparisons.
+    elif operator == "gt":
+        return StickinessCriteria(operator=StickinessOperator.GTE, value=operator_value + 1)
+    elif operator == "lt":
+        if operator_value == 1:
+            raise ValidationError("operator_value must be greater than 1 when count_operator is lt")
+        return StickinessCriteria(operator=StickinessOperator.LTE, value=operator_value - 1)
+    elif operator in ("eq", "exact", None):
+        return StickinessCriteria(operator=StickinessOperator.EXACT, value=operator_value)
+    else:
+        raise ValidationError("count_operator must be gt(e), lt(e), exact, or None")
 
 
 def _require_select_query(query: ast.SelectQuery | ast.SelectSetQuery) -> ast.SelectQuery:
@@ -545,7 +565,7 @@ class HogQLCohortQuery:
             interval=date_interval,
             intervalCount=time_value,
             stickinessFilter=StickinessFilter(
-                stickinessCriteria=StickinessCriteria(operator=prop.operator, value=operator_value)
+                stickinessCriteria=build_stickiness_criteria(prop.operator, operator_value)
             ),
         )
         return self._actors_query_from_source(
