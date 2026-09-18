@@ -241,8 +241,11 @@ class NotebookRunWorkflow(PostHogWorkflow):
             return await workflow.execute_activity(
                 dispatch_notebook_cell_activity,
                 NotebookRunCellInput(notebook_run_id=input.notebook_run_id, team_id=input.team_id, index=index),
-                start_to_close_timeout=timedelta(minutes=5),
-                schedule_to_close_timeout=DISPATCH_RETRY_BUDGET + timedelta(minutes=5),
+                # One attempt is a connection lookup, a slot, a row, and a hand-off, so a
+                # minute is already generous. Bounding the whole schedule at the retry budget
+                # is what makes that budget the real ceiling rather than a first interval.
+                start_to_close_timeout=timedelta(minutes=1),
+                schedule_to_close_timeout=DISPATCH_RETRY_BUDGET,
                 retry_policy=common.RetryPolicy(
                     initial_interval=timedelta(seconds=2),
                     maximum_interval=timedelta(seconds=20),
