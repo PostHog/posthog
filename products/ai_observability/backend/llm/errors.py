@@ -66,6 +66,14 @@ class ContextWindowExceededError(LLMError):
     """Raised when the prompt exceeds the model's context window."""
 
 
+class ProviderBadRequestError(LLMError):
+    """Raised when the provider rejects the request itself and no other class fits — an
+    unsupported parameter, a malformed schema, content it cannot decode.
+
+    Not retryable: the same request comes back with the same 400, so a caller must skip the work
+    instead of spending its retries on it."""
+
+
 _CONTEXT_WINDOW_ERROR_MARKERS = (
     "context_length_exceeded",
     "maximum context length",
@@ -143,6 +151,9 @@ def user_facing_error_message(error: Exception | None) -> str:
         return "This conversation is too long for the model's context window. Shorten it, then try again."
     if isinstance(error, ProviderConnectionError):
         return "Could not reach the model provider. Try again."
+    if isinstance(error, ProviderBadRequestError):
+        # The request caused the 400, so "try again" cannot work — keep the provider's reason.
+        return f"The model provider rejected this request: {error}"
     if isinstance(error, StructuredOutputParseError):
         return "The model returned a response we could not read. Try again."
     if isinstance(error, UnsupportedProviderError):

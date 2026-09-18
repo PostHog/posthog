@@ -20,11 +20,13 @@ from products.ai_observability.backend.llm.errors import (
     LLMError,
     ModelNotFoundError,
     ModelPermissionError,
+    ProviderBadRequestError,
     ProviderConnectionError,
     QuotaExceededError,
     RateLimitError,
     StructuredOutputParseError,
     is_context_window_error_message,
+    provider_error_detail,
     stream_error_chunk,
 )
 from products.ai_observability.backend.llm.types import (
@@ -215,7 +217,10 @@ class AnthropicAdapter:
                 return QuotaExceededError(str(error))
             if is_context_window_error_message(str(error)):
                 return ContextWindowExceededError(str(error))
-            return None
+            # Every other 400 — an unsupported parameter, a malformed schema, content the API
+            # cannot decode. Without this a caller re-sends a request the provider has already
+            # refused until its retries run out.
+            return ProviderBadRequestError(provider_error_detail(error) or str(error))
         if isinstance(error, anthropic.RateLimitError):
             if _is_quota_or_billing_error(error):
                 return QuotaExceededError(str(error))
