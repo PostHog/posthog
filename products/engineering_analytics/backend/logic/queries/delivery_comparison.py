@@ -36,8 +36,8 @@ from products.engineering_analytics.backend.logic.queries.delivery_summary impor
 # The census runs daily, so a few days always find its latest run.
 _CENSUS_LOOKBACK = timedelta(days=3)
 # Below this many other authors who contribute a value, the author could read a teammate's value back from
-# the team median and their own (SPEC §2).
-MIN_OTHER_TEAM_AUTHORS = 3
+# the team median and their own (SPEC §2). Two, because a three-person team is a real team.
+MIN_OTHER_TEAM_AUTHORS = 2
 
 # Every team the author is in, with all of its members.
 _AUTHOR_TEAMS_SELECT = f"""

@@ -613,15 +613,16 @@ class TestDeliveryComparisonOnWarehouse(_WarehouseMixin):
                 _pr_row(22, "bob", "closed", 0, _ago(4), merged_at=_ago(1)),
                 _pr_row(28, "carol", "closed", 0, _ago(4), merged_at=_ago(2)),
                 _pr_row(29, "dave", "closed", 0, _ago(4), merged_at=_ago(2)),
-                _pr_row(30, "erin", "closed", 0, _ago(4), merged_at=_ago(2)),
                 # Opened before the issue events start, so their ready times are unknown.
+                _pr_row(30, "erin", "closed", 0, _ago(12), merged_at=_ago(2)),
                 _pr_row(31, "gina", "closed", 0, _ago(12), merged_at=_ago(2)),
                 _pr_row(32, "hank", "closed", 0, _ago(12), merged_at=_ago(2)),
             ],
         )
         self._create_table("github_workflow_runs", WORKFLOW_RUNS_COLUMNS, [])
-        # Alice is in two teams that own code and in an approver group that owns none. Team-ingestion has one
-        # other author with a ready time, too few to show its median.
+        # Alice is in two teams that own code and in an approver group that owns none. The two teams sit on
+        # either side of MIN_OTHER_TEAM_AUTHORS: team-replay has exactly as many other authors with a ready
+        # time as the floor asks for, team-ingestion one fewer, so its median stays hidden.
         self._create_table(
             "github_team_members",
             TEAM_MEMBERS_COLUMNS,
