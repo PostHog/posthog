@@ -38,6 +38,15 @@ CATEGORY_MAP: dict[str, tuple[str, str]] = {
 }
 DEFAULT_CATEGORY = ("headless_browser", "Automation")
 
+# An AI Agent slug is a filter value people save, so it is pinned in the generated data rather
+# than derived at query time from a display name Radar can rename under us. Bots and automation
+# share the per-category fallback slugs, so they stay unpinned.
+# A name listed here takes the slug the user-agent definition already uses, so one agent does not
+# split across two agent_source values depending on which signal caught it.
+AGENT_SOURCE_OVERRIDES: dict[str, str] = {
+    "Amazon Bedrock AgentCore Browser": "amazon-bedrock-agentcore",
+}
+
 OUTPUT_PATH = Path(__file__).resolve().parents[1] / "backend" / "hogql_queries" / "bot_signature_agent_directory.py"
 
 
@@ -70,6 +79,12 @@ def fetch_signed_agents(token: str) -> list[dict]:
     return agents
 
 
+def agent_source_slug(name: str, traffic_type: str) -> str:
+    if traffic_type != "AI Agent":
+        return ""
+    return AGENT_SOURCE_OVERRIDES.get(name) or re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
+
+
 def to_entry(agent: dict) -> dict[str, str] | None:
     url = agent.get("signatureAgentUrl") or ""
     host = urlparse(url).netloc.lower()
@@ -90,6 +105,7 @@ def to_entry(agent: dict) -> dict[str, str] | None:
         "traffic_type": traffic_type,
         "operator": agent.get("operator") or "",
         "documentation_url": agent.get("operatorUrl") or "",
+        "agent_source": agent_source_slug(name, traffic_type),
     }
 
 
@@ -110,7 +126,7 @@ def main() -> int:
     lines = []
     for e in entries:
         lines.append("    {")
-        for key in ("host", "name", "category", "traffic_type", "operator", "documentation_url"):
+        for key in ("host", "name", "category", "traffic_type", "operator", "documentation_url", "agent_source"):
             lines.append(f'        "{key}": {json.dumps(e[key])},')
         lines.append("    },")
     body = "\n".join(lines)

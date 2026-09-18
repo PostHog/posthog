@@ -29,11 +29,20 @@ class TestSignatureAgentDefinitionsDataStructure:
                 f"Malformed agent_source slug for {host}: {sig_def.agent_source_slug!r}"
             )
 
+    def test_ai_agents_pin_their_agent_source(self):
+        # Same rule the UA and IP definitions follow: an AI Agent slug is a filter value people
+        # save, so the refresh script pins it in the directory instead of letting a Radar rename
+        # move it. Bots and automation share the per-category fallback slugs.
+        for host, sig_def in SIGNATURE_AGENT_DEFINITIONS.items():
+            if sig_def.traffic_type != "AI Agent":
+                continue
+            assert sig_def.agent_source, f"AI Agent definition {host} must set agent_source explicitly"
+
     def test_slugs_do_not_shadow_a_user_agent_slug(self):
         # An agent that both signs its requests and sends a known UA must land on one
         # agent_source, or filtering by it drops whichever half the other signal caught. A
-        # signature slug that only extends a UA slug ("...-browser") is that split; the
-        # directory name differs from ours, so pin it in SIGNATURE_AGENT_SOURCE_OVERRIDES.
+        # signature slug that only extends a UA slug ("...-browser") is that split; pin it to
+        # the UA slug in the script's AGENT_SOURCE_OVERRIDES and regenerate.
         ua_slugs = {bot_def.agent_source_slug for bot_def in BOT_DEFINITIONS.values()}
         for host, sig_def in SIGNATURE_AGENT_DEFINITIONS.items():
             slug = sig_def.agent_source_slug

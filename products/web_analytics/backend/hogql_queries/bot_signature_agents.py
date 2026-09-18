@@ -12,20 +12,13 @@ class SignatureAgentDefinition:
     operator: str  # Operator/company: "OpenAI"
     documentation_url: str | None = None
     # Same vocabulary as BotDefinition.agent_source, so a signed agent classifies to the
-    # same slug whichever signal (UA pattern, IP range, or signature) catches it.
+    # same slug whichever signal (UA pattern, IP range, or signature) catches it. Pinned in the
+    # generated directory for every AI Agent; bots and automation take the per-category fallback.
     agent_source: str | None = None
 
     @property
     def agent_source_slug(self) -> str:
-        return derive_agent_source_slug(self.name, self.category, self.traffic_type, self.agent_source)
-
-
-# Radar names an agent differently from our UA definition for the same software, and the
-# derived slug would then split one agent across two agent_source values depending on which
-# signal caught it. Keyed by the Radar name, valued by the slug the UA definition already uses.
-SIGNATURE_AGENT_SOURCE_OVERRIDES: dict[str, str] = {
-    "Amazon Bedrock AgentCore Browser": "amazon-bedrock-agentcore",
-}
+        return derive_agent_source_slug(self.category, self.agent_source)
 
 
 # Web Bot Auth (RFC 9421 HTTP Message Signatures): agents that sign their requests send a
@@ -48,7 +41,7 @@ SIGNATURE_AGENT_DEFINITIONS: dict[str, SignatureAgentDefinition] = {
         entry["traffic_type"],
         entry["operator"],
         documentation_url=entry["documentation_url"] or None,
-        agent_source=SIGNATURE_AGENT_SOURCE_OVERRIDES.get(entry["name"]),
+        agent_source=entry["agent_source"] or None,
     )
     for entry in SIGNATURE_AGENT_ENTRIES
 }
