@@ -565,6 +565,9 @@ func projectedPropertyNamespace(scope *queryScope, expr clickhouse.Expr, positio
 	bindings := visibleBindings(scope)
 	switch typed := expr.(type) {
 	case *clickhouse.Ident:
+		if IsBooleanLiteral(typed) {
+			return "", false
+		}
 		if alias, ok := (Bindings{scope: scope, position: position}).selectAlias(typed.Name); ok {
 			return alias.propertyNamespace, alias.propertyNamespace != ""
 		}
@@ -623,6 +626,9 @@ func projectedType(scope *queryScope, expr clickhouse.Expr) string {
 	bindings := visibleBindings(scope)
 	switch typed := expr.(type) {
 	case *clickhouse.Ident:
+		if IsBooleanLiteral(typed) {
+			return "boolean"
+		}
 		if field, ok := (Bindings{scope: scope, position: int(expr.Pos())}).SelectAlias(typed.Name); ok {
 			return field.Type
 		}

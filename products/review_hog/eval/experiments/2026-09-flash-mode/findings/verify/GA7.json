@@ -1,0 +1,27 @@
+{
+    "letter": "GA",
+    "id": "GA7",
+    "cluster": 57,
+    "is_real": false,
+    "severity": null,
+    "votes": [
+        {
+            "is_real": false,
+            "severity": null,
+            "evidence": "The code does what the finding says. products/review_hog/backend/receivers.py:111 picks one acting reviewer with _resolve_assigned_reviewer. Lines 113 and 126 then check only that user's review_inbox_prs and stamphog_review_inbox_prs toggles. The stamphog webhook re-check at lines 151-156 (resolve_stamphog_acting_reviewer) uses the same single-reviewer rule. The docstring at lines 160-173 says this on purpose: the creator counts if assigned, otherwise the first resolved reviewer (\"maintainer decisions, 2026-07-02/03\"). It also says \"Their `review_inbox_prs` / `stamphog_review_inbox_prs` toggles gate the respective reviews\". So the code, its docs and both callers agree. The finding itself says the code is \"likely intentional\" and that only the PR description wording is loose.",
+            "refutation": "This finding does not describe a code defect. It says the PR description's wording (\"at least one assigned user opted in\") does not match the code. The code's own docstring (receivers.py:159-173) records the single-acting-reviewer rule as a deliberate maintainer decision. The trigger (line 111) and the stamphog webhook re-check (line 151) apply that rule the same way. Nothing wrong reaches users. The toggle gates the review for the acting reviewer, as designed. The only fix would be rewording the PR description, which is prose rather than shipped code."
+        },
+        {
+            "is_real": false,
+            "severity": null,
+            "evidence": "The code intentionally gates on one acting reviewer, and that choice is documented and tested. The finding itself says the code is probably deliberate. What it objects to is the PR description's wording, not a code defect.\n\n- products/review_hog/backend/receivers.py:10-15: the module docstring defines the acting reviewer as the task creator when they are among the assigned reviewers, otherwise the first resolved reviewer. Lines 17-18 say the same acting reviewer carries the `stamphog_review_inbox_prs` toggle.\n- receivers.py:111-126: the code loads that single user's `ReviewUserSettings` and checks `stamphog_review_inbox_prs` for the PR only.\n- receivers.py `_resolve_assigned_reviewer` docstring: this creator-if-assigned, else-first-reviewer rule is recorded as a maintainer decision (2026-07-02/03). The same docstring says this user's `review_inbox_prs` and `stamphog_review_inbox_prs` toggles gate the reviews.\n- receivers.py `resolve_stamphog_acting_reviewer`: stamphog's webhook re-review path uses the same single-reviewer rule, so the behavior is consistent.\n- products/review_hog/backend/tests/test_inbox_trigger.py, `test_opted_out_canonical_reviewer_blocks_the_review`: this test asserts that a later reviewer who opted in does NOT trigger a review when the canonical reviewer has not opted in. That is exactly the \"discrepancy\" the finding describes.\n- test_inbox_trigger.py: `test_assigned_requester_gets_their_own_rules`, `test_non_assigned_requester_follows_the_canonical_reviewer` and `test_the_two_toggles_gate_their_reviews_independently` also pin these semantics.\n- products/review_hog/frontend/CodeReviewScene.tsx:1051-1054: the user-facing copy reads \"Let Stamphog review your Inbox PRs\". It does not promise \"any assigned user\", so the product makes no conflicting promise.",
+            "refutation": "The claimed defect is a mismatch between the code and the PR description's prose. The code matches its documented, maintainer-decided and tested contract (see test_opted_out_canonical_reviewer_blocks_the_review). No user-facing string or code path promises \"any assigned user\" semantics. At most this is a PR-description wording nit, not a defect that ships."
+        },
+        {
+            "is_real": false,
+            "severity": null,
+            "evidence": "This finding is about the PR description, not a defect in the code. The code deliberately gates on one acting reviewer, and it does so the same way everywhere:\n- products/review_hog/backend/receivers.py:111 resolves one `acting_user_id` with `_resolve_assigned_reviewer`.\n- receivers.py:113 loads that user's settings with `ReviewUserSettings.load`.\n- receivers.py:114 gates the review_inbox_prs path and receivers.py:125 gates the stamphog path on those same settings.\n- The stamphog re-review hook `resolve_stamphog_acting_reviewer` (receivers.py:142-156) uses the same single-reviewer rule. Its docstring says \"Same acting-reviewer resolution as this module's own trigger\".\n- The comment at receivers.py:65-66 says stamphog \"re-checks the acting reviewer's stamphog toggle\".\n\nThe finding itself calls this single-reviewer rule \"a documented maintainer decision\" and says \"the code is likely intentional and the PR copy is the loose part\".",
+            "refutation": "The trigger can happen in production: a report with several assigned reviewers, where the acting reviewer has the toggle off and a later reviewer has it on. In that case the code does what it was designed to do. The docstrings and comments name the acting reviewer on purpose, and the re-review hook uses the same rule, so the webhook path and the trigger path agree. The only mismatch is the wording of the PR description. It is not a defect in code that ships, so it is not a real finding."
+        }
+    ]
+}

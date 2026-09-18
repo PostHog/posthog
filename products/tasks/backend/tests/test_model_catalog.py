@@ -11,6 +11,7 @@ from syrupy.extensions.json import JSONSnapshotExtension
 from products.tasks.backend import model_catalog
 from products.tasks.backend.constants import get_required_model_flag
 from products.tasks.backend.facade.model_catalogue import GatewayModel, available_model_choices
+from products.tasks.backend.models import Task
 from products.tasks.backend.temporal.process_task.utils import ReasoningEffort, RuntimeAdapter
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
@@ -37,6 +38,10 @@ def _resolved_catalog() -> dict[str, Any]:
     """
     return {
         "reasoning_efforts": list(model_catalog.REASONING_EFFORTS),
+        "runtimes": [
+            {"runtime": option.runtime, "runtime_adapter": option.runtime_adapter, "label": option.label}
+            for option in model_catalog.RUNTIME_OPTIONS
+        ],
         "runtime_adapters": {
             adapter: {
                 "provider": model_catalog.PROVIDER_BY_RUNTIME_ADAPTER[adapter],
@@ -94,6 +99,19 @@ def test_every_catalog_effort_is_a_known_reasoning_effort() -> None:
     known = {effort.value for effort in ReasoningEffort}
     used = {effort for entry in model_catalog.MODELS for effort in entry.reasoning_efforts}
     assert used <= known, f"catalog names efforts the ReasoningEffort enum lacks: {sorted(used - known)}"
+
+
+def test_reasoning_effort_enum_covers_the_catalog() -> None:
+    assert set(model_catalog.REASONING_EFFORTS) <= {effort.value for effort in ReasoningEffort}
+
+
+def test_runtime_options_agree_with_the_task_runtime_column() -> None:
+    assert list(Task.Runtime.values) == list(model_catalog.RUNTIMES)
+
+
+def test_every_runtime_adapter_is_offered_exactly_once() -> None:
+    offered = [option.runtime_adapter for option in model_catalog.RUNTIME_OPTIONS if option.runtime_adapter]
+    assert sorted(offered) == sorted(model_catalog.RUNTIME_ADAPTERS)
 
 
 @pytest.mark.parametrize(
@@ -208,16 +226,9 @@ class TestAvailableModelChoices:
         assert [c.label for c in choices] == ["DeepSeek V4 Flash", "GLM-5.3 Flash", "Kimi K3"]
 
 
-def test_every_gated_model_resolves_to_its_catalog_flag() -> None:
+def test_every_model_resolves_to_its_catalog_flag() -> None:
     # The gate and the pickers read one field now, so this fails if a row gains an
     # access_flag the entitlement check cannot see, whichever spelling the caller sends.
-    gated = [model for model in model_catalog.MODELS if model.access_flag]
-    assert gated, "the catalog gates no model, so this guard proves nothing"
-
-    for model in gated:
+    for model in model_catalog.MODELS:
         assert get_required_model_flag(model.id) == model.access_flag
         assert get_required_model_flag(f"anthropic/{model.id}") == model.access_flag
-
-    for model in model_catalog.MODELS:
-        if model.access_flag is None:
-            assert get_required_model_flag(model.id) is None

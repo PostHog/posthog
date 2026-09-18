@@ -545,6 +545,33 @@ class TestSavedQuery(APIBaseTest):
         )
         assert cast(dict[str, Any], delete_activity.detail)["name"] == query_name
 
+    def test_a_refused_delete_names_its_dependents_and_links_their_lineage(self):
+        dag = DAG.get_or_create_default(self.team)
+        view = DataWarehouseSavedQuery.objects.create(team=self.team, name="accounts_view")
+        view_node = Node.objects.create(team=self.team, saved_query=view, dag=dag, type=NodeType.VIEW)
+        metric_node = Node.objects.create(
+            team=self.team,
+            dag=dag,
+            name="weekly_active_accounts",
+            type=NodeType.METRIC,
+            metric_id=uuid.uuid4(),
+        )
+        Edge.objects.create(team=self.team, dag=dag, source=view_node, target=metric_node)
+
+        response = self.client.delete(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/{view.id}",
+        )
+
+        assert response.status_code == 400, response.content
+        body = response.json()
+        assert body["detail"] == (
+            "Can't delete accounts_view yet. These read from it: weekly_active_accounts (metric). "
+            "Update or delete them first."
+        )
+        assert body["extra"] == {"node_id": str(view_node.id)}
+        view.refresh_from_db()
+        assert view.deleted is not True
+
     def test_update_folder_assignment(self):
         folder = DataWarehouseSavedQueryFolder.objects.create(
             team=self.team, name="Warehouse ops", created_by=self.user
@@ -1609,6 +1636,31 @@ class TestSavedQuery(APIBaseTest):
         )
         self.assertEqual(response.status_code, 200, response.content)
         self.assertEqual(response.json(), {"upstream_count": 0, "downstream_count": 2})
+
+    def test_descendants_omit_a_metric_that_reads_the_view(self):
+        dag = DAG.get_or_create_default(self.team)
+        view = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="accounts_view",
+            query={"kind": "HogQLQuery", "query": "select 1"},
+            created_by=self.user,
+        )
+        view_node = Node.objects.create(team=self.team, saved_query=view, dag=dag, type=NodeType.VIEW)
+        metric_node = Node.objects.create(
+            team=self.team,
+            dag=dag,
+            name="weekly_active_accounts",
+            type=NodeType.METRIC,
+            metric_id=uuid.uuid4(),
+        )
+        Edge.objects.create(team=self.team, dag=dag, source=view_node, target=metric_node)
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/{view.id}/descendants",
+        )
+
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(response.json()["descendants"], [])
 
     def test_lineage_unions_the_nodes_of_one_saved_query_across_dags(self):
         # A saved query may hold a node in more than one DAG. Its lineage is the union of what

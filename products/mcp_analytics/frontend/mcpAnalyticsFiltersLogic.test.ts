@@ -79,6 +79,19 @@ describe('mcpAnalyticsFiltersLogic', () => {
         expect(logic.values.filterTestAccounts).toBe(false)
     })
 
+    it.each(['1', 'invalid'])(
+        'ignores an invalid test-account URL value (%s) and follows the team default',
+        (value) => {
+            initKeaTests(true, { ...MOCK_DEFAULT_TEAM, test_account_filters_default_checked: true })
+            router.actions.push(urls.mcpAnalyticsDashboard(), { filter_test_accounts: value })
+            const logic = mcpAnalyticsFiltersLogic()
+            logic.mount()
+
+            expect(logic.values.filterTestAccountsOverride).toBeNull()
+            expect(logic.values.filterTestAccounts).toBe(true)
+        }
+    )
+
     it('preserves shared filters when opening and leaving a tool report', () => {
         router.actions.push(urls.mcpAnalyticsToolQuality(), {
             properties: [EVENT_FILTER],

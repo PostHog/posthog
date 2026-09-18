@@ -1,3 +1,4 @@
+from collections.abc import Iterable
 from uuid import UUID
 
 from django.core.exceptions import ValidationError
@@ -18,6 +19,29 @@ def canvas_belongs_to_task(*, team_id: int, user_id: int | None, canvas_id: str,
         )
     except (ValueError, ValidationError):
         return False
+
+
+def visible_canvas_user_ids(*, team_id: int, canvas_id: str, user_ids: Iterable[int]) -> set[int]:
+    candidate_ids = set(user_ids)
+    if not candidate_ids:
+        return set()
+    try:
+        canvases = Canvas.objects.for_team(team_id).filter(id=canvas_id, deleted=False, channel__deleted=False)
+        if canvases.filter(channel__channel_type="public").exists():
+            return candidate_ids
+        visible_ids = set(
+            canvases.filter(channel__channel_type="personal", channel__created_by_id__in=candidate_ids).values_list(
+                "channel__created_by_id", flat=True
+            )
+        )
+        visible_ids.update(
+            canvases.filter(
+                channel__channel_type="private", channel__memberships__user_id__in=candidate_ids
+            ).values_list("channel__memberships__user_id", flat=True)
+        )
+        return visible_ids
+    except (ValueError, ValidationError):
+        return set()
 
 
 def canvas_owner_id(*, team_id: int, canvas_id: str) -> int | None:

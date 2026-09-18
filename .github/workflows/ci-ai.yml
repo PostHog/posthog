@@ -11,7 +11,7 @@ jobs:
     eval:
         timeout-minutes: 45
         name: AI evals / ${{ matrix.group }}
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         env:
             DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USER }}
             DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
@@ -147,7 +147,7 @@ jobs:
     eval-summary:
         timeout-minutes: 5
         name: AI evals / summary
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         needs: eval
         # A status function is required to summarize even when some eval groups errored.
         # !cancelled() rather than always() so a superseded run does not post an eval
