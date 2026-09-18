@@ -80,14 +80,25 @@ class TestLokiQueryApi(APIBaseTest):
 
     @patch("posthog.api.snuffle_proxy.api_queries_budget_enforcement_enabled", return_value=True)
     @patch("posthog.api.snuffle_proxy.get_api_queries_budget_status")
-    def test_exhausted_byte_budget_refuses_before_reaching_snuffle(self, budget_status, _enforced):
+    def test_exhausted_byte_budget_refuses_before_reaching_snuffle(self, budget_status, enforced):
         budget_status.return_value = MagicMock(remaining_bytes=0, retry_after_seconds=42)
 
         response = self.client.get(f"{self.base}/query", {"query": '{service_name="api"}'})
 
         assert response.status_code == status.HTTP_429_TOO_MANY_REQUESTS
         assert response["Retry-After"] == "42"
+        enforced.assert_called_once_with(self.team)
+        budget_status.assert_called_once_with(self.team)
         self.request_mock.assert_not_called()
+
+    @patch("posthog.api.snuffle_proxy.api_queries_budget_enforcement_enabled", return_value=False)
+    @patch("posthog.api.snuffle_proxy.get_api_queries_budget_status")
+    def test_disabled_byte_budget_does_not_read_budget_status(self, budget_status, enforced):
+        response = self.client.get(f"{self.base}/query", {"query": '{service_name="api"}'})
+
+        assert response.status_code == status.HTTP_200_OK
+        enforced.assert_called_once_with(self.team)
+        budget_status.assert_not_called()
 
     def test_post_form_body_is_forwarded(self):
         body = "query=%7Bservice_name%3D%22api%22%7D&start=1&end=2"

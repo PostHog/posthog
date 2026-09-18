@@ -135,8 +135,13 @@ class SnuffleProxyViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     # The byte-budget flag removes these request-count limits before the proxy action runs.
     throttle_classes = [ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle]
 
+    def _is_api_queries_budget_enforced(self) -> bool:
+        if not hasattr(self, "_api_queries_budget_enforced"):
+            self._api_queries_budget_enforced = api_queries_budget_enforcement_enabled(self.team)
+        return self._api_queries_budget_enforced
+
     def get_throttles(self):
-        if api_queries_budget_enforcement_enabled(self.team):
+        if self._is_api_queries_budget_enforced():
             return []
         return super().get_throttles()
 
@@ -156,12 +161,9 @@ class SnuffleProxyViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             )
 
         team_id = self.team_id
-        budget_status = get_api_queries_budget_status(self.team)
-        if (
-            budget_status is not None
-            and budget_status.remaining_bytes <= 0
-            and api_queries_budget_enforcement_enabled(self.team)
-        ):
+        enforcement_enabled = self._is_api_queries_budget_enforced()
+        budget_status = get_api_queries_budget_status(self.team) if enforcement_enabled else None
+        if budget_status is not None and budget_status.remaining_bytes <= 0:
             response = _error_response(
                 status.HTTP_429_TOO_MANY_REQUESTS,
                 "rate_limited",
