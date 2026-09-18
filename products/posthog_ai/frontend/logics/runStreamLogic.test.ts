@@ -5055,7 +5055,9 @@ describe('runStreamLogic', () => {
                     baseUrl: 'https://proxy.example/',
                     token: 'tok-1',
                 })
-                expect(tasksRunsStreamTokenRetrieve).toHaveBeenCalledWith('997', 'task-1', 'run-1')
+                expect(tasksRunsStreamTokenRetrieve).toHaveBeenCalledWith('997', 'task-1', 'run-1', {
+                    resync: true,
+                })
             })
 
             it('falls back to Django when the server resolves no base URL', async () => {
