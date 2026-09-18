@@ -10,8 +10,10 @@ A negative filter (`is_not_set`, `is_not`, `not_regex`, `not_icontains`, `not_st
 It only removes recordings. So a top-level negative filter never enters an allowlist subquery.
 It goes to the `NOT GLOBAL IN` blocklist built by `_negative_blocklist_query`, or to the `HAVING`
 clause of an allowlist subquery, in the same way for OR as for AND. A negative property nested
-under an event or action entity is different: it stays in that entity's allowlist subquery, where
-it narrows the match for that entity. This is the rule that
+under an event or action entity goes to both places. It stays in that entity's allowlist subquery,
+where it narrows the match for that entity, and it is also hoisted into the blocklist and the
+`HAVING` clause without its parent entity, so a session that carries the inverted value on any
+event is removed. This is the rule that
 `session_recording_list_from_query.py` already applies to the internal and test user filters,
 which are always AND'd.
 
