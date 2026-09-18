@@ -99,7 +99,8 @@ export class TerminalRuntime {
                         'cp /posthog/bin/jq /usr/bin/jq && chmod +x /usr/bin/jq || exit',
                         'cp /posthog/bin/ph /usr/bin/ph && chmod +x /usr/bin/ph || exit',
                         'stty -F /dev/ttyS1 raw -echo',
-                        '{ while read -r rows cols; do stty -F /dev/ttyS0 rows "$rows" cols "$cols"; done < /dev/ttyS1 & }',
+                        // Detach the resize helper so the shell's wait command only waits for user jobs.
+                        '(while read -r rows cols; do stty -F /dev/ttyS0 rows "$rows" cols "$cols"; done < /dev/ttyS1 &)',
                         "alias ls='ls --color=auto'",
                         "export PS1='\\[\\033[32m\\]posthog\\[\\033[0m\\]:\\[\\033[34m\\]\\w\\[\\033[0m\\] $ '",
                         'cd /posthog/files',
