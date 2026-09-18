@@ -16,8 +16,8 @@ curl "localhost:3400/api/v1/servers/<id>/load?since=1h&bucket=1m"            # a
 ```
 
 MCP client config (Claude Code / Desktop): `{"type": "http", "url": "http://localhost:3400/mcp"}`.
-18 tools: `list_servers`, `server_overview`, `top_queries`, `query_detail`,
-`query_tags`, `wait_events`, `current_activity`, `table_stats`, `index_stats`,
+19 tools: `list_servers`, `server_overview`, `top_queries`, `query_detail`,
+`query_tags`, `wait_events`, `lock_waits`, `current_activity`, `table_stats`, `index_stats`,
 `vacuum_status`, `events`, `settings`, `schema`, `log_errors`, `system_stats`,
 `collector_health`, `describe_stats_schema`, `query_stats_db` (guarded raw SQL).
 
