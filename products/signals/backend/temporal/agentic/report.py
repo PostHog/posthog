@@ -24,6 +24,7 @@ from products.signals.backend.agent_runtime import STEP_RESEARCH, resolve_agent_
 from products.signals.backend.artefact_schemas import ArtefactContent, RelatedTo, SuggestedReviewers
 from products.signals.backend.auto_start import ReviewerContent
 from products.signals.backend.models import ArtefactAttribution, SignalReport, SignalReportArtefact
+from products.signals.backend.recurrence import fixed_dismissal_at
 from products.signals.backend.repo_corrections import SCOUT_REPOSITORY_CONTENT_NEEDLE, WRONG_REPO_CONTENT_NEEDLE
 from products.signals.backend.report_charts import ReportChart, chart_batch_error
 from products.signals.backend.report_content_gates import team_report_metrics_enabled
@@ -216,12 +217,13 @@ def _parse_stored_metrics(raw: object, report_id: str) -> list[ReportMetric]:
 
 
 async def _load_resolved_report_context(team_id: int, report_id: str) -> tuple[str | None, str | None]:
-    """Title/summary of the resolved report this one recurred from, if any.
+    """Title/summary of the report claimed as fixed that this one recurred from, if any.
 
-    When a signal that would have grouped into an already-resolved report spawns a fresh report
-    instead (resolved reports never reopen), the grouping pipeline links the two with symmetric
-    `related_to` artefacts. The recurrence source is whichever linked report is resolved — handing it
-    to the research agent lets it judge regression vs. new dimension vs. distinct.
+    When a signal that would have grouped into a report already closed as fixed spawns a fresh
+    report instead (such a report never reopens), the grouping pipeline links the two with symmetric
+    `related_to` artefacts. The recurrence source is whichever linked report makes that claim —
+    resolved, or dismissed as fixed (see recurrence.py). Handing it to the research agent lets it
+    judge regression vs. new dimension vs. distinct.
     """
     related_ids: list[str] = []
     async for artefact in SignalReportArtefact.objects.filter(
@@ -233,15 +235,22 @@ async def _load_resolved_report_context(team_id: int, report_id: str) -> tuple[s
             continue
     if not related_ids:
         return None, None
-    resolved = (
-        await SignalReport.objects.filter(id__in=related_ids, team_id=team_id, status=SignalReport.Status.RESOLVED)
-        .only("title", "summary")
+    async for candidate in (
+        SignalReport.objects.filter(
+            id__in=related_ids,
+            team_id=team_id,
+            status__in=(SignalReport.Status.RESOLVED, SignalReport.Status.SUPPRESSED),
+        )
+        .only("title", "summary", "status", "team")
         .order_by("-created_at")
-        .afirst()
-    )
-    if resolved is None:
-        return None, None
-    return resolved.title, resolved.summary
+    ):
+        if candidate.status == SignalReport.Status.RESOLVED:
+            return candidate.title, candidate.summary
+        # Only an archived candidate costs the dismissal read, and the newest match wins, so the
+        # loop stops at the first one rather than reading every link.
+        if await database_sync_to_async(fixed_dismissal_at, thread_sensitive=False)(candidate) is not None:
+            return candidate.title, candidate.summary
+    return None, None
 
 
 _AGENTIC_ARTEFACT_TYPES = [
