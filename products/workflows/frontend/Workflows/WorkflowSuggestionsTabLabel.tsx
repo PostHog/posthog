@@ -20,7 +20,7 @@ export function WorkflowSuggestionsTabLabel({ id }: { id: string }): JSX.Element
             ) : (
                 optimisationEnabled && (
                     <Tooltip title="PostHog is watching this workflow and will suggest changes here.">
-                        <LemonTag type="muted" size="small">
+                        <LemonTag type="option" size="small">
                             On
                         </LemonTag>
                     </Tooltip>

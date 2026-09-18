@@ -193,7 +193,7 @@ export function WorkflowsTable(): JSX.Element {
                                     item.suggestions_enabled && (
                                         // A tag with its own click rather than a link: the row is already a link.
                                         <LemonTag
-                                            type={item.pending_suggestions ? 'completion' : 'muted'}
+                                            type={item.pending_suggestions ? 'completion' : 'option'}
                                             data-attr="workflow-list-suggestions"
                                             onClick={(event) => {
                                                 event.preventDefault()
