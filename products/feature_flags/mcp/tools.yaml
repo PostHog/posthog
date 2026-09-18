@@ -269,9 +269,9 @@ tools:
             Each row carries two separate states, and they answer different questions. `active` is the serving state:
             true means the flag evaluates, false means it is turned off and flag evaluation falls back to the caller's
             own default. `status` is the staleness classification — `ACTIVE`, `STALE`, `ARCHIVED`, `DELETED` or
-            `UNKNOWN`. A disabled flag reports `status: ACTIVE`, because disabled flags are not evaluated for
-            staleness. So `status: ACTIVE` with `active: false` is expected, not a contradiction. Report serving state
-            from `active` only, and never from `status`.
+            `UNKNOWN`. A disabled flag reports `status: ACTIVE`, because disabled flags are not evaluated for staleness.
+            So `status: ACTIVE` with `active: false` is expected, not a contradiction. Report serving state from
+            `active` only, and never from `status`.
 
 
             `active` covers flag evaluation only. A row with `is_remote_configuration: true` is a remote config flag,
