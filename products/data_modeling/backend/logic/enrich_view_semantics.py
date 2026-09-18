@@ -26,7 +26,7 @@ from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
-from posthog.llm.gateway_client import Product
+from posthog.llm.gateway_client import GatewayNotConfiguredError, Product
 from posthog.llm.semantic_enrichment import (
     DEFAULT_ENRICHMENT_MODEL,
     ENRICHMENT_BATCH_BUDGET_SECONDS,
@@ -512,6 +512,12 @@ def _run_enrichment_batches(target: _EnrichmentTarget, plan: _AnnotationPlan, lo
                 model=DEFAULT_ENRICHMENT_MODEL,
                 max_output_tokens=bounded.max_output_tokens,
             )
+        except GatewayNotConfiguredError:
+            # No gateway in this deployment, so the call never went out. Reported as failed like any
+            # other unfinished pass, which withholds the hash so a later trigger retries, but kept out
+            # of error tracking because it fails identically for every view until one is configured.
+            log.warning("view_enrichment.llm_gateway_not_configured")
+            return _BatchRun(ai_count=ai_count, unfinished=remaining, failed=True)
         except Exception as e:
             capture_exception(e)
             log.error("view_enrichment.llm_failed", error=str(e), exc_info=True)

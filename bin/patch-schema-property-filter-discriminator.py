@@ -167,13 +167,10 @@ def main() -> int:
         )
         return 1
 
-    # The aliases must be defined BEFORE the classes whose annotations reference them,
-    # like every other name in the generated file. A class created while its annotations
-    # are unresolvable is left fields-incomplete, and subclasses defined in other modules
-    # (e.g. TrendsQueryWithTemplateVariables in filter_to_query.py) then fail to resolve
-    # the alias from their own namespace. The main alias goes after the last member class;
-    # the group variant goes after PropertyGroupFilterValue, whose own recursive `values`
-    # annotation resolves via the trailing PropertyGroupFilterValue.model_rebuild().
+    # Pydantic leaves a model fields-incomplete when an annotation cannot resolve at class
+    # creation, so each alias must appear before its first use. The main alias depends on
+    # all member classes. The group variant also depends on PropertyGroupFilterValue, whose
+    # recursive `values` annotation resolves via its trailing model_rebuild() call.
     member_def_re = re.compile(r"^class (?:" + "|".join(re.escape(m) for m in MEMBER_TAGS) + r")\(", re.MULTILINE)
     member_defs = list(member_def_re.finditer(source))
     if len(member_defs) != len(MEMBER_TAGS):

@@ -16,6 +16,7 @@ import {
 } from '../src/plan.ts'
 import {
     REPO_ROOT,
+    SCRIPT_STUBS,
     allFiltersChanged,
     defaultScenarios,
     mergeQueue,
@@ -23,6 +24,7 @@ import {
     pullRequest,
     push,
     schedule,
+    workflowDispatch,
 } from '../src/scenarios.ts'
 
 const WORKFLOWS_DIR = path.join(REPO_ROOT, '.github/workflows')
@@ -66,16 +68,23 @@ type ExpectationBuilder = (
     rest: Omit<Expectation, 'file' | 'scenario'>
 ) => Expectation
 
-const suite = (file: string, selectors: Stubs): ExpectationBuilder => {
+const suite = (file: string, selectors: Stubs = {}): ExpectationBuilder => {
     const filters = allFiltersChanged(workflow(file))
+    const scripted = SCRIPT_STUBS[`.github/workflows/${file}`]
     return (overrides, rest) => ({
         file,
-        scenario: { github: pullRequest(), ...overrides, steps: { ...filters, ...selectors, ...overrides.steps } },
+        scenario: {
+            github: pullRequest(),
+            ...scripted,
+            ...overrides,
+            steps: { ...filters, ...selectors, ...overrides.steps },
+        },
         ...rest,
     })
 }
 const backend = suite('ci-backend.yml', backendSelectors)
 const frontend = suite('ci-frontend.yml', frontendSelectors)
+const deltalite = suite('build-deltalite.yml')
 const PINNED_WORKFLOWS = ['ci-backend.yml', 'ci-frontend.yml']
 
 const frontendOnlyFilters: Stubs = {
@@ -133,7 +142,40 @@ const EXPECTATIONS: Expectation[] = [
                 'test-selection-verdict',
                 'capture-test-selection',
             ],
-            skipped: ['handle-snapshots', 'cancel-backend-on-openapi-check-failure'],
+            skipped: ['handle-snapshots', 'cancel-backend-on-openapi-check-failure', 'hand-off-to-depot'],
+        }
+    ),
+    // Handed off to Depot: it runs the tests and the side effects, GitHub Actions relays the
+    // verdict. Every heavy job and every side effect here stands down, and the required gate
+    // keeps reporting.
+    backend(
+        {
+            name: 'ready PR handed off to Depot',
+            steps: { changes: { route: { outputs: { engine: 'depot' } } } },
+        },
+        {
+            runs: ['changes', 'hand-off-to-depot', 'django_tests'],
+            skipped: [
+                'detect-snapshot-mode',
+                'turbo-discover',
+                'repo-checks',
+                'validate-product-yamls',
+                'check-migrations',
+                'check-openapi-types',
+                'get_clickhouse_versions',
+                'build_django_matrix',
+                'build-product-test-matrix',
+                'django',
+                'turbo-tests',
+                'handle-snapshots',
+                'test-selection-verdict',
+                'capture-test-selection',
+                'report-test-timings',
+                'calculate-running-time',
+                'backend-coverage-report',
+                'cancel-backend-on-repo-check-failure',
+                'cancel-backend-on-openapi-check-failure',
+            ],
         }
     ),
     backend(
@@ -297,6 +339,19 @@ const EXPECTATIONS: Expectation[] = [
         {
             results: { frontend_tests: 'cancelled' },
         }
+    ),
+    deltalite({ name: 'ready PR' }, { runs: ['check-version', 'build-wheels'], skipped: ['publish'] }),
+    deltalite(
+        { name: 'fork PR', github: pullRequest({ fork: true }) },
+        { runs: ['check-version'], skipped: ['build-wheels', 'publish'] }
+    ),
+    deltalite(
+        { name: 'master dispatch', github: workflowDispatch() },
+        { runs: ['check-version', 'build-wheels', 'publish'] }
+    ),
+    deltalite(
+        { name: 'branch dispatch', github: workflowDispatch('feat/example') },
+        { runs: ['check-version', 'build-wheels'], skipped: ['publish'] }
     ),
 ]
 

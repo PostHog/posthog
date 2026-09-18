@@ -287,7 +287,7 @@ If the `scout_fleet` roster shows `signals-scout-inbox-validation` running here 
 # about scope like the re-surface clause: it is about having a report to hang a check on. A
 # signal-channel scout holds a finding id and no report, so it keeps the scratchpad queue as its
 # whole loop.
-_FOLLOWUP_CHECK_ON_REPORT = """- **A follow-up that hangs on a report belongs on the report.** A scratchpad entry is yours alone, so a run that never comes back to it leaves the loop open and nobody else can see that it is open. When the expectation sits on a report — one you authored, or one that covers your finding — write it onto the report with `inbox-report-checks-create` and let the coordinator do the re-measuring. A check carries the same expectation, probe, and validate-after date the entry above holds. Choose `metric_threshold` when one number settles the claim, and the coordinator measures it with no run at all. Choose `agent` when the claim needs investigating, and a run is dispatched to answer it later. Either way the verdict lands on the report where a person reads it. Read `inbox-report-checks-list` before you add one, since a report carries at most 5 active checks and a sibling may already watch your claim. Keep a scratchpad entry for what no report covers, and name the check id in the entry when you write both, so you never re-measure what the coordinator already measured.
+_FOLLOWUP_CHECK_ON_REPORT = """- **A follow-up that hangs on a report belongs on the report.** A scratchpad entry is yours alone, so a run that never comes back to it leaves the loop open and nobody else can see that it is open. When the expectation sits on a report — one you authored, or one that covers your finding — write it onto the report with `scout-report-check-create` and let the coordinator do the re-measuring. A check carries the same expectation, probe, and validate-after date the entry above holds. Choose `metric_threshold` when one number settles the claim, and the coordinator measures it with no run at all. Choose `agent` when the claim needs investigating, and a run is dispatched to answer it later. Either way the verdict lands on the report where a person reads it. Read `scout-report-check-list` before you add one, since a report carries at most 5 open checks and a sibling may already watch your claim. Keep a scratchpad entry for what no report covers, and name the check id in the entry when you write both, so you never re-measure what the coordinator already measured.
 """
 
 _FOLLOWUP_RESURFACE_SIGNAL = (
@@ -322,8 +322,8 @@ _FOLLOWUP_RESURFACE_EDIT_ONLY = (
 def _self_validation_followups_section(*, report_channel: bool, can_emit_report: bool, can_edit_report: bool) -> str:
     """Compose the self-validation follow-ups section with the clauses matched to the tools the scout
     actually holds — an emit-only scout is never pointed at `scout-edit-report` and vice versa, and
-    only a report-channel scout is pointed at a report check, mirroring the fail-closed gating of the
-    channel sections."""
+    only a scout holding `edit_report` is pointed at a report check, because the check endpoints fail
+    closed on that tool, mirroring the fail-closed gating of the channel sections."""
     if not report_channel:
         clause = _FOLLOWUP_RESURFACE_SIGNAL
     elif can_emit_report and can_edit_report:
@@ -334,7 +334,7 @@ def _self_validation_followups_section(*, report_channel: bool, can_emit_report:
         clause = _FOLLOWUP_RESURFACE_EDIT_ONLY
     return _SELF_VALIDATION_FOLLOWUPS_TEMPLATE.format(
         resurface_clause=clause,
-        check_clause=_FOLLOWUP_CHECK_ON_REPORT if report_channel else "",
+        check_clause=_FOLLOWUP_CHECK_ON_REPORT if report_channel and can_edit_report else "",
     )
 
 
@@ -1389,7 +1389,9 @@ Once you've read your skill, call:
 
 That returns a deterministic snapshot of this team, worth 4-5 discovery calls in one: products in use, connected integrations, warehouse sources, signal source configs (split enabled/disabled), the `scout_fleet` roster of which other scouts run here, and counts of existing inbox reports. It's computed from authoritative tables, so treat it as ground truth, as distinct from the scout-inferred notes in `scout-scratchpad-search`.
 
-Check `summary.emit_eligibility.can_emit` first: if it's `false`, nothing you emit this run can reach the inbox. `summary` is the compact envelope at the top of the response, repeating the gate and the inbox counts that also sit inside `payload.inventory`. Read it there, because the inventory is long enough that the response can be cut off before you reach the copy inside it. If the envelope is missing from what you received, call the tool again with `summary_only=true` rather than assuming you may emit. The profile is cached for up to ~1h and an admin may have just fixed the gate, so re-fetch once with `force_refresh=true` before acting. If it's still `false`, read `summary.emit_eligibility.remediation` for the reason and next step, note it in your run summary, and close out immediately rather than investigating findings that would be silently dropped.
+Check `summary.emit_eligibility.can_emit` first. It includes your scout's dry-run setting and the team-wide write gates that `{emit_tool}` checks. `summary` is the compact envelope at the top of the response. It repeats the gate and inbox counts from `payload.inventory`, which can be cut off in a long response. If the envelope is missing, call the tool again with `summary_only=true`. Do not assume you can emit when the gate is missing.
+
+If `can_emit` is `false`, read `summary.emit_eligibility.blocking_reason` and `summary.emit_eligibility.remediation`. For `scout_emit_disabled`, continue the investigation without emitting findings or reports. Keep the findings in your run summary so a person can evaluate the dry run. Do not close out early because of this dry-run setting. For a team-wide gate (`ai_processing_not_approved` or `source_disabled`), re-fetch once with `force_refresh=true`: the cached profile can be up to ~1h old and an admin may have fixed the gate. If a block other than `scout_emit_disabled` remains, note the reason and remediation in your run summary and close out immediately. The write path checks the gates again when you write, so eligibility can change after this read.
 
 {tail}
 
