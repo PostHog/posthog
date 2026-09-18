@@ -273,6 +273,23 @@ DIFF_CHECKS: list[DiffCheck] = [
         requires=("python-env",),
     ),
     DiffCheck(
+        key="object-tags",
+        label="generated object-tag registries out of sync with posthog/object_tags/kinds.py",
+        # From build.py so preflight and build:object-tags can't drift on which diffs
+        # need a regen, plus the generator and its outputs, so an edit to any side of
+        # the relation is caught.
+        triggers=[
+            *BUILD_TRIGGERS["build:object-tags"],
+            "bin/build-object-tags-registry.py",
+            "products/desktop/packages/core/src/inbox/objectKinds.generated.ts",
+            "products/desktop/packages/shared/src/objectTagKinds.generated.ts",
+            "frontend/src/lib/components/AgentObjectTags/objectKinds.generated.ts",
+        ],
+        verify=["hogli", "build:object-tags", "--check"],
+        fix=["hogli", "build:object-tags"],
+        requires=("python-env",),
+    ),
+    DiffCheck(
         key="migrations",
         label="migration conflict / orphaned migration",
         triggers=["*/migrations/*.py"],

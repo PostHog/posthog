@@ -12,6 +12,7 @@ import {
     createAddLogFunction,
     getSensitiveValues,
     isNativeHogFunction,
+    redactError,
     redactSensitiveValues,
 } from '../utils'
 import { CdpFetchConfig, cdpTrackedFetch, getNextRetryTime, isFetchResponseRetriable } from '../utils/cdp-fetch'
@@ -58,7 +59,10 @@ export class NativeDestinationExecutorService {
         invocation: CyclotronJobInvocationHogFunction
     ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>> {
         const result = createInvocationResult<CyclotronJobInvocationHogFunction>(invocation)
-        const addLog = createAddLogFunction(result.logs)
+        // Debug logs dump the resolved inputs and request options, which carry integration secrets and
+        // credential headers. The logs reach the test API response and stored function logs.
+        const sensitiveValues = getSensitiveValues(invocation.hogFunction, invocation.state.globals.inputs ?? {})
+        const addLog = createAddLogFunction(result.logs, sensitiveValues)
 
         // Upsert the tries count on the metadata
         const metadata = (invocation.queueMetadata as { tries: number }) || { tries: 0 }
@@ -84,7 +88,6 @@ export class NativeDestinationExecutorService {
 
             // All native plugin options are done as inputs
             const config = invocation.state.globals.inputs
-            const sensitiveValues = getSensitiveValues(invocation.hogFunction, config)
 
             if (config.debug_mode) {
                 addLog('debug', 'config', config)
@@ -247,6 +250,9 @@ export class NativeDestinationExecutorService {
                 }
             }
         } catch (e) {
+            // A destination's own error can quote a credential. The error reaches the server log, the
+            // test API response and the stored invocation result.
+            e = redactError(e, sensitiveValues)
             if (e instanceof FetchError) {
                 if (retriesPossible) {
                     // We have retries left so we can trigger a retry

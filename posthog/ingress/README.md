@@ -25,6 +25,7 @@ Adding a provider is another `<provider>/` folder, not a change to the mechanism
 1. **Method** — anything but `POST` is 405, before any secret is read.
 2. **Throttle** — `provider.throttle_class`, when the provider sets one. A refusal is 429 with a `Retry-After`.
 3. **Verify** — `provider.verify(request)` over the raw body, answering a `Verification`. A bad signature never reaches a consumer.
+   It asks `scheme.rejects_headers(request.headers)` first, so a signature header that is missing or the wrong shape is refused before `request.body` is read.
 4. **Parse** — `provider.parse(request)`, which decodes the verified body. The default is JSON; an `InvalidPayload` is 400.
 5. **Handshake** — `provider.pre_dispatch_response(request, payload)`, for a challenge the protocol demands.
 6. **Dispatch** — `provider.deliveries(request, payload, facts)`, then ownership, the forward and the consumers, all inside one wall-clock budget.
@@ -46,6 +47,8 @@ An HMAC over raw bytes proves only the signature, so its `facts` are empty and `
 `verify/schemes.py` holds `HmacSha256` and `SnsSignature`; `verify/jwt.py` holds `BearerJwt`, for a provider that authenticates with a signed token instead of a shared secret.
 Each class docstring carries its own reasoning.
 
+A scheme also answers `rejects_headers(headers)`, the part of the check that needs no body: `HmacSha256` refuses a missing or malformed signature header and a missing, malformed or stale timestamp header there, and `BearerJwt` refuses a request that carries no bearer token. The answer is the same INVALID the full check would reach, with the same status, log line and metric outcome, so an unauthenticated caller cannot make an endpoint read a body of up to the request limit for it. A scheme that cannot decide from headers alone answers `False`, which is what `SnsSignature` does, and so does an HMAC scheme whose secret is unset, so an unconfigured endpoint still answers NOT_CONFIGURED.
+
 Three duties fall on the incarnation rather than on `BearerJwt`, and none is enforced:
 
 - **Key discovery.** The scheme takes a `jwks_uri_getter`, so a provider that publishes its `jwks_uri` inside an OpenID metadata document fetches that document in the getter.
@@ -54,17 +57,18 @@ Three duties fall on the incarnation rather than on `BearerJwt`, and none is enf
 
 ## Endpoints
 
-| Provider     | Path                                                    | App          | Consumers                                                                                                                                   | Product code                                                            |
-| ------------ | ------------------------------------------------------- | ------------ | ------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------- |
-| `github`     | `/webhooks/github`, `/webhooks/github/pr`               | `posthog`    | `installation_lifecycle`, `installation_repositories` (core), `conversations`, `loops`, `tasks_pr_backstop`, `tasks_pr_review`, `workflows` | `products/{tasks,conversations,workflows}/backend/webhook_consumers.py` |
-| `github`     | `/webhooks/stamphog/github`                             | `stamphog`   | `stamphog_review`                                                                                                                           | `products/stamphog/backend/webhook_consumers.py`                        |
-| `slack`      | `/api/conversations/v1/slack/events`                    | `supporthog` | `conversations_slack`                                                                                                                       | `products/conversations/backend/webhook_consumers.py`                   |
-| `pandadoc`   | `/api/legal_documents/pandadoc`                         | `default`    | `legal_documents_signatures`                                                                                                                | `products/legal_documents/backend/webhook_consumers.py`                 |
-| `vapi`       | `/api/user_interviews/vapi_webhook/`                    | `default`    | `user_interviews_vapi`                                                                                                                      | `products/user_interviews/backend/webhook_consumers.py`                 |
-| `mailgun`    | `/api/conversations/v1/email/inbound`                   | `inbound`    | none yet, the endpoint still runs its own verifier                                                                                          | `products/conversations/backend/api/email_events.py`                    |
-| `mailgun`    | `/api/conversations/v1/email/outbound`                  | `outbound`   | none yet, the endpoint still runs its own verifier                                                                                          | `products/conversations/backend/api/email_events.py`                    |
-| `sns`        | `/webhooks/workflows/ses-events`                        | `default`    | `workflows_ses_events`                                                                                                                      | `products/workflows/backend/webhook_consumers.py`                       |
-| `customerio` | `/api/projects/<team_id>/messaging/customerio/webhook/` | none         | none, it is the DRF adapter path                                                                                                            | `products/messaging/backend/api/customerio_webhook.py`                  |
+| Provider     | Path                                                    | App                        | Consumers                                                                                                                                   | Product code                                                            |
+| ------------ | ------------------------------------------------------- | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------- |
+| `github`     | `/webhooks/github`, `/webhooks/github/pr`               | `posthog`                  | `installation_lifecycle`, `installation_repositories` (core), `conversations`, `loops`, `tasks_pr_backstop`, `tasks_pr_review`, `workflows` | `products/{tasks,conversations,workflows}/backend/webhook_consumers.py` |
+| `github`     | `/webhooks/stamphog/github`                             | `stamphog`                 | `stamphog_review`                                                                                                                           | `products/stamphog/backend/webhook_consumers.py`                        |
+| `slack`      | `/api/conversations/v1/slack/events`                    | `supporthog`               | `conversations_slack`                                                                                                                       | `products/conversations/backend/webhook_consumers.py`                   |
+| `slack`      | `/api/conversations/v1/slack/interactivity`             | `supporthog_interactivity` | `conversations_slack_interactivity`                                                                                                         | `products/conversations/backend/webhook_consumers.py`                   |
+| `pandadoc`   | `/api/legal_documents/pandadoc`                         | `default`                  | `legal_documents_signatures`                                                                                                                | `products/legal_documents/backend/webhook_consumers.py`                 |
+| `vapi`       | `/api/user_interviews/vapi_webhook/`                    | `default`                  | `user_interviews_vapi`                                                                                                                      | `products/user_interviews/backend/webhook_consumers.py`                 |
+| `mailgun`    | `/api/conversations/v1/email/inbound`                   | `inbound`                  | none yet, the endpoint still runs its own verifier                                                                                          | `products/conversations/backend/services/mailgun_events.py`             |
+| `mailgun`    | `/api/conversations/v1/email/outbound`                  | `outbound`                 | none yet, the endpoint still runs its own verifier                                                                                          | `products/conversations/backend/services/mailgun_events.py`             |
+| `sns`        | `/webhooks/workflows/ses-events`                        | `default`                  | `workflows_ses_events`                                                                                                                      | `products/workflows/backend/webhook_consumers.py`                       |
+| `customerio` | `/api/projects/<team_id>/messaging/customerio/webhook/` | none                       | none, it is the DRF adapter path                                                                                                            | `products/messaging/backend/api/customerio_webhook.py`                  |
 
 The owner of the third-party App registration owns the route.
 The customer-facing GitHub App is shared across products, so its two endpoints are declared in `posthog/urls.py`.
@@ -95,7 +99,7 @@ If a provider's protocol needs the response body to say something, the incarnati
 A verification that could not run is its own answer rather than a verdict: a scheme with a network step returns `UNAVAILABLE` when that step fails on transport, and the view answers 503 with outcome `verify_unavailable`, so a sender that retries a server error sends the delivery again.
 
 What the transport does decide is whether it can vouch that the delivery was taken.
-It cannot when the forward to the owning region failed, when a consumer raised, or when the budget skipped a consumer — in each case some of the work never ran.
+It cannot when an ownership lookup failed, when the forward to the owning region failed, when a consumer raised, or when the budget skipped a consumer — in each case some of the work never ran, or ingress cannot tell whether it ran in the right region.
 A provider that redelivers on a non-2xx sets `retry_status` on its incarnation, and the view then answers that status with outcome `retry_requested` instead of the receipt, so the provider sends the delivery again.
 A provider that does not redeliver leaves it at `None` and keeps the receipt, because a non-2xx buys it nothing.
 That is still the transport deciding, on whether the work ran at all, rather than a consumer choosing an answer: a consumer cannot ask for a retry, and a delivery no consumer is registered for is accepted by construction.
@@ -179,6 +183,8 @@ A consumer whose resources are split by region declares `ownership`, a callable 
 - `ELSEWHERE` — the other region holds it. The request is forwarded.
 - `UNDECIDED` — nothing in the delivery says, so nothing is forwarded.
 
+A fourth value, `FAILED`, is the dispatcher's own: a consumer never answers it, and it records a lookup that raised.
+
 Every delivery in the request is assessed first, and the request is then forwarded **once**, when any consumer answered `ELSEWHERE`.
 One forward per request rather than per delivery, because the unit being replayed is the HTTP request.
 Local dispatch runs either way: a consumer that answered `ELSEWHERE` no-ops on its own, and the other consumers on the endpoint are unaffected.
@@ -188,7 +194,15 @@ The receiving region reads which region it is off the connection it receives, so
 
 The ownership lookup runs inside the request, before dispatch, and inside the same wall-clock budget.
 A lookup that reads the database must be bounded with `bounded_statement_timeout(ms, models=...)`.
-A lookup that raises is logged, captured, counted as `failed` and treated as `UNDECIDED`, so one consumer cannot cost the delivery the receipt it earned by signing.
+
+A lookup that raises is logged, captured and counted as `failed`, and it rules no region out.
+On a provider that sets `retry_status` the view answers that status with outcome `retry_requested`, before the forward and before any consumer runs.
+Local dispatch alone would otherwise receipt the delivery: the consumer's own lookup runs again inside the handler, correctly finds nothing local, the handler returns, and the region that owns the delivery never sees it.
+Nothing has claimed a dedup mark at that point, so the redelivery is processed in full, and the lookups it asks again decide the forward then.
+A provider that does not redeliver keeps the delivery instead: the failure counts as `UNDECIDED`, local dispatch runs, and the request is receipted, because a non-2xx there would only lose the local run as well.
+
+An ownership lookup should therefore let a transient error out rather than answering `LOCAL`, `UNDECIDED` or `ELSEWHERE` through it.
+A guess is what turns a dropped connection into a lost delivery, and an `ELSEWHERE` guess also sends the delivery's contents to a region that may not own them.
 
 What crosses is the raw signed body, except for a provider that signs the form rather than the body.
 Reading that form consumes the request stream and leaves no raw bytes, so the forward rebuilds the fields and the files and drops the original `Content-Type`, which names the boundary of a body that is gone.
@@ -232,7 +246,7 @@ Last, write `<provider>/README.md` with the fixed sections every provider README
 
 Two shapes that already exist and are worth copying rather than re-deriving:
 
-- **Several apps on one provider.** One incarnation can serve several apps, each with its own secret getter, its own subscribed event types, and its own consumer set. Consumers register against the app name. `github/` is the case.
+- **Several apps on one provider.** One incarnation can serve several apps, each with its own secret getter, its own subscribed event types, and its own consumer set. Consumers register against the app name. `github/` is the case. An app is one endpoint's consumer surface rather than one registration with the third party: Slack's events and interactivity endpoints are two apps on one Slack app registration, sharing a secret, so each endpoint validates its consumers against only the types it receives.
 - **A provider that signs the form rather than the body.** The incarnation overrides both `verify()` and `parse()` to read `request.POST`, assembles the signed input from the form fields, and hands it to `HmacSha256` as if it came from headers. `mailgun/` is the case.
 - **The DRF adapter path.** An endpoint that genuinely needs DRF's team scoping keeps its view, and the incarnation contributes a scheme only, declaring no spec, because nothing dispatches there. `customerio/` is the case. The view verifies through `posthog.auth.WebhookSignatureAuthentication`.
   That base class computes its digest with `hmac_sha256_signature()` and compares with `signatures_match()` from `verify/schemes.py`, so the adapter path and the dispatched path share one implementation of HMAC-SHA256.
@@ -240,10 +254,17 @@ Two shapes that already exist and are worth copying rather than re-deriving:
 
 ## Dedup
 
-Dedup is per `(provider, consumer, delivery_id)` in the Django cache, for 24 hours.
+Dedup is per `(provider, consumer, delivery_id)` in the Django cache.
 The mark is set before the consumer runs and released when it raises, so a failure does not burn the delivery for a day.
 Because it is set before the work finishes, it carries a state rather than a bare flag: a claim answers `CLAIMED`, `IN_PROGRESS` or `DONE`, and the consumer settles it to done when it returns.
 Only `DONE` counts as accepted, so a delivery that meets a run still in flight is skipped with outcome `in_flight` and is not receipted, and a provider with `retry_status` sends it again once the first run settled rather than trusting a run that can still fail.
+A settled mark therefore lives for 24 hours, but an unsettled one is a lease and lives for the request's delivery budget plus a minute.
+The lease exists because a process that dies mid-run leaves its mark behind and nothing settles it afterwards: a mark that outlived its run would answer every redelivery `in_flight` until the provider gave up, and the delivery would be lost.
+Its cost is that a redelivery arriving after the lease ran out can run beside a first attempt that overran the budget, which is the exposure a provider without dedup has on every retry.
+Because two runs can overlap, a second key (`<key>:holder`) names the run that holds the lease, and a run only deletes its own claim: a late failure from the first run cannot drop the second run's claim, nor the done mark a finished run wrote.
+The token lives in its own key so that the mark itself stays the plain value every deployed version reads as in flight, which keeps a rolling deploy from receipting a delivery the new worker can still fail.
+That fence reads the cache primary rather than a read replica, because a replica can still serve a token the primary already replaced.
+Settling to done is not fenced that way, because a consumer that ran the delivery and returned makes the mark true whoever wrote the value it replaces; a run drops the mark only while it is still a lease, so a late failure cannot delete a mark another run settled.
 Keying per consumer rather than per delivery matters: one delivery legitimately fans out to several consumers, and a delivery-wide key would starve every consumer but the first.
 A cache error fails **open** — dropping deliveries during a cache outage is worse than running a consumer twice, and consumers carry their own idempotency underneath this.
 

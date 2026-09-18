@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import re
 import sys
 import json
@@ -44,12 +45,19 @@ def test_full_jest_fixture_renders_single_browser_report(tmp_path: Path) -> None
     fixture = SCRIPT_PATH.parent / "fixtures/jest-timings-real-run"
     output = tmp_path / "jest-test-speed-report.html"
 
-    subprocess.run(
+    # The fixture holds the artifacts of a single attempt. Above attempt 1 the reporter keeps
+    # only `-attempt<N>` artifacts, finds none, and writes no timings file, so the run attempt
+    # of the job that runs this test must not reach it. Fork pull requests always run as
+    # attempt 2, because their attempt 1 concludes action_required while it waits for approval.
+    result = subprocess.run(
         [REPO_ROOT / "bin/report-jest-timings", "--artifacts", fixture, "--html", output],
-        check=True,
+        check=False,
         capture_output=True,
         text=True,
+        env={**os.environ, "GITHUB_RUN_ATTEMPT": "1"},
     )
+
+    assert result.returncode == 0, result.stderr
 
     html = output.read_text()
     match = re.search(r"const tests=(.*), summary=", html)

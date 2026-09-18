@@ -215,7 +215,7 @@ export interface ExecToolOptions {
 const CALL_USAGE = 'Usage: call [--json] [--confirm] [--no-skills] <tool_name> <json_input>'
 
 const SKILLS_GATE_MESSAGE =
-    'No skills loaded this session. Run `learn -s "<task keywords>"` and load the matching skills first — they carry the thresholds, schemas, and query patterns this task needs. If no skill applies, re-run this exact command as `call --no-skills ...`.'
+    'No skills loaded this session. Run `learn -s "<task keywords>"`, then load a result with `learn posthog:<skill>` or `learn project:<skill>` using its exact qualified name. Searching alone does not load a skill. `skill-get` and `skill-list` do not satisfy this gate. After loading, retry the original call. If no skill applies, re-run this exact command as `call --no-skills ...`.'
 
 /**
  * Plain errors out of the learn catalog are agent mistakes — unknown names, bad

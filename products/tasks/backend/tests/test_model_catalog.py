@@ -45,7 +45,10 @@ def _resolved_catalog() -> dict[str, Any]:
                     model_catalog.FALLBACK_REASONING_EFFORTS_BY_RUNTIME_ADAPTER.get(adapter, ())
                 ),
                 "models": {
-                    model_id: list(model_catalog.reasoning_efforts_for(adapter, model_id))
+                    model_id: {
+                        "reasoning_efforts": list(model_catalog.reasoning_efforts_for(adapter, model_id)),
+                        "cost_multiplier": model_catalog.cost_multiplier_label(model_id),
+                    }
                     for model_id in model_catalog.models_for_runtime_adapter(adapter)
                 },
             }
@@ -128,6 +131,38 @@ def test_default_model_is_one_the_catalog_serves() -> None:
         )
 
 
+def test_cost_baseline_is_a_model_the_catalog_prices() -> None:
+    assert model_catalog.cost_for_model(model_catalog.COST_BASELINE_MODEL) is not None, (
+        f"the cost baseline '{model_catalog.COST_BASELINE_MODEL}' carries no cost, so every multiplier "
+        f"raises and no picker can render"
+    )
+
+
+@pytest.mark.parametrize(
+    "model,expected",
+    [
+        ("claude-sonnet-5", "1×"),
+        ("claude-opus-5", "2.5×"),
+        ("anthropic/claude-opus-5", "2.5×"),
+        ("gpt-5.6-sol", "≈2.8×"),
+        ("zai-org/glm-5.3-flash", "≈0.06×"),
+        ("gpt-5", None),
+        ("claude-imaginary-9", None),
+    ],
+    ids=[
+        "baseline_is_one",
+        "input_and_output_agree",
+        "provider_qualified_id",
+        "diverging_rates_are_approximate",
+        "cheap_model_keeps_two_decimals",
+        "unpriced_model",
+        "unknown_model",
+    ],
+)
+def test_cost_multiplier_reads_against_the_baseline(model: str, expected: str | None) -> None:
+    assert model_catalog.cost_multiplier_label(model) == expected
+
+
 def test_labels_are_set_only_where_the_derived_name_is_wrong() -> None:
     # A pin that the formatter would produce anyway is dead weight that outlives the
     # formatter improving, so assert the property rather than restating the six strings.
@@ -173,16 +208,9 @@ class TestAvailableModelChoices:
         assert [c.label for c in choices] == ["DeepSeek V4 Flash", "GLM-5.3 Flash", "Kimi K3"]
 
 
-def test_every_gated_model_resolves_to_its_catalog_flag() -> None:
+def test_every_model_resolves_to_its_catalog_flag() -> None:
     # The gate and the pickers read one field now, so this fails if a row gains an
     # access_flag the entitlement check cannot see, whichever spelling the caller sends.
-    gated = [model for model in model_catalog.MODELS if model.access_flag]
-    assert gated, "the catalog gates no model, so this guard proves nothing"
-
-    for model in gated:
+    for model in model_catalog.MODELS:
         assert get_required_model_flag(model.id) == model.access_flag
         assert get_required_model_flag(f"anthropic/{model.id}") == model.access_flag
-
-    for model in model_catalog.MODELS:
-        if model.access_flag is None:
-            assert get_required_model_flag(model.id) is None
