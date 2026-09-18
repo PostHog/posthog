@@ -34,7 +34,7 @@ class LocalSnowflakeWriter(SnowflakeDestinationWriter):
         self._fake = client
 
     async def _make_client(self) -> SnowflakeClient:
-        return self._fake  # type: ignore[return-value]
+        return self._fake  # type: ignore[return-value]  # ty: ignore[invalid-return-type]
 
 
 async def _batches(*record_batches: pa.RecordBatch) -> AsyncIterator[pa.RecordBatch]:

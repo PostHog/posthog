@@ -62,7 +62,7 @@ class LocalBigQueryWriter(BigQueryDestinationWriter):
         self._fake = client
 
     def _get_client(self) -> bigquery.Client:
-        return self._fake  # type: ignore[return-value]
+        return self._fake  # type: ignore[return-value]  # ty: ignore[invalid-return-type]
 
 
 async def _batches(*record_batches: pa.RecordBatch) -> AsyncIterator[pa.RecordBatch]:
