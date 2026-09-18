@@ -88,6 +88,31 @@ class TestGeneratedKnowledgeDocuments(BaseTest):
         assert str(input.resolution_comment_id) not in searchable_text
         assert input.analysis_version not in searchable_text
 
+    def test_get_chunks_by_ids_round_trips_is_generated(self) -> None:
+        generated = logic.create_generated_knowledge_document(self._input())
+        text_source = logic.create_text_source(
+            team_id=self.team.id,
+            created_by_id=self.user.id,
+            name="Manual notes",
+            text="Install the SDK from Project settings.",
+        )
+        KnowledgeDocument.objects.unscoped().filter(id__in=[generated.id]).update(safety_verdict=SafetyVerdict.SAFE)
+        KnowledgeDocument.objects.unscoped().filter(source_id=text_source.id).update(safety_verdict=SafetyVerdict.SAFE)
+
+        generated_chunk_id = (
+            KnowledgeChunk.objects.unscoped().filter(document_id=generated.id).values_list("id", flat=True)[0]
+        )
+        text_chunk_id = (
+            KnowledgeChunk.objects.unscoped().filter(source_id=text_source.id).values_list("id", flat=True)[0]
+        )
+
+        results = {
+            row.chunk_id: row.is_generated
+            for row in logic.get_chunks_by_ids(self.team.id, [generated_chunk_id, text_chunk_id])
+        }
+        assert results[generated_chunk_id] is True
+        assert results[text_chunk_id] is False
+
     def test_retry_returns_existing_document_without_rewriting_it(self) -> None:
         first = logic.create_generated_knowledge_document(self._input())
 

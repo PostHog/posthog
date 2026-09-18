@@ -10560,6 +10560,22 @@ snapshots:
         hash: v1.k794b7964.97190abf6b2cb1c02e955555559874e975140d4479843089f1a9535e6100a194.t9t3ni1Sd9qf56MyNquC5SbflzhcT9m5d3GyZhBkUZo
     scenes-app-stamphog-runs--runs-list-empty--light:
         hash: v1.k794b7964.e3f2449aaf242198553ecade4b10006f816108242c273060fa456e9504ee3fcf.vsiDO5c59UASwyXQZZtwifVbT-qaaUdTa-TxoKNSpmE
+    scenes-app-support-supportplaybookeditor--customized--dark:
+        hash: v1.k794b7964.56dd8c26993da8181fb09aa4d9868be1f5925885f1f1854ca38100636acdaaec.yjA6yaERFMxD3ydwD-uPOPa4qSoIgBECHwHq3wOm_1E
+    scenes-app-support-supportplaybookeditor--customized--light:
+        hash: v1.k794b7964.bc20bf8509545cd73b7817eb7503220b273281ea880c133bae45009048b8e815.40wbJtR34c5iGmHO82nAIjw4zJ7lroH8JUa8u4qi9pg
+    scenes-app-support-supportplaybookeditor--default-instructions--dark:
+        hash: v1.k794b7964.6ca7c5b9eadf6fd3c9d8b4c4096bb8df67dc10038c8bea4ea3ece2e25aba488a.ux84UG4s4cxkAcaiAXqa9cruxCLm9RRinmReWRwZpG4
+    scenes-app-support-supportplaybookeditor--default-instructions--light:
+        hash: v1.k794b7964.464c80feba866d32823a7600f2b5156df898243e5c749d85efeb0fda5e690f77.dIHLhdGob_s1Rhw_1L_C6j2vre94Wjs09mu6spI7MSw
+    scenes-app-support-supportplaybookeditor--load-error--dark:
+        hash: v1.k794b7964.e10fddd433df408efae84db562ba515ed80e8ba654722a45585459e63ab6613a.TQh9hM5qb1eRI3eMDBjWbUjKEcVrDJaUUY6stvqqmVw
+    scenes-app-support-supportplaybookeditor--load-error--light:
+        hash: v1.k794b7964.288d40ec736b0e14ddcb0328f0bf9b5617368fb4ed612cdc086d7d40feef1c28.MSJ0K-9rdAZLW77unjEYpwgodcJGUGJCl_AP7IdTxl4
+    scenes-app-support-supportplaybookeditor--loading--dark:
+        hash: v1.k794b7964.055101ed3d5b9017bfdb99dc8e7764ddc1ccda81cc82e3935f7e46a266417633.ZKJtC_EXrTHnUBxJ7727igEcxhcM3lcS4ESOp_20lPs
+    scenes-app-support-supportplaybookeditor--loading--light:
+        hash: v1.k794b7964.e12b18e907330d1bcb86dc86f186900bd8aa67fc26673b24e8f831ac5f0a5c7d.j_Chw6rnyg5KwlJi2UkhNa23VNnCPSTcfPaReZfOaCc
     scenes-app-support-threadreportentry--fix-merged--dark:
         hash: v1.k794b7964.e0c8db4f933b58c3af999c559176838e77f9e8b9d5b0566ec8ed08771f62cb30.FTz_l6gFhX_pFY7GyxECQ7-z2PTBJd6bvTO9emHIdM8
     scenes-app-support-threadreportentry--fix-merged--light:
