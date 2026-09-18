@@ -1018,6 +1018,7 @@
          "posthog_datawarehousesavedquery"."column_order",
          "posthog_datawarehousesavedquery"."external_tables",
          "posthog_datawarehousesavedquery"."query",
+         "posthog_datawarehousesavedquery"."query_revision",
          "posthog_datawarehousesavedquery"."status",
          "posthog_datawarehousesavedquery"."last_run_at",
          "posthog_datawarehousesavedquery"."sync_frequency_interval",

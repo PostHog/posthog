@@ -30,9 +30,11 @@ from products.batch_exports.backend.service import (
     S3FamilyBaseInputs,
 )
 from products.batch_exports.backend.temporal.batch_exports import finish_batch_export_run, start_batch_export_run
-from products.batch_exports.backend.temporal.destinations.s3_batch_export import (
+from products.batch_exports.backend.temporal.destinations.constants import (
     COMPRESSION_EXTENSIONS,
     FILE_FORMAT_EXTENSIONS,
+)
+from products.batch_exports.backend.temporal.destinations.s3_batch_export import (
     SUPPORTED_COMPRESSIONS,
     S3BatchExportWorkflow,
     S3InsertInputs,
@@ -216,6 +218,7 @@ async def assert_clickhouse_records_in_s3(
     backfill_details: BackfillDetails | None = None,
     allow_duplicates: bool = False,
     sort_key: str = "uuid",
+    legacy_parquet_extension: bool = True,
 ):
     """Assert ClickHouse records are written to JSON in key_prefix in S3 bucket_name.
 
@@ -235,6 +238,8 @@ async def assert_clickhouse_records_in_s3(
         backfill_details: Optional backfill details (this affects the query that is run to get the records).
         allow_duplicates: If True, allow duplicates when comparing records.
         sort_key: The key to sort the records by since they are not guaranteed to be in order.
+        legacy_parquet_extension: Whether the export keeps the compression codec in the extension
+            of a Parquet file.
     """
     json_columns = ("properties", "person_properties", "set", "set_once")
     s3_data = await assert_file_in_s3(
@@ -244,6 +249,7 @@ async def assert_clickhouse_records_in_s3(
         file_format=file_format,
         compression=compression,
         json_columns=json_columns,
+        legacy_parquet_extension=legacy_parquet_extension,
     )
 
     if batch_export_model is not None:
@@ -378,6 +384,7 @@ async def run_s3_batch_export_workflow(
     exclude_events = s3_destination_config.get("exclude_events", None)
     file_format = s3_destination_config.get("file_format", "JSONLines")
     compression = s3_destination_config.get("compression", None)
+    legacy_parquet_extension = s3_destination_config.get("legacy_parquet_extension", True)
     s3_key_prefix = s3_destination_config.get("prefix", None)
     bucket_name = s3_destination_config.get("bucket_name", None)
 
@@ -472,6 +479,7 @@ async def run_s3_batch_export_workflow(
         exclude_events=exclude_events,
         compression=compression,
         file_format=file_format,
+        legacy_parquet_extension=legacy_parquet_extension,
         sort_key=sort_key,
         backfill_details=backfill_details,
     )

@@ -118,6 +118,8 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
     )
     external_tables = models.JSONField(default=list, null=True, blank=True, help_text="List of all external tables")
     query = models.JSONField(default=dict, null=True, blank=True, help_text="HogQL query")
+    # Null on rows that predate the column; the write path accepts any token for those until their first edit.
+    query_revision = models.UUIDField(default=uuid.uuid4, null=True, blank=True)
     status = models.CharField(
         null=True, choices=Status, max_length=64, help_text="The status of when this SavedQuery last ran."
     )
