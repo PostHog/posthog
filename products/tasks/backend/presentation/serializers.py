@@ -3036,6 +3036,20 @@ class ConnectionTokenResponseSerializer(serializers.Serializer):
     token = serializers.CharField(help_text="JWT token for authenticating with the sandbox")
 
 
+class StreamReadTokenQuerySerializer(serializers.Serializer):
+    """Query parameters for requesting a task run stream read token"""
+
+    resync = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text=(
+            "Set to true when the client can rebuild the run from its durable log after the agent-proxy "
+            "reports a trimmed stream cursor. Without it, runs that keep only a short live tail in Redis "
+            "are read from the Django endpoint, which replays the durable backlog itself."
+        ),
+    )
+
+
 class StreamReadTokenResponseSerializer(serializers.Serializer):
     """Response containing a JWT token (and resolved base URL) for reading a task run's live event stream"""
 
@@ -4594,6 +4608,14 @@ class AgentProxyCallbackRequestSerializer(serializers.Serializer):
         help_text=(
             "Whether the agent is currently active (true) or idle (false). "
             "This is true for 'heartbeat' and 'agent_activity', and false otherwise."
+        ),
+    )
+    turn_completed = serializers.BooleanField(
+        required=False,
+        default=True,
+        help_text=(
+            "Whether 'awaiting_input' reports a completed turn. Set false for an idle sandbox resume "
+            "to mark the agent idle without sending a completion notification or updating activity."
         ),
     )
     task_id = serializers.CharField(

@@ -1,0 +1,27 @@
+{
+    "letter": "MA",
+    "id": "MA10",
+    "cluster": null,
+    "is_real": false,
+    "severity": null,
+    "votes": [
+        {
+            "is_real": false,
+            "severity": null,
+            "evidence": "The claimed scan-and-lock behavior is incorrect. /tmp/frozen-75215/products/stamphog/backend/tasks/tasks.py:1202-1209 builds one SELECT with team scope, pull_request/head predicates, excluded statuses, ordering, and first(); select_for_update is a query option, not an eager lock of the queryset before subsequent filters. It locks the selected qualifying run, not every historical run before filtering. There is already an indexable PR restriction: /tmp/frozen-75215/products/stamphog/backend/models.py:142 declares a normal Django ForeignKey for pull_request (indexed by default), also present in migrations/0001_initial.py:274-282, and the migration declares team_id db_index=True at :220. An optional composite index could reduce filtering/sorting within one PR's history, but absence of that index does not prove the asserted broad locking or a shipping slowdown. The receiver also skips non-output status/state saves at /tmp/frozen-75215/products/review_hog/backend/receivers.py:85-89.",
+            "refutation": "I first looked for an existing index and followed the entire queryset to its evaluation. The foreign-key index can narrow by PR, and first() evaluates the combined filtered query; Python method order does not make PostgreSQL lock all PR history before WHERE filtering. The remaining claim depends on unusually large per-PR history and an unprovided execution plan or timing. No caller loop or demonstrated workload in the cited change establishes that cost, while ordinary unrelated task saves are excluded. This is a possible future query optimization built on a contradicted locking premise, not a verified defect."
+        },
+        {
+            "is_real": false,
+            "severity": null,
+            "evidence": "products/stamphog/backend/tasks/tasks.py:1202-1209 builds one SQL queryset constrained by team, pull_request and head_sha, excludes terminal failure/superseded statuses, orders by created_at, and selects first(). select_for_update() is a query modifier; its position in the method chain does not execute locking before subsequent filters. The resulting bounded filtered query does not lock every historical PR run as claimed. ReviewRun.pull_request is a normal indexed Django ForeignKey (models.py:142; migrations/0001_initial.py:274-280), and team_id is also indexed (the same migration:220), so this is not an unindexed scan of all reviews. The candidate history is that single PR's history.",
+            "refutation": "I checked the existing indexes, query construction, and deduplication behavior. There is no matching composite index, but absence alone does not establish the claimed scanning/locking defect. PostgreSQL applies the WHERE predicates before locking qualifying rows; first() also limits the selected result. Same-head saves do not grow review history, as tested in test_tasks.py:974-1020, and state-only saves do not trigger this query (products/review_hog/backend/receivers.py:85-89). A composite index could be a useful measured optimization for unusually large PR histories, but no query plan, workload, or reachable harmful history size establishes a shipping slowdown. The broad-lock premise is false and the remaining performance claim is speculative."
+        },
+        {
+            "is_real": false,
+            "severity": null,
+            "evidence": "products/stamphog/backend/tasks/tasks.py:1202-1209 constructs one filtered SQL query for team, pull_request, head_sha, and nonfailed/nonsuperseded status, ordered by creation time and limited by first(). Chaining select_for_update before filter does not cause rows to be locked before the WHERE predicates are applied; it does not lock every historical run of the PR. The lookup is also not unindexed: ReviewRun.pull_request is a normal indexed Django ForeignKey at backend/models.py:142 and migrations/0001_initial.py:275-281, and team_id is explicitly indexed at migration :220. The existing foreign-key index can narrow the search to this PR's history. The receiver further excludes ordinary status/state saves at products/review_hog/backend/receivers.py:85-89.",
+            "refutation": "I first checked the claimed scan-and-lock mechanism and existing indexes. The missing composite index is real, but the claimed locking behavior is contradicted by the filtered, limited SELECT FOR UPDATE query: nonmatching historical heads are not all locked simply because the ORM method appears earlier in the chain. A composite index might improve unusually large per-PR histories, but no production cardinality, query plan, latency, or contention evidence establishes a material regression beyond the already-indexed per-PR lookup. This is a speculative indexing optimization built partly on an incorrect locking premise, not a demonstrated shipping defect."
+        }
+    ]
+}

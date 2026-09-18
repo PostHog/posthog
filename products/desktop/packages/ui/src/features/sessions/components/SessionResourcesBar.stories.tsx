@@ -1,8 +1,8 @@
 import {
+  type AcpMessage,
   POSTHOG_PRODUCTS,
   type PostHogProductId,
-} from "@posthog/agent/posthog-products";
-import type { AcpMessage } from "@posthog/shared";
+} from "@posthog/shared";
 import { SessionResourcesBar } from "@posthog/ui/features/sessions/components/SessionResourcesBar";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 
