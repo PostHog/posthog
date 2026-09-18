@@ -579,7 +579,22 @@ def handle_stale_served(*, runner: Any, family: str) -> None:
         get_property_type(prop) == "session" and get_property_key(prop) == "$channel_type"
         for prop in getattr(runner.query, "properties", None) or []
     ):
-        debounce_extra = json.dumps(runner.modifiers.model_dump(mode="json")["customChannelTypeRules"], sort_keys=True)
+        # Mirror `channel_rules_shape_key` (import would cycle): only the fields
+        # that change what the channel INSERT stores join the debounce identity.
+        dump = runner.modifiers.model_dump(mode="json")
+        debounce_extra = json.dumps(
+            {
+                field: dump.get(field)
+                for field in (
+                    "customChannelTypeRules",
+                    "bounceRateDurationSeconds",
+                    "bounceRatePageViewMode",
+                    "sessionsV2JoinMode",
+                    "sessionTableVersion",
+                )
+            },
+            sort_keys=True,
+        )
     enqueue_stale_revalidation(team=runner.team, query=runner.query, family=family, debounce_extra=debounce_extra)
 
 

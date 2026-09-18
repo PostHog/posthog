@@ -300,10 +300,10 @@ def ensure_web_stats_precomputed(
         "pad_minutes": ast.Constant(value=SESSION_FORWARD_PAD_MINUTES),
     }
 
-    # A channel filter resolves through the team's custom channel rules inside the
-    # INSERT (`session.$channel_type`), so the rules join the job hash and the
-    # shape key — a rules edit rotates the buckets instead of serving stale
-    # classifications. Modifiers carry the request's rules to the printer.
+    # A channel filter resolves through the request's effective modifiers inside
+    # the INSERT, so the full modifier serialization joins the job hash and the
+    # shape key (`channel_rules_shape_key`) — an override or rules edit mints its
+    # own buckets instead of contaminating the shared team-default namespace.
     channel = has_channel_type_filter(runner)
     if channel:
         placeholders["user_filter"] = with_channel_rules_key(placeholders["user_filter"], runner)

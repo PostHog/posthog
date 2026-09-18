@@ -118,6 +118,31 @@ class TestIsPrecomputeEnabledForTeam(BaseTest):
         flag.assert_not_called()
 
 
+class TestChannelModifiersShapeKey(BaseTest):
+    def _runner(self, modifiers=None):
+        from products.web_analytics.backend.hogql_queries.web_overview import WebOverviewQueryRunner
+
+        query = WebOverviewQuery(
+            dateRange=DateRange(date_from="-7d"),
+            properties=[SessionPropertyFilter(key="$channel_type", value="Direct", operator=PropertyOperator.EXACT)],
+        )
+        query.modifiers = modifiers
+        return WebOverviewQueryRunner(team=self.team, query=query)
+
+    def test_semantic_overrides_key_apart_and_defaults_stay_stable(self) -> None:
+        from posthog.schema import HogQLQueryModifiers
+
+        from products.web_analytics.backend.hogql_queries.web_analytics_lazy_precompute import channel_rules_shape_key
+
+        # Default requests must share one namespace across constructions, while a
+        # request-controlled semantic override (the reviewers' bounce-threshold
+        # example) must mint its own — never write into the shared buckets.
+        default_key = channel_rules_shape_key(self._runner())
+        assert channel_rules_shape_key(self._runner()) == default_key
+        override_key = channel_rules_shape_key(self._runner(HogQLQueryModifiers(bounceRateDurationSeconds=42)))
+        assert override_key != default_key
+
+
 class TestChannelTtlSchedule(BaseTest):
     def test_schedule_caps_job_width_and_holds_old_days(self) -> None:
         # Without max_window_days, `split_ranges_by_ttl` merges a year-long span's

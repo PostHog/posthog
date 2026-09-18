@@ -225,6 +225,7 @@ def can_use_lazy_precompute(
     extra_check: Optional[Callable[[LazyPrecomputeRunner], None]] = None,
     require_integer_timezone: bool = True,
     allow_channel_type_filter: bool = False,
+    allow_uuid_session_join: bool = False,
     max_days: int = MAX_PRECOMPUTE_DAYS,
 ) -> bool:
     """Return True iff the lazy precompute gate is eligible. Logs the rejection
@@ -242,6 +243,7 @@ def can_use_lazy_precompute(
             runner,
             require_integer_timezone=require_integer_timezone,
             allow_channel_type_filter=allow_channel_type_filter,
+            allow_uuid_session_join=allow_uuid_session_join,
             max_days=max_days,
         )
         if extra_check is not None:
@@ -270,6 +272,7 @@ def check_common_eligible(
     *,
     require_integer_timezone: bool = True,
     allow_channel_type_filter: bool = False,
+    allow_uuid_session_join: bool = False,
     max_days: int = MAX_PRECOMPUTE_DAYS,
 ) -> None:
     """Raise a `LazyPrecomputeIneligible` subclass if the query can't go through
@@ -323,7 +326,9 @@ def check_common_eligible(
     # web stats table has no session-uniq column (it stores `uniq, UUID` user
     # state only), so this gate is conservative there — kept shared for
     # simplicity until the web overview column is re-typed in a follow-up.
-    if query.modifiers and query.modifiers.sessionsV2JoinMode == "uuid" and not allow_channel_type_filter:
+    # Only the overview channel path may bypass this: its insert template carries
+    # the UUID-safe session-id handling; the stats template does not.
+    if query.modifiers and query.modifiers.sessionsV2JoinMode == "uuid" and not allow_uuid_session_join:
         raise SessionsV2UuidMode()
 
     # Any event/person filter shape is accepted (any key, operator, count), translated
@@ -382,15 +387,40 @@ def has_channel_type_filter(runner: LazyPrecomputeRunner) -> bool:
     )
 
 
-def channel_rules_shape_key(runner: LazyPrecomputeRunner) -> str:
-    """The team's custom channel rules, serialized deterministically.
+# Modifier fields that change what a channel-filtered INSERT stores: channel
+# classification rules, the bounce computation, and the session-id join mode.
+CHANNEL_SEMANTIC_MODIFIER_FIELDS: tuple[str, ...] = (
+    "customChannelTypeRules",
+    "bounceRateDurationSeconds",
+    "bounceRatePageViewMode",
+    "sessionsV2JoinMode",
+    "sessionTableVersion",
+)
 
-    `session.$channel_type` inside the INSERT resolves through these rules, but
-    modifiers are absent from the lazy job hash — so every channel-filtered
-    ensure folds this string into both the job identity (via
-    `with_channel_rules_key`) and the shape-cap key (via `shape_key_extra`),
-    and a rules edit rotates the buckets instead of serving stale classes."""
-    return json.dumps(runner.modifiers.model_dump(mode="json")["customChannelTypeRules"], sort_keys=True)
+
+def channel_rules_shape_key(runner: LazyPrecomputeRunner) -> str:
+    """The request's effective modifiers, serialized deterministically.
+
+    The channel INSERT resolves `session.$channel_type` (and bounce state on the
+    paths/overview templates) through the request's effective modifiers — custom
+    channel rules, bounce thresholds — but modifiers are absent from the lazy
+    job hash. Folding this whole serialization into the job identity (via
+    `with_channel_rules_key`), the shape-cap key (`shape_key_extra`) and the
+    revalidation debounce key means a request with different semantics gets its
+    OWN buckets instead of contaminating or reusing another member's: a default
+    dashboard resolves to the team-default modifiers and shares one namespace,
+    while an explicit override is keyed apart. A team rules edit rotates the
+    buckets the same way.
+
+    The list is the modifiers the channel INSERT templates actually read —
+    channel classification, bounce computation, and the session-id join mode —
+    rather than the whole modifiers object, whose incidental execution fields
+    would fragment the namespace without changing any stored value."""
+    dump = runner.modifiers.model_dump(mode="json")
+    return json.dumps(
+        {field: dump.get(field) for field in CHANNEL_SEMANTIC_MODIFIER_FIELDS},
+        sort_keys=True,
+    )
 
 
 def with_channel_rules_key(user_filter: ast.Expr, runner: LazyPrecomputeRunner) -> ast.Expr:

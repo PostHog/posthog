@@ -265,6 +265,21 @@ class TestWebStatsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
             assert not can_use_stats_lazy_precompute(unfiltered), "the 366-day cap is channel-scoped, not general"
 
     @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
+    def test_uuid_session_mode_stays_rejected_with_channel_filter(self):
+        # The UUID join-mode bypass is overview-only (its channel template carries
+        # the UUID-safe session-id handling); the stats insert does not, so a
+        # channel filter must not smuggle uuid-mode teams past the rejection.
+        from posthog.schema import HogQLQueryModifiers, SessionsV2JoinMode
+
+        query = self._build_query(
+            properties=[SessionPropertyFilter(key="$channel_type", value="Direct", operator=PropertyOperator.EXACT)]
+        )
+        query.modifiers = HogQLQueryModifiers(sessionsV2JoinMode=SessionsV2JoinMode.UUID)
+        runner = WebStatsTableQueryRunner(team=self.team, query=query)
+        with self._enable_lazy():
+            assert not can_use_stats_lazy_precompute(runner)
+
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_rewritten_first_pageview_channel_filter_stays_live(self):
         # With first-pageview attribution on, the live path rewrites the channel
         # filter to first-pageview semantics; the insert would apply raw session

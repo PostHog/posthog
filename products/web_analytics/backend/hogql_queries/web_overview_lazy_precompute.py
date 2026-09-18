@@ -69,6 +69,8 @@ def can_use_lazy_precompute(runner: "WebOverviewQueryRunner") -> bool:
         runner,
         log_prefix="web_overview",
         allow_channel_type_filter=has_channel_type_filter(runner),
+        # Overview-only: its channel template carries the UUID-safe session-id handling.
+        allow_uuid_session_join=has_channel_type_filter(runner),
         max_days=CHANNEL_MAX_PRECOMPUTE_DAYS if has_channel_type_filter(runner) else MAX_PRECOMPUTE_DAYS,
     )
 
@@ -77,6 +79,7 @@ def _check_lazy_precompute_eligible(runner: "WebOverviewQueryRunner") -> None:
     check_common_eligible(
         runner,
         allow_channel_type_filter=has_channel_type_filter(runner),
+        allow_uuid_session_join=has_channel_type_filter(runner),
         max_days=CHANNEL_MAX_PRECOMPUTE_DAYS if has_channel_type_filter(runner) else MAX_PRECOMPUTE_DAYS,
     )
 
