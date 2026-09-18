@@ -2428,6 +2428,22 @@ snapshots:
         hash: v1.k794b7964.2ff7288bc0a83e48485c4bd195b0cbceb06d5fd2218264cf63c49a72a90f00dd.tsDphOLaTwWpwAxmLc9dw4zQw9og1WJG5vjOGij2UeE
     data-warehouse-query-history-modal--with-history--light:
         hash: v1.k794b7964.e72700e47a962bf542a5cb857bc6bd98e4d0ca8e280db1ce01c144d3d1b818ef.naPm1iXreZerb2g6MdHDraZEtV7nGY8bi_60zMzf70s
+    data-warehouse-warehousedestinationstable--default--dark:
+        hash: v1.k794b7964.1a04adf977ed41fb4adcf77bafd5fae4ee839aee3b23a1cc27dacb3d5b15eb81.eG5JEF8q1iEVBz5z2p2nfnBDgLMabiBLlUtTnzH6K9Q
+    data-warehouse-warehousedestinationstable--default--light:
+        hash: v1.k794b7964.83464c3cc83d0c24582e9dd5d3e67b3799195b435d80540fd9e56bf104ee2f14.K-hPhqPaWCr4n8br1e5sf4Ul6AdfFPi7zuHuT-fXvYc
+    data-warehouse-warehousedestinationstable--deleting--dark:
+        hash: v1.k794b7964.1a04adf977ed41fb4adcf77bafd5fae4ee839aee3b23a1cc27dacb3d5b15eb81.zpeJlWbYFzd8flyum4CUM_B-O3CakOPgnyI6MRb7BNY
+    data-warehouse-warehousedestinationstable--deleting--light:
+        hash: v1.k794b7964.83464c3cc83d0c24582e9dd5d3e67b3799195b435d80540fd9e56bf104ee2f14.F0p-t8XeRtUpFWDU7FcuMnPvEF7wDzie9nKgAEUFd7w
+    data-warehouse-warehousedestinationstable--empty--dark:
+        hash: v1.k794b7964.9f1bf33e217cec7392aabfd90b22f1b90d23c376fe23fd3da26da296bd2a3bed.vr1sLFpw_5xjzCc0k0Y0O4rgmSzSJt1fymgjYnzfs1M
+    data-warehouse-warehousedestinationstable--empty--light:
+        hash: v1.k794b7964.fbf426283f3c515b35f5b1a1d83bbd80527692b393d1b415e83070e2fb525077.kx3a5CnOGxV-4p6vGDHRT1z1wGNOdijZQKO-vQKmovo
+    data-warehouse-warehousedestinationstable--loading--dark:
+        hash: v1.k794b7964.6822b2603856380f898ef83e31d6bb3a179ef78e97dce603804d61e536e33543.jdFqJsjhfMQIUySpfQ_Dvwca7kdb_1jRS9j5U5OmIDY
+    data-warehouse-warehousedestinationstable--loading--light:
+        hash: v1.k794b7964.b5aaffa7f7e755ef371931ba26506118e66221071eacbcb8d96df4a8d1fda234.KvSLPPOYhqF6fjKn-ZV23joNGS5B-4jwxfaff2cyP7I
     endpoints-usagetrendschart--breakdown--dark:
         hash: v1.k794b7964.725cd338f4c7922dc0defc35db0438ca80cd1fcec083b52cae4a3fce1be90235.fSfMnv_kEKzqwV0o4HdZA5W2pAUvXeiW-1fDQjjEu_w
     endpoints-usagetrendschart--breakdown--light:
