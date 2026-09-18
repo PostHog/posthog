@@ -94,13 +94,6 @@ def maybe_reconcile_dag(dag: DAG) -> None:
     transaction.on_commit(lambda: _reconcile_dag_best_effort(dag))
 
 
-def reconcile_dag_by_id(team_id: int, dag_id: uuid.UUID) -> None:
-    """`maybe_reconcile_dag` for callers outside the product, which hold a DAG id and not the row."""
-    dag = DAG.objects.filter(team_id=team_id, id=dag_id).first()
-    if dag is not None:
-        maybe_reconcile_dag(dag)
-
-
 def _reconcile_dag_best_effort(dag: DAG) -> None:
     try:
         graph = build_frequency_graph(dag)

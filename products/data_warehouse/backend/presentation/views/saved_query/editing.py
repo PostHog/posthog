@@ -34,10 +34,8 @@ from products.data_modeling.backend.facade.api import has_incremental_history
 from products.data_modeling.backend.facade.modeling import ResolutionCycleError, get_parents_from_model_query
 from products.data_modeling.backend.facade.models import (
     DAG,
-    DataModelingJob,
     DataWarehouseSavedQuery,
     DataWarehouseSavedQueryColumnAnnotation,
-    Edge,
     Node,
 )
 from products.data_tools.backend.facade.models import DataWarehouseSavedQueryFolder
@@ -104,34 +102,21 @@ def _apply_frequency_target(
     return target
 
 
+_MOVE_REFUSALS = {
+    "multiple_placements": "This view belongs to multiple DAGs and cannot be moved here.",
+    "blocked": "This view cannot move while its DAG is managed or other views depend on it.",
+    "materializing": (
+        "This view cannot move while it is materializing. Wait for the run to finish or cancel it, then try again."
+    ),
+    "moved": "Something else moved this view while we were moving it. Try again.",
+}
+
+
 def _move_to_dag(view: DataWarehouseSavedQuery, dag: DAG) -> None:
-    nodes = list(Node.objects.filter(team_id=view.team_id, saved_query=view).select_related("dag"))
-    if len(nodes) > 1:
-        raise serializers.ValidationError({"dag_id": "This view belongs to multiple DAGs and cannot be moved here."})
-    if nodes and nodes[0].dag_id != dag.id:
-        node = nodes[0]
-        if node.dag.is_managed or node.outgoing_edges.exists():
-            raise serializers.ValidationError(
-                {"dag_id": "This view cannot move while its DAG is managed or other views depend on it."}
-            )
-        # A run's activities load the node by team, node and DAG, so a move mid-run leaves the job
-        # stuck running: even the activity that records the failure stops finding the node.
-        if DataModelingJob.objects.filter(
-            team_id=view.team_id, saved_query=view, status=DataModelingJob.Status.RUNNING
-        ).exists():
-            raise serializers.ValidationError(
-                {
-                    "dag_id": "This view cannot move while it is materializing. Wait for the run to "
-                    "finish or cancel it, then try again."
-                }
-            )
-        previous_dag_id = node.dag_id
-        # Rebuild parents in the destination without discarding the node's targets or job history.
-        Edge.objects.filter(team_id=view.team_id, target=node).delete()
-        node.dag = dag
-        node.save(update_fields=["dag"])
-        modeling_api.reconcile_dag_by_id(view.team_id, previous_dag_id)
-    modeling_api.sync_saved_query_to_dag(view, dag=dag)
+    try:
+        modeling_api.move_saved_query_to_dag(view.team_id, view.pk, dag.id)
+    except modeling_api.NodeMoveError as e:
+        raise serializers.ValidationError({"dag_id": _MOVE_REFUSALS[e.reason]})
 
 
 class DataWarehouseSavedQuerySerializer(

@@ -132,7 +132,10 @@ class TestSavedQueryWriteFields(APIBaseTest):
         parents = set(Edge.objects.filter(target=node).values_list("id", flat=True))
         self.assertTrue(parents)
         other = DAG.objects.create(team=self.team, name="Other")
-        with patch("products.data_modeling.backend.facade.api.sync_saved_query_to_dag", side_effect=RuntimeError):
+        with patch(
+            "products.data_modeling.backend.logic.saved_query_dag_sync.sync_saved_query_to_dag",
+            side_effect=RuntimeError,
+        ):
             response = self.client.patch(
                 f"/api/environments/{self.team.id}/warehouse_saved_queries/{created['id']}",
                 {"dag_id": str(other.id)},

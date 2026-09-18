@@ -52,5 +52,5 @@ A deleted row whose name was not released still reserves that name and needs sep
 
 `dag_id` must identify a non-managed DAG in the same project; invalid or foreign IDs return 400.
 A DAG-only update moves the existing node and preserves its cadence and job history.
-Moves are refused when the view has dependents, belongs to a managed DAG, or has nodes in multiple DAGs.
+Moves are refused when the view has dependents, belongs to a managed DAG, has nodes in multiple DAGs, or has a materialization running.
 Explicit `null` selects the default DAG.
