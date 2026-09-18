@@ -47,10 +47,13 @@ const hogFunctionFilterOutcomes = new Counter({
 /**
  * Where a filter threw, rather than how many threw.
  *
- * The `filtering_failed` app metric is emitted from every caller of this function, so its total
- * cannot be split by the thing that matters operationally: only the two build callers turn a filter
- * error into work for the dead-letter topic, while transformations and the execution-time callers
- * do not.
+ * This counts every exception the catch block below sees. The `filtering_failed` app metric is
+ * pushed onto the returned `metrics` array in that same block, but most callers discard the array.
+ * This counter therefore covers a strictly larger population than the app metric, so read its
+ * per-caller rate on its own rather than as a share of that metric.
+ *
+ * That rate is what the dead-letter work needs, because only the two `build_*` callers turn a
+ * filter error into a parked record.
  */
 const hogFunctionFilterErrors = new Counter({
     name: 'cdp_hog_function_filter_error',
