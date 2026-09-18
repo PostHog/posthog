@@ -1187,6 +1187,27 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         assert "denied@posthog.com" not in recipients
         assert self.user.email in recipients
 
+    def test_send_hog_function_filters_uncompilable_tells_a_switched_off_destination_to_switch_back_on(
+        self, MockEmailMessage: MagicMock
+    ) -> None:
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        hog_function = HogFunction.objects.create(team=self.team, name="Broken destination", enabled=True)
+        HogFunction.objects.filter(id=hog_function.id).update(
+            filters={"bytecode": None, "bytecode_error": "Cohort membership can't be evaluated"}
+        )
+
+        send_hog_function_filters_uncompilable(str(hog_function.id))
+        HogFunction.objects.filter(id=hog_function.id).update(enabled=False)
+        send_hog_function_filters_uncompilable(str(hog_function.id))
+
+        assert "switch it back on" not in mocked_email_messages[0].html_body
+        assert "switch it back on" in mocked_email_messages[1].html_body
+        # Fixing the filters leaves the destination off, so the second email must reach the
+        # recipients rather than being deduped away by the first.
+        assert mocked_email_messages[0].campaign_key != mocked_email_messages[1].campaign_key
+
     def test_send_hog_function_filters_uncompilable_sends_nothing_without_an_error(
         self, MockEmailMessage: MagicMock
     ) -> None:

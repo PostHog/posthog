@@ -803,7 +803,11 @@ def send_hog_function_filters_uncompilable(hog_function_id: str) -> None:
     # email, while a re-run of the command over the same breakage is not. sha256 rather than
     # hash(), which is seeded per process and would give the same error a new key after a restart.
     error_digest = hashlib.sha256(bytecode_error.encode("utf-8")).hexdigest()[:16]
-    campaign_key: str = f"hog_function_filters_uncompilable_{hog_function_id}_{error_digest}"
+    # The enabled state is part of the key too. An operator who notifies first and escalates to
+    # --disable later has to be able to tell the recipients the destination is now off, and the
+    # error alone would dedupe that second email away.
+    state = "enabled" if hog_function.enabled else "disabled"
+    campaign_key: str = f"hog_function_filters_uncompilable_{hog_function_id}_{error_digest}_{state}"
     message = EmailMessage(
         campaign_key=campaign_key,
         subject=f"[Action required] Destination '{hog_function.name}' in project '{team}' is not delivering events",

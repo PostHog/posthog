@@ -12,6 +12,9 @@
         membership can't be checked while an event is being processed, so a filter that refers to one can't run.
         For any other error, edit the filter to remove the expression the error names.
     </p>
+    {% if not hog_function.enabled %}
+        <p>This destination is also switched off. Fix the filters, then switch it back on to start delivering events again.</p>
+    {% endif %}
     <div class="mb mt text-center">
         <a class="button" href="{{ hog_function.url }}">Fix the filters</a>
     </div>
