@@ -196,11 +196,12 @@ export function WorkflowAppliedOutcome({
                                             {version.changes?.length ? (
                                                 <LemonTable
                                                     size="small"
-                                                    embedded
                                                     columns={[
                                                         {
                                                             title: 'Field',
                                                             key: 'field',
+                                                            // Same split as the suggestion card's table, so the two read alike.
+                                                            width: '20%',
                                                             render: (_, change) => (
                                                                 <span className="flex items-center gap-1 flex-wrap">
                                                                     {change.step_name && (
@@ -220,6 +221,7 @@ export function WorkflowAppliedOutcome({
                                                         {
                                                             title: 'Was',
                                                             key: 'before',
+                                                            width: '40%',
                                                             render: (_, change) => (
                                                                 <span className="text-secondary">
                                                                     {change.before ?? 'not set'}
@@ -229,6 +231,7 @@ export function WorkflowAppliedOutcome({
                                                         {
                                                             title: 'Became',
                                                             key: 'after',
+                                                            width: '40%',
                                                             render: (_, change) => (
                                                                 <span>{change.after ?? 'removed'}</span>
                                                             ),
