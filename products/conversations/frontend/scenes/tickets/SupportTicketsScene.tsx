@@ -209,7 +209,7 @@ function SpikeFilterNotice(): JSX.Element | null {
             action={{ children: 'Show all tickets', onClick: () => clearSpikeFilter() }}
             data-attr="spike-filter-notice"
         >
-            Showing the {spikeTicketIds.length} tickets from a detected spike.
+            Showing the <span translate="no">{spikeTicketIds.length}</span> tickets from a detected spike.
         </LemonBanner>
     )
 }
