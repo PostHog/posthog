@@ -78,6 +78,10 @@ When changing Codex versions, update both `packages/agent/package.json` and `app
 The downloader skips existing binaries, so remove `apps/code/resources/codex-acp/codex` and `apps/code/resources/codex-acp/codex-code-mode-host` before running it again after a version change (use the `.exe` filenames on Windows).
 For Claude Code, keep the Claude Agent SDK versions in `packages/agent/package.json` and `packages/workspace-server/package.json` aligned and regenerate the desktop lockfile.
 
+The agent bundles `@posthog/harness` through `noExternal` in `packages/agent/tsup.config.ts` and copies its runtime assets during the build.
+Keep it in the agent's `devDependencies`, alongside the other bundled workspace packages.
+Adding it to production dependencies makes Electron packaging expand the harness dependency tree repeatedly and fail with `Invalid string length`.
+
 ## Run the app
 
 Already working in the posthog/posthog monorepo? Skip the clone: the app lives at `products/desktop`. Note it needs Node 22 (see `.node-version`), not the Node version the monorepo's flox environment provides, so switch with your version manager first.

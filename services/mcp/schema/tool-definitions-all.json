@@ -6215,6 +6215,34 @@
             "readOnlyHint": false
         }
     },
+    "inbox-report-checks-list": {
+        "description": "List the follow-up checks on one report, newest first. Each row carries the expectation and why it was written, its schedule (`next_run_at`, `run_interval_minutes`, `runs_remaining`, `expires_at`), its `status` (`pending`, `active`, `passed`, `failed`, `errored`, `expired`, or `cancelled`) and its `last_outcome`. A `pending` check waits for its report to resolve before its clock starts. Checks are written by scout runs and by the research pipeline, so this surface reads them and does not create them. `query` and `baseline_value` read as null when you cannot read the data they describe.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "List a report's checks",
+        "title": "List a report's checks",
+        "required_scopes": ["task:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "inbox-report-checks-retrieve": {
+        "description": "Get one check on a report by its id, with its full config, schedule, status, and last outcome. The verdicts themselves are `check_result` artefacts on the report, so read those through the artefact list.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "Get a single check",
+        "title": "Get a single check",
+        "required_scopes": ["task:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "inbox-reports-bulk-set-state": {
         "description": "Transition many signal reports to the same state in one call — the bulk form of `inbox-reports-set-state`, for clearing, snoozing, or resolving a batch of inbox reports without one request per report. Pass `ids` (1–100 report ids) and a `state` ('resolved' when the requested work is done, 'suppressed' to dismiss, 'potential' to snooze/restore); the optional `dismissal_reason` (same canonical codes as the single-report tool, including `wrong_repo`), `dismissal_note`, `corrected_repository` (only with `wrong_repo`), and `snooze_for` apply to every id. Dismissing or resolving closes each report's open implementation PR, if it has one. Each id is processed independently, so the whole call returns 200 even on partial failure: inspect `results` (one entry per id, in request order) and the `transitioned_count` / `skipped_count` / `failed_count` / `not_found_count` summary. An id whose transition isn't allowed from its current status comes back as `skipped` (the single-report 409) while the rest still go through.",
         "category": "Signals",
@@ -10664,6 +10692,48 @@
             "readOnlyHint": false
         }
     },
+    "scout-report-check-cancel": {
+        "description": "Stop a check that is no longer worth running — the claim it re-measures has changed, or a better check replaces it. Results it already recorded stay on the report. A check that already finished cannot be cancelled, and the call says so.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "Cancel a follow-up check",
+        "title": "Cancel a follow-up check",
+        "required_scopes": ["signal_scout_report:write"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "scout-report-check-create": {
+        "description": "Schedule a re-measurement of a report's claim, so \"did the fix hold?\" becomes a stored fact instead of something a future run has to remember to look for. Write one when this run surfaces something whose fix would show up in data later. Use `metric_threshold` when a bounded query and a baseline exist: pass a `config` with a `metric_id` naming one of the report's own metrics (or your own bounded Trends `query`), a `comparison` (`lte` / `gte` / `between`) saying what the value must satisfy, and the `baseline_value` you measured now. Use `agent` for a claim no single number settles: pass `instructions` saying what a later run must establish and `probe_hints` naming the issue ids, services, or queries to look at; it runs on the scout you name in `skill_name`, or on the fleet's follow-up scout when you name none. `next_run_at` is when to first look, so allow deploy and soak time. The verdict lands on the report as a `check_result` entry people read in the inbox. Check `scout-report-check-list` first: a report holds at most five open checks, and a second check for the same claim is noise.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "Write a follow-up check on a report",
+        "title": "Write a follow-up check on a report",
+        "required_scopes": ["signal_scout_report:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "scout-report-check-list": {
+        "description": "Every follow-up check on one report, newest first, with its kind, status, next run and last verdict. Read this before writing a check: a report already carrying one for the same claim needs no second, and a report holds at most five open checks at a time. A `pending` check is waiting for the report to resolve before its clock starts; every status other than `pending` and `active` is terminal.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "List a report's follow-up checks",
+        "title": "List a report's follow-up checks",
+        "required_scopes": ["signal_scout_report:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "scout-run-now": {
         "description": "Dispatch one on-demand run of a scout by its config `id`, regardless of its schedule — useful to test a scout right after authoring it, or to refresh its findings on demand. The run executes asynchronously and inherits the scheduled path's guards: it returns 429 if the project is over its Signals credits quota or its daily scout-run budget, and 409 if a run for this scout is already in progress. A manual run counts against the same daily run budget the scheduled runs draw from, so avoid triggering repeated runs of the same scout in a short window — each one consumes the project's scout-run allowance for the day. A manual run does not change the scout's schedule, and a disabled scout can still be run this way (to test before enabling). Pass an optional `note` to steer this run alone (\"focus on the checkout regression\"): the agent reads it next to the scout's durable notes and weighs it the same way, and it is never read by another run — use it instead of `scout-notes-create`, which would also steer every later scheduled run. A run carrying a note needs `llm_skill:write` as well, since the agent reads the note verbatim while holding privileged tools. Returns the workflow id immediately — poll `scout-runs-list` for the resulting run and its findings.",
         "category": "Signals",
@@ -11635,7 +11705,7 @@
         "feature_flag": "streamlit-apps"
     },
     "subscriptions-create": {
-        "description": "Create a recurring subscription. The kind is inferred from which field you populate and returned as the read-only `resource_type`:\n(1) set `insight` — schedule periodic snapshots of one insight (`resource_type: \"insight\"`).\n(2) set `dashboard` and `dashboard_export_insights` (the subset of the dashboard's insights to include, max 10) — schedule periodic snapshots of one dashboard (`resource_type: \"dashboard\"`).\n(3) set `prompt` (≤4000 chars, with no insight or dashboard) — schedule a recurring LLM-generated report (`resource_type: \"ai_prompt\"`). Available on PostHog Cloud (self-hosted production is not eligible) once the organization has approved AI data processing and prompt subscriptions are enabled for it; otherwise create is rejected with a 400. Creating a prompt subscription also requires the `query:read` scope — the report runs LLM-generated HogQL over your data — so a `subscription:write`-only token is rejected for this kind.\nDelivery is set by `target_type` — `email`, `slack`, or `teams` (a Microsoft Teams webhook URL in `target_value`). A Teams webhook URL is only ever read back as its host. Creating a Teams subscription requires the full webhook URL in `target_value`.\nSet `start_date` to an ISO 8601 datetime. Its date anchors the recurrence and may be in the past. Deliveries run on half-hour cycles at :00 and :30. Other minute values are accepted for backward compatibility, but delivery happens during the next cycle instead of at that exact minute. For example, use a value ending in `T16:30:00Z` for the 16:30 delivery cycle.\nThe kind is fixed at create time — a PATCH that would change the populated relation to a different kind is rejected.\nFor insight and dashboard subscriptions you can attach an AI-generated summary to each delivery by setting `summary_enabled: true` (optionally steered by `summary_prompt_guide`). This requires the organization to have approved AI data processing and to be within its active-summary cap and AI credit budget; otherwise the create is rejected. Prompt subscriptions are themselves AI-generated, so these fields do not apply to them.\nIMPORTANT — when creating an insight (or dashboard) subscription, always ask the user whether to enable the AI-generated summary before creating it. Present it as their choice: they can turn it on (`summary_enabled: true`) or leave it off, and if they turn it on, offer them the option to add a custom prompt to steer the summary (`summary_prompt_guide`). Do not enable the summary on your own without asking. (Prompt subscriptions are themselves AI-generated, so this does not apply to them.)",
+        "description": "Create a recurring subscription. The kind is inferred from which field you populate and returned as the read-only `resource_type`:\n(1) set `insight` — schedule periodic snapshots of one insight (`resource_type: \"insight\"`).\n(2) set `dashboard` and `dashboard_export_insights` (the subset of the dashboard's insights to include, max 10) — schedule periodic snapshots of one dashboard (`resource_type: \"dashboard\"`).\n(3) set `prompt` (≤4000 chars, with no insight or dashboard) — schedule a recurring LLM-generated report (`resource_type: \"ai_prompt\"`). Available on PostHog Cloud (self-hosted production is not eligible) once the organization has approved AI data processing and prompt subscriptions are enabled for it; otherwise create is rejected with a 400. Creating a prompt subscription also requires the `query:read` scope — the report runs LLM-generated HogQL over your data — so a `subscription:write`-only token is rejected for this kind.\nDelivery is set by `target_type` — `email`, `slack`, or `teams` (a Microsoft Teams webhook URL in `target_value`). A Teams webhook URL is only ever read back as its host. Creating a Teams subscription requires the full webhook URL in `target_value`.\nSet `start_date` to an ISO 8601 datetime. Its date anchors the recurrence and may be in the past. Deliveries run on half-hour cycles at :00 and :30. Other minute values are accepted for backward compatibility, but delivery happens during the next cycle instead of at that exact minute. For example, use a value ending in `T16:30:00Z` for the 16:30 delivery cycle.\nThe kind is fixed at create time — a PATCH that would change the populated relation to a different kind is rejected.\nFor insight and dashboard subscriptions you can attach an AI-generated summary to each delivery by setting `summary_enabled: true` (optionally steered by `summary_prompt_guide`, which must be 500 characters or fewer). This requires the organization to have approved AI data processing and to be within its active-summary cap and AI credit budget; otherwise the create is rejected. Prompt subscriptions are themselves AI-generated, so these fields do not apply to them.\n`delivery_config` is optional, and every option in it applies to one subscription kind or delivery target only. Omit the whole field unless the user asks for one of its options, because the create is rejected when an option does not apply. Each option's own description says where it applies. None of them control the AI summary on an insight or dashboard subscription, so use `summary_enabled` and `summary_prompt_guide` for that instead.\nIMPORTANT — when creating an insight (or dashboard) subscription, always ask the user whether to enable the AI-generated summary before creating it. Present it as their choice: they can turn it on (`summary_enabled: true`) or leave it off, and if they turn it on, offer them the option to add a custom prompt to steer the summary (`summary_prompt_guide`). Do not enable the summary on your own without asking. (Prompt subscriptions are themselves AI-generated, so this does not apply to them.)",
         "category": "Subscriptions",
         "feature": "subscriptions",
         "summary": "Create subscription",
@@ -11705,7 +11775,7 @@
         }
     },
     "subscriptions-partial-update": {
-        "description": "Update a subscription's mutable fields (title, target, schedule, the `prompt` for prompt subscriptions, `enabled`). The kind (`resource_type`) is fixed at create — a PATCH that would introduce another kind's field (e.g. a `prompt` on an insight sub) is rejected with 400. For prompt subs, re-enabling a previously auto-disabled sub requires both a valid `prompt` (already persisted or supplied in the PATCH body) and that the original creator is still an active user; otherwise it is rejected with 400. Editing or re-enabling a prompt subscription additionally requires the `query:read` scope. Use `subscriptions-delete` to soft-delete — `deleted` is not settable here.\nFor Microsoft Teams, omit `target_value` to keep the stored webhook URL. To replace it, send a full Teams webhook URL; the host returned by this API is not a valid replacement.\nFor insight and dashboard subscriptions, toggle the per-delivery AI summary with `summary_enabled` and steer it with `summary_prompt_guide`. Enabling a summary requires the organization to have approved AI data processing and to be within its active-summary cap and AI credit budget; otherwise the update is rejected.",
+        "description": "Update a subscription's mutable fields (title, target, schedule, the `prompt` for prompt subscriptions, `enabled`). The kind (`resource_type`) is fixed at create — a PATCH that would introduce another kind's field (e.g. a `prompt` on an insight sub) is rejected with 400. For prompt subs, re-enabling a previously auto-disabled sub requires both a valid `prompt` (already persisted or supplied in the PATCH body) and that the original creator is still an active user; otherwise it is rejected with 400. Editing or re-enabling a prompt subscription additionally requires the `query:read` scope. Use `subscriptions-delete` to soft-delete — `deleted` is not settable here.\nFor Microsoft Teams, omit `target_value` to keep the stored webhook URL. To replace it, send a full Teams webhook URL; the host returned by this API is not a valid replacement.\nFor insight and dashboard subscriptions, toggle the per-delivery AI summary with `summary_enabled` and steer it with `summary_prompt_guide` (500 characters or fewer). Enabling a summary requires the organization to have approved AI data processing and to be within its active-summary cap and AI credit budget; otherwise the update is rejected.\n`delivery_config` options carry the same scope rules as on create, and the update is rejected when an option you send does not apply to this subscription. On a prompt subscription the object you send merges into the stored one instead of replacing it, so set an option to the value you want rather than expecting an omitted option to be cleared.",
         "category": "Subscriptions",
         "feature": "subscriptions",
         "summary": "Update subscription",

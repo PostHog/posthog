@@ -1,0 +1,27 @@
+{
+    "letter": "XB",
+    "id": "XB15",
+    "cluster": 1,
+    "is_real": true,
+    "severity": "must_fix",
+    "votes": [
+        {
+            "is_real": true,
+            "severity": "must_fix",
+            "evidence": "/tmp/frozen-75215/products/tasks/backend/facade/api.py:504-509 rejects every internal task even after its URL/repository and team match. The real Signals implementation creator at signals/backend/auto_start.py:244-265 sets signal_report_id, ai_stage=implementation, and internal=True; the task facade forwards internal unchanged at api.py:891-903 and Task.create_and_run passes it into creation at models.py:756-768. The production creator test explicitly asserts internal=True at signals/test/test_auto_start.py:257-264. Therefore the stamphog webhook caller at tasks/tasks.py:191-200 receives None for intended automatic implementation runs; the initial receiver independently returns for that same flag at review_hog/receivers.py:104-105. The primary intended reviews never start.",
+            "refutation": "I first checked whether internal denoted only research plumbing, whether task construction overrode it, or whether the recorded implementation relationship was consulted. The actual creator deliberately marks implementation tasks internal for visibility, and records a separate implementation relationship at auto_start.py:271-275, but the lookup never uses that relationship. Conversely public task writes expose signal_report, internal, and relationship fields (tasks/presentation/serializers.py:435-460), so those values alone should not be assumed server-attested when redesigning the predicate. The current visibility-based false negative is independently proven; choosing a secure replacement marker requires validating its ownership, not merely deleting the check."
+        },
+        {
+            "is_real": true,
+            "severity": "must_fix",
+            "evidence": "/tmp/frozen-75215/products/tasks/backend/facade/api.py:504-509 declares a run eligible only when its task carries a signal report and is not internal. The actual Signals implementation creator at products/signals/backend/auto_start.py:244-265 sets origin SIGNAL_REPORT, signal_report_id, ai_stage=implementation and internal=True; :271-275 records its implementation relationship. The facade/model create chain preserves internal (tasks/facade/api.py:903; models.py:564). Therefore the worker lookup returns None for real auto-start implementations, making Stamphog tasks.py:199-200 drop their later webhook re-reviews. ReviewHog receivers.py:104-105 also blocks the initial dispatch.",
+            "refutation": "First checked if the internal requirement corresponded to a stable distinction between implementation and research. Signals test/test_auto_start.py:257-260 explicitly asserts that the implementation is internal, whereas tasks/tests/test_webhooks.py:1243-1258 fabricates an ordinary noninternal task and :1286-1311 blanket-rejects internal ones. Those tests miss the producer mismatch. Public Task write fields also expose signal_report and signal_report_task_relationship (presentation/serializers.py:435-451), so the current presence-only predicate is not strong origin attestation. The exact replacement marker needs care because some relationship/state fields are client-writable, but that does not refute the proven failure to identify normal implementations."
+        },
+        {
+            "is_real": true,
+            "severity": "must_fix",
+            "evidence": "find_signal_implementation_run rejects every task with internal=True at products/tasks/backend/facade/api.py:504-509. The real Signals implementation creator supplies signal_report_id, ai_stage='implementation', and explicitly internal=True at products/signals/backend/auto_start.py:248-261, then records the implementation relationship at 271-275. The task facade forwards this flag into creation at tasks/backend/facade/api.py:891-903. Stamphog's webhook returns an empty carve-out when this lookup returns None (stamphog/backend/tasks/tasks.py:191-200). The initial receiver independently rejects the same internal flag at review_hog/backend/receivers.py:98-105. Thus real automatically started Inbox implementations cannot get either initial or subsequent reviews.",
+            "refutation": "I checked whether internal represented only research/plumbing tasks or whether implementation creation reset it. auto_start.py:260-261 explicitly says the flag hides the implementation run from the default task list, and the existing auto-start test asserts True (signals/backend/test/test_auto_start.py:257-260). The lookup's comment claiming the self-driving shape is non-internal is contradicted by that producer. Simply dropping the check is not necessarily sufficient: API-created signal tasks and arbitrary relationship values exist (tasks/backend/presentation/serializers.py:435-451), so the proposed marker needs separate design. The demonstrated defect is the rejection of genuine auto-start implementations; no hypothetical widening is needed to retain it."
+        }
+    ]
+}

@@ -8,9 +8,11 @@ from posthog.models.integration import Integration, IntegrationError
 from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
 
 from products.batch_exports.backend.service import BatchExportModel, BatchExportSchema
-from products.batch_exports.backend.temporal.destinations.s3_batch_export import (
+from products.batch_exports.backend.temporal.destinations.constants import (
     COMPRESSION_EXTENSIONS,
     FILE_FORMAT_EXTENSIONS,
+)
+from products.batch_exports.backend.temporal.destinations.s3_batch_export import (
     S3InsertInputs,
     _get_s3_integration,
     insert_into_s3_activity_from_stage,

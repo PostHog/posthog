@@ -943,9 +943,9 @@ export const sceneLogic = kea<sceneLogicType>([
                 } finally {
                     window.clearTimeout(timeout)
                 }
-                if (values.sceneId !== sceneId) {
-                    breakpoint()
-                }
+                // Break before the `values` read below: the import can outlive this logic, and a
+                // detached path throws. The `sceneId` check this replaces read `values` itself.
+                breakpoint()
                 const { default: defaultExport, logic, scene: _scene, ...others } = importedScene
 
                 if (_scene) {

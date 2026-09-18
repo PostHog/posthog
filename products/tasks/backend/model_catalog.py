@@ -87,6 +87,10 @@ class CatalogModel:
 
     ``cost`` is ``None`` where no public price list covers the model, and a picker then shows
     it with no cost rather than a guessed one.
+
+    Both gates fail closed, so clear ``access_flag`` when the rollout reaches everyone. A flag
+    left behind keeps the model away from every caller the flag service cannot answer for, and
+    from every surface that reads flags before they load.
     """
 
     id: str
@@ -118,39 +122,15 @@ MODELS: tuple[CatalogModel, ...] = (
     # GLM 5.2 is Cloudflare-served and driven through the `claude` adapter: the LLM gateway
     # exposes it over its Anthropic-Messages surface and translates the `@cf/` id upstream,
     # so the `anthropic` provider is the intended routing rather than a direct Anthropic call.
-    CatalogModel(
-        "@cf/zai-org/glm-5.2",
-        CLAUDE,
-        _GLM,
-        label="GLM-5.2",
-        access_flag="posthog-code-glm-model",
-        cost=_GLM_COST,
-    ),
-    CatalogModel(
-        "zai-org/glm-5.3",
-        CLAUDE,
-        _GLM,
-        label="GLM-5.3",
-        access_flag="posthog-code-glm-53-model",
-        cost=_GLM_COST,
-    ),
-    CatalogModel(
-        "zai-org/glm-5.3-flash",
-        CLAUDE,
-        _GLM,
-        label="GLM-5.3 Flash",
-        access_flag="posthog-code-glm-53-flash-model",
-        cost=_GLM_FLASH_COST,
-    ),
-    CatalogModel(
-        "moonshotai/kimi-k3", CLAUDE, _NO_EFFORT, label="Kimi K3", access_flag="tasks-kimi-k3", cost=_KIMI_COST
-    ),
+    CatalogModel("@cf/zai-org/glm-5.2", CLAUDE, _GLM, label="GLM-5.2", cost=_GLM_COST),
+    CatalogModel("zai-org/glm-5.3", CLAUDE, _GLM, label="GLM-5.3", cost=_GLM_COST),
+    CatalogModel("zai-org/glm-5.3-flash", CLAUDE, _GLM, label="GLM-5.3 Flash", cost=_GLM_FLASH_COST),
+    CatalogModel("moonshotai/kimi-k3", CLAUDE, _NO_EFFORT, label="Kimi K3", cost=_KIMI_COST),
     CatalogModel(
         "deepseek-ai/deepseek-v4-flash-0731",
         CLAUDE,
         _NO_EFFORT,
         label="DeepSeek V4 Flash",
-        access_flag="posthog-code-deepseek-model",
         cost=_DEEPSEEK_COST,
     ),
     CatalogModel("claude-opus-4-5", CLAUDE, _STANDARD, cost=_OPUS_COST),
