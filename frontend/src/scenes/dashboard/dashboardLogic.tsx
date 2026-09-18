@@ -62,6 +62,7 @@ import { dataThemeLogic } from 'scenes/dataThemeLogic'
 import { dataRetentionBannerLogic } from 'scenes/insights/dataRetention/dataRetentionBannerLogic'
 import { exceedsRetention } from 'scenes/insights/dataRetention/exceedsRetention'
 import { MaxContextInput, createMaxContextHelpers } from 'scenes/max/maxTypes'
+import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -4638,6 +4639,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
             }
         },
         tileStreamingComplete: sharedListeners.handleDashboardLoadComplete,
+        dashboardNotFound: () => {
+            sceneLogic.findMounted()?.actions.resetUnavailableHomepage(urls.dashboard(props.id))
+        },
         reportInsightsViewed: ({ insights }: { insights: QueryBasedInsightModel[] }) => {
             const insightIds = insights
                 .map((insight: QueryBasedInsightModel) => insight?.id)

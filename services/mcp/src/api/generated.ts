@@ -101,6 +101,32 @@ export namespace Schemas {
       PlannerUpdated: 'planner_updated',
     } as const;
 
+    export interface AIReplyPlaybook {
+      /** Repo default instructions, plus the PostHog overlay when docs_source is posthog. */
+      readonly inherited_instructions: string;
+      /**
+         * Team addendum on top of the inherited playbook. Null means the team inherits the default instructions.
+         * @nullable
+         */
+      readonly custom_instructions: string | null;
+      /** True when a non-empty custom addendum is saved for this team. */
+      readonly is_customized: boolean;
+      /** Version of the generic default playbook layer currently in the repo. */
+      readonly default_version: number;
+      /**
+         * Version of the PostHog overlay when docs_source is posthog; null otherwise.
+         * @nullable
+         */
+      readonly posthog_overlay_version: number | null;
+      /**
+         * Documentation source for this team. 'posthog' enables PostHog docs-search and the PostHog overlay.
+         * @nullable
+         */
+      readonly docs_source: string | null;
+      /** Maximum character length for ai_reply_custom_instructions. */
+      readonly max_chars: number;
+    }
+
     export interface AIReportChart {
       /** Id of the rendered PNG export backing this chart. */
       export_asset_id: number;
@@ -21662,7 +21688,7 @@ export namespace Schemas {
     } as const;
 
     /**
-     * Live InsightVizNode wrapping one TrendsQuery: supplied by the caller, or copied from the named metric when the check is created.
+     * Live InsightVizNode wrapping one TrendsQuery: supplied by the caller, or copied from the named metric when the check is created. `dateRange.date_from` must be a relative window such as `-13d`, and `date_to` must be empty, so the check measures the days before each run rather than the days before it was written. The query must produce exactly one output series: use one event or action series, or combine up to ten of them with exactly one formula. Use no breakdown and no compare mode. A `trendsFilter.display` of `Metric` turns compare mode on, so `metricShowChange` is switched off for you unless `metricSummary` is `latest`, which keeps compare mode off already.
      */
     export type MetricThresholdConfigQuery = { [key: string]: unknown } | null;
 
@@ -21683,7 +21709,7 @@ export namespace Schemas {
     export interface MetricThresholdConfig {
       /** Identifier of a metric on the report whose query this check measures. The metric's query is copied into `query` when the check is created. */
       metric_id?: string | null;
-      /** Live InsightVizNode wrapping one TrendsQuery: supplied by the caller, or copied from the named metric when the check is created. */
+      /** Live InsightVizNode wrapping one TrendsQuery: supplied by the caller, or copied from the named metric when the check is created. `dateRange.date_from` must be a relative window such as `-13d`, and `date_to` must be empty, so the check measures the days before each run rather than the days before it was written. The query must produce exactly one output series: use one event or action series, or combine up to ten of them with exactly one formula. Use no breakdown and no compare mode. A `trendsFilter.display` of `Metric` turns compare mode on, so `metricShowChange` is switched off for you unless `metricSummary` is `latest`, which keeps compare mode off already. */
       query?: MetricThresholdConfigQuery;
       /** What the measured value must satisfy to pass. */
       comparison: CheckComparison;
@@ -24692,6 +24718,8 @@ export namespace Schemas {
       incremental?: IncrementalConfig | null;
       /** How far incremental materialization has progressed. Null until the first run records any. Written by the materialization run, not by this API. */
       readonly incremental_state: IncrementalState | null;
+      /** Whether incremental settings participated in any materialization run. */
+      readonly has_incremental_history: boolean;
       readonly created_by: UserBasic;
       readonly created_at: string;
       /** @nullable */
@@ -30114,6 +30142,85 @@ export namespace Schemas {
     export interface DesktopBetaTermsAcceptanceDTO {
       /** Whether the organization has accepted the PostHog Desktop beta terms. */
       readonly is_desktop_beta_terms_accepted: boolean;
+    }
+
+    export interface DesktopFeedbackError {
+      /** Error category. */
+      type: string;
+      /** Machine-readable error code. */
+      code: string;
+      /** Human-readable error detail. */
+      detail: string;
+      /**
+         * Request field associated with the error, if any.
+         * @nullable
+         */
+      attr: string | null;
+    }
+
+    /**
+     * * `Generic (Leave feedback button)` - Leave Feedback
+     * * `Visiting PostHog web` - Posthog Web
+     */
+    export type DesktopFeedbackSourceEnum = typeof DesktopFeedbackSourceEnum[keyof typeof DesktopFeedbackSourceEnum];
+
+
+    export const DesktopFeedbackSourceEnum = {
+      GenericLeaveFeedbackButton: 'Generic (Leave feedback button)',
+      VisitingPostHogWeb: 'Visiting PostHog web',
+    } as const;
+
+    export interface DesktopFeedbackRequest {
+      /**
+         * Feedback text entered by the user.
+         * @maxLength 4000
+         */
+      response: string;
+      /** Desktop surface that opened the feedback form.
+       *
+       * * `Generic (Leave feedback button)` - Leave Feedback
+       * * `Visiting PostHog web` - Posthog Web */
+      source: DesktopFeedbackSourceEnum;
+      /**
+         * Desktop view that was active when the feedback form opened.
+         * @maxLength 100
+         */
+      feedback_view: string;
+      /**
+         * Task that was active when the feedback form opened.
+         * @maxLength 100
+         */
+      feedback_task_id?: string;
+      /**
+         * Folder that was active when the feedback form opened.
+         * @maxLength 100
+         */
+      feedback_folder_id?: string;
+      /**
+         * Recent Desktop logs that the user chose to include.
+         * @maxLength 20000
+         */
+      feedback_app_logs?: string;
+      /**
+         * Version of PostHog Desktop that submitted the feedback.
+         * @maxLength 100
+         */
+      app_version?: string;
+      /** PostHog session recording identifier for the Desktop session. */
+      session_id?: string;
+      /** Screenshot that the user chose to include. */
+      screenshot?: Blob;
+      /** First image that the user attached. */
+      image_1?: Blob;
+      /** Second image that the user attached. */
+      image_2?: Blob;
+    }
+
+    export interface DesktopFeedbackResponse {
+      /** Whether the feedback response was accepted. */
+      accepted: boolean;
+      /** Identifier of the survey response event. */
+      response_id: string;
     }
 
     /**
@@ -39248,6 +39355,20 @@ export namespace Schemas {
       S3: 'S3',
     } as const;
 
+    /**
+     * One source that writes to a destination. Shape only — never used to deserialize.
+     */
+    export interface SyncedSource {
+      /** The source's id. */
+      id: string;
+      /** How the source is labelled in the UI, prefix included. */
+      name: string;
+      /** Which connector this is, e.g. Stripe or Postgres. */
+      source_type: string;
+      /** True when only some of the source's tables reach this destination, through their own override. */
+      via_table_override: boolean;
+    }
+
     export interface ExternalDataDestination {
       readonly id: string;
       /** Where synced rows are written. The PostHog warehouse is managed for you, so you cannot create one here.
@@ -39280,6 +39401,8 @@ export namespace Schemas {
       readonly created_by: number | null;
       /** @nullable */
       readonly updated_at: string | null;
+      /** Sources whose tables sync to this destination, so you can see what a change or a deletion would affect. Includes sources that reach it through a single table's override, and — for the PostHog warehouse — sources that write there by default because nothing else was configured. */
+      readonly synced_sources: readonly SyncedSource[];
     }
 
     /**
@@ -46220,6 +46343,8 @@ export namespace Schemas {
       readonly email_sending_rate_limit: unknown;
       readonly edges: unknown;
       readonly actions: unknown;
+      /** Staged content changes awaiting publish — a full snapshot of the workflow's actions, edges and settings. Null when there's nothing staged. Test it with a use_draft test run, then promote it with the publish endpoint or throw it away with discard_draft. */
+      readonly draft: unknown;
       /** @nullable */
       readonly abort_action: string | null;
       readonly variables: unknown;
@@ -51045,6 +51170,8 @@ export namespace Schemas {
       readonly heading_path: string;
       /** The chunk's text content. */
       readonly content: string;
+      /** True when this chunk comes from a generated source learned from a past support ticket. */
+      readonly is_generated: boolean;
     }
 
     /**
@@ -51363,6 +51490,21 @@ export namespace Schemas {
       first_version_created_at: string;
     }
 
+    export interface LLMPromptReferencedBy {
+      /** Prompt whose latest or labeled version references this prompt. */
+      name: string;
+      /**
+         * Label of this prompt the reference follows, or null when it pins a version.
+         * @nullable
+         */
+      label: string | null;
+      /**
+         * Version of this prompt the reference pins, or null when it follows a label.
+         * @nullable
+         */
+      version: number | null;
+    }
+
     export interface LLMPromptReferencedConflict {
       /** What is still referenced and what to do next. */
       detail: string;
@@ -51388,6 +51530,8 @@ export namespace Schemas {
       has_more: boolean;
       /** All labels on this prompt with the version each one currently points to, across all versions (not just the returned page). */
       labels: LLMPromptLabel[];
+      /** Prompts whose latest or labeled version references this prompt, with the label or version each reference uses. Empty when nothing references this prompt. At most 100 entries, ordered by prompt name. */
+      referenced_by: LLMPromptReferencedBy[];
     }
 
     export interface LLMPromptSetLabel {
@@ -53484,12 +53628,12 @@ export namespace Schemas {
       /** Log count observed in this bucket. */
       observed: number;
       /**
-         * Lower edge of the expected band. Null while the series has too little history to band.
+         * Lower edge of the expected band. Null while no validated band is available for this series.
          * @nullable
          */
       lower: number | null;
       /**
-         * Upper edge of the expected band. Null while the series has too little history to band.
+         * Upper edge of the expected band. Null while no validated band is available for this series.
          * @nullable
          */
       upper: number | null;
@@ -53509,12 +53653,12 @@ export namespace Schemas {
       severity: string;
       /** Total observed log count over the window. Series are ordered by this, descending. */
       total_count: number;
-      /** Full weeks of history behind the band, 0 to 5. Below 2 the series is still learning and its buckets carry no band. */
+      /** Full weeks of history behind the band, 0 to 5. History depth alone does not enable a band; a validated readiness policy is also required. */
       baseline_weeks: number;
       /** Start of sustained traffic inside the fetched lookback: the first bucket followed by a week with enough non-empty buckets. A stray earlier row does not move it. The window start when no traffic is sustained yet. */
       history_start: string;
       /**
-         * When this series gains its band, so a learning series can count down to it. Null once the band is drawn.
+         * When this series gains its band under a validated readiness policy. Null when the band is ready or no validated readiness date is available. Check the buckets' lower and upper values to determine whether a band is present.
          * @nullable
          */
       band_ready_at: string | null;
@@ -67185,6 +67329,8 @@ export namespace Schemas {
       incremental?: IncrementalConfig | null;
       /** How far incremental materialization has progressed. Null until the first run records any. Written by the materialization run, not by this API. */
       readonly incremental_state?: IncrementalState | null;
+      /** Whether incremental settings participated in any materialization run. */
+      readonly has_incremental_history?: boolean;
       readonly created_by?: UserBasic;
       readonly created_at?: string;
       /** @nullable */
@@ -68356,6 +68502,8 @@ export namespace Schemas {
       readonly created_by?: number | null;
       /** @nullable */
       readonly updated_at?: string | null;
+      /** Sources whose tables sync to this destination, so you can see what a change or a deletion would affect. Includes sources that reach it through a single table's override, and — for the PostHog warehouse — sources that write there by default because nothing else was configured. */
+      readonly synced_sources?: readonly SyncedSource[];
     }
 
     /**
@@ -82407,6 +82555,7 @@ export namespace Schemas {
      * * `review` - review
      * * `review_only` - review_only
      * * `resolve_only` - resolve_only
+     * * `flash` - flash
      */
     export type ReviewTriggerRequestRunModeEnum = typeof ReviewTriggerRequestRunModeEnum[keyof typeof ReviewTriggerRequestRunModeEnum];
 
@@ -82415,23 +82564,25 @@ export namespace Schemas {
       Review: 'review',
       ReviewOnly: 'review_only',
       ResolveOnly: 'resolve_only',
+      Flash: 'flash',
     } as const;
 
     export interface ReviewTriggerRequest {
       /** GitHub pull request URL to review, e.g. 'https://github.com/PostHog/posthog.com/pull/123'. The repository must be accessible to the project's GitHub App installation. */
       pr_url: string;
-      /** What to run on the pull request. 'review' (default) reviews it and, when the requesting user's resolve_comments setting is on, chains the resolution stage; 'review_only' reviews without resolving regardless of that setting; 'resolve_only' skips the review and only runs the resolution stage on the PR's existing unresolved review threads.
+      /** What to run on the pull request. 'review' (default) reviews it and, when the requesting user's resolve_comments setting is on, chains the resolution stage; 'review_only' reviews without resolving regardless of that setting; 'resolve_only' skips the review and only runs the resolution stage on the PR's existing unresolved review threads; 'flash' uses a lower-cost model for the review passes and validation, and never resolves comments.
        *
        * * `review` - review
        * * `review_only` - review_only
-       * * `resolve_only` - resolve_only */
+       * * `resolve_only` - resolve_only
+       * * `flash` - flash */
       run_mode?: ReviewTriggerRequestRunModeEnum;
     }
 
     export interface ReviewTriggerResponse {
       /** Temporal workflow id for the started review run; empty when no run was started. */
       workflow_id: string;
-      /** Run lifecycle marker: 'started' when the review was queued, 'already_reviewed' when the pull request's current commit already has a published review (no new run starts), 'joined_running_review' when a review was already in flight (no new run starts; a report in a cheaper tier is lifted to human strength for the rest of that review and every later one). */
+      /** Run lifecycle marker: 'started' when the review was queued, 'already_reviewed' when the pull request's current commit already has a published review (no new run starts), 'joined_running_review' when a review was already in flight (no new run starts and its mode stays unchanged; requests for Full mode lift a cheaper stored tier for later Full reviews, while Flash requests leave the tier unchanged). */
       status: string;
     }
 
@@ -93123,32 +93274,40 @@ export namespace Schemas {
     }
 
     /**
-     * The default AI run triple stored at team or user level.
+     * The default AI run selection stored at team or user level.
      *
      * Write payload for the tasks config endpoints and the `ai_run_preferences` block of
-     * their responses. `runtime_adapter` and `model` must be set together; send all three
-     * as null to clear a stored preference.
+     * their responses. What a complete selection is depends on the harness: an ACP default
+     * sets `runtime_adapter` and `model` together, a Pi default sets `model` alone. Send
+     * every field as null to clear a stored preference.
      */
     export interface TasksAIRunPreferences {
-      /** Default agent runtime adapter for new task runs. Use 'claude' for the Claude runtime or 'codex' for the Codex runtime. Must be set together with `model`.
+      /** Harness the default runs on: 'acp' for the Claude and Codex adapters, 'pi' for the Pi harness. Defaults to 'acp' when omitted.
+       *
+       * * `acp` - ACP
+       * * `pi` - Pi */
+      runtime?: TaskRuntimeEnum | null;
+      /** Default agent runtime adapter for new task runs. Use 'claude' for the Claude runtime or 'codex' for the Codex runtime. Must be set together with `model`, and must be null when `runtime` is 'pi'.
        *
        * * `claude` - claude
        * * `codex` - codex */
       runtime_adapter?: RuntimeAdapterEnum | null;
       /**
-         * Default LLM model identifier for new task runs. Must be set together with `runtime_adapter`.
+         * Default LLM model identifier for new task runs. Must be set together with `runtime_adapter` on the ACP harness, and is required on its own for a Pi default.
          * @nullable
          */
       model?: string | null;
-      /** Default reasoning effort for models that expose an effort control.
+      /** Default reasoning effort for models that expose an effort control. A Pi default stores a Pi thinking level here, which also allows 'off' and 'minimal'.
        *
+       * * `off` - off
+       * * `minimal` - minimal
        * * `low` - low
        * * `medium` - medium
        * * `high` - high
        * * `xhigh` - xhigh
        * * `max` - max
        * * `ultracode` - ultracode */
-      reasoning_effort?: ReasoningEffortEnum | null;
+      reasoning_effort?: TaskRunReasoningEffortEnum | null;
     }
 
     /**
@@ -93166,12 +93325,14 @@ export namespace Schemas {
     } as const;
 
     /**
-     * The AI run triple a new run will effectively use when the caller pins nothing,
+     * The AI run selection a new run will effectively use when the caller pins nothing,
      * plus which preference level supplied it.
      */
     export interface TasksResolvedAIRunDefaults {
+      /** Harness the effective default runs on: 'acp' or 'pi'. 'acp' when no preference is stored. */
+      runtime: string;
       /**
-         * Effective default runtime adapter, or null when no preference is stored.
+         * Effective default runtime adapter, or null when no preference is stored or the harness is Pi.
          * @nullable
          */
       runtime_adapter: string | null;
@@ -93767,6 +93928,21 @@ export namespace Schemas {
       snoozed_until?: string | null;
       /** Tag names to set on the ticket. */
       tags?: string[];
+    }
+
+    /**
+     * Whether the current organization has each toolbar plan entitlement, keyed by feature name.
+     */
+    export type ToolbarEntitlementsEntitlements = {[key: string]: boolean};
+
+    export interface ToolbarEntitlements {
+      /** Whether the current organization has each toolbar plan entitlement, keyed by feature name. */
+      entitlements: ToolbarEntitlementsEntitlements;
+    }
+
+    export interface ToolbarEntitlementsError {
+      /** Why toolbar entitlements could not be retrieved. */
+      error: string;
     }
 
     export interface TopPage {
@@ -104290,7 +104466,7 @@ export namespace Schemas {
      */
     origin_product?: HogFlowsListOriginProduct;
     /**
-     * Case-insensitive search across workflow name and description.
+     * Case-insensitive search. Matches workflow name and description first; only when nothing matches those, it matches step names and the subject line, preheader and body text of email steps, in both the live workflow and its pending draft.
      */
     search?: string;
     /**
@@ -109148,6 +109324,13 @@ export namespace Schemas {
      * Set to `latest` to skip the event backlog and only receive events published after connecting.
      */
     start?: string;
+    };
+
+    export type TasksRunsStreamTokenRetrieveParams = {
+    /**
+     * Set to true when the client can rebuild the run from its durable log after the agent-proxy reports a trimmed stream cursor. Without it, runs that keep only a short live tail in Redis are read from the Django endpoint, which replays the durable backlog itself.
+     */
+    resync?: boolean;
     };
 
     export type TasksThreadMessagesListParams = {
