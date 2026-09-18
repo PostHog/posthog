@@ -37,6 +37,14 @@ const STILL_RUNNING_HINT =
 
 const TERMINAL_CELL_STATUSES = new Set(['done', 'failed', 'interrupted'])
 
+/**
+ * How many cells one document save may carry. Batching keeps a poll that finds a whole
+ * notebook's worth of finished cells — the agent that started a run and came back later —
+ * from holding every result envelope in memory at once, since a single envelope can run to
+ * megabytes. A normal poll finds far fewer than this, so it still saves once.
+ */
+const MAX_CELLS_PER_SAVE = 10
+
 /** A cell result already written into the document, keyed by the run that produced it. */
 function alreadyWritten(markdown: string, nodeId: string, runId: string): boolean {
     const block = findCellTag(markdown, nodeId)
@@ -93,12 +101,28 @@ async function writeLandedCells(
     const landed = status.cells.filter(
         (cell) => cell.run_id && !writtenRunIds.has(cell.run_id) && TERMINAL_CELL_STATUSES.has(cell.status ?? '')
     )
-    if (!landed.length) {
-        return
+    for (let start = 0; start < landed.length; start += MAX_CELLS_PER_SAVE) {
+        await writeCellBatch(
+            context,
+            notebookId,
+            notebookPath,
+            landed.slice(start, start + MAX_CELLS_PER_SAVE),
+            shapedByNodeId,
+            writtenRunIds
+        )
     }
+}
 
+async function writeCellBatch(
+    context: Context,
+    notebookId: string,
+    notebookPath: string,
+    batch: Schemas.NotebookRunCell[],
+    shapedByNodeId: Map<string, ShapedRunResult>,
+    writtenRunIds: Set<string>
+): Promise<void> {
     const envelopes: { nodeId: string; runId: string; envelope: Schemas.NotebookSQLV2Envelope | null }[] = []
-    for (const cell of landed) {
+    for (const cell of batch) {
         const cellRunId = cell.run_id!
         writtenRunIds.add(cellRunId)
         const result = await context.api.request<Schemas.NotebookSQLV2RunStatusResponse>({
