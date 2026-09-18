@@ -466,8 +466,9 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
             [] as DataWarehouseSavedQuerySummary[],
             {
                 loadDataWarehouseSavedQueries: async () => {
-                    // The tree renders every view, so ask for the largest page the endpoint serves and
-                    // follow the rest rather than stopping at the page boundary.
+                    // The tree renders every view, so ask for the largest page the endpoint serves,
+                    // then follow the pages after it. `loadPaginatedResults` bounds the follow, so
+                    // this reads about twelve thousand views before it stops.
                     const firstPage = await warehouseSavedQueriesList(String(ApiConfig.getCurrentTeamId()), {
                         include_columns: false,
                         page_size: 1000,

@@ -775,7 +775,8 @@ export const customPropertyDefinitionsLogic = kea<customPropertyDefinitionsLogic
                 loadSavedQueries: async (): Promise<DataWarehouseSavedQuery[]> => {
                     // The picker reads the columns of the selected view off this list, so it opts in to
                     // columns, which the endpoint leaves out by default. It offers every view, so it asks
-                    // for the largest page the endpoint serves and follows the rest.
+                    // for the largest page the endpoint serves, then follows the pages after it.
+                    // `loadPaginatedResults` bounds the follow at about twelve thousand views.
                     const firstPage = await api.dataWarehouseSavedQueries.list({
                         include_columns: true,
                         page_size: 1000,
