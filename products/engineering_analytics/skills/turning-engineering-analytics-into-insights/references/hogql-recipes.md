@@ -5,6 +5,20 @@ These base subqueries mirror the product's curated builders
 Replace every `github_*` table name (`github_pull_requests`, `github_workflow_runs`, `github_workflow_jobs`, `github_reviews`, `github_team_members`) with the team's real table name from `engineering-analytics-sources` (`prefix` + `github_<endpoint>`).
 The `engineering_analytics_*` views used below have fixed names — no prefix, no discovery.
 
+## Contents
+
+- [The PR base](#the-pr-base) — the shared PR subquery: state, repo identity, bot flag, `open_to_merge_seconds`
+- [The workflow-runs base](#the-workflow-runs-base) — the shared CI subquery: conclusion, duration, `pr_number` association
+- [Recipe: weekly open→merge time trend](#recipe-weekly-openmerge-time-trend) — p50 and p95 hours to merge
+- [Recipe: weekly CI success rate and p95 duration per workflow](#recipe-weekly-ci-success-rate-and-p95-duration-per-workflow) — which conclusions count as a verdict
+- [Recipe: PR throughput per week](#recipe-pr-throughput-per-week) — merged and closed-unmerged counts
+- [Recipe: open PRs with failing CI right now](#recipe-open-prs-with-failing-ci-right-now) — latest completed run per `(head_sha, workflow_name)`
+- [Job-level recipes](#job-level-recipes) — queue wait and run time from the jobs table, and why you must not recompute cost
+- [Recipe: weekly CI cost by workflow (job_costs view)](#recipe-weekly-ci-cost-by-workflow-job_costs-view) — dollar spend, and what a NULL cost means
+- [Review recipes](#review-recipes) — review states, plus a weekly time-to-first-review recipe
+- [Recipe: a team's weekly merge time (team_members table)](#recipe-a-teams-weekly-merge-time-team_members-table) — the membership semi-join
+- [Recipe: distinct CI failures per day (ci_failures view)](#recipe-distinct-ci-failures-per-day-ci_failures-view) — fingerprinted pytest failures, bounded by logs retention
+
 ## The PR base
 
 ```sql
