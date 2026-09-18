@@ -131,8 +131,7 @@ describe('activityAgentContext', () => {
         }
     })
 
-    // Either payload can be elided. An instruction that omits the rule lets the agent answer from
-    // filters it was never sent and present the result as matching the screen.
+    // Without the rule the agent answers from filters it was never sent, as if they matched the screen.
     it.each([
         ['explore', buildExploreAgentContext(ActivityTab.ExploreEvents, getDefaultEventsSceneQuery())],
         ['live', buildLiveEventsAgentContext({ eventType: null, properties: [] })],

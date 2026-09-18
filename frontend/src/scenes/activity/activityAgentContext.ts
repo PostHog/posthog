@@ -14,8 +14,6 @@ export const CONTEXT_VALUE_MAX_CHARS = 3_500
 
 export const ELIDED_MARKER = '[elided for size]'
 
-// Both instruction items need this rule, because either payload can be elided. Sharing one string
-// keeps a future edit to one surface from leaving the other claiming filters it was never sent.
 const ELIDED_MARKER_RULE =
     `A field whose value is "${ELIDED_MARKER}" was too large to send, so ask the user what it holds ` +
     'rather than assuming it is empty.'
