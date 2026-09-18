@@ -272,7 +272,7 @@ class TestPropertyDefinitionAPI(APIBaseTest):
         results = response.json()["results"]
         assert [r["name"] for r in exclude_virtual_properties(results)] == [f"zz_prop_{i}" for i in range(5)]
         # The virtual event properties still ride on the last page, but a capped count stays at the cap:
-        # it is a lower bound already, and the UI reads the cap value as "this many or more".
+        # it is a lower bound already, so adding to it would report a total that no page reaches.
         assert response.json()["count"] == 3
 
     def test_cant_see_property_definitions_for_another_team(self):
