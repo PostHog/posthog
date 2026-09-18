@@ -82,6 +82,7 @@ export class ExperimentRefreshJourneyController {
                 resource_type: 'experiment',
                 resource_id: experimentId,
                 attempt_id: refreshId,
+                execution_path: mode,
                 trigger: 'manual_refresh',
                 readiness_contract_version: 1,
                 readiness_scope: 'modern_experiment_results',
@@ -211,6 +212,7 @@ export class ExperimentRefreshJourneyController {
         const total = attempt.groups.primary.length + attempt.groups.secondary.length + 1
         return {
             total_count: total,
+            ...(attempt.runId ? { experiment_run_id: attempt.runId } : {}),
             // Partial responses are not evidence of committed usable results.
             ...(committed ? { ready_count: total, failed_count: 0, pending_count: 0 } : {}),
             ...(attempt.exposuresCached !== undefined ? { exposures_response_cached: attempt.exposuresCached } : {}),
