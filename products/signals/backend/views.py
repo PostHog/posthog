@@ -2332,11 +2332,12 @@ class SignalReportViewSet(
         description=(
             'Record how this report relates to another one, as a directed link: "this report '
             '`kind` that report". Use `depends_on` when a GitHub issue specs a stack and this '
-            "report's fix cannot land until the other one's does, so a reviewer reading either "
-            "report can see the order the pull requests have to merge in. Nothing is written on "
-            "the other report, so link from the side the sentence starts at. Links of the same "
-            "kind must stay acyclic and both reports must be in this project. Linking the same "
-            "pair twice records the newer link and leaves the older one in the log."
+            "report's fix cannot land until the other one's does, so the order the pull requests "
+            "have to merge in is recorded instead of being read off the diffs. Nothing is written "
+            "on the other report, and the artefact list is per report, so the link shows on this "
+            "report only: link from the side the sentence starts at. Links of the same kind must "
+            "stay acyclic and both reports must be in this project. Linking the same pair twice "
+            "records the newer link and leaves the older one in the log."
         ),
         operation_id="signals_reports_link",
     )

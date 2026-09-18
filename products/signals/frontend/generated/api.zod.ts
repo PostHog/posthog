@@ -103,7 +103,7 @@ export const SignalsReportsFeedbackCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
- * Record how this report relates to another one, as a directed link: "this report `kind` that report". Use `depends_on` when a GitHub issue specs a stack and this report's fix cannot land until the other one's does, so a reviewer reading either report can see the order the pull requests have to merge in. Nothing is written on the other report, so link from the side the sentence starts at. Links of the same kind must stay acyclic and both reports must be in this project. Linking the same pair twice records the newer link and leaves the older one in the log.
+ * Record how this report relates to another one, as a directed link: "this report `kind` that report". Use `depends_on` when a GitHub issue specs a stack and this report's fix cannot land until the other one's does, so the order the pull requests have to merge in is recorded instead of being read off the diffs. Nothing is written on the other report, and the artefact list is per report, so the link shows on this report only: link from the side the sentence starts at. Links of the same kind must stay acyclic and both reports must be in this project. Linking the same pair twice records the newer link and leaves the older one in the log.
  * @summary Link a report to another report
  */
 export const signalsReportsLinkBodyReasonMax = 500
@@ -1655,7 +1655,7 @@ export const SignalsScoutEditReportBody = /* @__PURE__ */ zod
             .max(signalsScoutEditReportBodyLinksMax)
             .optional()
             .describe(
-                "Typed, directed links from this report to others, recording how the work relates. Use `depends_on` when you split one finding into a stack and the second report's fix cannot land until the first one's does, so a reviewer reading either report sees the order. Additive: links join what the report already has rather than replacing them, and only this report gets a row, so link from the side the sentence starts at. Links of the same kind must stay acyclic and every report must be in this project."
+                "Typed, directed links from this report to others, recording how the work relates. Use `depends_on` when you split one finding into a stack and the second report's fix cannot land until the first one's does, so the order is recorded rather than left to a reader of the diffs. Additive: links join what the report already has rather than replacing them, and only this report gets a row, so link from the side the sentence starts at. Links of the same kind must stay acyclic and every report must be in this project."
             ),
         supersedes_implementation: zod
             .boolean()
