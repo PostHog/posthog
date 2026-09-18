@@ -29,7 +29,7 @@ from ..logic.health import CheckStatusRow, roll_up_health
 from ..logic.navigation import SubjectKey, SubjectLocation, subject_locations
 from ..logic.notifications import notify_materialization_blocked
 from ..logic.output_schema import metric_output_schema
-from ..logic.permissions import authorized_subject_types, restrict_subject_types, writable_subjects
+from ..logic.permissions import authorized_subject_types, restrict_subject_types, sql_denial_context, writable_subjects
 from ..logic.registry import UnknownCheckTypeError, list_check_types
 from ..logic.run_records import record_check_run
 from ..logic.schedule_service import get_schedule_with_history, schedule_with_history, update_schedule
@@ -80,6 +80,7 @@ __all__ = [
     "UnknownCheckTypeError",
     "authorized_subject_types",
     "restrict_subject_types",
+    "sql_denial_context",
     "live_subject_checks",
     "caller_denial_context",
     "can_be_object_denied",
