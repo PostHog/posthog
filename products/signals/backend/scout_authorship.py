@@ -53,6 +53,23 @@ def resolve_touching_scout_skills(team_id: int, report_id: str) -> list[str]:
     return [*sorted(emitting), *sorted(editing - emitting)]
 
 
+def resolve_authoring_scout_config_ids(team_id: int, report_id: str) -> list[str]:
+    """The config rows of the scouts that authored one report, for a caller that needs the scout's
+    configuration rather than its name.
+
+    Authorship only, matching `resolve_authoring_skill_names`: an editing run says nothing about
+    which scout the report belongs to. A run whose config row was deleted contributes nothing,
+    because the configuration it would answer for is gone.
+
+    `for_team`, not the ambient scope: callers run in Temporal activities, which set none.
+    """
+    return list(
+        SignalScoutRun.objects.for_team(team_id)
+        .filter(emitted_report_ids__contains=[report_id], scout_config__isnull=False)
+        .values_list("scout_config_id", flat=True)
+    )
+
+
 def resolve_authoring_skill_names(team_id: int, report_ids: list[str]) -> dict[str, str]:
     """Map every report id to the scout that owns it, "" meaning the fleet.
 

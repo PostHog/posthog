@@ -75,8 +75,14 @@ async def select_repository_for_team(
     sandbox_environment_id: str | None = None,
     verbose: bool = False,
     output_fn: OutputFn = None,
+    candidate_repos: list[str] | None = None,
 ) -> RepoSelectionResult:
     """Select the most relevant repository for a free-form request against the team's repos.
+
+    ``candidate_repos`` narrows what the selection may return, for a caller whose request is bounded
+    to a subset of the team's repos (a pinned scout). The shared selector intersects it with the
+    repos the team's installation can actually reach, and an empty intersection collapses into the
+    same null result as no match. ``None`` selects across every reachable repo.
 
     ``request_section`` is the caller-rendered string describing the request (e.g. rendered
     signals or a custom agent's initial prompt). Both rejection (LLM hallucination) and
@@ -109,6 +115,7 @@ async def select_repository_for_team(
             reasoning_effort=agent_runtime.reasoning_effort,
             service_tier=agent_runtime.service_tier,
             past_corrections=past_corrections,
+            candidate_repos=candidate_repos,
         )
     except RepoSelectionRejectedError as exc:
         # Preserve legacy behavior: surface validation reject as null with reason so callers'

@@ -1519,6 +1519,45 @@ class TestScoutReportAPI(APIBaseTest):
         assert selection is not None
         assert json.loads(selection.content)["repository"] == "acme/widgets"
 
+    def test_emit_report_refuses_a_repository_outside_the_scouts_pin(self) -> None:
+        # A pinned scout reads the repositories it was configured for, so those are the only ones its
+        # reports may route work to. Refused before the judge and before any write, so no report
+        # surfaces carrying a target in a codebase the scout never read.
+        run = _make_run(self.team)
+        assert run.scout_config is not None
+        run.scout_config.repositories = ["acme/hub"]
+        run.scout_config.save(update_fields=["repositories"])
+        with _safe_judge() as judge, patch(EMBED_PATH), patch(AUTOSTART_PATH, new=AsyncMock()):
+            response = self.client.post(
+                self._emit_url(str(run.id)), data=self._payload(repository="acme/widgets"), format="json"
+            )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        judge.assert_not_awaited()
+        assert SignalReport.objects.filter(team=self.team).count() == 0
+
+    def test_edit_report_refuses_repointing_outside_the_scouts_pin(self) -> None:
+        # The correction path is bounded the same way: a scout cannot move a report onto a repository
+        # it was not configured for, so the report keeps the target it had.
+        run = _make_run(self.team)
+        with _safe_judge(), patch(EMBED_PATH), patch(AUTOSTART_PATH, new=AsyncMock()):
+            created = self.client.post(
+                self._emit_url(str(run.id)), data=self._payload(repository="acme/hub"), format="json"
+            ).json()
+        assert run.scout_config is not None
+        run.scout_config.repositories = ["acme/hub"]
+        run.scout_config.save(update_fields=["repositories"])
+        with _safe_judge() as judge:
+            response = self.client.post(
+                self._edit_url(str(run.id)),
+                data={"report_id": created["report_id"], "repository": "acme/widgets"},
+                format="json",
+            )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        judge.assert_not_awaited()
+        selection = self._latest_artefact(created["report_id"], SignalReportArtefact.ArtefactType.REPO_SELECTION)
+        assert selection is not None
+        assert json.loads(selection.content)["repository"] == "acme/hub"
+
     def test_repository_edit_event_uuid_keys_on_the_repository(self) -> None:
         # Same collision class as the reviewer case above: a repository-only edit carries no
         # `updated_fields` and no title/summary/note, so two corrections to one report in a run would
@@ -2506,7 +2545,7 @@ class TestExtractLinkedRepository(SimpleTestCase):
 
 
 class TestResolveReportRepositoryGateSkipped(SimpleTestCase):
-    def _resolve(self, summary: str) -> RepoSelectionResult | None:
+    def _resolve(self, summary: str, pinned: list[str] | None = None) -> RepoSelectionResult | None:
         with patch(
             "products.signals.backend.scout_harness.tools.report._connected_repositories",
             return_value=_CONNECTED_REPOS,
@@ -2518,6 +2557,7 @@ class TestResolveReportRepositoryGateSkipped(SimpleTestCase):
                 summary=summary,
                 evidence=_evidence(),
                 wants_full_selection=False,
+                pinned_repositories=pinned or [],
             )
 
     def test_linked_repo_seeds_a_manual_only_target(self) -> None:
@@ -2528,6 +2568,44 @@ class TestResolveReportRepositoryGateSkipped(SimpleTestCase):
 
     def test_no_linked_repo_writes_nothing(self) -> None:
         assert self._resolve("No repository named here") is None
+
+    def test_linked_repo_outside_the_pin_writes_nothing(self) -> None:
+        assert self._resolve("Traced to https://github.com/acme/widgets/pull/7", pinned=["acme/gadgets"]) is None
+
+
+class TestResolveReportRepositoryPinned(SimpleTestCase):
+    SELECT_PATH = "products.signals.backend.report_generation.select_repo.select_repository_for_team"
+
+    def _resolve(self, pinned: list[str]) -> RepoSelectionResult | None:
+        return async_to_sync(_resolve_report_repository)(
+            team_id=1,
+            repository=None,
+            title="Crash on upload",
+            summary="The uploader retries forever",
+            evidence=_evidence(),
+            wants_full_selection=True,
+            pinned_repositories=pinned,
+        )
+
+    def test_a_single_pin_resolves_without_running_selection(self) -> None:
+        with patch(self.SELECT_PATH, new=AsyncMock()) as select:
+            result = self._resolve(["acme/hub"])
+        assert result is not None
+        assert result.repository == "acme/hub"
+        select.assert_not_awaited()
+
+    def test_a_selection_outside_the_pin_writes_no_target(self) -> None:
+        # The selector reasons over every repo the team's installation reaches, so on a pinned scout
+        # it can land outside the pin. The report still surfaces; it just carries no target.
+        selected = RepoSelectionResult(repository="acme/widgets", reason="best match")
+        with (
+            patch(self.SELECT_PATH, new=AsyncMock(return_value=selected)),
+            patch("products.signals.backend.temporal.agentic.resolve_user_id_for_team", return_value=7),
+            patch("products.signals.backend.temporal.agentic.get_or_create_signals_sandbox_env", return_value="env"),
+        ):
+            result = self._resolve(["acme/hub", "acme/gadgets"])
+        assert result is not None
+        assert result.repository is None
 
 
 class TestReportClassificationProps(SimpleTestCase):

@@ -60,6 +60,7 @@ from products.signals.backend.report_generation.select_repo import RepoSelection
 from products.signals.backend.report_steering import NO_STEERING, ReportSteering, load_report_steering
 from products.signals.backend.scout_authorship import resolve_touching_scout_skills
 from products.signals.backend.scout_harness.skill_loader import resolve_skill_owner_user_uuids
+from products.signals.backend.scout_repo_pins import report_pinned_repositories, repository_within_pin
 from products.signals.backend.signal_metadata import (
     SignalSourceReference,
     fetch_source_products_for_reports,
@@ -1001,6 +1002,23 @@ async def maybe_autostart_implementation_task(
         return AutostartOutcome(status="blocked", reason=skip_reason)
 
     assert priority is not None  # narrowed by the `priority is None` skip_reason guard above
+
+    # A pinned scout may only route work to the repositories it was configured for, so the report's
+    # stored target is re-checked here rather than trusted from the artefact. The write paths bound
+    # it too, but this is the gate that holds when the pin was written after the report, or when
+    # another writer (the artefacts API, the selection pipeline) put the target there.
+    pinned_repositories = await database_sync_to_async(report_pinned_repositories, thread_sensitive=False)(
+        team_id=team_id, report_id=report_id
+    )
+    if not repository_within_pin(repository, pinned_repositories):
+        logger.info(
+            "self-driving auto-start skipped",
+            report_id=report_id,
+            team_id=team_id,
+            reason="repository outside the authoring scout's pin",
+            repository=repository,
+        )
+        return AutostartOutcome(status="blocked", reason="Repository is outside the authoring scout's repositories")
 
     team_config = await SignalTeamConfig.objects.filter(team_id=team_id).afirst()
     if team_config and team_config.autostart_enabled is False:

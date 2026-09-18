@@ -90,6 +90,12 @@ from products.signals.backend.scout_harness.tools.emit import (
     remediation_for_skip,
 )
 from products.signals.backend.scout_harness.tools.notes import MAX_NOTE_CONTENT_LENGTH
+from products.signals.backend.scout_repo_pins import (
+    report_pinned_repositories,
+    repositories_within_pin,
+    repository_within_pin,
+    run_pinned_repositories,
+)
 from products.signals.backend.scout_report import (
     INFERRED_REPOSITORY_REASON,
     MAX_REPORT_SIGNALS,
@@ -510,6 +516,22 @@ def _normalize_repository(repository: str | None) -> str | None:
     return normalized
 
 
+def _assert_repository_within_pin(repository: str | None, pinned: Sequence[str]) -> None:
+    """Refuse a target outside the pin of the scout making the call.
+
+    A pinned scout reads the repositories it was configured for, so those are the only ones its
+    findings may route work to (see `scout_repo_pins`). Raising rather than dropping the value: the
+    scout named this repository, and a silently unrouted report would read to it as a correction
+    that landed. An unpinned scout is unbounded, so nothing here applies to it.
+    """
+    if repository is None or repository == NO_REPO or repository_within_pin(repository, pinned):
+        return
+    raise InvalidScoutReportError(
+        f"this scout is pinned to {', '.join(pinned)}, so it cannot point a report at {repository}. "
+        "Pass a pinned repository, or NO_REPO when nothing under version control could change."
+    )
+
+
 def _gate_skip_result(preflight: str) -> EmitReportResult:
     logger.warning("signals_scout.emit_report: skipped %s", preflight, extra={"skipped_reason": preflight})
     return EmitReportResult(
@@ -801,6 +823,9 @@ def _refresh_inferred_repository(*, team_id: int, report_id: str, attribution: A
     this same inference wrote is re-derived; one the scout named or the selection agent chose is a
     decision, not a reading, and a content edit does not overturn it.
 
+    Candidates are bounded by the pin of the scouts that authored the report, like every other
+    target the report can take (see `scout_repo_pins`).
+
     New content that links nothing keeps the existing target. A repository the reader can override at
     Create PR time costs less than clearing it, since a cleared selection reads as the scout's
     deliberate no-repo and suppresses the cascade that would otherwise still find a target.
@@ -815,9 +840,9 @@ def _refresh_inferred_repository(*, team_id: int, report_id: str, attribution: A
     report = SignalReport.objects.filter(team_id=team_id, id=report_id).values("title", "summary").first()
     if report is None:
         return
-    linked = extract_linked_repo(
-        "\n".join([report["title"] or "", report["summary"] or ""]), _connected_repositories(team_id)
-    )
+    pinned = report_pinned_repositories(team_id=team_id, report_id=report_id)
+    candidates = repositories_within_pin(_connected_repositories(team_id), pinned)
+    linked = extract_linked_repo("\n".join([report["title"] or "", report["summary"] or ""]), candidates)
     if linked is None or linked == selection.repository:
         return
     set_scout_report_inferred_repository(
@@ -846,6 +871,7 @@ async def _resolve_report_repository(
     summary: str,
     evidence: list[ReportEvidence],
     wants_full_selection: bool,
+    pinned_repositories: Sequence[str],
 ) -> RepoSelectionResult | None:
     """Resolve the scout's `repository` input into a `repo_selection` artefact (or None to write none).
 
@@ -861,7 +887,14 @@ async def _resolve_report_repository(
     the report content for one linked connected repository instead — a cheap deterministic match that
     seeds a `repo_selection` artefact so a person clicking Create PR has a target. That inferred
     selection is `autostart_eligible=False`: the report never signalled PR intent, so it must not open
-    one on its own."""
+    one on its own.
+
+    `pinned_repositories` bounds every mode: a pinned scout may only target the repositories it was
+    configured for (see `scout_repo_pins`). An explicit off-pin value is already refused by
+    `_assert_repository_within_pin` in the entrypoint. The derived modes cannot be refused the same
+    way, because the scout asked for nothing wrong — so a single pin resolves to itself without
+    paying for selection at all, and a wider pin filters what the deterministic match or the
+    selection agent came back with."""
     repository = _normalize_repository(repository)
     if repository == NO_REPO:
         return RepoSelectionResult(repository=None, reason="Scout passed NO_REPO; report lands without a draft PR.")
@@ -870,13 +903,22 @@ async def _resolve_report_repository(
 
     if not wants_full_selection:
         connected_repos = await database_sync_to_async(_connected_repositories, thread_sensitive=False)(team_id)
-        linked = _extract_linked_repository(title, summary, evidence, connected_repos)
+        candidates = repositories_within_pin(connected_repos, pinned_repositories)
+        linked = _extract_linked_repository(title, summary, evidence, candidates)
         if linked is None:
             return None
         return RepoSelectionResult(
             repository=linked,
             reason=INFERRED_REPOSITORY_REASON,
             autostart_eligible=False,
+        )
+
+    if len(pinned_repositories) == 1:
+        # One pin leaves selection nothing to choose: every other repo is out of bounds, so the
+        # selection sandbox would spend a run to arrive back here, or at no repo at all.
+        return RepoSelectionResult(
+            repository=pinned_repositories[0],
+            reason="The only repository this scout is pinned to.",
         )
 
     # Free-form: let the shared selector pick across the team's repos. Imports are deferred to keep the
@@ -913,13 +955,29 @@ async def _resolve_report_repository(
         tasks_facade.SandboxNetworkAccessLevel.CUSTOM,
         allowed_domains=GITHUB_ONLY_DOMAINS,
     )
-    return await select_repository_for_team(
+    selected = await select_repository_for_team(
         team_id=team_id,
         user_id=user_id,
         request_section=_repo_request_section(title, summary, evidence),
         step_name="scout_repo_selection",
         sandbox_environment_id=sandbox_env_id,
+        # The pin is the candidate list on a pinned scout, so the selector never reasons over a repo
+        # the scout could not target anyway.
+        candidate_repos=list(pinned_repositories) or None,
     )
+    if not repository_within_pin(selected.repository, pinned_repositories):
+        # Kept as a backstop under the candidate list above: this is a tenancy-shaped boundary, and
+        # the report is what a later implementation run works from. Drop the target, not the report:
+        # the finding still surfaces, and a person can retarget it from the inbox.
+        logger.info(
+            "signals_scout: dropped a selected repository outside the scout's pin",
+            extra={"team_id": team_id, "selected": selected.repository, "pinned": list(pinned_repositories)},
+        )
+        return RepoSelectionResult(
+            repository=None,
+            reason="Selection landed outside the repositories this scout is pinned to, so the report carries no target.",
+        )
+    return selected
 
 
 async def _maybe_autostart_report(*, team_id: int, report_id: str) -> None:
@@ -1426,6 +1484,10 @@ async def emit_report(
     # Validate the explicit repository format up front (cheap, pure) so a malformed `owner/repo` fails
     # before the safety-judge LLM call rather than after. Free-form selection still runs only if surfaced.
     _normalize_repository(repository)
+    # The scout's pin, read once: it refuses an off-pin target here (before the judge) and bounds the
+    # derived selection modes below.
+    pinned_repositories = await database_sync_to_async(run_pinned_repositories, thread_sensitive=False)(run)
+    _assert_repository_within_pin(repository, pinned_repositories)
     signals = _build_signals(evidence)
     actionability_assessment = _build_actionability(
         explanation=actionability_explanation, choice=actionability, already_addressed=already_addressed
@@ -1493,6 +1555,7 @@ async def emit_report(
             summary=summary,
             evidence=evidence,
             wants_full_selection=_wants_repo_selection(repository, priority_assessment, reviewers),
+            pinned_repositories=pinned_repositories,
         )
         if surfaced
         else None
@@ -1577,6 +1640,9 @@ def emit_report_sync(
     # Validate the explicit repository format up front (cheap, pure) so a malformed `owner/repo` fails
     # before the safety-judge LLM call rather than after. Free-form selection still runs only if surfaced.
     _normalize_repository(repository)
+    # The sync twin of the pin read in `emit_report` — see there.
+    pinned_repositories = run_pinned_repositories(run)
+    _assert_repository_within_pin(repository, pinned_repositories)
     signals = _build_signals(evidence)
     actionability_assessment = _build_actionability(
         explanation=actionability_explanation, choice=actionability, already_addressed=already_addressed
@@ -1637,6 +1703,7 @@ def emit_report_sync(
             summary=summary,
             evidence=evidence,
             wants_full_selection=_wants_repo_selection(repository, priority_assessment, reviewers),
+            pinned_repositories=pinned_repositories,
         )
         if surfaced
         else None
@@ -2197,6 +2264,11 @@ async def edit_report(
     )
     # Validated up front (cheap, pure) so a malformed `owner/repo` fails before the safety-judge call.
     normalized_repository = _normalize_repository(repository)
+    # A correction is a target like any other, so it is bounded by the editing scout's pin — and
+    # refused before the judge, since an off-pin correction can never be written.
+    _assert_repository_within_pin(
+        normalized_repository, await database_sync_to_async(run_pinned_repositories, thread_sensitive=False)(run)
+    )
     built_evidence = _build_signals(append_evidence) if append_evidence else None
     built_charts = _build_edit_charts(charts)
     built_prompts = _build_edit_suggested_prompts(suggested_prompts)
@@ -2293,6 +2365,8 @@ def edit_report_sync(
     )
     # Validated up front (cheap, pure) so a malformed `owner/repo` fails before the safety-judge call.
     normalized_repository = _normalize_repository(repository)
+    # The sync twin of the pin check in `edit_report` — see there.
+    _assert_repository_within_pin(normalized_repository, run_pinned_repositories(run))
     built_evidence = _build_signals(append_evidence) if append_evidence else None
     built_charts = _build_edit_charts(charts)
     built_prompts = _build_edit_suggested_prompts(suggested_prompts)
