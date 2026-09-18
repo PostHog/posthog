@@ -138,7 +138,12 @@ export function buildEvalSection(evalResults) {
 
     return {
         status: regressions.length > 0 ? 'warn' : 'ok',
-        summary: `${totalExperiments} experiment${totalExperiments === 1 ? '' : 's'}${parts.length ? `: ${parts.join(', ')}` : ''}`,
+        // The CI report collapses the section down to this line, so it has to separate
+        // "compared against master, nothing moved" from "never compared at all". Both
+        // leave `parts` empty, and only the second one means the run proves nothing.
+        summary: `${totalExperiments} experiment${totalExperiments === 1 ? '' : 's'}${
+            comparableCount === 0 ? ': no master baseline' : parts.length ? `: ${parts.join(', ')}` : ''
+        }`,
         body: bodyParts.join('\n\n'),
     }
 }

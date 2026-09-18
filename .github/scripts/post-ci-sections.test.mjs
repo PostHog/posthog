@@ -171,14 +171,16 @@ describe('CI report section builders', () => {
             comparisonExperimentName: 'master-a1b2c3d',
             expectedStatus: 'warn',
             expectedSummary: '1 experiment: 1 regression',
-            bodyIncludes: ['🔴', '-10.00%'],
+            bodyIncludes: ['🔴', '-10.00%', 'improvements: 1, regressions: 4'],
+            bodyExcludes: [],
         },
         {
             name: 'ignores an eval diff against a same-branch baseline',
             comparisonExperimentName: 'pr-head-2',
             expectedStatus: 'ok',
-            expectedSummary: '1 experiment',
+            expectedSummary: '1 experiment: no master baseline',
             bodyIncludes: ['🆕', '80.00%'],
+            bodyExcludes: ['-10.00%', 'improvements:', 'regressions:'],
         },
     ]) {
         it(testCase.name, () => {
@@ -187,6 +189,9 @@ describe('CI report section builders', () => {
             assert.equal(section.summary, testCase.expectedSummary)
             for (const fragment of testCase.bodyIncludes) {
                 assert.ok(section.body.includes(fragment), `expected body to include ${fragment}`)
+            }
+            for (const fragment of testCase.bodyExcludes) {
+                assert.ok(!section.body.includes(fragment), `expected body not to include ${fragment}`)
             }
             assert.ok(section.body.includes(testCase.comparisonExperimentName))
         })
