@@ -1255,13 +1255,25 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         assert "\r" not in subject
         assert "Broken destination" in subject
 
-    def test_send_hog_function_filters_uncompilable_sends_nothing_without_an_error(
-        self, MockEmailMessage: MagicMock
+    @parameterized.expand(
+        [
+            ("filters that compile", {"bytecode": ["_H", 1]}, False),
+            (
+                "an archived destination",
+                {"bytecode": None, "bytecode_error": "Cohort membership can't be evaluated"},
+                True,
+            ),
+        ]
+    )
+    def test_send_hog_function_filters_uncompilable_sends_nothing_for(
+        self, MockEmailMessage: MagicMock, _name: str, filters: dict, deleted: bool
     ) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)
-        hog_function = HogFunction.objects.create(
-            team=self.team, name="Healthy destination", enabled=True, filters={"bytecode": ["_H", 1]}
-        )
+        # An admin, so an email would have a recipient and the assertion is about the skip.
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        hog_function = HogFunction.objects.create(team=self.team, name="A destination", enabled=True)
+        HogFunction.objects.filter(id=hog_function.id).update(filters=filters, deleted=deleted)
 
         send_hog_function_filters_uncompilable(str(hog_function.id))
 

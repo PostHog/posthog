@@ -773,7 +773,14 @@ def send_hog_function_filters_uncompilable(hog_function_id: str) -> None:
     """
     if not is_email_available(with_absolute_urls=True):
         return
-    hog_function: HogFunction = HogFunction.objects.prefetch_related("team", "created_by").get(id=hog_function_id)
+    # Archived between the command's enqueue and the worker picking the task up: the email would
+    # link to a page the owner just archived. A missing row is terminal too, so return rather than
+    # let the retry policy try three more times for work that cannot succeed.
+    hog_function = (
+        HogFunction.objects.prefetch_related("team", "created_by").filter(id=hog_function_id, deleted=False).first()
+    )
+    if hog_function is None:
+        return
     team = hog_function.team
     bytecode_error = (hog_function.filters or {}).get("bytecode_error")
     if not bytecode_error:
