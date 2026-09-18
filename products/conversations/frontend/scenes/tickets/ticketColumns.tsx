@@ -1,6 +1,6 @@
 import clsx from 'clsx'
 
-import { IconClock } from '@posthog/icons'
+import { IconClock, IconTrash } from '@posthog/icons'
 import { LemonBadge, LemonTableColumns, LemonTag, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
@@ -140,6 +140,13 @@ const TICKET_COLUMNS: Record<TicketColumnKey, TicketColumnDefinition> = {
                                 <IconClock className="text-muted-alt text-base" />
                             </span>
                         </TZLabel>
+                    )}
+                    {ticket.awaiting_deletion_id && (
+                        <Tooltip title="Waiting on a data deletion — reopens once the deletion is verified complete">
+                            <span className="flex items-center">
+                                <IconTrash className="text-muted-alt text-base" />
+                            </span>
+                        </Tooltip>
                     )}
                 </span>
             ),

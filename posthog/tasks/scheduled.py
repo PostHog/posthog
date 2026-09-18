@@ -85,7 +85,7 @@ from products.approvals.backend.tasks import (
 )
 from products.canvas.backend.tasks import cleanup_canvas_builds, sweep_canvas_builds
 from products.conversations.backend.tasks.email import flush_pending_email_replies
-from products.conversations.backend.tasks.maintenance import wake_snoozed_tickets
+from products.conversations.backend.tasks.maintenance import wake_snoozed_tickets, wake_tickets_awaiting_deletion
 from products.conversations.backend.tasks.slack import sweep_inbound_events
 from products.conversations.backend.tasks.teams import poll_teams_shared_channels
 from products.data_modeling.backend.facade.tasks import cleanup_expired_test_saved_queries
@@ -1042,6 +1042,15 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(minute="*"),
         wake_snoozed_tickets.s(),
         name="wake snoozed conversation tickets",
+    )
+
+    # Reopen conversation tickets whose linked data deletion has been verified complete. The
+    # deletes job runs weekly, so a minute-by-minute sweep would buy nothing.
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(minute="*/10"),
+        wake_tickets_awaiting_deletion.s(),
+        name="wake conversation tickets awaiting a data deletion",
     )
 
     # Re-drive queued outbound support email replies (survives a multi-day email provider outage)

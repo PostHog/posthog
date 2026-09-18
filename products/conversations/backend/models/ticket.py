@@ -125,6 +125,16 @@ class Ticket(UUIDTModel):
     # "slack_channel_account" (inferred from the customer analytics account linked to the Slack channel).
     organization_id_source = models.CharField(max_length=32, null=True, blank=True)
 
+    # Data deletion the ticket is waiting on — the id of the posthog.AsyncDeletion queued for the
+    # customer's request. A plain id rather than a foreign key, like zendesk_ticket_id: the row is
+    # owned by core deletion machinery and may be pruned, and a dangling id should only mean the
+    # wake never fires, not that the ticket is touched.
+    awaiting_deletion_id = models.BigIntegerField(null=True, blank=True)
+    # When the link was made. AsyncDeletion is unique on (deletion_type, key), so a re-requested
+    # deletion reuses a row that can already carry an older delete_verified_at — only a
+    # verification after this instant answers this ticket's request.
+    awaiting_deletion_linked_at = models.DateTimeField(null=True, blank=True)
+
     # Zendesk import dedup — set when a ticket is imported from Zendesk Support.
     # No standalone index: the partial unique constraint below covers the dedup lookup
     # (team + zendesk_ticket_id), mirroring the GitHub issue-number pattern.
@@ -141,6 +151,13 @@ class Ticket(UUIDTModel):
             models.Index(fields=["team", "status"]),
             models.Index(fields=["team", "-ticket_number"], name="posthog_con_team_id_ticket_idx"),  # MAX() lookups
             models.Index(fields=["team", "session_id"]),  # Session context queries
+            # Deletion wake scan: mostly-NULL column, so a partial index keeps the sweep off the
+            # whole table.
+            models.Index(
+                fields=["awaiting_deletion_id"],
+                name="posthog_con_await_del_idx",
+                condition=models.Q(awaiting_deletion_id__isnull=False),
+            ),
             # Slack thread lookup: find ticket by (team, slack_channel_id, slack_thread_ts)
             models.Index(
                 fields=["team", "slack_channel_id", "slack_thread_ts"],

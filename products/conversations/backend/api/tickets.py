@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Any, Literal, TypedDict, cast
 from django.db import transaction
 from django.db.models import Q, QuerySet, Sum
 from django.http import Http404
+from django.utils import timezone
 
 import structlog
 import posthoganalytics
@@ -50,6 +51,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models import OrganizationMembership
 from posthog.models.activity_logging.activity_log import Change, Detail, Trigger, log_activity
+from posthog.models.async_deletion import AsyncDeletion
 from posthog.models.comment import Comment
 from posthog.models.person.person import Person
 from posthog.models.person.util import get_person_by_distinct_id, get_persons_by_distinct_ids
@@ -367,6 +369,8 @@ class TicketSerializer(UserAccessControlSerializerMixin, TaggedItemSerializerMix
             "session_context",
             "sla_due_at",
             "snoozed_until",
+            "awaiting_deletion_id",
+            "awaiting_deletion_linked_at",
             "slack_channel_id",
             "slack_thread_ts",
             "slack_team_id",
@@ -413,6 +417,7 @@ class TicketSerializer(UserAccessControlSerializerMixin, TaggedItemSerializerMix
             "person",
             "ai_triage",
             "identity_verified",
+            "awaiting_deletion_linked_at",
         ]
         extra_kwargs = {
             "identity_verified": {
@@ -504,6 +509,7 @@ class TicketUpdateRequestSerializer(TaggedItemSerializerMixin, serializers.Model
             "escalation_reason",
             "sla_due_at",
             "snoozed_until",
+            "awaiting_deletion_id",
             "tags",
         ]
         extra_kwargs = {
@@ -514,10 +520,34 @@ class TicketUpdateRequestSerializer(TaggedItemSerializerMixin, serializers.Model
             "escalation_reason": {"help_text": "Reason the ticket was escalated. Pass null to clear it."},
             "sla_due_at": {"help_text": "SLA deadline. Pass null to clear it."},
             "snoozed_until": {"help_text": "Time to reopen the ticket. Pass null to reopen it now."},
+            "awaiting_deletion_id": {
+                "help_text": (
+                    "Id of the queued data deletion this ticket is waiting on. Puts the ticket on hold; "
+                    "it reopens once the deletion is verified complete. Pass null to unlink and reopen it now."
+                )
+            },
         }
+
+    def validate_awaiting_deletion_id(self, value: int | None) -> int | None:
+        if value is None:
+            return None
+        team_id = self.instance.team_id if self.instance is not None else None
+        if not AsyncDeletion.objects.filter(id=value, team_id=team_id).exists():
+            raise serializers.ValidationError("No queued data deletion with this id in this project.")
+        return value
 
     def update(self, instance: Ticket, validated_data: dict[str, Any]) -> Ticket:
         validated_data.pop("assignee", None)
+        if (
+            "awaiting_deletion_id" in validated_data
+            and validated_data["awaiting_deletion_id"] != instance.awaiting_deletion_id
+        ):
+            # Stamped here rather than accepted from the caller: the wake only fires on a
+            # verification recorded after the link, so a caller-supplied time could let an older
+            # verification wake the ticket straight away.
+            validated_data["awaiting_deletion_linked_at"] = (
+                timezone.now() if validated_data["awaiting_deletion_id"] is not None else None
+            )
         return super().update(instance, validated_data)
 
 
@@ -543,11 +573,12 @@ TICKET_MESSAGE_ID_PARAM = OpenApiParameter(
 )
 
 
-def _status_implied_by_snooze(before: datetime | None, after: datetime | None) -> str | None:
-    """Return the status a snooze change implies, or None when it implies no status change.
+def _status_implied_by_hold(before: Any, after: Any) -> str | None:
+    """Return the status a hold change implies, or None when it implies no status change.
 
-    Snoozing a ticket puts it on hold, and unsnoozing reopens it. Moving a snooze to a
-    different time leaves the status alone.
+    Putting a ticket on a hold — a snooze, or a link to a queued data deletion — puts it on
+    hold, and releasing that hold reopens it. Moving a hold from one value to another leaves
+    the status alone.
     """
     if before is None and after is not None:
         return Status.ON_HOLD
@@ -577,6 +608,7 @@ class _TicketFields:
     priority: str | None
     sla_due_at: datetime | None
     snoozed_until: datetime | None
+    awaiting_deletion_id: int | None
 
     @classmethod
     def read_from(cls, ticket: Ticket) -> _TicketFields:
@@ -585,6 +617,7 @@ class _TicketFields:
             priority=ticket.priority,
             sla_due_at=ticket.sla_due_at,
             snoozed_until=ticket.snoozed_until,
+            awaiting_deletion_id=ticket.awaiting_deletion_id,
         )
 
 
@@ -621,6 +654,7 @@ class _TicketUpdateDiff:
             ("priority", self.before.priority, self.after.priority),
             ("sla_due_at", self.before.sla_due_at, self.after.sla_due_at),
             ("snoozed_until", self.before.snoozed_until, self.after.snoozed_until),
+            ("awaiting_deletion_id", self.before.awaiting_deletion_id, self.after.awaiting_deletion_id),
         ]
         # Compare the raw values, so two datetimes for the same instant in different
         # timezones do not register as a change, then render for the log.
@@ -1098,15 +1132,18 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
         *,
         explicit_status: bool,
     ) -> None:
-        """Persist the submitted fields, then apply the status a snooze change implies.
+        """Persist the submitted fields, then apply the status a hold change implies.
 
         A status in the same request wins over the implied one, so a caller can snooze a
-        ticket and keep it pending.
+        ticket and keep it pending. A snooze wins over a deletion link in the same request,
+        because it carries an explicit time the caller chose.
         """
         with transaction.atomic():
             self.perform_update(serializer)
 
-            implied_status = _status_implied_by_snooze(before.snoozed_until, instance.snoozed_until)
+            implied_status = _status_implied_by_hold(
+                before.snoozed_until, instance.snoozed_until
+            ) or _status_implied_by_hold(before.awaiting_deletion_id, instance.awaiting_deletion_id)
             if implied_status is not None and not explicit_status:
                 instance.status = implied_status
                 instance.save(update_fields=["status"])

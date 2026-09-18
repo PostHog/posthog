@@ -90,6 +90,39 @@ const ticketActionsMapping: Record<
             ],
         }
     },
+    awaiting_deletion_id: function onAwaitingDeletion(change, logItem) {
+        const before = change?.before as number | null
+        const after = change?.after as number | null
+
+        if (!before && after) {
+            return {
+                description: [
+                    <>
+                        put on hold for data deletion <strong>#{after}</strong>
+                    </>,
+                ],
+            }
+        }
+        if (before && !after) {
+            // Same set→null change for a deliberate unlink and for the system wake task acting on
+            // a verified deletion — tell them apart by actor, as the snooze describer does.
+            if (logItem?.user || logItem?.detail?.trigger?.job_type === 'hog_flow') {
+                return { description: [<>unlinked the data deletion</>] }
+            }
+            const reopened = (logItem?.detail?.changes ?? []).some((c) => c.field === 'status' && c.after === 'open')
+            return {
+                description: [reopened ? <>data deletion completed – reopened</> : <>data deletion completed</>],
+            }
+        }
+        return {
+            description: [
+                <>
+                    changed the linked data deletion from <strong>{before ? `#${before}` : 'none'}</strong> to{' '}
+                    <strong>{after ? `#${after}` : 'none'}</strong>
+                </>,
+            ],
+        }
+    },
     snoozed_until: function onSnoozedUntil(change, logItem) {
         const before = change?.before as string | null
         const after = change?.after as string | null

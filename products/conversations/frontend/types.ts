@@ -155,6 +155,9 @@ export interface Ticket {
     }
     sla_due_at?: string | null
     snoozed_until?: string | null
+    /** Queued data deletion this ticket is waiting on; it reopens once the deletion is verified. */
+    awaiting_deletion_id?: number | null
+    awaiting_deletion_linked_at?: string | null
     slack_channel_id?: string | null
     slack_thread_ts?: string | null
     slack_team_id?: string | null
