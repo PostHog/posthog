@@ -13,6 +13,7 @@ const personSearchJourney: QueryJourneyDescriptor = {
             readiness_scope: 'persons_list_query_to_table_commit',
             readiness_contract_version: 1,
             attempt_id: queryId,
+            client_query_id: queryId,
         }),
 }
 

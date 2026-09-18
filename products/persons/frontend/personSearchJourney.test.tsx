@@ -85,7 +85,14 @@ describe('person search query-to-table journey', () => {
                 resolve({ results, columns: ['synthetic_column'], types: ['String'], hasMore: false })
                 await expectLogic(logic).toFinishAllListeners()
             })
-            expect(capture.mock.calls.at(-1)?.[1]).toMatchObject({ outcome: 'usable', first_useful_ms: 0 })
+            const queryId = capture.mock.calls[0][1].attempt_id
+            expect(jest.mocked(performQuery).mock.calls.some((call) => call[3] === queryId)).toBe(true)
+            expect(capture.mock.calls[0][1].client_query_id).toBe(queryId)
+            expect(capture.mock.calls.at(-1)?.[1]).toMatchObject({
+                outcome: 'usable',
+                first_useful_ms: 0,
+                client_query_id: queryId,
+            })
             expect(JSON.stringify(capture.mock.calls)).not.toMatch(/synthetic-result-secret|synthetic_column/)
             act(() => logic.actions.loadData())
             expect(capture.mock.calls.filter(([event]) => event === 'customer_journey_finished')).toHaveLength(1)

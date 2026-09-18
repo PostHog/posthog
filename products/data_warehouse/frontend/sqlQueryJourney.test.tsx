@@ -124,7 +124,14 @@ describe('SQL request-to-results journey', () => {
                 resolve({ results, columns: ['synthetic_column'], types: [['synthetic_column', 'String']] })
                 await expectLogic(data).toFinishAllListeners()
             })
-            expect(capture.mock.calls.at(-1)?.[1]).toMatchObject({ outcome: 'usable', first_useful_ms: 0 })
+            const queryId = capture.mock.calls[0][1].attempt_id
+            expect(jest.mocked(performQuery).mock.calls.some((call) => call[3] === queryId)).toBe(true)
+            expect(capture.mock.calls[0][1].client_query_id).toBe(queryId)
+            expect(capture.mock.calls.at(-1)?.[1]).toMatchObject({
+                outcome: 'usable',
+                first_useful_ms: 0,
+                client_query_id: queryId,
+            })
             expect(JSON.stringify(capture.mock.calls)).not.toMatch(
                 /synthetic-sql-secret|synthetic-result-secret|synthetic_column|synthetic-sensitive-editor-name/
             )

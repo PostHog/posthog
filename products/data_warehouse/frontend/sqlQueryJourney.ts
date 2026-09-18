@@ -32,6 +32,7 @@ export function createSqlQueryJourney(
                 readiness_scope: 'sql_query_to_results_commit',
                 readiness_contract_version: 1,
                 attempt_id: queryId,
+                client_query_id: queryId,
             })
         },
     }
