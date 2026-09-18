@@ -1,7 +1,7 @@
 import os
 
 from posthog.settings.base_variables import CLOUD_DEPLOYMENT, DEBUG, TEST
-from posthog.settings.utils import get_list, get_set
+from posthog.settings.utils import get_from_env, get_list, get_set
 
 # Signs the per-delivery map of already-rendered chart assets that scout Slack delivery keeps in the
 # shared Redis, so a process able to write that Redis cannot swap in another asset id. Dedicated and
@@ -53,4 +53,10 @@ def _parse_team_ids(raw: str) -> set[int]:
 
 SIGNALS_LIGHTHOUSE_TEAM_IDS: set[int] = _parse_team_ids(
     os.getenv("SIGNALS_LIGHTHOUSE_TEAM_IDS", _DEFAULT_LIGHTHOUSE_TEAM_IDS)
+)
+
+SIGNALS_TYPESAFE_CLOUDFLARE_ACCOUNT_ID: str = get_from_env("SIGNALS_TYPESAFE_CLOUDFLARE_ACCOUNT_ID", "")
+SIGNALS_TYPESAFE_CLOUDFLARE_API_TOKEN: str = get_from_env("SIGNALS_TYPESAFE_CLOUDFLARE_API_TOKEN", "")
+SIGNALS_TYPESAFE_CLOUDFLARE_REQUESTS_PER_MINUTE: int = get_from_env(
+    "SIGNALS_TYPESAFE_CLOUDFLARE_REQUESTS_PER_MINUTE", 20, type_cast=int
 )
