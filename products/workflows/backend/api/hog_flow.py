@@ -2758,6 +2758,14 @@ class WorkflowEmailPauseStatusSerializer(serializers.Serializer):
 
 class HogFlowMinimalSerializer(UserAccessControlSerializerMixin, serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
+    draft = serializers.JSONField(
+        read_only=True,
+        help_text=(
+            "Staged content changes awaiting publish — a full snapshot of the workflow's actions, edges and "
+            "settings. Null when there's nothing staged. Test it with a use_draft test run, then promote it "
+            "with the publish endpoint or throw it away with discard_draft."
+        ),
+    )
 
     class Meta:
         model = HogFlow
@@ -2778,6 +2786,9 @@ class HogFlowMinimalSerializer(UserAccessControlSerializerMixin, serializers.Mod
             "email_sending_rate_limit",
             "edges",
             "actions",
+            # Search matches pending draft content too, so the list carries the draft for the row to
+            # show which staged step matched.
+            "draft",
             "abort_action",
             "variables",
             "billable_action_types",
@@ -2925,14 +2936,6 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
         ),
     )
 
-    draft = serializers.JSONField(
-        read_only=True,
-        help_text=(
-            "Staged content changes awaiting publish — a full snapshot of the workflow's actions, edges and "
-            "settings. Null when there's nothing staged. Test it with a use_draft test run, then promote it "
-            "with the publish endpoint or throw it away with discard_draft."
-        ),
-    )
     draft_updated_at = serializers.DateTimeField(
         read_only=True,
         allow_null=True,
@@ -3788,6 +3791,7 @@ def _action_content_matches(regex_pattern: str) -> RawSQL:
             f") AS action WHERE {step_matches})"
         )
     params = [regex_pattern] * (len(clauses) * len(_ACTION_SEARCH_TEXT_SQL))
+    # nosemgrep: python.django.security.audit.raw-query.avoid-raw-sql (the search term is bound via params; only constant SQL and the table name from _meta are interpolated)
     return RawSQL(" OR ".join(clauses), params, output_field=models.BooleanField())
 
 

@@ -355,6 +355,23 @@ class TestHogFlowAPI(APIBaseTest):
         assert len(response.json()["results"]) == 1
         assert response.json()["next"] is not None
 
+    def test_list_includes_the_pending_draft(self):
+        HogFlow.objects.create(
+            team=self.team,
+            name="Onboarding",
+            status=HogFlow.State.ACTIVE,
+            created_by=self.user,
+            draft={"actions": [_email_step("email_1", "Access email", subject="Your beta access starts today")]},
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/hog_flows?search=beta access")
+        assert response.status_code == 200, response.json()
+        (flow,) = response.json()["results"]
+        assert (
+            flow["draft"]["actions"][0]["config"]["inputs"]["email"]["value"]["subject"]
+            == "Your beta access starts today"
+        )
+
     def test_list_filter_by_created_by_uuid(self):
         other_user = User.objects.create_and_join(self.organization, "other@posthog.com", None)
         HogFlow.objects.create(team=self.team, name="Mine", created_by=self.user)

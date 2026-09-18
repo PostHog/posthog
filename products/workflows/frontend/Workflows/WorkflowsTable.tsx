@@ -13,7 +13,7 @@ import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/Le
 import { updatedAtColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
-import { capitalizeFirstLetter, pluralize } from 'lib/utils/strings'
+import { capitalizeFirstLetter } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
@@ -21,7 +21,7 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 import { getHogFlowStep } from './hogflows/steps/HogFlowSteps'
 import { HogFlow } from './hogflows/types'
 import { workflowLogic } from './workflowLogic'
-import { WorkflowStepMatch, findMatchingWorkflowSteps } from './workflowSearchMatches'
+import { findMatchingWorkflowSteps } from './workflowSearchMatches'
 import {
     WORKFLOW_TRIGGER_TYPE_OPTIONS,
     WorkflowStatusFilter,
@@ -29,8 +29,7 @@ import {
     WorkflowTypeFilter,
     workflowsLogic,
 } from './workflowsLogic'
-
-const MAX_VISIBLE_STEP_MATCHES = 3
+import { WorkflowStepMatches } from './WorkflowStepMatches'
 
 const STATUS_CONFIG: Record<string, { label: string; type: 'success' | 'default' | 'muted' }> = {
     active: { label: 'Active', type: 'success' },
@@ -104,25 +103,6 @@ function WorkflowActionsSummary({ workflow }: { workflow: HogFlow }): JSX.Elemen
                 ))}
             </div>
         </Link>
-    )
-}
-
-function WorkflowStepMatches({ workflow, matches }: { workflow: HogFlow; matches: WorkflowStepMatch[] }): JSX.Element {
-    const hiddenCount = matches.length - MAX_VISIBLE_STEP_MATCHES
-    return (
-        <div className="mt-1 max-w-sm text-xs text-secondary">
-            {matches.slice(0, MAX_VISIBLE_STEP_MATCHES).map((match) => (
-                <Link
-                    key={match.actionId}
-                    to={`${urls.workflow(workflow.id, 'workflow')}?node=${match.actionId}`}
-                    className="block truncate"
-                    data-attr="workflow-search-step-match"
-                >
-                    {match.field}: {match.value}
-                </Link>
-            ))}
-            {hiddenCount > 0 && <span>{pluralize(hiddenCount, 'more matching step')}</span>}
-        </div>
     )
 }
 
