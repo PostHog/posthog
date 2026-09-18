@@ -195,9 +195,14 @@ SELECT
     round(sum(estimated_cost_usd), 2) AS estimated_cost_usd
 FROM engineering_analytics_job_costs
 WHERE created_at >= now() - INTERVAL 60 DAY
+  AND created_at_raw >= '<61 days ago, YYYY-MM-DD>'
 GROUP BY week, workflow_name
 ORDER BY week, estimated_cost_usd DESC
 ```
+
+Both bounds are required, because the view carries no window of its own.
+The parsed `created_at` filter is the exact boundary; the coarse `created_at_raw` string floor (a day below the window) is the only predicate the parquet scan can prune on, so without it every refresh reads the team's whole job history.
+The floor trims that scan only: the view's re-run-copy duplicate scan reads no `created_at_raw`, so keep the window as tight as the tile needs.
 
 Grain is one row per job attempt, so `sum` is correct across retries.
 `estimated_cost_usd` is NULL (skipped by `sum`) for three reasons: a job on a tier the model does not price, a job that has not finished (queued or still running), or a re-run copy that never executed (GitHub re-lists an already-passed job under a later `run_attempt`, so Depot billed nothing).
