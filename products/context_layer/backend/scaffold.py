@@ -78,7 +78,8 @@ Structural rules the linter also checks:
 
 - A page with `status: superseded` must wikilink its replacement, and the
   replacement page must exist.
-- H1 titles must be unique across the wiki.
+- H1 titles must be unique across the wiki. Space pages are the exception:
+  their `channel_id` identifies them, so two Spaces can share a heading.
 - Pages must be UTF-8 and at most 16 KB. Split a page that outgrows this.
 
 ## Templates

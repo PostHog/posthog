@@ -154,7 +154,10 @@ def _lint_markdown_directory(root: Path, directory: str, titles: dict[str, Path]
         if status == "superseded" and not any((root / f"{target}.md").is_file() for target in links):
             errors.append(f"{relative}: superseded pages must wikilink an existing replacement")
         title_match = H1_RE.search(text)
-        if title_match:
+        # A Space page is identified by its `channel_id`, and two projects can
+        # hold same-named Spaces, so Space headings stay out of the shared title
+        # namespace; otherwise a new Space could not get its first page.
+        if title_match and not is_space_page:
             normalized = re.sub(r"[^a-z0-9]+", " ", title_match.group(1).casefold()).strip()
             if normalized in titles:
                 errors.append(f"{relative}: duplicates the normalized title in {titles[normalized].relative_to(root)}")

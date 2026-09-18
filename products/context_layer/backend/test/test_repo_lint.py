@@ -99,6 +99,12 @@ def _non_utf8_page(root: Path) -> None:
     (root / "areas" / "pricing.md").write_bytes(b"# Pricing\n\nCaf\xe9 tier costs \x80100.\n")
 
 
+def _duplicate_page_title(root: Path) -> None:
+    (root / "areas").mkdir(exist_ok=True)
+    for name in ("billing.md", "billing-legacy.md"):
+        (root / "areas" / name).write_text("---\nsummary: Billing\nstatus: active\nsources: test\n---\n# Billing")
+
+
 def _scripts_tampered_lint(root: Path) -> None:
     lint = root / "scripts" / "lint"
     lint.write_text(lint.read_text() + "\nimport os  # smuggled\n")
@@ -128,6 +134,16 @@ class TestRepoLint(SimpleTestCase):
         (spaces / "general.md").write_text(
             f"---\nteam_id: 1\nchannel_id: {uuid.uuid4()}\nsummary: General\nstatus: active\nsources: test\n---\n# general"
         )
+        assert lint_repo(self.root) == []
+
+    def test_same_named_spaces_in_different_projects_are_clean(self) -> None:
+        for team_id in (1, 2):
+            spaces = self.root / "projects" / str(team_id) / "spaces"
+            spaces.mkdir(parents=True)
+            (spaces / "support.md").write_text(
+                f"---\nteam_id: {team_id}\nchannel_id: {uuid.uuid4()}\nsummary: Support\nstatus: active\nsources: test\n---\n# Support"
+            )
+
         assert lint_repo(self.root) == []
 
     def test_report_findings_do_not_fail_lint(self) -> None:
@@ -166,6 +182,7 @@ class TestRepoLint(SimpleTestCase):
             ("scripts_symlink", _scripts_symlink),
             ("scripts_extra_file", _scripts_extra_file),
             ("scripts_tampered_lint", _scripts_tampered_lint),
+            ("duplicate_page_title", _duplicate_page_title),
             ("non_utf8_page", _non_utf8_page),
         ]
     )
