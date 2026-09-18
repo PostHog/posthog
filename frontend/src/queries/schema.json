@@ -38341,6 +38341,10 @@
                 "stepLimit": {
                     "$ref": "#/definitions/integer",
                     "default": 5
+                },
+                "stripQueryString": {
+                    "description": "Remove the query string from page view URLs, so pages that differ only in query parameters become one path item",
+                    "type": "boolean"
                 }
             },
             "type": "object"
