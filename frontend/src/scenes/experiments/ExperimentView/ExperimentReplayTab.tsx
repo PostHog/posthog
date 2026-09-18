@@ -371,33 +371,6 @@ export function ExperimentReplayTab({ experiment }: { experiment: Experiment }):
 
     return (
         <div data-attr="experiment-recordings-tab">
-            {scannerCrossSellEnabled &&
-                (linkedScannersLoading ? (
-                    <LinkedScannersSkeletonCard />
-                ) : linkedScanners.length > 0 ? (
-                    <LinkedScannersCard
-                        scanners={linkedScanners}
-                        addAnotherUrl={scannerSetupUrl}
-                        onAddAnother={scannerCrossSellClicked}
-                    />
-                ) : /* Held back while the shelf is showing its tailored version of the same offer:
-                     two pitches on one screen read as an ad. The shelf's own state decides, in
-                     `shelfVisionCrossSellShown`. */
-                shelfVisionCrossSellShown ? null : (
-                    <LemonBanner
-                        type="ai"
-                        className="mb-2"
-                        dismissKey={SCANNER_CROSS_SELL_DISMISS_KEY}
-                        action={{
-                            children: 'Set up scanner for this experiment',
-                            to: scannerSetupUrl,
-                            onClick: () => scannerCrossSellClicked(),
-                            'data-attr': 'experiment-recordings-scanner-cross-sell',
-                        }}
-                    >
-                        Replay vision is here. Scanners watch your recordings for you and surface what matters.
-                    </LemonBanner>
-                ))}
             <div className="mb-2 flex flex-wrap gap-2">
                 <LemonSegmentedButton
                     size="small"
@@ -552,6 +525,38 @@ export function ExperimentReplayTab({ experiment }: { experiment: Experiment }):
                     </span>
                 )}
             </div>
+            {/* Below the filter row on purpose, because the banner branch below can be taken away
+                while the reader is on the page: the shelf replaces this offer with its own tailored
+                one. Above the row, taking it away would slide the "What to watch" toggle up under
+                the cursor that just clicked it. Everything here stays under that toggle instead, so
+                only the space the shelf itself owns changes. */}
+            {scannerCrossSellEnabled &&
+                (linkedScannersLoading ? (
+                    <LinkedScannersSkeletonCard />
+                ) : linkedScanners.length > 0 ? (
+                    <LinkedScannersCard
+                        scanners={linkedScanners}
+                        addAnotherUrl={scannerSetupUrl}
+                        onAddAnother={scannerCrossSellClicked}
+                    />
+                ) : /* Held back while the shelf is showing its tailored version of the same offer:
+                     two pitches on one screen read as an ad. The shelf's own state decides, in
+                     `shelfVisionCrossSellShown`. */
+                shelfVisionCrossSellShown ? null : (
+                    <LemonBanner
+                        type="ai"
+                        className="mb-2"
+                        dismissKey={SCANNER_CROSS_SELL_DISMISS_KEY}
+                        action={{
+                            children: 'Set up scanner for this experiment',
+                            to: scannerSetupUrl,
+                            onClick: () => scannerCrossSellClicked(),
+                            'data-attr': 'experiment-recordings-scanner-cross-sell',
+                        }}
+                    >
+                        Replay vision is here. Scanners watch your recordings for you and surface what matters.
+                    </LemonBanner>
+                ))}
             <ExperimentBehaviorComparison experiment={experiment} onWatchRecording={watchRecording} />
             <div className="SessionRecordingPlaylistHeightWrapper">
                 {playlistHeldForChecks ? (

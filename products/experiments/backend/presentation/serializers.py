@@ -2189,7 +2189,10 @@ class ExperimentSessionEventDeltaResponseSerializer(serializers.Serializer):
             "exposed within a stretch that long; a rollout split that changed during the run lands here too, "
             "and the experiment's exposure chart is where that shows. "
             "'no_separation': the variants were compared and no event told them apart, which is a result rather "
-            "than a failure. 'underpowered': the variants were compared and nothing separated them, but too few "
+            "than a failure. It is also what an empty shelf falls back to when the size question behind "
+            "'underpowered' could not be asked of this scan, so read detectable_share before presenting it as "
+            "evidence that people behaved the same: a null share means the comparison's size was never "
+            "established. 'underpowered': the variants were compared and nothing separated them, but too few "
             "people were compared for an ordinary difference to show, so do not report that the variants behaved "
             "the same; while the experiment runs and sessions_truncated is false, more exposed people fix it. "
             "'no_recordings': events did tell the variants apart, but no recording behind them can "
@@ -2210,7 +2213,10 @@ class ExperimentSessionEventDeltaResponseSerializer(serializers.Serializer):
         allow_null=True,
         help_text=(
             "The share of the commonly done events on which one variant doing the event twice as often would have "
-            "earned a card, and null when nothing was compared. Diagnostic: it says what this comparison could have "
-            "seen, not what it found, so never present it as a result or turn it into a claim about the variants."
+            "earned a card. Diagnostic: it says what this comparison could have seen, not what it found, so never "
+            "present it as a result or turn it into a claim about the variants. Null means the question could not "
+            "be asked here, which is not the same as a low share and must never be reported as one: either nothing "
+            "was compared, or the event list hit the row cap, or no event was both common enough and rare enough "
+            "for one variant doing it twice as often to be possible at all."
         ),
     )

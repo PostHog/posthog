@@ -27,7 +27,7 @@ interface ShelfOptions {
     sessionsTruncated?: boolean
     /** Below 0.5 is what the backend reports 'underpowered' on, so the two must agree in a fixture. */
     detectableShare?: number | null
-    /** Overrides on the experiment itself: an end date, or a launch date close enough to be young. */
+    /** Overrides on the experiment itself: an end date, a paused status, or a launch date close enough to be young. */
     experiment?: Record<string, unknown>
     /** Scanners already watching this experiment. One of them replaces every cross-sell with a back-link. */
     scanners?: { id: string; name: string; scanner_type: string; observations_this_month: number }[]
@@ -192,6 +192,18 @@ export const ExperimentWatchShelfTooEarlyYoung: Story = shelfStory(
     ExperimentWatchEmptyReasonEnumApi.TooEarly,
     [12, 12, 12],
     { experiment: { start_date: '2025-05-29T09:00:00Z' } }
+)
+// Paused, so it has not ended and nobody new is being exposed either. Both of these states end
+// with a promise of more people everywhere else, and a paused run is where that promise is empty.
+export const ExperimentWatchShelfUnderpoweredPaused: Story = shelfStory(
+    ExperimentWatchEmptyReasonEnumApi.Underpowered,
+    [190, 190, 190],
+    { detectableShare: 0.21, experiment: { status: 'paused' } }
+)
+export const ExperimentWatchShelfTooEarlyPaused: Story = shelfStory(
+    ExperimentWatchEmptyReasonEnumApi.TooEarly,
+    [12, 12, 12],
+    { experiment: { status: 'paused' } }
 )
 export const ExperimentWatchShelfNoRecordings: Story = shelfStory(
     ExperimentWatchEmptyReasonEnumApi.NoRecordings,

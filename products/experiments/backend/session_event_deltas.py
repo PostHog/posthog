@@ -91,7 +91,9 @@ band a card is reported in, so a difference that only cleared the floor because 
 reports as slight, whatever its point estimate. An empty ranking is reported as underpowered, rather
 than as no separation, when the same test could not have carded a doubling on most of the events
 people commonly did. An empty shelf otherwise reads as "the variants behaved alike", and on a
-comparison that had no chance of finding anything that claim is not the scan's to make.
+comparison that had no chance of finding anything that claim is not the scan's to make. That size
+claim needs the question to be answerable, though, so a scan whose events cannot carry it reports no
+separation instead: the shelf then says only what it found, which is the weaker of the two claims.
 
 **Cost.** The scan cannot prune by event name — the whole point is that it does not know which
 events matter yet. So time is the only thing bounding it, and the time it reads is the union of the
@@ -245,14 +247,17 @@ MIN_LOG_RATIO_LOWER_BOUND = 0.3
 COMMON_EVENT_MIN_SHARE = 0.05
 # ...the difference the comparison is asked whether it could have seen. A doubling sits between the
 # bands above, past "more" and short of "far more", so it is a difference the reader would call
-# plainly visible rather than a threshold effect.
+# plainly visible rather than a threshold effect. It is only askable of an event people do rarely
+# enough to leave room for it: past about three quarters of the compared people on an even split,
+# no split of the same pooled count can put one variant's rate at twice the rest's, because the
+# variant would have to be done by more people than it has.
 REFERENCE_RATIO = 2.0
-# ...and how many of the common events have to pass that question before the empty shelf is a result
-# rather than a size problem. A majority, because the claim the copy makes is about what people did
-# rather than about one event. Set from splitting real experiments into sub-experiments of known
-# size and reading where the share separates the ones that keep a finding from the ones that lose
-# it. MIN_LOG_RATIO_LOWER_BOUND feeds the same question, so moving the floor moves this line too:
-# re-read the split before re-tuning either one alone.
+# ...and how many of the events that question can be asked of have to pass it before the empty shelf
+# is a result rather than a size problem. A majority, because the claim the copy makes is about what
+# people did rather than about one event. Set from splitting real experiments into sub-experiments of
+# known size and reading where the share separates the ones that keep a finding from the ones that
+# lose it. MIN_LOG_RATIO_LOWER_BOUND feeds the same question, so moving the floor moves this line
+# too: re-read the split before re-tuning either one alone.
 MIN_DETECTABLE_SHARE = 0.5
 # Where that conservative end earns a stronger word, in log space: about 3x and about 1.5x. Bands
 # rather than the number itself, for the reason in the module docstring — the number is the part
@@ -495,10 +500,10 @@ class ExperimentWatchResult:
     # Settled per viewer in `finalize_watch_cards`: the recording access cut can empty a shelf the
     # scan built with findings on it.
     empty_reason: Optional[WatchEmptyReason]
-    # What share of the commonly done events a doubling could have carded, and None when no
-    # comparison ran. Diagnostic rather than a result: it is what lets MIN_DETECTABLE_SHARE be
-    # re-read against projects other than the ones it was set from, so it is reported even when the
-    # shelf is full.
+    # What share of the events the question could be asked of a doubling could have carded, and None
+    # when it could not be asked at all. Diagnostic rather than a result: it is what lets
+    # MIN_DETECTABLE_SHARE be re-read against projects other than the ones it was set from, so it is
+    # reported even when the shelf is full.
     detectable_share: Optional[float]
 
 
@@ -681,7 +686,9 @@ def get_experiment_session_event_deltas(team: Team, user: User, experiment: Expe
     if too_early:
         shelf = _Shelf(cards=[], empty_reason=no_comparison_reason)
     else:
-        detectable_share = _detectable_share(scan.persons, compared_variant_keys=compared_variant_keys)
+        detectable_share = _detectable_share(
+            scan.persons, compared_variant_keys=compared_variant_keys, events_truncated=scan.events_truncated
+        )
         shelf = _build_shelf(
             setup,
             scan=scan,
@@ -1308,8 +1315,34 @@ def _query_event_deltas(
     )
 
 
-def _detectable_share(persons: dict[tuple[str, str], int], *, compared_variant_keys: list[str]) -> float:
-    """How much of what people commonly did this comparison could have found a doubling on.
+def _reference_split(pooled_count: float, *, target_persons: int, rest_persons: int) -> Optional[float]:
+    """How many of the target variant's people would have done the event if its rate were
+    REFERENCE_RATIO times the rest's, holding the pooled count fixed. None when no such split
+    exists.
+
+    Fixing the pooled count is what keeps the question about the comparison rather than about a
+    made-up event: with `r` the rest's rate, the split is `r * rest + REFERENCE_RATIO * r * target`,
+    which solves for the target's count below.
+
+    That count runs past the target's own population once the event is common enough, at which point
+    the split would need people the variant does not have. An event almost everyone did is the clear
+    case: nobody can do it twice as often as the rest when the rest already nearly all do it. Such an
+    event is not a difference the comparison was too small to see, so it is left out of the question
+    entirely.
+    """
+    if not target_persons or not rest_persons:
+        return None
+    target_count = pooled_count * REFERENCE_RATIO * target_persons / (rest_persons + REFERENCE_RATIO * target_persons)
+    if target_count > target_persons or pooled_count - target_count > rest_persons:
+        return None
+    return target_count
+
+
+def _detectable_share(
+    persons: dict[tuple[str, str], int], *, compared_variant_keys: list[str], events_truncated: bool
+) -> Optional[float]:
+    """How much of what people commonly did this comparison could have found a doubling on, or None
+    when this scan cannot be asked that question.
 
     The card test needs the conservative end of the rate ratio to clear MIN_LOG_RATIO_LOWER_BOUND.
     The uncertainty it subtracts shrinks with the number of people compared and with how common the
@@ -1321,35 +1354,47 @@ def _detectable_share(persons: dict[tuple[str, str], int], *, compared_variant_k
     So the question is asked in the units of the claim the empty shelf would otherwise make. For
     each event enough of the compared people did, hold its pooled count fixed and split it as if one
     variant's rate were REFERENCE_RATIO times the rest's, then run the real card test on that split.
-    The share of common events that pass is what decides whether an empty ranking is a result or a
+    The share of those events that pass is what decides whether an empty ranking is a result or a
     size problem.
+
+    None is not a low share, and a caller must never read it as one: it says the question has no
+    answer here, so nothing about this comparison's size follows from it. Three scans reach it. One
+    compared nobody. One had its event list cut by the row cap, which keeps an alphabetical prefix
+    rather than a sample of what people did, so a share over the survivors describes the front of
+    the alphabet. And one has no event the question fits: an event almost everyone did leaves no
+    room for a doubling, and a project whose remaining events are all like that (page views and
+    autocaptures are already left out of the scan) would otherwise be called too small however many
+    people it compared.
 
     Takes the scan's `persons` mapping rather than the scan, so the rule can be pinned without
     ClickHouse.
     """
+    if events_truncated:
+        return None
+
     variant_persons = {key: persons.get(("", key), 0) for key in compared_variant_keys}
     total_persons = sum(variant_persons.values())
     if not total_persons:
-        return 0.0
+        return None
 
-    common = 0
+    askable = 0
     detectable = 0
     for event_name in {event_name for event_name, _variant in persons if event_name != ""}:
         pooled_count = sum(persons.get((event_name, key), 0) for key in compared_variant_keys)
         if pooled_count < total_persons * COMMON_EVENT_MIN_SHARE:
             continue
-        common += 1
         # Whichever variant is the easier one to detect the difference on, because a real card only
         # has to earn its place on one of them. On a lopsided split that is usually the thin arm:
         # the pooled count it would hold under a doubling is a larger share of its own population.
+        event_askable = False
+        event_detectable = False
         for key in compared_variant_keys:
             target_persons = variant_persons[key]
             rest_persons = total_persons - target_persons
-            if not target_persons or not rest_persons:
+            target_count = _reference_split(pooled_count, target_persons=target_persons, rest_persons=rest_persons)
+            if target_count is None:
                 continue
-            target_count = (
-                pooled_count * REFERENCE_RATIO * target_persons / (rest_persons + REFERENCE_RATIO * target_persons)
-            )
+            event_askable = True
             if target_count < MIN_SUPPORT_PERSONS:
                 continue
             _ratio, separation = _separation(
@@ -1359,12 +1404,15 @@ def _detectable_share(persons: dict[tuple[str, str], int], *, compared_variant_k
                 target_persons=target_persons,
             )
             if separation >= MIN_LOG_RATIO_LOWER_BOUND:
-                detectable += 1
+                event_detectable = True
                 break
+        if not event_askable:
+            continue
+        askable += 1
+        if event_detectable:
+            detectable += 1
 
-    # Nothing people commonly did means nothing a doubling could have shown, which is the same
-    # answer as a comparison too small to show one.
-    return detectable / common if common else 0.0
+    return detectable / askable if askable else None
 
 
 def _build_shelf(
@@ -1374,7 +1422,7 @@ def _build_shelf(
     metrics: list[MetricEventSource],
     compared_variant_keys: list[str],
     never_linked: frozenset[str],
-    detectable_share: float,
+    detectable_share: Optional[float],
 ) -> _Shelf:
     """The cards this comparison earned, or the reason it earned none.
 
@@ -1388,13 +1436,13 @@ def _build_shelf(
         metric_names_by_event={named.event: named.metric_name for named in named_metric_events},
     )
     if not comparison_candidates:
-        # "Nothing separated the variants" is a claim about behavior, so it is only made when the
-        # comparison could have found an ordinary difference in the first place.
+        # The size claim is the stronger of the two, so it needs the size question to have an
+        # answer: an unmeasurable share falls through to the weaker reason rather than reporting a
+        # comparison as too small on no evidence.
+        underpowered = detectable_share is not None and detectable_share < MIN_DETECTABLE_SHARE
         return _Shelf(
             cards=[],
-            empty_reason=WatchEmptyReason.NO_SEPARATION
-            if detectable_share >= MIN_DETECTABLE_SHARE
-            else WatchEmptyReason.UNDERPOWERED,
+            empty_reason=WatchEmptyReason.UNDERPOWERED if underpowered else WatchEmptyReason.NO_SEPARATION,
         )
 
     metric_cards = _metric_card_candidates(

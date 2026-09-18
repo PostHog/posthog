@@ -2235,10 +2235,32 @@ describe('experimentReplayTabLogic', () => {
         withError.unmount()
     })
 
+    it('offers the shelf its own scanner link, without the variant the list is filtered to', async () => {
+        // The shelf's comparison read every variant that cleared the floor, so a scanner started
+        // from it must not inherit the list's variant: prefilled that way it would watch one arm of
+        // the finding that prompted it. The tab's own banner sits with the list and keeps the filter.
+        await expectLogic(logic, () => {
+            logic.actions.setSelectedVariantKey('test')
+        }).toFinishAllListeners()
+
+        expect(logic.values.scannerSetupUrl).toContain('variant=test')
+        expect(logic.values.shelfScannerSetupUrl).toContain('experiment=42')
+        expect(logic.values.shelfScannerSetupUrl).not.toContain('variant=')
+    })
+
     it.each([
         {
             state: 'the comparison found nothing and had the size to have found something',
-            emptyReason: 'no_separation',
+            delta: { empty_reason: 'no_separation' },
+            scanners: [],
+            shown: true,
+        },
+        {
+            // A project whose events are nearly all page views and autocaptures has nothing the
+            // size question fits, so the share comes back null. That is the reader a scanner helps
+            // most, and reading null as "too small" would have hidden the offer from them.
+            state: 'the comparison found nothing and its own size could not be measured',
+            delta: { empty_reason: 'no_separation', detectable_share: null },
             scanners: [],
             shown: true,
         },
@@ -2247,23 +2269,23 @@ describe('experimentReplayTabLogic', () => {
             // Here the reader needs more people, and a scanner is metered, so offering one sells
             // against them.
             state: 'the comparison was too small to tell',
-            emptyReason: 'underpowered',
+            delta: { empty_reason: 'underpowered' },
             scanners: [],
             shown: false,
         },
         {
             state: 'there is no recording for a scanner to watch either',
-            emptyReason: 'no_recordings',
+            delta: { empty_reason: 'no_recordings' },
             scanners: [],
             shown: false,
         },
         {
             state: 'a scanner already watches this experiment',
-            emptyReason: 'no_separation',
+            delta: { empty_reason: 'no_separation' },
             scanners: [{ id: 's1', name: 'Checkout', scanner_type: 'classifier', observations_this_month: 3 }],
             shown: false,
         },
-    ])('shows the shelf scanner cross-sell: $shown when $state', async ({ emptyReason, scanners, shown }) => {
+    ])('shows the shelf scanner cross-sell: $shown when $state', async ({ delta, scanners, shown }) => {
         // The tab reads this to hold back its own banner, so a wrong answer either shows the same
         // offer twice or drops it from the one state where it answers the reader's question.
         logic.unmount()
@@ -2275,7 +2297,7 @@ describe('experimentReplayTabLogic', () => {
         ;(experimentsSessionEventDeltasCreate as jest.Mock).mockResolvedValue({
             ...DELTA_RESPONSE,
             cards: [],
-            empty_reason: emptyReason,
+            ...delta,
         })
         const shelf = experimentReplayTabLogic({ experiment: EXPERIMENT })
         shelf.mount()

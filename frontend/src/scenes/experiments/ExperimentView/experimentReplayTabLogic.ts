@@ -448,6 +448,7 @@ export interface experimentReplayTabLogicValues {
     sessionEventDeltasError: string | null
     sessionEventDeltasErrorStatus: number | null
     sessionEventDeltasLoading: boolean
+    shelfScannerSetupUrl: string
     shelfVisionCrossSellShown: boolean
     tabViewContext: ExperimentRecordingsTabContext
     variantKeys: string[]
@@ -738,6 +739,7 @@ export interface experimentReplayTabLogicMeta {
         behaviorComparisonAvailable: (featureFlags: FeatureFlagsSet) => boolean
         daysSinceExperimentStart: (arg: any) => number | null
         scannerSetupUrl: (effectiveVariantKey: string | null, arg: any) => string
+        shelfScannerSetupUrl: (arg: any) => string
         shelfVisionCrossSellShown: (
             featureFlags: FeatureFlagsSet,
             behaviorComparisonAvailable: boolean,
@@ -1336,14 +1338,26 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
             () => [(_, props) => props.experiment],
             (experiment: Experiment): number | null => daysSince(experiment.start_date),
         ],
-        // Where the Replay vision cross-sell sends the reader, built once so the tab's banner and
-        // the shelf's tailored offer cannot drift into two different deep links.
+        // Where the tab's own cross-sell sends the reader. It sits above the recordings list and
+        // carries the variant that list is narrowed to, so the scanner it prefills watches the same
+        // sessions the reader is looking at.
         scannerSetupUrl: [
             (s) => [s.effectiveVariantKey, (_, props) => props.experiment],
             (effectiveVariantKey: string | null, experiment: Experiment): string =>
                 combineUrl(
                     urls.replayVisionScannerTemplate('new'),
                     experimentScannerParams({ experimentId: experiment.id as number, variantKey: effectiveVariantKey })
+                ).url,
+        ],
+        // The shelf's offer, which carries no variant: the comparison behind it read every variant
+        // that cleared the floor, so prefilling the one the list happens to be filtered to would
+        // start the scanner narrower than the finding that prompted it.
+        shelfScannerSetupUrl: [
+            () => [(_, props) => props.experiment],
+            (experiment: Experiment): string =>
+                combineUrl(
+                    urls.replayVisionScannerTemplate('new'),
+                    experimentScannerParams({ experimentId: experiment.id as number, variantKey: null })
                 ).url,
         ],
         /**

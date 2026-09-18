@@ -289,6 +289,24 @@ class TestExperimentSessionEventDeltas(ClickhouseTestMixin, APILicensedTest):
         assert data["dropped_duplicate_cards"] == 0
 
     @patch.object(session_event_deltas, "MIN_VARIANT_PERSONS", 20)
+    def test_a_comparison_that_cannot_size_itself_does_not_report_too_few_people(self) -> None:
+        # A project that captures little besides page views and autocaptures reaches here: those are
+        # left out of the scan, and what remains is an event everybody does, which no variant can do
+        # twice as often than the rest. So the size question has no answer, and answering it anyway
+        # would tell a project with every one of its people compared that it needs more of them.
+        experiment = self._create_experiment()
+        self._variant("control", [["app_open"]] * 29 + [["app_open", "rare_control"]])
+        self._variant("test", [["app_open"]] * 29 + [["app_open", "rare_test"]])
+        flush_persons_and_events()
+
+        data = self._post_deltas(experiment).json()
+
+        assert self._cards(data) == []
+        assert data["empty_reason"] == "no_separation"
+        # Null rather than zero, so no reader can take it for a small comparison.
+        assert data["detectable_share"] is None
+
+    @patch.object(session_event_deltas, "MIN_VARIANT_PERSONS", 20)
     def test_cards_rank_by_separation_and_leave_out_what_the_variants_share(self) -> None:
         experiment = self._create_experiment(metrics=[PURCHASE_METRIC])
         # The test variant sees pricing_faq far more and reaches checkout far less. `noise` differs
@@ -1463,14 +1481,27 @@ class TestDetectableShare(SimpleTestCase):
                 persons[(event, key)] = round(count * share)
         return persons
 
+    # An event almost everyone does, for the rows about what the question can be asked of at all.
+    # Nobody can do it twice as often as the rest on an even split, because that needs a rate above
+    # one, so it is not a difference the comparison missed.
+    NEAR_UNIVERSAL = {"app_open": 0.9}
+
     @parameterized.expand(
         [
-            ("too_small_for_all_but_the_most_common_event", {"control": 150, "test": 150}, EVENT_SHARES, 0.25),
-            ("big_enough_for_all_but_the_rarest", {"control": 1_500, "test": 1_500}, EVENT_SHARES, 0.75),
+            ("too_small_for_all_but_the_most_common_event", {"control": 150, "test": 150}, EVENT_SHARES, False, 0.25),
+            ("big_enough_for_all_but_the_rarest", {"control": 1_500, "test": 1_500}, EVENT_SHARES, False, 0.75),
             # A lopsided split reaches the same share, because the thin arm is the easier one to see
             # a doubling on: the count it would hold is a larger share of its own population.
-            ("lopsided_split_of_the_same_size", {"control": 2_700, "test": 300}, EVENT_SHARES, 0.75),
-            ("nothing_people_commonly_did", {"control": 1_000, "test": 1_000}, {"rare": 0.01}, 0.0),
+            ("lopsided_split_of_the_same_size", {"control": 2_700, "test": 300}, EVENT_SHARES, False, 0.75),
+            # None rather than a share, in the three rows below: a caller that reads one of these as
+            # a low share reports a comparison of any size as too small to tell.
+            ("nothing_people_commonly_did", {"control": 1_000, "test": 1_000}, {"rare": 0.01}, False, None),
+            ("nothing_a_doubling_could_happen_on", {"control": 1_000, "test": 1_000}, NEAR_UNIVERSAL, False, None),
+            ("events_cut_by_the_row_cap", {"control": 1_500, "test": 1_500}, EVENT_SHARES, True, None),
+            # The same near-universal event is askable once the split is lopsided enough to leave
+            # room for it: the thin arm can do it half as often as the fat arm without either rate
+            # passing one. Skipping every common event would read as underpowered here instead.
+            ("a_doubling_the_split_leaves_room_for", {"control": 2_700, "test": 300}, NEAR_UNIVERSAL, False, 1.0),
         ]
     )
     def test_detectable_share(
@@ -1478,10 +1509,13 @@ class TestDetectableShare(SimpleTestCase):
         _name: str,
         variant_persons: dict[str, int],
         event_shares: dict[str, float],
-        expected: float,
+        events_truncated: bool,
+        expected: Optional[float],
     ) -> None:
         share = _detectable_share(
-            self._persons(variant_persons, event_shares), compared_variant_keys=list(variant_persons)
+            self._persons(variant_persons, event_shares),
+            compared_variant_keys=list(variant_persons),
+            events_truncated=events_truncated,
         )
 
         assert share == expected
