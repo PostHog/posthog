@@ -15,6 +15,7 @@ import {
 
 export type IssueFilterPreview = 'time' | 'properties' | 'fingerprints' | 'releases'
 export type IssueReleasesViewMode = 'list' | 'stacked'
+export type IssueFingerprintsViewMode = 'list' | 'map'
 
 export interface PreviewPropertyFilter {
     key: string
@@ -34,6 +35,7 @@ export interface issueFilterPreviewLogicValues {
     dateRangeHistory: DateRange[]
     filterGroupHistory: UniversalFiltersGroup[]
     hasActiveFilters: boolean
+    fingerprintsViewMode: IssueFingerprintsViewMode
     releasesViewMode: IssueReleasesViewMode
 }
 
@@ -120,6 +122,9 @@ export interface issueFilterPreviewLogicActions {
     setActivePreview: (activePreview: IssueFilterPreview) => {
         activePreview: IssueFilterPreview
     }
+    setFingerprintsViewMode: (viewMode: IssueFingerprintsViewMode) => {
+        viewMode: IssueFingerprintsViewMode
+    }
     setReleasesViewMode: (viewMode: IssueReleasesViewMode) => {
         viewMode: IssueReleasesViewMode
     }
@@ -184,6 +189,7 @@ export const issueFilterPreviewLogic = kea<issueFilterPreviewLogicType>([
     actions({
         setActivePreview: (activePreview: IssueFilterPreview) => ({ activePreview }),
         setReleasesViewMode: (viewMode: IssueReleasesViewMode) => ({ viewMode }),
+        setFingerprintsViewMode: (viewMode: IssueFingerprintsViewMode) => ({ viewMode }),
         applyDateRangeFilter: (dateRange: DateRange) => ({ dateRange }),
         applyPropertyFilter: (
             key: string,
@@ -212,6 +218,13 @@ export const issueFilterPreviewLogic = kea<issueFilterPreviewLogicType>([
             { persist: true },
             {
                 setReleasesViewMode: (_, { viewMode }) => viewMode,
+            },
+        ],
+        fingerprintsViewMode: [
+            'list' as IssueFingerprintsViewMode,
+            { persist: true },
+            {
+                setFingerprintsViewMode: (_, { viewMode }) => viewMode,
             },
         ],
         dateRangeHistory: [
