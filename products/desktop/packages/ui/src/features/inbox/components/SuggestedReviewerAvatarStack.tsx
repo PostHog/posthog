@@ -86,6 +86,8 @@ export function SuggestedReviewerAvatarStack({
   // The avatars overlap, so each one needs a ring in the color of the surface
   // behind it to keep an apparent gap. Rows publish that color as
   // `--inbox-row-surface`; anything else falls back to the panel background.
+  // The overflow badge fills in `--gray-4`, which no row state uses, so it
+  // keeps its shape when its ring matches the row behind it.
   const avatarStack = (
     <span className="-space-x-1.5 flex items-center">
       <span className="sr-only">{reviewerCountLabel}</span>
@@ -98,7 +100,7 @@ export function SuggestedReviewerAvatarStack({
         />
       ))}
       {overflow > 0 ? (
-        <span className="inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-(--gray-3) px-1 font-semibold text-[9px] text-gray-11 leading-none ring-2 ring-[var(--inbox-row-surface,var(--color-panel-solid))]">
+        <span className="inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-(--gray-4) px-1 font-semibold text-[9px] text-gray-11 leading-none ring-2 ring-[var(--inbox-row-surface,var(--color-panel-solid))]">
           +{overflow}
         </span>
       ) : null}
