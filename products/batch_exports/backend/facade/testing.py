@@ -3,7 +3,7 @@ Test-support facade for batch_exports.
 
 Test suites outside this product (core's email digest, the usage report, the integration
 and team-deletion API tests, the activity-log helper, the HogQL system-table isolation
-tests, the shared Temporal test utilities) plant batch exports and their runs. They get
+tests, the shared Temporal test utilities) create batch exports and their runs. They get
 them here instead of importing the models.
 
 Ids go in and ids come out, so a caller never holds an ORM instance. Reads return the
@@ -48,7 +48,7 @@ def create_batch_export(
     interval_offset: int | None = None,
     sync_schedule: bool = False,
 ) -> UUID:
-    """Plant a scheduled batch export and return its id.
+    """Create a scheduled batch export and return its id.
 
     ``sync_schedule`` also creates the Temporal schedule, which a test only needs when it
     exercises the schedule itself. It costs a Temporal connection, so it is off by default.
@@ -83,7 +83,7 @@ def create_batch_export_on_demand(
     destination_config: Mapping[str, object],
     model: str | None = None,
 ) -> UUID:
-    """Plant an on-demand batch export and return its id."""
+    """Create an on-demand batch export and return its id."""
     destination = BatchExportDestination.objects.create(type=destination_type, config=dict(destination_config))
     return (
         BatchExportOnDemand.objects.for_team(team_id)
@@ -106,7 +106,7 @@ def create_batch_export_run(
     records_completed: int | None = None,
     finished_at: dt.datetime | None = None,
 ) -> UUID:
-    """Plant a run of a scheduled or an on-demand export, and return its id.
+    """Create a run of a scheduled or an on-demand export, and return its id.
 
     A run belongs to exactly one of the two, which a check constraint enforces.
     """
@@ -132,7 +132,7 @@ def create_backfill(
     start_at: dt.datetime | None = None,
     end_at: dt.datetime | None = None,
 ) -> UUID:
-    """Plant a backfill of a scheduled export and return its id."""
+    """Create a backfill of a scheduled export and return its id."""
     return BatchExportBackfill.objects.create(
         batch_export_id=batch_export_id,
         team_id=team_id,
