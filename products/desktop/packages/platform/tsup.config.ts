@@ -9,6 +9,7 @@ export default defineConfig({
     "src/dialog.ts",
     "src/clipboard.ts",
     "src/file-icon.ts",
+    "src/feedback-context.ts",
     "src/secure-storage.ts",
     "src/main-window.ts",
     "src/app-lifecycle.ts",

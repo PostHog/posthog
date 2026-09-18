@@ -6440,6 +6440,14 @@ snapshots:
         hash: v1.k794b7964.28ef96bdb240694b8b0786bccdeec07dffc677410a0977d2b16d7794ccc85c14.cVh6dFIr01Hi6QIOwO31L9RqOP4rLQJUHKMucRSdljE
     products-workflows-editor-configuration-panel--conditional-branch--light:
         hash: v1.k794b7964.cf5243dc2191758d2b098416822df172ac32e54c51f7b8ff5d441fa54cdf9501.PUjF_kDSbjW4Kd9AJGy1JSIwipvVVWu4tZ4QSL9TumA
+    products-workflows-editor-configuration-panel--email--dark:
+        hash: v1.k794b7964.8bd1cbc2e385de536325edd73c88c9d7ca6c469d14c6801f9cf5893fbf59f363.I7QY9S5gNoHyFoLb41azlksnSKoKvszQM0s_BqKPkNE
+    products-workflows-editor-configuration-panel--email--light:
+        hash: v1.k794b7964.c76c115fc4b460ebf446dc8c8acd54688971e26283a01d301685ebeda2d3e2ea.qkOGhLmcF7sP8YNkidOuc8zElAwseH99JkZFujJd6r4
+    products-workflows-editor-configuration-panel--email-in-side-panel--dark:
+        hash: v1.k794b7964.faf53b9a4d005ad3060d92afe75740f31b4c5ab5840ecc27424a071be838b917.WTXI5PDrqeV7jVvJPKBLlk2IAamg8rvuE401W9jfW2U
+    products-workflows-editor-configuration-panel--email-in-side-panel--light:
+        hash: v1.k794b7964.9e86cca822a41ea7e1c64e06b6864854ab6b5b1dbb294c9b0f4c31fcbaa18219.mIezlbVnd2sl6GYR87DTOpzdGxEzrcEyp1vIhYqzBYI
     products-workflows-editor-configuration-panel--logs--dark:
         hash: v1.k794b7964.beabe0c2c69154a7e7b8e5709226f710bbb707c7a2a96ea3b908e7b5348ad177.l8BzDM-8b8Z6jYzADnoiRggNuU02m3lgVa6vtNm2VOw
     products-workflows-editor-configuration-panel--logs--light:
@@ -11468,6 +11476,14 @@ snapshots:
         hash: v1.k794b7964.b5c5685fbf4362ffdeb86b71403d992895bc7f465a89e3950e73d805659120cd.LflCqOqs_3HllO3yAenQoTU4XkVLmdFgiMZdver44EI
     scenes-other-toolbar--heatmap-dark--light:
         hash: v1.k794b7964.54ea6dd30881be4b788facdce098a207fb5171f6ed969451c4f378ed9bb17f67.kmPM0TK8dLKElYiLRmgDMvswiByHAMWOmC2nhEaeCTM
+    scenes-other-toolbar--heatmap-entitlements-error--dark:
+        hash: v1.k794b7964.11b12d94798a78afe633b555550a3b6be8c84ed4bb03adfa0c80c923fe739115.THJ-PW5rpBcnp8Cgfab7g-J3Jfumq6ULrZl053qREuI
+    scenes-other-toolbar--heatmap-entitlements-error--light:
+        hash: v1.k794b7964.d628aec0cc4ba7f5359f87ede92c2a29e3c81238e723a91ddea25f0c36e1cbdf.VrzMCvXUBehL0dFKel21d1ee0rDmzThv2ZKdhkvRS_Y
+    scenes-other-toolbar--heatmap-entitlements-loading--dark:
+        hash: v1.k794b7964.18953cf5eb039c2db6229fc2ccf6a409686f509ee37a1098f9ef7bcb61401ed0.wUGMJJJGGLGPONfCvzgzodVgweh7dgQDprBar-JWt_I
+    scenes-other-toolbar--heatmap-entitlements-loading--light:
+        hash: v1.k794b7964.0b56bde4bd671759d3974635bb2840e151386e07a75e93d69e909730a1a5a60b.zNIvrMFECMskqVuP1e2YkDNUgLKei44C6_34QMizEr4
     scenes-other-toolbar--inspect--dark:
         hash: v1.k794b7964.37fa05b873d6876ff8a932209f515de7c81b3cf80af3810489d1e101acb61aa5.00b1XmAvLslDcl3T7oSAyL01QePjoUOaDM3CoV_roaY
     scenes-other-toolbar--inspect--light:
