@@ -118,9 +118,9 @@ class ExperimentSavedMetricService:
             normalized_query["uuid"] = str(uuid4())
 
         # An update resends the whole query, so a stored unit-less window stays editable. The
-        # normalized query keeps the stored identity, whether or not the stored row carries a uuid.
-        stored_by_uuid = {normalized_query["uuid"]: existing_query} if existing_query else {}
-        if first_unitless_conversion_window([normalized_query], stored_by_uuid) is not None:
+        # normalized query carries the stored row's identity, so compare under that identity.
+        stored_for_match = [{**existing_query, "uuid": normalized_query["uuid"]}] if existing_query else []
+        if first_unitless_conversion_window([normalized_query], stored_for_match) is not None:
             raise ValidationError(f"Invalid query: {UNITLESS_CONVERSION_WINDOW_ERROR}")
 
         return normalized_query
