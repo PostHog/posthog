@@ -84,7 +84,7 @@ jobs:
     validate_ref:
         if: github.ref == 'refs/heads/master'
         name: Validate the requested ref
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         timeout-minutes: 5
         permissions:
             contents: read
@@ -130,7 +130,7 @@ jobs:
         needs: validate_ref
         if: vars.HOG_TASKS_GOLDEN_ENABLED == 'true' && github.ref == 'refs/heads/master'
         name: Render agent skills from source
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         # `Run migrations` needs a database: 24 skill templates call
         # `render_hogql_example`, which reads `Team.objects.first()`. The schema
         # cache below makes migrate a top-up, but a cache miss is a 22-29 minute
