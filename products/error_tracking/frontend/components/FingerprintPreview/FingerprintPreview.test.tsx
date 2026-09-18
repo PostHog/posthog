@@ -7,14 +7,40 @@ import type { ReactNode } from 'react'
 import { PropertyOperator } from '~/types'
 
 import { FingerprintPreview } from './FingerprintPreview'
+import { ManageFingerprintsModal } from './ManageFingerprintsModal'
+
+// jsdom ships no PointerEvent, and quill's Base UI checkbox constructs one from the owning
+// window on click, which throws inside the library before its onCheckedChange runs. Defined here
+// rather than in jest.polyfills.js because components feature-detect window.PointerEvent to pick
+// between their pointer and legacy-mouse paths, so a global definition changes what other suites
+// exercise.
+if (typeof window.PointerEvent !== 'function') {
+    class TestPointerEvent extends window.MouseEvent {
+        readonly pointerId: number
+        readonly pointerType: string
+        readonly isPrimary: boolean
+        constructor(type: string, params: PointerEventInit = {}) {
+            super(type, params)
+            this.pointerId = params.pointerId ?? 0
+            this.pointerType = params.pointerType ?? ''
+            this.isPrimary = params.isPrimary ?? false
+        }
+    }
+    window.PointerEvent = TestPointerEvent as unknown as typeof PointerEvent
+}
 
 const mockUseActions = jest.fn()
+const mockUseFeatureFlag = jest.fn()
 const mockUseValues = jest.fn()
 
 jest.mock('kea', () => ({
     ...jest.requireActual('kea'),
     useActions: (...args: unknown[]) => mockUseActions(...args),
     useValues: (...args: unknown[]) => mockUseValues(...args),
+}))
+
+jest.mock('lib/hooks/useFeatureFlag', () => ({
+    useFeatureFlag: (...args: unknown[]) => mockUseFeatureFlag(...args),
 }))
 
 jest.mock('@posthog/quill-charts', () => ({
@@ -64,6 +90,11 @@ interface RenderPreviewOptions {
     samples?: Record<string, { type: string; value: string }>
     samplesLoading?: boolean
     viewMode?: 'list' | 'map'
+    manageOpen?: boolean
+    selected?: string[]
+    unmergeDisabledReason?: string | null
+    activeFingerprint?: string | null
+    activeEventError?: string | null
 }
 
 function renderPreview({
@@ -75,16 +106,31 @@ function renderPreview({
     samples = {},
     samplesLoading = false,
     viewMode = 'list',
+    manageOpen = false,
+    selected = [],
+    unmergeDisabledReason = null,
+    activeFingerprint = null,
+    activeEventError = null,
 }: RenderPreviewOptions = {}): {
     applyPropertyFilter: jest.Mock
     loadProjection: jest.Mock
     setFingerprintsViewMode: jest.Mock
     openSimilar: jest.Mock
+    openManage: jest.Mock
+    toggleFingerprint: jest.Mock
+    unmergeSelected: jest.Mock
+    setActiveFingerprint: jest.Mock
+    retryActiveEvent: jest.Mock
 } {
     const loadProjection = jest.fn()
     const applyPropertyFilter = jest.fn()
     const setFingerprintsViewMode = jest.fn()
     const openSimilar = jest.fn()
+    const openManage = jest.fn()
+    const toggleFingerprint = jest.fn()
+    const unmergeSelected = jest.fn()
+    const setActiveFingerprint = jest.fn()
+    const retryActiveEvent = jest.fn()
 
     // Every consumer destructures the values it needs, so one bag serves each logic the tree binds.
     mockUseValues.mockReturnValue({
@@ -113,6 +159,14 @@ function renderPreview({
         originFingerprint: null,
         similar: [],
         similarLoading: false,
+        isOpen: manageOpen,
+        selected,
+        unmerging: false,
+        unmergeDisabledReason,
+        activeFingerprint,
+        activeEvent: null,
+        activeEventLoading: false,
+        activeEventError,
     })
     mockUseActions.mockReturnValue({
         loadProjection,
@@ -120,11 +174,32 @@ function renderPreview({
         setFingerprintsViewMode,
         openSimilar,
         closeSimilar: jest.fn(),
+        openManage,
+        closeManage: jest.fn(),
+        toggleFingerprint,
+        unmergeSelected,
+        setActiveFingerprint,
+        retryActiveEvent,
     })
 
-    render(<FingerprintPreview issueId={ISSUE_ID} />)
+    render(
+        <>
+            <FingerprintPreview issueId={ISSUE_ID} />
+            <ManageFingerprintsModal issueId={ISSUE_ID} />
+        </>
+    )
 
-    return { applyPropertyFilter, loadProjection, setFingerprintsViewMode, openSimilar }
+    return {
+        applyPropertyFilter,
+        loadProjection,
+        setFingerprintsViewMode,
+        openSimilar,
+        openManage,
+        toggleFingerprint,
+        unmergeSelected,
+        setActiveFingerprint,
+        retryActiveEvent,
+    }
 }
 
 const EMBEDDED = [{ fingerprint: 'embedded-fingerprint', x: 1, y: 2 }]
@@ -140,6 +215,8 @@ const SAMPLES = {
 describe('FingerprintPreview', () => {
     beforeEach(() => {
         mockUseActions.mockReset()
+        mockUseFeatureFlag.mockReset()
+        mockUseFeatureFlag.mockReturnValue(true)
         mockUseValues.mockReset()
     })
 
@@ -248,12 +325,70 @@ describe('FingerprintPreview', () => {
         expect(loadProjection).toHaveBeenCalledTimes(1)
     })
 
-    it('links to fingerprint management for the current issue', () => {
+    it('opens the manage modal from the header instead of leaving the issue', async () => {
+        const user = userEvent.setup()
+        const { openManage } = renderPreview()
+
+        const manage = screen.getByText('Manage fingerprints')
+        expect(manage.closest('a')).toBeNull()
+
+        await user.click(manage)
+        expect(openManage).toHaveBeenCalledTimes(1)
+    })
+
+    it('hides fingerprint management when issue splitting is disabled', () => {
+        mockUseFeatureFlag.mockReturnValue(false)
         renderPreview()
 
-        expect(screen.getByText('Manage fingerprints').closest('a')).toHaveAttribute(
-            'href',
-            `/error_tracking/${ISSUE_ID}/fingerprints`
-        )
+        expect(screen.queryByText('Manage fingerprints')).not.toBeInTheDocument()
+    })
+
+    it('unmerges the fingerprints selected in the manage modal', async () => {
+        const user = userEvent.setup()
+        const { toggleFingerprint, unmergeSelected } = renderPreview({
+            fingerprints: FINGERPRINTS,
+            samples: SAMPLES,
+            manageOpen: true,
+            selected: ['fingerprint-one'],
+        })
+
+        // Only the modal renders checkboxes, so this is scoped to it without a role-name query.
+        const [, secondRow] = screen.getAllByRole('checkbox')
+        await user.click(secondRow)
+        expect(toggleFingerprint).toHaveBeenCalledWith('fingerprint-two')
+
+        await user.click(screen.getByText('Unmerge'))
+        expect(unmergeSelected).toHaveBeenCalledTimes(1)
+    })
+
+    it('shows a retry action when the fingerprint sample cannot load', async () => {
+        const user = userEvent.setup()
+        const { retryActiveEvent } = renderPreview({
+            fingerprints: FINGERPRINTS,
+            samples: SAMPLES,
+            manageOpen: true,
+            activeFingerprint: 'fingerprint-one',
+            activeEventError: 'Request failed',
+        })
+
+        expect(screen.getByText("Couldn't load a sample exception for this fingerprint.")).toBeInTheDocument()
+        await user.click(screen.getByText('Retry'))
+        expect(retryActiveEvent).toHaveBeenCalledTimes(1)
+    })
+
+    it('previews a fingerprint without changing the unmerge selection', async () => {
+        const user = userEvent.setup()
+        const { setActiveFingerprint, toggleFingerprint } = renderPreview({
+            fingerprints: FINGERPRINTS,
+            samples: SAMPLES,
+            manageOpen: true,
+        })
+
+        // The row carries two targets: the checkbox picks what to unmerge, the label picks what to preview.
+        const [, secondPreview] = screen.getAllByTestId('error-tracking-manage-fingerprint-preview')
+        await user.click(secondPreview)
+
+        expect(setActiveFingerprint).toHaveBeenCalledWith('fingerprint-two')
+        expect(toggleFingerprint).not.toHaveBeenCalled()
     })
 })

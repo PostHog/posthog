@@ -1,7 +1,7 @@
 import '@testing-library/jest-dom'
 
 import { render, screen } from '@testing-library/react'
-import type { ReactElement, ReactNode } from 'react'
+import type { ReactNode } from 'react'
 
 import { initKeaTests } from '~/test/init'
 
@@ -40,7 +40,7 @@ jest.mock('lib/ui/quill', () => ({
     ...jest.requireActual('lib/ui/quill'),
     Tooltip: ({ children }: { children: ReactNode }) => <>{children}</>,
     TooltipContent: () => null,
-    TooltipTrigger: ({ render }: { render: ReactElement }) => render,
+    TooltipTrigger: ({ children }: { children: ReactNode }) => <>{children}</>,
 }))
 
 describe('IssueFilterPreviewPanel', () => {

@@ -303,6 +303,27 @@ export const errorTrackingFingerprintSamplesQuery = (fingerprints: string[], sin
                 GROUP BY properties.$exception_fingerprint`
 }
 
+export const errorTrackingFingerprintEventQuery = ({
+    fingerprint,
+    after,
+    before,
+}: {
+    fingerprint: string
+    after?: string
+    before?: string
+}): EventsQuery => ({
+    kind: NodeKind.EventsQuery,
+    event: '$exception',
+    select: ['uuid', 'properties', 'timestamp', 'distinct_id'],
+    // The window around the fingerprint's first sighting keeps this off a full retention scan.
+    after,
+    before,
+    where: [`properties.$exception_fingerprint = ${escapeHogQLString(fingerprint)}`],
+    orderBy: ['timestamp ASC'],
+    limit: 1,
+    tags: { productKey: ProductKey.ERROR_TRACKING },
+})
+
 export const errorTrackingIssueBreakdownQuery = ({
     breakdownProperty,
     dateRange,

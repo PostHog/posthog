@@ -34,8 +34,8 @@ export interface issueFilterPreviewLogicValues {
     canUndoActivePreview: boolean
     dateRangeHistory: DateRange[]
     filterGroupHistory: UniversalFiltersGroup[]
-    hasActiveFilters: boolean
     fingerprintsViewMode: IssueFingerprintsViewMode
+    hasActiveFilters: boolean
     releasesViewMode: IssueReleasesViewMode
 }
 

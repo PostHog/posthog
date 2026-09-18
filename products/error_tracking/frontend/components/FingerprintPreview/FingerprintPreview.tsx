@@ -1,8 +1,7 @@
 import { useActions, useValues } from 'kea'
 
-import { LinkPrimitive } from 'lib/lemon-ui/Link'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { Button, ToggleGroup, ToggleGroupItem, Tooltip, TooltipContent, TooltipTrigger } from 'lib/ui/quill'
-import { urls } from 'scenes/urls'
 
 import { PropertyOperator } from '~/types'
 
@@ -13,10 +12,12 @@ import { FingerprintList } from './FingerprintList'
 import { FingerprintMap } from './FingerprintMap'
 import { fingerprintProjectionLogic } from './fingerprintProjectionLogic'
 import { fingerprintSamplesLogic } from './fingerprintSamplesLogic'
+import { manageFingerprintsLogic } from './manageFingerprintsLogic'
 import { similarFingerprintsLogic } from './similarFingerprintsLogic'
 import { SimilarFingerprintsModal } from './SimilarFingerprintsModal'
 
 export function FingerprintPreview({ issueId }: { issueId: string }): JSX.Element {
+    const hasIssueSplitting = useFeatureFlag('ERROR_TRACKING_ISSUE_SPLITTING')
     const { fingerprintDomains, fingerprintSeries, projection, projectionError, projectionLoading } = useValues(
         fingerprintProjectionLogic({ issueId })
     )
@@ -26,6 +27,7 @@ export function FingerprintPreview({ issueId }: { issueId: string }): JSX.Elemen
     const { fingerprintsViewMode } = useValues(issueFilterPreviewLogic)
     const { applyPropertyFilter, setFingerprintsViewMode } = useActions(issueFilterPreviewLogic)
     const { openSimilar } = useActions(similarFingerprintsLogic({ issueId }))
+    const { openManage } = useActions(manageFingerprintsLogic({ issueId }))
 
     const filterByFingerprint = (fingerprint: string): void => {
         applyPropertyFilter('$exception_fingerprint', fingerprint, PropertyOperator.Exact, true)
@@ -70,15 +72,16 @@ export function FingerprintPreview({ issueId }: { issueId: string }): JSX.Elemen
                             mapToggleItem
                         )}
                     </ToggleGroup>
-                    <Button
-                        variant="default"
-                        size="sm"
-                        nativeButton={false}
-                        render={<LinkPrimitive to={urls.errorTrackingIssueFingerprints(issueId)} />}
-                        data-attr="error-tracking-manage-fingerprints"
-                    >
-                        Manage fingerprints
-                    </Button>
+                    {hasIssueSplitting && (
+                        <Button
+                            variant="default"
+                            size="sm"
+                            onClick={openManage}
+                            data-attr="error-tracking-manage-fingerprints"
+                        >
+                            Manage fingerprints
+                        </Button>
+                    )}
                 </div>
             </IssueFilterPreviewHeader>
             <div className="flex h-64 min-h-0 flex-col px-3 pb-3 pt-2">
