@@ -202,6 +202,15 @@ class TaskProcessingContext:
         return (self.state or {}).get("github_read_access") is True
 
     @property
+    def untrusted_checkout(self) -> bool:
+        """Run whose checked-out branch is controlled by somebody other than the credential owner.
+
+        The agent-server launch quarantines the repository's harness config for such a run, so a
+        hook committed to the branch cannot execute at agent startup (see Task.create_and_run).
+        """
+        return (self.state or {}).get("untrusted_checkout") is True
+
+    @property
     def sandbox_environment_id(self) -> str | None:
         return (self.state or {}).get("sandbox_environment_id")
 

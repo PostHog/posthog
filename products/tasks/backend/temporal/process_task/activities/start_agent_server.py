@@ -174,6 +174,55 @@ def _ensure_repository_on_disk(ctx: TaskProcessingContext, sandbox: SandboxBase)
             )
 
 
+# Harness configuration a repository can commit that executes a command at agent startup, before
+# the model selects a tool and before any approval callback can refuse it. Hooks and stdio MCP
+# servers both name a command to run; `.claude/hooks/` holds the scripts those hooks invoke.
+_UNTRUSTED_AGENT_CONFIG_PATHS = (
+    ".claude/settings.json",
+    ".claude/settings.local.json",
+    ".claude/hooks",
+    ".mcp.json",
+)
+
+
+def _quarantine_untrusted_agent_config(ctx: TaskProcessingContext, sandbox: SandboxBase) -> None:
+    """Remove the checkout's own agent configuration before the agent server starts.
+
+    A run marked `untrusted_checkout` has a branch somebody else wrote in its working tree, and
+    this sandbox holds a GitHub installation token and a PostHog key. Claude trusts project
+    settings when permissions are bypassed, which every headless run does, so a `SessionStart`
+    hook committed to that branch runs with those credentials at startup — outside tool approval,
+    so neither the prompt nor a permission mode can stop it. Deleting the files is what makes the
+    branch's own configuration un-runnable; a prompt instruction cannot, because nothing has asked
+    the model anything yet.
+
+    Deletes from the WORKING TREE only, so the branch is unchanged and a later commit does not
+    carry the deletion. `git` still reports the paths as deleted, which the resolution stage's
+    clean-tree checks tolerate because they inspect the paths they wrote.
+
+    Best-effort per path: a missing path is the normal case (most repositories have none of them),
+    and a failure to remove one is logged loudly rather than failing the launch, because the run
+    has already paid for its sandbox by this point.
+    """
+    if not ctx.untrusted_checkout or not ctx.repositories:
+        return
+    for repository in ctx.repositories:
+        repo_path = sandbox_repo_path(repository)
+        targets = " ".join(shlex.quote(f"{repo_path}/{path}") for path in _UNTRUSTED_AGENT_CONFIG_PATHS)
+        result = sandbox.execute(f"rm -rf {targets}", timeout_seconds=30)
+        if result.exit_code != 0:
+            logger.error(
+                "Could not quarantine the checkout's agent config",
+                extra={
+                    "task_id": ctx.task_id,
+                    "run_id": ctx.run_id,
+                    "sandbox_id": sandbox.id,
+                    "repository": repository,
+                    "stderr": result.stderr,
+                },
+            )
+
+
 def _is_agent_shadow_enabled(ctx: TaskProcessingContext) -> bool:
     try:
         return bool(
@@ -696,6 +745,7 @@ def start_agent_server(input: StartAgentServerInput) -> StartAgentServerOutput:
         # repo directory can never appear later. The deferred/overlap path clones in parallel
         # and gates the session on the repo-ready barrier instead.
         _ensure_repository_on_disk(ctx, sandbox)
+        _quarantine_untrusted_agent_config(ctx, sandbox)
         runtime = sandbox_runtime_label(ctx.use_modal_vm_sandbox)
         with StepTimer(
             "agent_server_prepare", boot_path=input.boot_path, origin_product=ctx.origin_product, runtime=runtime
@@ -928,6 +978,7 @@ def await_agent_server_ready(input: StartAgentServerInput) -> StartAgentServerOu
                         attempt=attempt,
                     )
                     _ensure_repository_on_disk(ctx, sandbox)
+                    _quarantine_untrusted_agent_config(ctx, sandbox)
                     with StepTimer(
                         "agent_server_prepare",
                         boot_path=input.boot_path,

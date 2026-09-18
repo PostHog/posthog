@@ -29,6 +29,7 @@ from products.tasks.backend.temporal.process_task.activities.start_agent_server 
     _LaunchParams,
     _network_enforcement_observation,
     _prepare_launch,
+    _quarantine_untrusted_agent_config,
     _read_agent_shadow_result,
     _record_boot_total,
     _resolve_protected_base_branch,
@@ -599,6 +600,60 @@ def test_ensure_every_repository_is_on_disk(mocker) -> None:
         f"test -d {sandbox_repo_path('PostHog/posthog')}",
         f"test -d {sandbox_repo_path('PostHog/posthog-js')}",
     ]
+
+
+def test_untrusted_checkout_quarantines_every_startup_config_path(mocker) -> None:
+    # Harness config committed to the branch executes at agent startup, before any tool approval,
+    # so the files have to be gone before the agent server launches. Each path is a command the
+    # repository would otherwise get to name: the two settings files and the hook scripts they
+    # point at, plus .mcp.json, whose stdio servers are arbitrary processes.
+    sandbox = mocker.Mock()
+    sandbox.execute.return_value = ExecutionResult(stdout="", stderr="", exit_code=0)
+
+    _quarantine_untrusted_agent_config(
+        _context(repository="PostHog/posthog", state={"untrusted_checkout": True}), sandbox
+    )
+
+    command = sandbox.execute.call_args.args[0]
+    repo_path = sandbox_repo_path("PostHog/posthog")
+    for path in (".claude/settings.json", ".claude/settings.local.json", ".claude/hooks", ".mcp.json"):
+        assert f"{repo_path}/{path}" in command
+
+
+def test_trusted_checkout_keeps_the_repositorys_own_config(mocker) -> None:
+    # A run on the requester's own branch is entitled to the repository's bootstrap hooks, so the
+    # quarantine must not fire by default.
+    sandbox = mocker.Mock()
+
+    _quarantine_untrusted_agent_config(_context(repository="PostHog/posthog"), sandbox)
+
+    sandbox.execute.assert_not_called()
+
+
+def test_untrusted_checkout_quarantines_every_repository(mocker) -> None:
+    sandbox = mocker.Mock()
+    sandbox.execute.return_value = ExecutionResult(stdout="", stderr="", exit_code=0)
+
+    _quarantine_untrusted_agent_config(
+        _context(
+            repository="PostHog/posthog",
+            state={"untrusted_checkout": True, "repositories": ["PostHog/posthog", "PostHog/posthog-js"]},
+        ),
+        sandbox,
+    )
+
+    assert len(sandbox.execute.call_args_list) == 2
+    assert sandbox_repo_path("PostHog/posthog-js") in sandbox.execute.call_args_list[1].args[0]
+
+
+def test_quarantine_failure_never_blocks_the_launch(mocker) -> None:
+    sandbox = mocker.Mock()
+    sandbox.id = "sandbox-id"
+    sandbox.execute.return_value = ExecutionResult(stdout="", stderr="nope", exit_code=1)
+
+    _quarantine_untrusted_agent_config(
+        _context(repository="PostHog/posthog", state={"untrusted_checkout": True}), sandbox
+    )
 
 
 def test_ensure_repository_on_disk_fails_non_retryably_when_repo_missing(mocker) -> None:

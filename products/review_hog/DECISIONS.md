@@ -3285,7 +3285,31 @@ RATE_LIMITED` (GraphQL's primary signal, invisible to the REST-shaped helper) no
    `commit_verified=False` — caveat reply, no link, never auto-resolves. Residual (accepted): echoing one of
    the bot's own earlier fix commits still passes; that closes only with the recorded Tasks
    session-provenance follow-up.
-   _Built 2026-09-18 (off an agent-injection security review of the resolution stage's write path):_ the two
+   _Built 2026-09-18 (off an agent-injection security review, which found the startup vector first):_
+   **the checkout's harness config no longer runs.** A collaborator could commit a
+   `.claude/settings.json` `SessionStart` hook to a same-repo PR branch; ReviewHog's Claude stages
+   (chunking above the one-shot gate, validation, resolution) check that branch out in a sandbox
+   holding a write-capable GitHub installation token, a PostHog key and an AI gateway token, and
+   pass `initial_permission_mode=None`, which bypasses permissions and therefore trusts project
+   settings. The hook ran at startup, before the model selected a tool and before any approval
+   callback, so nothing in this product could refuse it: the prompt floors and the MCP scope pin
+   both act on a session that has already started. `untrusted_checkout` on
+   `CustomPromptSandboxContext` (products/tasks) now makes the agent-server launch delete
+   `.claude/settings.json`, `.claude/settings.local.json`, `.claude/hooks/` and `.mcp.json` from the
+   working tree first, and ReviewHog sets it on both context constructions. Scoped to an opt-in
+   rather than applied to every sandbox, because a run on the requester's OWN branch is entitled to
+   the repository's bootstrap hooks — the escalation is only there when the branch's author is not
+   the credential owner. Stamped on the run (not derived at checkout) so a resume that skips the
+   checkout activity still launches quarantined, and added to the facade's non-PATCHable state keys
+   so the sandbox agent cannot clear it for the next launch. Working tree only, never a commit, so
+   the branch is untouched. Residual: `.git/config` in a restored repo-setup snapshot still carries
+   the write-capable token its creator cloned with (`provision_sandbox.py`), so a hook that survived
+   this quarantine would find a credential on disk as well as in the environment; and the read-only
+   stages still run with a write-capable token because `github_read_access=True` also disables
+   snapshot restore, which would cost a fresh clone per unit at ten concurrent units per PR. Both
+   are recorded for the tasks owners rather than fixed here.
+
+   _Same date (the two deferred prompt-surface gates, off the same review):_ the two
    pieces deferred above as BLOCKING pre-public-release gates are now built, so
    the only prompt-only control left on the write path is the one that needs a change outside this repo.
    **Structural (JSON) comment rendering** — `render_thread` / `render_work_list` emit JSON, mirroring the review

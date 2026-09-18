@@ -141,6 +141,19 @@ class CustomPromptSandboxContext:
     ``contents: read``, so a run that pins repositories still clones them and just cannot push.
     Best-effort: if no team GitHub integration exists or the mint fails, the sandbox starts
     without a token."""
+    untrusted_checkout: bool = False
+    """The branch this sandbox checks out is controlled by somebody other than the credential
+    owner, so the repository's own agent configuration must not be trusted to run.
+
+    Set it for any run that opens a session on a branch the requester did not write: a PR under
+    review is the case it exists for. Harness config committed to a branch executes at agent
+    startup, before the model picks a tool and before any approval callback, so a
+    ``.claude/settings.json`` ``SessionStart`` hook on that branch would otherwise run with the
+    sandbox's GitHub and PostHog credentials. With this set, provisioning quarantines the
+    checkout's harness config before the agent server starts.
+
+    Defaults to false, because a run on the requester's own branch (a task, a PostHog Code run on
+    the team's repo) is entitled to the repository's bootstrap hooks."""
     interaction_origin: str | None = None
     """Surface the run is answering on (e.g. ``"slack"``). The agent server branches its system
     prompt on this, so evals that grade surface-specific behavior must set it to exercise the
@@ -298,6 +311,7 @@ async def create_task_and_trigger(
         sandbox_timeout_seconds=context.sandbox_timeout_seconds,
         workflow_id_prefix=workflow_id_prefix,
         github_read_access=context.github_read_access,
+        untrusted_checkout=context.untrusted_checkout,
         mcp_builtin_agent_key=mcp_builtin_agent_key,
         mcp_credential_owner_id=mcp_credential_owner_id,
         mcp_gateway_server_ids=mcp_gateway_server_ids,

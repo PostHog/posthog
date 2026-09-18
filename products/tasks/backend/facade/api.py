@@ -2477,6 +2477,10 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         # runner); a PATCHable key would let any task controller mint a GitHub token onto a
         # queued repo-less run.
         "github_read_access",
+        # Decided at Task.create_and_run time by the caller that knows whose branch this is. A
+        # PATCHable value would let the sandbox agent turn off the quarantine that stops the
+        # checkout's own harness config from executing on the next launch.
+        "untrusted_checkout",
         # Loop provenance is stamped once at run creation (see loop_runs._create_loop_task_and_run)
         # and drives loop bookkeeping in handle_loop_run_terminal. The completion marker prevents
         # terminal bookkeeping from running twice. A caller must not be able to forge either.
