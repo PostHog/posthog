@@ -63,3 +63,19 @@ The overdue link selects `status=open`, `assignee=me`, `archive=active`, and `du
 Explicit URL filters replace locally saved filters, and the overdue cutoff is evaluated when the view loads.
 The notification settings link opens the personal task digest settings.
 Content generation does not schedule or send email; delivery is controlled separately.
+
+## Task digest preferences
+
+In **Settings > Customer analytics > Notifications**, each user can enable task digest emails and choose a send time and a cadence of **Weekdays** or **Every day**.
+The time uses the project timezone shown beside the control.
+The time dropdown offers half-hour choices and preserves any previously saved custom time.
+Preferences are disabled by default and apply only to the current user in the project.
+Use **Save** to persist changes; a failed save keeps the draft available to retry.
+The same Notifications section contains the existing event stream settings, and existing event stream settings links still open it.
+Task digest controls require the customer tasks feature; event stream controls retain their existing feature access.
+
+The user-config API stores preferences in `UserCustomerAnalyticsConfig.properties.task_digest`, with `enabled`, `send_time` (`HH:MM`), and `cadence` (`weekdays` or `every_day`).
+`GET` and `PATCH /api/projects/{project_id}/user_customer_analytics_config/@me/` expose this object alongside `pinned_properties`.
+Omitted fields retain their stored values, including fields within `task_digest`.
+Missing preferences return disabled, 09:00, and weekdays without changing other stored settings.
+Scheduling and email delivery are implemented separately.
