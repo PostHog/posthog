@@ -1058,6 +1058,7 @@ describe('experimentReplayTabLogic', () => {
             is_bucketed: false,
             watch_card_kind: null,
             entry_point: null,
+            metric_unavailable_reason: null,
         })
         filled.unmount()
     })
@@ -1065,24 +1066,44 @@ describe('experimentReplayTabLogic', () => {
     it('reports the entry point a deep link set, and clears it when the viewer moves a facet', async () => {
         // The entry point is what separates a list a results row opened from one somebody narrowed
         // by hand, so an empty rate can be read per entry point. Left set after a manual change, it
-        // would credit the results row with lists it never asked for.
+        // would credit the results row with lists it never asked for. The dropped-metric reason is
+        // read the same way, and it is also what the tab's caption explains the list with.
         const captureSpy = jest.spyOn(posthog, 'capture').mockReturnValue(undefined as any)
         teamLogic.actions.loadCurrentTeamSuccess(MOCK_DEFAULT_TEAM)
-        router.actions.push('/experiments/63', { tab: 'recordings', variant: 'test', entry: 'results_button' })
+        router.actions.push('/experiments/63', {
+            tab: 'recordings',
+            variant: 'test',
+            entry: 'results_button',
+            metric_unavailable: 'no_uuid',
+        })
         const fromResults = experimentReplayTabLogic({
             experiment: { ...EXPERIMENT, id: 63, start_date: daysAgo(10), end_date: daysAgo(2) } as Experiment,
         })
         fromResults.mount()
         await expectLogic(fromResults).toFinishAllListeners()
 
+        expect(fromResults.values.droppedMetricReason).toBe('no_uuid')
+        // Left in the URL it would re-apply on the next remount and caption a list the viewer has
+        // since narrowed themselves.
+        expect(router.values.searchParams).toEqual({ tab: 'recordings' })
+
         fromResults.actions.recordingsLoaded(loadedPage(['s1']))
         await expectLogic(fromResults).toFinishAllListeners()
-        expect(listsRendered(captureSpy, 63)[0][1]).toMatchObject({ entry_point: 'results_button', variant: 'test' })
+        expect(listsRendered(captureSpy, 63)[0][1]).toMatchObject({
+            entry_point: 'results_button',
+            metric_unavailable_reason: 'no_uuid',
+            variant: 'test',
+        })
 
         fromResults.actions.setSelectedVariantKey(null)
         fromResults.actions.recordingsLoaded(loadedPage(['s1']))
         await expectLogic(fromResults).toFinishAllListeners()
-        expect(listsRendered(captureSpy, 63)[1][1]).toMatchObject({ entry_point: null, variant: null })
+        expect(fromResults.values.droppedMetricReason).toBeNull()
+        expect(listsRendered(captureSpy, 63)[1][1]).toMatchObject({
+            entry_point: null,
+            metric_unavailable_reason: null,
+            variant: null,
+        })
         fromResults.unmount()
     })
 
@@ -1092,7 +1113,12 @@ describe('experimentReplayTabLogic', () => {
         // moving one is the other way to clear the entry point and would hide this one failing.
         const captureSpy = jest.spyOn(posthog, 'capture').mockReturnValue(undefined as any)
         teamLogic.actions.loadCurrentTeamSuccess(MOCK_DEFAULT_TEAM)
-        router.actions.push('/experiments/67', { tab: 'recordings', variant: 'test', entry: 'results_button' })
+        router.actions.push('/experiments/67', {
+            tab: 'recordings',
+            variant: 'test',
+            entry: 'results_button',
+            metric_unavailable: 'no_uuid',
+        })
         const fromResults = experimentReplayTabLogic({
             experiment: { ...EXPERIMENT, id: 67, start_date: daysAgo(10), end_date: daysAgo(2) } as Experiment,
         })
@@ -1115,7 +1141,13 @@ describe('experimentReplayTabLogic', () => {
         await expectLogic(fromResults).toFinishAllListeners()
 
         expect(fromResults.values.entryPoint).toBe('results_button')
-        expect(listsRendered(captureSpy, 67)[0][1]).toMatchObject({ entry_point: null, variant: 'test' })
+        // The reducer keeps the reason, so the caption still explains the list the link opened.
+        expect(fromResults.values.droppedMetricReason).toBe('no_uuid')
+        expect(listsRendered(captureSpy, 67)[0][1]).toMatchObject({
+            entry_point: null,
+            metric_unavailable_reason: null,
+            variant: 'test',
+        })
         fromResults.unmount()
     })
 

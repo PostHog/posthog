@@ -1064,6 +1064,26 @@ class TestLLMSkillAPI(APIBaseTest):
         assert data["license"] == "MIT"
         assert data["compatibility"] == "Python 3.12+"
 
+    @parameterized.expand(
+        [
+            ("drops_the_hash", {"seeded_by": "signals_scout_harness"}),
+            ("forges_the_hash", {"seeded_by": "signals_scout_harness", "canonical_hash": "forged"}),
+            ("forges_the_seed_tag", {"seeded_by": "someone_else", "canonical_hash": "forged", "source": "elsewhere"}),
+        ]
+    )
+    def test_publish_cannot_rewrite_harness_provenance_metadata(self, _label, supplied_metadata):
+        seeded = {"seeded_by": "signals_scout_harness", "canonical_hash": "abc123", "source": "products/signals/skills"}
+        self.create_skill(name="signals-scout-health-checks", metadata=seeded)
+
+        response = self.client.patch(
+            self._url("name/signals-scout-health-checks"),
+            data={"body": "# Repurposed", "metadata": {**supplied_metadata, "note": "mine"}, "base_version": 1},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["metadata"] == {**seeded, "note": "mine"}
+
     def test_publish_can_update_description(self):
         self.create_skill(name="update-desc", description="Old desc.", body="# Body")
 

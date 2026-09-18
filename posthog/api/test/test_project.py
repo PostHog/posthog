@@ -514,6 +514,7 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
     @patch("posthog.temporal.delete_teams.dispatch.start_delete_project_data_workflow")
     def test_project_deletion_queues_async_task(self, mock_delete_task):
         """Verify that project deletion queues async task for full deletion."""
+        self._mark_project_ingested()
         viewset = ProjectViewSet()
         factory = APIRequestFactory()
         request = factory.delete("/fake")
@@ -580,10 +581,24 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
             self.assertIn("active subscription", response.json()["detail"])
             self.assertTrue(Project.objects.filter(id=self.project.id).exists())
 
+    def _mark_project_ingested(self) -> None:
+        self.team.ingested_event = True
+        self.team.save(update_fields=["ingested_event"])
+
+    @parameterized.expand(
+        [
+            ("with_ingested_data", True, timedelta(hours=48)),
+            ("without_ingested_data", False, None),
+        ]
+    )
     @patch("posthog.temporal.delete_teams.dispatch.start_delete_project_data_workflow")
-    def test_project_deletion_sets_pending_deletion_flag(self, mock_delete_task):
+    def test_project_deletion_sets_pending_deletion_flag(
+        self, _name, has_ingested_data, expected_delay, mock_delete_task
+    ):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
+        if has_ingested_data:
+            self._mark_project_ingested()
 
         response = self.client.delete(f"/api/projects/{self.project.id}")
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
@@ -592,19 +607,23 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
         self.assertTrue(self.project.is_pending_deletion)
         self.assertAlmostEqual(
             self.project.deletion_scheduled_at.timestamp(),
-            (timezone.now() + timedelta(hours=48)).timestamp(),
+            (timezone.now() + (expected_delay or timedelta())).timestamp(),
             delta=5,
         )
         mock_delete_task.assert_called_once()
         start_delay = mock_delete_task.call_args.kwargs["start_delay"]
-        self.assertGreater(start_delay, timedelta(hours=47))
-        self.assertLessEqual(start_delay, timedelta(hours=48))
+        if expected_delay is None:
+            self.assertIsNone(start_delay)
+        else:
+            self.assertLessEqual(start_delay, expected_delay)
+            self.assertGreater(start_delay, expected_delay - timedelta(minutes=1))
 
     @patch("posthog.temporal.delete_teams.dispatch.cancel_delete_project_data_workflow")
     @patch("posthog.temporal.delete_teams.dispatch.start_delete_project_data_workflow")
     def test_project_deletion_can_be_canceled(self, mock_delete_task, mock_cancel_delete_task):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
+        self._mark_project_ingested()
         self.client.delete(f"/api/projects/{self.project.id}")
 
         response = self.client.post(f"/api/projects/{self.project.id}/cancel-deletion/")
@@ -682,6 +701,7 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
     def test_project_can_be_deleted_again_after_cancellation(self, mock_start_delete_task, mock_cancel_delete_task):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
+        self._mark_project_ingested()
         self.client.delete(f"/api/projects/{self.project.id}")
 
         cancel_response = self.client.post(f"/api/projects/{self.project.id}/cancel-deletion/")

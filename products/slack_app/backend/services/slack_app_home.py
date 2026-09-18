@@ -37,6 +37,7 @@ from products.slack_app.backend.feature_flags import is_slack_app_oauth_enabled
 from products.slack_app.backend.models import SlackSettings, SlackUserProfileCache, UntaggedFollowupMode
 from products.slack_app.backend.services.integration_resolver import load_integrations, resolve_from_candidates
 from products.slack_app.backend.services.model_catalogue import (
+    COST_BASELINE_MODEL,
     REASONING_EFFORT_DISPLAY_NAMES,
     RUNTIME_ADAPTER_DISPLAY_NAMES,
     available_model_choices,
@@ -165,6 +166,7 @@ class PickerModel:
     value: str
     label: str
     supported_efforts: tuple[PickerEffort, ...]
+    cost_description: str | None = None
 
 
 @dataclass(frozen=True)
@@ -172,6 +174,13 @@ class PickerAdapter:
     value: str
     label: str
     models: tuple[PickerModel, ...]
+
+
+def _describe_cost(cost_multiplier: str | None) -> str | None:
+    """Slack has no tooltip to hide the baseline in, so the comparison names it outright."""
+    if not cost_multiplier:
+        return None
+    return f"Cost per token vs {display_name_for_model(COST_BASELINE_MODEL)}: {cost_multiplier}"
 
 
 def get_picker_choices() -> tuple[PickerAdapter, ...]:
@@ -189,6 +198,7 @@ def get_picker_choices() -> tuple[PickerAdapter, ...]:
                         PickerEffort(value=e, label=label_for(e, REASONING_EFFORT_DISPLAY_NAMES))
                         for e in choice.supported_efforts
                     ),
+                    cost_description=_describe_cost(choice.cost_multiplier),
                 )
                 for choice in group.choices
             ),
@@ -197,11 +207,11 @@ def get_picker_choices() -> tuple[PickerAdapter, ...]:
     )
 
 
-def _models_for(runtime_adapter: str) -> tuple[tuple[str, str], ...]:
-    """Return `(value, label)` pairs for the modal's model dropdown."""
+def _models_for(runtime_adapter: str) -> tuple[PickerModel, ...]:
+    """The models the modal's model dropdown offers for one runtime."""
     for adapter in get_picker_choices():
         if adapter.value == runtime_adapter:
-            return tuple((m.value, m.label) for m in adapter.models)
+            return adapter.models
     return ()
 
 
@@ -1330,10 +1340,15 @@ def render_edit_modal(
     if current.runtime_adapter:
         model_options = [
             {
-                "text": {"type": "plain_text", "text": label, "emoji": True},
-                "value": value,
+                "text": {"type": "plain_text", "text": model.label, "emoji": True},
+                "value": model.value,
+                **(
+                    {"description": {"type": "plain_text", "text": model.cost_description}}
+                    if model.cost_description
+                    else {}
+                ),
             }
-            for value, label in _models_for(current.runtime_adapter)
+            for model in _models_for(current.runtime_adapter)
         ]
         if model_options:
             model_element: dict[str, Any] = {
@@ -1766,7 +1781,7 @@ def _drop_invalidated_selections(
     effort. The scoped block ids stop Slack handing those back on the next interaction;
     this stops the view we render from the same payload showing them in the meantime.
     """
-    if model and model not in {value for value, _ in _models_for(runtime_adapter or "")}:
+    if model and model not in {offered.value for offered in _models_for(runtime_adapter or "")}:
         model = None
     if reasoning_effort and reasoning_effort not in (_supported_efforts(runtime_adapter, model) or ()):
         reasoning_effort = None

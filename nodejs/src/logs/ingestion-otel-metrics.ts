@@ -25,6 +25,7 @@ interface LogsIngestionInstruments {
     messagesDropped: Counter
     messagesDlq: Counter
     processingDuration: Histogram
+    jsonEnrichmentSkipped: Counter
 }
 
 /** Keep in lockstep with the logs_ingestion_processing_duration_seconds prom buckets. */
@@ -39,6 +40,9 @@ function getInstruments(): LogsIngestionInstruments {
             bytesReceived: createCounterWithExemplars(meter, 'logs_ingestion_bytes_received_total', {
                 description: 'Total uncompressed bytes received for logs ingestion',
                 unit: 'By',
+            }),
+            jsonEnrichmentSkipped: createCounterWithExemplars(meter, 'logs_ingestion_json_enrichment_skipped_total', {
+                description: 'Log body JSON enrichment skipped because a size or traversal budget was exceeded',
             }),
             recordsReceived: createCounterWithExemplars(meter, 'logs_ingestion_records_received_total', {
                 description: 'Total log records received',
@@ -83,6 +87,10 @@ export const recordLogsReceived = swallowing((bytes: number, records: number): v
     const { bytesReceived, recordsReceived } = getInstruments()
     addPositive(bytesReceived, bytes)
     addPositive(recordsReceived, records)
+})
+
+export const recordJsonEnrichmentSkipped = swallowing((reason: string): void => {
+    getInstruments().jsonEnrichmentSkipped.add(1, { reason })
 })
 
 export const recordLogsAllowed = swallowing((bytes: number, records: number): void => {
