@@ -67,6 +67,7 @@ from products.skills.backend.models.skills import LLMSkill
 from products.tasks.backend.models import Task, TaskRun
 
 _MEASURE = "products.signals.backend.report_check_execution.measure_metric"
+_CAPTURE = "products.signals.backend.report_check_telemetry.posthoganalytics.capture"
 _DISPATCH = "products.signals.backend.temporal.agentic.scout_scheduler.start_check_signals_scout_run"
 _CONNECT = "posthog.temporal.common.client.sync_connect"
 _FLAG_PAYLOAD = "products.signals.backend.scout_harness.run_gates._read_flag_payload"
@@ -322,6 +323,24 @@ class TestReportCheckExecution(APIBaseTest):
         assert '"outcome":"passed"' in results[0].content
         assert '"observed_value":3.0' in results[0].content
 
+    def test_a_recorded_verdict_is_reported_for_adoption(self) -> None:
+        self._check()
+        with (
+            patch(_CAPTURE) as capture,
+            patch(_MEASURE, return_value=MetricMeasurement(value=42.0, measured_at=timezone.now(), series=None)),
+        ):
+            with self.captureOnCommitCallbacks(execute=True):
+                run_due_report_checks()
+
+        assert capture.call_count == 1
+        properties = capture.call_args.kwargs["properties"]
+        assert capture.call_args.kwargs["event"] == "signals_report_check_resolved"
+        assert properties["outcome"] == "failed"
+        assert properties["check_status"] == SignalReportCheck.Status.FAILED
+        assert properties["kind"] == SignalReportCheck.Kind.METRIC_THRESHOLD
+        assert properties["metric_source"] == "query"
+        assert properties["run_id"] is None
+
     def test_a_check_that_breaches_retires_as_failed(self) -> None:
         check = self._check()
         with patch(_MEASURE, return_value=MetricMeasurement(value=42.0, measured_at=timezone.now(), series=None)):
@@ -559,6 +578,31 @@ class TestReportCheckAPI(APIBaseTest):
 
         already_cancelled = self.client.delete(f"{self.url}{check_id}/")
         assert already_cancelled.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_a_created_check_is_reported_for_adoption(self) -> None:
+        with patch(_CAPTURE) as capture:
+            with self.captureOnCommitCallbacks(execute=True):
+                response = self.client.post(
+                    self.url,
+                    {
+                        "title": "Checkout errors stay low",
+                        "kind": "metric_threshold",
+                        "config": _threshold_config(),
+                        "run_interval_minutes": MIN_CHECK_INTERVAL_MINUTES,
+                        "runs_remaining": 2,
+                    },
+                    format="json",
+                )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        assert capture.call_count == 1
+        properties = capture.call_args.kwargs["properties"]
+        assert capture.call_args.kwargs["event"] == "signals_report_check_created"
+        assert properties["check_id"] == response.json()["id"]
+        assert properties["kind"] == SignalReportCheck.Kind.METRIC_THRESHOLD
+        assert properties["metric_source"] == "query"
+        assert properties["run_interval_minutes"] == MIN_CHECK_INTERVAL_MINUTES
+        assert properties["runs_remaining"] == 2
 
     def test_cancelling_does_not_overwrite_a_verdict_that_landed_first(self) -> None:
         created = self.client.post(

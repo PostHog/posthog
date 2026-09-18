@@ -83,19 +83,20 @@ class TestAITrainingPrivacyStore(SimpleTestCase):
                 with self.assertRaisesRegex(ValueError, "can be deleted from"):
                     store.delete_month(month)
 
-    def test_session_deletion_shreds_keys_without_querying_user_indexes(self) -> None:
+    def test_session_deletion_shreds_every_key_attribute_without_querying_user_indexes(self) -> None:
         client = MagicMock()
         sessions = ["01a09f92-e780-7000-8000-000000000001", "01a09f92-e780-7000-8000-000000000002"]
         store = AITrainingPrivacyStore(client, "table")
         self.assertEqual(store.initialize(MagicMock(kind="session", team_id=7, identifiers=sessions)), [])
         updates = client.transact_write_items.call_args.kwargs["TransactItems"]
         self.assertEqual([update["Update"]["Key"] for update in updates], [session_key(7, value) for value in sessions])
-        self.assertTrue(
-            all(
-                update["Update"]["UpdateExpression"] == "SET deleted = :deleted REMOVE wrapped_key"
-                for update in updates
+        for update in updates:
+            expression = update["Update"]["UpdateExpression"]
+            self.assertTrue(expression.startswith("SET deleted = :deleted REMOVE "))
+            self.assertEqual(update["Update"]["ExpressionAttributeValues"], {":deleted": {"BOOL": True}})
+            self.assertEqual(
+                sorted(expression.partition(" REMOVE ")[2].split(", ")), ["key_nonce", "sealed_key", "wrapped_key"]
             )
-        )
         client.query.assert_not_called()
 
     def test_completion_waits_for_reader_leases_then_sweeps_the_team_once_more(self) -> None:

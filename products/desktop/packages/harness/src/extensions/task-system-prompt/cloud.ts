@@ -430,8 +430,8 @@ Otherwise, after completing the requested changes:
 ${whyContextInstruction}
 ${publicRepoSafetyInstruction}
 ${prMentionSafetyInstruction}
- - Check the repo for a PR template at \`.github/pull_request_template.md\` (also try \`.github/PULL_REQUEST_TEMPLATE.md\`, \`docs/pull_request_template.md\`, and root variants). If one exists, use its exact section headings as the PR body — do NOT fall back to a generic Summary/Test plan format.
- - If no repo-level template exists, check the org's \`.github\` repo via \`gh api /repos/<owner>/.github/contents/.github/pull_request_template.md\` (and other common paths) and use that as a fallback.
+ - Check the repo for a default PR template at \`.github/pull_request_template.md\` (also try \`.github/PULL_REQUEST_TEMPLATE.md\`, \`docs/pull_request_template.md\`, and root variants). Also check for named templates in \`.github/PULL_REQUEST_TEMPLATE/*.md\`. If multiple templates exist, use the one that best matches the change. Use its exact section headings as the PR body — do NOT fall back to a generic Summary/Test plan format.
+ - If no repo-level template exists, check the org's \`.github\` repo via \`gh api\`. Look for both a default template and named templates in \`.github/PULL_REQUEST_TEMPLATE/*.md\`, and use the best match as a fallback.
  - Search for matching open issues with \`gh issue list --state open --search '<keywords>'\` (derive keywords from the branch name, commits, and changed files; \`gh issue view <n>\` to confirm relevance). For every issue this PR would resolve, include a \`Closes #<n>\` line in the body so GitHub auto-links and auto-closes it on merge. For issues that are related but not fully resolved, use \`Refs #<n>\` instead.
 4. Create a draft pull request using \`gh pr create --draft${this.options.baseBranch ? ` --base ${this.options.baseBranch}` : ""}\` with a descriptive title and the body prepared above. Add the following footer at the end of the PR description:
 \`\`\`

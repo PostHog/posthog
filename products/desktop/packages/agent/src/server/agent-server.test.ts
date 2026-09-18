@@ -6776,6 +6776,7 @@ describe("AgentServer HTTP Mode", () => {
         "*Created with [PostHog Desktop](https://posthog.com/desktop?ref=pr)*",
       );
       expect(prompt).toContain(".github/pull_request_template.md");
+      expect(prompt).toContain(".github/PULL_REQUEST_TEMPLATE/*.md");
       expect(prompt).toContain("gh issue list --search");
       expect(prompt).toContain("Closes #<n>");
     });
@@ -6803,6 +6804,7 @@ describe("AgentServer HTTP Mode", () => {
           "open a draft pull request",
           "unless the user explicitly asks",
           ".github/pull_request_template.md",
+          ".github/PULL_REQUEST_TEMPLATE/*.md",
           "gh issue list --search",
           "Closes #<n>",
           "Generated-By: PostHog Desktop",
@@ -6884,6 +6886,7 @@ describe("AgentServer HTTP Mode", () => {
       );
       // PR template detection (repo first, org `.github` fallback)
       expect(prompt).toContain(".github/pull_request_template.md");
+      expect(prompt).toContain(".github/PULL_REQUEST_TEMPLATE/*.md");
       expect(prompt).toContain("org's `.github` repo");
       // Related-issue linking
       expect(prompt).toContain("gh issue list --state open --search");

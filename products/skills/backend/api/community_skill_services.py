@@ -11,7 +11,7 @@ from ..marketplace.packaging import SPEC_DESCRIPTION_MAX_LENGTH
 from ..models.community_skills import CommunitySkill, CommunitySkillVote
 from ..models.skills import LLMSkill
 from .skill_serializers import validate_allowed_tool, validate_new_skill_name_value, validate_skill_file_path
-from .skill_services import MAX_SKILL_FILE_BYTES, create_skill
+from .skill_services import HARNESS_OWNED_METADATA_KEYS, MAX_SKILL_FILE_BYTES, create_skill
 from .skill_template_services import parse_template_variables, render_template_skill
 
 # Namespaces where PostHog auto-registers and runs a skill under privileged scopes on an enrolled
@@ -27,11 +27,6 @@ RESERVED_INSTALL_NAME_PREFIXES: dict[str, str] = {
     "signals-scout-": "PostHog-managed Signals scouts",
     "review-hog-": "PostHog-managed review skills",
 }
-
-# Provenance keys ReviewHog stamps on the rows it manages. Its prune keys on `seeded_by`, so if a
-# catalog entry carried these they could make a user's freshly installed skill disappear on the next
-# review sync — strip them before stamping community provenance, the way duplicate_skill drops seeded_by.
-_INTERNAL_METADATA_KEYS = frozenset({"seeded_by", "canonical_hash", "source"})
 
 
 class CommunitySkillNotFoundError(Exception):
@@ -143,9 +138,11 @@ def install_community_skill(
         body = locked.body
 
         # Stamp provenance so an installed skill can be traced back to its community source, but
-        # first drop any internal ReviewHog ownership keys the catalog entry might carry.
+        # first drop any harness-owned keys the catalog entry might carry. ReviewHog's prune keys on
+        # `seeded_by`, so a catalog entry carrying it could make a freshly installed skill disappear
+        # on the next review sync.
         metadata: dict[str, Any] = {
-            **{k: v for k, v in (locked.metadata or {}).items() if k not in _INTERNAL_METADATA_KEYS},
+            **{k: v for k, v in (locked.metadata or {}).items() if k not in HARNESS_OWNED_METADATA_KEYS},
             "community_skill_slug": locked.slug,
             "community_skill_id": str(locked.id),
         }
