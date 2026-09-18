@@ -364,9 +364,11 @@ def _resolve_enrichment_target(team_id: int, saved_query_id: str) -> _Enrichment
     # First read of the activity, so it is the one that meets a pooled connection the pooler recycled
     # while the worker was idle. Retry once on a fresh connection instead of failing the attempt.
     team = retry_on_db_connection_drop(
-        lambda: Team.objects.select_related("organization")
-        .only("id", "uuid", "organization_id", "organization__is_ai_data_processing_approved")
-        .get(id=team_id)
+        lambda: (
+            Team.objects.select_related("organization")
+            .only("id", "uuid", "organization_id", "organization__is_ai_data_processing_approved")
+            .get(id=team_id)
+        )
     )
 
     # Respect the org's AI data-processing opt-out: this ships view metadata and core memory to the LLM.
