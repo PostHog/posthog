@@ -81,8 +81,8 @@ from products.notebooks.backend.facade.sql_v2 import (
     NodeRunNotPermitted,
     NodeRunRequest,
     build_ref_specs,
-    dispatch_node_run,
-    sandbox_is_running,
+    dispatch_cell_run,
+    kernel_sandbox_is_live,
 )
 from products.notebooks.backend.facade.widgets import (
     WidgetConflictError,
@@ -1594,7 +1594,12 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         )
         # A RUNNING row can outlive its sandbox, and restarting on a stale one would turn a
         # config-only call into new paid compute. Confirm the sandbox before acting on the row.
-        kernel_is_live = live_runtime is not None and sandbox_is_running(notebook, config_user, live_runtime)
+        kernel_is_live = live_runtime is not None and kernel_sandbox_is_live(
+            team_id=self.team_id,
+            notebook_short_id=notebook.short_id,
+            user_id=config_user.id if isinstance(config_user, User) else None,
+            runtime_id=live_runtime.id,
+        )
         # Compare the desired shape against what the running sandbox was provisioned with, not just
         # this request's change, so a retry after a failed restart still triggers one. Fall back to
         # the pre-write config when no runtime has recorded a shape.
@@ -1830,7 +1835,12 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
             allow_sandbox=full_compute_enabled,
         )
         try:
-            dispatch = dispatch_node_run(notebook, user if isinstance(user, User) else None, self.team, run_request)
+            dispatch = dispatch_cell_run(
+                team_id=self.team_id,
+                notebook_short_id=notebook.short_id,
+                user_id=user.id if isinstance(user, User) else None,
+                request=run_request,
+            )
         except NodeRunNotPermitted:
             # The plan resolved to the sandbox for a caller without full compute. 404 like
             # the gates above: they are not told the lane exists.
