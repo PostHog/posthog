@@ -70,7 +70,13 @@ Catalogs can contain both `events` and `Events`; each name retains its own field
 With only `events` in the catalog, `SELECT properties FROM Events` reports `unknown_table`.
 The same query is valid when an exact `Events` entry exists and exposes `properties`.
 Table completion still matches prefixes without regard to case, so typing `EV` can suggest both names and inserts the selected name with its original case.
+The optional `tableAliases` catalog map registers exact alternate spellings without duplicating field indexes.
+For example, `"demo_postgres_orders": "postgres.demo.orders"` lets both names resolve to the fields on the canonical `tables` entry.
+Validation retains the spelling from SQL in `tableNames`, and self-joins through two spellings keep separate source bindings.
+Completion shows one spelling per canonical target. It prefers a matching canonical name and otherwise shows one matching alias.
+CTEs shadow only their exact spelling, so a CTE named `demo_postgres_orders` does not hide `postgres.demo.orders`.
 CTE shadowing and table-suggestion deduplication use exact names, so a CTE named `Events` does not hide the catalog table `events`.
+Multi-part names retain their source identity when their parser-safe forms coincide, such as `a.b.c_d` and `a.b_c.d`.
 Duplicate qualifiers do not establish property provenance, including inside CTE projections and qualified wildcards.
 FROM and JOIN completion includes visible table CTEs before catalog tables, with `CTE` in the suggestion detail.
 CTE names follow the same scope, definition-order, and shadowing rules as relation lookup; scalar WITH aliases are not tables.
@@ -165,6 +171,7 @@ Closed block comments and line comments at end of input remain valid.
 
 ### Recovery and remaining work
 
+- Multi-part normalization supports unquoted table paths after `FROM` and `JOIN`. Separately quoted path components and multi-part paths in comma-separated sources remain unsupported. Replacing the regular-expression normalization with token-aware handling is follow-up work.
 - Source-specific case-insensitive relation lookup remains unsupported. Python catalog nodes can opt in, for example for Snowflake, but the Go catalog payload does not carry that per-node flag. Supporting it requires publishing the metadata and implementing exact-match-first, opt-in fallback without merging distinct names. The service requires exact relation names until then; autocomplete prefix matching remains case-insensitive.
 - Physical field and property-key case sensitivity remain separate from relation-name resolution. This layer does not claim complete identifier-case parity with the Python resolver.
 - CTE recovery requires complete CTE definitions and a parseable outer SELECT/FROM prefix. Broken CTE bodies, missing CTE-closing parentheses, and incomplete SELECT or JOIN sources remain unsupported because they do not establish a reliable projected schema. Recovering those forms requires separate structural recovery for each damaged scope.
@@ -212,10 +219,35 @@ team remains the primary isolation boundary in that model.
 Catalog publication replaces the catalog and revision atomically. Readers observe either the previous complete
 revision or the next complete revision.
 
+The publication contract accepts this alias form:
+
+```json
+{
+  "tables": {
+    "postgres.demo.orders": { "type": "data_warehouse", "fields": {} }
+  },
+  "tableAliases": {
+    "demo_postgres_orders": "postgres.demo.orders"
+  },
+  "properties": {}
+}
+```
+
+`tableAliases` is optional, so older publishers remain compatible.
+Each alias target must be a direct key in `tables`; aliases cannot target another alias.
+An alias that equals a canonical key is valid only when it targets itself, which makes the entry a no-op.
+The service rejects empty names, dangling targets, chains, cycles, and aliases that contradict canonical keys before cache admission.
+Alias strings and lookup entries count toward the catalog memory limit.
+
 The in-memory registry has two bounds:
 
-- an idle TTL removes unused entries; and
-- least-recently-used eviction caps the number of entries.
+- a publication TTL expires entries after their catalog was published; and
+- least-recently-used eviction caps both the number of entries and their estimated resident bytes.
+
+The generated scale fixture verifies the HTTP publication path, completion, pagination, and validation with 4,096 canonical tables, 25 fields per table, and 120,000 event properties in one property namespace.
+The table fields are columns, not part of the property count.
+This profile fits the `64 MiB` request limit and the default `8 GiB` shared cache budget, but it is not an unlimited count guarantee.
+Longer names and richer metadata increase both serialized and resident sizes.
 
 Warm autocomplete and validation perform no synchronous metadata requests. Catalog refresh remains outside the
 keystroke path.
@@ -242,6 +274,8 @@ fails startup unless dedicated signing keys are configured.
 
 Local and debug environments may use the service directly. Production integration remains behind a server-side
 feature flag and should progress through shadow comparison before serving editor results.
+The Go consumer accepts alias metadata before Django publishes it.
+Deploy this consumer first, then enable alias publication separately; catalogs without aliases continue to work throughout the rollout.
 
 The initial rollout keeps ClickHouse execution in Django:
 

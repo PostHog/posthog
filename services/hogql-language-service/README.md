@@ -49,6 +49,7 @@ For example, `WITH t AS (SELECT properties AS props FROM events) SELECT t.props.
 Computed or ambiguous property origins remain unknown; the service does not guess a namespace from a projected name.
 Validation reports `duplicate_table` for repeated table names or explicit aliases in one query scope and asks for distinct aliases.
 Table names, table aliases, and CTE names resolve by exact case; catalogs can contain distinct `events` and `Events` tables.
+Multi-part names also retain distinct identities when their parser-safe forms coincide, such as `a.b.c_d` and `a.b_c.d`.
 Autocomplete prefix matching remains case-insensitive and preserves the selected identifier's case.
 Duplicate qualifiers do not supply property provenance, even when raw ClickHouse accepts the corresponding unaliased self-join.
 
@@ -98,12 +99,20 @@ curl -sS -X PUT http://localhost:8091/teams/2/users/17/catalog \
     "revision": "schema-42:permissions-9",
     "catalog": {
       "tables": {
-        "events": {"name": "events", "type": "posthog", "fields": {}}
+        "events": {"name": "events", "type": "posthog", "fields": {}},
+        "postgres.demo.orders": {"name": "postgres.demo.orders", "type": "data_warehouse", "fields": {}}
       },
+      "tableAliases": {"demo_postgres_orders": "postgres.demo.orders"},
       "properties": {"event": [{"name": "$geo_city", "property_type": "String"}]}
     }
   }'
 ```
+
+`tableAliases` is optional. Each key is an accepted alternate table spelling, and each value must name a canonical key in `tables`.
+An alias and its canonical table share prepared fields, but validation retains the spelling used in SQL in `tableNames`.
+An identity entry such as `"events": "events"` is a no-op.
+Publication rejects empty names, aliases that replace another canonical key, and targets that create a dangling reference, chain, or cycle.
+Catalogs without `tableAliases` keep the previous behavior.
 
 Every protected route requires positive `teamId` and `userId` path parameters. The response includes
 `catalogRevision`, allowing Django and the editor to detect a stale response. An unknown, expired, or evicted pair
@@ -115,6 +124,10 @@ Catalogs expire `CATALOG_TTL` (default `30m`) after publication so active projec
 When `MAX_CATALOGS` (default `1024`) or `CATALOG_CACHE_MAX_BYTES` (default `8 GiB`) is reached, the least recently used
 catalog is evicted. A catalog request is limited to `64 MiB`. Publishing a new revision replaces the old immutable
 catalog atomically.
+
+The generated scale fixture verifies publication, completion, pagination, and validation with 4,096 canonical tables, 25 fields per table, and 120,000 event properties for one user catalog.
+Table fields and event properties are separate catalog entries.
+This is a tested profile, not a count limit: admission still depends on the serialized request size and the prepared catalog's share of the cache byte budget.
 
 Authentication is required unless `HOGQL_LANGUAGE_SERVICE_ALLOW_INSECURE=1` explicitly disables it on a loopback
 listener for local development. Insecure mode logs a startup warning and is rejected on non-loopback listeners.

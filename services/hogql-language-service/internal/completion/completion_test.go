@@ -94,6 +94,58 @@ func TestCompletesPropertiesForGenericNamespaces(t *testing.T) {
 	}
 }
 
+func TestTableAliasesUseCanonicalPropertyOrigins(t *testing.T) {
+	properties := map[string][]catalog.Property{
+		"event":  {{Name: "$browser", ValueType: "String"}},
+		"person": {{Name: "email", ValueType: "String"}},
+	}
+	for _, test := range []struct {
+		name     string
+		tables   map[string]catalog.Table
+		aliases  map[string]string
+		query    string
+		expected string
+		excluded string
+	}{
+		{
+			name:     "ordinary alias",
+			tables:   map[string]catalog.Table{"events": {Fields: map[string]catalog.Field{"properties": {Type: "json"}}}},
+			aliases:  map[string]string{"legacy_events": "events"},
+			query:    "SELECT legacy_events.properties.$br FROM legacy_events",
+			expected: "$browser",
+		},
+		{
+			name:     "misleading person alias",
+			tables:   map[string]catalog.Table{"events": {Fields: map[string]catalog.Field{"properties": {Type: "json"}}}},
+			aliases:  map[string]string{"persons": "events"},
+			query:    "SELECT persons.properties.$br FROM persons",
+			expected: "$browser",
+			excluded: "email",
+		},
+		{
+			name:     "event-like warehouse alias",
+			tables:   map[string]catalog.Table{"warehouse_records": {Fields: map[string]catalog.Field{"properties": {Type: "json"}}}},
+			aliases:  map[string]string{"events": "warehouse_records"},
+			query:    "SELECT events.properties.$br FROM events",
+			excluded: "$browser",
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			prepared := catalog.Prepare(&catalog.Catalog{Tables: test.tables, TableAliases: test.aliases, Properties: properties})
+			result, err := Complete(prepared, test.query, strings.Index(test.query, " FROM "), PositionEncodingUTF8, "")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if test.expected != "" && !hasSuggestion(result.Suggestions, test.expected) {
+				t.Fatalf("query %q returned %#v", test.query, result)
+			}
+			if test.excluded != "" && hasSuggestion(result.Suggestions, test.excluded) {
+				t.Fatalf("query %q returned excluded property %#v", test.query, result)
+			}
+		})
+	}
+}
+
 func TestCompletesFieldsForHogQLQualifiedTable(t *testing.T) {
 	query := "SELECT s. FROM postgres.synced.orders AS s"
 	result, err := Complete(testCatalog(), query, len("SELECT s."), PositionEncodingUTF8, "")
@@ -102,6 +154,49 @@ func TestCompletesFieldsForHogQLQualifiedTable(t *testing.T) {
 	}
 	if len(result.Suggestions) != 1 || result.Suggestions[0].Label != "synced_id" {
 		t.Fatalf("suggestions = %#v; parse error = %q", result.Suggestions, result.ParseError)
+	}
+}
+
+func TestCompletesFieldsForCollidingNormalizedTableReferences(t *testing.T) {
+	fieldTable := func(name, field string) catalog.Table {
+		return catalog.Table{Name: name, Type: "data_warehouse", Fields: map[string]catalog.Field{field: {Name: field, Type: "string"}}}
+	}
+	for _, test := range []struct {
+		name    string
+		catalog *catalog.Catalog
+	}{
+		{
+			name: "canonical tables",
+			catalog: &catalog.Catalog{Tables: map[string]catalog.Table{
+				"a.b.c_d": fieldTable("a.b.c_d", "left_field"),
+				"a.b_c.d": fieldTable("a.b_c.d", "right_field"),
+			}},
+		},
+		{
+			name: "alias and canonical table",
+			catalog: &catalog.Catalog{
+				Tables: map[string]catalog.Table{
+					"left_target": fieldTable("left_target", "left_field"),
+					"a.b_c.d":     fieldTable("a.b_c.d", "right_field"),
+				},
+				TableAliases: map[string]string{"a.b.c_d": "left_target"},
+			},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			test.catalog.Properties = map[string][]catalog.Property{}
+			prepared := catalog.Prepare(test.catalog)
+			query := "SELECT l. FROM a.b.c_d AS l JOIN a.b_c.d AS r ON 1 = 1"
+			left, err := Complete(prepared, query, len("SELECT l."), PositionEncodingUTF8, "")
+			if err != nil || len(left.Suggestions) != 1 || left.Suggestions[0].Label != "left_field" {
+				t.Fatalf("left completion = %#v, error = %v", left, err)
+			}
+			query = "SELECT r. FROM a.b.c_d AS l JOIN a.b_c.d AS r ON 1 = 1"
+			right, err := Complete(prepared, query, len("SELECT r."), PositionEncodingUTF8, "")
+			if err != nil || len(right.Suggestions) != 1 || right.Suggestions[0].Label != "right_field" {
+				t.Fatalf("right completion = %#v, error = %v", right, err)
+			}
+		})
 	}
 }
 
@@ -146,6 +241,38 @@ func TestCompletesTablesAfterFrom(t *testing.T) {
 				seen[suggestion.Label] = true
 			}
 		})
+	}
+}
+
+func TestCompletesOneSpellingPerAliasedTableAndHonorsExactCTEShadowing(t *testing.T) {
+	prepared := catalog.Prepare(&catalog.Catalog{
+		Tables: map[string]catalog.Table{
+			"postgres.demo.orders": {Type: "data_warehouse", Fields: map[string]catalog.Field{"id": {Type: "integer"}}},
+			"events":               {Type: "posthog", Fields: map[string]catalog.Field{"uuid": {Type: "uuid"}}},
+		},
+		TableAliases: map[string]string{"demo_postgres_orders": "postgres.demo.orders"},
+		Properties:   map[string][]catalog.Property{},
+	})
+	for _, test := range []struct {
+		query    string
+		expected []string
+	}{
+		{query: "SELECT * FROM ", expected: []string{"events", "postgres.demo.orders"}},
+		{query: "SELECT * FROM demo_", expected: []string{"demo_postgres_orders"}},
+		{query: "WITH demo_postgres_orders AS (SELECT uuid FROM events) SELECT * FROM ", expected: []string{"demo_postgres_orders", "events", "postgres.demo.orders"}},
+		{query: "WITH `postgres.demo.orders` AS (SELECT uuid FROM events) SELECT * FROM ", expected: []string{"postgres.demo.orders", "demo_postgres_orders", "events"}},
+	} {
+		result, err := Complete(prepared, test.query, len(test.query), PositionEncodingUTF8, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		labels := make([]string, len(result.Suggestions))
+		for index, suggestion := range result.Suggestions {
+			labels[index] = suggestion.Label
+		}
+		if strings.Join(labels, ",") != strings.Join(test.expected, ",") {
+			t.Fatalf("query %q returned %#v", test.query, result)
+		}
 	}
 }
 
@@ -984,6 +1111,37 @@ func TestCompletionPagesWithoutSkippingOrRepeatingTables(t *testing.T) {
 	}
 	if _, err := Complete(prepared, query, len(query), PositionEncodingUTF8, "not-a-cursor"); err == nil {
 		t.Fatal("invalid cursor was accepted")
+	}
+}
+
+func TestAliasCompletionPagesWithoutRepeatingCanonicalTargets(t *testing.T) {
+	value := &catalog.Catalog{Tables: map[string]catalog.Table{}, TableAliases: map[string]string{}, Properties: map[string][]catalog.Property{}}
+	for index := range 30 {
+		canonical := fmt.Sprintf("postgres.demo.table_%02d", index)
+		alias := fmt.Sprintf("demo_postgres_table_%02d", index)
+		value.Tables[canonical] = catalog.Table{Type: "data_warehouse", Fields: map[string]catalog.Field{}}
+		value.TableAliases[alias] = canonical
+	}
+	prepared := catalog.Prepare(value)
+	query := "SELECT * FROM demo_postgres_table_"
+	first, err := Complete(prepared, query, len(query), PositionEncodingUTF8, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := Complete(prepared, query, len(query), PositionEncodingUTF8, first.NextCursor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	all := append(first.Suggestions, second.Suggestions...)
+	if first.Total != 30 || second.Total != 30 || len(all) != 30 || second.NextCursor != "" {
+		t.Fatalf("pages = %#v, %#v", first, second)
+	}
+	for index, suggestion := range all {
+		expectedAlias := fmt.Sprintf("demo_postgres_table_%02d", index)
+		expectedCanonical := fmt.Sprintf("postgres.demo.table_%02d", index)
+		if suggestion.Label != expectedAlias || suggestion.Detail != expectedCanonical {
+			t.Fatalf("suggestion %d = %#v", index, suggestion)
+		}
 	}
 }
 

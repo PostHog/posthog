@@ -11,7 +11,7 @@ import (
 func tableResult(schema *catalog.PreparedCatalog, bindings analysis.Bindings, prefix string, offset int, parseErr error) Result {
 	ctes := slices.Collect(bindings.CTENames(prefix))
 	if len(ctes) == 0 {
-		return indexedResult(slices.Values(schema.Tables().Prefix(prefix)), "table", offset, parseErr)
+		return indexedResult(slices.Values(schema.TableSuggestions(prefix, nil)), "table", offset, parseErr)
 	}
 	slices.SortFunc(ctes, func(left, right catalog.Entry) int {
 		if comparison := strings.Compare(strings.ToLower(left.Name), strings.ToLower(right.Name)); comparison != 0 {
@@ -23,9 +23,7 @@ func tableResult(schema *catalog.PreparedCatalog, bindings analysis.Bindings, pr
 	shadowed := map[string]bool{}
 	for _, cte := range ctes {
 		cteNames[cte.Name] = true
-		if table, ok := schema.Table(cte.Name); ok {
-			shadowed[table.Name] = true
-		}
+		shadowed[cte.Name] = true
 	}
 	entries := func(yield func(catalog.Entry) bool) {
 		for _, cte := range ctes {
@@ -33,8 +31,8 @@ func tableResult(schema *catalog.PreparedCatalog, bindings analysis.Bindings, pr
 				return
 			}
 		}
-		for _, table := range schema.Tables().Prefix(prefix) {
-			if !shadowed[table.Name] && !yield(table) {
+		for _, table := range schema.TableSuggestions(prefix, shadowed) {
+			if !yield(table) {
 				return
 			}
 		}

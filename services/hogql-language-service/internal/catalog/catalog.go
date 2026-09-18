@@ -26,8 +26,9 @@ type Property struct {
 }
 
 type Catalog struct {
-	Tables     map[string]Table      `json:"tables"`
-	Properties map[string][]Property `json:"properties"`
+	Tables       map[string]Table      `json:"tables"`
+	TableAliases map[string]string     `json:"tableAliases,omitempty"`
+	Properties   map[string][]Property `json:"properties"`
 }
 
 type Entry struct {
@@ -47,12 +48,14 @@ type PreparedTable struct {
 
 type PreparedCatalog struct {
 	tables         Index
+	tableSpellings Index
 	tablesByName   map[string]int
 	tableValues    []PreparedTable
 	properties     map[string]*Index
 	valid          bool
 	tableCount     int
 	propertyCount  int
+	hasAliases     bool
 	estimatedBytes int64
 }
 
@@ -64,7 +67,7 @@ func Prepare(value *Catalog) *PreparedCatalog {
 		tablesByName: make(map[string]int, len(value.Tables)),
 		tableValues:  make([]PreparedTable, 0, len(value.Tables)),
 		properties:   make(map[string]*Index, len(value.Properties)),
-		valid:        value.Tables != nil && value.Properties != nil,
+		valid:        ValidateCatalog(value) == nil,
 		tableCount:   len(value.Tables),
 	}
 	fieldCount := 0
@@ -86,6 +89,21 @@ func Prepare(value *Catalog) *PreparedCatalog {
 		tableEntries = append(tableEntries, newEntry(name, tableType))
 	}
 	prepared.tables = newIndex(tableEntries)
+	prepared.tableSpellings = prepared.tables
+	if prepared.valid {
+		spellingEntries := slices.Clone(tableEntries)
+		for alias, target := range value.TableAliases {
+			if alias == target {
+				continue
+			}
+			prepared.hasAliases = true
+			prepared.tablesByName[alias] = prepared.tablesByName[target]
+			spellingEntries = append(spellingEntries, newEntry(alias, target))
+		}
+		if prepared.hasAliases {
+			prepared.tableSpellings = newIndex(spellingEntries)
+		}
+	}
 	for namespace, properties := range value.Properties {
 		entries := make([]Entry, len(properties))
 		for index, property := range properties {
@@ -109,6 +127,60 @@ func (c *PreparedCatalog) Table(name string) (*PreparedTable, bool) {
 
 func (c *PreparedCatalog) Tables() *Index {
 	return &c.tables
+}
+
+func (c *PreparedCatalog) TableSpellings() *Index {
+	return &c.tableSpellings
+}
+
+func (c *PreparedCatalog) TableSuggestions(prefix string, excluded map[string]bool) []Entry {
+	if !c.hasAliases {
+		candidates := c.tables.Prefix(prefix)
+		if len(excluded) == 0 {
+			return candidates
+		}
+		result := make([]Entry, 0, len(candidates))
+		for _, candidate := range candidates {
+			if !excluded[candidate.Name] {
+				result = append(result, candidate)
+			}
+		}
+		return result
+	}
+	candidates := c.tableSpellings.Prefix(prefix)
+	canonicalMatches := make(map[int]bool, len(candidates))
+	for _, candidate := range candidates {
+		if excluded[candidate.Name] {
+			continue
+		}
+		index := c.tablesByName[candidate.Name]
+		if c.tableValues[index].Name == candidate.Name {
+			canonicalMatches[index] = true
+		}
+	}
+	seen := make(map[int]bool, len(candidates))
+	result := make([]Entry, 0, len(candidates))
+	for _, candidate := range candidates {
+		if excluded[candidate.Name] {
+			continue
+		}
+		index := c.tablesByName[candidate.Name]
+		canonical := c.tableValues[index].Name == candidate.Name
+		if seen[index] || (!canonical && canonicalMatches[index]) {
+			continue
+		}
+		seen[index] = true
+		result = append(result, candidate)
+	}
+	return result
+}
+
+func (c *PreparedCatalog) CanonicalTableName(name string) (string, bool) {
+	table, ok := c.Table(name)
+	if !ok {
+		return "", false
+	}
+	return table.Name, true
 }
 
 func (c *PreparedCatalog) Properties(namespace string) *Index {
@@ -198,6 +270,15 @@ func (c *PreparedCatalog) estimateSize() int64 {
 		table := &c.tableValues[c.tablesByName[entry.Name]]
 		for _, field := range table.Fields.entries {
 			size += entrySize(field)
+		}
+	}
+	if c.hasAliases {
+		for _, entry := range c.tableSpellings.entries {
+			if c.tableValues[c.tablesByName[entry.Name]].Name == entry.Name {
+				size += 32
+				continue
+			}
+			size += entrySize(entry) + 32
 		}
 	}
 	for namespace, properties := range c.properties {
