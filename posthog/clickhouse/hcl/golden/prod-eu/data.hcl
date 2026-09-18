@@ -4510,6 +4510,12 @@ database "posthog" {
     column "event_names" {
       type = "SimpleAggregateFunction(groupUniqArrayArray, Array(String))"
     }
+    column "hosts" {
+      type = "SimpleAggregateFunction(groupUniqArrayArray(100), Array(String))"
+    }
+    column "emails" {
+      type = "SimpleAggregateFunction(groupUniqArrayArray(10), Array(String))"
+    }
     column "has_replay_events" {
       type = "SimpleAggregateFunction(max, Bool)"
     }
@@ -6349,6 +6355,12 @@ database "posthog" {
     column "event_names" {
       type = "SimpleAggregateFunction(groupUniqArrayArray, Array(String))"
     }
+    column "hosts" {
+      type = "SimpleAggregateFunction(groupUniqArrayArray(100), Array(String))"
+    }
+    column "emails" {
+      type = "SimpleAggregateFunction(groupUniqArrayArray(10), Array(String))"
+    }
     column "has_replay_events" {
       type = "SimpleAggregateFunction(max, Bool)"
     }
@@ -6364,6 +6376,16 @@ database "posthog" {
     }
     index "flag_key_values_bloom_filter" {
       expr        = "flag_key_values"
+      type        = "bloom_filter()"
+      granularity = 1
+    }
+    index "hosts_bloom_filter" {
+      expr        = "hosts"
+      type        = "bloom_filter()"
+      granularity = 1
+    }
+    index "emails_bloom_filter" {
+      expr        = "emails"
       type        = "bloom_filter()"
       granularity = 1
     }
@@ -9938,12 +9960,11 @@ SELECT
   session_timestamp,
   team_id,
   argMaxMerge(distinct_id) AS distinct_id,
-  argMaxMerge(person_id) AS person_id,
   groupUniqArrayMerge(distinct_ids) AS distinct_ids,
   min(min_timestamp) AS min_timestamp,
   max(max_timestamp) AS max_timestamp,
   max(max_inserted_at) AS max_inserted_at,
-  arrayDistinct(arrayFlatten(groupArray(urls))) AS urls,
+  groupUniqArrayArray(2000)(urls) AS urls,
   argMinMerge(entry_url) AS entry_url,
   argMaxMerge(end_url) AS end_url,
   argMaxMerge(last_external_click_url) AS last_external_click_url,
@@ -9976,8 +9997,14 @@ SELECT
   uniqExactMerge(pageview_uniq) AS pageview_uniq,
   uniqExactMerge(autocapture_uniq) AS autocapture_uniq,
   uniqExactMerge(screen_uniq) AS screen_uniq,
-  uniqUpToMerge(1)(page_screen_autocapture_uniq_up_to) AS page_screen_autocapture_uniq_up_to,
-  groupUniqArrayMapMerge(flag_values) AS flag_values
+  uniqUpToMerge(1)(page_screen_uniq_up_to) AS page_screen_uniq_up_to,
+  max(has_autocapture) AS has_autocapture,
+  groupUniqArrayArray(10000)(flag_key_values) AS flag_key_values,
+  groupUniqArrayArray(flag_keys) AS flag_keys,
+  groupUniqArrayArray(2000)(event_names) AS event_names,
+  groupUniqArrayArray(100)(hosts) AS hosts,
+  groupUniqArrayArray(10)(emails) AS emails,
+  max(has_replay_events) AS has_replay_events
 FROM posthog.raw_sessions_v3
 GROUP BY
   session_id_v7, session_timestamp, team_id

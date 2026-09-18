@@ -1352,10 +1352,14 @@ CREATE TABLE posthog.sharded_raw_sessions_v3 (
   flag_values AggregateFunction(groupUniqArrayMap, Map(String, String)),
   flag_keys SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
   event_names SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
+  hosts SimpleAggregateFunction(groupUniqArrayArray(100), Array(String)),
+  emails SimpleAggregateFunction(groupUniqArrayArray(10), Array(String)),
   has_replay_events SimpleAggregateFunction(max, Bool),
   INDEX event_names_bloom_filter event_names TYPE bloom_filter() GRANULARITY 1,
   INDEX flag_keys_bloom_filter flag_keys TYPE bloom_filter() GRANULARITY 1,
-  INDEX flag_key_values_bloom_filter flag_key_values TYPE bloom_filter() GRANULARITY 1
+  INDEX flag_key_values_bloom_filter flag_key_values TYPE bloom_filter() GRANULARITY 1,
+  INDEX hosts_bloom_filter hosts TYPE bloom_filter() GRANULARITY 1,
+  INDEX emails_bloom_filter emails TYPE bloom_filter() GRANULARITY 1
 ) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/{shard}/posthog.raw_sessions_v3', '{replica}') ORDER BY (team_id, session_timestamp, session_id_v7) PARTITION BY toYYYYMM(session_timestamp) SETTINGS index_granularity = 8192;
 CREATE TABLE posthog.sharded_session_recording_events (
   uuid UUID,
@@ -1969,6 +1973,8 @@ CREATE TABLE posthog.writable_raw_sessions_v3 (
   flag_values AggregateFunction(groupUniqArrayMap, Map(String, String)),
   flag_keys SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
   event_names SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
+  hosts SimpleAggregateFunction(groupUniqArrayArray(100), Array(String)),
+  emails SimpleAggregateFunction(groupUniqArrayArray(10), Array(String)),
   has_replay_events SimpleAggregateFunction(max, Bool)
 ) ENGINE = Distributed('posthog', 'posthog', 'sharded_raw_sessions_v3', cityHash64(session_id_v7));
 CREATE TABLE posthog.writable_session_recording_events (
@@ -2718,6 +2724,8 @@ CREATE TABLE posthog.raw_sessions_v3 (
   flag_values AggregateFunction(groupUniqArrayMap, Map(String, String)),
   flag_keys SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
   event_names SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
+  hosts SimpleAggregateFunction(groupUniqArrayArray(100), Array(String)),
+  emails SimpleAggregateFunction(groupUniqArrayArray(10), Array(String)),
   has_replay_events SimpleAggregateFunction(max, Bool)
 ) ENGINE = Distributed('posthog', 'posthog', 'sharded_raw_sessions_v3', cityHash64(session_id_v7));
 CREATE TABLE posthog.session_recording_events (

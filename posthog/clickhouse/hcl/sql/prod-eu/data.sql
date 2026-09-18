@@ -1115,6 +1115,8 @@ CREATE TABLE posthog.raw_sessions_v3 (
   flag_values AggregateFunction(groupUniqArrayMap, Map(String, String)),
   flag_keys SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
   event_names SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
+  hosts SimpleAggregateFunction(groupUniqArrayArray(100), Array(String)),
+  emails SimpleAggregateFunction(groupUniqArrayArray(10), Array(String)),
   has_replay_events SimpleAggregateFunction(max, Bool)
 ) ENGINE = Distributed('sessions', 'posthog', 'raw_sessions_v3', cityHash64(session_id_v7));
 CREATE TABLE posthog.session_replay_features (
@@ -1572,10 +1574,14 @@ CREATE TABLE posthog.sharded_raw_sessions_v3 (
   flag_values AggregateFunction(groupUniqArrayMap, Map(String, String)),
   flag_keys SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
   event_names SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
+  hosts SimpleAggregateFunction(groupUniqArrayArray(100), Array(String)),
+  emails SimpleAggregateFunction(groupUniqArrayArray(10), Array(String)),
   has_replay_events SimpleAggregateFunction(max, Bool),
   INDEX event_names_bloom_filter event_names TYPE bloom_filter() GRANULARITY 1,
   INDEX flag_keys_bloom_filter flag_keys TYPE bloom_filter() GRANULARITY 1,
-  INDEX flag_key_values_bloom_filter flag_key_values TYPE bloom_filter() GRANULARITY 1
+  INDEX flag_key_values_bloom_filter flag_key_values TYPE bloom_filter() GRANULARITY 1,
+  INDEX hosts_bloom_filter hosts TYPE bloom_filter() GRANULARITY 1,
+  INDEX emails_bloom_filter emails TYPE bloom_filter() GRANULARITY 1
 ) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/{shard}/posthog.raw_sessions_v3', '{replica}') ORDER BY (team_id, session_timestamp, session_id_v7) PARTITION BY toYYYYMM(session_timestamp) SETTINGS index_granularity = 8192;
 CREATE TABLE posthog.sharded_session_recording_events (
   uuid UUID,
@@ -2730,12 +2736,11 @@ CREATE VIEW posthog.raw_sessions_v3_v AS SELECT
   session_timestamp,
   team_id,
   argMaxMerge(distinct_id) AS distinct_id,
-  argMaxMerge(person_id) AS person_id,
   groupUniqArrayMerge(distinct_ids) AS distinct_ids,
   min(min_timestamp) AS min_timestamp,
   max(max_timestamp) AS max_timestamp,
   max(max_inserted_at) AS max_inserted_at,
-  arrayDistinct(arrayFlatten(groupArray(urls))) AS urls,
+  groupUniqArrayArray(2000)(urls) AS urls,
   argMinMerge(entry_url) AS entry_url,
   argMaxMerge(end_url) AS end_url,
   argMaxMerge(last_external_click_url) AS last_external_click_url,
@@ -2768,8 +2773,14 @@ CREATE VIEW posthog.raw_sessions_v3_v AS SELECT
   uniqExactMerge(pageview_uniq) AS pageview_uniq,
   uniqExactMerge(autocapture_uniq) AS autocapture_uniq,
   uniqExactMerge(screen_uniq) AS screen_uniq,
-  uniqUpToMerge(1)(page_screen_autocapture_uniq_up_to) AS page_screen_autocapture_uniq_up_to,
-  groupUniqArrayMapMerge(flag_values) AS flag_values
+  uniqUpToMerge(1)(page_screen_uniq_up_to) AS page_screen_uniq_up_to,
+  max(has_autocapture) AS has_autocapture,
+  groupUniqArrayArray(10000)(flag_key_values) AS flag_key_values,
+  groupUniqArrayArray(flag_keys) AS flag_keys,
+  groupUniqArrayArray(2000)(event_names) AS event_names,
+  groupUniqArrayArray(100)(hosts) AS hosts,
+  groupUniqArrayArray(10)(emails) AS emails,
+  max(has_replay_events) AS has_replay_events
 FROM posthog.raw_sessions_v3
 GROUP BY
   session_id_v7, session_timestamp, team_id;

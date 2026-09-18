@@ -3865,6 +3865,12 @@ database "posthog" {
     column "event_names" {
       type = "SimpleAggregateFunction(groupUniqArrayArray, Array(String))"
     }
+    column "hosts" {
+      type = "SimpleAggregateFunction(groupUniqArrayArray(100), Array(String))"
+    }
+    column "emails" {
+      type = "SimpleAggregateFunction(groupUniqArrayArray(10), Array(String))"
+    }
     column "has_replay_events" {
       type = "SimpleAggregateFunction(max, Bool)"
     }
@@ -6351,6 +6357,12 @@ database "posthog" {
     column "event_names" {
       type = "SimpleAggregateFunction(groupUniqArrayArray, Array(String))"
     }
+    column "hosts" {
+      type = "SimpleAggregateFunction(groupUniqArrayArray(100), Array(String))"
+    }
+    column "emails" {
+      type = "SimpleAggregateFunction(groupUniqArrayArray(10), Array(String))"
+    }
     column "has_replay_events" {
       type = "SimpleAggregateFunction(max, Bool)"
     }
@@ -6366,6 +6378,16 @@ database "posthog" {
     }
     index "flag_key_values_bloom_filter" {
       expr        = "flag_key_values"
+      type        = "bloom_filter()"
+      granularity = 1
+    }
+    index "hosts_bloom_filter" {
+      expr        = "hosts"
+      type        = "bloom_filter()"
+      granularity = 1
+    }
+    index "emails_bloom_filter" {
+      expr        = "emails"
       type        = "bloom_filter()"
       granularity = 1
     }
@@ -8357,6 +8379,12 @@ database "posthog" {
     }
     column "event_names" {
       type = "SimpleAggregateFunction(groupUniqArrayArray, Array(String))"
+    }
+    column "hosts" {
+      type = "SimpleAggregateFunction(groupUniqArrayArray(100), Array(String))"
+    }
+    column "emails" {
+      type = "SimpleAggregateFunction(groupUniqArrayArray(10), Array(String))"
     }
     column "has_replay_events" {
       type = "SimpleAggregateFunction(max, Bool)"
