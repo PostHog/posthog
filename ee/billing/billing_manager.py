@@ -611,9 +611,6 @@ class BillingManager:
                 events=usage_summary["events"],
                 exceptions=usage_summary.get("exceptions", {}),
                 recordings=usage_summary["recordings"],
-                # Mobile replay is a separately-priced addon: billing sends its own usage and
-                # unit limit, so a mobile-heavy org is limited under its own key instead of
-                # inflating the web `recordings` meter.
                 mobile_recordings=usage_summary.get("mobile_recordings", {}),
                 survey_responses=usage_summary.get("survey_responses", {}),
                 rows_synced=usage_summary.get("rows_synced", {}),

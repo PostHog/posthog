@@ -237,8 +237,9 @@ impl HasEventName for RawRecording {
         &self.event
     }
 
-    // Only the probe key the quota limiter asks for; everything else is
-    // name+product_tour_id via the default.
+    // The quota limiter probes "$snapshot_source_mobile", a sentinel key rather than the
+    // real "$snapshot_source" property, so a plain `has_property` here can answer the
+    // mobile-source question without deserializing the value twice.
     fn has_property(&self, key: &str) -> bool {
         if key == "$snapshot_source_mobile" {
             return self
