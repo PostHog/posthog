@@ -101,6 +101,32 @@ export namespace Schemas {
       PlannerUpdated: 'planner_updated',
     } as const;
 
+    export interface AIReplyPlaybook {
+      /** Repo default instructions, plus the PostHog overlay when docs_source is posthog. */
+      readonly inherited_instructions: string;
+      /**
+         * Team addendum on top of the inherited playbook. Null means the team inherits the default instructions.
+         * @nullable
+         */
+      readonly custom_instructions: string | null;
+      /** True when a non-empty custom addendum is saved for this team. */
+      readonly is_customized: boolean;
+      /** Version of the generic default playbook layer currently in the repo. */
+      readonly default_version: number;
+      /**
+         * Version of the PostHog overlay when docs_source is posthog; null otherwise.
+         * @nullable
+         */
+      readonly posthog_overlay_version: number | null;
+      /**
+         * Documentation source for this team. 'posthog' enables PostHog docs-search and the PostHog overlay.
+         * @nullable
+         */
+      readonly docs_source: string | null;
+      /** Maximum character length for ai_reply_custom_instructions. */
+      readonly max_chars: number;
+    }
+
     export interface AIReportChart {
       /** Id of the rendered PNG export backing this chart. */
       export_asset_id: number;
@@ -5644,6 +5670,15 @@ export namespace Schemas {
       version?: number | null;
     }
 
+    export type ExperimentExposureNodeResponse = { [key: string]: unknown } | null;
+
+    export interface ExperimentExposureNode {
+      kind?: 'ExperimentExposureNode';
+      response?: ExperimentExposureNodeResponse;
+      /** version of the node, used for schema migrations */
+      version?: number | null;
+    }
+
     export type StartHandling = typeof StartHandling[keyof typeof StartHandling];
 
 
@@ -5670,7 +5705,7 @@ export namespace Schemas {
       retention_window_start: number;
       retention_window_unit: FunnelConversionWindowTimeUnit;
       sharedMetricId?: number | null;
-      start_event: EventsNode | ActionsNode | ExperimentDataWarehouseNode;
+      start_event: EventsNode | ActionsNode | ExperimentDataWarehouseNode | ExperimentExposureNode;
       start_handling: StartHandling;
       uuid?: string | null;
       /** version of the node, used for schema migrations */
@@ -39239,6 +39274,20 @@ export namespace Schemas {
       S3: 'S3',
     } as const;
 
+    /**
+     * One source that writes to a destination. Shape only — never used to deserialize.
+     */
+    export interface SyncedSource {
+      /** The source's id. */
+      id: string;
+      /** How the source is labelled in the UI, prefix included. */
+      name: string;
+      /** Which connector this is, e.g. Stripe or Postgres. */
+      source_type: string;
+      /** True when only some of the source's tables reach this destination, through their own override. */
+      via_table_override: boolean;
+    }
+
     export interface ExternalDataDestination {
       readonly id: string;
       /** Where synced rows are written. The PostHog warehouse is managed for you, so you cannot create one here.
@@ -39271,6 +39320,8 @@ export namespace Schemas {
       readonly created_by: number | null;
       /** @nullable */
       readonly updated_at: string | null;
+      /** Sources whose tables sync to this destination, so you can see what a change or a deletion would affect. Includes sources that reach it through a single table's override, and — for the PostHog warehouse — sources that write there by default because nothing else was configured. */
+      readonly synced_sources: readonly SyncedSource[];
     }
 
     /**
@@ -51036,6 +51087,8 @@ export namespace Schemas {
       readonly heading_path: string;
       /** The chunk's text content. */
       readonly content: string;
+      /** True when this chunk comes from a generated source learned from a past support ticket. */
+      readonly is_generated: boolean;
     }
 
     /**
@@ -52282,6 +52335,121 @@ export namespace Schemas {
       TeamRetention: 'team_retention',
       ByteBudget: 'byte_budget',
     } as const;
+
+    /**
+     * * `sync_failed` - Sync Failed
+     * * `unresolved` - Unresolved
+     */
+    export type LineageIssueKindEnum = typeof LineageIssueKindEnum[keyof typeof LineageIssueKindEnum];
+
+
+    export const LineageIssueKindEnum = {
+      SyncFailed: 'sync_failed',
+      Unresolved: 'unresolved',
+    } as const;
+
+    export interface LineageIssue {
+      /** sync_failed when the last attempt to rebuild this node's edges ended in an error. unresolved when the rebuild finished but some of the names this node reads matched no node in the DAG.
+       *
+       * * `sync_failed` - Sync Failed
+       * * `unresolved` - Unresolved */
+      kind: LineageIssueKindEnum;
+      /** The error for sync_failed, or the comma-separated names that did not resolve for unresolved. */
+      detail: string;
+      /**
+         * When the issue was recorded.
+         * @nullable
+         */
+      at: string | null;
+    }
+
+    /**
+     * * `table` - Table
+     * * `view` - View
+     * * `matview` - Mat View
+     * * `endpoint` - Endpoint
+     * * `metric` - Metric
+     */
+    export type NodeTypeEnum = typeof NodeTypeEnum[keyof typeof NodeTypeEnum];
+
+
+    export const NodeTypeEnum = {
+      Table: 'table',
+      View: 'view',
+      Matview: 'matview',
+      Endpoint: 'endpoint',
+      Metric: 'metric',
+    } as const;
+
+    export interface NodeSuspension {
+      /** When the node was suspended. */
+      at: string;
+      /** Error from the materialization that tripped suspension. */
+      reason: string;
+      /** Materialization job that tripped suspension. */
+      job_id: string;
+    }
+
+    export interface NodeEndpoint {
+      /** Name of the endpoint this node's materialization backs. */
+      name: string;
+      /** Endpoint version this node's materialization backs. */
+      version: number;
+    }
+
+    /**
+     * Engines this node is suspended for after repeated materialization failures. Suspended engines are skipped by scheduled DAG runs until the node is resumed.
+     */
+    export type NodeSuspended = {[key: string]: NodeSuspension};
+
+    export interface Node {
+      readonly id: string;
+      /** @maxLength 2048 */
+      name: string;
+      type?: NodeTypeEnum;
+      dag: string;
+      readonly dag_name: string;
+      /** @maxLength 1024 */
+      description?: string;
+      /** @nullable */
+      readonly saved_query_id: string | null;
+      /** @nullable */
+      readonly metric_id: string | null;
+      readonly lineage_issue: LineageIssue | null;
+      readonly created_at: string;
+      /** @nullable */
+      readonly updated_at: string | null;
+      readonly upstream_count: number;
+      readonly downstream_count: number;
+      /** @nullable */
+      readonly last_run_at: string | null;
+      /**
+         * Skipped runs are written straight to the job table and never reach the stored status,
+       * so a blocked model would keep reporting the success before it.
+         * @nullable
+         */
+      readonly last_run_status: string | null;
+      /**
+         * Error of the run that last_run_status describes, so the two never disagree.
+         * @nullable
+         */
+      readonly last_run_error: string | null;
+      /** @nullable */
+      readonly user_tag: string | null;
+      /** @nullable */
+      readonly sync_interval: string | null;
+      /** Engines this node is suspended for after repeated materialization failures. Suspended engines are skipped by scheduled DAG runs until the node is resumed. */
+      readonly suspended: NodeSuspended;
+      /** The endpoint version this node's materialization backs, or null for nodes that are not endpoints. */
+      readonly endpoint: NodeEndpoint | null;
+    }
+
+    export interface LineageResponse {
+      /** Every node reachable from the requested one, plus the node itself. */
+      nodes: Node[];
+      /** Every edge between two of those nodes. */
+      edges: Edge[];
+    }
 
     export interface LinearIssueSignalExtra {
       url: string;
@@ -56384,82 +56552,6 @@ export namespace Schemas {
       rejected_signal_ids: string[];
       /** PR-specificity gate result that caused a rejection, when present. */
       specificity_rejection?: SpecificityMetadata | null;
-    }
-
-    export interface NodeSuspension {
-      /** When the node was suspended. */
-      at: string;
-      /** Error from the materialization that tripped suspension. */
-      reason: string;
-      /** Materialization job that tripped suspension. */
-      job_id: string;
-    }
-
-    /**
-     * Engines this node is suspended for after repeated materialization failures. Suspended engines are skipped by scheduled DAG runs until the node is resumed.
-     */
-    export type NodeSuspended = {[key: string]: NodeSuspension};
-
-    /**
-     * * `table` - Table
-     * * `view` - View
-     * * `matview` - Mat View
-     * * `endpoint` - Endpoint
-     */
-    export type NodeTypeEnum = typeof NodeTypeEnum[keyof typeof NodeTypeEnum];
-
-
-    export const NodeTypeEnum = {
-      Table: 'table',
-      View: 'view',
-      Matview: 'matview',
-      Endpoint: 'endpoint',
-    } as const;
-
-    export interface NodeEndpoint {
-      /** Name of the endpoint this node's materialization backs. */
-      name: string;
-      /** Endpoint version this node's materialization backs. */
-      version: number;
-    }
-
-    export interface Node {
-      readonly id: string;
-      /** @maxLength 2048 */
-      name: string;
-      type?: NodeTypeEnum;
-      dag: string;
-      readonly dag_name: string;
-      /** @maxLength 1024 */
-      description?: string;
-      /** @nullable */
-      readonly saved_query_id: string | null;
-      readonly created_at: string;
-      /** @nullable */
-      readonly updated_at: string | null;
-      readonly upstream_count: number;
-      readonly downstream_count: number;
-      /** @nullable */
-      readonly last_run_at: string | null;
-      /**
-         * Skipped runs are written straight to the job table and never reach the stored status,
-       * so a blocked model would keep reporting the success before it.
-         * @nullable
-         */
-      readonly last_run_status: string | null;
-      /**
-         * Error of the run that last_run_status describes, so the two never disagree.
-         * @nullable
-         */
-      readonly last_run_error: string | null;
-      /** @nullable */
-      readonly user_tag: string | null;
-      /** @nullable */
-      readonly sync_interval: string | null;
-      /** Engines this node is suspended for after repeated materialization failures. Suspended engines are skipped by scheduled DAG runs until the node is resumed. */
-      readonly suspended: NodeSuspended;
-      /** The endpoint version this node's materialization backs, or null for nodes that are not endpoints. */
-      readonly endpoint: NodeEndpoint | null;
     }
 
     export interface NodeResume {
@@ -68308,6 +68400,8 @@ export namespace Schemas {
       readonly created_by?: number | null;
       /** @nullable */
       readonly updated_at?: string | null;
+      /** Sources whose tables sync to this destination, so you can see what a change or a deletion would affect. Includes sources that reach it through a single table's override, and — for the PostHog warehouse — sources that write there by default because nothing else was configured. */
+      readonly synced_sources?: readonly SyncedSource[];
     }
 
     /**
@@ -70099,6 +70193,9 @@ export namespace Schemas {
       description?: string;
       /** @nullable */
       readonly saved_query_id?: string | null;
+      /** @nullable */
+      readonly metric_id?: string | null;
+      readonly lineage_issue?: LineageIssue | null;
       readonly created_at?: string;
       /** @nullable */
       readonly updated_at?: string | null;
@@ -101559,6 +101656,10 @@ export namespace Schemas {
     };
 
     export type DataModelingNodesLineageRetrieveParams = {
+    /**
+     * Data catalog metric to build lineage for, resolved to its node. Alternative to node_id.
+     */
+    metric_id?: string;
     /**
      * Node to build lineage for.
      */
