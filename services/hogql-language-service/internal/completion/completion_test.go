@@ -303,10 +303,14 @@ func TestRecoversCTEBindingsForIncompleteOuterClause(t *testing.T) {
 }
 
 func TestIncompleteOuterQueryRemainsInvalidForValidation(t *testing.T) {
-	incomplete := "WITH recent AS (SELECT uuid FROM events) SELECT recent.uuid FROM recent WHERE ("
-	checked := validation.Validate(testCatalog(), incomplete)
-	if checked.Valid || len(checked.Diagnostics) != 1 || checked.Diagnostics[0].Code != "syntax_error" {
-		t.Fatalf("validation accepted the incomplete source: %#v", checked)
+	for _, suffix := range []string{"(", "/* unfinished"} {
+		t.Run(suffix, func(t *testing.T) {
+			incomplete := "WITH recent AS (SELECT uuid FROM events) SELECT recent.uuid FROM recent WHERE " + suffix
+			checked := validation.Validate(testCatalog(), incomplete)
+			if checked.Valid || len(checked.Diagnostics) != 1 || checked.Diagnostics[0].Code != "syntax_error" {
+				t.Fatalf("validation accepted the incomplete source: %#v", checked)
+			}
+		})
 	}
 }
 
@@ -376,6 +380,7 @@ func TestDoesNotRecoverUnsupportedIncompleteCTEScopes(t *testing.T) {
 		{name: "set operation", source: "WITH recent AS (SELECT uuid FROM events) SELECT recent.uu| FROM recent UNION SELECT uuid FROM events WHERE (", excluded: "uuid"},
 		{name: "multiple statements", source: "WITH recent AS (SELECT uuid FROM events) SELECT recent.uu| FROM recent; SELECT * FROM events WHERE (", excluded: "uuid"},
 		{name: "scalar with alias", source: "WITH 1 AS recent SELECT events.uu| FROM events WHERE (", excluded: "uuid"},
+		{name: "unterminated comment after cursor", source: "WITH recent AS (SELECT uuid FROM events) SELECT recent.uu| FROM recent WHERE /* unfinished", excluded: "uuid"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			position := strings.IndexByte(test.source, '|')
@@ -383,6 +388,9 @@ func TestDoesNotRecoverUnsupportedIncompleteCTEScopes(t *testing.T) {
 			result, err := Complete(testCatalog(), query, position, PositionEncodingUTF8, "")
 			if err != nil {
 				t.Fatal(err)
+			}
+			if result.ParseError == "" {
+				t.Fatalf("incomplete query lost its parse error: %#v", result)
 			}
 			if _, ok := findSuggestion(result.Suggestions, test.excluded); ok {
 				t.Fatalf("result recovered unsupported scope: %#v", result)
@@ -397,6 +405,8 @@ func TestCompletesScopedProjections(t *testing.T) {
 		fields      map[string]string
 	}{
 		{"cte", "WITH t AS (SELECT order_id, amount AS total FROM orders) SELECT t.| FROM t", map[string]string{"order_id": "string", "total": "float"}},
+		{"closed comment after cursor", "WITH t AS (SELECT uuid FROM events) SELECT t.uu| FROM t /* finished */", map[string]string{"uuid": "string"}},
+		{"line comment at eof after cursor", "WITH t AS (SELECT uuid FROM events) SELECT t.uu| FROM t -- finished", map[string]string{"uuid": "string"}},
 		{"before from", "WITH t AS (SELECT amount AS total FROM orders) SELECT t.|", map[string]string{"total": "float"}},
 		{"unqualified", "WITH t AS (SELECT amount AS total FROM orders) SELECT tot| FROM t", map[string]string{"total": "float"}},
 		{"chained", "WITH a AS (SELECT amount AS total FROM orders), b AS (SELECT * FROM a) SELECT b.| FROM b", map[string]string{"total": "float"}},
