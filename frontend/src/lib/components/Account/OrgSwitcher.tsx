@@ -7,6 +7,7 @@ import { IconCheck, IconPlusSmall, IconSearch, IconX } from '@posthog/icons'
 import { KeyboardShortcut } from 'lib/components/KeyboardShortcut/KeyboardShortcut'
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
 import { IconBlank } from 'lib/lemon-ui/icons'
+import { Spinner } from 'lib/lemon-ui/Spinner'
 import { UploadedLogo } from 'lib/lemon-ui/UploadedLogo'
 import { preflightLogic } from 'lib/logic/preflightLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
@@ -44,7 +45,7 @@ export function OrgSwitcher({ dialog = true }: { dialog?: boolean }): JSX.Elemen
     const { guardAvailableFeature } = useValues(upgradeModalLogic)
     const { showCreateOrganizationModal } = useActions(globalModalsLogic)
     const { currentOrganization } = useValues(organizationLogic)
-    const { otherOrganizations } = useValues(userLogic)
+    const { otherOrganizations, switchingToOrganizationId } = useValues(userLogic)
     const { updateCurrentOrganization } = useActions(userLogic)
     const { closeOrgSwitcher, setAccountMenuOpen } = useActions(newAccountMenuLogic)
     const [searchValue, setSearchValue] = useState('')
@@ -105,6 +106,9 @@ export function OrgSwitcher({ dialog = true }: { dialog?: boolean }): JSX.Elemen
 
     const handleItemClick = useCallback(
         (item: ListItem) => {
+            if (switchingToOrganizationId) {
+                return
+            }
             if (item.type === 'create') {
                 guardAvailableFeature(
                     AvailableFeature.ORGANIZATIONS_PROJECTS,
@@ -116,11 +120,12 @@ export function OrgSwitcher({ dialog = true }: { dialog?: boolean }): JSX.Elemen
                 )
                 closeOrgSwitcher()
             } else if (!item.isCurrent && !item.isDisabled) {
-                closeOrgSwitcher()
+                // The switcher stays open until the navigation commits, so the row can report progress.
                 updateCurrentOrganization(item.org.id)
             }
         },
         [
+            switchingToOrganizationId,
             closeOrgSwitcher,
             updateCurrentOrganization,
             guardAvailableFeature,
@@ -140,6 +145,10 @@ export function OrgSwitcher({ dialog = true }: { dialog?: boolean }): JSX.Elemen
     }, [])
 
     const canCreateOrg = preflight?.can_create_org !== false
+
+    const isSwitchingTo = (orgId: string): boolean => switchingToOrganizationId === orgId
+    const isBlockedBySwitch = (orgId: string): boolean =>
+        switchingToOrganizationId !== null && switchingToOrganizationId !== orgId
 
     const spacingClass = dialog ? 'p-2' : 'p-1'
 
@@ -214,7 +223,13 @@ export function OrgSwitcher({ dialog = true }: { dialog?: boolean }): JSX.Elemen
                                             value={item}
                                             onClick={() => handleItemClick(item)}
                                             render={(props) => (
-                                                <ButtonPrimitive {...props} menuItem active fullWidth>
+                                                <ButtonPrimitive
+                                                    {...props}
+                                                    menuItem
+                                                    active
+                                                    fullWidth
+                                                    data-attr="org-switcher-organization"
+                                                >
                                                     <IconCheck className="text-tertiary" />
                                                     <UploadedLogo
                                                         size="xsmall"
@@ -248,11 +263,16 @@ export function OrgSwitcher({ dialog = true }: { dialog?: boolean }): JSX.Elemen
                                                     {...props}
                                                     menuItem
                                                     fullWidth
-                                                    disabled={item.isDisabled}
+                                                    data-attr="org-switcher-organization"
+                                                    disabled={item.isDisabled || isBlockedBySwitch(item.org.id)}
                                                     tooltip={item.isDisabled ? item.disabledReason : undefined}
                                                     tooltipPlacement="right"
                                                 >
-                                                    <IconBlank />
+                                                    {isSwitchingTo(item.org.id) ? (
+                                                        <Spinner textColored />
+                                                    ) : (
+                                                        <IconBlank />
+                                                    )}
                                                     <UploadedLogo
                                                         size="xsmall"
                                                         name={item.org.name}
@@ -287,7 +307,8 @@ export function OrgSwitcher({ dialog = true }: { dialog?: boolean }): JSX.Elemen
                                                     {...props}
                                                     menuItem
                                                     fullWidth
-                                                    disabled={!canCreateOrg}
+                                                    data-attr="org-switcher-create-organization"
+                                                    disabled={!canCreateOrg || switchingToOrganizationId !== null}
                                                     tooltip={
                                                         !canCreateOrg
                                                             ? 'You do not have permission to create an organization'

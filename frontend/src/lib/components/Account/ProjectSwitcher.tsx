@@ -7,6 +7,7 @@ import { IconCheck, IconLetter, IconPlusSmall, IconSearch, IconX } from '@postho
 import { KeyboardShortcut } from 'lib/components/KeyboardShortcut/KeyboardShortcut'
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
 import { IconBlank } from 'lib/lemon-ui/icons'
+import { Spinner } from 'lib/lemon-ui/Spinner'
 import { preflightLogic } from 'lib/logic/preflightLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { MenuSeparator } from 'lib/ui/Menus/Menus'
@@ -53,7 +54,8 @@ export function ProjectSwitcher({ dialog = true }: { dialog?: boolean }): JSX.El
     const { currentTeam } = useValues(teamLogic)
     const { currentOrganization, projectCreationForbiddenReason } = useValues(organizationLogic)
     const { pendingInvites } = useValues(pendingInvitesLogic)
-    const { closeProjectSwitcher, setAccountMenuOpen } = useActions(newAccountMenuLogic)
+    const { projectSwitchTargetId } = useValues(newAccountMenuLogic)
+    const { closeProjectSwitcher, setAccountMenuOpen, startProjectSwitch } = useActions(newAccountMenuLogic)
     const [searchValue, setSearchValue] = useState('')
     const inputRef = useRef<HTMLInputElement>(null!)
 
@@ -119,8 +121,15 @@ export function ProjectSwitcher({ dialog = true }: { dialog?: boolean }): JSX.El
 
     const canCreateProject = preflight?.can_create_org !== false && !projectCreationForbiddenReason
 
+    const isSwitchingTo = (rowId: number | string): boolean => projectSwitchTargetId === rowId
+    const isBlockedBySwitch = (rowId: number | string): boolean =>
+        projectSwitchTargetId !== null && projectSwitchTargetId !== rowId
+
     const handleItemClick = useCallback(
         (item: ListItem) => {
+            if (projectSwitchTargetId !== null) {
+                return
+            }
             if (item.type === 'create') {
                 // The create row is rendered disabled when the user can't create projects, but the
                 // Combobox still fires onClick/Enter — enforce the disabled state here too.
@@ -139,7 +148,7 @@ export function ProjectSwitcher({ dialog = true }: { dialog?: boolean }): JSX.El
                 )
                 closeProjectSwitcher()
             } else if (item.type === 'pending-invite') {
-                closeProjectSwitcher()
+                startProjectSwitch(item.invite.id)
                 window.location.href = urls.inviteSignup(item.invite.id)
             } else if (!item.isCurrent) {
                 const targetUrl = getProjectSwitchTargetUrl(
@@ -148,12 +157,15 @@ export function ProjectSwitcher({ dialog = true }: { dialog?: boolean }): JSX.El
                     currentTeam?.project_id,
                     item.team.project_id
                 )
-                closeProjectSwitcher()
+                // The switcher stays open for the whole document load, so the row can report progress.
+                startProjectSwitch(item.team.id)
                 window.location.href = targetUrl
             }
         },
         [
             currentTeam?.project_id,
+            projectSwitchTargetId,
+            startProjectSwitch,
             closeProjectSwitcher,
             guardAvailableFeature,
             showCreateProjectModal,
@@ -254,7 +266,14 @@ export function ProjectSwitcher({ dialog = true }: { dialog?: boolean }): JSX.El
                                             value={item}
                                             onClick={() => handleItemClick(item)}
                                             render={(props) => (
-                                                <ButtonPrimitive {...props} menuItem active className="flex-1" truncate>
+                                                <ButtonPrimitive
+                                                    {...props}
+                                                    menuItem
+                                                    active
+                                                    className="flex-1"
+                                                    truncate
+                                                    data-attr="project-switcher-project"
+                                                >
                                                     <IconCheck className="text-tertiary" />
                                                     <ProjectName team={item.team} className="flex-1 min-w-0" />
                                                     <ProjectFreshnessIndicator teamId={item.team.id} />
@@ -282,8 +301,14 @@ export function ProjectSwitcher({ dialog = true }: { dialog?: boolean }): JSX.El
                                                     className="flex-1"
                                                     tabIndex={-1}
                                                     hasSideActionRight
+                                                    data-attr="project-switcher-project"
+                                                    disabled={isBlockedBySwitch(item.team.id)}
                                                 >
-                                                    <IconBlank />
+                                                    {isSwitchingTo(item.team.id) ? (
+                                                        <Spinner textColored />
+                                                    ) : (
+                                                        <IconBlank />
+                                                    )}
                                                     <ProjectName team={item.team} className="flex-1 min-w-0" />
                                                     <ProjectFreshnessIndicator teamId={item.team.id} />
                                                 </ButtonPrimitive>
@@ -311,8 +336,14 @@ export function ProjectSwitcher({ dialog = true }: { dialog?: boolean }): JSX.El
                                                     tabIndex={-1}
                                                     tooltip={`Accept pending invitation to ${item.invite.organization_name}`}
                                                     tooltipPlacement="right"
+                                                    data-attr="project-switcher-pending-invite"
+                                                    disabled={isBlockedBySwitch(item.invite.id)}
                                                 >
-                                                    <IconLetter className="text-warning" />
+                                                    {isSwitchingTo(item.invite.id) ? (
+                                                        <Spinner textColored />
+                                                    ) : (
+                                                        <IconLetter className="text-warning" />
+                                                    )}
                                                     <span className="truncate flex-1">
                                                         {item.invite.organization_name}
                                                     </span>
@@ -343,7 +374,8 @@ export function ProjectSwitcher({ dialog = true }: { dialog?: boolean }): JSX.El
                                                     {...props}
                                                     menuItem
                                                     fullWidth
-                                                    disabled={!canCreateProject}
+                                                    data-attr="project-switcher-create-project"
+                                                    disabled={!canCreateProject || projectSwitchTargetId !== null}
                                                     tooltip={
                                                         !canCreateProject
                                                             ? projectCreationForbiddenReason ||
