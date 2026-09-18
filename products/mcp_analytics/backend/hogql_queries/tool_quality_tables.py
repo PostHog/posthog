@@ -42,10 +42,14 @@ from products.mcp_analytics.backend.constants import MCP_TOOL_CALL_EVENT
 from products.mcp_analytics.backend.hogql_queries.base import (
     EFFECTIVE_TOOL_SQL,
     mcp_query_date_range,
+    shared_filter_exprs,
     validate_mcp_analytics_access,
 )
 
 if TYPE_CHECKING:
+    from posthog.schema import AnyPropertyFilterDiscriminated
+
+    from posthog.models.team import Team
     from posthog.models.user import User
 
 # The tab scopes to $mcp_tool_call events that carry a tool name. Category and tool are event-supplied
@@ -83,6 +87,9 @@ def _category_in(categories: list[str] | None) -> list[ast.Expr]:
 def _named_tool_where(
     date_range: QueryDateRange,
     categories: list[str] | None,
+    team: "Team",
+    properties: "list[AnyPropertyFilterDiscriminated] | None" = None,
+    filter_test_accounts: bool | None = None,
     *,
     tool_name: str | None = None,
     search: str | None = None,
@@ -95,6 +102,7 @@ def _named_tool_where(
         parse_expr("{tool} IS NOT NULL", placeholders={"tool": parse_expr(EFFECTIVE_TOOL_SQL)}),
         parse_expr("{tool} != ''", placeholders={"tool": parse_expr(EFFECTIVE_TOOL_SQL)}),
         *_category_in(categories),
+        *shared_filter_exprs(team, properties, filter_test_accounts),
     ]
     if tool_name:
         exprs.append(
@@ -170,7 +178,14 @@ class MCPToolQualityRowsQueryRunner(AnalyticsQueryRunner[MCPToolQualityRowsQuery
                 "_P50": parse_expr(_P50),
                 "_P95": parse_expr(_P95),
                 "_P99": parse_expr(_P99),
-                "where": _named_tool_where(self.query_date_range, self.query.categories, search=search),
+                "where": _named_tool_where(
+                    self.query_date_range,
+                    self.query.categories,
+                    self.team,
+                    self.query.properties,
+                    self.query.filterTestAccounts,
+                    search=search,
+                ),
                 "limit": ast.Constant(value=limit),
                 "offset": ast.Constant(value=offset),
             },
@@ -275,7 +290,14 @@ class MCPToolQualityDailyStatsQueryRunner(AnalyticsQueryRunner[MCPToolQualityDai
                 "_P50": parse_expr(_P50),
                 "_P95": parse_expr(_P95),
                 "_P99": parse_expr(_P99),
-                "where": _named_tool_where(self.query_date_range, self.query.categories, tool_name=self.query.toolName),
+                "where": _named_tool_where(
+                    self.query_date_range,
+                    self.query.categories,
+                    self.team,
+                    self.query.properties,
+                    self.query.filterTestAccounts,
+                    tool_name=self.query.toolName,
+                ),
             },
         )
 
@@ -334,6 +356,7 @@ class MCPToolCategoryCountsQueryRunner(AnalyticsQueryRunner[MCPToolCategoryCount
                 parse_expr(
                     "timestamp <= {date_to}", placeholders={"date_to": self.query_date_range.date_to_as_hogql()}
                 ),
+                *shared_filter_exprs(self.team, self.query.properties, self.query.filterTestAccounts),
             ]
         )
         return parse_select(
@@ -395,6 +418,7 @@ class MCPToolCategoriesQueryRunner(AnalyticsQueryRunner[MCPToolCategoriesQueryRe
                 ),
                 parse_expr("properties.$mcp_tool_category IS NOT NULL"),
                 parse_expr("properties.$mcp_tool_category != ''"),
+                *shared_filter_exprs(self.team, self.query.properties, self.query.filterTestAccounts),
             ]
         )
         return parse_select(
