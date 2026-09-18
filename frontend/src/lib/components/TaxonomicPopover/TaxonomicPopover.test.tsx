@@ -80,6 +80,17 @@ describe('TaxonomicPopover', () => {
         })
     })
 
+    it('keeps the legacy picker search after reopening', async () => {
+        renderPopover()
+
+        await userEvent.click(screen.getByText('Please select'))
+        await userEvent.type(screen.getByTestId('taxonomic-filter-searchfield'), 'event1')
+        await userEvent.click(document.body)
+        await userEvent.click(screen.getByText('Please select'))
+
+        expect(screen.getByTestId('taxonomic-filter-searchfield')).toHaveValue('event1')
+    })
+
     it('opens the rebuilt actions picker', async () => {
         featureFlagLogic.mount()
         featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.TAXONOMIC_FILTER_MENU_REBUILD]: true })
