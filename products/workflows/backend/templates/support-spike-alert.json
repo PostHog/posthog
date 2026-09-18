@@ -103,14 +103,14 @@
                                 "type": "section",
                                 "text": {
                                     "type": "mrkdwn",
-                                    "text": "*Tickets:* {event.properties.ticket_count} from {event.properties.requester_count} customers in the last {event.properties.window_minutes} minutes."
+                                    "text": "*New tickets:* {event.properties.ticket_count} from {event.properties.requester_count} customers. You get another alert if more arrive."
                                 }
                             }
                         ],
                         "templating": "hog"
                     },
                     "text": {
-                        "value": "Ticket spike detected ({event.properties.requester_count} customers)",
+                        "value": "Ticket spike detected",
                         "templating": "hog"
                     }
                 },
