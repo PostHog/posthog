@@ -926,19 +926,36 @@ class TestQueryRunner(BaseTest):
         else:
             assert isinstance(props["query_duration_ms"], float)
 
-    def test_run_keys_the_cache_with_a_subclass_cache_key(self) -> None:
+    def test_a_cache_key_variant_reaches_the_key_and_the_runtime_hash_of_a_run(self) -> None:
         TestQueryRunner = self.setup_test_query_runner_class()
 
         class VariantQueryRunner(TestQueryRunner):  # type: ignore[valid-type,misc]
-            def get_cache_key(self) -> str:
-                return f"{super().get_cache_key()}_variant"
+            def get_cache_key_variant(self) -> str:
+                return "_variant"
 
+        plain = TestQueryRunner(query={"some_attr": "bla"}, team=self.team).get_query_identity()
         runner = VariantQueryRunner(query={"some_attr": "bla"}, team=self.team)
         with mock.patch("posthog.hogql_queries.query_runner.report_user_or_team_action") as report:
             response = runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
 
+        props = report.call_args.args[1]
         assert response.cache_key.endswith("_variant")
-        assert report.call_args.args[1]["query_hash"] == runner.get_query_identity().query_hash
+        assert props["query_hash"] == plain.query_hash
+        assert props["runtime_hash"] != plain.runtime_hash
+
+    def test_a_failing_report_path_leaves_the_query_error_as_it_was(self) -> None:
+        TestQueryRunner = self.setup_test_query_runner_class()
+        runner = TestQueryRunner(query={"some_attr": "bla"}, team=self.team, user=self.user)
+
+        with (
+            mock.patch.object(TestQueryRunner, "_calculate", side_effect=ValidationError("bad input")),
+            mock.patch(
+                "posthog.hogql_queries.query_runner.report_user_or_team_action", side_effect=RuntimeError("report")
+            ),
+            mock.patch("posthog.hogql_queries.query_runner.capture_exception", side_effect=RuntimeError("capture")),
+        ):
+            with self.assertRaises(ValidationError):
+                runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
 
     def test_cache_payload_omits_object_restrictions_when_unrestricted(self):
         TestQueryRunner = self.setup_test_query_runner_class()

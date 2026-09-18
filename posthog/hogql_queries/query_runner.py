@@ -2,7 +2,7 @@ import hashlib
 import threading
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Sequence
-from contextlib import ExitStack
+from contextlib import ExitStack, suppress
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from functools import cache, cached_property
@@ -2740,7 +2740,8 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 analytics_props=analytics_props,
             )
         except Exception as report_error:
-            capture_exception(report_error, {"team_id": self.team.pk, "context": "query_execution_failed_event"})
+            with suppress(Exception):
+                capture_exception(report_error, {"team_id": self.team.pk, "context": "query_execution_failed_event"})
 
     def _calculate_and_cache_blocking(
         self,
@@ -2936,6 +2937,12 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 # debug run doesn't cache its result but must still close the failure breaker.
                 cache_manager.clear_failure()
 
+            # Built and served before the event goes out, so a raise here reports the run as failed, and
+            # the response time covers the same work as on a cache hit.
+            response = CachedResponse(**fresh_response_dict)
+            # A fresh run of a query analyzed earlier still has a done slot, so this is
+            # where its findings reach the recomputed response.
+            self._serve_query_scan(response, user)
             phase_times = compute_phase_times(self.timings.to_dict(), before=self._timings_before_run)
             query_executed_props = {
                 **self._identity_event_properties(),
@@ -2958,11 +2965,6 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 "query_scan_skipped_reason": scan_skip,
                 **phase_times,
             }
-            # Built and served before the event goes out, so a raise here reports the run as failed.
-            response = CachedResponse(**fresh_response_dict)
-            # A fresh run of a query analyzed earlier still has a done slot, so this is
-            # where its findings reach the recomputed response.
-            self._serve_query_scan(response, user)
             report_user_or_team_action(
                 "query executed",
                 query_executed_props,
@@ -3151,18 +3153,20 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         return payload
 
     def get_query_identity(self) -> QueryIdentity:
-        return self._query_identity_for(self.get_cache_payload())
+        return self._query_identity_for(self.get_cache_payload(), self.get_cache_key_variant())
 
-    def _query_identity_for(self, payload: dict) -> QueryIdentity:
-        """Split the cache payload the cache key already hashes into the question and the answer, and
-        hash each half. The question is the query without its modifiers, plus the team; the answer is
-        every other key. Same serialization as the cache key, so a cache hit and a fresh run of one
-        query produce the same pair."""
+    def _query_identity_for(self, payload: dict, variant: str) -> QueryIdentity:
+        """Split what the cache key hashes into the question and the answer, and hash each half. The
+        question is the query without its modifiers, plus the team; the answer is every other payload
+        key and the runner's cache key variant. Same serialization as the cache key, so a cache hit
+        and a fresh run of one query produce the same pair."""
         question = {
             "query": {k: v for k, v in payload["query"].items() if k != "modifiers"},
             "team_id": payload["team_id"],
         }
         answer = {k: v for k, v in payload.items() if k not in ("query", "team_id")}
+        if variant:
+            answer["cache_key_variant"] = variant
         return QueryIdentity(
             query_hash=hashlib.sha256(to_json(question)).hexdigest()[:32],
             runtime_hash=hashlib.sha256(to_json(answer)).hexdigest()[:32],
@@ -3227,10 +3231,16 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
 
     def get_cache_key(self) -> str:
         payload = self.get_cache_payload()
-        # Taken from the payload the key hashes, before the fresh path adds user modifiers, so a hit
-        # and a fresh run agree, and the payload is built once per run.
-        self._query_identity = self._query_identity_for(payload)
-        return self._cache_key_for(payload)
+        variant = self.get_cache_key_variant()
+        # Taken from what the key hashes, before the fresh path adds user modifiers, so a hit and a
+        # fresh run agree, and the payload is built once per run.
+        self._query_identity = self._query_identity_for(payload, variant)
+        return f"{self._cache_key_for(payload)}{variant}"
+
+    def get_cache_key_variant(self) -> str:
+        """State outside the cache payload that changes this runner's results, as a key suffix.
+        Override this rather than `get_cache_key`, so the state also reaches `runtime_hash`."""
+        return ""
 
     def _cache_key_for(self, payload: dict) -> str:
         return generate_cache_key(self.team.pk, f"query_{bytes.decode(to_json(payload))}")
