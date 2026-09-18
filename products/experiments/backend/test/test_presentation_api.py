@@ -8982,6 +8982,60 @@ class TestExperimentApiExposureCriteriaParity(unittest.TestCase):
         )
 
 
+class TestExperimentApiMetricParity(unittest.TestCase):
+    """Structural guard: the slim API metric schema must expose every writable metric field.
+
+    Runtime validation uses the full ``ExperimentMetric`` union, so the backend accepts any field
+    on it. ``ExperimentApiMetric`` is the slim type that drives the OpenAPI spec and, downstream,
+    the MCP tool / frontend write schema. A field honored at runtime but missing from the slim
+    type is silently stripped by the generated client before it ever reaches the API — which is
+    how ``conversion_window_unit`` and ``funnel_order_type`` stayed unsettable over the API.
+    """
+
+    # Runtime fields deliberately kept off the write schema.
+    INTENTIONALLY_OMITTED = {
+        # Server-computed or internal.
+        "fingerprint",
+        "response",
+        "version",
+        # Shared-metric linkage, set through the shared metric endpoints.
+        "isSharedMetric",
+        "sharedMetricId",
+        # Breakdowns are not exposed on the write schema yet.
+        "breakdownFilter",
+        "breakdownAttributionType",
+        "breakdownAttributionValue",
+    }
+
+    def test_api_schema_exposes_every_runtime_field(self) -> None:
+        from posthog.schema import (
+            ExperimentApiMetric,
+            ExperimentFunnelMetric,
+            ExperimentMeanMetric,
+            ExperimentRatioMetric,
+            ExperimentRetentionMetric,
+        )
+
+        runtime_fields: set[str] = set()
+        for metric_model in (
+            ExperimentMeanMetric,
+            ExperimentFunnelMetric,
+            ExperimentRatioMetric,
+            ExperimentRetentionMetric,
+        ):
+            runtime_fields |= set(metric_model.model_fields)
+
+        api_fields = set(ExperimentApiMetric.model_fields)
+        dropped = runtime_fields - api_fields - self.INTENTIONALLY_OMITTED
+        self.assertFalse(
+            dropped,
+            f"ExperimentApiMetric omits metric fields the runtime honors: {dropped}. "
+            "Generated write clients (MCP, frontend) strip these silently — add them to the slim API "
+            "type in frontend/src/queries/schema/schema-general.ts and rerun hogli build:schema, or "
+            "add them to INTENTIONALLY_OMITTED with a reason.",
+        )
+
+
 class TestExperimentTags(APILicensedTest):
     def _create_experiment(self, name: str, flag_key: str, tags: list[str] | None = None) -> dict:
         payload: dict[str, Any] = {"name": name, "feature_flag_key": flag_key}

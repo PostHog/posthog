@@ -1376,6 +1376,18 @@ export interface ExperimentApiEventSourceApi {
     properties?: EventPropertyFilterApi[] | null
 }
 
+export type FunnelConversionWindowTimeUnitApi =
+    (typeof FunnelConversionWindowTimeUnitApi)[keyof typeof FunnelConversionWindowTimeUnitApi]
+
+export const FunnelConversionWindowTimeUnitApi = {
+    Second: 'second',
+    Minute: 'minute',
+    Hour: 'hour',
+    Day: 'day',
+    Week: 'week',
+    Month: 'month',
+} as const
+
 export interface ExperimentMetricOutlierHandlingApi {
     ignore_zeros?: boolean | null
     /** Winsorization lower percentile bound, as a fraction in [0, 1] (e.g. 0.01 for the 1st percentile). */
@@ -1383,6 +1395,14 @@ export interface ExperimentMetricOutlierHandlingApi {
     /** Winsorization upper percentile bound, as a fraction in [0, 1] (e.g. 0.99 for the 99th percentile). */
     upper_bound_percentile?: number | null
 }
+
+export type StepOrderValueApi = (typeof StepOrderValueApi)[keyof typeof StepOrderValueApi]
+
+export const StepOrderValueApi = {
+    Strict: 'strict',
+    Unordered: 'unordered',
+    Ordered: 'ordered',
+} as const
 
 export type ExperimentMetricGoalApi = (typeof ExperimentMetricGoalApi)[keyof typeof ExperimentMetricGoalApi]
 
@@ -1400,18 +1420,6 @@ export const ExperimentMetricTypeApi = {
     Retention: 'retention',
 } as const
 
-export type FunnelConversionWindowTimeUnitApi =
-    (typeof FunnelConversionWindowTimeUnitApi)[keyof typeof FunnelConversionWindowTimeUnitApi]
-
-export const FunnelConversionWindowTimeUnitApi = {
-    Second: 'second',
-    Minute: 'minute',
-    Hour: 'hour',
-    Day: 'day',
-    Week: 'week',
-    Month: 'month',
-} as const
-
 export type StartHandlingApi = (typeof StartHandlingApi)[keyof typeof StartHandlingApi]
 
 export const StartHandlingApi = {
@@ -1422,12 +1430,16 @@ export const StartHandlingApi = {
 export interface ExperimentApiMetricApi {
     /** For retention metrics: completion event. */
     completion_event?: ExperimentApiEventSourceApi | null
-    /** Conversion window duration. */
+    /** Only count metric events within this many units after the user's first exposure. Requires conversion_window_unit: a window without a unit is ignored and the metric counts events until the experiment ends. Omit both to count until the experiment ends. */
     conversion_window?: number | null
+    /** Unit for conversion_window: 'second', 'minute', 'hour', 'day', 'week' or 'month'. Required when conversion_window is set. */
+    conversion_window_unit?: FunnelConversionWindowTimeUnitApi | null
     /** For ratio metrics: denominator source. */
     denominator?: ExperimentApiEventSourceApi | null
     /** For ratio metrics: winsorization applied to the denominator aggregate. Leave unset for a binomial-style denominator, which is never clamped. */
     denominator_outlier_handling?: ExperimentMetricOutlierHandlingApi | null
+    /** For funnel metrics: how the steps must occur. 'ordered' (default): in order, with other events allowed in between. 'strict': in order, with no other events in between. 'unordered': in any order. */
+    funnel_order_type?: StepOrderValueApi | null
     /** Whether higher or lower values indicate success. */
     goal?: ExperimentMetricGoalApi | null
     /** For mean metrics: exclude zero values when computing the winsorization percentile thresholds. */

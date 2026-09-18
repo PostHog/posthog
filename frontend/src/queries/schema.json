@@ -24632,7 +24632,11 @@
                 },
                 "conversion_window": {
                     "$ref": "#/definitions/integer",
-                    "description": "Conversion window duration."
+                    "description": "Only count metric events within this many units after the user's first exposure. Requires conversion_window_unit: a window without a unit is ignored and the metric counts events until the experiment ends. Omit both to count until the experiment ends."
+                },
+                "conversion_window_unit": {
+                    "$ref": "#/definitions/FunnelConversionWindowTimeUnit",
+                    "description": "Unit for conversion_window: 'second', 'minute', 'hour', 'day', 'week' or 'month'. Required when conversion_window is set."
                 },
                 "denominator": {
                     "$ref": "#/definitions/ExperimentApiEventSource",
@@ -24641,6 +24645,10 @@
                 "denominator_outlier_handling": {
                     "$ref": "#/definitions/ExperimentMetricOutlierHandling",
                     "description": "For ratio metrics: winsorization applied to the denominator aggregate. Leave unset for a binomial-style denominator, which is never clamped."
+                },
+                "funnel_order_type": {
+                    "$ref": "#/definitions/StepOrderValue",
+                    "description": "For funnel metrics: how the steps must occur. 'ordered' (default): in order, with other events allowed in between. 'strict': in order, with no other events in between. 'unordered': in any order."
                 },
                 "goal": {
                     "$ref": "#/definitions/ExperimentMetricGoal",

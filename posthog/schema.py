@@ -5217,7 +5217,22 @@ class ExperimentApiMetric(BaseModel):
     completion_event: ExperimentApiEventSource | None = Field(
         default=None, description="For retention metrics: completion event."
     )
-    conversion_window: int | None = Field(default=None, description="Conversion window duration.")
+    conversion_window: int | None = Field(
+        default=None,
+        description=(
+            "Only count metric events within this many units after the user's first"
+            " exposure. Requires conversion_window_unit: a window without a unit is"
+            " ignored and the metric counts events until the experiment ends. Omit both"
+            " to count until the experiment ends."
+        ),
+    )
+    conversion_window_unit: FunnelConversionWindowTimeUnit | None = Field(
+        default=None,
+        description=(
+            "Unit for conversion_window: 'second', 'minute', 'hour', 'day', 'week' or"
+            " 'month'. Required when conversion_window is set."
+        ),
+    )
     denominator: ExperimentApiEventSource | None = Field(
         default=None, description="For ratio metrics: denominator source."
     )
@@ -5226,6 +5241,14 @@ class ExperimentApiMetric(BaseModel):
         description=(
             "For ratio metrics: winsorization applied to the denominator aggregate."
             " Leave unset for a binomial-style denominator, which is never clamped."
+        ),
+    )
+    funnel_order_type: StepOrderValue | None = Field(
+        default=None,
+        description=(
+            "For funnel metrics: how the steps must occur. 'ordered' (default): in"
+            " order, with other events allowed in between. 'strict': in order, with no"
+            " other events in between. 'unordered': in any order."
         ),
     )
     goal: ExperimentMetricGoal | None = Field(
