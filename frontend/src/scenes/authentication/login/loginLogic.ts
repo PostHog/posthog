@@ -195,6 +195,7 @@ export interface loginLogicValues {
         detail: string
     } | null
     hasNoConfiguredLoginMethod: boolean
+    hasOnlyPasskeyLoginMethod: boolean
     isCodeVerificationSubmitting: boolean
     isCodeVerificationValid: boolean
     isLoginSubmitting: boolean
@@ -562,6 +563,17 @@ export const loginLogic = kea<loginLogicType>([
                 // `availableLoginMethods` is deliberately empty when SSO is enforced — that path owns
                 // the whole form, so it isn't a dead end.
                 !precheckResponse.sso_enforcement && isPasswordLoginUnavailable && availableLoginMethods.length === 0,
+        ],
+        // A passwordless account whose only way in is a passkey. The passkey can stop working (a lost
+        // device, a credential the authenticator no longer offers), and with no password box there is
+        // no "Forgot password?" link either, so the reset route has to be offered on its own.
+        // Enforced SSO needs no guard here: it empties `availableLoginMethods`.
+        hasOnlyPasskeyLoginMethod: [
+            (s) => [s.isPasswordLoginUnavailable, s.availableLoginMethods],
+            (isPasswordLoginUnavailable: boolean, availableLoginMethods: LoginMethod[]): boolean =>
+                isPasswordLoginUnavailable &&
+                availableLoginMethods.length > 0 &&
+                availableLoginMethods.every((method) => method === 'passkey'),
         ],
         // Allowlist for the social button row: only narrow it once we know the account is passwordless
         // and which providers it has. `null` means "show everything the instance offers", as before.

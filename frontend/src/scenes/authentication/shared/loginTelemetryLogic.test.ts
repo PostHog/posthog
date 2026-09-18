@@ -146,9 +146,13 @@ describe('loginTelemetryLogic', () => {
     // The passkey prompt opens on its own after the precheck, so its failures are not attempts the
     // person made. A funnel that counts driven attempts has to be able to drop them.
     it('gives a passkey failure its own step', () => {
-        login.actions.setGeneralError('passkey_error', 'Passkey login failed')
+        login.actions.setGeneralError('passkey_error', 'This passkey is no longer registered.')
 
-        expect(capturedProperties('login failed')).toMatchObject({ step: 'passkey' })
+        expect(capturedProperties('login failed')).toMatchObject({
+            step: 'passkey',
+            // Every passkey failure shares one code, so only the message says which error it was.
+            error_detail: 'This passkey is no longer registered.',
+        })
     })
 
     // An error raised while the auth scenes are gone — a failed passkey re-authentication inside the
