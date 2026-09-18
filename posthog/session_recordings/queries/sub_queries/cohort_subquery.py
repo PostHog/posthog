@@ -5,7 +5,11 @@ from posthog.hogql.parser import parse_select
 
 from posthog.models import Team
 from posthog.session_recordings.queries.sub_queries.base_query import SessionRecordingsListingBaseQuery
-from posthog.session_recordings.queries.utils import is_anonymous_cohort_fix_enabled, poe_is_active
+from posthog.session_recordings.queries.utils import (
+    is_anonymous_cohort_fix_enabled,
+    is_exclusions_under_or_enabled,
+    poe_is_active,
+)
 
 from products.cohorts.backend.models.cohort import Cohort
 
@@ -38,9 +42,14 @@ class CohortPropertyGroupsSubQuery(SessionRecordingsListingBaseQuery):
 
         # Hand the cohort filter off to ReplayFiltersEventsSubQuery when we can.
         # That path filters against the events table (so events whose person_id isn't
-        # in person_distinct_id2 are still considered), but it only works for AND queries
-        # because its NOT-IN handling rides on _negative_blocklist_query, which no-ops on OR.
-        if poe_is_active(self._team) and self._query.operand != "OR" and is_anonymous_cohort_fix_enabled(self._team):
+        # in person_distinct_id2 are still considered). Its NOT-IN handling rides on
+        # _negative_blocklist_query, which under OR only runs with `replay-exclusions-under-or`
+        # on. This condition mirrors ReplayFiltersEventsSubQuery._should_push_cohorts_to_events_query.
+        if (
+            poe_is_active(self._team)
+            and (self._query.operand != "OR" or is_exclusions_under_or_enabled(self._team))
+            and is_anonymous_cohort_fix_enabled(self._team)
+        ):
             return None
 
         return self._build_join_based_query(cohort_filters)

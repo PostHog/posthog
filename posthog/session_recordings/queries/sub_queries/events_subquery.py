@@ -1,3 +1,25 @@
+"""
+Events-table subqueries for the recordings list.
+
+Filter contract. Under both operands the recordings list returns:
+
+    (any/all of the positive filters, per the operand) AND NOT (any of the negative filters)
+
+A negative filter (`is_not_set`, `is_not`, `not_regex`, `not_icontains`, `not_starts_with`,
+`not_ends_with`, cohort `not_in`, or a negated event/action) is never a way to match a recording.
+It only removes recordings. So a negative filter never enters an allowlist subquery. It goes to
+the `NOT GLOBAL IN` blocklist built by `_negative_blocklist_query`, or to the `HAVING` clause of
+an allowlist subquery, in the same way for OR as for AND. This is the rule that
+`session_recording_list_from_query.py` already applies to the internal and test user filters,
+which are always AND'd.
+
+A negative filter that is OR'd into an allowlist becomes a positive per-event predicate. Under
+person-on-events any anonymous event satisfies `email is not set`, so a recording the user asked
+to remove is returned instead. Under the OR operand the contract applies only when
+`is_exclusions_under_or_enabled` is true for the team. With the flag off, the OR path keeps its
+old behavior.
+"""
+
 from collections.abc import Iterable
 from datetime import datetime, timedelta
 from typing import Any, Optional, cast
@@ -37,6 +59,7 @@ from posthog.session_recordings.queries.utils import (
     is_anonymous_cohort_fix_enabled,
     is_cohort_property,
     is_event_property,
+    is_exclusions_under_or_enabled,
     is_group_property,
     is_person_property,
 )
@@ -126,6 +149,19 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
         self._events_timestamp_floor = events_timestamp_floor
         self._resolve_group_properties = resolve_group_properties
         self.emitted_sampled_subquery = False
+        self._or_exclusions_enabled_cache: bool | None = None
+
+    def _or_exclusions_enabled(self) -> bool:
+        """True when the OR operand applies negative filters as exclusions (see the module docstring).
+
+        Under AND the exclusion paths are always on, so this only asks the flag for OR queries.
+        Cached because one query build asks several times and each evaluation can be a network call.
+        """
+        if self._or_exclusions_enabled_cache is None:
+            self._or_exclusions_enabled_cache = self._query.operand == "OR" and is_exclusions_under_or_enabled(
+                self._team
+            )
+        return self._or_exclusions_enabled_cache
 
     def _events_join(self, sample: bool = True) -> ast.JoinExpr:
         join = ast.JoinExpr(table=ast.Field(chain=["events"]))
@@ -473,8 +509,8 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
                 else event_where_exprs
             )
 
-        # Skip event properties with negative operators since they're handled by _negative_guard_query
-        skip_negative_properties = self._query.operand == "AND"
+        # Negative properties are handled by _negative_blocklist_query, so they stay out of the allowlists
+        skip_negative_properties = self._query.operand == "AND" or self._or_exclusions_enabled()
 
         for p in self.event_properties:
             if skip_negative_properties and is_negative_prop(p):
@@ -614,7 +650,7 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
         # a negated entity's predicate is already the positive form: sessions performing it get blocked
         blocklist_exprs: list[ast.Expr] = self._event_predicates(self.negated_entities, self._team)
 
-        if self._query.operand != "OR":
+        if self._query.operand != "OR" or self._or_exclusions_enabled():
             for prop in self._collect_negative_properties():
                 operator = cast(PropertyOperator, prop.operator)  # type: ignore[union-attr]
                 inverted = prop.model_copy(update={"operator": INVERSE_OPERATOR_FOR[operator]})
@@ -762,7 +798,7 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
         return ast.And(exprs=exprs)
 
     def _having_predicates(self) -> ast.Expr:
-        if self._query.operand == "OR":
+        if self._query.operand == "OR" and not self._or_exclusions_enabled():
             return ast.Constant(value=True)
 
         def countif_zero(prop: AnyPropertyFilter) -> ast.Expr:
@@ -775,7 +811,10 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
             )
 
         exprs = [countif_zero(p) for p in self._collect_negative_properties()]
-        return self.wrapped_with_query_operand(exprs=exprs) if exprs else ast.Constant(value=True)
+        if not exprs:
+            return ast.Constant(value=True)
+        # A session must clear every negative filter, whatever the operand joins the positive ones with
+        return ast.And(exprs=exprs) if self._query.operand == "OR" else self.wrapped_with_query_operand(exprs=exprs)
 
     @staticmethod
     def _is_negated_entity(raw_entity: dict[str, Any]) -> bool:
@@ -851,13 +890,14 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
     def _should_push_cohorts_to_events_query(self) -> bool:
         """True when this subquery should handle cohort filters instead of CohortPropertyGroupsSubQuery.
 
-        Scoped to PoE teams with the feature flag enabled, and only for operand=AND where
-        the _negative_blocklist_query path exists. Non-PoE and OR-operand queries continue
-        to use the separate cohort subquery.
+        Scoped to PoE teams with the feature flag enabled, and only where the
+        _negative_blocklist_query path takes the NOT IN cohort filters: always under AND, and
+        under OR when `replay-exclusions-under-or` is on. Other queries continue to use the
+        separate cohort subquery. CohortPropertyGroupsSubQuery mirrors this condition.
         """
         return bool(
             self._team.person_on_events_mode
-            and self._query.operand != "OR"
+            and (self._query.operand != "OR" or self._or_exclusions_enabled())
             and self.cohort_properties
             and is_anonymous_cohort_fix_enabled(self._team)
         )
@@ -885,8 +925,9 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
         This avoids hitting the LIMIT on high-traffic teams with millions of event-sessions.
 
         Negated entities ("did not perform X") are global constraints and apply under both
-        operands. Negative property filters stay AND-only because inverting them under OR
-        would change existing semantics.
+        operands. Negative property filters apply under AND, and under OR when
+        `replay-exclusions-under-or` is on; with the flag off the OR path keeps them in the
+        allowlists, where they do not exclude anything.
         """
         where_expr = self._inverted_negative_expr()
         if where_expr is None:

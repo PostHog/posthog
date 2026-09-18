@@ -27,6 +27,7 @@ from posthog.hogql.property import action_to_expr
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_DATA_WAREHOUSE
 from posthog.hogql_queries.legacy_compatibility.clean_properties import clean_entity_properties
 from posthog.models import Entity, Team
+from posthog.ph_client import feature_enabled_or_false
 from posthog.types import AnyPropertyFilter
 
 from products.actions.backend.models.action import Action
@@ -46,6 +47,28 @@ def is_anonymous_cohort_fix_enabled(team: Team) -> bool:
     """
     try:
         return bool(posthoganalytics.feature_enabled(ANONYMOUS_USER_COHORT_FIX_FLAG, str(team.pk)))
+    except Exception:
+        return False
+
+
+EXCLUSIONS_UNDER_OR_FLAG = "replay-exclusions-under-or"
+
+
+def is_exclusions_under_or_enabled(team: Team) -> bool:
+    """Gate for applying negative filters as exclusions under the OR operand.
+
+    Evaluated against the `project` group with the team's uuid as the distinct id, so the flag
+    can target teams by project id. A team id passed as the distinct id would not match any
+    person or group condition.
+    """
+    try:
+        return feature_enabled_or_false(
+            EXCLUSIONS_UNDER_OR_FLAG,
+            str(team.uuid),
+            groups={"project": str(team.id)},
+            group_properties={"project": {"id": str(team.id), "uuid": str(team.uuid)}},
+            send_feature_flag_events=False,
+        )
     except Exception:
         return False
 

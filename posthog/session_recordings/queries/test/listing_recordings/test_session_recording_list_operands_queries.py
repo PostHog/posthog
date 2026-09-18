@@ -1,10 +1,13 @@
 import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, snapshot_clickhouse_queries
+from unittest.mock import patch
 
 from django.utils.timezone import now
 
 from dateutil.relativedelta import relativedelta
 from parameterized import parameterized
+
+from posthog.schema import PersonsOnEventsMode
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.log_entries import TRUNCATE_LOG_ENTRIES_TABLE_SQL
@@ -15,6 +18,28 @@ from posthog.session_recordings.queries.test.listing_recordings.test_utils impor
 )
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 from posthog.session_recordings.sql.session_replay_event_sql import TRUNCATE_SESSION_REPLAY_EVENTS_TABLE_SQL
+from posthog.test.persons import create_person
+
+from products.cohorts.backend.models.cohort import Cohort
+
+
+def exclusions_under_or_flag_on():
+    return patch("posthog.session_recordings.queries.utils.feature_enabled_or_false", return_value=True)
+
+
+PAGEVIEW_WITH_VIP = {
+    "id": "$pageview",
+    "name": "$pageview",
+    "type": "events",
+    "properties": [{"key": "vip", "type": "event", "value": ["true"], "operator": "exact"}],
+}
+PAGEVIEW_ON_TARGET_PAGE = {
+    "id": "$pageview",
+    "name": "$pageview",
+    "type": "events",
+    "properties": [{"key": "$pathname", "type": "event", "value": "target", "operator": "icontains"}],
+}
+PATHNAME_NOT_OTHER = {"key": "$pathname", "type": "event", "value": "other", "operator": "not_icontains"}
 
 # the filter shape reported in #41687: two different events, the first carrying two of its own properties
 FLAG_CALLED_WITH_PROPERTIES = {
@@ -210,6 +235,44 @@ class TestSessionRecordingsListOperandsQueries(ClickhouseTestMixin, APIBaseTest)
             [self.non_target_non_vip_session, self.non_target_vip_session, self.target_non_vip_session],
         )
 
+    @snapshot_clickhouse_queries
+    @exclusions_under_or_flag_on()
+    def test_two_negative_ORed_with_exclusions_under_or(self, _flag):
+        self._assert_query_matches_session_ids(
+            {
+                "operand": "OR",
+                "events": [
+                    {
+                        "id": "$pageview",
+                        "name": "$pageview",
+                        "type": "events",
+                        "properties": [{"key": "vip", "type": "event", "value": ["true"], "operator": "is_not"}],
+                    },
+                    {
+                        "id": "$pageview",
+                        "name": "$pageview",
+                        "type": "events",
+                        "properties": [
+                            {"key": "$pathname", "type": "event", "value": "target", "operator": "not_icontains"}
+                        ],
+                    },
+                ],
+            },
+            [self.non_target_non_vip_session],
+        )
+
+    @snapshot_clickhouse_queries
+    @exclusions_under_or_flag_on()
+    def test_two_positive_and_one_negative_ORed_with_exclusions_under_or(self, _flag):
+        self._assert_query_matches_session_ids(
+            {
+                "operand": "OR",
+                "events": [PAGEVIEW_WITH_VIP, PAGEVIEW_ON_TARGET_PAGE],
+                "properties": [PATHNAME_NOT_OTHER],
+            },
+            [self.target_vip_session, self.target_non_vip_session],
+        )
+
     def _a_session_with_named_events(self, events: list[tuple[str, dict]], duration_seconds: int = 30) -> str:
         session_id = str(uuid7())
         user_id = str(uuid7())
@@ -371,3 +434,88 @@ class TestSessionRecordingsNegativeFiltersWithMultipleEvents(ClickhouseTestMixin
         clean_session = self._a_session_with_multiple_pageviews([non_matching_props, non_matching_props])
 
         assert_query_matches_session_ids(team=self.team, query=query, expected=[clean_session])
+
+
+@time_machine.travel("2021-01-01T13:46:23", tick=False)
+class TestSessionRecordingsExclusionsUnderOrWithPersonsOnEvents(ClickhouseTestMixin, APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        sync_execute(TRUNCATE_SESSION_REPLAY_EVENTS_TABLE_SQL())
+        sync_execute(TRUNCATE_LOG_ENTRIES_TABLE_SQL)
+        self.team.modifiers = {"personsOnEventsMode": PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS.value}
+        self.team.save()
+
+    @property
+    def an_hour_ago(self):
+        return (now() - relativedelta(hours=1)).replace(microsecond=0, second=0)
+
+    def _a_session(self, first_distinct_id: str, events: list[tuple[str, str]]) -> str:
+        session_id = str(uuid7())
+        produce_replay_summary(
+            distinct_id=first_distinct_id,
+            session_id=session_id,
+            first_timestamp=self.an_hour_ago,
+            team_id=self.team.id,
+        )
+        for i, (distinct_id, event_name) in enumerate(events):
+            create_event(
+                team=self.team,
+                distinct_id=distinct_id,
+                timestamp=self.an_hour_ago + relativedelta(minutes=i),
+                event_name=event_name,
+                properties={"$session_id": session_id, "$window_id": "1"},
+            )
+        return session_id
+
+    @snapshot_clickhouse_queries
+    @exclusions_under_or_flag_on()
+    def test_negative_person_property_ORed_with_an_event_still_excludes(self, _flag):
+        identified_user = "identified-user"
+        create_person(team=self.team, distinct_ids=[identified_user], properties={"email": "user@example.com"})
+
+        _identified_after_anonymous_event = self._a_session(
+            "anon-1", [("anon-1", "$autocapture"), (identified_user, "$pageview")]
+        )
+        anonymous_pageview = self._a_session("anon-2", [("anon-2", "$pageview")])
+        _anonymous_without_pageview = self._a_session("anon-3", [("anon-3", "$autocapture")])
+
+        assert_query_matches_session_ids(
+            team=self.team,
+            query={
+                "operand": "OR",
+                "events": [{"id": "$pageview", "name": "$pageview", "type": "events"}],
+                "properties": [{"key": "email", "type": "person", "operator": "is_not_set", "value": "is_not_set"}],
+            },
+            expected=[anonymous_pageview],
+        )
+
+    @snapshot_clickhouse_queries
+    @patch("posthog.session_recordings.queries.utils.posthoganalytics.feature_enabled", return_value=True)
+    @exclusions_under_or_flag_on()
+    def test_negative_cohort_ORed_with_an_event_is_excluded_by_the_blocklist(self, _flag, _anonymous_cohort_fix_flag):
+        with self.settings(USE_PRECALCULATED_CH_COHORT_PEOPLE=True, PERSON_ON_EVENTS_V2_OVERRIDE=True):
+            member = "cohort-member"
+            non_member = "not-a-cohort-member"
+            create_person(team=self.team, distinct_ids=[member], properties={"user_group": "internal"})
+            create_person(team=self.team, distinct_ids=[non_member], properties={"user_group": "external"})
+
+            _member_pageview = self._a_session(member, [(member, "$pageview")])
+            non_member_pageview = self._a_session(non_member, [(non_member, "$pageview")])
+            anonymous_pageview = self._a_session("anon-1", [("anon-1", "$pageview")])
+
+            internal_cohort = Cohort.objects.create(
+                team=self.team,
+                name="internal_users",
+                groups=[{"properties": [{"key": "user_group", "value": "internal", "type": "person"}]}],
+            )
+            internal_cohort.calculate_people_ch(pending_version=0)
+
+            assert_query_matches_session_ids(
+                team=self.team,
+                query={
+                    "operand": "OR",
+                    "events": [{"id": "$pageview", "name": "$pageview", "type": "events"}],
+                    "properties": [{"key": "id", "value": internal_cohort.pk, "operator": "not_in", "type": "cohort"}],
+                },
+                expected=[non_member_pageview, anonymous_pageview],
+            )
