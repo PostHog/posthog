@@ -9,7 +9,9 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    CancelReportCheckRequestApi,
     CommitDiffResponseApi,
+    CreateReportCheckRequestApi,
     EditReportRequestApi,
     EditReportResponseApi,
     EmitFindingRequestApi,
@@ -41,12 +43,15 @@ import type {
     PullRequestReviewCommentCreateResponseApi,
     PullRequestReviewCommentReactionCreateApi,
     PullRequestReviewCommentReactionCreateResponseApi,
+    RecordCheckResultRequestApi,
+    RecordCheckResultResponseApi,
     RecordStructuredOutputRequestApi,
     RecordStructuredOutputResponseApi,
     RememberRequestApi,
     ReportSignalsResponseApi,
     ScoutChatTaskApi,
     ScoutChatTaskCreateApi,
+    ScoutCheckSummaryApi,
     ScoutCostsApi,
     ScoutEmissionReportLinkApi,
     ScoutMemberApi,
@@ -66,7 +71,6 @@ import type {
     SignalReportBulkStateRequestApi,
     SignalReportBulkStateResponseApi,
     SignalReportCheckApi,
-    SignalReportCheckWriteApi,
     SignalReportClaimApi,
     SignalReportFeedbackRequestApi,
     SignalReportFeedbackResponseApi,
@@ -105,6 +109,7 @@ import type {
     SignalsScoutMembersListParams,
     SignalsScoutNotesListParams,
     SignalsScoutProjectProfileGetParams,
+    SignalsScoutReportChecksListParams,
     SignalsScoutRunsCostsParams,
     SignalsScoutRunsFindingsSummaryParams,
     SignalsScoutRunsListParams,
@@ -793,7 +798,7 @@ export const getSignalsReportArtefactsDestroyUrl = (projectId: string, reportId:
 }
 
 /**
- * Delete an artefact, addressed by id. Deleting the latest row of a status type reverts the report's canonical status to the previous version (latest-wins over what remains). `task_run` artefacts are an append-only work log and cannot be deleted.
+ * Delete an artefact, addressed by id. Deleting the latest row of a status type reverts the report's canonical status to the previous version (latest-wins over what remains). `task_run` artefacts are an append-only work log and cannot be deleted. Neither can the types this API cannot write, which the pipeline owns: `check_result`, `code_review`, `implementation_decision`, `implementation_dispatch`, `implementation_handover`, `implementation_replacement`, `pull_request`, `summary_change`, `task_run`, `title_change`, `video_segment`, `work_claim`, `work_release`.
  * @summary Delete an artefact
  */
 export const signalsReportArtefactsDestroy = async (
@@ -864,40 +869,21 @@ export const signalsReportChecksList = async (
     })
 }
 
-export const getSignalsReportChecksCreateUrl = (projectId: string, reportId: string) => {
-    return `/api/projects/${projectId}/signals/reports/${reportId}/checks/`
-}
-
-/**
- * Schedule a re-measurement of the report's claim. A `metric_threshold` check runs one bounded Trends query and compares the result, so it needs no agent run.
- * @summary Create a check on a report
- */
-export const signalsReportChecksCreate = async (
-    projectId: string,
-    reportId: string,
-    signalReportCheckWriteApi: SignalReportCheckWriteApi,
-    options?: RequestInit
-): Promise<SignalReportCheckApi> => {
-    return apiMutator<SignalReportCheckApi>(getSignalsReportChecksCreateUrl(projectId, reportId), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(signalReportCheckWriteApi),
-    })
-}
-
 export const getSignalsReportChecksRetrieveUrl = (projectId: string, reportId: string, id: string) => {
     return `/api/projects/${projectId}/signals/reports/${reportId}/checks/${id}/`
 }
 
 /**
- * Checks attached to a signal report: read, create, and cancel.
+ * Checks attached to a signal report: read and cancel.
+ *
+ * There is no create here. A check is authored by a scout run or by the research pipeline, both
+ * through `report_check_authoring.create_check`. An `agent` check puts its author's prose in front
+ * of a privileged scout run, and `task:write` does not authorize that, so no caller-facing
+ * endpoint accepts one. Anyone who can read the report can read its checks, and a person can
+ * still stop one.
  *
  * There is no update: a check is a claim about the future, and editing its threshold after a
- * result would make the recorded verdict unreadable. Cancel it and write a new one.
- *
- * Writes are attributed the same way artefact writes are — to the task named by the
- * `X-PostHog-Task-Id` header when present, else to the requesting user.
+ * result would make the recorded verdict unreadable. Cancel it and let its author write a new one.
  * @summary Get a single check
  */
 export const signalsReportChecksRetrieve = async (
@@ -917,7 +903,7 @@ export const getSignalsReportChecksDestroyUrl = (projectId: string, reportId: st
 }
 
 /**
- * Stop an active check. Its recorded results stay on the report.
+ * Stop a check that is still open — active, or pending its report resolving. Its recorded results stay on the report.
  * @summary Cancel a check
  */
 export const signalsReportChecksDestroy = async (
@@ -1413,12 +1399,34 @@ export const signalsScoutRunsRetrieve = async (
     })
 }
 
+export const getSignalsScoutRecordCheckResultUrl = (projectId: string, runId: string) => {
+    return `/api/projects/${projectId}/signals/scout/runs/${runId}/check-result/`
+}
+
+/**
+ * Close the follow-up check this run was dispatched to answer. The run note carries the check id and what to establish; this call is the only thing that records the answer, so a run that investigates and says nothing leaves the check unanswered. The verdict lands on the report as a `check_result` entry people read in the inbox. `failed` retires the check, `passed` re-arms a recurring one, and `errored` retries it, so send the outcome you actually reached rather than the one that closes the loop. A run may only close a check dispatched to its own scout.
+ * @summary Record the verdict on a report check
+ */
+export const signalsScoutRecordCheckResult = async (
+    projectId: string,
+    runId: string,
+    recordCheckResultRequestApi: RecordCheckResultRequestApi,
+    options?: RequestInit
+): Promise<RecordCheckResultResponseApi> => {
+    return apiMutator<RecordCheckResultResponseApi>(getSignalsScoutRecordCheckResultUrl(projectId, runId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(recordCheckResultRequestApi),
+    })
+}
+
 export const getSignalsScoutEditReportUrl = (projectId: string, runId: string) => {
     return `/api/projects/${projectId}/signals/scout/runs/${runId}/edit-report/`
 }
 
 /**
- * Rewrite a report's title/summary, append a note or fresh evidence, set its suggested reviewers, and/or point it at another repository. Can target ANY of the project's inbox reports, not just scout-authored ones — so the edit is attributed to this scout. Reviewers and repository are how you rescue a report that surfaced routed to no one or against the wrong codebase: each replaces what the report holds and re-runs autostart, so a report that was missing a qualifying reviewer or a repository can open a draft PR. The response carries the repository the report holds after the edit, and the call fails when a repository it named did not land. Title/summary edits are best-effort: the pipeline may later re-research them.
+ * Rewrite a report's title/summary, append a note or fresh evidence, set its suggested reviewers, and/or point it at another repository. Can target ANY of the project's inbox reports, not just scout-authored ones — so the edit is attributed to this scout. Reviewers and repository are how you rescue a report that surfaced routed to no one or against the wrong codebase: each replaces what the report holds and re-runs autostart, so a report that was missing a qualifying reviewer or a repository can open a draft PR. The response carries the repository the report holds after the edit, and the call fails when a repository it named did not land. Title/summary edits are best-effort: the pipeline may later re-research them. Set `supersedes_implementation` alongside a rewrite when the fix changed. Verified automated predecessor PRs close only after the replacement completes with verified open PRs.
  * @summary Edit an existing report for a run
  */
 export const signalsScoutEditReport = async (
@@ -1558,6 +1566,86 @@ export const signalsScoutRecordOutput = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(recordStructuredOutputRequestApi),
+    })
+}
+
+export const getSignalsScoutReportCheckCancelUrl = (projectId: string, runId: string) => {
+    return `/api/projects/${projectId}/signals/scout/runs/${runId}/report-check-cancel/`
+}
+
+/**
+ * Stop a check that is no longer worth running — the claim it re-measures has changed, or a better check replaces it. Results it already recorded stay on the report. A check that has already finished cannot be cancelled.
+ * @summary Cancel a follow-up check
+ */
+export const signalsScoutReportCheckCancel = async (
+    projectId: string,
+    runId: string,
+    cancelReportCheckRequestApi: CancelReportCheckRequestApi,
+    options?: RequestInit
+): Promise<ScoutCheckSummaryApi> => {
+    return apiMutator<ScoutCheckSummaryApi>(getSignalsScoutReportCheckCancelUrl(projectId, runId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(cancelReportCheckRequestApi),
+    })
+}
+
+export const getSignalsScoutReportCheckCreateUrl = (projectId: string, runId: string) => {
+    return `/api/projects/${projectId}/signals/scout/runs/${runId}/report-check-create/`
+}
+
+/**
+ * Schedule a re-measurement of a report's claim, so whether the fix held becomes a stored fact instead of something a future run has to remember to look for. A `metric_threshold` check runs one bounded Trends query and compares the result. An `agent` check runs a scout instead, for a claim no single number settles.
+ * @summary Write a follow-up check on a report
+ */
+export const signalsScoutReportCheckCreate = async (
+    projectId: string,
+    runId: string,
+    createReportCheckRequestApi: CreateReportCheckRequestApi,
+    options?: RequestInit
+): Promise<ScoutCheckSummaryApi> => {
+    return apiMutator<ScoutCheckSummaryApi>(getSignalsScoutReportCheckCreateUrl(projectId, runId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(createReportCheckRequestApi),
+    })
+}
+
+export const getSignalsScoutReportChecksListUrl = (
+    projectId: string,
+    runId: string,
+    params: SignalsScoutReportChecksListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/signals/scout/runs/${runId}/report-checks/?${stringifiedParams}`
+        : `/api/projects/${projectId}/signals/scout/runs/${runId}/report-checks/`
+}
+
+/**
+ * Every check on one report, newest first. Read this before writing one: a report already carrying a check for the same claim needs no second one, and a report holds at most five open checks at a time.
+ * @summary List a report's follow-up checks
+ */
+export const signalsScoutReportChecksList = async (
+    projectId: string,
+    runId: string,
+    params: SignalsScoutReportChecksListParams,
+    options?: RequestInit
+): Promise<ScoutCheckSummaryApi[]> => {
+    return apiMutator<ScoutCheckSummaryApi[]>(getSignalsScoutReportChecksListUrl(projectId, runId, params), {
+        ...options,
+        method: 'GET',
     })
 }
 

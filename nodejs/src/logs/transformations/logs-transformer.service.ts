@@ -13,8 +13,9 @@ import { decodeLogAttributeValue, encodeLogAttributeValue } from '../attribute-v
 import type { LogRecord } from '../log-record-avro'
 import {
     LogTransformationGlobals,
-    buildLogRecordGlobals,
+    buildLogRecordGlobalsRecord,
     executeLogTransformation,
+    refreshLogRecordGlobalsRecord,
     resolveLogTransformationInputs,
 } from './hog-log-exec'
 
@@ -288,10 +289,24 @@ export class LogsTransformerService {
             addVmMs: (ms: number) => void
         }
     ): boolean {
+        // Built once per record, not per function: the decoded maps change only when a
+        // function transforms the record, so globals are refreshed from the record
+        // between functions instead of rebuilt.
+        const globals: LogTransformationGlobals = {
+            project,
+            record: buildLogRecordGlobalsRecord(record),
+            inputs: {},
+        }
+        // Refreshed only after a function actually wrote to the record (a mutation or a
+        // failure annotation): most functions leave most records untouched.
+        let recordDirty = false
         for (const fn of functions) {
             const agg = this.getAggregates(ctx.aggregates, fn.id)
 
-            const globals = buildLogRecordGlobals(record, project, {})
+            if (recordDirty) {
+                refreshLogRecordGlobalsRecord(globals.record, record)
+                recordDirty = false
+            }
 
             // Input templates are customer-owned bytecode — a failing template is an
             // invocation failure (fail open, annotate, surface in function logs), not a
@@ -305,6 +320,7 @@ export class LogsTransformerService {
                 agg.failed++
                 transformationRecordsCounter.inc({ result: 'failed' })
                 this.annotateFailure(record, fn)
+                recordDirty = true
                 this.captureErrorLogs(
                     fn,
                     ctx.teamId,
@@ -333,6 +349,7 @@ export class LogsTransformerService {
                     error: String(error),
                 })
                 this.annotateFailure(record, fn)
+                recordDirty = true
                 agg.failed++
                 transformationRecordsCounter.inc({ result: 'failed' })
                 continue
@@ -345,6 +362,7 @@ export class LogsTransformerService {
                 agg.failed++
                 transformationRecordsCounter.inc({ result: 'failed' })
                 this.annotateFailure(record, fn)
+                recordDirty = true
                 this.captureErrorLogs(
                     fn,
                     ctx.teamId,
@@ -366,6 +384,7 @@ export class LogsTransformerService {
 
             agg.succeeded++
             transformationRecordsCounter.inc({ result: 'succeeded' })
+            recordDirty = true
         }
 
         return false

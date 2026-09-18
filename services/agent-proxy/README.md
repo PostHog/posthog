@@ -27,7 +27,8 @@ access logs, which would expose the run-scoped JWT. The browser uses
 fetch-event-source (which sets headers), not native `EventSource`.
 
 Resume is via the `Last-Event-ID` header; `?start=latest` tails from the
-newest available entry.
+newest available entry. `?resync=1` declares that the client can rebuild from
+the durable run log when its cursor has been trimmed out of Redis.
 
 ## Environment variables
 
@@ -175,7 +176,20 @@ During the cutover window both services read and write the same streams safely.
 To roll back: unset `TASKS_AGENT_PROXY_PUBLIC_URL` and `TASKS_AGENT_PROXY_INGEST_URL`
 on Django. No data migration is needed because the stream format is identical.
 
-S3 hydration on resume gap is explicitly out of scope for this version — when a
-client's `Last-Event-ID` has been trimmed from Redis, the service emits a metric
-and continues reading from the oldest available entry, matching the current
-Python behavior exactly.
+When a client's `Last-Event-ID` is no longer in Redis (trimmed, or the stream of a
+finished run expired), the service emits a metric. A client that opened with
+`?resync=1` receives an `event: end` frame with `{"type":"resync","reason":"trimmed"}`
+and the connection closes. The same frame ends a resync-capable connection whose
+cursor is trimmed while the reader lags, in one pause or in many short ones, and a
+failed trim check closes such a
+connection with a stream error instead of reading from the stale cursor. To recover,
+the client drops its cursor and reopens without `Last-Event-ID` (a retained header
+takes precedence over `start` and repeats the frame). Reopen cursorless, which replays
+the whole surviving window, rather than at `?start=latest`: the run log trails the live
+stream and holds a streaming message only once the turn coalesces it into one entry, so
+a reader that skips the surviving window can miss the message it was receiving. The
+client buffers live frames, reads the durable run log and deduplicates the replay
+against it by agent event id, covering both the `first_event_id..event_id` range of a
+coalesced entry and every id in its `covered_event_ids`.
+Any other client keeps reading from the oldest available entry, matching the Python
+behavior. Server-side S3 hydration on a resume gap is out of scope for this version.

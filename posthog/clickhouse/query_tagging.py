@@ -232,7 +232,7 @@ def kind_fallback_tags(kind: NodeKind) -> FallbackTags | None:
             return {"product": Product.ERROR_TRACKING}
         case NodeKind.LOGS_QUERY | NodeKind.LOG_ATTRIBUTES_QUERY | NodeKind.LOG_VALUES_QUERY:
             return {"product": Product.LOGS}
-        case NodeKind.METRICS_QUERY:
+        case NodeKind.METRICS_QUERY | NodeKind.METRICS_HISTOGRAM_QUERY:
             return {"product": Product.METRICS}
         case NodeKind.ACCOUNTS_TABLE_QUERY:
             return {"product": Product.CUSTOMER_ANALYTICS}
@@ -418,10 +418,12 @@ class QueryTags(BaseModel):
     workload: Optional[str] = None  # enum connection.Workload
     dashboard_id: Optional[int] = None
     insight_id: Optional[int] = None
+    lookup: Optional[str] = None  # a runner's internal lookup before its real query, e.g. "earliest_timestamp"
     scanner_id: Optional[str] = None  # replay-vision scanner, for per-scanner read metering
     exported_asset_id: Optional[int] = None
     export_format: Optional[str] = None
     chargeable: Optional[int] = None
+    api_queries_budgeted: Optional[bool] = None  # server-set only; request tags cannot reach it
     request_name: Optional[str] = None
     name: Optional[str] = None
     endpoint_version: Optional[int] = None  # Endpoints, the product
@@ -435,6 +437,10 @@ class QueryTags(BaseModel):
 
     # frontend UI context (from QueryLogTags)
     scene: Optional[str] = None
+    # Saved Web analytics filter preset the query was run under. Client-supplied and
+    # truncated at the boundary; the warming DAG validates it against Postgres before
+    # acting on it, so an invented id buys nothing.
+    preset_id: Optional[str] = None
 
     alert_config_id: Optional[uuid.UUID] = None
     # Cadence and query shape of the alert that triggered this run, tagged at evaluation
@@ -519,6 +525,7 @@ class QueryTags(BaseModel):
     trend_volume_display: Optional[str] = None
     table_id: Optional[uuid.UUID] = None
     warehouse_query: Optional[bool] = None
+    saved_query_ids: Optional[list[str]] = None
 
     trend_volume_type: Optional[str] = None
 

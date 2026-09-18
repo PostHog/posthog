@@ -54,6 +54,7 @@ def test_create_batch_export_with_interval_schedule(
             "region": "us-east-1",
             "prefix": "posthog-events/",
             "use_virtual_style_addressing": True,
+            "legacy_parquet_extension": False,
         },
         "integration": s3_compatible_integration.id,
     }
@@ -107,6 +108,7 @@ def test_create_batch_export_with_interval_schedule(
     assert args["region"] == "us-east-1"
     assert args["prefix"] == "posthog-events/"
     assert args["use_virtual_style_addressing"]
+    assert args["legacy_parquet_extension"] is False
     # Credentials are resolved from the integration at run time, never carried in the schedule.
     assert args["integration_id"] == s3_compatible_integration.id
     assert args.get("aws_access_key_id") is None
@@ -591,14 +593,10 @@ def test_create_batch_export_fails_with_invalid_query(
         (
             "Snowflake",
             {
-                "account": "my-account",
-                "user": "user",
                 "database": "my-db",
                 "warehouse": "COMPUTE_WH",
                 "schema": "public",
                 "table_name": 2,  # Wrong type
-                "authentication_type": "keypair",
-                "private_key": "SECRET_KEY",
             },
             "invalid type: got 'int', expected 'str'",
         ),

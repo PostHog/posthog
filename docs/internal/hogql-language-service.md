@@ -48,6 +48,17 @@ Direct field projections retain catalog types; expression types remain unknown.
 Qualified CTE completion also works before `FROM`, for example `WITH t AS (SELECT event FROM events) SELECT t.`.
 Inner bindings take precedence, and sibling queries and statements do not contribute suggestions.
 Validation checks aliased subquery output fields and continues to report only underlying catalog tables in `tableNames`.
+Validation reports `duplicate_table` when a FROM or JOIN source reuses a table name or explicit alias in the same query scope.
+Use distinct aliases for self-joins, for example `events AS e JOIN events AS other`.
+This follows HogQL's resolver even when raw ClickHouse accepts an unaliased self-join.
+The duplicate-name check is case-sensitive; separate nested queries and set-operation branches can reuse names.
+Catalog table names, table aliases, and CTE names resolve by exact case, as in the Python resolver for ordinary tables.
+Catalogs can contain both `events` and `Events`; each name retains its own fields, and validation lists both names when both are used.
+With only `events` in the catalog, `SELECT properties FROM Events` reports `unknown_table`.
+The same query is valid when an exact `Events` entry exists and exposes `properties`.
+Table completion still matches prefixes without regard to case, so typing `EV` can suggest both names and inserts the selected name with its original case.
+CTE shadowing and table-suggestion deduplication use exact names, so a CTE named `Events` does not hide the catalog table `events`.
+Duplicate qualifiers do not establish property provenance, including inside CTE projections and qualified wildcards.
 FROM and JOIN completion includes visible table CTEs before catalog tables, with `CTE` in the suggestion detail.
 CTE names follow the same scope, definition-order, and shadowing rules as relation lookup; scalar WITH aliases are not tables.
 A visible CTE hides a catalog table with the same name, and pagination counts that name once.
@@ -66,10 +77,30 @@ Select aliases follow the resolution order in `posthog/hogql/resolver.py` (`visi
 An explicit alias becomes visible after its defining SELECT item, so later items can reference it.
 WHERE, PREWHERE, GROUP BY, HAVING, ORDER BY, named WINDOW definitions, and LIMIT expressions can reference all SELECT aliases in their query.
 FROM and JOIN expressions cannot reference them, and aliases do not cross nested queries, CTE definitions, UNION branches, or statements.
+UNION ALL, UNION DISTINCT, and EXCEPT branches resolve property containers and aliases from their own sources without inheriting another branch's property catalog.
 Alias lookup is case-sensitive, as in the Python resolver; completion prefix matching remains case-insensitive.
 An alias named `UUID` does not hide a source field named `uuid`; they can refer to different values.
 An alias takes precedence over an unqualified field with the same name, while qualified field lookup still uses the relation.
 Direct alias chains retain catalog types, and validation typo suggestions include visible aliases.
+
+Direct property-container projections retain their original catalog namespace through CTEs, aliased subqueries, renamed fields, wildcard expansion, and visible SELECT aliases.
+Completion and property-name validation use that same origin, rather than guessing from the projected name.
+For example, `WITH recent AS (SELECT properties FROM events) SELECT recent.properties.$br FROM recent` suggests `$browser`.
+A CTE named `events` that projects `persons.properties` uses the person property catalog, not the event catalog.
+Renaming a container to `props` preserves its origin; projecting an individual property value does not preserve the whole container's namespace.
+
+Case-variant aliases keep separate property origins:
+
+```sql
+SELECT e.properties.$browser, E.properties.email
+FROM events AS e JOIN persons AS E ON 1 = 1
+```
+
+With those properties in the supplied catalog, both references validate.
+Completion after `e.properties.$br` suggests the event property `$browser`, while `E.properties.em` suggests the person property `email`.
+A reference to `E` does not resolve an alias declared only as `e`.
+CTEs named `t` and `T` also retain separate projected fields and property origins.
+An unrelated custom table named `Events` does not inherit the built-in event property catalog from its spelling.
 
 Physical field completion borrows the catalog prefix index.
 Derived projections have a shared limit of 16,384 fields before deduplication.
@@ -79,14 +110,22 @@ Aliases of the same relation share a cached field index and one candidate entry 
 Completion returns HTTP 400 when either limit is exceeded; validation returns a `query_limit` diagnostic.
 Derived qualified suggestions are sorted and deduplicated before pagination.
 
+An unfinished block comment returns a parser error instead of blocking completion or validation.
+For example, `WITH recent AS (SELECT uuid FROM events) SELECT recent.uuid FROM recent WHERE /* unfinished` produces a `syntax_error` validation diagnostic.
+Completion before that comment returns a `parseError` without recovering CTE field suggestions; completion inside the comment remains disabled.
+Closed block comments and line comments at end of input remain valid.
+
 ### Recovery and remaining work
 
+- Source-specific case-insensitive relation lookup remains unsupported. Python catalog nodes can opt in, for example for Snowflake, but the Go catalog payload does not carry that per-node flag. Supporting it requires publishing the metadata and implementing exact-match-first, opt-in fallback without merging distinct names. The service requires exact relation names until then; autocomplete prefix matching remains case-insensitive.
+- Physical field and property-key case sensitivity remain separate from relation-name resolution. This layer does not claim complete identifier-case parity with the Python resolver.
 - Cursor replacement must produce parseable SQL to resolve CTE and subquery fields. Recovery for missing parentheses or incomplete predicates in multi-scope queries remains follow-up work.
 - For an incomplete single `SELECT` without `WITH`, completion can recover a parseable `FROM` clause before an unfinished predicate. The response retains `parseError`. Recovery never overlays parsed bindings or scans aliases from sibling scopes.
-- Property provenance through derived projections is not available. Completion suppresses property suggestions for derived owners, including CTEs that shadow built-in names such as `events`. Unqualified physical properties remain available when joined derived relations do not project `properties`; a derived `properties` field makes the namespace ambiguous. Add provenance before enabling those ambiguous suggestions.
+- Property provenance covers direct containers only. Computed JSON expressions, nested JSON schemas, conflicting sources, and duplicate projected names do not establish a namespace. Completion suppresses property suggestions and validation skips property-name checks when the origin is unknown. Expression inference and ambiguous-column diagnostics remain follow-up work; duplicate source names produce `duplicate_table`.
+- Projecting a nested virtual container such as `e.person.properties AS props` does not retain provenance. Model virtual-table traversal before enabling those projected namespaces; existing direct physical property paths remain available.
 - Select-alias recovery requires parseable cursor-replaced SQL. Single-SELECT recovery retains only FROM bindings and does not guess discarded aliases. Preserve SELECT items in a structured recovery pass before enabling those suggestions.
-- Property provenance through select aliases is not available. A visible alias that shadows a property owner suppresses its property suggestions and property-name validation. Track the alias expression's owner before enabling property traversal; qualified physical properties remain available.
-- Scalar WITH aliases, aliases inside expressions, ARRAY JOIN aliases, QUALIFY, and duplicate-alias diagnostics remain follow-up work. Model their resolver order and parser support before extending the top-level SELECT alias index. For duplicate declarations, the index retains the first declaration; it does not establish that the query is valid.
+- SELECT-alias property provenance follows the existing visibility and case-sensitive precedence rules. An alias without a known container origin suppresses property-owner fallback; it does not inherit a namespace from a name such as `person` or `properties`.
+- Scalar WITH aliases, aliases inside expressions, ARRAY JOIN aliases, QUALIFY, and duplicate SELECT-alias diagnostics remain follow-up work. Model their resolver order and parser support before extending the top-level SELECT alias index. For duplicate declarations, the index retains the first field and type, but property provenance becomes unknown once the duplicate declaration is visible; earlier references retain their original provenance.
 - Validation skips field checks when a query has no known FROM bindings, including SELECT without FROM. Completion can still suggest its aliases. Add explicit empty-source scopes and distinguish unknown relations before enabling strict validation there.
 - JOIN USING output coalescing and ambiguous unqualified-field diagnostics remain follow-up work. Completion offers each source's qualified field; it does not choose a join-wide value or change validation's ambiguity rules.
 - CTE table-name suggestions require cursor replacement to produce parseable SQL. Malformed WITH clauses fall back to catalog suggestions without guessing CTE scope. Structured recovery remains follow-up work.

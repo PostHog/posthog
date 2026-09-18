@@ -11,7 +11,6 @@ from uuid import UUID
 
 from django.db import IntegrityError, transaction
 from django.db.models import Q, QuerySet
-from django.http import HttpRequest
 from django.utils import timezone
 
 import structlog
@@ -85,13 +84,13 @@ class InboundQueueMetrics:
     oldest_ready_age_seconds: float
 
 
-def slack_retry_metadata(request: HttpRequest) -> tuple[int | None, str]:
-    raw_num = request.headers.get("X-Slack-Retry-Num")
-    reason = (request.headers.get("X-Slack-Retry-Reason") or "")[:64]
-    if not raw_num:
+def slack_retry_metadata_from_values(*, raw_retry_num: str, retry_reason: str) -> tuple[int | None, str]:
+    """Parse Slack's retry headers from values, for callers that hold no request."""
+    reason = retry_reason[:64]
+    if not raw_retry_num:
         return None, reason
     try:
-        retry_num = int(raw_num)
+        retry_num = int(raw_retry_num)
     except ValueError:
         return None, reason
     if retry_num < 0:
