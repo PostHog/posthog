@@ -1,24 +1,31 @@
-import type { HogFlow } from './hogflows/types'
+import type { HogFlow, HogFlowAction } from './hogflows/types'
 import { findMatchingWorkflowSteps } from './workflowSearchMatches'
 
 function workflowWith(overrides: Partial<HogFlow>): HogFlow {
     return {
         id: 'flow-1',
+        team_id: 1,
+        version: 1,
         name: 'Billing',
         description: '',
+        status: 'active',
+        exit_condition: 'exit_only_at_end',
         actions: [],
         edges: [],
+        created_at: '2026-01-01T00:00:00Z',
+        updated_at: '2026-01-01T00:00:00Z',
         ...overrides,
-    } as unknown as HogFlow
+    }
 }
 
-function emailAction(id: string, name: string, value: Record<string, unknown>): HogFlow['actions'][number] {
+function emailAction(id: string, name: string, value: Record<string, unknown>): HogFlowAction {
     return {
         id,
         name,
+        description: '',
         type: 'function_email',
         config: { template_id: 'template-email', inputs: { email: { value } } },
-    } as unknown as HogFlow['actions'][number]
+    }
 }
 
 const invoiceEmail = emailAction('email_1', 'Monthly invoice email', {
