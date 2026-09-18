@@ -45,6 +45,7 @@ depends_on = [
     "posthog",
     "products.access_control",
     "products.actions",
+    "products.approvals",
     "products.alerts",
     "products.cdp",
     "products.conversations",

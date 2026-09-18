@@ -40,10 +40,16 @@ class ExperimentHoldoutActionBase(BaseAction):
 
     @classmethod
     def _load_holdout(cls, holdout_id, team_id):
-        from products.experiments.backend.models.experiment import ExperimentHoldout
+        # Imported from the holdout API module: approvals may depend on `ee`, not on the
+        # experiments product. See tach.toml.
+        from ee.clickhouse.views.experiment_holdouts import ExperimentHoldout
 
         # nosemgrep: idor-lookup-without-team (team_id comes from the approved change request)
         return ExperimentHoldout.objects.filter(id=holdout_id, team_id=team_id).first()
+
+    @classmethod
+    def _experiment_ids(cls, intent_data: dict[str, Any]) -> list[int]:
+        return sorted(experiment["id"] for experiment in intent_data.get("affected_experiments", []))
 
     @classmethod
     def check_staleness(cls, intent_data: dict[str, Any], context: Optional[dict[str, Any]] = None) -> bool:
@@ -51,7 +57,11 @@ class ExperimentHoldoutActionBase(BaseAction):
         if holdout is None:
             return True
         stored = intent_data.get("current_state", {}).get("exclusion_percentage")
-        return _exclusion_percentage(holdout.filters) != stored
+        if _exclusion_percentage(holdout.filters) != stored:
+            return True
+        # An experiment that joined or left the holdout changes which flags the approved change
+        # rewrites, so the approver saw a different blast radius than the one that would apply.
+        return sorted(e["id"] for e in _affected_experiments(holdout)) != cls._experiment_ids(intent_data)
 
     @classmethod
     def prepare_context(cls, change_request, base_context: dict[str, Any]) -> dict[str, Any]:
@@ -117,6 +127,8 @@ class UpdateExperimentHoldoutAction(ExperimentHoldoutActionBase):
             return holdout
         if current != validated_intent.get("current_state", {}).get("exclusion_percentage"):
             raise PreconditionFailed("The holdout changed after this request was created")
+        if sorted(e["id"] for e in _affected_experiments(holdout)) != cls._experiment_ids(validated_intent):
+            raise PreconditionFailed("The experiments in this holdout changed after this request was created")
 
         serializer = ExperimentHoldoutSerializer(context=cls._serializer_context(holdout, context))
         try:
