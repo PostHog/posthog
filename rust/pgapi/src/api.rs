@@ -54,6 +54,8 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/servers/:server/queries/:queryid", get(query_detail))
         .route("/servers/:server/tags", get(tags))
         .route("/servers/:server/waits", get(waits))
+        .route("/servers/:server/locks", get(locks))
+        .route("/servers/:server/sessions/:pid", get(session_history))
         .route("/servers/:server/activity", get(activity))
         .route("/servers/:server/tables", get(tables))
         .route("/servers/:server/indexes", get(indexes))
@@ -181,6 +183,41 @@ async fn load(State(s): S, Path(server): Path<String>, Query(p): Query<BucketQ>)
 async fn waits(State(s): S, Path(server): Path<String>, Query(p): Query<BucketQ>) -> R {
     let (f, t) = p.range.resolve()?;
     Ok(Json(q::wait_events(&s.db, &server, f, t, &p.bucket).await?))
+}
+#[derive(Deserialize)]
+struct LocksQ {
+    #[serde(flatten)]
+    range: Range,
+    #[serde(default = "d_bucket")]
+    bucket: String,
+    #[serde(default = "d_limit")]
+    limit: i64,
+}
+async fn locks(State(s): S, Path(server): Path<String>, Query(p): Query<LocksQ>) -> R {
+    let (f, t) = p.range.resolve()?;
+    Ok(Json(
+        q::lock_waits(&s.db, &server, f, t, &p.bucket, p.limit.clamp(1, 500)).await?,
+    ))
+}
+#[derive(Deserialize)]
+struct SessionQ {
+    #[serde(flatten)]
+    range: Range,
+    #[serde(default = "d_instance")]
+    instance: String,
+}
+fn d_instance() -> String {
+    "writer".into()
+}
+async fn session_history(
+    State(s): S,
+    Path((server, pid)): Path<(String, i64)>,
+    Query(p): Query<SessionQ>,
+) -> R {
+    let (f, t) = p.range.resolve()?;
+    Ok(Json(
+        q::session_history(&s.db, &server, &p.instance, pid, f, t).await?,
+    ))
 }
 async fn activity(State(s): S, Path(server): Path<String>) -> R {
     Ok(Json(q::current_activity(&s.db, &server).await?))

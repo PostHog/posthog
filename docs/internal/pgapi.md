@@ -8,12 +8,12 @@ contract.
 
 ## Surfaces
 
-| path                              | what                                                                                                                                                           | auth              |
-| --------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------- |
-| `/api/v1/*`                       | JSON API: servers, overview, queries, query tags, activity, tables, indexes, vacuum, events, logs, system, schema, settings, collector health, guarded raw SQL | identity required |
-| `/mcp`                            | MCP streamable HTTP, 18 read-only tools over the same query layer                                                                                              | identity required |
-| `/`                               | embedded UI over `/api/v1`                                                                                                                                     | identity required |
-| `/healthz`, `/readyz`, `/metrics` | probes and Prometheus                                                                                                                                          | none              |
+| path                              | what                                                                                                                                                                            | auth              |
+| --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------- |
+| `/api/v1/*`                       | JSON API: servers, overview, queries, query tags, activity, locks, sessions, tables, indexes, vacuum, events, logs, system, schema, settings, collector health, guarded raw SQL | identity required |
+| `/mcp`                            | MCP streamable HTTP, 19 read-only tools over the same query layer                                                                                                               | identity required |
+| `/`                               | embedded UI over `/api/v1`                                                                                                                                                      | identity required |
+| `/healthz`, `/readyz`, `/metrics` | probes and Prometheus                                                                                                                                                           | none              |
 
 ## Query tags
 
@@ -32,6 +32,17 @@ with the host core count; it is the Overview page's database load chart. Every r
 endpoint accepts `since` or absolute `from`/`to`, which is how a range dragged on a
 chart is fetched. `GET /servers/{id}/events?exclude=pgss_dealloc,log_cancel,log_lock%`
 leaves out routine kinds before the limit, so event markers show the rare kinds.
+
+## Lock waits
+
+`GET /servers/{id}/locks` (MCP `lock_waits`) answers "who waited for whom" over a
+range from the 10 s blocking-graph samples: sessions waiting per bucket by lock type,
+(blocker statement, waiter statement) pairs with waiter-seconds and how often the
+blocker sat idle in transaction, blocking episodes (consecutive samples of one waiter
+and blocker pair) with the blocker's transaction age, and deadlocks from the log.
+`GET /servers/{id}/sessions/{pid}?instance=writer&from=&to=` returns one backend's
+long-session samples, which the Locks page uses to show what a blocker ran before it
+went idle.
 
 ## Identity and authorization
 

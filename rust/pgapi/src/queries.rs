@@ -602,6 +602,75 @@ pub async fn db_load(db: &Db, server: &str, from: Ts, to: Ts, bucket: &str) -> R
     Ok(json!({ "bucket": bucket_interval(bucket), "series": series, "host": host }))
 }
 
+pub async fn lock_waits(
+    db: &Db,
+    server: &str,
+    from: Ts,
+    to: Ts,
+    bucket: &str,
+    limit: i64,
+) -> Result<Value> {
+    let b = bucket_expr("collected_at", bucket_interval(bucket));
+    let series = opt(db, &format!(
+        "WITH samples AS (
+            SELECT {b} AS bucket, instance, count(DISTINCT collected_at) AS n
+            FROM ts_activity_samples WHERE server_id = $1 AND collected_at >= $2 AND collected_at < $3 GROUP BY 1, 2),
+         waiting AS (
+            SELECT {b} AS bucket, instance, coalesce(wait_event, 'other') AS locktype, sum(backends) AS backends
+            FROM ts_activity_samples WHERE server_id = $1 AND collected_at >= $2 AND collected_at < $3 AND wait_event_type = 'Lock' GROUP BY 1, 2, 3)
+         SELECT w.bucket, w.locktype, round(sum(w.backends::float8 / s.n)::numeric, 2)::float8 AS avg_waiting_sessions
+         FROM waiting w JOIN samples s USING (bucket, instance) GROUP BY 1, 2 ORDER BY 1, 2"), &[&server, &from, &to]).await?;
+    // One row per blocked backend per 10 s sample, so summing the interval gives waiter-seconds.
+    let pairs = opt(db, "SELECT blocker_query, waiter_query, locktype, relation, wanted_mode,
+                count(*)::bigint AS samples, round(sum(interval_seconds)::numeric, 0)::float8 AS waited_s,
+                count(DISTINCT (instance, waiter_pid))::bigint AS waiters, count(DISTINCT (instance, blocker_pid))::bigint AS blockers,
+                max(waiting_s)::float8 AS max_waiting_s, max(blocker_xact_age_s)::float8 AS max_blocker_xact_age_s,
+                round(100.0 * sum(CASE WHEN blocker_state = 'idle in transaction' THEN 1 ELSE 0 END) / count(*), 0)::float8 AS blocker_idle_pct,
+                max(usename) AS usename, max(application_name) AS application_name,
+                max(blocker_usename) AS blocker_usename, max(blocker_application_name) AS blocker_application_name,
+                max(collected_at) AS last_seen
+         FROM ts_lock_waits WHERE server_id = $1 AND collected_at >= $2 AND collected_at < $3
+         GROUP BY 1, 2, 3, 4, 5 ORDER BY waited_s DESC LIMIT $4", &[&server, &from, &to, &limit]).await?;
+    // Consecutive samples of one (waiter, blocker) pair are one episode; a gap over 30 s (three
+    // missed samples) starts a new one, which is what a waiter that timed out and retried looks like.
+    let episodes = opt(db, "WITH w AS (
+            SELECT *, CASE WHEN lag(collected_at) OVER pair IS NULL OR collected_at - lag(collected_at) OVER pair > interval '30 seconds' THEN 1 ELSE 0 END AS starts
+            FROM ts_lock_waits WHERE server_id = $1 AND collected_at >= $2 AND collected_at < $3
+            WINDOW pair AS (PARTITION BY instance, waiter_pid, blocker_pid ORDER BY collected_at)),
+         e AS (SELECT *, sum(starts) OVER (PARTITION BY instance, waiter_pid, blocker_pid ORDER BY collected_at) AS episode FROM w)
+         SELECT instance, datname, waiter_pid, blocker_pid, min(collected_at) AS first_seen, max(collected_at) AS last_seen,
+                count(*)::bigint AS samples, round(sum(interval_seconds)::numeric, 0)::float8 AS waited_s, max(waiting_s)::float8 AS max_waiting_s,
+                max(blocker_xact_age_s)::float8 AS blocker_xact_age_s, min(blocker_xact_age_s)::float8 AS blocker_xact_age_at_start_s,
+                (array_agg(blocker_state ORDER BY collected_at DESC))[1] AS blocker_state,
+                (array_agg(locktype ORDER BY collected_at DESC))[1] AS locktype, (array_agg(relation ORDER BY collected_at DESC))[1] AS relation,
+                (array_agg(wanted_mode ORDER BY collected_at DESC))[1] AS wanted_mode,
+                (array_agg(waiter_query ORDER BY collected_at DESC))[1] AS waiter_query, (array_agg(blocker_query ORDER BY collected_at DESC))[1] AS blocker_query,
+                max(usename) AS usename, max(application_name) AS application_name,
+                max(blocker_usename) AS blocker_usename, max(blocker_application_name) AS blocker_application_name
+         FROM e GROUP BY instance, datname, waiter_pid, blocker_pid, episode ORDER BY first_seen DESC LIMIT $4", &[&server, &from, &to, &limit]).await?;
+    let deadlocks = opt(db, "SELECT id, at, instance, datname, subject, after FROM events WHERE server_id = $1 AND at >= $2 AND at < $3 AND kind = 'log_deadlock' ORDER BY at DESC LIMIT 50", &[&server, &from, &to]).await?;
+    Ok(
+        json!({ "bucket": bucket_interval(bucket), "series": series, "pairs": pairs, "episodes": episodes, "deadlocks": deadlocks }),
+    )
+}
+
+/// Backends are only sampled once active for 5 s or idle in transaction for 60 s, so a short
+/// transaction leaves no rows. The newest rows win when the window holds more than the limit.
+pub async fn session_history(
+    db: &Db,
+    server: &str,
+    instance: &str,
+    pid: i64,
+    from: Ts,
+    to: Ts,
+) -> Result<Value> {
+    Ok(json!(opt(db, "SELECT * FROM (
+            SELECT collected_at, datname, usename, application_name, client_addr, state, wait_event_type, wait_event, blocked_by,
+                   xact_start, xact_age_s, query_start, query_age_s, query_id, query, tags, trace_id
+            FROM ts_activity_sessions WHERE server_id = $1 AND instance = $2 AND pid = $3 AND collected_at >= $4 AND collected_at < $5
+            ORDER BY collected_at DESC LIMIT 2000) newest ORDER BY collected_at", &[&server, &instance, &pid, &from, &to]).await?))
+}
+
 pub async fn current_activity(db: &Db, server: &str) -> Result<Value> {
     let sessions = opt(db, "SELECT * FROM ts_activity_sessions WHERE server_id = $1 AND collected_at = (SELECT max(collected_at) FROM ts_activity_sessions WHERE server_id = $1 AND collected_at > now() - interval '5 minutes') ORDER BY query_age_s DESC NULLS LAST", &[&server]).await?;
     let locks = opt(db, "SELECT * FROM ts_lock_waits WHERE server_id = $1 AND collected_at = (SELECT max(collected_at) FROM ts_lock_waits WHERE server_id = $1 AND collected_at > now() - interval '5 minutes') ORDER BY waiting_s DESC", &[&server]).await?;
