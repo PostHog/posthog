@@ -150,6 +150,12 @@ It excludes skipped, cancelled, neutral, and action-required runs because they d
 The duration percentile uses successful runs because cancelled and failed runs end early.
 For a single-workflow tile, add `AND workflow_name = 'CI'` and drop the group.
 
+The `run_started_at` filter above is the exact boundary, and it cannot prune the parquet scan, because the base computes that column.
+So without a coarse floor on the raw string column, the tile reads the team's whole run history on every refresh.
+Floor the base's source the way the product's runs builder does under `started_floor` (`logic/views/workflow_runs.py`), keeping the floor in its own innermost `SELECT` so the parsing alias cannot capture it: `FROM (SELECT * FROM github_workflow_runs WHERE run_started_at >= '<61 days ago, YYYY-MM-DD>')`.
+That floor is a literal date, so re-set it when you edit a saved tile.
+Leave the base unfloored for the failing-CI recipe below, which needs the latest run for open PRs of any age.
+
 ## Recipe: PR throughput per week
 
 ```sql
