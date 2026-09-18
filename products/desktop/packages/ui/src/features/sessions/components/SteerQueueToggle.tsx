@@ -45,7 +45,7 @@ export function SteerQueueToggle({ taskId }: SteerQueueToggleProps) {
 
   const tooltip = steerQueueTooltip(isSteer, supportsNativeSteer, shortcut);
 
-  const colorClass = isSteer ? "text-purple-11" : "text-gray-11";
+  const colorClass = isSteer ? "text-purple-11" : "text-muted-foreground";
 
   return (
     <Tooltip content={tooltip}>
