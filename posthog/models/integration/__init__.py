@@ -80,6 +80,7 @@ from .oauth import (
     OauthConfig,
     OauthIntegration,
     posthog_connect_base_url,
+    resolve_aliased_oauth_kind,
 )
 from .postgres import (
     MISSING_CERT_PATH,
@@ -183,6 +184,7 @@ __all__ = [
     "POSTHOG_CONNECT_IDENTITY_SCOPES",
     "POSTHOG_CONNECT_GRANTABLE_SCOPES",
     "posthog_connect_base_url",
+    "resolve_aliased_oauth_kind",
     "OauthIntegration",
     "PRIVATE_CHANNEL_WITHOUT_ACCESS",
     "SlackIntegrationError",

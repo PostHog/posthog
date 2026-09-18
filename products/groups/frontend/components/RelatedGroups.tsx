@@ -6,13 +6,13 @@ import { LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
-import { GroupActorDisplay } from 'scenes/persons/GroupActorDisplay'
-import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 
 import { groupsModel } from '~/models/groupsModel'
 import { ActorType } from '~/types'
 
 import { relatedGroupsLogic } from 'products/groups/frontend/logics/relatedGroupsLogic'
+import { GroupActorDisplay } from 'products/persons/frontend/components/GroupActorDisplay'
+import { PersonDisplay } from 'products/persons/frontend/components/PersonDisplay'
 
 export interface RelatedGroupsProps {
     groupTypeIndex: number | null

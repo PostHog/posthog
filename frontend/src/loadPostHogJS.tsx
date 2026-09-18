@@ -1,4 +1,4 @@
-import posthog, { BeforeSendFn, PostHogInterface, SessionRecordingOptions } from 'posthog-js'
+import posthog, { BeforeSendFn, BrowserMetricsConfig, PostHogInterface, SessionRecordingOptions } from 'posthog-js'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { isOAuthMode } from 'lib/oauth/oauthClient'
@@ -39,6 +39,13 @@ export interface LoadPostHogJSOptions {
      * / network-payload masking when the page renders sensitive bearer tokens in its own URL.
      */
     sessionRecording?: Partial<SessionRecordingOptions>
+    /**
+     * Extra `metrics` config merged on top of the defaults. `before_send` and
+     * `maskCapturedNetworkRequestFn` do not cover the network metrics channel, so the exporter
+     * app uses this to override `network.attributes` and keep the SharingConfiguration access
+     * token out of the captured `path`. See `frontend/src/exporter/index.tsx`.
+     */
+    metrics?: Partial<BrowserMetricsConfig>
 }
 
 export function loadPostHogJS(options: LoadPostHogJSOptions = {}): void {
@@ -61,6 +68,7 @@ export function loadPostHogJS(options: LoadPostHogJSOptions = {}): void {
             error_tracking: {
                 __capturePostHogExceptions: true,
             },
+            metrics: { network: true, serviceName: 'posthog-app', ...options.metrics },
             before_send: options.beforeSend,
             loaded: (loadedInstance) => {
                 if (loadedInstance.sessionRecording) {

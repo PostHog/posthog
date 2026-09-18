@@ -1,8 +1,11 @@
 import gc
 import warnings
+from collections.abc import Generator
 
 import pytest
 import time_machine
+
+from posthog.test.junit import set_junit_report_location
 
 # The default MIXED mode reads naive strings as local time, so a non-UTC machine would
 # freeze at a different instant than CI does.
@@ -218,6 +221,12 @@ def pytest_configure(config) -> None:
 
 def pytest_collection_finish() -> None:
     _end_gc_boot_window()
+
+
+@pytest.hookimpl(hookwrapper=True, tryfirst=True)
+def pytest_runtest_makereport(item: pytest.Item, call: pytest.CallInfo[None]) -> Generator[None]:
+    outcome = yield
+    set_junit_report_location(item, outcome.get_result())
 
 
 @pytest.hookimpl(tryfirst=True)

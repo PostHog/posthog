@@ -275,3 +275,9 @@ class AccessControlPropertyRulesResponseSerializer(serializers.Serializer):
     results = AccessControlPropertyRuleSerializer(
         many=True, help_text="The subject's property rules, sorted by property type and name."
     )
+
+
+class AccessControlResolutionAcceptResponseSerializer(serializers.Serializer):
+    uses_most_specific_access_resolution = serializers.BooleanField(
+        help_text="Always true: the organization now resolves access with the most specific rule."
+    )

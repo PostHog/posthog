@@ -1471,8 +1471,8 @@ export class PostgresPersonRepository
             )
             await this.postgres.query(
                 tx ?? PostgresUse.PERSONS_WRITE,
-                `INSERT INTO lifecycle_op_person (op_id, team_id, person_id, person_uuid, role, ordinal, status)
-                 SELECT $1, $2, u.person_id, u.person_uuid, u.role, u.ordinal, 'marked'
+                `INSERT INTO lifecycle_op_person (op_id, team_id, person_id, person_uuid, role, ordinal, status, mark_active)
+                 SELECT $1, $2, u.person_id, u.person_uuid, u.role, u.ordinal, 'marked', true
                  FROM unnest($3::bigint[], $4::uuid[], $5::text[], $6::int[]) AS u(person_id, person_uuid, role, ordinal)`,
                 [
                     opId,
@@ -1489,7 +1489,7 @@ export class PostgresPersonRepository
             // violation; a duplicate op_id means a concurrent delivery of the same event.
             if (
                 error.code === '23505' &&
-                ['lifecycle_op_person_mark', 'lifecycle_op_pkey'].includes(error.constraint)
+                ['lifecycle_op_person_mark_active', 'lifecycle_op_pkey'].includes(error.constraint)
             ) {
                 throw new PersonClaimedByLifecycleOpError(
                     'Person is claimed by a concurrent lifecycle operation',

@@ -82,6 +82,8 @@ configFiles:
       [sink]
       database_url = "${PGCOLLECTOR_SINK_URL}"
       retention_days = 14
+      [sink.retention]
+      query_durations = 7        # sampled statement log; the biggest table by far
 
       [defaults]
       databases = ["*"]            # discover every database on each cluster, keep discovering

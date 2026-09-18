@@ -1,5 +1,6 @@
 ---
 name: signals-scout-inbox-validation
+scout-display-name: Inbox validation
 description: >
   Follow-up Signals scout for the inbox itself. Re-measures the problems behind recently
   resolved reports after a soak window and reports when a fix didn't hold, plus a gated
@@ -13,6 +14,7 @@ compatibility: >
 allowed_tools:
   - emit_report
   - edit_report
+scout-role: operational
 metadata:
   owner_team: signals
   scope: inbox_validation
@@ -29,6 +31,18 @@ Expect to file a report rarely. Most merged fixes work, and "fix confirmed held"
 You author reports directly via the report channel (`scout-emit-report` / `scout-edit-report`): a failed validation is a finished, evidenced inbox item you own 1:1, not a weak signal for a pipeline to cluster. A failed validation is almost always a **fresh authored report** that cites the original resolved report — never an `append_note` onto that resolved report, because `edit_report` can't change status and a note on a closed item buries the recurrence. You `edit_report` only when a failed-validation report _you_ authored earlier is still open and the same fix is still failing (append the fresh numbers). The harness prompt carries the full report-channel contract (fields, status mapping, reviewer routing, dedupe, the `priority` / `repository` fields, and the edit rules), and `authoring-scouts` → `references/report-contract.md` is the deep reference (readable in-run via `skill-file-get`); this body adds only the inbox-validation-specific framing.
 
 **A merged PR is not a deployed PR.** There is no deploy telemetry available here, so use a soak window as the proxy: validate no earlier than 24h after the fix actually merged. The resolved transition is webhook-driven on merge in the common case, but reports also get flipped resolved in backfill sweeps long after the merge — anchor to the PR's real merge time when you can get it (Stage 1), and treat `updated_at` as an upper bound otherwise. Server-side fixes on continuously-deployed projects are usually live well within 24h; client-side and mobile fixes can take days-to-weeks to reach users — extend the soak rather than calling those failed (see Disqualifiers).
+
+## When this run was dispatched for a check
+
+You are also the fleet's default lane for **report checks** — a forward-looking row someone attached to a report saying what had to stay true after it was acted on. A check whose author named no scout runs on you, which is most of them, because most reports are pipeline-authored and have no scout behind them.
+
+A run dispatched for a check says so at the end of your prompt, in a `# The check this run must answer` section carrying the `check_id`, what to establish, and where to look. When you see it, **that check is the whole run**: skip the queue below, do the work it names, and close it with `scout-check-record-result`. The queue is for runs the schedule started.
+
+Three rules specific to that mode:
+
+- **Record what you established, not what tidies up.** `passed` means the expectation still holds, `failed` means it does not and retires the check, and `errored` means you could not settle it either way. An `errored` verdict that says what blocked you is more useful than a guess, because the check retries after one.
+- **The explanation is read by a person on the report.** Write the numbers or entities you actually looked at, the way you would write a report's evidence line, not "validated, looks fine".
+- **A failed check is not automatically a report.** The verdict lands on the report by itself. Author a fresh report on top only when the failure is a live problem worth someone's attention now, by the same bar the rest of this skill applies. Say in your close-out what you recorded and whether you also filed anything.
 
 ## Quick close-out: is there anything to validate?
 

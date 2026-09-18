@@ -4,7 +4,11 @@ import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authCl
 import { useAuthStateValue } from "@posthog/ui/features/auth/store";
 import { invalidateGithubQueries } from "@posthog/ui/features/integrations/useGithubUserConnect";
 import { toast } from "@posthog/ui/primitives/toast";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import {
+  type UseMutationResult,
+  useMutation,
+  useQueryClient,
+} from "@tanstack/react-query";
 
 type GithubIntegrationClient = Pick<
   PostHogAPIClient,
@@ -23,7 +27,11 @@ export async function clearGithubUserIntegrations(
   return integrations.length;
 }
 
-export function useClearGithubUserIntegrations() {
+export function useClearGithubUserIntegrations(): UseMutationResult<
+  number,
+  Error,
+  void
+> {
   const client = useOptionalAuthenticatedClient();
   const projectId = useAuthStateValue((state) => state.currentProjectId);
   const queryClient = useQueryClient();

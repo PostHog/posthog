@@ -42,3 +42,9 @@ jobs:
             - name: Run tests
               working-directory: services/hogql-language-service
               run: go test -race ./...
+
+            - name: Enforce autocomplete latency budget
+              working-directory: services/hogql-language-service
+              env:
+                  HOGQL_LANGUAGE_SERVICE_ENFORCE_LATENCY_BUDGET: '1'
+              run: go test ./internal/completion -run '^TestCompleteContextualCatalogStaysWithinLatencyBudget$' -count=1

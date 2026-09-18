@@ -1,11 +1,10 @@
 import '@testing-library/jest-dom'
 
-import { fireEvent, render } from '@testing-library/react'
+import { act, fireEvent, render } from '@testing-library/react'
 import { BindLogic, Provider } from 'kea'
 import posthog from 'posthog-js'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { SessionPlayerState } from '~/types'
 
 import { setupSessionRecordingTest } from './__mocks__/test-setup'
 import { PlayerFrame } from './PlayerFrame'
@@ -16,13 +15,9 @@ describe('PlayerFrame', () => {
 
     beforeEach(() => {
         setupSessionRecordingTest()
-        featureFlagLogic.mount()
-        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.REPLAY_PLAYER_OWN_DOCUMENT], {
-            [FEATURE_FLAGS.REPLAY_PLAYER_OWN_DOCUMENT]: true,
-        })
     })
 
-    function renderPlayerFrame(): { container: HTMLElement; iframe: HTMLIFrameElement } {
+    function renderPlayerFrame(): HTMLIFrameElement {
         const { container } = render(
             <Provider>
                 <BindLogic logic={sessionRecordingPlayerLogic} props={logicProps}>
@@ -32,13 +27,15 @@ describe('PlayerFrame', () => {
         )
         const iframe = container.querySelector('iframe.PlayerFrame__document')
         if (!(iframe instanceof HTMLIFrameElement)) {
-            throw new Error('the flag-on player did not render its frame')
+            throw new Error('the player did not render its frame')
         }
-        return { container, iframe }
+        // jsdom leaves the frame document mid-load, and the player judges a document that finished loading.
+        Object.defineProperty(iframe.contentDocument!, 'readyState', { value: 'complete', configurable: true })
+        return iframe
     }
 
     it('mounts the player on the frame document once the frame loads', () => {
-        const { iframe } = renderPlayerFrame()
+        const iframe = renderPlayerFrame()
         const frameDocument = iframe.contentDocument!
         frameDocument.open()
         frameDocument.write('<div id="player-frame-content"></div>')
@@ -53,33 +50,189 @@ describe('PlayerFrame', () => {
         expect(iframe).toHaveAttribute('sandbox', 'allow-same-origin')
     })
 
-    // Firefox fires load for the frame's initial about:blank document, which has no mount node.
-    // The shell document is still on its way, so the frame must keep its chance to load.
-    it('keeps the frame and reports nothing when the blank first document loads', () => {
-        const captureSpy = jest.spyOn(posthog, 'captureException')
-        const { container, iframe } = renderPlayerFrame()
+    // A load event that never arrives used to leave rrweb with nowhere to mount, so the player
+    // showed an empty rectangle for as long as the tab stayed open. The timeout feeds the same
+    // failure action as a load without a mount node, so the first timeout retries the frame and
+    // the retry flow reaches the player's error state.
+    it('retries the frame when the load event never arrives, then shows the player error', () => {
+        jest.useFakeTimers()
+        try {
+            const captureSpy = jest.spyOn(posthog, 'capture')
+            const captureExceptionSpy = jest.spyOn(posthog, 'captureException')
+            const iframe = renderPlayerFrame()
+            const container = iframe.parentElement!
+
+            // The load never fires. The 10s timeout reports the first failure, which schedules a retry.
+            act(() => {
+                jest.advanceTimersByTime(10000)
+            })
+            expect(container.querySelector('iframe')).toBe(iframe)
+            expect(captureSpy).toHaveBeenCalledWith(
+                'replay player frame load retried',
+                expect.objectContaining({ attempt: 1 })
+            )
+
+            // The retry changes the src, and the reloaded frame's load also never fires. The frame
+            // gets MAX_PLAYER_FRAME_LOAD_RETRIES retries, so failures 1 and 2 retry and failure 3
+            // reaches the error state.
+            act(() => {
+                jest.advanceTimersByTime(1000)
+            })
+            expect(iframe).toHaveAttribute('src', '/replay_player_frame/index.html?retry=1')
+
+            act(() => {
+                jest.advanceTimersByTime(10000)
+            })
+            expect(captureSpy).toHaveBeenCalledWith(
+                'replay player frame load retried',
+                expect.objectContaining({ attempt: 2 })
+            )
+
+            act(() => {
+                jest.advanceTimersByTime(2000)
+            })
+            expect(iframe).toHaveAttribute('src', '/replay_player_frame/index.html?retry=2')
+
+            act(() => {
+                jest.advanceTimersByTime(10000)
+            })
+
+            expect(sessionRecordingPlayerLogic(logicProps).values.currentPlayerState).toBe(SessionPlayerState.ERROR)
+            expect(captureExceptionSpy).toHaveBeenCalledTimes(1)
+        } finally {
+            jest.useRealTimers()
+        }
+    })
+
+    it.each([
+        {
+            state: 'no browsing context',
+            // jsdom gives a document made this way no browsing context, the same as a browser does.
+            frameDocument: (): Document => document.implementation.createHTMLDocument(),
+            report: { attempt: 1, frameUrlPath: null },
+        },
+        {
+            state: 'a read that throws',
+            frameDocument: (): Document => {
+                const frameDocument = document.implementation.createHTMLDocument()
+                Object.defineProperty(frameDocument, 'title', {
+                    get: () => {
+                        throw new Error('read failed')
+                    },
+                })
+                return frameDocument
+            },
+            report: { attempt: 1, frameDocumentReadable: true },
+        },
+    ])('retries the frame when the timed-out frame has $state', ({ frameDocument, report }) => {
+        jest.useFakeTimers()
+        try {
+            const captureSpy = jest.spyOn(posthog, 'capture')
+            const iframe = renderPlayerFrame()
+            const container = iframe.parentElement!
+            Object.defineProperty(iframe, 'contentDocument', { value: frameDocument(), configurable: true })
+
+            act(() => {
+                jest.advanceTimersByTime(10000)
+            })
+
+            expect(captureSpy).toHaveBeenCalledWith('replay player frame load retried', expect.objectContaining(report))
+            act(() => {
+                jest.advanceTimersByTime(1000)
+            })
+            expect(container.querySelector('iframe')).toBe(iframe)
+            expect(iframe).toHaveAttribute('src', '/replay_player_frame/index.html?retry=1')
+        } finally {
+            jest.useRealTimers()
+        }
+    })
+
+    // Firefox fires load for the frame's initial about:blank document, and a load event for a previous
+    // document arrives while the shell is still parsing. Neither has a mount node, and neither is a failure.
+    it.each([
+        ['the blank first document loads', 'about:blank', 'complete'],
+        ['a load arrives while the shell is still parsing', '/replay_player_frame/index.html', 'loading'],
+    ])('reports nothing when %s', (_, url, readyState) => {
+        const captureSpy = jest.spyOn(posthog, 'capture')
+        const captureExceptionSpy = jest.spyOn(posthog, 'captureException')
+        const iframe = renderPlayerFrame()
         // jsdom does not load the frame's src, so its document already carries the shell URL.
-        Object.defineProperty(iframe.contentDocument!, 'URL', { value: 'about:blank' })
+        Object.defineProperty(iframe.contentDocument!, 'URL', { value: url })
+        Object.defineProperty(iframe.contentDocument!, 'readyState', { value: readyState, configurable: true })
 
         fireEvent.load(iframe)
 
-        expect(container.querySelector('iframe.PlayerFrame__document')).toBe(iframe)
-        expect(container.querySelector('div.PlayerFrame__content')).toBeNull()
-        expect(captureSpy).not.toHaveBeenCalled()
+        expect(captureExceptionSpy).not.toHaveBeenCalled()
+        expect(captureSpy).not.toHaveBeenCalledWith('replay player frame load retried', expect.anything())
     })
 
     // A same-origin error page, a login redirect, or a browser network-error page all fire load
-    // with a document that has no mount node. The player must not stay blank with no report.
-    it('falls back to the app document and reports it when the frame loads without a mount node', () => {
-        const captureSpy = jest.spyOn(posthog, 'captureException')
-        const { container, iframe } = renderPlayerFrame()
+    // with a document that has no mount node. The frame gets retried before the player shows its error
+    // state. Each retry records what the frame showed, and only the last failure is an exception.
+    it('retries a frame that loads without a mount node, then shows the player error', () => {
+        jest.useFakeTimers()
+        try {
+            const captureSpy = jest.spyOn(posthog, 'capture')
+            const captureExceptionSpy = jest.spyOn(posthog, 'captureException')
+            const iframe = renderPlayerFrame()
+            const logic = sessionRecordingPlayerLogic(logicProps)
 
-        fireEvent.load(iframe)
+            fireEvent.load(iframe)
+            act(() => {
+                jest.advanceTimersByTime(1000)
+            })
+            expect(iframe).toHaveAttribute('src', '/replay_player_frame/index.html?retry=1')
 
-        expect(container.querySelector('iframe')).toBeNull()
-        const fallback = container.querySelector('div.PlayerFrame__content')
-        expect(fallback).not.toBeNull()
-        expect(sessionRecordingPlayerLogic(logicProps).values.rootFrame).toBe(fallback)
-        expect(captureSpy).toHaveBeenCalledTimes(1)
+            // A browser error page is cross-origin to the app, so the frame's document is unreadable.
+            Object.defineProperty(iframe, 'contentDocument', { value: null, configurable: true })
+            fireEvent.load(iframe)
+            act(() => {
+                jest.advanceTimersByTime(2000)
+            })
+            expect(iframe).toHaveAttribute('src', '/replay_player_frame/index.html?retry=2')
+            expect(logic.values.currentPlayerState).not.toBe(SessionPlayerState.ERROR)
+
+            fireEvent.load(iframe)
+
+            expect(logic.values.currentPlayerState).toBe(SessionPlayerState.ERROR)
+            expect(
+                captureSpy.mock.calls
+                    .filter(([event]) => event === 'replay player frame load retried')
+                    .map(([, properties]) => [properties?.attempt, properties?.frameDocumentReadable])
+            ).toEqual([
+                [1, true],
+                [2, false],
+            ])
+            expect(captureExceptionSpy).toHaveBeenCalledTimes(1)
+            expect(captureExceptionSpy.mock.calls[0][1]).toMatchObject({ attempt: 3, frameDocumentReadable: false })
+        } finally {
+            jest.useRealTimers()
+        }
+    })
+
+    // A frame cannot load while the browser is offline, so the player shows its error at once instead of
+    // staying blank while it waits for a connection that may not come back.
+    it('shows the player error without a retry while the browser is offline', () => {
+        const onLine = jest.spyOn(navigator, 'onLine', 'get').mockReturnValue(false)
+        jest.useFakeTimers()
+        try {
+            const captureSpy = jest.spyOn(posthog, 'capture')
+            const captureExceptionSpy = jest.spyOn(posthog, 'captureException')
+            const iframe = renderPlayerFrame()
+
+            fireEvent.load(iframe)
+            act(() => {
+                jest.advanceTimersByTime(10000)
+            })
+
+            expect(sessionRecordingPlayerLogic(logicProps).values.currentPlayerState).toBe(SessionPlayerState.ERROR)
+            expect(iframe).toHaveAttribute('src', '/replay_player_frame/index.html')
+            expect(captureSpy).not.toHaveBeenCalledWith('replay player frame load retried', expect.anything())
+            expect(captureExceptionSpy).toHaveBeenCalledTimes(1)
+            expect(captureExceptionSpy.mock.calls[0][1]).toMatchObject({ attempt: 1, browserOnline: false })
+        } finally {
+            jest.useRealTimers()
+            onLine.mockRestore()
+        }
     })
 })

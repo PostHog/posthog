@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from datetime import datetime
 from uuid import UUID
 
 from posthog.dataclasses import frozen
@@ -29,6 +30,7 @@ class EvidenceRef:
     ticket_id: UUID
     ticket_number: int
     resolution_comment_id: UUID
+    revision_at: datetime
 
     def __post_init__(self) -> None:
         validate_learning_provider_name(self.provider)
@@ -40,6 +42,8 @@ class EvidenceRef:
             raise ValueError("display_label is required")
         if not self.deep_link:
             raise ValueError("deep_link is required")
+        if self.revision_at.tzinfo is None or self.revision_at.utcoffset() is None:
+            raise ValueError("revision_at must include a timezone")
         expected_key = evidence_key_for(self.ticket_id, self.resolution_comment_id)
         if self.evidence_key != expected_key:
             raise ValueError("evidence_key must be ticket_id:resolution_comment_id")

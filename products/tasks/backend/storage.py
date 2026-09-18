@@ -9,8 +9,8 @@ import structlog
 from posthog.redis import get_client
 from posthog.storage import object_storage
 
-from products.tasks.backend.facade.contracts import TaskRunLogAppendUnserialized
 from products.tasks.backend.metrics import LOG_APPEND_UNSERIALIZED_TOTAL
+from products.tasks.backend.storage_errors import TaskRunLogAppendUnserialized
 
 logger = structlog.get_logger(__name__)
 

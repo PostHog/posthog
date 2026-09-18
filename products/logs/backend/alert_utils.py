@@ -8,7 +8,7 @@ from django.db.models import Q
 
 import structlog
 
-from products.alerts.backend.scheduling import (
+from products.alerts.backend.facade.scheduling import (
     advance_next_check_at,
     compute_shard_offset_seconds as shared_compute_shard_offset_seconds,
     parse_blocked_windows_tuples,

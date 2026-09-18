@@ -1,11 +1,21 @@
+import { router } from 'kea-router'
+import { expectLogic } from 'kea-test-utils'
+
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
+import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
+import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
+import { SidePanelTab } from '~/types'
+
+import { attachedContextLogic, runnerPanelLogic, runStreamLogic } from 'products/posthog_ai/frontend/api/logics'
 
 import { makeReport } from './__mocks__/inboxMocks'
 import {
     FREE_TRIAL_PR_DISABLED_REASON,
+    REPORT_AI_PANEL,
+    REPORT_AI_PANEL_ID,
     buildCreatePrReportPrompt,
     buildDiscussReportPrompt,
     inboxTaskKickoffLogic,
@@ -13,6 +23,181 @@ import {
 import { SignalReportStatus } from './types'
 
 describe('inboxTaskKickoffLogic', () => {
+    describe('report sidebar', () => {
+        let logic: ReturnType<typeof inboxTaskKickoffLogic.build>
+        let createdTasks: Record<string, unknown>[]
+        let startedRuns: Record<string, unknown>[]
+        // Runs while the kickoff awaits its run response, so a test can act as the reader does mid-flight.
+        let onRunRequest: (() => void) | null
+        const report = makeReport({ id: 'report-sidebar', status: SignalReportStatus.READY })
+
+        beforeEach(() => {
+            localStorage.clear()
+            createdTasks = []
+            startedRuns = []
+            onRunRequest = null
+            useMocks({
+                get: {
+                    '/api/projects/:team/signals/reports/:id/': report,
+                },
+                post: {
+                    '/api/projects/:team/tasks/': async ({ request }) => {
+                        createdTasks.push((await request.json()) as Record<string, unknown>)
+                        return [201, { id: 'report-task' }]
+                    },
+                    '/api/projects/:team/tasks/:id/run/': async ({ request }) => {
+                        startedRuns.push((await request.json()) as Record<string, unknown>)
+                        onRunRequest?.()
+                        return [200, { id: 'report-task', latest_run: { id: 'report-run' } }]
+                    },
+                },
+            })
+            initKeaTests()
+            logic = inboxTaskKickoffLogic()
+            logic.mount()
+        })
+
+        afterEach(() => logic.unmount())
+
+        it.each(['implementation', 'discussion'] as const)(
+            'opens one %s run without leaving the report',
+            async (relationship) => {
+                const originalPath = router.values.location.pathname
+                if (relationship === 'discussion') {
+                    attachedContextLogic.actions.registerContext('test-picker', [
+                        { type: 'insight', key: 'insight-one', label: 'Conversion rate' },
+                    ])
+                }
+                await expectLogic(logic, () => {
+                    if (relationship === 'implementation') {
+                        logic.actions.createPrFromReport(report)
+                    } else {
+                        logic.actions.discussReport(report, 'https://example.com/report', 'Explain the recommendation')
+                    }
+                }).toFinishAllListeners()
+
+                expect(createdTasks).toHaveLength(1)
+                expect(createdTasks[0]).toMatchObject({
+                    signal_report: report.id,
+                    signal_report_task_relationship: relationship,
+                })
+                expect(startedRuns).toHaveLength(1)
+                expect(startedRuns[0]).toMatchObject({
+                    signal_report_id: report.id,
+                    mode: 'interactive',
+                    pending_user_message: expect.any(String),
+                })
+                if (relationship === 'discussion') {
+                    expect(createdTasks[0]).toMatchObject({
+                        description: expect.stringContaining('- insight insight-one ("Conversion rate")'),
+                        signal_report_discussion_question: 'Explain the recommendation',
+                    })
+                    expect(startedRuns[0].pending_user_message).toBe(createdTasks[0].description)
+                    expect(attachedContextLogic.values.sentContextKeysByTask['report-task']).toContain(
+                        'insight:insight-one'
+                    )
+                }
+                expect(router.values.location.pathname).toBe(originalPath)
+                expect(sidePanelStateLogic.values.selectedTab).toBe(SidePanelTab.Max)
+                expect(sidePanelStateLogic.values.selectedTabOptions).toBe(REPORT_AI_PANEL)
+                const activeCreation = runnerPanelLogic({ panelId: REPORT_AI_PANEL_ID }).values.activeCreation
+                expect(activeCreation).toMatchObject({
+                    taskId: 'report-task',
+                    runId: 'report-run',
+                })
+                expect(activeCreation?.streamKey).not.toBe('report-run')
+                const stream = runStreamLogic({ streamKey: activeCreation!.streamKey })
+                const unmountStream = stream.mount()
+                expect(stream.values.awaitingOptimisticAttach).toBe(true)
+                expect(stream.values.hasThreadItems).toBe(relationship === 'discussion')
+                unmountStream()
+                expect(logic.values.reportChatContext?.report.id).toBe(report.id)
+
+                logic.actions.openReportTask(report, 'report-task', 'report-run')
+                expect(createdTasks).toHaveLength(1)
+                expect(startedRuns).toHaveLength(1)
+            }
+        )
+
+        it('shows implementation provisioning before the run request finishes and attaches the result in place', async () => {
+            let optimisticStreamKey: string | undefined
+            onRunRequest = () => {
+                const activeCreation = runnerPanelLogic({ panelId: REPORT_AI_PANEL_ID }).values.activeCreation
+                expect(activeCreation?.taskId).toBeUndefined()
+                expect(activeCreation?.runId).toBeUndefined()
+                optimisticStreamKey = activeCreation?.streamKey
+                expect(optimisticStreamKey).toMatch(/^report-implementation-/)
+
+                const stream = runStreamLogic({ streamKey: optimisticStreamKey! })
+                expect(stream.values.awaitingOptimisticAttach).toBe(true)
+                expect(stream.values.streamPhase).toBe('provisioning')
+                expect(sidePanelStateLogic.values.selectedTab).toBe(SidePanelTab.Max)
+                expect(sidePanelStateLogic.values.selectedTabOptions).toBe(REPORT_AI_PANEL)
+            }
+
+            await expectLogic(logic, () => logic.actions.createPrFromReport(report)).toFinishAllListeners()
+
+            expect(optimisticStreamKey).not.toBeUndefined()
+            expect(runnerPanelLogic({ panelId: REPORT_AI_PANEL_ID }).values.activeCreation).toEqual({
+                streamKey: optimisticStreamKey,
+                taskId: 'report-task',
+                runId: 'report-run',
+            })
+        })
+
+        it('keeps the optimistic stream when View task opens the run already shown in the panel', () => {
+            const panel = runnerPanelLogic({ panelId: REPORT_AI_PANEL_ID })
+            panel.actions.setActiveCreation({
+                streamKey: 'report-implementation-stream',
+                taskId: 'report-task',
+                runId: 'report-run',
+            })
+
+            logic.actions.openReportTask(report, 'report-task', 'report-run')
+
+            expect(panel.values.activeCreation).toEqual({
+                streamKey: 'report-implementation-stream',
+                taskId: 'report-task',
+                runId: 'report-run',
+            })
+        })
+
+        it.each(['implementation', 'discussion'] as const)(
+            'leaves a newer pick in the sidebar when the %s kickoff lands after it',
+            async (relationship) => {
+                const otherReport = makeReport({ id: 'report-other', status: SignalReportStatus.READY })
+                onRunRequest = () => logic.actions.openReportTask(otherReport, 'other-task', 'other-run')
+
+                await expectLogic(logic, () => {
+                    if (relationship === 'implementation') {
+                        logic.actions.createPrFromReport(report)
+                    } else {
+                        logic.actions.discussReport(report, 'https://example.com/report', 'Explain the recommendation')
+                    }
+                }).toFinishAllListeners()
+
+                expect(startedRuns).toHaveLength(1)
+                expect(runnerPanelLogic({ panelId: REPORT_AI_PANEL_ID }).values.activeCreation).toMatchObject({
+                    taskId: 'other-task',
+                    runId: 'other-run',
+                })
+                expect(logic.values.reportChatContext?.report.id).toBe(otherReport.id)
+            }
+        )
+
+        it('sends Back to the report composer even when the shared panel left history open', () => {
+            const panel = runnerPanelLogic({ panelId: REPORT_AI_PANEL_ID })
+            // The PostHog AI side panel shares this panel state, so its history can already be open.
+            panel.actions.setHistoryExpanded(true)
+
+            logic.actions.openReportTask(report, 'report-task', 'report-run')
+            panel.actions.goBack()
+
+            expect(panel.values.historyExpanded).toBe(false)
+            expect(panel.values.activeCreation).toBeNull()
+        })
+    })
+
     describe('freeTrialDisabledReason', () => {
         let logic: ReturnType<typeof inboxTaskKickoffLogic.build>
 
