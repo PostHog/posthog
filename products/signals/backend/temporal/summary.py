@@ -896,11 +896,6 @@ async def mark_report_ready_activity(input: MarkReportReadyInput) -> bool:
                 report.suggested_prompts = input.suggested_prompts
                 updated_fields = [*updated_fields, "suggested_prompts"]
             report.save(update_fields=updated_fields)
-            # After the metrics write and inside the same transaction, because a `metric_threshold`
-            # check resolves the query off the metric set this transition just stored: written
-            # earlier it would name a metric the report does not have yet, and written later it
-            # could survive a rollback that took the metric with it.
-            _write_research_checks(report, input)
             # Loop to re-research only if the signals that arrived during the run carried the report
             # to its next bucket. Same predicate as the grouping promotion gate, so a signal landing
             # mid-run is researched on the schedule it would have had if it had landed after. The
@@ -913,6 +908,14 @@ async def mark_report_ready_activity(input: MarkReportReadyInput) -> bool:
                 # re-promote it back to candidate and loop to also process new signals
                 candidate_fields = report.transition_to(SignalReport.Status.CANDIDATE)
                 report.save(update_fields=candidate_fields)
+            else:
+                # Only a pass that settles writes its checks. A pass about to be re-researched is
+                # an intermediate one, and its checks would describe prose the next pass replaces.
+                # After the metrics write and inside the same transaction, because a
+                # `metric_threshold` check resolves the query off the metric set this transition
+                # just stored: written earlier it would name a metric the report does not have yet,
+                # and written later it could survive a rollback that took the metric with it.
+                _write_research_checks(report, input)
             return _ReportTransition(
                 run_count=report.run_count,
                 chart_count=len(report.charts or []),

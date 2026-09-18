@@ -34,7 +34,7 @@ from products.signals.backend.report_check_agent import resolve_check_skill_name
 from products.signals.backend.report_check_authoring import CheckCreationError, create_check
 from products.signals.backend.report_check_execution import CheckVerdict, record_check_verdict
 from products.signals.backend.report_checks import AgentCheckConfig, parse_check_config
-from products.signals.backend.scout_harness.tools.emit import _resolve_task_id
+from products.signals.backend.scout_harness.tools.emit import _preflight_emit_gates, _resolve_task_id
 
 MAX_CHECK_EXPLANATION_LENGTH = 1_000
 # Rows one `scout-report-check-list` call returns. A report carries at most five open checks, so
@@ -165,6 +165,18 @@ def _summarize(check: SignalReportCheck) -> ScoutCheckSummary:
     )
 
 
+def _assert_run_may_write_checks(team: Team, run: SignalScoutRun) -> None:
+    """Refuse a check write from a run whose other write channels are closed.
+
+    A check is durable and later runs a query or starts a scout, so it follows the rule signals,
+    reports and structured output follow: a dry-run scout previews what it would do and changes
+    nothing, and a project without AI-processing consent gets no agent output.
+    """
+    skipped_reason = _preflight_emit_gates(team, run)
+    if skipped_reason is not None:
+        raise InvalidCheckWriteError(f"this run cannot write checks: {skipped_reason}")
+
+
 def _resolve_report(team: Team, report_id: str) -> SignalReport:
     """The report a run may attach a check to, scoped the way `_resolve_dispatched_check` scopes a check.
 
@@ -207,6 +219,7 @@ def create_report_check(
     Attributed to the run's task, like every other scout write, so the report's log names the run
     that decided the fix was worth re-measuring rather than the coordinator that will measure it.
     """
+    _assert_run_may_write_checks(team, run)
     report = _resolve_report(team, report_id)
     task_id = _resolve_task_id(run)
     try:
@@ -235,13 +248,14 @@ def list_report_checks(*, team: Team, report_id: str) -> list[ScoutCheckSummary]
     return [_summarize(check) for check in checks[:MAX_CHECKS_LISTED]]
 
 
-def cancel_report_check(*, team: Team, check_id: str) -> ScoutCheckSummary:
+def cancel_report_check(*, team: Team, run: SignalScoutRun, check_id: str) -> ScoutCheckSummary:
     """Stop a check that is no longer worth running. Its recorded results stay on the report.
 
     One conditional update rather than a read and then a write, as the REST path does: a verdict
     that lands in between leaves a result artefact, and an unconditional write would overwrite the
     status that artefact explains.
     """
+    _assert_run_may_write_checks(team, run)
     try:
         uuid.UUID(str(check_id))
     except (ValueError, TypeError):

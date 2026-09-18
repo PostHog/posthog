@@ -589,14 +589,21 @@ async def _persist_agentic_report_artefacts(
 def _team_runs_scouts(team_id: int) -> bool:
     """Whether this team's scout fleet could take an `agent` check dispatched at it.
 
-    The same gate the check dispatcher applies, read at authoring time so the research turn is never
-    offered a kind whose lane does not exist. Fails closed to False: a flag-service hiccup costs the
-    run the agent kind, never the report.
+    The enrollment half of the gate the check dispatcher applies, read at authoring time so the
+    research turn is never offered a kind whose lane does not exist. A project at its daily run
+    budget still counts as running scouts: a research check stays pending until its report resolves
+    and its soak passes, so today's budget says nothing about that day, and the dispatcher defers a
+    throttled check by itself. Fails closed to False: a flag-service hiccup costs the run the agent
+    kind, never the report.
     """
-    from products.signals.backend.scout_harness.run_gates import check_fleet_gates  # noqa: PLC0415
+    from products.signals.backend.scout_harness.run_gates import (  # noqa: PLC0415
+        ScoutRunRejectionKind,
+        check_fleet_gates,
+    )
 
     try:
-        return check_fleet_gates(team_id) is None
+        rejection = check_fleet_gates(team_id)
+        return rejection is None or rejection.kind == ScoutRunRejectionKind.THROTTLED
     except Exception:
         logger.warning("scout fleet availability check failed", team_id=team_id, exc_info=True)
         return False

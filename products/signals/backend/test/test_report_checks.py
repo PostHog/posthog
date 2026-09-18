@@ -349,7 +349,7 @@ class TestReportCheckExecution(APIBaseTest):
 
         assert capture.call_count == 1
         properties = capture.call_args.kwargs["properties"]
-        assert capture.call_args.kwargs["event"] == "signals_report_check_resolved"
+        assert capture.call_args.kwargs["event"] == "signals_report_check_evaluated"
         assert properties["outcome"] == "failed"
         assert properties["check_status"] == SignalReportCheck.Status.FAILED
         assert properties["kind"] == SignalReportCheck.Kind.METRIC_THRESHOLD
@@ -483,10 +483,13 @@ class TestReportCheckExecution(APIBaseTest):
         check = self._check(
             next_run_at=timezone.now() + timedelta(days=1), expires_at=timezone.now() - timedelta(days=1)
         )
-        assert expire_overdue_checks(timezone.now()) == 1
+        with patch(_CAPTURE) as capture:
+            assert expire_overdue_checks(timezone.now()) == 1
         check.refresh_from_db()
         assert check.status == SignalReportCheck.Status.EXPIRED
         assert self._results() == []
+        assert capture.call_args.kwargs["event"] == "signals_report_checks_expired"
+        assert capture.call_args.kwargs["properties"]["never_ran_count"] == 1
 
     def test_a_check_past_its_horizon_is_not_due_even_when_the_sweep_has_not_reached_it(self) -> None:
         now = timezone.now()
@@ -963,11 +966,14 @@ class TestAgentCheckDispatch(APIBaseTest):
         )
         check = self._check()
 
-        with patch(_CONNECT), patch(_DISPATCH) as dispatch:
+        with patch(_CONNECT), patch(_DISPATCH) as dispatch, patch(_CAPTURE) as capture:
             summary = run_due_report_checks()
 
         assert summary.deferred == 1
         dispatch.assert_not_called()
+        assert capture.call_args.kwargs["event"] == "signals_report_check_dispatch"
+        assert capture.call_args.kwargs["properties"]["outcome"] == "deferred"
+        assert capture.call_args.kwargs["properties"]["reason"] == "run_in_flight"
         assert self._results() == []
         check.refresh_from_db()
         assert check.status == SignalReportCheck.Status.ACTIVE
@@ -1349,11 +1355,24 @@ class TestScoutCheckTools(APIBaseTest):
     def test_cancelling_stops_the_check_and_refuses_a_second_cancel(self) -> None:
         written = self._create()
 
-        cancelled = cancel_report_check(team=self.team, check_id=written.check_id)
+        cancelled = cancel_report_check(team=self.team, run=self.scout_run, check_id=written.check_id)
 
         assert cancelled.status == SignalReportCheck.Status.CANCELLED
         with self.assertRaises(InvalidCheckWriteError):
-            cancel_report_check(team=self.team, check_id=written.check_id)
+            cancel_report_check(team=self.team, run=self.scout_run, check_id=written.check_id)
+
+    def test_a_dry_run_scout_neither_writes_nor_cancels_a_check(self) -> None:
+        written = self._create()
+        self.scout_config.emit = False
+        self.scout_config.save(update_fields=["emit"])
+
+        with self.assertRaises(InvalidCheckWriteError):
+            self._create(title="Written by a preview run")
+        with self.assertRaises(InvalidCheckWriteError):
+            cancel_report_check(team=self.team, run=self.scout_run, check_id=written.check_id)
+
+        check = SignalReportCheck.objects.for_team(self.team.id).get()
+        assert check.status == SignalReportCheck.Status.ACTIVE
 
     def test_another_projects_report_is_not_reachable(self) -> None:
         other_team = Team.objects.create(organization=self.organization, name="other")
@@ -1389,15 +1408,34 @@ class TestResearchAuthoredChecks(APIBaseTest):
         return CheckSpec.model_validate(payload)
 
     def test_a_spec_becomes_a_pending_check_carrying_the_metrics_query(self) -> None:
-        written = create_checks_from_specs(
-            report=self.report, specs=[self._spec()], attribution=ArtefactAttribution.system()
-        )
+        with patch(_CAPTURE) as capture, self.captureOnCommitCallbacks(execute=True):
+            written = create_checks_from_specs(
+                report=self.report, specs=[self._spec()], attribution=ArtefactAttribution.system()
+            )
 
         assert len(written) == 1
         check = written[0]
         assert check.status == SignalReportCheck.Status.PENDING
         assert check.soak_minutes == DEFAULT_CHECK_SOAK_HOURS * 60
         assert check.config["query"] == _PAGEVIEWS
+        assert capture.call_args.kwargs["event"] == "signals_report_check_created"
+        assert capture.call_args.kwargs["properties"]["check_status"] == SignalReportCheck.Status.PENDING
+
+    def test_a_newer_research_pass_replaces_the_pending_checks_of_an_older_one(self) -> None:
+        older = create_checks_from_specs(
+            report=self.report, specs=[self._spec()], attribution=ArtefactAttribution.system()
+        )
+        newer = create_checks_from_specs(
+            report=self.report,
+            specs=[self._spec(title="Checkout errors stay under 5 a day")],
+            attribution=ArtefactAttribution.system(),
+        )
+        create_checks_from_specs(report=self.report, specs=[], attribution=ArtefactAttribution.system())
+
+        older[0].refresh_from_db()
+        newer[0].refresh_from_db()
+        assert older[0].status == SignalReportCheck.Status.CANCELLED
+        assert newer[0].status == SignalReportCheck.Status.PENDING
 
     def test_a_spec_naming_a_metric_the_report_does_not_have_is_dropped(self) -> None:
         written = create_checks_from_specs(

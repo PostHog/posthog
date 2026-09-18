@@ -171,37 +171,36 @@ Hard rules:
 CHECKS_GUIDANCE = """
 ## Scheduling the check
 
-A verification plan nobody runs is a note. When the `outcome` section comes down to one number that a
-query can measure — a rate that should drop, a count that should stay under a bound, a latency that
-should come back down — also return that part as a `checks` entry, so the coordinator measures it
+A verification plan nobody runs is a note. When part of the `outcome` section can be settled later
+with no person involved, also return that part as a `checks` entry, so the coordinator settles it
 after the fix has soaked instead of a person remembering to. The prose stays the plan; the check is
 its executable part.
 
-Return a check only when all three of these hold, and none otherwise:
+Return a check only when it meets the bar stated for its kind below, and none otherwise. A replay to
+watch, a test to run, a diff to read, or a step to perform by hand stays prose only.
 
-- The `outcome` section names one metric, one baseline you actually measured this session, and one
-  comparison that decides the question.
-- The comparison is a bound a number either satisfies or does not: at most X, at least X, or between
-  X and Y.
-- The measurement is a query, not a replay to watch, a test to run, a diff to read, or a step to
-  perform by hand. Those stay prose only.
-
-Do not invent a baseline or a threshold. If the session did not establish one, return no check.
-
-`soak_hours` is how long after the report is resolved to wait before measuring. Default
+`soak_hours` is how long after the report is resolved to wait before checking. Default
 {default_soak} hours, which covers a deploy plus a day of traffic. Say longer when the fix only
 reaches users slowly — a mobile release, a cached client bundle, a weekly batch.
 """
 
-_METRIC_CHECK_GUIDANCE = """- Use `kind: "metric_threshold"` with a `config` of
+_METRIC_CHECK_GUIDANCE = """- Use `kind: "metric_threshold"` when the `outcome` section comes down to one number a query can
+  measure: a rate that should drop, a count that should stay under a bound, a latency that should
+  come back down. All three of these must hold. The `outcome` section names one metric, one baseline
+  you actually measured this session, and one comparison that decides the question. The comparison
+  is a bound a number either satisfies or does not: at most X, at least X, or between X and Y. The
+  measurement is a query. Do not invent a baseline or a threshold: if the session did not establish
+  one, return no metric check. The `config` is
   `{{"metric_id": "<one of this report's metrics>", "comparison": {{"operator": "lte", "value": 10}},
   "baseline_value": <what you measured now>}}`. The `metric_id` must name a metric you returned in
   the presentation turn, so the check rides a query this report already shows. A spec naming
   anything else is dropped."""
 
-_AGENT_CHECK_GUIDANCE = """- Use `kind: "agent"` with a `config` of
-  `{{"instructions": "<what a later run must establish>", "probe_hints": ["<issue id>", "<service>"]}}`
-  when the claim needs a run rather than a number, such as re-reading an error issue's recent events."""
+_AGENT_CHECK_GUIDANCE = """- Use `kind: "agent"` when no single number settles the claim but a later run can establish it by
+  reading the project's data, such as re-reading an error issue's recent events. It needs no metric,
+  baseline, or comparison. The `config` is
+  `{{"instructions": "<what a later run must establish>", "probe_hints": ["<issue id>", "<service>"]}}`.
+  Say in `instructions` what result means the fix held and what result means it did not."""
 
 
 class FixVerificationOutput(BaseModel):

@@ -2604,6 +2604,16 @@ class TestScoutReportCheckAPI(APIBaseTest):
         assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
         assert not SignalReportCheck.objects.for_team(self.team.id).exists()
 
+    def test_a_token_minted_for_another_run_cannot_write_through_this_one(self) -> None:
+        self._opt_in(REPORT_TOOLS)
+        sibling = _make_run(self.team)
+        _authenticate_as_scout(self, scopes="signals_scout_reports", sandbox_task_id=sibling.task_run.task_id)
+
+        response = self.client.post(self._create_url(), self._payload(), format="json")
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND, response.content
+        assert not SignalReportCheck.objects.for_team(self.team.id).exists()
+
     def test_a_check_can_target_a_report_in_a_child_environment(self) -> None:
         self._opt_in(REPORT_TOOLS)
         child = Team.objects.create(organization=self.organization, parent_team=self.team, name="Child")

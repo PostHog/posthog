@@ -287,7 +287,7 @@ If the `scout_fleet` roster shows `signals-scout-inbox-validation` running here 
 # about scope like the re-surface clause: it is about having a report to hang a check on. A
 # signal-channel scout holds a finding id and no report, so it keeps the scratchpad queue as its
 # whole loop.
-_FOLLOWUP_CHECK_ON_REPORT = """- **A follow-up that hangs on a report belongs on the report.** A scratchpad entry is yours alone, so a run that never comes back to it leaves the loop open and nobody else can see that it is open. When the expectation sits on a report — one you authored, or one that covers your finding — write it onto the report with `inbox-report-checks-create` and let the coordinator do the re-measuring. A check carries the same expectation, probe, and validate-after date the entry above holds. Choose `metric_threshold` when one number settles the claim, and the coordinator measures it with no run at all. Choose `agent` when the claim needs investigating, and a run is dispatched to answer it later. Either way the verdict lands on the report where a person reads it. Read `inbox-report-checks-list` before you add one, since a report carries at most 5 active checks and a sibling may already watch your claim. Keep a scratchpad entry for what no report covers, and name the check id in the entry when you write both, so you never re-measure what the coordinator already measured.
+_FOLLOWUP_CHECK_ON_REPORT = """- **A follow-up that hangs on a report belongs on the report.** A scratchpad entry is yours alone, so a run that never comes back to it leaves the loop open and nobody else can see that it is open. When the expectation sits on a report — one you authored, or one that covers your finding — write it onto the report with `scout-report-check-create` and let the coordinator do the re-measuring. A check carries the same expectation, probe, and validate-after date the entry above holds. Choose `metric_threshold` when one number settles the claim, and the coordinator measures it with no run at all. Choose `agent` when the claim needs investigating, and a run is dispatched to answer it later. Either way the verdict lands on the report where a person reads it. Read `scout-report-check-list` before you add one, since a report carries at most 5 open checks and a sibling may already watch your claim. Keep a scratchpad entry for what no report covers, and name the check id in the entry when you write both, so you never re-measure what the coordinator already measured.
 """
 
 _FOLLOWUP_RESURFACE_SIGNAL = (
@@ -322,8 +322,8 @@ _FOLLOWUP_RESURFACE_EDIT_ONLY = (
 def _self_validation_followups_section(*, report_channel: bool, can_emit_report: bool, can_edit_report: bool) -> str:
     """Compose the self-validation follow-ups section with the clauses matched to the tools the scout
     actually holds — an emit-only scout is never pointed at `scout-edit-report` and vice versa, and
-    only a report-channel scout is pointed at a report check, mirroring the fail-closed gating of the
-    channel sections."""
+    only a scout holding `edit_report` is pointed at a report check, because the check endpoints fail
+    closed on that tool, mirroring the fail-closed gating of the channel sections."""
     if not report_channel:
         clause = _FOLLOWUP_RESURFACE_SIGNAL
     elif can_emit_report and can_edit_report:
@@ -334,7 +334,7 @@ def _self_validation_followups_section(*, report_channel: bool, can_emit_report:
         clause = _FOLLOWUP_RESURFACE_EDIT_ONLY
     return _SELF_VALIDATION_FOLLOWUPS_TEMPLATE.format(
         resurface_clause=clause,
-        check_clause=_FOLLOWUP_CHECK_ON_REPORT if report_channel else "",
+        check_clause=_FOLLOWUP_CHECK_ON_REPORT if report_channel and can_edit_report else "",
     )
 
 

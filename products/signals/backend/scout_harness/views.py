@@ -1140,6 +1140,20 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         self._assert_report_tool_opted_in(run, required_tool)
         return run
 
+    def _resolve_own_in_progress_run(self, request: Request, kwargs: dict, *, required_tool: str) -> SignalScoutRun:
+        """`_resolve_in_progress_run`, narrowed to the run the caller's sandbox token was minted for.
+
+        Team scoping alone lets a run name a sibling's id and write, list or cancel checks under
+        that sibling's task. Answered as 404 like another team's run, so a caller learns nothing
+        about a run it may not touch. A caller with no bound task is unaffected, the internal scope
+        being server-mint-only.
+        """
+        run = self._resolve_in_progress_run(kwargs, required_tool=required_tool)
+        bound_task_id = _sandbox_bound_task_id(request)
+        if bound_task_id is not None and bound_task_id != run.task_run.task_id:
+            raise exceptions.NotFound()
+        return run
+
     def _assert_report_tool_opted_in(self, run: SignalScoutRun, required_tool: str) -> None:
         """Fail closed unless the run's skill opted into `required_tool` via `allowed_tools`. Loads the
         exact skill version the run snapshotted so the gate matches what actually ran; a missing/unloadable
@@ -1573,7 +1587,7 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         pagination_class=None,
     )
     def report_check_create(self, request: Request, **kwargs) -> Response:
-        run = self._resolve_in_progress_run(kwargs, required_tool="edit_report")
+        run = self._resolve_own_in_progress_run(request, kwargs, required_tool="edit_report")
         data = request.validated_data
         try:
             check = create_report_check(
@@ -1620,7 +1634,7 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         pagination_class=None,
     )
     def report_checks(self, request: Request, **kwargs) -> Response:
-        run = self._resolve_in_progress_run(kwargs, required_tool="edit_report")
+        run = self._resolve_own_in_progress_run(request, kwargs, required_tool="edit_report")
         validated = getattr(request, "validated_query_data", {}) or {}
         try:
             checks = list_report_checks(team=run.team, report_id=str(validated["report_id"]))
@@ -1657,9 +1671,9 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         pagination_class=None,
     )
     def report_check_cancel(self, request: Request, **kwargs) -> Response:
-        run = self._resolve_in_progress_run(kwargs, required_tool="edit_report")
+        run = self._resolve_own_in_progress_run(request, kwargs, required_tool="edit_report")
         try:
-            check = cancel_report_check(team=run.team, check_id=str(request.validated_data["check_id"]))
+            check = cancel_report_check(team=run.team, run=run, check_id=str(request.validated_data["check_id"]))
         except InvalidCheckWriteError as exc:
             raise exceptions.ValidationError({"detail": str(exc)})
         return Response(ScoutCheckSummarySerializer(dataclasses.asdict(check)).data, status=status.HTTP_200_OK)
