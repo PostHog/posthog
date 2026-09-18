@@ -50,7 +50,9 @@ describe('reselect primitive cache bound', () => {
         expect(cacheTestLogic.values.doubled).toBe(2)
         expect(computations).toBe(1)
 
-        for (let value = 100; value < 2100; value++) {
+        // Must stay above PRIMITIVE_CACHE_MAX_SIZE in patches/reselect@5.2.0.patch, or the
+        // selector never reaches the bound and the test passes without proving anything.
+        for (let value = 100; value < 100 + 1500; value++) {
             cacheTestLogic.actions.setValue(value)
             expect(cacheTestLogic.values.doubled).toBe(value * 2)
         }
