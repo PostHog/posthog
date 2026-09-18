@@ -170,12 +170,14 @@ def _list_candidates(data: dict[str, Any]) -> list[tuple[str, list[Any]]]:
 
 
 def _looks_like_rows(config: DecagonEndpointConfig, items: list[Any]) -> bool:
-    """Whether a list can hold this endpoint's rows: objects carrying its primary keys."""
-    if not items or not isinstance(items[0], dict):
+    """Whether a list can hold this endpoint's rows: every item an object carrying its primary keys.
+
+    A keyless endpoint never qualifies. "A list of objects" is not evidence of anything, and
+    its stream appends without a merge, so a wrong pick lands rows no later sync can clean up.
+    """
+    if config.primary_keys is None or not items:
         return False
-    if config.primary_keys is None:
-        return True
-    return all(key in items[0] for key in config.primary_keys)
+    return all(isinstance(item, dict) and all(key in item for key in config.primary_keys) for item in items)
 
 
 def _describe_shape(data: dict[str, Any]) -> str:

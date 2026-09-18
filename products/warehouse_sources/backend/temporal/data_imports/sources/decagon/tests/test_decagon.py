@@ -705,14 +705,29 @@ class TestArticleTables:
 
         assert [[r["id"] for r in b] for b in batches] == [[1, 2]]
 
-    def test_an_ambiguous_envelope_fails_rather_than_guessing_a_list(self) -> None:
-        # Two lists both look like rows, so picking one would import the wrong table
-        # silently. The walk keeps nothing and the contract guard fails the sync.
+    @parameterized.expand(
+        [
+            ("two_lists_that_both_look_like_rows", {"drafts": [{"id": 1}], "published": [{"id": 2}], "total": 2}),
+            ("a_later_item_without_the_primary_key", {"items": [{"id": 1}, {"slug": "x"}], "tags": [], "total": 2}),
+        ]
+    )
+    def test_an_ambiguous_envelope_fails_rather_than_guessing_a_list(self, _name: str, body: dict[str, Any]) -> None:
+        # Picking one of these would import the wrong table silently, or pick a list whose
+        # later rows have no primary key and crash the deduplicator. The walk keeps nothing
+        # and the contract guard fails the sync instead.
         manager = _fresh_manager()
-        responses = [_make_response({"drafts": [{"id": 1}], "published": [{"id": 2}], "total": 2})]
 
         with pytest.raises(DecagonContractError):
-            _drive_rows(manager, responses, endpoint="articles")
+            _drive_rows(manager, [_make_response(body)], endpoint="articles")
+
+    def test_a_keyless_table_does_not_read_rows_from_a_guessed_list(self) -> None:
+        # article_usage appends without a merge, so a guessed list lands rows no later sync
+        # can clean up. With no primary key to recognize rows by, no list qualifies.
+        manager = _fresh_manager()
+        responses = [_make_response({"data": [{"article_id": 1}], "meta": [{"page": 1}]})]
+        _, batches = _drive_rows(manager, responses, endpoint="article_usage")
+
+        assert batches == []
 
     def test_no_rows_against_a_nonzero_total_fails_the_sync(self) -> None:
         # The endpoint reports articles and the walk kept none, so the config no longer
