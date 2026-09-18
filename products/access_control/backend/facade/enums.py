@@ -30,7 +30,3 @@ ResolvedAccessSourceSubjectValue = Literal["member", "role", "default"]
 # ENUM_NAME_OVERRIDES in posthog/settings/web.py, because no Choices class carries these values.
 RESOLVED_ACCESS_SOURCE_CHOICES: list[str] = list(get_args(ResolvedAccessSourceValue))
 RESOLVED_ACCESS_SOURCE_SUBJECT_CHOICES: list[str] = list(get_args(ResolvedAccessSourceSubjectValue))
-
-# What a rule write did: `noop` is a clear with no rule to remove
-RuleWriteOutcomeValue = Literal["created", "updated", "cleared", "noop"]
-RULE_WRITE_OUTCOME_CHOICES: list[str] = list(get_args(RuleWriteOutcomeValue))

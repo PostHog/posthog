@@ -18,7 +18,7 @@ from django.db.models import Count, Max, Model, Prefetch, Q
 from django.db.models.functions import Coalesce
 
 from drf_spectacular.types import OpenApiTypes
-from rest_framework import exceptions, serializers
+from rest_framework import exceptions, serializers, status
 from rest_framework.decorators import action
 from rest_framework.generics import get_object_or_404
 from rest_framework.request import Request
@@ -38,7 +38,6 @@ from products.access_control.backend.facade.contracts import (
     PropertyAccessLevel,
     UpsertPropertyAccessControlInput,
 )
-from products.access_control.backend.facade.enums import RuleWriteOutcomeValue
 from products.access_control.backend.facade.object_names import (
     display_model,
     model_has_field,
@@ -72,7 +71,7 @@ from .serializers import (
     AccessControlRoleRuleRequestSerializer,
     AccessControlRolesResponseSerializer,
     AccessControlRuleRequestSerializer,
-    AccessControlRuleWriteResponseSerializer,
+    AccessControlStoredRuleSerializer,
 )
 from .views import check_can_write_property_rules, check_can_write_role_rule
 
@@ -826,9 +825,9 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
             build_serializer=self._rule_serializer_builder(team, user_access_control, target, body),
         )
         if result.rule is None:
-            return self._rule_write_response(result.outcome)
-        return self._rule_write_response(
-            result.outcome,
+            return Response(status=status.HTTP_204_NO_CONTENT)
+        return self._stored_rule_response(
+            created=result.created,
             resource=result.rule.resource,
             resource_id=result.rule.resource_id,
             access_level=result.rule.access_level,
@@ -871,8 +870,8 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
                     )
                 except access_control_api.PropertyAccessControlRuleNotFoundError:
                     # Nothing to clear, including a rule a concurrent clear removed first
-                    return self._rule_write_response("noop")
-                return self._rule_write_response("cleared")
+                    pass
+                return Response(status=status.HTTP_204_NO_CONTENT)
             existing = next(
                 (
                     rule
@@ -897,8 +896,8 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
             raise exceptions.NotFound("Property definition not found.")
         except access_control_api.InvalidPropertyAccessControlTargetError as exc:
             raise exceptions.ValidationError(str(exc))
-        return self._rule_write_response(
-            "updated" if existing else "created",
+        return self._stored_rule_response(
+            created=existing is None,
             resource="property_definition",
             resource_id=str(rule.property_definition_id),
             access_level=rule.access_level.value,
@@ -907,35 +906,36 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
         )
 
     @staticmethod
-    def _rule_write_response(
-        outcome: RuleWriteOutcomeValue,
+    def _stored_rule_response(
         *,
-        resource: str | None = None,
-        resource_id: str | None = None,
-        access_level: str | None = None,
-        member_id: UUID | None = None,
-        role_id: UUID | None = None,
+        created: bool,
+        resource: str,
+        resource_id: str | None,
+        access_level: str,
+        member_id: UUID | None,
+        role_id: UUID | None,
     ) -> Response:
-        """The one response shape of every rule write. Without a resource there is no stored rule."""
-        stored = (
-            {
-                "resource": resource,
-                "resource_id": resource_id,
-                "access_level": access_level,
-                "member_id": member_id,
-                "role_id": role_id,
-            }
-            if resource is not None
-            else None
+        """The stored rule in one shape for access rules and property rules: 201 when the write
+        created it, 200 when it updated it."""
+        stored = {
+            "resource": resource,
+            "resource_id": resource_id,
+            "access_level": access_level,
+            "member_id": member_id,
+            "role_id": role_id,
+        }
+        return Response(
+            AccessControlStoredRuleSerializer(stored).data,
+            status=status.HTTP_201_CREATED if created else status.HTTP_200_OK,
         )
-        return Response(AccessControlRuleWriteResponseSerializer({"outcome": outcome, "rule": stored}).data)
 
     @extend_schema(
         description="Set or clear the rule everyone in the project gets for a scope, unless a member or role rule "
         "of their own applies. The scope is the project (`resource: project` with the project id as `resource_id`), "
-        "a whole resource type, one object, or one property definition. A null `access_level` removes the rule.",
+        "a whole resource type, one object, or one property definition. A null `access_level` removes the rule. "
+        "Returns the stored rule with 201 when created and 200 when updated, and 204 with no body when the rule is cleared.",
         request=AccessControlRuleRequestSerializer,
-        responses={200: AccessControlRuleWriteResponseSerializer},
+        responses={200: AccessControlStoredRuleSerializer, 201: AccessControlStoredRuleSerializer, 204: None},
         extensions=_SCHEMA_EXTENSIONS,
     )
     @action(methods=["PUT"], detail=True, url_path="access_control_default_rules")
@@ -946,9 +946,10 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
         description="Set or clear one member's rule for a scope. A member rule applies to that person only and "
         "takes precedence over their role rules and the default. The scope is the project (`resource: project` with "
         "the project id as `resource_id`), a whole resource type, one object, or one property definition. A null "
-        "`access_level` removes the rule.",
+        "`access_level` removes the rule. "
+        "Returns the stored rule with 201 when created and 200 when updated, and 204 with no body when the rule is cleared.",
         request=AccessControlMemberRuleRequestSerializer,
-        responses={200: AccessControlRuleWriteResponseSerializer},
+        responses={200: AccessControlStoredRuleSerializer, 201: AccessControlStoredRuleSerializer, 204: None},
         extensions=_SCHEMA_EXTENSIONS,
     )
     @action(methods=["PUT"], detail=True, url_path="access_control_member_rules")
@@ -959,9 +960,10 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
         description="Set or clear one role's rule for a scope. A role rule applies to every member of the role and "
         "takes precedence over the default. Requires the role-based access feature. The scope is the project "
         "(`resource: project` with the project id as `resource_id`), a whole resource type, one object, or one "
-        "property definition. A null `access_level` removes the rule.",
+        "property definition. A null `access_level` removes the rule. "
+        "Returns the stored rule with 201 when created and 200 when updated, and 204 with no body when the rule is cleared.",
         request=AccessControlRoleRuleRequestSerializer,
-        responses={200: AccessControlRuleWriteResponseSerializer},
+        responses={200: AccessControlStoredRuleSerializer, 201: AccessControlStoredRuleSerializer, 204: None},
         extensions=_SCHEMA_EXTENSIONS,
     )
     @action(methods=["PUT"], detail=True, url_path="access_control_role_rules")
