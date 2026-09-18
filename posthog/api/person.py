@@ -12,7 +12,6 @@ from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import (
     OpenApiExample,
     OpenApiParameter,
-    OpenApiResponse,
     extend_schema,
     extend_schema_field,
     extend_schema_serializer,
@@ -300,9 +299,9 @@ class PersonBulkDeleteResponseSerializer(serializers.Serializer):
         child=serializers.DictField(),
         required=False,
         help_text="Persons whose deletion did not fully complete in this request. Each entry contains 'person_uuid' "
-        "and 'step', the deletion step that failed for that person. When at least one person was deleted the "
-        "response is a 202 and the persons listed here were not; when no matched person could be deleted the "
-        "same body is returned with a 503. "
+        "and 'step', the deletion step that failed for that person. Failures are reported here rather than as an "
+        "error status, so a 202 with entries means those persons were not deleted and the request should be "
+        "retried for them. "
         "A 'log_activity' step means the person was deleted but the activity log entry was not written. "
         "Always empty when the deletion was queued (see persons_queued_for_deletion). "
         "Contact support if this persists.",
@@ -886,14 +885,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     @extend_schema(
         request=PersonBulkDeleteRequestSerializer,
-        responses={
-            202: PersonBulkDeleteResponseSerializer,
-            503: OpenApiResponse(
-                response=PersonBulkDeleteResponseSerializer,
-                description="No matched person could be deleted. The body is the same summary, and "
-                "deletion_errors names the step that failed for each person.",
-            ),
-        },
+        responses={202: PersonBulkDeleteResponseSerializer},
     )
     @action(methods=["POST"], detail=False, required_scopes=["person:write"])
     def bulk_delete(self, request: request.Request, pk=None, **kwargs):
@@ -916,7 +908,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             keep_person=keep_person,
         )
 
-        return response.Response(data=summary, status=503 if _no_person_deleted(summary) else 202)
+        return response.Response(data=summary, status=202)
 
     def _bulk_delete_persons(
         self,

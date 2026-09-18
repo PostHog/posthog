@@ -1011,13 +1011,13 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         "posthog.models.person.bulk_delete.delete_persons_from_postgres",
         side_effect=Exception("DB connection lost"),
     )
-    def test_bulk_delete_total_failure_returns_503(self, _mock_delete_from_postgres):
+    def test_bulk_delete_total_failure_reports_every_person(self, _mock_delete_from_postgres):
         person1 = _create_person(team=self.team, distinct_ids=["person_1"], immediate=True)
         person2 = _create_person(team=self.team, distinct_ids=["person_2"], immediate=True)
 
         response = self.client.post("/api/person/bulk_delete/", {"ids": [person1.uuid, person2.uuid]})
 
-        self.assertEqual(response.status_code, status.HTTP_503_SERVICE_UNAVAILABLE)
+        self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
         data = response.json()
         self.assertEqual(data["persons_found"], 2)
         self.assertEqual(data["persons_deleted"], 0)
