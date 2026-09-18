@@ -228,6 +228,7 @@ export const dataTableLogic = kea<dataTableLogicType>([
             dataNodeLogic({
                 key: props.dataNodeLogicKey ?? props.dataKey,
                 query: props.query.source,
+                queryJourney: props.context?.queryJourney,
                 dataNodeCollectionId: insightVizDataCollectionId(
                     props.context?.insightProps,
                     props.dataNodeLogicKey ?? props.dataKey
