@@ -20,6 +20,7 @@ from products.alerts.backend.evaluation.contract import (
     execution_mode_for_alert,
     zero_sentinel_series,
 )
+from products.alerts.backend.evaluation.hogql_query_optimization import optimize_last_row_query
 from products.alerts.backend.models.alert import AlertConfiguration
 from products.product_analytics.backend.facade.models import Insight
 
@@ -44,12 +45,28 @@ def hogql_config_or_default(raw: dict | None) -> HogQLAlertConfig:
 
 
 def _calculate_rows_and_columns(
-    insight: Insight, team: Any, *, user: Any, execution_mode: ExecutionMode
+    insight: Insight, team: Any, *, user: Any, execution_mode: ExecutionMode, last_row_column: str | None = None
 ) -> tuple[list, list[str] | None]:
     """Run a SQL insight and return (rows, column_names) — the fetch-and-validate prologue shared by
     the threshold and detector extractors. A ``None`` result means the query layer swallowed an error
     (raise to avoid a misfire, matching trends); a non-list result is a malformed shape.
     """
+    query_override = optimize_last_row_query(insight.query, column=last_row_column) if last_row_column else None
+    if query_override is not None:
+        narrowed = calculate_for_query_based_insight(
+            insight,
+            team=team,
+            execution_mode=execution_mode,
+            user=user,
+            analytics_props={"source": EventSource.ALERT},
+            query_override=query_override,
+        )
+        # Two nonempty buckets establish that these are also the original tail.
+        # Sparse results cannot establish that: the previous/current row may be
+        # much older, so run the original query through its normal cache path.
+        if isinstance(narrowed.result, list) and len(narrowed.result) == 2:
+            columns = narrowed.columns if isinstance(narrowed.columns, list) else None
+            return narrowed.result, [str(c) for c in columns] if columns else None
     calculation_result = calculate_for_query_based_insight(
         insight,
         team=team,
@@ -131,7 +148,11 @@ class HogQLExtractor:
         evaluation = config.evaluation
 
         rows, column_names = _calculate_rows_and_columns(
-            insight, alert.team, user=alert.created_by, execution_mode=execution_mode
+            insight,
+            alert.team,
+            user=alert.created_by,
+            execution_mode=execution_mode,
+            last_row_column=config.column if evaluation == HogQLAlertEvaluation.LAST_ROW else None,
         )
         if len(rows) == 0:
             # No rows means the metric is genuinely 0 this check (matching trends), so a lower
