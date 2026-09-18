@@ -47,6 +47,19 @@ class InvalidPayload(Exception):
     """
 
 
+def decode_json(raw: str | bytes) -> Any:
+    """Decode a body this package accepts, or raise `InvalidPayload` for one it cannot read.
+
+    One decoder for every provider, so which failures mean 400 is decided once. A provider that
+    reads a form decodes the field it holds the JSON in through here.
+    """
+    try:
+        # RecursionError: deeply nested JSON must answer 400, not 500.
+        return json.loads(raw)
+    except (json.JSONDecodeError, UnicodeDecodeError, RecursionError) as error:
+        raise InvalidPayload(str(error)) from error
+
+
 class WebhookProvider(ABC):
     """One provider app: how a delivery is verified, and how it is read.
 
@@ -106,11 +119,7 @@ class WebhookProvider(ABC):
         form instead (Slack interactivity, Mailgun) overrides this and reads `request.POST`.
         Raise `InvalidPayload` for a body this provider cannot read, and the view answers 400.
         """
-        try:
-            # RecursionError: deeply nested JSON must answer 400, not 500.
-            return json.loads(request.body)
-        except (json.JSONDecodeError, UnicodeDecodeError, RecursionError) as error:
-            raise InvalidPayload(str(error)) from error
+        return decode_json(request.body)
 
     def pre_dispatch_response(self, request: HttpRequest, payload: Any) -> HttpResponse | None:
         """A handshake the protocol demands, answered before any consumer runs.
