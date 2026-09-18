@@ -93,6 +93,8 @@ export interface HogFlow extends z.infer<typeof HogFlowSchema> {
     created_by?: UserBasicType | null
     // Product surface that owns this workflow (e.g. `loops` for Desktop loops). Null when built directly in the workflows UI.
     origin_product?: HogFlowOriginProductEnumApi | null
+    // Tag names, trimmed and lowercased by the server. Sending the field replaces the workflow's tags.
+    tags?: string[]
     // Effective access level of the current user for this workflow (resource access control).
     user_access_level?: AccessControlLevel
     // Staged content changes awaiting publish (active workflows only). A full snapshot of the

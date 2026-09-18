@@ -6,6 +6,7 @@ import { LemonCheckbox, LemonDivider, LemonInput, LemonSelect, LemonTag, Link, T
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { AppMetricsSparkline } from 'lib/components/AppMetrics/AppMetricsSparkline'
 import { MemberSelect } from 'lib/components/MemberSelect'
+import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
@@ -13,6 +14,7 @@ import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/Le
 import { updatedAtColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
+import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 
@@ -20,6 +22,7 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { getHogFlowStep } from './hogflows/steps/HogFlowSteps'
 import { HogFlow } from './hogflows/types'
+import { ManageWorkflowTagsModal } from './ManageWorkflowTagsModal'
 import { workflowLogic } from './workflowLogic'
 import {
     WORKFLOW_TRIGGER_TYPE_OPTIONS,
@@ -28,6 +31,7 @@ import {
     WorkflowTypeFilter,
     workflowsLogic,
 } from './workflowsLogic'
+import { workflowTagsLogic } from './workflowTagsLogic'
 
 const STATUS_CONFIG: Record<string, { label: string; type: 'success' | 'default' | 'muted' }> = {
     active: { label: 'Active', type: 'success' },
@@ -104,6 +108,53 @@ function WorkflowActionsSummary({ workflow }: { workflow: HogFlow }): JSX.Elemen
     )
 }
 
+function WorkflowTagsCell({ workflow }: { workflow: HogFlow }): JSX.Element {
+    const { savingTagsWorkflowId } = useValues(workflowsLogic)
+    const { updateWorkflowTags, setFilters } = useActions(workflowsLogic)
+    const { pinnedTagNames } = useValues(workflowTagsLogic)
+    const { openManageTagsModal } = useActions(workflowTagsLogic)
+
+    const tags = workflow.tags ?? []
+    const cannotEdit =
+        workflow.status === 'archived' ||
+        !!getAccessControlDisabledReason(
+            AccessControlResourceType.Workflow,
+            AccessControlLevel.Editor,
+            workflow.user_access_level
+        )
+
+    const filterByTag = (tag: string): void => setFilters({ tag })
+
+    if (cannotEdit) {
+        return (
+            <ObjectTags tags={tags} staticOnly onTagClick={filterByTag} maxVisibleTags={3} data-attr="workflow-tags" />
+        )
+    }
+
+    return (
+        <ObjectTags
+            tags={tags}
+            tagsAvailable={pinnedTagNames}
+            // Tags come from the "Manage tags" list, so one topic does not end up with two spellings.
+            allowCustomValues={false}
+            emptyStateComponent={
+                <div className="flex flex-col items-start gap-1 p-1">
+                    <span className="text-secondary italic">No matching tag to pick from.</span>
+                    <LemonButton size="xsmall" type="secondary" onClick={openManageTagsModal}>
+                        Manage tags
+                    </LemonButton>
+                </div>
+            }
+            inputPlaceholder="Pick a tag"
+            onChange={(nextTags) => updateWorkflowTags(workflow, nextTags)}
+            onTagClick={filterByTag}
+            saving={savingTagsWorkflowId === workflow.id}
+            maxVisibleTags={3}
+            data-attr="workflow-tags"
+        />
+    )
+}
+
 export function WorkflowsTable(): JSX.Element {
     const logic = workflowsLogic()
     const {
@@ -128,6 +179,8 @@ export function WorkflowsTable(): JSX.Element {
         selectAllArchivedWorkflows,
         clearArchivedWorkflowSelection,
     } = useActions(logic)
+    const { pinnedTagNames } = useValues(workflowTagsLogic)
+    const { loadPinnedTags, openManageTagsModal } = useActions(workflowTagsLogic)
 
     useOnMountEffect(() => {
         // Tricky: unmount the new workflow logic when leaving the new workflow scene
@@ -140,9 +193,18 @@ export function WorkflowsTable(): JSX.Element {
         // Since logic isn't getting unmounted when navigating away from this scene, we need to reload workflows
         // when the component re-mounts
         loadWorkflows()
+        loadPinnedTags()
     })
 
     const isArchived = filters.status === 'archived'
+    // A tag reached through a row's tag chip may no longer be in the pinned list; keep it selectable
+    // so the select always shows the filter that is applied.
+    const tagFilterOptions = [
+        { label: 'All', value: null },
+        ...[...new Set(filters.tag ? [...pinnedTagNames, filters.tag] : pinnedTagNames)]
+            .sort((a, b) => a.localeCompare(b))
+            .map((tag) => ({ label: tag, value: tag })),
+    ]
 
     const columns: LemonTableColumns<HogFlow> = [
         ...(isArchived
@@ -204,6 +266,11 @@ export function WorkflowsTable(): JSX.Element {
                     </Link>
                 )
             },
+        },
+        {
+            title: 'Tags',
+            key: 'tags',
+            render: (_, item) => <WorkflowTagsCell workflow={item} />,
         },
         {
             title: 'Dispatches',
@@ -409,8 +476,28 @@ export function WorkflowsTable(): JSX.Element {
                             value={filters.createdBy}
                             onChange={(user) => setFilters({ createdBy: user?.uuid || null })}
                         />
+                        <span className="ml-1">
+                            <b>Tag</b>
+                        </span>
+                        <LemonSelect
+                            dropdownMatchSelectWidth={false}
+                            size="small"
+                            onChange={(value) => setFilters({ tag: value })}
+                            options={tagFilterOptions}
+                            value={filters.tag}
+                            data-attr="workflows-tag-filter"
+                        />
+                        <LemonButton
+                            size="small"
+                            type="secondary"
+                            onClick={openManageTagsModal}
+                            data-attr="workflows-manage-tags"
+                        >
+                            Manage tags
+                        </LemonButton>
                     </div>
                 </div>
+                <ManageWorkflowTagsModal />
 
                 {isArchived && selectedArchivedCount > 0 && (
                     <div className="flex items-center gap-2 mb-2">

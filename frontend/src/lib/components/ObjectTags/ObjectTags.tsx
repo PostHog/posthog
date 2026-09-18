@@ -41,6 +41,8 @@ export type ObjectTagsProps =
           onChange?: never
           onBlur?: never
           tagsAvailable?: never
+          allowCustomValues?: never
+          emptyStateComponent?: never
       })
     | (ObjectTagsPropsBase & {
           /** Tags CAN be added or removed.*/
@@ -49,6 +51,10 @@ export type ObjectTagsProps =
           onBlur?: () => void
           /** List of all tags that already exist. */
           tagsAvailable?: string[] /** Whether this field should be gated behind a "paywall". */
+          /** Whether typing a name that is not in `tagsAvailable` creates a new tag. Defaults to true. */
+          allowCustomValues?: boolean
+          /** Shown in the picker when no available tag matches the input. */
+          emptyStateComponent?: React.ReactNode
       })
 
 const COLOR_OVERRIDES: Record<string, LemonTagType> = {
@@ -75,6 +81,8 @@ export function ObjectTags({
     onTagClick,
     maxVisibleTags,
     wrap = false,
+    allowCustomValues = true,
+    emptyStateComponent,
 }: ObjectTagsProps): JSX.Element {
     const objectTagId = useId()
     const logic = objectTagsLogic({ id: objectTagId, onChange })
@@ -103,7 +111,8 @@ export function ObjectTags({
             {editingTags ? (
                 <LemonInputSelect
                     mode="multiple"
-                    allowCustomValues
+                    allowCustomValues={allowCustomValues}
+                    emptyStateComponent={emptyStateComponent}
                     value={tags}
                     options={tagsAvailable?.map((t) => ({ key: t, label: t }))}
                     onChange={setTags}
