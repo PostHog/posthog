@@ -30,6 +30,7 @@ class _Recorder:
         self.dispatched: list[int] = []
         self.finished: list[NotebookRunFinishInput] = []
         self.checks: list[str] = []
+        self.advanced: list[int] = []
         self.stopped = 0
         self._pending: dict[str, list[str]] = {}
 
@@ -41,6 +42,10 @@ class _Recorder:
             if recorder.run_statuses:
                 return recorder.run_statuses.pop(0)
             return NotebookRun.Status.RUNNING
+
+        @activity.defn(name="notebook-run-advance")
+        async def advance(input: NotebookRunCellInput) -> None:
+            recorder.advanced.append(input.index)
 
         @activity.defn(name="notebook-run-dispatch-cell")
         async def dispatch_cell(input: NotebookRunCellInput) -> str:
@@ -65,7 +70,7 @@ class _Recorder:
         async def stop_cell(input: NotebookRunInput) -> None:
             recorder.stopped += 1
 
-        return [read_status, dispatch_cell, check_cell, finish, stop_cell]
+        return [read_status, advance, dispatch_cell, check_cell, finish, stop_cell]
 
 
 async def _run_workflow(recorder: _Recorder, node_ids: list[str]) -> None:
@@ -92,6 +97,9 @@ async def test_every_cell_runs_in_document_order() -> None:
 
     assert recorder.dispatched == [0, 1, 2]
     assert [(f.status, f.failed_node_id) for f in recorder.finished] == [(NotebookRun.Status.DONE, None)]
+    # Past the last cell, so the status endpoint stops naming cell 3 as the one in flight
+    # and the completion event counts all three rather than two.
+    assert recorder.advanced == [3]
 
 
 @pytest.mark.asyncio
