@@ -60,12 +60,15 @@ function TilePill({
       className={cn(
         "flex h-6 min-w-0 max-w-[280px] cursor-grab items-center gap-1.5 rounded-md px-1.5 text-left",
         isActive
-          ? "bg-background font-medium shadow-xs ring-1 ring-border"
-          : "text-muted-foreground hover:bg-background/60 hover:text-foreground",
+          ? "font-medium"
+          : "text-muted-foreground hover:text-foreground",
         isDragSource && "bg-background shadow-lg ring-1 ring-border",
       )}
     >
-      <DotsSixVerticalIcon size={12} className="shrink-0 opacity-60" />
+      <DotsSixVerticalIcon
+        size={12}
+        className="shrink-0 text-muted-foreground opacity-70"
+      />
       {icon && <span className="flex shrink-0 items-center">{icon}</span>}
       <Text className="truncate text-xs">{label}</Text>
     </button>
