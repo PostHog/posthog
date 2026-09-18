@@ -76,6 +76,13 @@ describe('feature flag serving state', () => {
         }
     )
 
+    // These two turn the flag off, so they are where an agent is most likely to tell someone that
+    // delivery stopped. The payload endpoint never reads `active`, so for a remote config flag it
+    // did not.
+    it.each(['feature-flag-disable', 'feature-flag-archive'])('%s does not claim the payload stops', (name) => {
+        expect(getToolDefinition(name).description).toContain('is_remote_configuration')
+    })
+
     it('feature-flag-get-all explains that the active filter matches the active field', () => {
         const schema: any = GENERATED_TOOL_MAP['feature-flag-get-all']!().schema
         expect(schema.shape.active.description).toContain('not on `status`')
