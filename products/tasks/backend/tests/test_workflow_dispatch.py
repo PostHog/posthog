@@ -25,7 +25,6 @@ from products.tasks.backend.facade.api import (
 )
 from products.tasks.backend.logic.services.workflow_dispatch import (
     RestartSnapshot,
-    WorkflowDispatchFlags,
     WorkflowDispatchOptions,
     build_create_payload,
     build_restart_payload,
@@ -252,9 +251,9 @@ class TestWorkflowDispatchPersistence(TestCase):
         set_oldest_age.assert_called_once_with(300.0)
 
     @patch("products.tasks.backend.metrics.WORKFLOW_DISPATCH_MISSING_INTENT_TOTAL.inc")
-    @patch("products.tasks.backend.facade.api.is_workflow_dispatch_shadow_enabled", return_value=False)
-    def test_missing_intent_metric_stays_quiet_before_shadow_rollout(
-        self, _shadow_enabled: Mock, increment_missing_intent: Mock
+    @patch("products.tasks.backend.facade.api.is_workflow_dispatch_outbox_enabled", return_value=False)
+    def test_missing_intent_metric_stays_quiet_before_outbox_rollout(
+        self, _outbox_enabled: Mock, increment_missing_intent: Mock
     ) -> None:
         uncovered = filter_uncovered_workflow_dispatch_run_ids([self.task_run.id])
 
@@ -262,9 +261,9 @@ class TestWorkflowDispatchPersistence(TestCase):
         increment_missing_intent.assert_not_called()
 
     @patch("products.tasks.backend.metrics.WORKFLOW_DISPATCH_MISSING_INTENT_TOTAL.inc")
-    @patch("products.tasks.backend.facade.api.is_workflow_dispatch_shadow_enabled", return_value=True)
+    @patch("products.tasks.backend.facade.api.is_workflow_dispatch_outbox_enabled", return_value=True)
     def test_missing_intent_counts_bare_runs_but_not_restart_rollout_gaps(
-        self, _shadow_enabled: Mock, increment_missing_intent: Mock
+        self, _outbox_enabled: Mock, increment_missing_intent: Mock
     ) -> None:
         resumed_run = TaskRun.objects.create(
             task=self.task_run.task, team=self.team, status=TaskRun.Status.QUEUED, state={"same_run_resume": True}
@@ -320,15 +319,15 @@ class TestWorkflowDispatchPersistence(TestCase):
         self.task_run.refresh_from_db()
         self.assertEqual(self.task_run.status, expected_status)
 
-    def test_dispatch_facade_normalizes_slack_context_into_shadow_row(self) -> None:
+    def test_dispatch_facade_normalizes_slack_context_into_outbox_row(self) -> None:
         class Context:
             def to_dict(self) -> dict:
                 return {"channel": "C1", "thread_ts": "123.45"}
 
         with (
             patch(
-                "products.tasks.backend.logic.services.workflow_dispatch.evaluate_workflow_dispatch_flags",
-                return_value=WorkflowDispatchFlags(shadow_enabled=True, async_enabled=False),
+                "products.tasks.backend.feature_flags.is_workflow_dispatch_outbox_enabled",
+                return_value=True,
             ),
             patch("products.tasks.backend.temporal.client.execute_task_processing_workflow") as start,
             self.captureOnCommitCallbacks(execute=True),
@@ -344,7 +343,7 @@ class TestWorkflowDispatchPersistence(TestCase):
 
         row = TaskWorkflowDispatch.objects.unscoped().get(task_run=self.task_run)
         self.assertEqual(row.payload["slack_thread_context"], {"channel": "C1", "thread_ts": "123.45"})
-        start.assert_called_once()
+        start.assert_not_called()
 
     def test_reconciler_excludes_covered_runs_at_any_age_unlike_the_killer_view(self) -> None:
         orphan_run = TaskRun.objects.create(task=self.task_run.task, team=self.team, status=TaskRun.Status.QUEUED)

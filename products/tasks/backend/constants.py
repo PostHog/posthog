@@ -14,8 +14,9 @@ PR_STATES = ("open", "draft", "merged", "closed")
 CI_STATUSES = ("passing", "failing", "pending", "none")
 
 SANDBOX_EVENT_INGEST_FEATURE_FLAG = "tasks-cloud-runs-sandbox-event-ingest"
-WORKFLOW_DISPATCH_SHADOW_FEATURE_FLAG = "tasks-workflow-dispatch-shadow"
-WORKFLOW_DISPATCH_ASYNC_FEATURE_FLAG = "tasks-workflow-dispatch-async"
+# Keeps its rollout-era key: this one flag now gates the whole dispatch outbox, not a
+# shadow-write stage. Off means a run starts its Temporal workflow inline instead.
+WORKFLOW_DISPATCH_OUTBOX_FEATURE_FLAG = "tasks-workflow-dispatch-shadow"
 WORKFLOW_DISPATCH_RESTART_FEATURE_FLAG = "tasks-workflow-dispatch-restart"
 AGENT_PROXY_KEEP_STREAM_OPEN_FEATURE_FLAG = "tasks-agent-proxy-keep-stream-open"
 # Shared with the MCP server (services/mcp/src/hono/constants.ts): one flag decides both whether

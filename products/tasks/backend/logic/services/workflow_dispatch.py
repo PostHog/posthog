@@ -47,12 +47,6 @@ class RestartSnapshot:
     state: dict[str, Any]
 
 
-@frozen
-class WorkflowDispatchFlags:
-    shadow_enabled: bool
-    async_enabled: bool
-
-
 class SlackThreadContextLike(Protocol):
     def to_dict(self) -> dict[str, Any]: ...
 
@@ -284,43 +278,24 @@ def renew_leases_in_worker_thread(instance_id: str, dispatch_ids: list[Any], lea
         close_old_connections()
 
 
-def evaluate_workflow_dispatch_flags(task_run: TaskRun) -> WorkflowDispatchFlags:
-    from products.tasks.backend.feature_flags import (
-        is_workflow_dispatch_async_enabled,
-        is_workflow_dispatch_shadow_enabled,
-    )
-
-    distinct_id = (
-        task_run.task.created_by.distinct_id
-        if task_run.task.created_by and task_run.task.created_by.distinct_id
-        else str(task_run.id)
-    )
-    organization_id = str(task_run.task.team.organization_id)
-    return WorkflowDispatchFlags(
-        shadow_enabled=is_workflow_dispatch_shadow_enabled(),
-        async_enabled=is_workflow_dispatch_async_enabled(organization_id, distinct_id),
-    )
-
-
 def enqueue_or_start_workflow(
     task_run: TaskRun,
     *,
     options: WorkflowDispatchOptions,
-    precomputed_flags: WorkflowDispatchFlags | None = None,
     start_workflow: Callable[..., None] | None = None,
 ) -> None:
+    from products.tasks.backend.feature_flags import is_workflow_dispatch_outbox_enabled
+
     if start_workflow is None:
         from products.tasks.backend.temporal.client import execute_task_processing_workflow
 
         start_workflow = execute_task_processing_workflow
 
-    flags = precomputed_flags or evaluate_workflow_dispatch_flags(task_run)
     workflow_id = TaskRun.get_workflow_id(str(task_run.task_id), str(task_run.id), options.workflow_id_prefix)
     if options.workflow_id_prefix:
         TaskRun.update_state_atomic(task_run.id, updates={"workflow_id": workflow_id})
         task_run.state = {**(task_run.state or {}), "workflow_id": workflow_id}
-    dispatch_written = False
-    if flags.shadow_enabled or flags.async_enabled:
+    if is_workflow_dispatch_outbox_enabled():
         if transaction.get_connection().in_atomic_block:
             create_dispatch(task_run, TaskWorkflowDispatch.Kind.CREATE, build_create_payload(options), workflow_id)
         else:
@@ -331,8 +306,6 @@ def enqueue_or_start_workflow(
                 create_dispatch(
                     locked_run, TaskWorkflowDispatch.Kind.CREATE, build_create_payload(options), workflow_id
                 )
-        dispatch_written = True
-    if flags.async_enabled:
         return
 
     def start_synchronously() -> None:
@@ -356,8 +329,6 @@ def enqueue_or_start_workflow(
             workflow_kwargs["initial_message"] = options.initial_message
         if options.skip_user_check:
             workflow_kwargs["skip_user_check"] = True
-        if dispatch_written:
-            workflow_kwargs["durable_dispatch"] = True
         start_workflow(**workflow_kwargs)
 
     execute_after_commit(start_synchronously)
