@@ -33,6 +33,7 @@ from products.engineering_analytics.backend.facade.contracts import (
     PRTimelineSegment,
     PRTimelineSegmentKind,
 )
+from products.engineering_analytics.backend.logic.merge_queue import GateAttempt
 from products.engineering_analytics.backend.logic.queries.master_failures import strip_shard_suffix
 from products.engineering_analytics.backend.logic.views.reviews import APPROVED_STATE, CHANGES_REQUESTED_STATE
 
@@ -60,15 +61,6 @@ class RunAttempt:
     succeeded: bool
     # Names of the jobs that failed in this attempt; empty when job data is not synced.
     failed_jobs: tuple[str, ...]
-
-
-@frozen
-class GateAttempt:
-    """One merge-queue attempt for the PR: the gate branch's runs, bisection probes folded in."""
-
-    started_at: datetime
-    # None while any of the attempt's runs is still running.
-    completed_at: datetime | None
 
 
 @frozen
