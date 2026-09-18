@@ -72,15 +72,12 @@ import type {
     SignalReportClaimApi,
     SignalReportFeedbackRequestApi,
     SignalReportFeedbackResponseApi,
-    SignalReportLinkRequestApi,
-    SignalReportLinkResponseApi,
     SignalReportMetricRefreshRequestApi,
     SignalReportMetricRefreshResponseApi,
     SignalReportRefundRequestApi,
     SignalReportRefundResponseApi,
     SignalReportRefundSummaryResponseApi,
     SignalReportStateRequestApi,
-    SignalReportUnlinkResponseApi,
     SignalScoutConfigApi,
     SignalScoutConfigCreateApi,
     SignalScoutCreateApi,
@@ -308,28 +305,6 @@ export const signalsReportsFeedbackCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(signalReportFeedbackRequestApi),
-    })
-}
-
-export const getSignalsReportsLinkUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/signals/reports/${id}/link/`
-}
-
-/**
- * Record how this report relates to another one, as a directed link: "this report `kind` that report". Use `depends_on` when a GitHub issue specs a stack and this report's fix cannot land until the other one's does, so the order the pull requests have to merge in is recorded instead of being read off the diffs. Nothing is written on the other report, and the artefact list is per report, so the link shows on this report only: link from the side the sentence starts at. Links of the same kind must stay acyclic and both reports must be in this project. Linking the same pair twice records the newer link and leaves the older one in the log.
- * @summary Link a report to another report
- */
-export const signalsReportsLink = async (
-    projectId: string,
-    id: string,
-    signalReportLinkRequestApi: SignalReportLinkRequestApi,
-    options?: RequestInit
-): Promise<SignalReportLinkResponseApi> => {
-    return apiMutator<SignalReportLinkResponseApi>(getSignalsReportsLinkUrl(projectId, id), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(signalReportLinkRequestApi),
     })
 }
 
@@ -689,28 +664,6 @@ export const signalsReportsStateCreate = async (
     })
 }
 
-export const getSignalsReportsUnlinkUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/signals/reports/${id}/unlink/`
-}
-
-/**
- * Remove every `kind` link from this report to `report_id`. `reason` is ignored. Removing a link that was never there is a 200 with `removed: 0`, so a caller cleaning up does not have to check first.
- * @summary Remove a link between two reports
- */
-export const signalsReportsUnlink = async (
-    projectId: string,
-    id: string,
-    signalReportLinkRequestApi: SignalReportLinkRequestApi,
-    options?: RequestInit
-): Promise<SignalReportUnlinkResponseApi> => {
-    return apiMutator<SignalReportUnlinkResponseApi>(getSignalsReportsUnlinkUrl(projectId, id), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(signalReportLinkRequestApi),
-    })
-}
-
 export const getSignalsReportsViewedCreateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/signals/reports/${id}/viewed/`
 }
@@ -842,7 +795,7 @@ export const getSignalsReportArtefactsDestroyUrl = (projectId: string, reportId:
 }
 
 /**
- * Delete an artefact, addressed by id. Deleting the latest row of a status type reverts the report's canonical status to the previous version (latest-wins over what remains). `task_run` artefacts are an append-only work log and cannot be deleted. Neither can the types this API cannot write, which the pipeline owns: `check_result`, `code_review`, `implementation_decision`, `implementation_dispatch`, `implementation_handover`, `implementation_replacement`, `pull_request`, `summary_change`, `task_run`, `title_change`, `video_segment`, `work_claim`, `work_release`.
+ * Delete an artefact, addressed by id. Deleting the latest row of a status type reverts the report's canonical status to the previous version (latest-wins over what remains). `task_run` artefacts are an append-only work log and cannot be deleted. Neither can the types this API cannot write, which the pipeline owns: `check_result`, `code_review`, `implementation_decision`, `implementation_dispatch`, `implementation_handover`, `implementation_replacement`, `pull_request`, `report_link`, `summary_change`, `task_run`, `title_change`, `video_segment`, `work_claim`, `work_release`.
  * @summary Delete an artefact
  */
 export const signalsReportArtefactsDestroy = async (

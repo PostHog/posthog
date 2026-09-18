@@ -875,6 +875,7 @@ NON_WRITABLE_ARTEFACT_TYPES: frozenset[str] = frozenset(
         "work_release",
         "pull_request",
         "check_result",
+        "report_link",
         "implementation_decision",
         "implementation_dispatch",
         "implementation_replacement",

@@ -83986,7 +83986,7 @@ export namespace Schemas {
     export interface SignalReportArtefactLogCreate {
       /** Active claim to attribute this work to. Must belong to the caller and report. */
       claim_id?: string;
-      /** The artefact type. One of: actionability_judgment, channel_assignment, code_reference, commit, dismissal, note, priority_judgment, related_to, repo_selection, report_link, safety_judgment, signal_finding, suggested_reviewers. Log types accumulate; status types (safety_judgment, actionability_judgment, priority_judgment, repo_selection, suggested_reviewers, channel_assignment) are latest-wins — appending a new version supersedes the previous one as the report's canonical status. */
+      /** The artefact type. One of: actionability_judgment, channel_assignment, code_reference, commit, dismissal, note, priority_judgment, related_to, repo_selection, safety_judgment, signal_finding, suggested_reviewers. Log types accumulate; status types (safety_judgment, actionability_judgment, priority_judgment, repo_selection, suggested_reviewers, channel_assignment) are latest-wins — appending a new version supersedes the previous one as the report's canonical status. */
       artefact_type: string;
       /** The artefact payload as a JSON object or array; shape depends on artefact_type and is validated against its schema. */
       content: unknown;
@@ -84188,52 +84188,6 @@ export namespace Schemas {
       forwarded: boolean;
     }
 
-    /**
-     * Body for the report `link` and `unlink` actions.
-     *
-     * The link reads as a sentence starting at the report in the URL: "this report `kind` the report
-     * named by `report_id`". `reason` is stored on the link and ignored by `unlink`, which removes
-     * every link of this kind to this report.
-     */
-    export interface SignalReportLinkRequest {
-      /** How the report in the URL relates to `report_id`. `depends_on` for work that cannot land until the other report's fix does, `part_of` for one piece of a larger report, `follow_up_of` for work the other report left behind, `duplicate_of` for the same problem filed twice, and `recurrence_of` for a problem a resolved report already covered.
-       *
-       * * `depends_on` - Depends on
-       * * `part_of` - Part of
-       * * `follow_up_of` - Follow-up of
-       * * `duplicate_of` - Duplicate of
-       * * `recurrence_of` - Recurrence of */
-      kind: ReportLinkKindEnum;
-      /** Id of the report to link to. Must be a report in this project, and not the report in the URL. */
-      report_id: string;
-      /**
-         * Optional one-line note on why the reports are linked this way.
-         * @maxLength 500
-         */
-      reason?: string;
-    }
-
-    /**
-     * Response for `link`: the stored link, so the caller can address or remove the row later.
-     */
-    export interface SignalReportLinkResponse {
-      /** Id of the link artefact that was written. */
-      readonly id: string;
-      /** Id of the report the link was written on. */
-      readonly report_id: string;
-      /** The link kind that was stored. */
-      readonly kind: string;
-      /** Id of the report the link points at. */
-      readonly linked_report_id: string;
-      /**
-         * The note stored with the link, if one was supplied.
-         * @nullable
-         */
-      readonly reason: string | null;
-      /** When the link was written. */
-      readonly created_at: string;
-    }
-
     export interface SignalReportMetricRefreshRequest {
       /**
          * Reports on screen, in display order. Each report's row metric is refreshed before any report's supporting metrics. At most 20 ids per call.
@@ -84353,14 +84307,6 @@ export namespace Schemas {
          * @maximum 100000
          */
       snooze_for?: number;
-    }
-
-    /**
-     * Response for `unlink`: how many links the call removed.
-     */
-    export interface SignalReportUnlinkResponse {
-      /** Number of links removed. Zero means there was no link of this kind to that report. */
-      readonly removed: number;
     }
 
     /**
