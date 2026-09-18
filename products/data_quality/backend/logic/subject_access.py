@@ -236,6 +236,7 @@ def reference_gate(
         # left out of the lookup and fails closed in ``ReadableSubjects.contains``.
         if reference.subject_type in referenced and (identifier := _as_uuid(reference.subject_uuid)) is not None:
             referenced[reference.subject_type].add(identifier)
+    matcher = DeniedTableMatcher(system_table_denials(team, user, user_access_control, unentitled=unentitled))
     return ReferenceGate(
         readable=ReadableSubjects(
             table_ids=warehouse_facade.allowed_table_ids(
@@ -244,9 +245,18 @@ def reference_gate(
             view_ids=data_modeling_facade.allowed_saved_query_ids(
                 team.id, user_access_control, ids=referenced[SubjectType.VIEW]
             ),
+            posthog_table_ids=readable_posthog_table_ids(user_access_control, matcher),
         ),
-        matcher=DeniedTableMatcher(system_table_denials(team, user, user_access_control, unentitled=unentitled)),
+        matcher=matcher,
     )
+
+
+def readable_posthog_table_ids(
+    user_access_control: "UserAccessControl", matcher: DeniedTableMatcher
+) -> frozenset[UUID]:
+    if not user_access_control.check_access_level_for_resource(posthog_tables.RESOURCE, "viewer"):
+        return frozenset()
+    return frozenset(entry.id for entry in posthog_tables.TABLES if not matcher.matches([entry.name]))
 
 
 @frozen
@@ -499,6 +509,10 @@ def readable_check_subjects(
         Q(subject_type=SubjectType.TABLE, table_id__in=readable.table_ids)
         | Q(subject_type=SubjectType.VIEW, saved_query_id__in=readable.view_ids)
         | Q(subject_type=SubjectType.METRIC, metric_id__in=readable.metric_ids)
+        | Q(
+            subject_type=SubjectType.POSTHOG_TABLE,
+            posthog_table__in=posthog_tables.names_of(readable.posthog_table_ids),
+        )
     )
 
 

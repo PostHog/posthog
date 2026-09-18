@@ -28,6 +28,7 @@ from products.warehouse_sources.backend.facade import api as warehouse_facade
 
 from ..facade.enums import CheckRunStatus, SubjectType
 from ..models import DataQualityCheck, DataQualityCheckRun, DataQualitySuiteRun
+from . import posthog_tables
 from .checks import checks_for_subject
 from .flags import is_data_quality_checks_enabled_for_team_id
 from .subject_access import (
@@ -125,6 +126,10 @@ class _WarehouseSubjectResolver(RecipientsResolver):
             return False
         if self._subject_type == SubjectType.METRIC and not access.check_access_level_for_resource(
             "data_catalog", "viewer"
+        ):
+            return False
+        if self._subject_type == SubjectType.POSTHOG_TABLE and not access.check_access_level_for_resource(
+            posthog_tables.RESOURCE, "viewer"
         ):
             return False
         if self._object_gate_applies() and not self._has_object_access(access):

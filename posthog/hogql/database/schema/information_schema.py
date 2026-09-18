@@ -1123,7 +1123,7 @@ def _data_quality_checks(context: "HogQLContext", allowed: Optional[frozenset[st
             if context.database is None:
                 return []
             checks = data_quality.visible_checks(
-                team_id, checks, data_quality.denial_context(team_id, context.database)
+                team_id, checks, data_quality.sql_denial_context(team_id, context.database)
             )
         return [
             [
@@ -1177,7 +1177,7 @@ def _data_quality_check_runs(context: "HogQLContext", allowed: Optional[frozense
         if _denial_applies(context, denied):
             if context.database is None:
                 return []
-            base = data_quality.without_denied_runs(base, data_quality.denial_context(team_id, context.database))
+            base = data_quality.without_denied_runs(base, data_quality.sql_denial_context(team_id, context.database))
         return [
             [
                 str(run.id),
@@ -1228,7 +1228,7 @@ def _data_quality_health(context: "HogQLContext", allowed: Optional[frozenset[st
             if context.database is None:
                 return []
             checks = data_quality.visible_checks(
-                team_id, checks, data_quality.denial_context(team_id, context.database)
+                team_id, checks, data_quality.sql_denial_context(team_id, context.database)
             )
         by_subject: dict[tuple[str, str], list[Any]] = defaultdict(list)
         for check in checks:

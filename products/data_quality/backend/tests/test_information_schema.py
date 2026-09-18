@@ -175,6 +175,14 @@ class TestInformationSchemaDataQuality(ClickhouseTestMixin, APIBaseTest):
             config={"query": "SELECT * FROM {metric}"},
         )
         self._run_for(metric_check, referenced_subjects=[])
+        events_check = self._check(
+            subject_type=SubjectType.POSTHOG_TABLE,
+            saved_query_id=None,
+            posthog_table="events",
+            subject_name="events",
+            column_name="distinct_id",
+        )
+        self._run_for(events_check, referenced_subjects=[])
         self.organization.available_product_features = [{"key": AvailableFeature.ACCESS_CONTROL}]
         self.organization.save(update_fields=["available_product_features"])
         AccessControl.objects.create(

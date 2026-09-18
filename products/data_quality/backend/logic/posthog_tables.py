@@ -1,6 +1,6 @@
 """The PostHog tables a check can be authored on, each with a deterministic id from its name."""
 
-from collections.abc import Callable
+from collections.abc import Callable, Collection
 from uuid import NAMESPACE_URL, UUID, uuid5
 
 from posthog.schema import DatabaseSerializedFieldType
@@ -22,8 +22,10 @@ from posthog.hogql.database.schema.groups import GroupsTable
 from posthog.hogql.database.schema.persons import PersonsTable
 
 from posthog.dataclasses import frozen
+from posthog.scopes import APIScopeObject
 
 _SUBJECT_NAMESPACE = "data-quality-posthog-table:"
+RESOURCE: APIScopeObject = "warehouse_table"
 
 _FIELD_TYPES: list[tuple[type, DatabaseSerializedFieldType]] = [
     (IntegerDatabaseField, DatabaseSerializedFieldType.INTEGER),
@@ -80,6 +82,10 @@ def by_id(subject_uuid: str | UUID) -> PostHogTable | None:
 
 def all_ids() -> frozenset[UUID]:
     return frozenset(_BY_ID)
+
+
+def names_of(ids: Collection[UUID]) -> list[str]:
+    return [entry.name for entry in TABLES if entry.id in ids]
 
 
 def names() -> tuple[str, ...]:

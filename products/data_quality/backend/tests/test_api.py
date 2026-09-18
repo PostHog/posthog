@@ -2101,6 +2101,24 @@ class TestDataQualityCheckAPI(APIBaseTest):
             status.HTTP_503_SERVICE_UNAVAILABLE,
         )
 
+    def test_a_restricted_member_still_lists_and_runs_a_posthog_table_check(self) -> None:
+        events = by_name("events")
+        assert events is not None
+        check = self._create_check(
+            subject_type=SubjectType.POSTHOG_TABLE, subject_uuid=str(events.id), column_name="distinct_id"
+        )
+        self._deny_the_view()
+
+        listed = self.client.get(self._checks_of(events.id, SubjectType.POSTHOG_TABLE))
+        health = self.client.get(f"{self.url}/health/")
+        with patch(START_SUITE, return_value=MagicMock(start_workflow=AsyncMock())) as connect:
+            started = self.client.post(f"{self.suites_url}/", {})
+
+        assert [row["id"] for row in listed.json()["results"]] == [str(check.id)]
+        assert [row["subject_uuid"] for row in health.json()] == [str(events.id)]
+        assert started.status_code == status.HTTP_200_OK, started.content
+        assert connect.return_value.start_workflow.call_args.args[1]["check_ids"] == [str(check.id)]
+
     def test_running_a_posthog_table_subject_hands_the_worker_its_selector(self) -> None:
         # Without the selector the worker reads the suite as naming nothing and runs none of the
         # subject's checks, while still reporting the run as finished.
