@@ -598,18 +598,20 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
                 setRelatedTracesQuery: (_, { query }) => query,
             },
         ],
-        // Cleared on navigation so a stale resolution is never shown for the
-        // newly selected version while its own load is in flight.
+        // Cleared the moment a prompt load starts: every path to different
+        // content (navigation, version switch, refresh, failure) begins with
+        // loadPrompt, so clearing on the trigger closes the whole class of
+        // stale-preview states instead of patching individual outcomes.
         resolvedPreview: {
-            loadPromptSuccess: () => null,
+            loadPrompt: () => null,
             setMode: () => null,
         },
         isShowingResolvedPreview: [
             false,
             {
                 toggleResolvedPreview: (state: boolean) => !state,
+                loadPrompt: () => false,
                 setMode: () => false,
-                loadPromptSuccess: () => false,
                 // A failed resolution must not present the raw source as resolved content.
                 loadResolvedPreviewFailure: () => false,
             },
