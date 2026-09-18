@@ -1,5 +1,6 @@
 import { deepEqual as equal } from 'fast-equals'
 import { LogicWrapper } from 'kea'
+import { combineUrl } from 'kea-router'
 import { routerType } from 'kea-router/lib/routerType'
 
 import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
@@ -10,6 +11,7 @@ import { compactNumber } from 'lib/utils/numbers'
 import { membershipLevelToName } from 'lib/utils/permissioning'
 import { wordPluralize } from 'lib/utils/strings'
 import { Params } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
 
 import { BillingPeriod, BillingProductV2AddonType, BillingProductV2Type, BillingTierType, BillingType } from '~/types'
 
@@ -488,6 +490,22 @@ export function canViewUsageAndSpend(
         return false
     }
     return membershipLevel >= getMinimumUsageSpendReadAccessLevel(memberUsageSpendReadAccess, ownerOnlyBilling)
+}
+
+/**
+ * Link to the usage tab, split by project, optionally narrowed to one usage type.
+ * Note that a usage type is not a product's `usage_key`: that one names a billing limit.
+ * Returns null for a type the tab cannot filter by, so a link never lands on a page that
+ * silently ignores it.
+ */
+export function usageByProjectUrl(usageType?: string | null): string | null {
+    if (usageType && !USAGE_TYPES.some((type) => type.value === usageType)) {
+        return null
+    }
+    return combineUrl(urls.organizationBillingSection('usage'), {
+        ...(usageType ? { usage_types: [usageType] } : {}),
+        breakdowns: ['type', 'team'],
+    }).url
 }
 
 /**

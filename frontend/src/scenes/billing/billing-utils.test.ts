@@ -4,7 +4,9 @@ import {
     filterSpendUsageTypes,
     getSpendTypeOptions,
     getUsageTypeOptions,
+    usageByProjectUrl,
 } from './billing-utils'
+import { REPLAY_VISION_USAGE_TYPE } from './constants'
 
 describe('getUsageTypeOptions', () => {
     it('includes informational Desktop component metrics in Usage but not Spend', () => {
@@ -63,5 +65,30 @@ describe('billingErrorGuidance', () => {
 
     it('falls back to billing text for a code it does not know', () => {
         expect(billingErrorGuidance({ code: 'something_new', detail: 'billing said this' })).toBe('billing said this')
+    })
+})
+
+describe('usageByProjectUrl', () => {
+    it('lands on the usage tab already filtered to the type and split by project', () => {
+        const url = usageByProjectUrl(REPLAY_VISION_USAGE_TYPE)
+
+        expect(url).not.toBeNull()
+        const params = new URLSearchParams((url as string).split('?')[1])
+        expect(JSON.parse(params.get('usage_types') as string)).toEqual([REPLAY_VISION_USAGE_TYPE])
+        expect(JSON.parse(params.get('breakdowns') as string)).toContain('team')
+    })
+
+    it('offers no link for a type the usage tab cannot filter by', () => {
+        // A product's `usage_key` names a billing limit, so it never works as a usage type.
+        expect(usageByProjectUrl('recordings')).toBeNull()
+        expect(usageByProjectUrl('made_up_usage_type')).toBeNull()
+    })
+
+    it('still splits by project when no type is named', () => {
+        const url = usageByProjectUrl()
+
+        const params = new URLSearchParams((url as string).split('?')[1])
+        expect(params.get('usage_types')).toBeNull()
+        expect(JSON.parse(params.get('breakdowns') as string)).toContain('team')
     })
 })

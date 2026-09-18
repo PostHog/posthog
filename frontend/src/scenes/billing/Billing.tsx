@@ -28,6 +28,7 @@ import { urls } from 'scenes/urls'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { BillingProductV2Type } from '~/types'
 
+import { usageByProjectUrl } from './billing-utils'
 import { BillingHero } from './BillingHero'
 import { billingLogic } from './billingLogic'
 import { BillingNoAccess } from './BillingNoAccess'
@@ -39,6 +40,28 @@ import { UnsubscribeCard } from './UnsubscribeCard'
 
 const HedgehogJudge = pngHoggie(judge)
 const HedgehogStar = pngHoggie(star)
+
+/**
+ * A bill covers the whole organization, so a project with a product switched off can still carry
+ * spend from a sibling project. Support keeps seeing that read as a charge for something unused.
+ */
+function UsageByProjectNotice(): JSX.Element | null {
+    const { canViewUsageAndSpend, currentOrganization } = useValues(billingLogic)
+    const usageUrl = usageByProjectUrl()
+
+    if (!usageUrl || !canViewUsageAndSpend || (currentOrganization?.teams?.length ?? 0) < 2) {
+        return null
+    }
+
+    return (
+        <p className="mb-2 text-sm text-secondary">
+            Usage is counted across every project in this organization, including projects you don't have open.{' '}
+            <Link to={usageUrl} data-attr="billing-usage-by-project">
+                See usage by project
+            </Link>
+        </p>
+    )
+}
 
 export const scene: SceneExport = {
     component: Billing,
@@ -243,6 +266,8 @@ export function Billing(): JSX.Element {
             <div className="flex justify-between mt-4">
                 <h2>Products</h2>
             </div>
+
+            <UsageByProjectNotice />
 
             {(memberCount >= 5 && !hasSupportAddonPlan
                 ? [
