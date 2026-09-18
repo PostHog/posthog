@@ -50,6 +50,13 @@ def is_transient_object_store_error(error: BaseException) -> bool:
     match), but hitting our own instance-role-authenticated bucket always means the same transient
     resolution hiccup, so it's recognized by type rather than by message.
 
+    `boto3`'s own client calls (e.g. `ensure_bucket_exists`'s `head_bucket`) can likewise raise a bare
+    `botocore.exceptions.ConnectionError` — `EndpointConnectionError` (DNS not resolvable yet, or the
+    endpoint refusing connections) and its siblings — when our own bucket endpoint isn't reachable
+    yet, most commonly a local/self-hosted object store still bootstrapping. Never an `OSError`
+    subclass, so the message-matched branch below never sees it; recognized by type for the same
+    reason as `NoCredentialsError`.
+
     A bare `OSError` with errno `EMFILE`/`ENFILE` means this worker's (or the system's) file
     descriptor table is full — e.g. `aget_s3_client`'s aiobotocore session bootstrap opening
     botocore's own bundled `endpoints.json` fails with this errno before any network call is even
@@ -57,7 +64,9 @@ def is_transient_object_store_error(error: BaseException) -> bool:
     (`_is_too_many_open_files_error`): a descriptor frees the moment another connection/client in
     this worker closes, so it's fd pressure on our side, never an object-store or customer problem.
     """
-    if isinstance(error, TransientObjectStoreError | botocore.exceptions.NoCredentialsError):
+    if isinstance(
+        error, TransientObjectStoreError | botocore.exceptions.NoCredentialsError | botocore.exceptions.ConnectionError
+    ):
         # Already classified and wrapped by a prior call to this same function (see
         # `_capture_unless_transient`) — a caller further up the stack that catches broadly and
         # re-runs this classifier on the wrapper, rather than the original OSError/DeltaError it
