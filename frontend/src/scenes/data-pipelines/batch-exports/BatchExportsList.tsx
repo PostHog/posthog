@@ -64,10 +64,14 @@ const columns: LemonTableColumn<BatchExportApi, any>[] = [
             <Link to={urls.batchExport(batchExport.id, 'metrics')}>
                 <AppMetricsSparkline
                     logicKey={batchExport.id}
+                    metricLabels={{ cancellation: 'Canceled' }}
+                    metricColors={{ cancellation: 'warning' }}
                     forceParams={{
                         appSource: 'batch_export',
                         appSourceId: batchExport.id,
-                        metricKind: ['success', 'failure'],
+                        // Canceled runs report under the 'cancellation' kind. Without it, a week of
+                        // cancellations reads as idle and this row disagrees with the metrics tab.
+                        metricKind: ['success', 'failure', 'cancellation'],
                         breakdownBy: 'metric_kind',
                         interval: 'day',
                         dateFrom: '-7d',
