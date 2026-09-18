@@ -5,7 +5,7 @@ import {
     getWorkflowBranchLabel,
     isWorkflowTreeComplete,
 } from './workflowTree'
-import { findWorkflowTreePath, getWorkflowTreeBranchSummary } from './workflowTreePresentation'
+import { findWorkflowTreePath, getWorkflowTreeBranchSummary, getWorkflowTreeStepIds } from './workflowTreePresentation'
 
 const action = (id: string, type: HogFlowAction['type'] = 'function'): HogFlowAction =>
     ({ id, type, name: id, description: '', config: {} }) as HogFlowAction
@@ -165,6 +165,50 @@ describe('buildWorkflowTree', () => {
             ['onboarding', 0],
         ])
         expect(findWorkflowTreePath(tree, edge('deleted-branch', 'guided', 'branch', 0))).toEqual([])
+    })
+
+    it('keeps a nested join inside the focused path and the outer join outside it', () => {
+        const tree = buildWorkflowTree(
+            workflow(
+                [
+                    action('trigger', 'trigger'),
+                    action('outer', 'conditional_branch'),
+                    action('trial'),
+                    action('paid'),
+                    action('inner', 'conditional_branch'),
+                    action('guided'),
+                    action('self-serve'),
+                    action('followup'),
+                    action('shared'),
+                    action('exit', 'exit'),
+                ],
+                [
+                    edge('trigger', 'outer'),
+                    edge('outer', 'trial', 'branch', 0),
+                    edge('outer', 'paid'),
+                    edge('trial', 'inner'),
+                    edge('inner', 'guided', 'branch', 0),
+                    edge('inner', 'self-serve'),
+                    edge('guided', 'followup'),
+                    edge('self-serve', 'followup'),
+                    edge('followup', 'shared'),
+                    edge('paid', 'shared'),
+                    edge('shared', 'exit'),
+                ]
+            )
+        )
+
+        const [focused] = findWorkflowTreePath(tree, edge('outer', 'trial', 'branch', 0))
+
+        expect(focused.branch.sequence.nodes.find((node) => node.action.id === 'inner')?.joinActionId).toBe('followup')
+        expect(focused.node.joinActionId).toBe('shared')
+        expect([...getWorkflowTreeStepIds(focused.branch.sequence)]).toEqual([
+            'trial',
+            'inner',
+            'guided',
+            'self-serve',
+            'followup',
+        ])
     })
 
     it.each([

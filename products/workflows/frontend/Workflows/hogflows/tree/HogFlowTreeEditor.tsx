@@ -14,7 +14,7 @@ import { HogFlowTreeDropzone } from './HogFlowTreeDropzone'
 import { HogFlowTreeFeaturePreview } from './HogFlowTreeFeaturePreview'
 import { HogFlowTreeNode } from './HogFlowTreeNode'
 import { buildWorkflowTree } from './workflowTree'
-import { findWorkflowTreePath, getWorkflowTreeBranchSummary } from './workflowTreePresentation'
+import { findWorkflowTreePath, getWorkflowTreeBranchSummary, getWorkflowTreeStepIds } from './workflowTreePresentation'
 
 export function HogFlowTreeEditor(): JSX.Element {
     const { nodeToBeAdded, workflow } = useValues(hogFlowEditorLogic)
@@ -42,6 +42,14 @@ export function HogFlowTreeEditor(): JSX.Element {
     const returnToWorkflow = (actionId: string): void => {
         setFocusedEdge(null)
         setScrollTarget(actionId)
+    }
+
+    // A path inside the focused view can join at a step that the focused view also shows, so leave
+    // focus only for a join that the user cannot already see.
+    const returnToWorkflowIfOutsideFocus = (actionId: string): void => {
+        if (focused && !getWorkflowTreeStepIds(focused.branch.sequence).has(actionId)) {
+            returnToWorkflow(actionId)
+        }
     }
 
     const selectContinuation = (actionId: string): void => {
@@ -212,7 +220,7 @@ export function HogFlowTreeEditor(): JSX.Element {
                             onDragStart={onDragStart}
                             onDragEnd={onDragEnd}
                             onFocusBranch={focusBranch}
-                            onSelectContinuation={focused ? returnToWorkflow : undefined}
+                            onSelectContinuation={focused ? returnToWorkflowIfOutsideFocus : undefined}
                         />
                     ))}
                     {focused?.branch.sequence.trailingEdge && (
