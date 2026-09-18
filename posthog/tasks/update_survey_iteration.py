@@ -2,6 +2,8 @@ from datetime import date, timedelta
 
 from django.utils import timezone
 
+from prometheus_client import Counter
+
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 
 from products.feature_flags.backend.facade.api import create_flag, update_flag
@@ -9,16 +11,26 @@ from products.feature_flags.backend.facade.filters import replace_release_condit
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.surveys.backend.models import Survey
 
+SURVEY_CLOSED_BY_SCHEDULE_COUNTER = Counter(
+    "survey_closed_by_schedule",
+    "Surveys the iteration beat task closed because their repeat schedule ran out.",
+    labelnames=["recently_resumed"],
+)
+
+# A resume re-anchors the repeat schedule, so a close right after one means the re-anchor did not take.
+RECENTLY_RESUMED_WINDOW = timedelta(hours=24)
+
 
 def _update_survey_iteration(survey: Survey) -> None:
     survey.refresh_from_db()
     if survey.iteration_start_dates is None or survey.end_date is not None:
         return
 
-    if _has_final_iteration_ended(survey):
+    if survey.has_final_iteration_ended():
         survey.end_date = timezone.now()
         survey.save(update_fields=["end_date"])
         _log_survey_closed_by_schedule(survey)
+        SURVEY_CLOSED_BY_SCHEDULE_COUNTER.labels(recently_resumed=_was_recently_resumed(survey)).inc()
         return
 
     current_iteration = _get_current_iteration(survey)
@@ -53,20 +65,9 @@ def _log_survey_closed_by_schedule(survey: Survey) -> None:
     )
 
 
-def _has_final_iteration_ended(survey: Survey) -> bool:
-    if not survey.iteration_start_dates or not survey.iteration_frequency_days:
-        return False
-
-    last_iteration_start = survey.iteration_start_dates[-1]
-    if last_iteration_start is None:
-        return False
-
-    try:
-        final_iteration_end = last_iteration_start.date() + timedelta(days=survey.iteration_frequency_days)
-    except OverflowError:
-        # iteration_frequency_days is not capped by the API; a huge value must not crash the task
-        return False
-    return date.today() > final_iteration_end
+def _was_recently_resumed(survey: Survey) -> bool:
+    anchor = survey.iteration_anchor_date
+    return anchor is not None and timezone.now() - anchor < RECENTLY_RESUMED_WINDOW
 
 
 def _get_targeting_flag(survey: Survey) -> FeatureFlag:

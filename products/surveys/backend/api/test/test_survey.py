@@ -28,6 +28,7 @@ from posthog.constants import AvailableFeature
 from posthog.models import Team
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.user import User
+from posthog.tasks.update_survey_iteration import update_survey_iteration
 from posthog.test.persons import create_person
 
 from products.access_control.backend.models.access_control import AccessControl
@@ -5385,6 +5386,57 @@ class TestSurveysRecurringIterations(APIBaseTest):
         assert response_data["iteration_start_dates"] is not None
         assert len(response_data["iteration_start_dates"]) == 2
         assert response_data["current_iteration"] == 1
+
+    @time_machine.travel("2024-05-22 14:40:09", tick=False)
+    def test_resuming_a_survey_past_its_schedule_re_anchors_the_repeats(self):
+        survey = self._create_recurring_survey()
+        self.client.patch(
+            f"/api/projects/{self.team.id}/surveys/{survey.id}/",
+            data={
+                "start_date": datetime.now() - timedelta(days=90),
+                "end_date": datetime.now(),
+                "iteration_count": 2,
+                "iteration_frequency_days": 30,
+            },
+        )
+
+        response = self.client.patch(f"/api/projects/{self.team.id}/surveys/{survey.id}/", data={"end_date": None})
+
+        response_data = response.json()
+        assert response_data["iteration_anchor_date"] == "2024-05-22T14:40:09Z"
+        assert response_data["iteration_start_dates"] == ["2024-05-22T14:40:09Z", "2024-06-21T14:40:09Z"]
+        assert response_data["current_iteration"] == 1
+
+        update_survey_iteration()
+        survey.refresh_from_db()
+        assert survey.end_date is None
+
+    @parameterized.expand(
+        [
+            ("recurring_mid_schedule", Survey.Schedule.RECURRING, 10),
+            ("not_recurring", Survey.Schedule.ONCE, 90),
+        ]
+    )
+    @time_machine.travel("2024-05-22 14:40:09", tick=False)
+    def test_resuming_leaves_a_live_schedule_alone(self, _name: str, schedule: str, days_running: int):
+        survey = self._create_recurring_survey()
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/surveys/{survey.id}/",
+            data={
+                "start_date": datetime.now() - timedelta(days=days_running),
+                "end_date": datetime.now(),
+                "schedule": schedule,
+                "iteration_count": 2,
+                "iteration_frequency_days": 30,
+            },
+        )
+        iteration_start_dates = response.json()["iteration_start_dates"]
+
+        response = self.client.patch(f"/api/projects/{self.team.id}/surveys/{survey.id}/", data={"end_date": None})
+
+        response_data = response.json()
+        assert response_data["iteration_anchor_date"] is None
+        assert response_data["iteration_start_dates"] == iteration_start_dates
 
 
 class TestSurveyAPITokens(PersonalAPIKeysBaseTest, APIBaseTest):

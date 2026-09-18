@@ -4173,6 +4173,8 @@ export interface Survey extends WithAccessControl {
     iteration_start_dates?: string[]
     current_iteration?: number | null
     current_iteration_start_date?: string
+    /** Set when a resume re-anchored the repeat schedule. The repeats run from here, not from `start_date`. */
+    iteration_anchor_date?: string | null
     response_sampling_start_date?: string | null
     response_sampling_interval_type?: string | null
     response_sampling_interval?: number | null
