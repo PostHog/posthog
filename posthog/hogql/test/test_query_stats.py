@@ -52,3 +52,12 @@ def test_the_last_rows_read_are_kept_per_thread():
         assert last_rows_read() == 0
 
     assert (stats.rows_read, stats.query_count) == (1003, 2)
+
+
+def test_a_lookup_counts_in_the_totals_and_is_kept_apart():
+    with query_stats_scope() as stats:
+        record(rows_read=1000, duration_ms=50.0, lookup=True)
+        record(rows_read=3, duration_ms=2.0)
+
+    assert (stats.rows_read, stats.duration_ms) == (1003, 52.0)
+    assert (stats.lookup_rows_read, stats.lookup_duration_ms) == (1000, 50.0)
