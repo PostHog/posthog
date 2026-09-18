@@ -6,6 +6,7 @@ from functools import cached_property
 from typing import Any, Literal, cast
 
 from django.conf import settings
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import transaction
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
@@ -810,10 +811,21 @@ class TeamMarketingAnalyticsConfigSerializer(serializers.ModelSerializer, UserAc
 
     @transaction.atomic
     def update(self, instance, validated_data):
+        # The model validates each config shape in a property setter and raises Django's
+        # ValidationError. DRF does not translate that, so without this a malformed body
+        # reaches the caller as a server error instead of a 400.
+        try:
+            return self._update(instance, validated_data)
+        except DjangoValidationError as e:
+            raise serializers.ValidationError(e.messages) from e
+
+    def _update(self, instance, validated_data):
         instance.refresh_from_db(from_queryset=TeamMarketingAnalyticsConfig.objects.select_for_update())
         # Handle sources_map with partial updates
         if "sources_map" in validated_data:
-            new_sources_map = validated_data["sources_map"]
+            new_sources_map = validated_data["sources_map"] or {}
+            if not isinstance(new_sources_map, dict):
+                raise serializers.ValidationError({"sources_map": ["Must be an object keyed by source id."]})
 
             # For each source in the new data, update it individually
             for source_id, field_mapping in new_sources_map.items():
