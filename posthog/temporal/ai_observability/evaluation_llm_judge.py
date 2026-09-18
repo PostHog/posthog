@@ -40,12 +40,17 @@ from products.ai_observability.backend.llm.errors import (
     ContextWindowExceededError,
     ModelNotFoundError,
     ModelPermissionError,
+    ProviderBadRequestError,
     ProviderConnectionError,
     QuotaExceededError,
     RateLimitError,
     StructuredOutputParseError,
 )
-from products.ai_observability.backend.text_repr.formatters import add_line_numbers, reduce_by_uniform_sampling
+from products.ai_observability.backend.text_repr.formatters import (
+    add_line_numbers,
+    reduce_by_uniform_sampling,
+    sanitize_surrogates,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -198,14 +203,14 @@ def _build_errored_trace_result(allows_na: bool) -> EvaluationActivityResult:
     return result
 
 
-def _build_context_window_skip_result(
-    allows_na: bool, *, is_byok: bool, key_id: str | None
+def _build_judge_skip_result(
+    allows_na: bool, *, is_byok: bool, key_id: str | None, skip_reason: str, reasoning: str
 ) -> EvaluationActivityResult:
     """Per-item skip, not a terminal user error that disables the eval."""
     result: EvaluationActivityResult = {
         "result_type": "boolean",
         "verdict": None if allows_na else False,
-        "reasoning": "Evaluation input exceeded the model's context window; evaluation skipped.",
+        "reasoning": reasoning,
         "input_tokens": 0,
         "output_tokens": 0,
         "total_tokens": 0,
@@ -213,7 +218,7 @@ def _build_context_window_skip_result(
         "key_id": key_id,
         "allows_na": allows_na,
         "skipped": True,
-        "skip_reason": "context_window_exceeded",
+        "skip_reason": skip_reason,
     }
     if allows_na:
         result["applicable"] = False
@@ -324,6 +329,12 @@ def call_llm_judge(
     is_byok = resolved.is_byok
     key_id = str(provider_key.id) if provider_key else None
 
+    # Captured content reaches the judge as it was ingested, so an unpaired surrogate -- half of
+    # an emoji -- can make the provider request unencodable. The trace summarization path repairs
+    # the same way.
+    system_prompt = sanitize_surrogates(system_prompt)
+    user_prompt = sanitize_surrogates(user_prompt)
+
     type_config = get_output_type_config(allows_na)
     response_format = type_config.response_format
 
@@ -430,7 +441,34 @@ def call_llm_judge(
     except ContextWindowExceededError:
         # Skip rather than raise: retrying can't fix an over-window prompt and just spams error tracking.
         increment_errors("context_window_exceeded", provider=provider)
-        return _build_context_window_skip_result(allows_na, is_byok=is_byok, key_id=key_id)
+        return _build_judge_skip_result(
+            allows_na,
+            is_byok=is_byok,
+            key_id=key_id,
+            skip_reason="context_window_exceeded",
+            reasoning="Evaluation input exceeded the model's context window; evaluation skipped.",
+        )
+
+    except ProviderBadRequestError as e:
+        # The provider refused the request itself, so all three attempts send the same request and
+        # collect the same 400. Skip the item and keep the provider's reason, which names the
+        # evaluation the raw exception could not.
+        increment_errors("provider_bad_request", provider=provider)
+        logger.warning(
+            "Model provider rejected the judge request",
+            evaluation_id=evaluation["id"],
+            team_id=team_id,
+            provider=provider,
+            model=model,
+            detail=str(e),
+        )
+        return _build_judge_skip_result(
+            allows_na,
+            is_byok=is_byok,
+            key_id=key_id,
+            skip_reason="provider_bad_request",
+            reasoning=f"The model provider rejected this evaluation request: {e}",
+        )
 
     except ProviderConnectionError as e:
         # Transient transport failure (connection reset, read timeout). Retrying usually succeeds,
