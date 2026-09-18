@@ -359,11 +359,6 @@ export type inboxFiltersLogicType = MakeLogicType<
  *   `sourceProductFilter`, `priorityFilter` (all persisted). `searchQuery` is NOT
  *   persisted on desktop, so it isn't here either.
  *
- * Filter state (scope, source, priority, sort) is also mirrored to the URL query
- * string so a specific view can be shared via a link. The URL is authoritative on
- * load whenever any filter param is present; a bare `/inbox` falls back to the
- * persisted state (and is then reflected back into the URL so it stays shareable).
- *
  * The central `inboxSceneLogic` connects these values, maps them to list-API
  * params (`source_product`, `priority`, `ordering`), and reloads on change.
  */
@@ -612,21 +607,6 @@ export const inboxFiltersLogic = kea<inboxFiltersLogicType>([
 
     urlToAction(({ actions, values }) => {
         const applyFromUrl = (_: unknown, searchParams: Record<string, any>): void => {
-            const hasFilterParams = FILTER_URL_KEYS.some((key) => key in searchParams)
-            if (!hasFilterParams) {
-                // Bare inbox URL: keep the persisted state, but reflect any non-default filters back
-                // into the URL so the current view is immediately shareable.
-                const desired = filterSearchParams(values)
-                if (Object.keys(desired).length > 0) {
-                    router.actions.replace(
-                        router.values.location.pathname,
-                        { ...router.values.searchParams, ...desired },
-                        router.values.hashParams
-                    )
-                }
-                return
-            }
-
             // A shared link is authoritative: apply the params it carries and reset the rest to defaults.
             // Only dispatch when something actually changed — urlToAction also fires on plain navigation
             // (opening a report, switching tabs), and we don't want a redundant list refresh each time.

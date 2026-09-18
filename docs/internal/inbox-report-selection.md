@@ -9,3 +9,11 @@ Use Shift+click to select a range of reports.
 Press and hold also selects a report.
 Once a selection exists, a plain click selects or deselects a report instead of opening it.
 Selection cannot change while a bulk action runs, and resolved reports cannot be selected.
+
+## Filter URLs
+
+The Inbox URL determines the report filters, including on a fresh page load.
+An absent filter parameter uses its default value, not a saved value from local storage.
+Removing the last filter parameter resets the filters instead of adding them back to the URL.
+Opening `/inbox` without filter parameters also uses the defaults; use a filtered link to return to a specific view.
+Filter controls keep unrelated query parameters and the URL hash intact.
