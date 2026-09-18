@@ -15,14 +15,26 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
 CIRCLECI_BASE_URL = "https://circleci.com/api/v2"
 REQUEST_TIMEOUT_SECONDS = 60
 MAX_RETRIES = 5
-# CircleCI v2 list endpoints return ~20 items per page and don't accept a page-size param,
+# Most CircleCI v2 list endpoints return ~20 items per page and don't accept a page-size param,
 # so the caps below bound the scan in pages, not rows.
 MAX_PIPELINE_PAGES = 500
 MAX_WORKFLOW_PAGES_PER_PIPELINE = 10
 MAX_JOB_PAGES_PER_WORKFLOW = 25
+MAX_COMPONENT_PAGES = 200
+MAX_VERSION_PAGES_PER_COMPONENT = 25
+# The deploy components endpoint is the exception: page size is required and no maximum is
+# documented, so we ask for the same ~20 items the other list endpoints return by default.
+COMPONENTS_PAGE_SIZE = 20
 # CircleCI rate-limits at roughly 1000 requests/minute per token (not officially documented);
 # 429s carry RateLimit-* headers we honor before retrying.
 MAX_RATE_LIMIT_SLEEP_SECONDS = 120
+# Endpoints served by the deploy components scan rather than the pipelines scan.
+COMPONENT_SCAN_ENDPOINTS = frozenset({"components", "component_versions"})
+# Workflow fields naming a CircleCI user, which is how the users stream discovers actor ids.
+WORKFLOW_ACTOR_FIELDS = ("started_by", "canceled_by", "errored_by")
+# A version row's identity beyond the component id. None of these are documented as required,
+# and a null merge key re-inserts the row on every sync, so they collapse to an empty string.
+VERSION_KEY_FIELDS = ("environment_id", "namespace", "name")
 
 
 class CircleCIRetryableError(Exception):
@@ -32,7 +44,8 @@ class CircleCIRetryableError(Exception):
         self.retry_after = retry_after
 
 
-FetchPageFn = Callable[[str], dict[str, Any]]
+# Returns the decoded body: an object for most endpoints, a list for /me/collaborations.
+FetchPageFn = Callable[[str], Any]
 
 _EXPONENTIAL_WAIT = wait_exponential_jitter(initial=1, max=60)
 
@@ -48,9 +61,10 @@ def _retry_wait(retry_state: RetryCallState) -> float:
 
 @dataclasses.dataclass
 class CircleCIResumeConfig:
-    # Page token for the top-level pipelines scan. Fan-out streams (workflows/jobs/projects)
-    # also resume on this token: children of fully processed pipeline pages have already been
-    # yielded, and the in-progress page is re-yielded then deduped on primary key.
+    # Page token for the endpoint's top-level scan (pipelines, or deploy components for the
+    # components streams). Fan-out streams also resume on it: children of fully processed
+    # parent pages have already been yielded, and the in-progress page is re-yielded then
+    # deduped on primary key. Resume state is keyed per job, so the two scans never mix.
     next_page_token: str
 
 
@@ -130,7 +144,7 @@ def _make_fetch_page(api_token: str, logger: FilteringBoundLogger) -> FetchPageF
         wait=_retry_wait,
         reraise=True,
     )
-    def fetch_page(url: str) -> dict[str, Any]:
+    def fetch_page(url: str) -> Any:
         response = session.get(url, headers=headers, timeout=REQUEST_TIMEOUT_SECONDS)
 
         if response.status_code == 429:
@@ -174,6 +188,13 @@ def _iter_pages(
         if not next_token:
             return
 
+        if next_token == page_token:
+            # The component versions endpoint returns a next_page_token while documenting no
+            # page-token param. If it ignores ours we would re-fetch the same page until the
+            # cap, so treat a repeated token as the end of the list.
+            logger.warning(f"CircleCI: repeated page token for {resource}, stopping pagination. path={path}")
+            return
+
         if pages_fetched >= max_pages:
             logger.warning(
                 f"CircleCI: page cap reached for {resource}, stopping pagination. max_pages={max_pages}, path={path}"
@@ -196,6 +217,36 @@ def _iter_pipeline_pages(
         logger,
         max_pages=MAX_PIPELINE_PAGES,
         resource="pipelines",
+        start_token=start_token,
+    )
+
+
+def _resolve_org_id(fetch_page: FetchPageFn, org_slug: str) -> str:
+    # The deploy endpoints take an organization UUID, which the v2 API only exposes through the
+    # collaborations list for the token's user.
+    for collaboration in fetch_page(_build_url("/me/collaborations")) or []:
+        if collaboration.get("slug") == org_slug and collaboration.get("id"):
+            return collaboration["id"]
+
+    raise ValueError(
+        f"CircleCI organization '{org_slug}' was not found for this token, so its deploy "
+        "components cannot be looked up."
+    )
+
+
+def _iter_component_pages(
+    fetch_page: FetchPageFn,
+    org_slug: str,
+    logger: FilteringBoundLogger,
+    start_token: str | None,
+) -> Iterator[tuple[list[dict[str, Any]], str | None]]:
+    yield from _iter_pages(
+        fetch_page,
+        "/deploy/components",
+        {"org-id": _resolve_org_id(fetch_page, org_slug), "page-size": COMPONENTS_PAGE_SIZE},
+        logger,
+        max_pages=MAX_COMPONENT_PAGES,
+        resource="components",
         start_token=start_token,
     )
 
@@ -273,6 +324,57 @@ def _project_rows(
         yield [project]
 
 
+def _component_version_rows(
+    fetch_page: FetchPageFn, components: list[dict[str, Any]], logger: FilteringBoundLogger
+) -> Iterator[list[dict[str, Any]]]:
+    for component in components:
+        component_id = component["id"]
+        for versions, _ in _iter_pages(
+            fetch_page,
+            f"/deploy/components/{component_id}/versions",
+            {},
+            logger,
+            max_pages=MAX_VERSION_PAGES_PER_COMPONENT,
+            resource=f"versions of component {component_id}",
+        ):
+            if versions:
+                yield [
+                    {
+                        **version,
+                        "component_id": component_id,
+                        **{key: version.get(key) or "" for key in VERSION_KEY_FIELDS},
+                    }
+                    for version in versions
+                ]
+
+
+def _user_rows(
+    fetch_page: FetchPageFn,
+    pipelines: list[dict[str, Any]],
+    logger: FilteringBoundLogger,
+    seen_user_ids: set[str],
+) -> Iterator[list[dict[str, Any]]]:
+    # v2 has no "list users in org" endpoint, so the actor ids carried on workflows are
+    # resolved one at a time via GET /user/{id}.
+    for pipeline in pipelines:
+        for workflows in _workflows_for_pipeline(fetch_page, pipeline["id"], logger):
+            for workflow in workflows:
+                for field_name in WORKFLOW_ACTOR_FIELDS:
+                    user_id = workflow.get(field_name)
+                    if not user_id or user_id in seen_user_ids:
+                        continue
+                    seen_user_ids.add(user_id)
+                    try:
+                        user = fetch_page(_build_url(f"/user/{quote(str(user_id), safe='')}"))
+                    except requests.HTTPError as error:
+                        # A workflow can name an actor whose CircleCI account is gone; one
+                        # stale id must not fail the whole stream.
+                        if error.response is not None and error.response.status_code == 404:
+                            continue
+                        raise
+                    yield [user]
+
+
 def get_rows(
     api_token: str,
     org_slug: str,
@@ -290,20 +392,33 @@ def get_rows(
     if start_token is not None:
         logger.debug(f"CircleCI: resuming {endpoint} from saved pipelines page token")
 
-    # Project slugs already emitted by the projects stream this run. Lost on resume, which
-    # only causes re-fetch/re-yield of a few project rows — merge dedupes on primary key.
+    # Project slugs and user ids already emitted this run. Lost on resume, which only causes
+    # re-fetch/re-yield of a few rows — merge dedupes on primary key.
     seen_project_slugs: set[str] = set()
+    seen_user_ids: set[str] = set()
 
-    for pipelines, next_token in _iter_pipeline_pages(fetch_page, org_slug, logger, start_token):
+    if endpoint in COMPONENT_SCAN_ENDPOINTS:
+        pages = _iter_component_pages(fetch_page, org_slug, logger, start_token)
+    else:
+        pages = _iter_pipeline_pages(fetch_page, org_slug, logger, start_token)
+
+    for items, next_token in pages:
         if endpoint == "pipelines":
-            if pipelines:
-                yield pipelines
+            if items:
+                yield items
         elif endpoint == "workflows":
-            yield from _workflow_rows(fetch_page, pipelines, logger)
+            yield from _workflow_rows(fetch_page, items, logger)
         elif endpoint == "jobs":
-            yield from _job_rows(fetch_page, pipelines, logger)
+            yield from _job_rows(fetch_page, items, logger)
         elif endpoint == "projects":
-            yield from _project_rows(fetch_page, pipelines, seen_project_slugs)
+            yield from _project_rows(fetch_page, items, seen_project_slugs)
+        elif endpoint == "users":
+            yield from _user_rows(fetch_page, items, logger, seen_user_ids)
+        elif endpoint == "components":
+            if items:
+                yield items
+        elif endpoint == "component_versions":
+            yield from _component_version_rows(fetch_page, items, logger)
 
         # Save state after the page's rows (and any fan-out children) have been yielded, so a
         # crash re-yields the in-progress page instead of skipping it.
@@ -330,8 +445,9 @@ def circleci_source(
             logger=logger,
             resumable_source_manager=resumable_source_manager,
         ),
-        primary_keys=[config.primary_key],
-        # The API always returns newest-first and exposes no sort param.
+        primary_keys=list(config.primary_keys),
+        # No v2 list endpoint takes a sort param, and the ones that document an order return
+        # newest-first. Every stream is full refresh, so this is advisory.
         sort_mode="desc",
         partition_count=1,
         partition_size=1,
