@@ -4207,7 +4207,10 @@ export namespace Schemas {
       response?: TrendsQueryResponse | null;
       /** Sampling rate */
       samplingFactor?: number | null;
-      /** Events and actions to include */
+      /**
+         * Events and actions to include
+         * @maxItems 200
+         */
       series: (EventsNode | ActionsNode | DataWarehouseNode | GroupNode)[];
       /** Tags that will be added to the Query log comment */
       tags?: QueryLogTags | null;
@@ -5014,7 +5017,10 @@ export namespace Schemas {
       response?: StickinessQueryResponse | null;
       /** Sampling rate */
       samplingFactor?: number | null;
-      /** Events and actions to include */
+      /**
+         * Events and actions to include
+         * @maxItems 200
+         */
       series: (EventsNode | ActionsNode | DataWarehouseNode)[];
       /** Properties specific to the stickiness insight */
       stickinessFilter?: StickinessFilter | null;
