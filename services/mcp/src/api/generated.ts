@@ -15946,7 +15946,7 @@ export namespace Schemas {
     }
 
     export interface BulkUpdateTagsUUIDItem {
-      /** UUID of the object whose tags were updated. */
+      /** UUID of the object whose tags this request updated. */
       id: string;
       /** The object's full tag list after the update. */
       tags: string[];
