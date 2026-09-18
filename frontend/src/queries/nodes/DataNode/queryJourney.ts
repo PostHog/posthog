@@ -1,4 +1,5 @@
 import type { CustomerJourney, CustomerJourneyEndReason } from 'lib/customerJourneys/createCustomerJourney'
+import { customerJourneyFailure } from 'lib/customerJourneys/customerJourneyFailure'
 import { CustomerJourneyScope } from 'lib/customerJourneys/CustomerJourneyScope'
 
 export interface QueryJourneyDescriptor {
@@ -60,9 +61,10 @@ export class QueryJourneyObserver {
         }
     }
 
-    fail(generation: number): void {
+    fail(generation: number, error: unknown): void {
         if (generation === this.generation) {
-            this.scope.finish('failed', { error_type: 'query_error' })
+            const { outcome, error_type } = customerJourneyFailure(error)
+            this.scope.finish(outcome, { error_type })
         }
     }
 

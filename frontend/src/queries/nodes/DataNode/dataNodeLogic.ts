@@ -1133,7 +1133,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                         breakpoint()
                         actions.setElapsedTime(response.duration)
                         if (generation !== undefined && response.data?.error) {
-                            observer?.fail(generation)
+                            observer?.fail(generation, response.data)
                         } else if (generation !== undefined) {
                             const receipt = observer?.received(generation, queryId, response.data)
                             if (receipt) {
@@ -1151,7 +1151,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                         }
                         breakpoint()
                         if (generation !== undefined) {
-                            observer?.fail(generation)
+                            observer?.fail(generation, error)
                         }
                         throw error
                     }

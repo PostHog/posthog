@@ -63,7 +63,14 @@ export interface CustomerJourneySummary {
     exposures_response_cached?: boolean
     excluded_count?: number
     insight_type_summary?: Partial<Record<CustomerJourneyInsightType, CustomerJourneyInsightTypeSummary>>
-    error_type?: 'query_error' | 'load_error' | 'playback_error' | 'timeout' | 'unknown'
+    error_type?:
+        | 'query_error'
+        | 'load_error'
+        | 'playback_error'
+        | 'timeout'
+        | 'out_of_memory'
+        | 'query_rejected'
+        | 'unknown'
     end_reason?: CustomerJourneyEndReason
     total_count?: number
     ready_count?: number
