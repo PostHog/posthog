@@ -908,6 +908,35 @@ class TestHogFlowAPI(APIBaseTest):
         )
         assert response.status_code == 201, response.json()
 
+    def test_hog_flow_conditional_branch_grandfathers_a_stored_delay_duration(self):
+        create_response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows", self._make_conditional_branch_flow({})
+        )
+        assert create_response.status_code == 201, create_response.json()
+        flow_id = create_response.json()["id"]
+
+        # Seed a row from before the rejection existed, bypassing the serializer that now refuses it.
+        flow = HogFlow.objects.get(id=flow_id)
+        actions = flow.actions
+        actions[1]["config"]["delay_duration"] = "2h"
+        flow.actions = actions
+        flow.save()
+
+        # An unrelated edit that resends the unchanged value must still succeed. The builder renders
+        # no control for the field, so a refusal here would leave the flow stuck with no way out.
+        unrelated_edit = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
+            {"name": "Renamed", "actions": actions},
+        )
+        assert unrelated_edit.status_code == 200, unrelated_edit.json()
+        assert unrelated_edit.json()["actions"][1]["config"]["delay_duration"] == "2h"
+
+        # Changing the stored value is still refused.
+        changed = [{**action} for action in actions]
+        changed[1] = {**changed[1], "config": {**changed[1]["config"], "delay_duration": "3h"}}
+        changed_response = self.client.patch(f"/api/projects/{self.team.id}/hog_flows/{flow_id}", {"actions": changed})
+        assert changed_response.status_code == 400, changed_response.json()
+
     @parameterized.expand(
         [
             ("bare_string", "greeting", {"key": "greeting"}),

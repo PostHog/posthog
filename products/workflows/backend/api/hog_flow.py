@@ -251,6 +251,24 @@ def _wait_condition_already_stored(action: dict, context: dict) -> bool:
     return _authored_condition(stored[action_id]) == _authored_condition((action.get("config") or {}).get("condition"))
 
 
+def _branch_delay_duration_already_stored(action: dict, context: dict) -> bool:
+    """
+    True when this branch resends the delay_duration already persisted for the same action.
+
+    The field does nothing on a branch, but it was accepted before the gate existed and the builder
+    renders no control for it. Without this, a flow that already stores one could not be published,
+    enabled or resumed, and no one could remove the value that blocks it. Changing it is still
+    refused, so the gate keeps policing every new write.
+    """
+    stored = context.get("stored_branch_delay_durations")
+    if not stored:
+        return False
+    action_id = action.get("id")
+    if action_id not in stored:
+        return False
+    return stored[action_id] == (action.get("config") or {}).get("delay_duration")
+
+
 def _reject_clock_based_wait(config: dict, team: Team) -> None:
     """
     Refuse a wait whose condition depends on the clock rather than on something happening.
@@ -1782,7 +1800,12 @@ class HogFlowActionSerializer(serializers.Serializer):
             if strict and max_wait_duration not in (None, "") and not is_duration(max_wait_duration):
                 raise serializers.ValidationError({"config": duration_error("max_wait_duration")})
 
-        if is_conditional_branch and strict and data.get("config", {}).get("delay_duration") not in (None, ""):
+        if (
+            is_conditional_branch
+            and strict
+            and data.get("config", {}).get("delay_duration") not in (None, "")
+            and not _branch_delay_duration_already_stored(data, self.context)
+        ):
             # The worker borrows this name to carry a wait's ceiling once a wait is normalised into a
             # branch, which is why it used to be accepted here. A branch never parks, so a value set
             # on one does nothing.
@@ -3031,6 +3054,16 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             action["id"]: (action.get("config") or {}).get("condition")
             for action in ((instance.actions if instance else None) or [])
             if isinstance(action, dict) and action.get("id") and action.get("type") == "wait_until_condition"
+        }
+
+        # delay_duration values a branch already carries, so the rejection below polices new writes
+        # only. Unlike the flag-gated set this does not require an active flow: enabling a draft that
+        # stores one is the case that would otherwise be refused, and the field is inert at runtime,
+        # so there is no gate to bypass by smuggling it through a lenient draft save.
+        self.context["stored_branch_delay_durations"] = {
+            action["id"]: (action.get("config") or {}).get("delay_duration")
+            for action in ((instance.actions if instance else None) or [])
+            if isinstance(action, dict) and action.get("id") and action.get("type") == "conditional_branch"
         }
 
         # Action ids already stored with a flag-gated template, so the gate only polices new
