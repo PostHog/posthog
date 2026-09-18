@@ -102408,11 +102408,11 @@ export namespace Schemas {
      */
     offset?: number;
     /**
-     * Kind of catalog object: 'table', 'view', or 'metric'.
+     * Kind of object being checked: 'table', 'view', 'metric', or 'posthog_table'.
      */
     subject_type?: DataQualityRunsListSubjectType;
     /**
-     * Id of the table, view, or metric.
+     * Id of the table, view, metric, or PostHog table.
      */
     subject_uuid?: string;
     };
@@ -102422,6 +102422,7 @@ export namespace Schemas {
 
     export const DataQualityRunsListSubjectType = {
       Metric: 'metric',
+      PosthogTable: 'posthog_table',
       Table: 'table',
       View: 'view',
     } as const;
