@@ -82,6 +82,7 @@ import type {
 import { QueryContext } from '~/queries/types'
 
 import { AlertType } from 'products/alerts/frontend/types'
+import type { CohortRealtimeReadinessApi } from 'products/cohorts/frontend/generated/api.schemas'
 import type { NodeApiSuspended, NodeEndpointApi } from 'products/data_modeling/frontend/generated/api.schemas'
 import type {
     DataWarehouseSavedQueryApi,
@@ -613,6 +614,7 @@ export interface OrganizationType extends OrganizationBasicType {
     default_experiment_stats_method: ExperimentStatsMethod
     default_anonymize_ips?: boolean
     default_role_id?: string | null
+    uses_most_specific_access_resolution?: boolean | null
 }
 
 export interface OrganizationDomainType {
@@ -1476,18 +1478,12 @@ export type RecordingSnapshot = _RecordingSnapshot
 export type SessionRecordingSnapshotSource = _SessionRecordingSnapshotSource
 export type SessionRecordingSnapshotSourceResponse = _SessionRecordingSnapshotSourceResponse
 
-export type SessionRecordingSnapshotParams = (
-    | {
-          source: 'blob_v2_lts'
-          blob_key?: string
-      }
-    | {
-          source: 'blob_v2'
-          start_blob_key?: string
-          end_blob_key?: string
-          blob_key?: string
-      }
-) & {
+export type SessionRecordingSnapshotParams = {
+    source: 'blob_v2'
+    start_blob_key?: string
+    end_blob_key?: string
+    blob_key?: string
+} & {
     decompress?: false
 }
 
@@ -1923,6 +1919,9 @@ export interface CohortType {
         filterTestAccounts?: boolean
     }
     experiment_set?: number[]
+    /** Whether feature flags can target this cohort, and the progress of the history build that
+     * gets it there. Null on projects the realtime pipeline does not cover. */
+    realtime?: CohortRealtimeReadinessApi | null
     _create_in_folder?: string | null
     _create_static_person_ids?: string[]
 }

@@ -1,8 +1,9 @@
 import { getDefaultQuery } from '~/queries/nodes/InsightViz/utils'
 import { Node, NodeKind, TrendsFilter, TrendsQuery } from '~/queries/schema/schema-general'
-import { InsightType } from '~/types'
+import { ChartDisplayType, InsightType } from '~/types'
 
 import {
+    compareDataNodeQuery,
     compareQuery,
     filterVariablesReferencedInQuery,
     hasInvalidRegexFilter,
@@ -236,6 +237,17 @@ describe('compareQuery', () => {
         expect(compareQuery(plain, styled, { ignoreVisualizationOnlyChanges: true })).toBe(true)
         expect(compareQuery(plain, styled)).toBe(false)
     })
+
+    it.each([
+        ['reuses the result between a line chart and a bar chart', ChartDisplayType.ActionsBar, true],
+        ['reloads between a line chart and a metric', ChartDisplayType.Metric, false],
+    ])('%s', (_, display, expected) => {
+        const line = makeTrendsQuery({ display: ChartDisplayType.ActionsLineGraph })
+
+        expect(compareQuery(line, makeTrendsQuery({ display }), { ignoreVisualizationOnlyChanges: true })).toBe(
+            expected
+        )
+    })
 })
 
 describe('isDraftQueryWorthSaving', () => {
@@ -286,5 +298,33 @@ describe('isDraftQueryWorthSaving', () => {
         ['an events table query', getDefaultQuery(InsightType.JSON, false), true],
     ])('treats %s correctly', (_name, query, expected) => {
         expect(isDraftQueryWorthSaving(query, false)).toBe(expected)
+    })
+})
+
+describe('compareDataNodeQuery', () => {
+    // Query log tags never change what the backend returns (it strips them from the cache
+    // payload), so a tag-only difference must not count as a changed query. Web analytics
+    // stamps the applied filter preset's id into tags, and treating that as a change would
+    // refetch every tile the moment someone saves a preset.
+    it.each([
+        [
+            'an insight query node',
+            { kind: NodeKind.TrendsQuery, series: [] } as Node,
+            { kind: NodeKind.TrendsQuery, series: [], tags: { presetId: 'abc123' } } as Node,
+        ],
+        [
+            'a non-insight node',
+            { kind: NodeKind.HogQLQuery, query: 'select 1' } as Node,
+            { kind: NodeKind.HogQLQuery, query: 'select 1', tags: { presetId: 'abc123' } } as Node,
+        ],
+    ])('ignores tags on %s', (_name, untagged, tagged) => {
+        expect(compareDataNodeQuery(untagged, tagged)).toBe(true)
+    })
+
+    it('reports a change against an undefined previous query instead of throwing', () => {
+        // dataNodeLogic passes oldProps.query, which is undefined on the first props change; a
+        // throw here crashed propsChanged before loadData and left tables permanently empty.
+        const query = { kind: NodeKind.HogQLQuery, query: 'select 1' } as Node
+        expect(compareDataNodeQuery(query, undefined as unknown as Node)).toBe(false)
     })
 })

@@ -1,6 +1,6 @@
 import { DecryptCommand, GenerateDataKeyCommand, KMSClient } from '@aws-sdk/client-kms'
 import { LRUCache } from 'lru-cache'
-import { createCipheriv, randomBytes } from 'node:crypto'
+import { createCipheriv, createDecipheriv, hkdfSync, randomBytes } from 'node:crypto'
 import pLimit from 'p-limit'
 
 import { MlKeyRequest, MlMirrorMetrics } from '~/ingestion/pipelines/sessionreplay/ml-mirror/metrics'
@@ -36,6 +36,41 @@ export function canonicalJson(value: unknown): string {
             .join(',')}}`
     }
     return JSON.stringify(value)
+}
+
+export interface MlSealedKey {
+    sealed: Buffer
+    nonce: Buffer
+}
+
+// HKDF makes this key from the stored key, which also seals image data. One key with two jobs lets a flaw in one job
+// reach the other.
+const SESSION_WRAP_INFO = Buffer.from('ml-session-key-wrap')
+
+function sessionWrappingKey(teamMonthKey: Buffer): Buffer {
+    return Buffer.from(hkdfSync('sha256', teamMonthKey, Buffer.alloc(0), SESSION_WRAP_INFO, 32))
+}
+
+/** The seal authenticates the identity, so a sealed key cannot move to another session or another team. */
+export function sealSessionKey(teamMonthKey: Buffer, identity: MlKeyIdentity, plaintext: Buffer): MlSealedKey {
+    const nonce = randomBytes(NONCE_BYTES)
+    const cipher = createCipheriv('aes-256-gcm', sessionWrappingKey(teamMonthKey), nonce, { authTagLength: TAG_BYTES })
+    cipher.setAAD(Buffer.from(canonicalJson(wrappingContext(identity))))
+    return { sealed: Buffer.concat([cipher.update(plaintext), cipher.final(), cipher.getAuthTag()]), nonce }
+}
+
+export function openSessionKey(teamMonthKey: Buffer, identity: MlKeyIdentity, sealed: MlSealedKey): Buffer {
+    if (sealed.sealed.length <= TAG_BYTES) {
+        throw new Error('ML sealed session key is too short')
+    }
+    const body = sealed.sealed.subarray(0, sealed.sealed.length - TAG_BYTES)
+    const tag = sealed.sealed.subarray(sealed.sealed.length - TAG_BYTES)
+    const decipher = createDecipheriv('aes-256-gcm', sessionWrappingKey(teamMonthKey), sealed.nonce, {
+        authTagLength: TAG_BYTES,
+    })
+    decipher.setAAD(Buffer.from(canonicalJson(wrappingContext(identity))))
+    decipher.setAuthTag(tag)
+    return Buffer.concat([decipher.update(body), decipher.final()])
 }
 
 export class MlKeyEncryption {
@@ -96,6 +131,9 @@ export class MlKeyEncryption {
     }
 
     public rememberCommitted(key: MlDataKey): void {
+        if (!key.wrapped.length) {
+            return
+        }
         this.cache.set(this.cacheId(key.identity, key.wrapped), key.plaintext)
     }
 

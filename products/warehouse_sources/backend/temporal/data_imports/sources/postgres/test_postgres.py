@@ -536,18 +536,42 @@ class TestPostgresSourceNonRetryableErrors:
         assert "re-enable the sync" in matches[0].lower()
         assert "db.example.com" not in matches[0]
 
-    def test_plan_limit_restriction_surfaces_actionable_message(self, source):
-        # A proxy plan-limit refusal must stop retrying and explain how to lift the restriction,
-        # rather than storing the raw provider text. Mirror the finalizer's first-match selection.
-        error_msg = "Your account has restrictions: planLimitReached. Please contact your provider to resolve account restrictions."
+    @pytest.mark.parametrize(
+        ("error_msg", "reason_code", "expected_word"),
+        [
+            (
+                "Your account has restrictions: planLimitReached. Please contact your provider to resolve account restrictions.",
+                "planLimitReached",
+                "plan",
+            ),
+            # The billing reason code, carrying the libpq connect prefix the proxy's refusal arrives
+            # with. Host and port are invented, not real values.
+            (
+                'connection failed: connection to server at "203.0.113.7", port 5432 failed: Failed to identify your database: Your account has restrictions: unpaidPlanInvoice. Please contact your provider to resolve account restrictions.',
+                "unpaidPlanInvoice",
+                "invoice",
+            ),
+            # A reason code we don't recognise yet must still stop retrying and say who to contact.
+            ("Your account has restrictions: someFutureReason.", "someFutureReason", "restricted"),
+        ],
+    )
+    def test_account_restriction_surfaces_actionable_message(self, source, error_msg, reason_code, expected_word):
+        # A proxy account-restriction refusal must stop retrying and explain how to lift the
+        # restriction, rather than storing the raw provider text (which libpq prefixes with the
+        # customer's host and port). Mirror the finalizer's first-match selection so a reorder that
+        # shadows a specific reason code with the catch-all is caught.
         matches = [
             friendly
             for pattern, friendly in source.get_non_retryable_errors().items()
             if error_message_matches(error_msg, [pattern])
         ]
-        assert matches, "plan-limit restriction must be classified non-retryable"
-        assert matches[0] is not None, "plan-limit restriction must surface an actionable message, not raw driver text"
-        assert "plan" in matches[0].lower()
+        assert matches, f"an account restriction must be classified non-retryable: {error_msg}"
+        assert matches[0] is not None, (
+            "an account restriction must surface an actionable message, not raw provider text"
+        )
+        assert expected_word in matches[0].lower()
+        assert reason_code not in matches[0], "the provider's reason code must stay out of the customer-facing message"
+        assert "203.0.113.7" not in matches[0]
 
     @pytest.mark.parametrize(
         "error_msg",
@@ -4914,6 +4938,55 @@ class TestValidateCredentialsErrorMapping:
         assert valid is False
         assert host not in (error or "")
         assert "port field" in (error or "")
+
+    def test_railway_private_host_named_as_such_instead_of_a_spelling_error(self, source):
+        config = source.parse_config(
+            {
+                "host": "postgres.railway.internal",
+                "port": 5432,
+                "database": "railway",
+                "user": "postgres",
+                "password": "postgres",
+                "schema": "public",
+            }
+        )
+        with (
+            mock.patch.object(source, "ssh_tunnel_is_valid", return_value=(True, None)),
+            mock.patch.object(source, "is_database_host_valid", side_effect=AssertionError("should not resolve")),
+            mock.patch.object(source, "get_schemas", side_effect=AssertionError("should not connect")),
+        ):
+            valid, error = source.validate_credentials(config, team_id=1)
+
+        assert valid is False
+        assert "private network" in (error or "")
+        # The host is spelled correctly, so the generic DNS guidance would send the user in circles.
+        assert "spelled correctly" not in (error or "")
+
+    def test_railway_private_host_still_allowed_through_an_ssh_tunnel(self, source):
+        config = source.parse_config(
+            {
+                "host": "postgres.railway.internal",
+                "port": 5432,
+                "database": "railway",
+                "user": "postgres",
+                "password": "postgres",
+                "schema": "public",
+                "ssh_tunnel": {
+                    "enabled": True,
+                    "host": "bastion.example.com",
+                    "port": "22",
+                    "auth": {"selection": "password", "username": "tunnel", "password": "tunnel"},
+                },
+            }
+        )
+        with (
+            mock.patch.object(source, "ssh_tunnel_is_valid", return_value=(True, None)),
+            mock.patch.object(source, "is_database_host_valid", return_value=(True, None)),
+            mock.patch.object(source, "get_schemas", return_value=[]),
+        ):
+            valid, error = source.validate_credentials(config, team_id=1)
+
+        assert (valid, error) == (True, None)
 
 
 class TestPostgresSchemaDiscovery:

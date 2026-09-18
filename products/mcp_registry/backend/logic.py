@@ -81,14 +81,19 @@ def visible_components(components: dict[str, Any], sees_every_row: bool) -> dict
     return {key: value for key, value in components.items() if key not in _DERIVED_COMPONENT_KEYS}
 
 
-def visible_tools(server: MCPRegistryServer, can_see_measured: bool) -> list[MCPRegistryTool]:
+def visible_tools(server: MCPRegistryServer, sees_every_row: bool) -> list[MCPRegistryTool]:
     """Tools known only from another project's traffic stay hidden.
 
     A probed tools/list is ours, because we asked the server for it. A tool learned from
     analytics is evidence of somebody's calls, so it follows the same tier as the stats.
+
+    Gated on seeing every row rather than on having one, because a tool row records no
+    team: when several projects measure one server there is no way to tell whose traffic
+    named a given tool, so a co-measurer would otherwise read the others' tool names. A
+    sole measurer still sees its own.
     """
     tools = list(server.tools.all())
-    if can_see_measured:
+    if sees_every_row:
         return tools
     return [tool for tool in tools if tool.source != "analytics"]
 
@@ -116,7 +121,11 @@ def measured_visibility(server: MCPRegistryServer, team_id: int | None, is_staff
         return MeasuredVisibility(rows=rows, sees_every_row=True)
     # No row carries a null team_id, so a caller without a project matches nothing.
     visible = [row for row in rows if row.team_id == team_id]
-    return MeasuredVisibility(rows=visible, sees_every_row=len(visible) == len(rows))
+    # A server with no rows at all must not count as seeing all of them. Equal lengths are
+    # both zero there, which would hand every caller the analytics-derived tool names,
+    # and those outlive the rows that produced them: re-keying a standalone row onto its
+    # owning project leaves the old server holding tools and no stats.
+    return MeasuredVisibility(rows=visible, sees_every_row=bool(visible) and len(visible) == len(rows))
 
 
 def measured_summary(stats: list[MCPMeasuredStats]) -> dict[str, Any] | None:

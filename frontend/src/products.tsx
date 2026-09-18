@@ -99,6 +99,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/data-management/annotations/:id': ['Annotations', 'annotation'],
     '/business-knowledge': ['BusinessKnowledge', 'businessKnowledge'],
     '/business-knowledge/settings': ['BusinessKnowledgeSettings', 'businessKnowledgeSettings'],
+    '/business-knowledge/:id': ['BusinessKnowledgeSource', 'businessKnowledgeSource'],
     '/transformations': ['Transformations', 'transformations'],
     '/event-filtering': ['EventFiltering', 'eventFiltering'],
     '/feature_flags/staff/cohorts': ['CohortsStaffTools', 'cohortsStaffTools'],
@@ -172,7 +173,6 @@ export const productRoutes: Record<string, [string, string]> = {
     '/error_tracking/alerts/new/:templateId': ['HogFunction', 'errorTrackingAlertNew'],
     '/error_tracking/alerts/:id': ['HogFunction', 'errorTrackingAlert'],
     '/error_tracking/:id': ['ErrorTrackingIssue', 'errorTrackingIssue'],
-    '/error_tracking/:id/fingerprints': ['ErrorTrackingIssueFingerprints', 'errorTrackingIssueFingerprints'],
     '/experiments': ['Experiments', 'experiments'],
     '/feature_flags/templates': ['FeatureFlagTemplates', 'featureFlagTemplates'],
     '/feature_flags/staff': ['FeatureFlagsStaffTools', 'featureFlagsStaffTools'],
@@ -423,6 +423,8 @@ export const productRedirects: Record<
     '/data-warehouse/sources/:id/:tab': ({ id, tab }) => urls.dataWarehouseSource(id, tab as SourceSceneTab),
     '/engineering-analytics': '/engineering-analytics/overview',
     '/engineering-analytics/authors': '/engineering-analytics/overview',
+    '/error_tracking/:id/fingerprints': (params) =>
+        combineUrl(`/error_tracking/${params.id}`, { manageFingerprints: 'true' }).url,
     '/error_tracking/configuration': (_params, searchParams, hashParams) =>
         configurationRedirect(resolveSettingSlug(searchParams.tab), searchParams, hashParams),
     '/error_tracking/configuration/:tab': (params, searchParams, hashParams) =>
@@ -587,6 +589,12 @@ export const productConfiguration: Record<string, any> = {
             'Upload text, public URLs, or files so PostHog AI can understand your business context, vision, and policies.',
     },
     BusinessKnowledgeSettings: { name: 'Business knowledge settings', projectBased: true, iconType: 'conversations' },
+    BusinessKnowledgeSource: {
+        name: 'Knowledge source',
+        projectBased: true,
+        activityScope: 'KnowledgeSource',
+        iconType: 'conversations',
+    },
     Transformations: {
         projectBased: true,
         name: 'Transformations',
@@ -748,7 +756,6 @@ export const productConfiguration: Record<string, any> = {
         docsHref: 'https://posthog.com/docs/error-tracking',
     },
     ErrorTrackingIssue: { projectBased: true, name: 'Error tracking issue', layout: 'app-raw' },
-    ErrorTrackingIssueFingerprints: { projectBased: true, name: 'Error tracking issue fingerprints' },
     ErrorTrackingFingerprint: { projectBased: true, name: 'Error tracking fingerprint' },
     Experiments: {
         projectBased: true,
@@ -1154,6 +1161,7 @@ export const productUrls = {
     annotation: (id: AnnotationType['id'] | ':id'): string => `/data-management/annotations/${id}`,
     businessKnowledge: (): string => '/business-knowledge',
     businessKnowledgeSettings: (): string => '/business-knowledge/settings',
+    businessKnowledgeSource: (id: string): string => `/business-knowledge/${id}`,
     transformations: (): string => '/transformations',
     eventFiltering: (): string => '/event-filtering',
     cohort: (id: string | number): string => `/cohorts/${id}`,
@@ -1323,7 +1331,6 @@ export const productUrls = {
             utm_medium?: string
         } = {}
     ): string => combineUrl(`/error_tracking/${id}`, params).url,
-    errorTrackingIssueFingerprints: (id: string): string => `/error_tracking/${id}/fingerprints`,
     errorTrackingFingerprint: (
         fingerprint: string,
         params: {
@@ -2038,7 +2045,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         iconColor: ['var(--color-product-support-light)'] as FileSystemIconColor,
         flag: FEATURE_FLAGS.PRODUCT_BUSINESS_KNOWLEDGE,
         sceneKey: 'BusinessKnowledge',
-        sceneKeys: ['BusinessKnowledge', 'BusinessKnowledgeSettings'],
+        sceneKeys: ['BusinessKnowledge', 'BusinessKnowledgeSettings', 'BusinessKnowledgeSource'],
     },
     {
         path: 'Clusters',
@@ -2232,12 +2239,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         ] as FileSystemIconColor,
         href: urls.errorTracking(),
         sceneKey: 'ErrorTracking',
-        sceneKeys: [
-            'ErrorTracking',
-            'ErrorTrackingIssue',
-            'ErrorTrackingIssueFingerprints',
-            'ErrorTrackingFingerprint',
-        ],
+        sceneKeys: ['ErrorTracking', 'ErrorTrackingIssue', 'ErrorTrackingFingerprint'],
     },
     {
         path: 'Evaluations',

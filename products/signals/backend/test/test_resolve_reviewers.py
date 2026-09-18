@@ -17,7 +17,8 @@ from posthog.models.organization import OrganizationMembership
 from posthog.models.scoping import team_scope
 from posthog.models.user_integration import UserIntegration
 
-from products.signals.backend.models import SignalRepositoryAreaActivity
+from products.signals.backend.artefact_schemas import SuggestedReviewers
+from products.signals.backend.models import SignalRepositoryAreaActivity, SignalScoutConfig
 from products.signals.backend.report_generation.author_activity import AUTHOR_ACTIVITY_WINDOW_DAYS
 from products.signals.backend.report_generation.repo_activity import ACTIVITY_WINDOW_DAYS, ContributorActivity
 from products.signals.backend.report_generation.resolve_reviewers import (
@@ -26,6 +27,7 @@ from products.signals.backend.report_generation.resolve_reviewers import (
     RECENCY_FULL_WEIGHT_DAYS,
     STALE_BLAME_MULTIPLIER,
     _AreaContributor,
+    _rank_scored_candidates,
     _recency_multiplier,
     _relevant_area_activity,
     _score_candidates,
@@ -133,6 +135,87 @@ def test_uuid_reviewer_does_not_fall_back_to_a_reassigned_login(organization, te
     )
 
     assert enriched[0]["user"]["id"] == original.id
+
+
+def test_enriches_reviewer_sources_and_explanations():
+    shared_reason = "The checkout parser belongs to the checkout platform team's service."
+    enriched = enrich_reviewer_dicts_with_org_members(
+        1,
+        [
+            {
+                "github_login": "commit-author",
+                "relevant_commits": [
+                    {
+                        "sha": "abc1234",
+                        "url": "https://example.com",
+                        "reason": "Changed the checkout handler where this issue occurs.",
+                    }
+                ],
+                "reason": shared_reason,
+                "source_skill": "signals-scout-checkout-reliability",
+            },
+            {
+                "github_login": "team-member-one",
+                "relevant_commits": [],
+                "reason": shared_reason,
+                "source_skill": "signals-scout-checkout-reliability",
+            },
+            {
+                "github_login": "team-member-two",
+                "relevant_commits": [],
+                "reason": shared_reason,
+                "source_skill": "signals-scout-checkout-reliability",
+            },
+            {
+                "github_login": "manual-reviewer",
+                "relevant_commits": [],
+                "reason": "Added as a reviewer by Avery Chen on Jan 1, 2026",
+            },
+        ],
+        login_to_user={},
+        uuid_to_user={},
+        scout_display_names={},
+    )
+
+    assert enriched[0]["source_label"] == "Code history"
+    assert enriched[0]["explanation"] == "Changed the checkout handler where this issue occurs."
+    assert enriched[1]["source_label"] == "Checkout reliability scout"
+    assert enriched[1]["explanation"] == shared_reason
+    assert enriched[2]["explanation"] == shared_reason
+    assert enriched[3]["source_label"] == "Added by teammate"
+    assert enriched[3]["explanation"] is None
+
+
+@pytest.mark.django_db
+def test_scout_source_uses_current_team_display_name(team):
+    config = SignalScoutConfig.objects.for_team(team.id).create(
+        team=team, skill_name="signals-scout-apm", display_name="APM scout"
+    )
+    reviewers = [{"github_login": "reviewer", "source_skill": config.skill_name, "reason": "Owns this area."}]
+
+    enriched = enrich_reviewer_dicts_with_org_members(team.id, reviewers, login_to_user={}, uuid_to_user={})
+    assert enriched[0]["source_label"] == "APM scout"
+
+    config.display_name = "Platform APM scout"
+    config.save(update_fields=["display_name"])
+    enriched = enrich_reviewer_dicts_with_org_members(team.id, reviewers, login_to_user={}, uuid_to_user={})
+    assert enriched[0]["source_label"] == "Platform APM scout"
+
+
+def test_legacy_long_reviewer_reasons_do_not_reach_presentation():
+    long_reason = "word " * 101
+    reviewers: list[dict[str, object]] = [
+        {"github_login": "author", "relevant_commits": [{"reason": long_reason}]},
+        {"github_login": "candidate", "reason": long_reason},
+    ]
+
+    enriched = enrich_reviewer_dicts_with_org_members(
+        1, reviewers, login_to_user={}, uuid_to_user={}, scout_display_names={}
+    )
+    assert enriched[0]["explanation"] == "Authored a relevant change to the affected code."
+    assert enriched[0]["relevant_commits"][0]["reason"] == ""
+    assert enriched[1]["explanation"] is None
+    assert enriched[1]["reason"] is None
 
 
 @pytest.mark.django_db
@@ -402,6 +485,80 @@ class TestRankAssigneeCandidates:
 
 @pytest.mark.django_db
 class TestResolveSuggestedReviewersEndToEnd:
+    def test_oversized_area_label_keeps_fallback_reviewer_payload_valid(self):
+        activity = _AreaContributor(
+            name="Area Owner",
+            commit_count=1,
+            days_since_last_commit=1,
+            last_commit_sha="a" * 7,
+            last_commit_url="https://github.com/acme/app/commit/aaaaaaa",
+            area="/".join(["a" * 250, "b" * 250]),
+            is_likely_owner_of_area=True,
+        )
+
+        reviewers = _rank_scored_candidates(Counter(), {"area-owner": activity}, {}, {})
+
+        assert reviewers[0].commits[0].reason == "Recently active in the affected code."
+        SuggestedReviewers.model_validate(
+            [
+                {
+                    "github_login": reviewer.login,
+                    "relevant_commits": [commit.model_dump() for commit in reviewer.commits],
+                }
+                for reviewer in reviewers
+            ]
+        )
+
+    @pytest.mark.parametrize(("reason", "expected_reason"), [("x" * 500, "x" * 500), ("x" * 501, "")])
+    def test_commit_reason_limit_keeps_reviewer_payload_valid(self, team, reason, expected_reason):
+        class FakeGitHub:
+            def get_commit_author_info(self, repository, sha):
+                return GitHubCommitAuthor(
+                    login="active-author",
+                    name="Active Author",
+                    commit_url=f"https://github.com/acme/app/commit/{sha}",
+                    file_paths=("products/signals/backend/models.py",),
+                )
+
+        activity = {
+            "products/signals": [
+                ContributorActivity(
+                    login="active-author",
+                    name="Active Author",
+                    commit_count=1,
+                    last_commit_at=timezone.now() - timedelta(days=1),
+                    last_commit_sha="a" * 7,
+                    last_commit_url="https://github.com/acme/app/commit/aaaaaaa",
+                )
+            ]
+        }
+        with (
+            patch(
+                "products.signals.backend.report_generation.resolve_reviewers.GitHubIntegration.first_for_team_repository",
+                return_value=FakeGitHub(),
+            ),
+            patch(
+                "products.signals.backend.report_generation.resolve_reviewers.get_area_activity",
+                return_value=activity,
+            ),
+            patch(
+                "products.signals.backend.report_generation.resolve_reviewers.repository_activity_needs_rebuild",
+                return_value=False,
+            ),
+        ):
+            reviewers = resolve_suggested_reviewers(team.id, "acme/app", {"d" * 7: reason})
+
+        assert reviewers[0].commits[0].reason == expected_reason
+        SuggestedReviewers.model_validate(
+            [
+                {
+                    "github_login": reviewer.login,
+                    "relevant_commits": [commit.model_dump() for commit in reviewer.commits],
+                }
+                for reviewer in reviewers
+            ]
+        )
+
     def test_stale_blame_author_demoted_and_active_owner_suggested(self, team):
         class FakeGitHub:
             def get_commit_author_info(self, repository, sha):

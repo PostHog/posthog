@@ -593,6 +593,7 @@ export interface CloudTaskSnapshotUpdate extends CloudTaskUpdateBase {
    *  than the full history; older entries page in on demand. Absent means
    *  the snapshot starts at the head of the chain. */
   windowStart?: number;
+  rebuilt?: boolean;
   status?: TaskRunStatus;
   stage?: string | null;
   output?: Record<string, unknown> | null;
@@ -753,6 +754,7 @@ export interface SignalReport {
   created_at: string;
   updated_at: string;
   artefact_count: number;
+  collapsed_note_count?: number;
   /** P0–P4 from priority judgment when the report is researched */
   priority?: SignalReportPriority | null;
   /** Actionability choice from the actionability judgment artefact. */

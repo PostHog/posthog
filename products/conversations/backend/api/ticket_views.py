@@ -129,7 +129,11 @@ class TicketViewViewSet(
         favorited_by_user = TicketViewFavorite.objects.filter(
             ticket_view_id=OuterRef("pk"), user=cast("User", self.request.user)
         )
-        queryset = queryset.annotate(is_favorited=Exists(favorited_by_user)).order_by("-is_favorited", "-created_at")
+        # -id last: without a unique key, rows with equal favorite state and created_at can
+        # swap between pages, so a paginating client misses or repeats a view.
+        queryset = queryset.annotate(is_favorited=Exists(favorited_by_user)).order_by(
+            "-is_favorited", "-created_at", "-id"
+        )
         return queryset
 
     def _track(self, event: str, instance: TicketView) -> None:

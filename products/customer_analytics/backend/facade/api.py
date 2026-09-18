@@ -105,6 +105,7 @@ from products.customer_analytics.backend.logic import (
     channel_summaries as _channel_summaries_logic,
     custom_property_values as _custom_property_values_logic,
     customer_tasks as _customer_tasks_logic,
+    feature_request_github as _feature_request_github_logic,
     feature_requests as _feature_requests_logic,
     ownership as _ownership,
     relationships as _relationships_logic,
@@ -2433,6 +2434,7 @@ def list_custom_property_sync_runs(
 FeatureRequestValidationError = _feature_requests_logic.FeatureRequestValidationError
 FeatureRequestProductAreaConflictError = _feature_requests_logic.FeatureRequestProductAreaConflictError
 FeatureRequestConflictError = _feature_requests_logic.FeatureRequestConflictError
+GitHubLinkUnavailableError = _feature_request_github_logic.GitHubLinkUnavailableError
 
 
 def list_feature_request_product_areas(
@@ -2528,6 +2530,89 @@ def update_feature_request(
         actor_id=actor_id,
         user_access_control=user_access_control,
     )
+
+
+def link_feature_request_github(
+    *,
+    team_id: int,
+    feature_request_id: UUID,
+    input: contracts.LinkFeatureRequestGitHubInput,
+    actor_id: int,
+    user_access_control: "UserAccessControl",
+) -> contracts.FeatureRequestView | None:
+    return _feature_request_github_logic.link_feature_request_github(
+        team_id=team_id,
+        feature_request_id=feature_request_id,
+        input=input,
+        actor_id=actor_id,
+        user_access_control=user_access_control,
+    )
+
+
+def set_feature_request_github_sync(
+    *,
+    team_id: int,
+    feature_request_id: UUID,
+    expected_version: int,
+    enabled: bool,
+    actor_id: int,
+    user_access_control: "UserAccessControl",
+) -> contracts.FeatureRequestView | None:
+    return _feature_request_github_logic.set_feature_request_github_sync(
+        team_id=team_id,
+        feature_request_id=feature_request_id,
+        expected_version=expected_version,
+        enabled=enabled,
+        actor_id=actor_id,
+        user_access_control=user_access_control,
+    )
+
+
+def unlink_feature_request_github(
+    *,
+    team_id: int,
+    feature_request_id: UUID,
+    expected_version: int,
+    actor_id: int,
+    user_access_control: "UserAccessControl",
+) -> contracts.FeatureRequestView | None:
+    return _feature_request_github_logic.unlink_feature_request_github(
+        team_id=team_id,
+        feature_request_id=feature_request_id,
+        expected_version=expected_version,
+        actor_id=actor_id,
+        user_access_control=user_access_control,
+    )
+
+
+def process_feature_request_github_delivery(
+    *,
+    installation_id: str,
+    repository: str,
+    issue_number: int,
+    issue_title: str,
+    issue_state: str,
+    issue_state_reason: str,
+    github_updated_at: datetime,
+    github_delivery_id: str | None = None,
+    github_received_at: str | None = None,
+) -> str:
+    from products.customer_analytics.backend.tasks.tasks import (
+        process_feature_request_github_issue,  # noqa: PLC0415 — Celery task registration must stay off the facade import path
+    )
+
+    task = process_feature_request_github_issue.delay(
+        installation_id=installation_id,
+        repository=repository,
+        issue_number=issue_number,
+        issue_title=issue_title,
+        issue_state=issue_state,
+        issue_state_reason=issue_state_reason,
+        github_updated_at=github_updated_at.isoformat(),
+        github_delivery_id=github_delivery_id,
+        github_received_at=github_received_at,
+    )
+    return task.id
 
 
 def add_feature_request_account(

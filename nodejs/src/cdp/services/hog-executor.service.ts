@@ -125,6 +125,7 @@ export class HogExecutorService {
                 continue
             }
             const { match } = await filterFunctionInstrumented({
+                caller: 'execute_hog_function',
                 fn: hogFunction,
                 filters: mapping.filters,
                 filterGlobals,

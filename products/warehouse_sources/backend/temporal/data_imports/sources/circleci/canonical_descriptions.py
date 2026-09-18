@@ -68,4 +68,43 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "vcs_info": "Version control details for the project (provider, default branch, URL).",
         },
     },
+    "components": {
+        "description": "A deployed component — a deployable unit of a project tracked by CircleCI releases.",
+        "docs_url": "https://circleci.com/docs/api/v2/#operation/listComponents",
+        "columns": {
+            "id": "Unique identifier for the component.",
+            "name": "Name of the component.",
+            "project_id": "Identifier of the project the component belongs to.",
+            "labels": "Key/value labels associated with the component.",
+            "release_count": "Number of releases recorded for the component.",
+            "created_at": "Time at which the component was created.",
+            "updated_at": "Time at which the component was last updated.",
+        },
+    },
+    "component_versions": {
+        "description": "A version of a component deployed to an environment, one row per deploy target.",
+        "docs_url": "https://circleci.com/docs/api/v2/#operation/listComponentVersions",
+        "columns": {
+            "component_id": "Identifier of the component the version belongs to.",
+            "name": "Version name, for example 1.0.0.",
+            "environment_id": "Identifier of the environment the version was deployed to.",
+            "namespace": "Namespace the version was deployed in.",
+            "is_live": "Whether the version is currently live.",
+            "pipeline_id": "Identifier of the pipeline that deployed the version.",
+            "workflow_id": "Identifier of the workflow that deployed the version.",
+            "job_id": "Identifier of the job that deployed the version.",
+            "job_number": "Number of the job that deployed the version.",
+            "last_deployed_at": "Time at which the version was last deployed.",
+        },
+    },
+    "users": {
+        "description": "A CircleCI user referenced as the actor on a workflow.",
+        "docs_url": "https://circleci.com/docs/api/v2/#operation/getUser",
+        "columns": {
+            "id": "Unique identifier for the user.",
+            "login": "Login of the user on the version control provider.",
+            "name": "Name of the user.",
+            "avatar_url": "URL of the user's avatar on the version control provider.",
+        },
+    },
 }
