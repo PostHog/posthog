@@ -18,7 +18,7 @@ from __future__ import annotations
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
-from typing import Any
+from typing import Any, Literal
 
 from django.conf import settings
 from django.core.exceptions import ValidationError
@@ -407,6 +407,7 @@ def render_home_view(
     stats_state: StatsState | None = None,
     untagged_followup_mode: UntaggedFollowupMode | None = None,
     has_project_access: bool = True,
+    account_settings_url: str | None = None,
 ) -> dict:
     """Render the Block Kit payload for `views.publish` on the App Home tab."""
 
@@ -420,7 +421,7 @@ def render_home_view(
     # and stop, rather than drawing empty cards that read as "you have no tasks yet".
     if not has_project_access:
         blocks.append({"type": "divider"})
-        blocks.extend(_no_project_access_blocks())
+        blocks.extend(_no_project_access_blocks(account_settings_url))
         return {"type": "home", "callback_id": HOME_CALLBACK_ID, "blocks": blocks}
 
     # Section 1 — workspace activity: aggregates across everyone's Slack-started work,
@@ -536,12 +537,17 @@ def _header_blocks() -> list[dict]:
     ]
 
 
-def _no_project_access_blocks() -> list[dict]:
+def _no_project_access_blocks(account_settings_url: str | None = None) -> list[dict]:
     """Shown when the viewer can't reach any PostHog project connected to this workspace.
 
-    Covers both halves of the same dead end — no project is connected yet, or one is but
-    the viewer isn't a member of its organization — because from Slack the two are
-    indistinguishable and the next step is the same page either way.
+    Covers three causes that look identical from Slack: no project is connected yet, one
+    is but the viewer isn't a member of its organization, or they are a member under an
+    address that doesn't match their Slack profile. Only the third has a different next
+    step, so it gets its own line rather than its own screen.
+
+    The signed account-link URL is deliberately absent. Landing here means nobody could
+    be identified, which is also what a Slack Connect guest from another company looks
+    like, so the remedy points at PostHog's own settings behind a login instead.
     """
     site_url = (settings.SITE_URL or "").rstrip("/")
     blocks: list[dict] = [
@@ -557,21 +563,38 @@ def _no_project_access_blocks() -> list[dict]:
                 "text": ("Connect a project in PostHog, or ask an admin to add you to one that's already connected."),
             },
         },
+        {
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": (
+                    "If you already belong to one, check that your PostHog account uses the same email "
+                    "address as your Slack profile. When the two differ, link them from Personal "
+                    "integrations in PostHog and this tab will find you."
+                ),
+            },
+        },
     ]
+    elements: list[dict] = []
     if site_url:
-        blocks.append(
+        elements.append(
             {
-                "type": "actions",
-                "elements": [
-                    {
-                        "type": "button",
-                        "url": f"{site_url}/settings/project-integrations",
-                        "text": {"type": "plain_text", "text": "Connect PostHog to Slack", "emoji": True},
-                        "style": "primary",
-                    }
-                ],
+                "type": "button",
+                "url": f"{site_url}/settings/project-integrations",
+                "text": {"type": "plain_text", "text": "Connect PostHog to Slack", "emoji": True},
+                "style": "primary",
             }
         )
+    if account_settings_url:
+        elements.append(
+            {
+                "type": "button",
+                "url": account_settings_url,
+                "text": {"type": "plain_text", "text": "Personal integrations", "emoji": True},
+            }
+        )
+    if elements:
+        blocks.append({"type": "actions", "elements": elements})
     return blocks
 
 
@@ -1541,7 +1564,7 @@ def handle_ai_preferences_block_action(payload: dict, action: dict) -> HttpRespo
         return HttpResponse(status=200)
 
     if action_id == ACTION_SET_PROJECT_PERSONAL:
-        _apply_project_pick(integration, slack_user_id=slack_user_id, action=action, scope="personal")
+        _apply_project_pick(integration, actor_slack_user_id=slack_user_id, action=action, scope="personal")
         republish()
         return HttpResponse(status=200)
 
@@ -1555,7 +1578,7 @@ def handle_ai_preferences_block_action(payload: dict, action: dict) -> HttpRespo
         if not _is_admin(slack, integration, slack_user_id):
             _post_ephemeral_admin_only(slack, payload)
             return HttpResponse(status=200)
-        _apply_project_pick(integration, slack_user_id=None, action=action, scope="workspace")
+        _apply_project_pick(integration, actor_slack_user_id=slack_user_id, action=action, scope="workspace")
         republish()
         return HttpResponse(status=200)
 
@@ -1993,6 +2016,8 @@ def _build_home_view(
         stats_state=stats_state,
         untagged_followup_mode=resolve_untagged_followup_mode(integration, slack_user_id),
         has_project_access=bool(accessible),
+        # The same settings page the GitHub card deep-links to.
+        account_settings_url=github_state.settings_url,
     )
     return _HomeRender(
         view=view,
@@ -2289,7 +2314,7 @@ def _resolve_home_user(integration: Integration, slack_user_id: str) -> User | N
             candidate_org_ids=candidate_org_ids,
         )
         if linked_user is not None:
-            return linked_user if linked_user.is_active else None
+            return linked_user
 
     profile = SlackUserProfileCache.objects.filter(integration_id=integration.id, slack_user_id=slack_user_id).first()
     if profile is None or not profile.email:
@@ -2466,33 +2491,27 @@ def _resolve_project_state(
 def _filter_accessible_integrations(
     integration: Integration, slack_user_id: str, candidates: list[Integration]
 ) -> list[Integration]:
-    # Falls back to the full candidate list when we can't identify the user —
-    # hiding the picker would mean an unidentified user has no way to change
-    # their routing at all.
-    profile = SlackUserProfileCache.objects.filter(integration_id=integration.id, slack_user_id=slack_user_id).first()
-    if profile is None or not profile.email:
-        return candidates
-    membership = (
-        OrganizationMembership.objects.filter(
-            user__email=profile.email,
-            organization_id__in={c.team.organization_id for c in candidates},
-        )
-        .select_related("user")
-        .first()
-    )
-    if membership is None:
-        return candidates
-    permissions = UserPermissions(user=membership.user)
+    # `views.publish` answers whoever opens the tab, including a Slack Connect guest with no
+    # PostHog account, so a viewer this cannot resolve must reach no project at all.
+    user = _resolve_home_user(integration, slack_user_id)
+    if user is None:
+        return []
+    permissions = UserPermissions(user=user)
     return [c for c in candidates if permissions.team(c.team).effective_membership_level is not None]
 
 
 def _apply_project_pick(
     integration: Integration,
     *,
-    slack_user_id: str | None,
+    actor_slack_user_id: str,
     action: dict,
-    scope: str,
+    scope: Literal["personal", "workspace"],
 ) -> None:
+    """Point a default at the picked project, for the clicker or for the whole workspace.
+
+    `scope` chooses whose default moves; the clicker is who both scopes are
+    authorized against.
+    """
     selected = (action.get("selected_option") or {}).get("value")
     if not selected:
         return
@@ -2507,23 +2526,20 @@ def _apply_project_pick(
     )
     if target is None:
         return
-    # Personal-scope picks are user-driven, so re-check that the picker
-    # actually had this team in its accessible set. The renderer hides
-    # inaccessible options but a hand-crafted block_actions can still arrive
-    # with any team_id in the workspace.
-    if scope == "personal" and slack_user_id:
-        accessible = _filter_accessible_integrations(integration, slack_user_id, [target] if target else [])
-        if not accessible:
-            return
+    # The renderer hides options the clicker can't reach, but a hand-crafted
+    # block_actions — or one replayed from a view Slack published before access was
+    # removed — can still carry any team id in the workspace.
+    if not _filter_accessible_integrations(integration, actor_slack_user_id, [target]):
+        return
     SlackSettings.objects.update_or_create(
         slack_workspace_id=integration.integration_id,
-        slack_user_id=slack_user_id,
+        slack_user_id=actor_slack_user_id if scope == "personal" else None,
         defaults={"default_integration": target},
     )
     logger.info(
         "slack_app_home_project_default_set",
         slack_workspace_id=integration.integration_id,
-        slack_user_id=slack_user_id,
+        slack_user_id=actor_slack_user_id,
         scope=scope,
         team_id=team_id,
     )
