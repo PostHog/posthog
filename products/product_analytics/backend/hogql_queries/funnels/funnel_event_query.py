@@ -603,8 +603,14 @@ class FunnelEventQuery(DataWarehouseSchemaMixin):
             ast.Alias(
                 alias="capture_device",
                 expr=ast.Call(
-                    name="toString",
-                    args=[ast.Field(chain=[self.EVENT_TABLE_ALIAS, "properties", "$device_id"])],
+                    name="ifNull",
+                    args=[
+                        ast.Call(
+                            name="toString",
+                            args=[ast.Field(chain=[self.EVENT_TABLE_ALIAS, "properties", "$device_id"])],
+                        ),
+                        ast.Constant(value=""),
+                    ],
                 ),
             )
         ]

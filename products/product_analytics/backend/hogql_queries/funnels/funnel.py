@@ -207,62 +207,6 @@ class FunnelUDF(FunnelUDFMixin, FunnelBase):
         )
         return inner_select
 
-    def _with_capture_order_key(self, inner_event_query: ast.Expr) -> ast.Expr:
-        """Add `capture_order_key`, the instant each event was captured on its own device.
-
-        `UUIDv7ToDateTime` yields the epoch for any UUID that is not version 7, which covers both
-        the UUID capture mints when an SDK sends none and the synthetic one the warehouse path
-        hashes from an ID column, so `> 0` is the test for a usable client instant. A row without
-        one contributes NULL to the minimum, which `min` skips, and falls back to its stored
-        timestamp.
-        """
-        if not self.context.modifiers.funnelUseClientCaptureOrder:
-            return inner_event_query
-
-        return parse_select(
-            """
-            SELECT
-                *,
-                if(
-                    capture_ms > 0 AND device_offset_ms IS NOT NULL,
-                    (capture_ms + device_offset_ms) / 1000,
-                    stored_ms / 1000
-                ) AS capture_order_key
-            FROM (
-                SELECT
-                    *,
-                    min(if(capture_ms > 0, stored_ms - capture_ms, NULL)) OVER (
-                        PARTITION BY aggregation_target, capture_device
-                    ) AS device_offset_ms
-                FROM (
-                    SELECT
-                        *,
-                        toUnixTimestamp64Milli(toDateTime64(UUIDv7ToDateTime(uuid), 3)) AS capture_ms,
-                        toUnixTimestamp64Milli(toDateTime64(timestamp, 3)) AS stored_ms
-                    FROM {inner_event_query}
-                )
-            )
-            """,
-            {"inner_event_query": inner_event_query},
-        )
-
-    def step_order_key(self) -> str:
-        """The expression funnel steps are ordered by.
-
-        The stored timestamp is the capture instant plus that request's delivery latency, so two
-        requests from one device order by how long each took to arrive rather than by when the
-        events happened. A client-minted UUIDv7 carries the device's own capture instant, which
-        has the device's clock error in it instead; that error is constant within a device, so it
-        cannot reorder that device's own events.
-
-        Anchoring each device on the smallest offset it was seen with cancels the clock error and
-        leaves the device's constant floor latency, which orders correctly within a device and
-        stays comparable across the devices of one person.
-        """
-        if not self.context.modifiers.funnelUseClientCaptureOrder:
-            return "toFloat(timestamp)"
-        return "toFloat(capture_order_key)"
-
     def get_query(self) -> ast.SelectQuery:
         # Enforced where the bitfield SQL is emitted because not every caller goes
         # through the FunnelsQueryRunner validators

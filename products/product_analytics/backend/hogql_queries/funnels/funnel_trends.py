@@ -178,7 +178,7 @@ class FunnelTrendsUDF(FunnelUDFMixin, FunnelBase):
                 f"""
             SELECT
                 arraySort(t -> t.1, groupArray(tuple(
-                    toFloat(timestamp),
+                    {self.step_order_key()},
                     _toUInt64(toDateTime({get_start_of_interval_hogql_str(self.context.interval.value, team=self.context.team, source="timestamp")})),
                     uuid,
                     {prop_selector},
@@ -204,7 +204,7 @@ class FunnelTrendsUDF(FunnelUDFMixin, FunnelBase):
             FROM {{inner_event_query}}
             GROUP BY aggregation_target
         """,
-                {"inner_event_query": inner_event_query},
+                {"inner_event_query": self._with_capture_order_key(inner_event_query)},
             ),
         )
         # This is necessary so clickhouse doesn't truncate timezone information when passing datetimes to and from python
