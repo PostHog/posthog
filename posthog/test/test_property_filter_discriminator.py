@@ -1,7 +1,7 @@
 from django.test.testcases import SimpleTestCase
 
 from parameterized import parameterized
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
 
 from posthog.schema import (
     AccountCustomPropertyFilter,
@@ -27,6 +27,8 @@ from posthog.schema import (
     LogPropertyFilter,
     LogPropertyFilterType,
     MCPModelBreakdownQuery,
+    MCPToolQualityRowsQuery,
+    MCPToolStatsQuery,
     MetricPropertyFilter,
     PersonMetadataPropertyFilter,
     PersonPropertyFilter,
@@ -40,6 +42,13 @@ from posthog.schema import (
     TrendsQuery,
     WorkflowVariablePropertyFilter,
 )
+
+
+# Mirrors TrendsQueryWithTemplateVariables in filter_to_query.py: subclassing a schema
+# model from another module only works if the parent's annotations resolved at class
+# creation, i.e. the discriminated aliases were emitted before their usage sites.
+class TrendsQuerySubclassedElsewhere(TrendsQuery):
+    pass
 
 
 class TestPropertyFilterDiscriminator(SimpleTestCase):
@@ -273,16 +282,34 @@ class TestPropertyFilterDiscriminator(SimpleTestCase):
         assert len(errors) == 3, f"expected exactly one error per item, got {len(errors)}: {errors}"
         assert all(error["type"] == "extra_forbidden" for error in errors)
 
-    def test_mcp_model_breakdown_properties_use_the_discriminated_filter(self) -> None:
-        query = MCPModelBreakdownQuery.model_validate(
+    def test_subclass_in_another_module_resolves_the_alias(self) -> None:
+        query = TrendsQuerySubclassedElsewhere.model_validate(
+            {"kind": "TrendsQuery", "series": [], "properties": [{"type": "event", "key": "k", "operator": "exact"}]}
+        )
+        assert isinstance(query.properties, list)
+        assert type(query.properties[0]) is EventPropertyFilter
+
+    @parameterized.expand(
+        [
+            ("MCPModelBreakdownQuery", MCPModelBreakdownQuery, {}),
+            ("MCPToolQualityRowsQuery", MCPToolQualityRowsQuery, {}),
+            ("MCPToolStatsQuery", MCPToolStatsQuery, {"toolName": "search"}),
+        ]
+    )
+    def test_mcp_analytics_properties_use_the_discriminated_filter(
+        self, kind: str, model: type[BaseModel], extra_fields: dict
+    ) -> None:
+        query = model.model_validate(
             {
-                "kind": "MCPModelBreakdownQuery",
+                "kind": kind,
                 "properties": [{"type": "event", "key": "$mcp_llm_model", "operator": "exact"}],
+                **extra_fields,
             }
         )
 
-        assert query.properties is not None
-        assert type(query.properties[0]) is EventPropertyFilter
+        properties = query.properties  # type: ignore[attr-defined]
+        assert properties is not None
+        assert type(properties[0]) is EventPropertyFilter
 
     def test_serialization_round_trip_is_stable(self) -> None:
         node = EventsNode(
