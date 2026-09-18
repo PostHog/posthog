@@ -168,12 +168,44 @@ def test_main_writes_outputs(labels: str, tmp_path: Path, monkeypatch: pytest.Mo
     assert output.read_text() == "engine=depot\nreason=bucket 7 < 50%\n"
 
 
+@pytest.mark.parametrize(
+    "percent,labels,reads",
+    [
+        ("", "[]", 0),
+        ("0", "[]", 1),
+        ("", json.dumps(["ci-backend-depot"]), 1),
+        ("", json.dumps(["ci-backend-github"]), 1),
+    ],
+)
+def test_main_reads_the_handoff_only_when_routing_is_possible(
+    percent: str, labels: str, reads: int, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls: list[str] = []
+
+    def fetch(repo: str, sha: str, token: str) -> list[dict[str, Any]]:
+        calls.append(sha)
+        return []
+
+    monkeypatch.setenv("GITHUB_OUTPUT", str(tmp_path / "out"))
+    monkeypatch.setenv("EVENT", "pull_request")
+    monkeypatch.setenv("PERCENT", percent)
+    monkeypatch.setenv("PR_NUMBER", "7")
+    monkeypatch.setenv("LABELS", labels)
+    monkeypatch.setenv("REPO", "PostHog/posthog")
+    monkeypatch.setenv("SHA", "abc")
+    monkeypatch.setenv("GH_TOKEN", "t")
+    monkeypatch.setattr(route, "fetch_handoff_checks", fetch)
+    assert route.main() == 0
+    assert len(calls) == reads
+
+
 def test_main_fails_when_the_earlier_handoff_cannot_be_read(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     def failing(repo: str, sha: str, token: str) -> list[dict[str, Any]]:
         raise route.HandoffReadError("boom")
 
     monkeypatch.setenv("GITHUB_OUTPUT", str(tmp_path / "out"))
     monkeypatch.setenv("EVENT", "pull_request")
+    monkeypatch.setenv("PERCENT", "5")
     monkeypatch.setenv("PR_NUMBER", "7")
     monkeypatch.setenv("LABELS", "[]")
     monkeypatch.setenv("REPO", "PostHog/posthog")

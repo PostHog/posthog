@@ -147,8 +147,12 @@ def main() -> int:
     pr_raw = env.get("PR_NUMBER", "")
     pr_number = int(pr_raw) if pr_raw.isdigit() else None
     is_fork = env.get("IS_FORK", "false") == "true"
+    labels = json.loads(env.get("LABELS") or "null") or []
+    # Until the rollout variable exists, only a label can route a commit, so every other
+    # pull request skips the read and its API call, and cannot fail on it.
+    routing_possible = bool(env.get("PERCENT")) or bool({LABEL_FORCE_DEPOT, LABEL_FORCE_GITHUB} & set(labels))
     prior_handoff = None
-    if event == "pull_request" and pr_number is not None and not is_fork:
+    if event == "pull_request" and pr_number is not None and not is_fork and routing_possible:
         try:
             prior_handoff = handoff_conclusion(
                 fetch_handoff_checks(env["REPO"], env["SHA"], env["GH_TOKEN"]), pr_number
@@ -161,7 +165,7 @@ def main() -> int:
         event=event,
         percent=parse_percent(env.get("PERCENT")),
         pr_number=pr_number,
-        labels=json.loads(env.get("LABELS") or "null") or [],
+        labels=labels,
         is_fork=is_fork,
         is_draft=env.get("IS_DRAFT", "false") == "true",
         prior_handoff=prior_handoff,
