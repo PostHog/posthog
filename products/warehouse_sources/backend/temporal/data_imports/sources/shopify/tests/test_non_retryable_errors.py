@@ -37,6 +37,8 @@ def test_graphql_access_denied_is_non_retryable(error_message):
         "Shopify GraphQL error: This app is not approved to access the Customer object. "
         "See https://shopify.dev/docs/apps/launch/protected-customer-data for more details.",
         "Shopify GraphQL error: This app is not approved to access the Order object.",
+        "Shopify GraphQL error: This app is not approved to use the phoneNumber field. "
+        "See https://shopify.dev/docs/apps/launch/protected-customer-data for more details.",
     ],
 )
 def test_protected_customer_data_refusal_is_non_retryable(error_message):

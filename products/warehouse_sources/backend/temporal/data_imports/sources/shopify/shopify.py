@@ -122,12 +122,18 @@ SHOPIFY_STORE_NOT_FOUND_ERROR = (
 SHOPIFY_GRAPHQL_ACCESS_DENIED_ERROR = "Access denied for"
 
 # Shopify gates customer PII behind protected customer data approval, separately from access
-# scopes: an app without it gets "This app is not approved to access the Customer object." even
-# when the token holds `read_customers`. Approval is granted in the app's Shopify settings, and
-# some fields also need a paid store plan, so no retry and no scope change can recover.
-# `ShopifySource.get_non_retryable_errors` matches the leading phrase, which stays the same
-# whichever object Shopify names.
-SHOPIFY_PROTECTED_CUSTOMER_DATA_ERROR_MATCH = "is not approved to access the"
+# scopes: an app without it is refused even when the token holds `read_customers`. Approval is
+# granted in the app's Shopify settings, and some fields also need a paid store plan, so no
+# retry and no scope change can recover. Shopify words the refusal two ways — a whole object
+# ("This app is not approved to access the Customer object.") and a single field ("This app is
+# not approved to use the phoneNumber field.") — and only the object or field name varies, so
+# each match anchors on its leading phrase.
+SHOPIFY_PROTECTED_CUSTOMER_DATA_OBJECT_ERROR_MATCH = "is not approved to access the"
+SHOPIFY_PROTECTED_CUSTOMER_DATA_FIELD_ERROR_MATCH = "is not approved to use the"
+SHOPIFY_PROTECTED_CUSTOMER_DATA_ERROR_MATCHES = (
+    SHOPIFY_PROTECTED_CUSTOMER_DATA_OBJECT_ERROR_MATCH,
+    SHOPIFY_PROTECTED_CUSTOMER_DATA_FIELD_ERROR_MATCH,
+)
 SHOPIFY_PROTECTED_CUSTOMER_DATA_REMEDY = (
     "Request access to protected customer data in your Shopify app settings. Some customer "
     "fields also need a paid Shopify store plan."
@@ -201,7 +207,7 @@ def missing_permissions_message(missing_permissions: dict[str, str]) -> str:
     scope_gaps: list[str] = []
     protected_resources: list[str] = []
     for resource, error in missing_permissions.items():
-        if SHOPIFY_PROTECTED_CUSTOMER_DATA_ERROR_MATCH in error:
+        if any(match in error for match in SHOPIFY_PROTECTED_CUSTOMER_DATA_ERROR_MATCHES):
             protected_resources.append(resource)
             continue
         scopes = _REQUIRED_SCOPE_RE.findall(error)

@@ -1,5 +1,6 @@
 from typing import Any
 
+import pytest
 from unittest import mock
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.shopify import (
@@ -119,13 +120,19 @@ def test_endpoint_permissions_reports_each_table_without_blocking():
     assert "read_product_listings" in result["collections"]
 
 
-def test_endpoint_permissions_distinguish_protected_customer_data():
+@pytest.mark.parametrize(
+    "refusal",
+    [
+        "This app is not approved to access the Customer object. "
+        "See https://shopify.dev/docs/apps/launch/protected-customer-data for more details.",
+        "This app is not approved to use the phoneNumber field. "
+        "See https://shopify.dev/docs/apps/launch/protected-customer-data for more details.",
+    ],
+)
+def test_endpoint_permissions_distinguish_protected_customer_data(refusal):
     # Shopify's protected customer data gate sits above access scopes, so telling the user to
     # grant scopes sends them to a setting that cannot unblock the table.
-    refused = _access_denied(
-        "This app is not approved to access the Customer object. "
-        "See https://shopify.dev/docs/apps/launch/protected-customer-data for more details."
-    )
+    refused = _access_denied(refusal)
     result = _endpoint_permissions(_post_returning({"customers": refused}), ["orders", "customers"])
 
     assert result["orders"] is None
