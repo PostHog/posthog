@@ -274,8 +274,8 @@ tools:
             from `status`.
 
 
-            `feature-flag-get-definition` returns the same `active` field for one flag.
-            `feature-flags-status-retrieve` returns the same staleness classification in lower case, with a reason.
+            `feature-flag-get-definition` returns the same `active` field for one flag. `feature-flags-status-retrieve`
+            returns the same staleness classification in lower case, with a reason.
         param_overrides:
             search:
                 description:
@@ -591,10 +591,10 @@ tools:
             conditions), `has_targeting_conditions`, `max_rollout_percentage`, and `is_multivariate`.
 
 
-            This status is also not the serving state. A disabled flag returns `active` here, with a reason that says
-            it is disabled. Read the serving state from the `active` field of `feature-flag-get-definition` or
-            `feature-flag-get-all`. This tool lower-cases the same classification that those tools return in upper
-            case as `status`.
+            This status is also not the serving state. A disabled flag returns `active` here, with a reason that says it
+            is disabled. Read the serving state from the `active` field of `feature-flag-get-definition` or
+            `feature-flag-get-all`. This tool lower-cases the same classification that those tools return in upper case
+            as `status`.
         param_overrides:
             id:
                 cast: string-int
