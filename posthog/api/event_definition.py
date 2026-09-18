@@ -72,6 +72,14 @@ EVENT_DEFINITIONS_TIMED_OUT_COUNTER = Counter(
 
 EVENT_DEFINITION_ORDERING_FIELDS = ("name", "last_seen_at", "last_seen_at::date", "created_at", "created_at::date")
 
+# The members the list SQL implements. Nothing here reads the actions table, so `all` and
+# `action_event` would return plain event definitions under a name that promises otherwise.
+EVENT_DEFINITION_LIST_EVENT_TYPES = (
+    EventDefinitionType.EVENT,
+    EventDefinitionType.EVENT_CUSTOM,
+    EventDefinitionType.EVENT_POSTHOG,
+)
+
 # `name` is NOT NULL, so a NULLS clause on it changes no row order but stops the planner from matching
 # the unique index's default order (ASC NULLS LAST): the whole project then sorts before the page is cut.
 _NOT_NULL_ORDER_EXPRESSIONS = frozenset({"name", "length(name)"})
@@ -419,8 +427,7 @@ class EventDefinitionViewSet(
     ordering_fields = ["name", "last_seen_at", "created_at"]
 
     def dangerously_get_queryset(self):
-        # `type` = 'all' | 'event' | 'action_event'
-        # Allows this endpoint to return lists of event definitions, actions, or both.
+        # Only `event_custom` and `event_posthog` change the rows, in `_event_definitions_source_sql`.
         event_type = EventDefinitionType(self.request.GET.get("event_type", EventDefinitionType.EVENT))
 
         event_definition_object_manager: Manager = event_definition_model(EE_AVAILABLE).objects
@@ -609,7 +616,7 @@ class EventDefinitionViewSet(
                 OpenApiTypes.STR,
                 location=OpenApiParameter.QUERY,
                 required=False,
-                enum=[event_type.value for event_type in EventDefinitionType],
+                enum=[event_type.value for event_type in EVENT_DEFINITION_LIST_EVENT_TYPES],
                 description=(
                     "`event_custom` keeps only names without a `$` prefix and `event_posthog` only names with one. "
                     "Default `event`."
