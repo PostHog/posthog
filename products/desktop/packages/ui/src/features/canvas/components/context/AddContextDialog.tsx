@@ -42,6 +42,7 @@ import type {
   ContextSourceState,
   ContextSources,
 } from "@posthog/ui/features/canvas/hooks/useContextSources";
+import { usePostHogHost } from "@posthog/ui/features/canvas/hooks/usePostHogHost";
 import {
   cloneElement,
   isValidElement,
@@ -98,7 +99,11 @@ export function AddContextDialog({
   const [fileName, setFileName] = useState("");
   const [upload, setUpload] = useState<File | null>(null);
 
-  const detected = useMemo(() => detectLink(url, sources), [url, sources]);
+  const host = usePostHogHost();
+  const detected = useMemo(
+    () => detectLink(url, sources, host),
+    [url, sources, host],
+  );
   const filePath =
     filesFolder && fileName.trim()
       ? fileNameToPath(filesFolder, fileName)
@@ -285,10 +290,11 @@ type DetectedLink =
 function detectLink(
   input: string,
   sources: ContextSources,
+  host: string | null,
 ): DetectedLink | null {
   const value = input.trim();
   if (!value) return null;
-  const object = parsePostHogObjectUrl(value);
+  const object = parsePostHogObjectUrl(value, host);
   if (object) {
     const label = CONTEXT_OBJECT_KIND_LABELS[object.kind];
     return {

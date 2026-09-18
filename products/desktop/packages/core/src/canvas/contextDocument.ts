@@ -309,22 +309,32 @@ const OBJECT_PATH_RULES: { kind: ContextObjectKind; re: RegExp }[] = [
   { kind: "person", re: /^\/persons?\/([^/?#]+)/ },
 ];
 
+export function decodeUrlSegment(segment: string): string {
+  try {
+    return decodeURIComponent(segment);
+  } catch {
+    return segment;
+  }
+}
+
 export function parsePostHogObjectUrl(
   url: string,
+  host: string | null,
 ): { kind: ContextObjectKind; id: string; path: string } | null {
-  let pathname: string;
+  let parsed: URL;
   try {
-    pathname = new URL(url).pathname;
+    parsed = new URL(url);
   } catch {
     return null;
   }
-  const path = pathname.replace(/^\/project\/\d+/, "");
+  if (parsed.host !== host) return null;
+  const path = parsed.pathname.replace(/^\/project\/\d+/, "");
   for (const rule of OBJECT_PATH_RULES) {
     const match = rule.re.exec(path);
     if (match) {
       return {
         kind: rule.kind,
-        id: decodeURIComponent(match[1]),
+        id: decodeUrlSegment(match[1]),
         path: match[0],
       };
     }

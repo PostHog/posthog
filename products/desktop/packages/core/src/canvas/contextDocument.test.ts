@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   parseContextDocument,
+  parsePostHogObjectUrl,
   serializeContextDocument,
 } from "./contextDocument";
 
@@ -152,4 +153,26 @@ describe("contextDocument", () => {
       ).toBe(`---\nsummary: s\n${block}\n---\n\nBody\n`);
     },
   );
+
+  it.each([
+    [
+      "a flag on the signed-in host",
+      "https://us.posthog.com/project/1/feature_flags/8",
+      "flag",
+    ],
+    [
+      "the same path on another host",
+      "https://attacker.example/project/1/feature_flags/8",
+      null,
+    ],
+    [
+      "an event name with broken percent-encoding",
+      "https://us.posthog.com/data-management/events/%E0%A4%A",
+      "event",
+    ],
+  ])("reads %s", (_case, url, kind) => {
+    expect(parsePostHogObjectUrl(url, "us.posthog.com")?.kind ?? null).toBe(
+      kind,
+    );
+  });
 });

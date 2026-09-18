@@ -6,7 +6,7 @@ import {
   getInstallationStatus,
   type InstallationStatus,
 } from "../mcp-servers/status";
-import { isHttpUrl } from "./contextDocument";
+import { decodeUrlSegment, isHttpUrl } from "./contextDocument";
 
 export interface ContextSource {
   id: string;
@@ -44,7 +44,7 @@ function pathOf(input: string): string[] {
 }
 
 function humanizeSlug(slug: string): string {
-  return decodeURIComponent(slug).replace(HEX_ID, "").replace(/[-_]+/g, " ");
+  return decodeUrlSegment(slug).replace(HEX_ID, "").replace(/[-_]+/g, " ");
 }
 
 function lastSegmentTitle(input: string, fallback: string): string {

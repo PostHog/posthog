@@ -6,9 +6,11 @@ import {
   evidencePreviewQueryKey,
 } from "@posthog/ui/features/editor/evidencePreview";
 import { useAuthenticatedQuery } from "@posthog/ui/hooks/useAuthenticatedQuery";
+import { usePostHogHost } from "./usePostHogHost";
 
 export function useWatchedObjectPreview(object: ContextObject) {
-  const parsed = parsePostHogObjectUrl(object.url);
+  const host = usePostHogHost();
+  const parsed = parsePostHogObjectUrl(object.url, host);
   const target = parsed ? { kind: parsed.kind, id: parsed.id } : null;
   return useAuthenticatedQuery<EvidencePreview | null>(
     target
