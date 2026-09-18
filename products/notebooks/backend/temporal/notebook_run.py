@@ -175,6 +175,16 @@ def dispatch_notebook_cell_activity(input: NotebookRunCellInput) -> str:
         raise ApplicationError(str(e), type=_RETRYABLE_DISPATCH) from e
     except (NodeRunInvalid, NodeRunDispatchFailed) as e:
         raise ApplicationError(str(e), type=_UNRECOVERABLE, non_retryable=True) from e
+
+    # Stop can land between the status check above and the row this dispatch just created.
+    # It would have found no cell to cancel and reported success, leaving this one running
+    # under a run the user was told had stopped. The row exists now, so reconcile against the
+    # parent: every interleaving is covered, because a Stop later than this finds the row.
+    notebook_run.refresh_from_db(fields=["status"])
+    if notebook_run.status != NotebookRun.Status.RUNNING:
+        with team_scope(notebook_run.team_id, canonical=True):
+            stop_current_cell(notebook_run.notebook, notebook_run)
+
     return str(dispatch.run_id)
 
 

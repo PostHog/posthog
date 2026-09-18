@@ -14,6 +14,7 @@ from posthog.models.utils import UUIDT
 from products.notebooks.backend.models import Notebook, NotebookNodeRun, NotebookRun
 from products.notebooks.backend.notebook_run import node_run_request_for, plan_notebook_cells
 from products.notebooks.backend.temporal.notebook_run import NotebookRunCellInput, dispatch_notebook_cell_activity
+from products.notebooks.backend.temporal.sql_v2 import SQLV2RunInput, dispatch_sql_v2_run_activity
 
 _RUN_CELLS = (
     '<SQLV2 nodeId="s1" code="select 1" returnVariable="first" />\n\n'
@@ -286,6 +287,57 @@ class TestNotebookRunEndpoints(APIBaseTest):
         assert str(mock_enqueue.call_args.args[2].id) == str(orphan.id)
         # Still one row: resuming must not become a second execution.
         assert NotebookNodeRun.objects.for_team(self.team.id).filter(notebook_run_id=run_id).count() == 1
+
+    @patch("products.notebooks.backend.notebook_run.interrupt_sql_v2_run", return_value=False)
+    def test_stopping_a_cell_the_kernel_never_received_still_cancels_it(self, _interrupt, _start, _flag) -> None:
+        # The interrupt returns False when the dispatch is still queued: there is nothing at
+        # the kernel to stop. Left RUNNING the cell would start after the user was told the
+        # run had stopped, and a second Stop returns early because the parent is terminal.
+        run_id = self.client.post(self.runs_url, data={}, format="json").json()["run_id"]
+        with team_scope(self.team.id):
+            cell = NotebookNodeRun.objects.create(
+                team=self.team,
+                notebook=self.notebook,
+                notebook_run=NotebookRun.objects.get(id=run_id),
+                node_id="p1",
+                code="print(1)",
+                node_type=NotebookNodeRun.NodeType.PYTHON,
+                status=NotebookNodeRun.Status.RUNNING,
+            )
+
+        assert self.client.post(f"{self.runs_url}{run_id}/interrupt/").status_code == 200
+
+        cell.refresh_from_db()
+        assert cell.status == NotebookNodeRun.Status.INTERRUPTED
+
+    def test_a_queued_dispatch_refuses_a_cell_that_was_stopped(self, _start, _flag) -> None:
+        # The other half: the row's status is the cancellation, and the sandbox dispatch is
+        # the last point before the code leaves for the kernel, so it has to read it. It also
+        # provisions a kernel when none is up, so running on would bill for the stopped cell.
+        run_id = self.client.post(self.runs_url, data={}, format="json").json()["run_id"]
+        with team_scope(self.team.id):
+            cell = NotebookNodeRun.objects.create(
+                team=self.team,
+                notebook=self.notebook,
+                notebook_run=NotebookRun.objects.get(id=run_id),
+                node_id="p1",
+                code="print(1)",
+                node_type=NotebookNodeRun.NodeType.PYTHON,
+                status=NotebookNodeRun.Status.INTERRUPTED,
+            )
+
+        with patch("products.notebooks.backend.temporal.sql_v2.dispatch_sql_v2_run") as mock_dispatch:
+            dispatch_sql_v2_run_activity(
+                SQLV2RunInput(
+                    run_id=str(cell.id),
+                    notebook_short_id=self.notebook.short_id,
+                    team_id=self.team.id,
+                    code="print(1)",
+                    node_type="python",
+                )
+            )
+
+        mock_dispatch.assert_not_called()
 
     def test_interrupt_stops_the_run_and_is_idempotent(self, _start, _flag) -> None:
         run_id = self.client.post(self.runs_url, data={}, format="json").json()["run_id"]

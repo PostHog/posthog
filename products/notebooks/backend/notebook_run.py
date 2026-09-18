@@ -378,7 +378,14 @@ def stop_current_cell(notebook: Notebook, notebook_run: NotebookRun) -> None:
         return
     owner = notebook_run.user if isinstance(notebook_run.user, User) else None
     try:
-        interrupt_sql_v2_run(notebook, owner, run)
+        if not interrupt_sql_v2_run(notebook, owner, run):
+            # The kernel has never heard of this run, so its dispatch is still queued and
+            # there is nothing there to interrupt. Marking the row terminal is the
+            # cancellation: `dispatch_sql_v2_run_activity` reads it before handing the code
+            # over, so the cell never starts. Left RUNNING, it would start after the user
+            # was told it had stopped, and a repeat Stop returns early because the run is
+            # already terminal.
+            finish_node_run(run, NotebookNodeRun.Status.INTERRUPTED, error="Run stopped.")
     except SQLV2KernelNotRunning:
         # No reachable kernel, so the callback can never arrive. A late one simply overwrites
         # this with the real outcome.
