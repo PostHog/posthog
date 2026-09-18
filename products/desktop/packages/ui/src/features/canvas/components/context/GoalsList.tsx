@@ -453,6 +453,9 @@ function CardFooter({
   return trend.isLoading ? <TrendPlaceholder /> : null;
 }
 
+const MOCK_PLOT =
+  "M0 44 L20 38 L40 42 L60 30 L80 34 L100 22 L120 27 L140 16 L160 20";
+
 function TrendPlaceholder({
   caption,
   tone = "muted",
@@ -470,14 +473,18 @@ function TrendPlaceholder({
         preserveAspectRatio="none"
         className="absolute inset-0 h-full w-full text-muted-foreground"
       >
-        <line
-          x1="0"
-          y1="40"
-          x2="160"
-          y2="40"
+        <path
+          d={`${MOCK_PLOT} L160 64 L0 64 Z`}
+          fill="currentColor"
+          opacity={0.06}
+        />
+        <path
+          d={MOCK_PLOT}
+          fill="none"
           stroke="currentColor"
-          strokeDasharray="3 4"
-          opacity={0.35}
+          strokeWidth={1.5}
+          strokeLinejoin="round"
+          opacity={0.25}
           vectorEffect="non-scaling-stroke"
         />
       </svg>

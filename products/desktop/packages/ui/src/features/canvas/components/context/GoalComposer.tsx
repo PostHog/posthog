@@ -9,7 +9,6 @@ import {
   formatNumber,
   type GoalDirection,
   type GoalMeasure,
-  type GoalPeriod,
   type GoalTarget,
 } from "@posthog/core/canvas/contextDocument";
 import {
@@ -54,19 +53,6 @@ const DIRECTIONS: readonly [GoalDirection, string][] = [
   ["at_most", "≤"],
 ];
 
-const PERIODS: readonly [GoalPeriod, string][] = [
-  ["day", "Day"],
-  ["week", "Week"],
-  ["month", "Month"],
-];
-
-type UnitKind = "count" | "percent";
-
-const UNITS: readonly [UnitKind, string][] = [
-  ["count", "Count"],
-  ["percent", "%"],
-];
-
 function looksLikeHogQL(text: string): boolean {
   return /^\s*(select|with)\b/i.test(text);
 }
@@ -102,11 +88,9 @@ export function GoalComposer({
     initial?.target ? String(initial.target.value) : "",
   );
   const [dueDate, setDueDate] = useState(initial?.target?.dueDate ?? "");
-  const [period, setPeriod] = useState<GoalPeriod | undefined>(initial?.period);
-  const [unitKind, setUnitKind] = useState<UnitKind>(
-    initial?.percent ? "percent" : "count",
-  );
-  const unit = unitKind === "percent" ? "%" : "";
+  const unit = initial?.percent ? "%" : "";
+  const agentRunning =
+    initial !== null && measure === null && measureTask?.state === "running";
   const [askedAgent, setAskedAgent] = useState(false);
   const askRef = useRef<HTMLTextAreaElement>(null);
 
@@ -190,8 +174,8 @@ export function GoalComposer({
       measure: measureEmpty ? null : measure,
       target,
       primary: initial?.primary ?? false,
-      period,
-      percent: unitKind === "percent" || undefined,
+      period: initial?.period,
+      percent: initial?.percent,
       task: initial?.task,
     };
     if (needsAgent) {
@@ -261,6 +245,7 @@ export function GoalComposer({
               ) : null}
               <input
                 value={name}
+                readOnly={agentRunning}
                 onChange={(event) => setName(event.target.value)}
                 aria-label="Goal name"
                 placeholder="Name this goal"
@@ -300,53 +285,37 @@ export function GoalComposer({
               />
             )}
 
-            <div className="flex flex-wrap items-center gap-2">
-              <Text size="xs" variant="muted" className="mr-1">
-                Target
-              </Text>
-              <Segmented
-                options={DIRECTIONS}
-                value={direction}
-                onChange={setDirection}
-              />
-              <Input
-                inputMode="decimal"
-                value={targetValue}
-                onChange={(event) => setTargetValue(event.target.value)}
-                placeholder="1,200"
-                aria-label="Target value"
-                aria-invalid={targetInvalid || undefined}
-                className="w-28 tabular-nums"
-              />
-              <Text size="xs" variant="muted">
-                by
-              </Text>
-              <Input
-                type="date"
-                value={dueDate}
-                onChange={(event) => setDueDate(event.target.value)}
-                aria-label="Due date"
-                className="w-40"
-              />
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <Text size="xs" variant="muted" className="mr-1">
-                Chart
-              </Text>
-              <Segmented
-                options={PERIODS}
-                value={period ?? "day"}
-                onChange={setPeriod}
-              />
-              <Text size="xs" variant="muted">
-                as
-              </Text>
-              <Segmented
-                options={UNITS}
-                value={unitKind}
-                onChange={setUnitKind}
-              />
-            </div>
+            {agentRunning ? null : (
+              <div className="flex flex-wrap items-center gap-2">
+                <Text size="xs" variant="muted" className="mr-1">
+                  Target
+                </Text>
+                <Segmented
+                  options={DIRECTIONS}
+                  value={direction}
+                  onChange={setDirection}
+                />
+                <Input
+                  inputMode="decimal"
+                  value={targetValue}
+                  onChange={(event) => setTargetValue(event.target.value)}
+                  placeholder="1,200"
+                  aria-label="Target value"
+                  aria-invalid={targetInvalid || undefined}
+                  className="w-28 tabular-nums"
+                />
+                <Text size="xs" variant="muted">
+                  by
+                </Text>
+                <Input
+                  type="date"
+                  value={dueDate}
+                  onChange={(event) => setDueDate(event.target.value)}
+                  aria-label="Due date"
+                  className="w-40"
+                />
+              </div>
+            )}
             {note ? (
               <Text
                 size="xs"
@@ -391,7 +360,7 @@ export function GoalComposer({
               {isHogQL ? "Next" : "Add goal"}
               {!askedAgent ? <Kbd className="ml-1">↵</Kbd> : null}
             </Button>
-          ) : (
+          ) : agentRunning ? null : (
             <Button
               variant="primary"
               size="sm"
