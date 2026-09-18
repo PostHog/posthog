@@ -680,6 +680,7 @@ export const dataQualityCheckEditorLogic = kea<dataQualityCheckEditorLogicType>(
             {
                 loadCheckSubjects: () => true,
                 loadCheckSubjectsFailure: () => false,
+                closeEditor: () => false,
             },
         ],
         checkTypes: [
