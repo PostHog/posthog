@@ -3,7 +3,7 @@ import { useActions, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
 
 import { IconGridMasonry, IconList, IconPlayFilled } from '@posthog/icons'
-import { LemonSegmentedButton, LemonSkeleton, LemonTag, Link } from '@posthog/lemon-ui'
+import { LemonCard, LemonSegmentedButton, LemonSkeleton, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { PaginationControl } from 'lib/lemon-ui/PaginationControl'
@@ -40,13 +40,14 @@ function watchMomentUrl(
     ).url
 }
 
+type Tier = 'top' | 'other'
+type TierGroup = { tier: Tier | null; results: ObservationSearchResultApi[] }
+
 interface ResultProps {
     result: ObservationSearchResultApi
     searchedQuery: string
     returnParams: Record<string, string>
 }
-
-type Tier = 'top' | 'other'
 
 // Placeholder art until observations carry a rendered still.
 function WatchLink({ observation, compact }: { observation: ReplayObservationApi; compact?: boolean }): JSX.Element {
@@ -143,23 +144,24 @@ function SubjectLink({ observation }: { observation: ReplayObservationApi }): JS
     )
 }
 
+function TopMatchTag(): JSX.Element {
+    return (
+        <LemonTag type="success" size="small">
+            Top match
+        </LemonTag>
+    )
+}
+
 function MomentCard({ result, searchedQuery, returnParams, tier }: ResultProps & { tier: Tier | null }): JSX.Element {
     const observation = result.observation
     const snapshot = observation.scanner_snapshot
     return (
-        <div
-            className="flex flex-col border border-primary rounded-lg bg-surface-primary overflow-hidden"
-            data-attr="vision-search-result"
-        >
+        <LemonCard className="flex flex-col rounded-lg p-0 overflow-hidden" data-attr="vision-search-result">
             <div className="relative">
                 <WatchLink observation={observation} />
                 <span className="absolute top-2 left-2 flex items-center gap-1">
                     {snapshot && <ScannerOutputBadge scannerType={snapshot.scanner_type} size="small" />}
-                    {tier === 'top' && (
-                        <LemonTag type="success" size="small">
-                            Top match
-                        </LemonTag>
-                    )}
+                    {tier === 'top' && <TopMatchTag />}
                 </span>
             </div>
             <div className="flex flex-col gap-1.5 p-3 min-w-0">
@@ -182,35 +184,7 @@ function MomentCard({ result, searchedQuery, returnParams, tier }: ResultProps &
                     </Link>
                 </div>
             </div>
-        </div>
-    )
-}
-
-function tierGroups(
-    results: ObservationSearchResultApi[],
-    tierOf: (result: ObservationSearchResultApi) => Tier | null
-): { tier: Tier | null; results: ObservationSearchResultApi[] }[] {
-    const groups: { tier: Tier | null; results: ObservationSearchResultApi[] }[] = []
-    for (const result of results) {
-        const tier = tierOf(result)
-        const last = groups[groups.length - 1]
-        if (last && last.tier === tier) {
-            last.results.push(result)
-        } else {
-            groups.push({ tier, results: [result] })
-        }
-    }
-    return groups
-}
-
-function TierHeading({ tier }: { tier: Tier }): JSX.Element {
-    return (
-        <div className="flex items-baseline gap-2 px-3 py-1.5 rounded bg-surface-tertiary text-xs">
-            <span className="font-semibold">{tier === 'top' ? 'Top matches' : 'Other matches'}</span>
-            <span className="text-muted">
-                {tier === 'top' ? 'Closest to what you described.' : 'Related, but further from what you described.'}
-            </span>
-        </div>
+        </LemonCard>
     )
 }
 
@@ -218,10 +192,7 @@ function MomentRow({ result, searchedQuery, returnParams }: ResultProps): JSX.El
     const observation = result.observation
     const snapshot = observation.scanner_snapshot
     return (
-        <div
-            className="flex gap-3 border border-primary rounded-lg bg-surface-primary p-2 min-w-0"
-            data-attr="vision-search-result"
-        >
+        <LemonCard className="flex gap-3 rounded-lg p-2 min-w-0" data-attr="vision-search-result">
             <div className="shrink-0 self-center">
                 <WatchLink observation={observation} compact />
             </div>
@@ -243,8 +214,36 @@ function MomentRow({ result, searchedQuery, returnParams }: ResultProps): JSX.El
                 <MatchSnippet result={result} searchedQuery={searchedQuery} />
                 <ObservationResultSummary observation={observation} />
             </div>
+        </LemonCard>
+    )
+}
+
+function TierHeading({ tier }: { tier: Tier }): JSX.Element {
+    return (
+        <div className="flex items-baseline gap-2 px-3 py-1.5 rounded bg-surface-tertiary text-xs">
+            <span className="font-semibold">{tier === 'top' ? 'Top matches' : 'Other matches'}</span>
+            <span className="text-muted">
+                {tier === 'top' ? 'Closest to what you described.' : 'Related, but further from what you described.'}
+            </span>
         </div>
     )
+}
+
+function tierGroups(
+    results: ObservationSearchResultApi[],
+    tierOf: (result: ObservationSearchResultApi) => Tier | null
+): TierGroup[] {
+    const groups: TierGroup[] = []
+    for (const result of results) {
+        const tier = tierOf(result)
+        const last = groups[groups.length - 1]
+        if (last && last.tier === tier) {
+            last.results.push(result)
+        } else {
+            groups.push({ tier, results: [result] })
+        }
+    }
+    return groups
 }
 
 function ResultsSkeleton({ view }: { view: ResultsView }): JSX.Element {
@@ -302,8 +301,8 @@ export function SearchResults(logicProps: ObservationSearchLogicProps): JSX.Elem
     const tierOf = (result: ObservationSearchResultApi): Tier | null =>
         topMatchDistanceCutoff === null ? null : result.distance <= topMatchDistanceCutoff ? 'top' : 'other'
     return (
-        <div className="flex flex-col gap-3">
-            <div className="flex items-center gap-2">
+        <div className="flex flex-col">
+            <div className="flex items-center gap-2 mb-1">
                 <span className="text-xs text-secondary">
                     {searching || !results
                         ? 'Searching…'
@@ -355,17 +354,19 @@ export function SearchResults(logicProps: ObservationSearchLogicProps): JSX.Elem
                 ))
             )}
             {!searching && results && (
-                <PaginationControl
-                    pagination={{ controlled: true, pageSize: SEARCH_PAGE_SIZE }}
-                    currentPage={page}
-                    setCurrentPage={setPage}
-                    pageCount={pageCount}
-                    dataSourcePage={pageResults}
-                    entryCount={results.length}
-                    currentStartIndex={pageStartIndex}
-                    currentEndIndex={pageEndIndex}
-                    nouns={['match', 'matches']}
-                />
+                <div className="mt-2">
+                    <PaginationControl
+                        pagination={{ controlled: true, pageSize: SEARCH_PAGE_SIZE }}
+                        currentPage={page}
+                        setCurrentPage={setPage}
+                        pageCount={pageCount}
+                        dataSourcePage={pageResults}
+                        entryCount={results.length}
+                        currentStartIndex={pageStartIndex}
+                        currentEndIndex={pageEndIndex}
+                        nouns={['match', 'matches']}
+                    />
+                </div>
             )}
         </div>
     )
