@@ -30,12 +30,17 @@ export function ModelsLineageTab(): JSX.Element {
         searchTerm,
         typeFilter,
         legendCollapsed,
+        parsedSearch,
         highlightedNodeIds,
         visibleNodes,
         visibleEdges,
         isFiltered,
     } = useValues(modelsLineageLogic)
     const { setSearchTerm, setTypeFilter, toggleLegendCollapsed, resetFilters } = useActions(modelsLineageLogic)
+    const focusNodeIds =
+        parsedSearch.mode === 'search'
+            ? highlightedNodeIds
+            : new Set(visibleNodes.map((node) => node.id))
 
     return (
         <div className="flex flex-col gap-2">
@@ -80,7 +85,7 @@ export function ModelsLineageTab(): JSX.Element {
                 <LineageGraph
                     nodes={visibleNodes}
                     edges={visibleEdges}
-                    focusNodeIds={highlightedNodeIds}
+                    focusNodeIds={focusNodeIds}
                     variant="canvas"
                     interactive
                     showControls
