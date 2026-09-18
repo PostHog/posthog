@@ -36,6 +36,7 @@ export function getReviewerExplanation(reviewer: EnrichedReviewer): string | nul
 }
 
 export function SuggestedReviewerScoutTag({ scoutNames }: { scoutNames: string[] }): JSX.Element {
+    // The tag is a div, so it needs a tab stop: the tooltip holds the only copy of the scout names.
     return (
         <Tooltip
             title={
@@ -46,7 +47,7 @@ export function SuggestedReviewerScoutTag({ scoutNames }: { scoutNames: string[]
                 </div>
             }
         >
-            <LemonTag type="muted" size="small" className="cursor-help">
+            <LemonTag type="muted" size="small" className="cursor-help" tabIndex={0}>
                 Added by scout
             </LemonTag>
         </Tooltip>

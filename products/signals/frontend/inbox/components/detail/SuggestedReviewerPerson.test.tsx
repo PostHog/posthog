@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { render, screen } from '@testing-library/react'
+import { cleanup, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
 import { initKeaTests } from '~/test/init'
@@ -13,7 +13,20 @@ describe('SuggestedReviewerPerson', () => {
         initKeaTests()
     })
 
-    it('keeps a scout name in the source tooltip', async () => {
+    afterEach(() => {
+        cleanup()
+    })
+
+    test.each([
+        ['a hover', async (tag: HTMLElement) => await userEvent.hover(tag)],
+        [
+            'keyboard focus',
+            async (tag: HTMLElement) => {
+                await userEvent.tab()
+                expect(tag).toHaveFocus()
+            },
+        ],
+    ])('reveals a scout name in the source tooltip on %s', async (_case, reveal) => {
         const scoutName = 'Infrastructure reliability and request processing ownership scout'
         const reviewer: EnrichedReviewer = {
             github_login: 'solo',
@@ -34,10 +47,12 @@ describe('SuggestedReviewerPerson', () => {
 
         render(<SuggestedReviewerPerson reviewer={reviewer} disabled={false} onRemove={() => undefined} />)
 
-        expect(screen.getByText('Added by scout')).toBeInTheDocument()
+        const tag = screen.getByText('Added by scout')
+        expect(tag).toBeInTheDocument()
         expect(screen.queryByText(scoutName)).not.toBeInTheDocument()
 
-        await userEvent.hover(screen.getByText('Added by scout'))
+        await reveal(tag)
+
         expect(await screen.findByText(scoutName)).toBeInTheDocument()
     })
 })
