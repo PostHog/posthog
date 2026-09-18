@@ -1,9 +1,9 @@
 """The models a task agent run may use, and what each one supports.
 
-This module is the single definition of the run triple — runtime adapter, model, and
-reasoning effort — together with the model each adapter falls back to when a run pins
-none, and what each model costs relative to the rest. Every surface that offers or
-validates a selection derives from here:
+This module is the single definition of how a run is configured: which harness runs it,
+which runtime adapter, model, and reasoning effort it uses, the model each adapter falls
+back to when a run pins none, and what each model costs relative to the rest. Every
+surface that offers or validates a selection derives from here:
 
 - the backend, through ``products.tasks.backend.temporal.process_task.utils``;
 - the web composer and settings, through ``products/tasks/frontend/modelCatalog.generated.ts``;
@@ -25,6 +25,9 @@ from dataclasses import dataclass
 
 CLAUDE = "claude"
 CODEX = "codex"
+
+ACP = "acp"
+PI = "pi"
 
 ANTHROPIC = "anthropic"
 OPENAI = "openai"
@@ -65,6 +68,28 @@ class ModelCost:
 
     input_per_mtok: float
     output_per_mtok: float
+
+
+@dataclass(frozen=True)
+class RuntimeOption:
+    """One entry a harness picker shows.
+
+    The harness and the runtime adapter are not the same choice. The harness says which agent
+    program runs the task; the adapter says which vendor protocol ACP speaks, and Pi has none,
+    so ``runtime_adapter`` is ``None`` there. A picker shows one flat list, so this is where
+    the two choices become one set of entries, once, instead of in each picker.
+    """
+
+    runtime: str
+    runtime_adapter: str | None
+    label: str
+
+
+RUNTIME_OPTIONS: tuple[RuntimeOption, ...] = (
+    RuntimeOption(ACP, CLAUDE, "Claude Code"),
+    RuntimeOption(ACP, CODEX, "Codex"),
+    RuntimeOption(PI, None, "Pi"),
+)
 
 
 @dataclass(frozen=True)
@@ -199,6 +224,8 @@ DEFAULT_MODEL_BY_RUNTIME_ADAPTER: dict[str, str] = {
 
 
 RUNTIME_ADAPTERS: tuple[str, ...] = tuple(PROVIDER_BY_RUNTIME_ADAPTER)
+
+RUNTIMES: tuple[str, ...] = tuple(dict.fromkeys(option.runtime for option in RUNTIME_OPTIONS))
 
 # The catalog keyed the two ways it gets read. Built once from MODELS, which stays the
 # only place a model is written down.

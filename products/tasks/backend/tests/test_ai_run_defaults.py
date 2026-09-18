@@ -91,8 +91,9 @@ class TestResolveAIRunDefaults(APIBaseTest):
             "off",
         )
 
-    def test_a_stored_effort_pi_cannot_use_is_dropped(self):
-        self._set_user({**PI_PREFS_WITH_PI_ONLY_EFFORT, "reasoning_effort": "ultracode"})
+    @parameterized.expand([("a_depth_pi_cannot_run", "ultracode"), ("not_a_depth_at_all", "deep")])
+    def test_a_stored_effort_pi_cannot_use_is_dropped(self, _name: str, reasoning_effort: str):
+        self._set_user({**PI_PREFS_WITH_PI_ONLY_EFFORT, "reasoning_effort": reasoning_effort})
         with pi_harness_enabled():
             resolved = resolve_ai_run_defaults(self.team.id, self.user.id)
         assert (resolved.model, resolved.reasoning_effort) == ("gpt-5.6-terra", None)
@@ -213,6 +214,7 @@ class TestValidateAIRunPreferences:
             ("pi_with_an_adapter", "pi", "codex", "gpt-5.6-terra", None),
             ("pi_without_a_model", "pi", None, None, "high"),
             ("pi_with_a_value_that_is_not_a_depth", "pi", None, "gpt-5.6-terra", "deep"),
+            ("pi_with_a_depth_it_cannot_run", "pi", None, "gpt-5.6-terra", "ultracode"),
             ("acp_with_a_value_that_is_not_a_depth", None, "codex", "gpt-5.6-terra", "deep"),
             ("acp_with_a_model_and_no_adapter", None, None, "gpt-5.6-terra", None),
         ]
@@ -465,9 +467,8 @@ class TestTasksConfigAPI(APIBaseTest):
             ),
             ("pi_with_an_adapter", {"runtime": "pi", "runtime_adapter": "codex", "model": "gpt-5.6-terra"}),
             ("pi_without_a_model", {"runtime": "pi", "reasoning_effort": "high"}),
-            ("pi_with_an_acp_only_depth", {"runtime": "pi", "model": "gpt-5.6-terra", "reasoning_effort": "ultracode"}),
             (
-                "acp_with_a_pi_only_depth",
+                "a_depth_the_paired_model_does_not_offer",
                 {"runtime_adapter": "codex", "model": "gpt-5.6-terra", "reasoning_effort": "off"},
             ),
         ]

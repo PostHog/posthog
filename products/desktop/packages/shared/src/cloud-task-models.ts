@@ -350,11 +350,6 @@ export function adapterForModelId(modelId: string): Adapter {
     : "claude";
 }
 
-export const HARNESS_DISPLAY_NAMES: Record<Adapter, string> = {
-  claude: "Claude Code",
-  codex: "Codex",
-};
-
 function buildModelSelectOptions(
   models: readonly GatewayModel[],
   adapter: Adapter,
