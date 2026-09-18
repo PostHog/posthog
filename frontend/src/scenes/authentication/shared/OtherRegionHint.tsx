@@ -16,6 +16,14 @@ export function otherRegionLoginUrl(region: Region, search: string): string {
     return `https://${CLOUD_HOSTNAMES[otherRegionOf(region)]}/login${search}`
 }
 
+// Keep the address the user came for, on the host of the other region.
+export function otherRegionSamePathUrl(
+    region: Region,
+    location: Pick<Location, 'pathname' | 'search' | 'hash'>
+): string {
+    return `https://${CLOUD_HOSTNAMES[otherRegionOf(region)]}${location.pathname}${location.search}${location.hash}`
+}
+
 /**
  * Region-aware hint for users who may be authenticating on the wrong PostHog Cloud region (US vs EU).
  *
