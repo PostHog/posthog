@@ -8,6 +8,8 @@ from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
+from django.core.management import call_command
+from django.core.management.base import CommandError
 from django.test import SimpleTestCase
 from django.utils import timezone
 
@@ -284,6 +286,31 @@ class TestDetectionText(SimpleTestCase):
 
     def test_a_complete_response_is_returned(self):
         assert _detection_text(self._message("end_turn")).startswith('{"clusters"')
+
+
+class TestRunTicketPatternsCommand(BaseTest):
+    @parameterized.expand(
+        [
+            ("support off", False, True, True, "Support is off"),
+            ("detection off", True, False, True, "Ticket spike detection is off"),
+            ("no ai approval", True, True, False, "has not approved AI data processing"),
+        ]
+    )
+    def test_a_closed_gate_is_named_rather_than_reported_as_no_spikes(
+        self, _name, conversations_enabled, detection_enabled, ai_approved, expected
+    ):
+        # Without the check the command reaches detection, which rejects the team and returns
+        # nothing, so the run prints "No spikes found" for a team it never scanned.
+        self.team.conversations_enabled = conversations_enabled
+        self.team.conversations_settings = {"ticket_patterns_enabled": detection_enabled}
+        self.team.save()
+        self.organization.is_ai_data_processing_approved = ai_approved
+        self.organization.save()
+
+        with self.assertRaises(CommandError) as caught:
+            call_command("run_ticket_patterns", f"--team-id={self.team.id}", "--dry-run")
+
+        assert expected in str(caught.exception)
 
 
 class TestLoadCandidates(BaseTest):
