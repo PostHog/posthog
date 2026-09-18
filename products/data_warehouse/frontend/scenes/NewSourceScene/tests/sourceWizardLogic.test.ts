@@ -1304,7 +1304,7 @@ describe('sourceWizardLogic', () => {
     })
 
     describe('connectError', () => {
-        const stripeSource = { name: 'Stripe', iconPath: '', caption: null, fields: [] } as SourceConfig
+        const stripeSource = buildSourceConfig({ name: 'Stripe' })
 
         afterEach(() => {
             jest.restoreAllMocks()
