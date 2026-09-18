@@ -1,6 +1,6 @@
 import { useValues } from 'kea'
 
-import { DropdownMenuGroup, DropdownMenuLabel } from '@posthog/quill'
+import { DropdownMenuGroup, DropdownMenuItem, DropdownMenuLabel } from '@posthog/quill'
 
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
 
@@ -16,11 +16,15 @@ export function FlatNavProductAnalyticsMenuItems(): JSX.Element {
     return (
         <DropdownMenuGroup>
             <DropdownMenuLabel>Create new insight type</DropdownMenuLabel>
-            {insightTypes.map((insightType) => (
-                <FlatNavMenuLinkItem key={insightType.id} to={insightType.record?.href} icon={insightType.icon}>
-                    {insightType.name}
-                </FlatNavMenuLinkItem>
-            ))}
+            {insightTypes.length === 0 ? (
+                <DropdownMenuItem disabled>No insight types available</DropdownMenuItem>
+            ) : (
+                insightTypes.map((insightType) => (
+                    <FlatNavMenuLinkItem key={insightType.id} to={insightType.record?.href} icon={insightType.icon}>
+                        {insightType.name}
+                    </FlatNavMenuLinkItem>
+                ))
+            )}
         </DropdownMenuGroup>
     )
 }
