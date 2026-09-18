@@ -69,8 +69,14 @@ A conditional put refuses to recreate a shredded session key.
 A team blocked during a batch is refused by every reader at once and by the next batch, which reads the block row live, and the deletion worker sweeps the team once more after the reader lease, so a key stored after the block is shredded.
 Kafka offsets advance only after the required writes and publication succeed.
 Bulk reads use batches of at most 100 keys. Each new key is one conditional put, so no commit in the fleet waits on another, and the month index entries it needs go in together, at most 25 to a request.
+Batches overlap, so a session first seen in one batch and also present in the next costs a second conditional put, which loses and settles on the stored key.
 Reads use strongly consistent `BatchGetItem` requests with bounded retries for unprocessed keys and for a throttled request.
 A retry stops when the caller's deadline expires.
+
+The mirror runs each Kafka batch through three stages that each hold one batch at a time, in batch order: prepare (steps 1 and 2, with session tracking), anonymize (the scrub), and commit (steps 3 and 4, then offset tracking and any flush).
+Neighboring batches overlap across stages, so one batch waits on DynamoDB, KMS, Kafka or S3 while another scrubs.
+The anonymize stage does not admit a batch while an earlier batch is in it.
+The record step writes to the recorder that is current at commit time, not the one that was current when the batch was read from Kafka, so a flush between those two moments does not lose the batch.
 
 Ingestion holds a usable session key row and image key row in the process, and a KMS plaintext cache reduces repeated decrypt calls.
 A row with no wrapped key is never held, so a repaired row is seen at once.
