@@ -10,8 +10,10 @@ const NPS_SCORES = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
  * Example-data preview for the surveys empty state: the NPS popover a user sees
  * in-app, and the results it feeds. Clicking a score answers the survey - the
  * popover thanks the respondent, the response count ticks up, and the promoter
- * bar grows. One hidden checkbox drives it via `:checked ~` styles - no timers
- * or state, per the preview rules in the `building-product-empty-states` skill.
+ * bar grows. The popover carries its own example tag, because it invites a real
+ * answer and records nothing. One hidden checkbox drives it via `:checked ~`
+ * styles - no timers or state, per the preview rules in the
+ * `building-product-empty-states` skill.
  * Answered/unanswered pairs are stacked in `__swap` grids, so nothing shifts.
  */
 export function SurveysPreview(): JSX.Element {
@@ -35,6 +37,9 @@ export function SurveysPreview(): JSX.Element {
                         <span className="SurveysPreview__page-line SurveysPreview__page-line--short" />
                     </div>
                     <div className="SurveysPreview__popover">
+                        <div className="SurveysPreview__popover-head">
+                            <LemonTag size="small">example survey</LemonTag>
+                        </div>
                         <div className="SurveysPreview__popover-body SurveysPreview__swap">
                             <div className="SurveysPreview__question SurveysPreview__when-unanswered">
                                 <span className="SurveysPreview__question-text">
@@ -68,9 +73,11 @@ export function SurveysPreview(): JSX.Element {
                         </div>
                     </div>
                     <div className="SurveysPreview__hint SurveysPreview__swap">
-                        <span className="SurveysPreview__when-unanswered">Answer the survey to see it land below.</span>
+                        <span className="SurveysPreview__when-unanswered">
+                            Answer the example survey to see the response land below.
+                        </span>
                         <span className="SurveysPreview__when-answered">
-                            Counted, no code changes needed. Click 9 again to undo.
+                            Nothing was recorded. Click 9 again to undo.
                         </span>
                     </div>
                 </div>
@@ -121,7 +128,7 @@ export function SurveysPreview(): JSX.Element {
                         "Love the product, wish exports were faster."
                     </span>
                     <span className="SurveysPreview__when-answered SurveysPreview__quote--fresh">
-                        Your response, just now: 9 · promoter
+                        Your example answer, just now: 9 · promoter
                     </span>
                 </div>
             </div>
