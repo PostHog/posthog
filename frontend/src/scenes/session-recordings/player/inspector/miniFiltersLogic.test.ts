@@ -84,4 +84,45 @@ describe('miniFiltersLogic', () => {
             })
         })
     })
+
+    describe('selection saved before the debug and log filters existed', () => {
+        const storageKey = 'scenes.session-recordings.player.miniFiltersLogic.selectedMiniFilters'
+
+        function remount(savedSelection?: string[]): void {
+            logic.unmount()
+            if (savedSelection) {
+                localStorage.clear()
+                localStorage.setItem(storageKey, JSON.stringify(savedSelection))
+            }
+            initKeaTests()
+            eventLogic = sessionRecordingEventUsageLogic()
+            eventLogic.mount()
+            logic = miniFiltersLogic()
+            logic.mount()
+        }
+
+        afterEach(() => {
+            localStorage.clear()
+        })
+
+        it('turns the new filters on once and then keeps what the user chooses', () => {
+            remount(['events-posthog', 'console-info', 'console-error'])
+            expect(logic.values.selectedMiniFilters).toEqual([
+                'events-posthog',
+                'console-info',
+                'console-error',
+                'console-debug',
+                'console-log',
+            ])
+
+            logic.actions.setMiniFilter('console-log', false)
+            remount()
+            expect(logic.values.selectedMiniFilters).toEqual([
+                'events-posthog',
+                'console-info',
+                'console-error',
+                'console-debug',
+            ])
+        })
+    })
 })
