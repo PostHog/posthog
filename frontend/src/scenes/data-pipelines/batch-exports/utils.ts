@@ -5,6 +5,8 @@ import { capitalizeFirstLetter } from 'lib/utils/strings'
 import type { BatchExportInterval, BatchExportRun, BatchExportService } from '~/types'
 import { BATCH_EXPORT_SERVICE_NAMES } from '~/types'
 
+import type { BatchExportApi } from 'products/batch_exports/frontend/generated/api.schemas'
+
 export const humanizeBatchExportName = (service: BatchExportService['type']): string => {
     switch (service) {
         case 'HTTP':
@@ -49,6 +51,39 @@ export const normalizeBatchExportService = (service: string): BatchExportService
     return (
         BATCH_EXPORT_SERVICE_NAMES.find((s) => s.toLowerCase() === service.toLowerCase()) ??
         (service as BatchExportService['type'])
+    )
+}
+
+/** Whether the export's schedule can still fire, which `paused` alone does not tell you. */
+export type BatchExportScheduleStatus = 'active' | 'ended' | 'paused'
+
+export function getBatchExportScheduleStatus(
+    batchExport: Pick<BatchExportApi, 'paused' | 'end_at'>
+): BatchExportScheduleStatus {
+    if (batchExport.paused) {
+        return 'paused'
+    }
+    // An end date in the past bounds the Temporal schedule, so the export can never run again.
+    if (batchExport.end_at && dayjs(batchExport.end_at).isBefore(dayjs())) {
+        return 'ended'
+    }
+    return 'active'
+}
+
+// Live exports first, then the ones that no longer run.
+const SCHEDULE_STATUS_SORT_ORDER: Record<BatchExportScheduleStatus, number> = {
+    active: 0,
+    ended: 1,
+    paused: 2,
+}
+
+export function compareBatchExportScheduleStatus(
+    a: Pick<BatchExportApi, 'paused' | 'end_at'>,
+    b: Pick<BatchExportApi, 'paused' | 'end_at'>
+): number {
+    return (
+        SCHEDULE_STATUS_SORT_ORDER[getBatchExportScheduleStatus(a)] -
+        SCHEDULE_STATUS_SORT_ORDER[getBatchExportScheduleStatus(b)]
     )
 }
 

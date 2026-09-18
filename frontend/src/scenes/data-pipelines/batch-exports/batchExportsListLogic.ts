@@ -7,7 +7,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { batchExportsList } from 'products/batch_exports/frontend/generated/api'
 import type { BatchExportApi } from 'products/batch_exports/frontend/generated/api.schemas'
 
-import { humanizeBatchExportName, normalizeBatchExportService } from './utils'
+import { compareBatchExportScheduleStatus, humanizeBatchExportName, normalizeBatchExportService } from './utils'
 
 export type BatchExportsListFilters = {
     search?: string
@@ -106,7 +106,7 @@ export const batchExportsListLogic = kea<batchExportsListLogicType>([
         sortedBatchExports: [
             (s) => [s.batchExports],
             (batchExports: BatchExportApi[] | null): BatchExportApi[] =>
-                [...(batchExports ?? [])].sort((a, b) => Number(!!a.paused) - Number(!!b.paused)),
+                [...(batchExports ?? [])].sort(compareBatchExportScheduleStatus),
         ],
         filteredBatchExports: [
             (s) => [s.sortedBatchExports, s.filters],

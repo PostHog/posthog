@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonCheckbox, LemonInput, LemonTable, LemonTableColumn, LemonTag, Link } from '@posthog/lemon-ui'
+import { LemonCheckbox, LemonInput, LemonTable, LemonTableColumn, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { AppMetricsSparkline } from 'lib/components/AppMetrics/AppMetricsSparkline'
 import { createdAtColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
@@ -12,7 +12,13 @@ import type { BatchExportApi } from 'products/batch_exports/frontend/generated/a
 
 import { BATCH_EXPORT_ICON_MAP } from './BatchExportIcon'
 import { batchExportsListLogic } from './batchExportsListLogic'
-import { humanizeBatchExportInterval, humanizeBatchExportName, normalizeBatchExportService } from './utils'
+import {
+    compareBatchExportScheduleStatus,
+    getBatchExportScheduleStatus,
+    humanizeBatchExportInterval,
+    humanizeBatchExportName,
+    normalizeBatchExportService,
+} from './utils'
 
 const columns: LemonTableColumn<BatchExportApi, any>[] = [
     {
@@ -74,13 +80,20 @@ const columns: LemonTableColumn<BatchExportApi, any>[] = [
         title: 'Status',
         key: 'paused',
         width: 0,
-        sorter: (a, b) => Number(!!a.paused) - Number(!!b.paused),
+        sorter: compareBatchExportScheduleStatus,
         render: function RenderStatus(_, batchExport) {
-            return batchExport.paused ? (
-                <LemonTag type="default">Paused</LemonTag>
-            ) : (
-                <LemonTag type="success">Active</LemonTag>
-            )
+            const status = getBatchExportScheduleStatus(batchExport)
+            if (status === 'paused') {
+                return <LemonTag type="default">Paused</LemonTag>
+            }
+            if (status === 'ended') {
+                return (
+                    <Tooltip title="This export is past its end date, so it will not run again.">
+                        <LemonTag type="default">Ended</LemonTag>
+                    </Tooltip>
+                )
+            }
+            return <LemonTag type="success">Active</LemonTag>
         },
     },
 ]
