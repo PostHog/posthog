@@ -78,3 +78,107 @@ if (res.status != 200 or res.body.ok == false) {
         },
     ],
 )
+
+# Same arrangement for the PagerDuty destination (nodejs/src/cdp/templates/_destinations/pagerduty).
+# The inputs schema does track the nodejs template, because which inputs are secret decides what a
+# saved destination keeps in `inputs` versus `encrypted_inputs`, and the alert destination tests
+# depend on that split.
+template_pagerduty = HogFunctionTemplateDC(
+    status="stable",
+    free=True,
+    type="destination",
+    id="template-pagerduty",
+    name="PagerDuty",
+    description="Sends an event to the PagerDuty Events API v2 to trigger, acknowledge or resolve an incident",
+    icon_url="/static/services/pagerduty.png",
+    category=["Monitoring & Alerts"],
+    code_language="hog",
+    code="""
+let endpoint := 'https://events.pagerduty.com/v2/enqueue'
+if (inputs.region == 'eu') {
+    endpoint := 'https://events.eu.pagerduty.com/v2/enqueue'
+}
+
+let payload := {
+    'summary': inputs.summary,
+    'source': inputs.source,
+    'severity': inputs.severity
+}
+if (not empty(inputs.custom_details)) {
+    payload['custom_details'] := inputs.custom_details
+}
+
+let body := {
+    'routing_key': inputs.routing_key,
+    'event_action': inputs.event_action,
+    'payload': payload,
+    'client': 'PostHog'
+}
+if (not empty(inputs.dedup_key)) {
+    body['dedup_key'] := inputs.dedup_key
+}
+if (not empty(inputs.links)) {
+    body['links'] := inputs.links
+}
+if (not empty(inputs.client_url)) {
+    body['client_url'] := inputs.client_url
+}
+
+let res := fetch(endpoint, {
+    'method': 'POST',
+    'headers': {
+        'Content-Type': 'application/json'
+    },
+    'body': body
+});
+
+if (res.status >= 400) {
+    throw Error(f'Failed to send event to PagerDuty: {res.status}: {res.body}');
+}
+""".strip(),
+    inputs_schema=[
+        {"key": "routing_key", "type": "string", "label": "Integration key", "secret": True, "required": True},
+        {
+            "key": "region",
+            "type": "choice",
+            "label": "Service region",
+            "choices": [{"label": "US", "value": "us"}, {"label": "EU", "value": "eu"}],
+            "default": "us",
+            "secret": False,
+            "required": True,
+        },
+        {
+            "key": "event_action",
+            "type": "choice",
+            "label": "Event action",
+            "choices": [
+                {"label": "Trigger", "value": "trigger"},
+                {"label": "Acknowledge", "value": "acknowledge"},
+                {"label": "Resolve", "value": "resolve"},
+            ],
+            "default": "trigger",
+            "secret": False,
+            "required": True,
+        },
+        {"key": "dedup_key", "type": "string", "label": "Deduplication key", "secret": False, "required": False},
+        {"key": "summary", "type": "string", "label": "Summary", "secret": False, "required": True},
+        {"key": "source", "type": "string", "label": "Source", "secret": False, "required": True},
+        {
+            "key": "severity",
+            "type": "choice",
+            "label": "Severity",
+            "choices": [
+                {"label": "Critical", "value": "critical"},
+                {"label": "Error", "value": "error"},
+                {"label": "Warning", "value": "warning"},
+                {"label": "Info", "value": "info"},
+            ],
+            "default": "critical",
+            "secret": False,
+            "required": True,
+        },
+        {"key": "custom_details", "type": "json", "label": "Custom details", "secret": False, "required": False},
+        {"key": "links", "type": "json", "label": "Links", "secret": False, "required": False},
+        {"key": "client_url", "type": "string", "label": "Client URL", "secret": False, "required": False},
+    ],
+)

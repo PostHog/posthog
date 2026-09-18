@@ -3,6 +3,7 @@ from typing import Any
 import pytest
 
 from posthog.cdp.templates import HOG_FUNCTION_TEMPLATES
+from posthog.cdp.templates.fixtures import template_pagerduty
 
 from products.alerts.backend.facade.contracts import (
     AlertDestinationAction,
@@ -117,9 +118,12 @@ class TestSpecVocabularyRendering:
         )
 
 
-_TEMPLATES_BY_ID = {template.id: template for template in HOG_FUNCTION_TEMPLATES}
+_PYTHON_TEMPLATE_IDS = {template.id for template in HOG_FUNCTION_TEMPLATES}
 
-_TEMPLATE_IDS_DEFINED_IN_NODEJS = {"template-slack", "template-webhook"}
+_TEMPLATE_IDS_DEFINED_IN_NODEJS = {"template-slack", "template-webhook", "template-pagerduty"}
+
+# The PagerDuty template lives in nodejs; its fixture stand-in tracks the nodejs inputs schema.
+_TEMPLATES_BY_ID = {template.id: template for template in (*HOG_FUNCTION_TEMPLATES, template_pagerduty)}
 
 PAGERDUTY_ROUTING_KEY = "0123456789abcdef0123456789abcdef"
 
@@ -145,7 +149,7 @@ def _inputs_the_read_path_sees(template: Any, inputs: dict[str, Any]) -> dict[st
 
 class TestDestinationTemplateContract:
     def test_the_templates_defined_outside_python_are_the_ones_we_expect(self) -> None:
-        unreachable = {spec.template_id for spec in DESTINATION_SPECS.values()} - set(_TEMPLATES_BY_ID)
+        unreachable = {spec.template_id for spec in DESTINATION_SPECS.values()} - _PYTHON_TEMPLATE_IDS
 
         assert unreachable == _TEMPLATE_IDS_DEFINED_IN_NODEJS
 
