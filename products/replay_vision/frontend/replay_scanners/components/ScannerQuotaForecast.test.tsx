@@ -61,7 +61,9 @@ describe('ScannerQuotaForecast', () => {
 
         render(<ScannerQuotaForecast scannerId="new" />)
 
-        const link = await screen.findByRole('link', { name: /Spend limit/ })
-        expect(link).toHaveAttribute('href', '/organization/billing?products=replay_vision')
+        const caption = await screen.findByText(/^Spend limit ·/)
+
+        expect(caption.tagName).toBe('A')
+        expect(caption).toHaveAttribute('href', '/organization/billing?products=replay_vision')
     })
 })
