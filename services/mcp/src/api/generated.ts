@@ -36676,6 +36676,14 @@ export namespace Schemas {
       pipelines: IngestionPipelineEnum[];
     }
 
+    export type EventMatchScope = typeof EventMatchScope[keyof typeof EventMatchScope];
+
+
+    export const EventMatchScope = {
+      Recording: 'recording',
+      Session: 'session',
+    } as const;
+
     /**
      * * `DateTime` - DateTime
      * * `String` - String
@@ -48695,6 +48703,8 @@ export namespace Schemas {
       date_from?: string | null;
       date_to?: string | null;
       distinct_ids?: string[] | null;
+      /** Where an event, action, or event property filter must match. 'session' (default) matches an event anywhere in the session, including before the recording started or after it ended. 'recording' only matches events whose timestamp falls inside the recording's own window, so the matched moment is in the video. */
+      event_match_scope?: EventMatchScope | null;
       events?: RecordingsQueryEvents;
       /** Only sessions of persons exposed to this experiment, each ending at or after the person's first exposure as the experiment's exposure criteria count it. Resolved server-side from the experiment, so it links sessions even when the exposure events themselves carry no session id (e.g. server-side SDKs). Composes with the query's date range like any other filter, so set date_from to the experiment's start (or earlier) to cover the full run: the default window only reaches back a few days. */
       experiment_exposure?: RecordingsQueryExperimentExposureFilter | null;
