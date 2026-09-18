@@ -801,11 +801,13 @@ export const dataQualityCheckEditorLogic = kea<dataQualityCheckEditorLogicType>(
         selectableSubjects: [
             (s) => [s.checkSubjects],
             (checkSubjects: DataQualitySubjectApi[]): SelectableSubject[] =>
-                checkSubjects.map((subject) => ({
-                    id: subject.id,
-                    name: subject.display_name || subject.name,
-                    type: subject.subject_type,
-                })),
+                checkSubjects
+                    .filter((subject) => subject.editable)
+                    .map((subject) => ({
+                        id: subject.id,
+                        name: subject.display_name || subject.name,
+                        type: subject.subject_type,
+                    })),
         ],
         subjectTimeColumn: [
             (s) => [s.subject, s.checkSubjects],
