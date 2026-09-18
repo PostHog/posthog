@@ -31,6 +31,18 @@ export const HogFlowsListQueryParams = () => zod.object({
         .enum(['active', 'archived', 'draft'])
         .optional()
         .describe('\* `draft` - Draft\n\* `active` - Active\n\* `archived` - Archived'),
+    tags: zod
+        .string()
+        .optional()
+        .describe(
+            'Comma-separated tag names to filter by, for example `marketing,onboarding`. Names are trimmed and lowercased before matching. At most 20 distinct tags per request.'
+        ),
+    tags_match: zod
+        .enum(['all', 'any'])
+        .optional()
+        .describe(
+            'How to combine the `tags` filter. `all` (the default) returns objects carrying every listed tag; `any` returns objects carrying at least one.'
+        ),
     trigger: zod
         .string()
         .optional()
@@ -74,6 +86,7 @@ export const hogFlowsCreateBodyActionsItemDescriptionDefault = ``
 export const hogFlowsCreateBodyActionsItemFiltersOneSourceDefault = `events`
 export const hogFlowsCreateBodyActionsItemConfigTwoConditionFiltersOneSourceDefault = `events`
 export const hogFlowsCreateBodyActionsItemConfigTwoEventsItemFiltersOneSourceDefault = `events`
+export const hogFlowsCreateBodyTagsItemMax = 255
 
 export const HogFlowsCreateBody = () => zod
     .object({
@@ -455,8 +468,14 @@ export const HogFlowsCreateBody = () => zod
             )
             .optional()
             .describe('Workflow vars (key, type, default). Total <5KB.'),
+        tags: zod
+            .array(zod.string().max(hogFlowsCreateBodyTagsItemMax))
+            .optional()
+            .describe(
+                "Tags on this workflow. Names are trimmed and lowercased, and sending this field replaces the workflow's existing tags. Filter the list with `?tags=`."
+            ),
     })
-    .describe('Mixin for serializers to add user access control fields')
+    .describe('The full workflow definition, including its staged draft and email delivery state.')
 
 export const HogFlowsRetrieveParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this hog flow.'),
@@ -488,6 +507,8 @@ export const hogFlowsPartialUpdateBodyConversionOneWindowRegExp = new RegExp(
     '^(?:[0-9]+(?:\\.[0-9]+)?|\\.[0-9]+)[dhms]$'
 )
 export const hogFlowsPartialUpdateBodyEmailSendingRateLimitOneCountMax = 1000000
+
+export const hogFlowsPartialUpdateBodyTagsItemMax = 255
 
 export const HogFlowsPartialUpdateBody = () => zod
     .object({
@@ -635,8 +656,14 @@ export const HogFlowsPartialUpdateBody = () => zod
             )
             .optional()
             .describe('Workflow vars (key, type, default). Total <5KB.'),
+        tags: zod
+            .array(zod.string().max(hogFlowsPartialUpdateBodyTagsItemMax))
+            .optional()
+            .describe(
+                "Tags on this workflow. Names are trimmed and lowercased, and sending this field replaces the workflow's existing tags. Filter the list with `?tags=`."
+            ),
     })
-    .describe('Mixin for serializers to add user access control fields')
+    .describe('The full workflow definition, including its staged draft and email delivery state.')
 
 export const HogFlowsActionsEmailPartialUpdateParams = () => zod.object({
     action_id: zod.string().describe('Id of the function_email step to edit.'),

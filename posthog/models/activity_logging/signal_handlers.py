@@ -642,6 +642,7 @@ RELATED_OBJECT_ACTIVITY_LOGGERS: dict[str, RelatedObjectActivityLogger] = {
     ),
     "account": RelatedObjectActivityLogger(scope="Account"),
     "endpoint": RelatedObjectActivityLogger(scope="Endpoint"),
+    "hog_flow": RelatedObjectActivityLogger(scope="HogFlow"),
 }
 
 

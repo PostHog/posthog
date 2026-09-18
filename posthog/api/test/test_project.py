@@ -10,7 +10,7 @@ from rest_framework import status
 from rest_framework.test import APIRequestFactory
 
 from posthog.api.project import ProjectViewSet
-from posthog.api.project_tags import MAX_TAGS_PER_FILTER
+from posthog.api.tagged_item import MAX_TAGS_PER_FILTER
 from posthog.api.team import TeamCustomerAnalyticsConfigSerializer
 from posthog.api.test.test_team import EnvironmentToProjectRewriteClient, team_api_test_factory
 from posthog.constants import AvailableFeature

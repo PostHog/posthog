@@ -81,6 +81,8 @@ import type {
     RevokeOtherSessionsResponseApi,
     SCIMTokenResponseApi,
     SharingConfigurationApi,
+    TagApi,
+    TagCreateApi,
     UploadedMediaApi,
     UploadedMediaCreate201,
     UploadedMediaCreateBody,
@@ -2412,6 +2414,54 @@ export const sessionRecordingsSharingRefreshCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(sharingConfigurationApi),
+    })
+}
+
+export const getTagsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/tags/`
+}
+
+/**
+ * Create a pinned tag, or pin the existing tag with this name. A pinned tag stays available for tagging while no object carries it.
+ */
+export const tagsCreate = async (
+    projectId: string,
+    tagCreateApi: TagCreateApi,
+    options?: RequestInit
+): Promise<TagApi> => {
+    return apiMutator<TagApi>(getTagsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(tagCreateApi),
+    })
+}
+
+export const getTagsDestroyUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/tags/${id}/`
+}
+
+/**
+ * Remove a tag from the list of pinned tags. Objects that carry the tag keep it; the tag is deleted once the last of them drops it, or right away when nothing carries it.
+ */
+export const tagsDestroy = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getTagsDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
+export const getTagsPinnedListUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/tags/pinned/`
+}
+
+/**
+ * Pinned tags of the project, sorted by name. These are the tags created on purpose through this API, so a picker can offer them before any object carries them.
+ */
+export const tagsPinnedList = async (projectId: string, options?: RequestInit): Promise<TagApi[]> => {
+    return apiMutator<TagApi[]>(getTagsPinnedListUrl(projectId), {
+        ...options,
+        method: 'GET',
     })
 }
 

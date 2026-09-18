@@ -20,7 +20,7 @@ from posthog.cdp.templates.fixtures import template_slack
 from posthog.cdp.templates.hog_function_template import sync_template_to_db
 from posthog.constants import AvailableFeature
 from posthog.event_usage import EventSource
-from posthog.models import Organization, OrganizationMembership, Team, User
+from posthog.models import Organization, OrganizationMembership, Tag, Team, User
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.integration import Integration
 from posthog.models.personal_api_key import PersonalAPIKey
@@ -299,6 +299,61 @@ class TestHogFlowAPI(APIBaseTest):
 
         response = self.client.get(f"/api/projects/{self.team.id}/hog_flows?origin_product=spreadsheets")
         assert response.status_code == 400
+
+    def _create_tagged_hog_flow(self, name: str, tag_names: list[str]) -> HogFlow:
+        hog_flow = HogFlow.objects.create(team=self.team, name=name, created_by=self.user)
+        for tag_name in tag_names:
+            tag, _ = Tag.objects.get_or_create(name=tag_name, team_id=self.team.id)
+            hog_flow.tagged_items.create(tag=tag)
+        return hog_flow
+
+    @parameterized.expand(
+        [
+            ("one_tag", "tags=marketing", {"Newsletter", "Launch"}),
+            ("all_tags", "tags=marketing,onboarding", {"Launch"}),
+            ("any_tag", "tags=marketing,onboarding&tags_match=any", {"Newsletter", "Launch", "Welcome"}),
+            ("normalized_names", "tags=%20Marketing%20", {"Newsletter", "Launch"}),
+        ]
+    )
+    def test_list_filter_by_tags(self, _name, query, expected_names):
+        self._create_tagged_hog_flow("Newsletter", ["marketing"])
+        self._create_tagged_hog_flow("Launch", ["marketing", "onboarding"])
+        self._create_tagged_hog_flow("Welcome", ["onboarding"])
+        self._create_tagged_hog_flow("Untagged", [])
+
+        response = self.client.get(f"/api/projects/{self.team.id}/hog_flows?{query}")
+        assert response.status_code == 200, response.json()
+        assert {flow["name"] for flow in response.json()["results"]} == expected_names
+
+    def test_list_filter_by_tags_rejects_unknown_match_mode(self):
+        response = self.client.get(f"/api/projects/{self.team.id}/hog_flows?tags=marketing&tags_match=some")
+        assert response.status_code == 400
+
+    def test_tags_round_trip_on_create_update_and_list(self):
+        hog_flow, _ = self._create_hog_flow_with_action(
+            {"template_id": "template-webhook", "inputs": {"url": {"value": "https://example.com"}}}
+        )
+        create_response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows", {**hog_flow, "tags": ["Marketing", " onboarding "]}
+        )
+        assert create_response.status_code == 201, create_response.json()
+        assert sorted(create_response.json()["tags"]) == ["marketing", "onboarding"]
+        flow_id = create_response.json()["id"]
+        version = create_response.json()["version"]
+
+        # Tags are metadata: replacing them must not version the workflow like a content edit would.
+        update_response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}", {"tags": ["marketing"]}
+        )
+        assert update_response.status_code == 200, update_response.json()
+        assert update_response.json()["tags"] == ["marketing"]
+        assert update_response.json()["version"] == version
+        # The dropped tag was carried by nothing else, so it is cleaned up rather than left as a stale suggestion.
+        assert list(Tag.objects.filter(team_id=self.team.id).values_list("name", flat=True)) == ["marketing"]
+
+        list_response = self.client.get(f"/api/projects/{self.team.id}/hog_flows")
+        assert list_response.status_code == 200
+        assert [flow["tags"] for flow in list_response.json()["results"]] == [["marketing"]]
 
     def test_origin_product_is_set_on_create_and_immutable(self):
         hog_flow, _ = self._create_hog_flow_with_action(

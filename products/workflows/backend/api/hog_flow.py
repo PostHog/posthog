@@ -14,7 +14,7 @@ from django.core.cache import cache
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.signing import BadSignature, SignatureExpired, TimestampSigner
 from django.db import models, transaction
-from django.db.models import Q, QuerySet
+from django.db.models import Prefetch, Q, QuerySet
 from django.http import Http404, HttpResponse
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
@@ -69,6 +69,12 @@ from posthog.api.hog_invocation_results import (
 from posthog.api.log_entries import LogEntryMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
+from posthog.api.tagged_item import (
+    TAG_NAME_MAX_LENGTH,
+    TaggedItemSerializerMixin,
+    filter_queryset_by_tags,
+    tags_filter_parameters,
+)
 from posthog.api.utils import log_activity_from_viewset
 from posthog.auth import InternalAPIAuthentication
 from posthog.cdp.filters import compile_filters_expr
@@ -86,6 +92,7 @@ from posthog.event_usage import AGENT_EVENT_SOURCES, EventSource, get_event_sour
 from posthog.models import Team
 from posthog.models.filters import Filter
 from posthog.models.integration import Integration
+from posthog.models.tagged_item import TaggedItem
 from posthog.permissions import posthog_feature_flag_enabled
 from posthog.plugins.plugin_server_api import (
     cancel_hog_flow_batch_job,
@@ -2755,8 +2762,18 @@ class WorkflowEmailPauseStatusSerializer(serializers.Serializer):
     )
 
 
-class HogFlowMinimalSerializer(UserAccessControlSerializerMixin, serializers.ModelSerializer):
+class HogFlowMinimalSerializer(
+    TaggedItemSerializerMixin, UserAccessControlSerializerMixin, serializers.ModelSerializer
+):
+    """A workflow with its live configuration, as the workflows list returns it."""
+
     created_by = UserBasicSerializer(read_only=True)
+    tags = serializers.ListField(
+        child=serializers.CharField(max_length=TAG_NAME_MAX_LENGTH),
+        required=False,
+        help_text="Tags on this workflow. Names are trimmed and lowercased, and sending this field replaces the "
+        "workflow's existing tags. Filter the list with `?tags=`.",
+    )
 
     class Meta:
         model = HogFlow
@@ -2781,6 +2798,7 @@ class HogFlowMinimalSerializer(UserAccessControlSerializerMixin, serializers.Mod
             "variables",
             "billable_action_types",
             "user_access_level",
+            "tags",
         ]
         read_only_fields = fields
 
@@ -2817,6 +2835,8 @@ class HogFlowMinimalSerializer(UserAccessControlSerializerMixin, serializers.Mod
 
 
 class HogFlowSummarySerializer(HogFlowMinimalSerializer):
+    """Workflow metadata without the action graph, as MCP list requests return it."""
+
     # Metadata-only listing view. Deliberately omits the action graph (actions/edges) and other
     # detail-only fields: an action's `config` can hold credential-like values (e.g. a webhook
     # Authorization header), and a workflow *listing* must not broaden their visibility. Full
@@ -2834,11 +2854,14 @@ class HogFlowSummarySerializer(HogFlowMinimalSerializer):
             "updated_at",
             "trigger",
             "user_access_level",
+            "tags",
         ]
         read_only_fields = fields
 
 
 class HogFlowSerializer(HogFlowMinimalSerializer):
+    """The full workflow definition, including its staged draft and email delivery state."""
+
     origin_product = serializers.ChoiceField(
         choices=HogFlow.OriginProduct.choices,
         required=False,
@@ -3119,6 +3142,7 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             "email_sending_paused_by",
             "email_sending_pause_requires_support",
             "email_sending_resumed_at",
+            "tags",
         ]
         read_only_fields = [
             "id",
@@ -3847,6 +3871,7 @@ WRITABLE_DRAFT_CONTENT_FIELDS = frozenset(DRAFT_CONTENT_FIELDS) - frozenset(HogF
                 OpenApiTypes.STR,
                 description='Filter by trigger config as a JSON object. Returns workflows whose trigger contains the given object, e.g. {"type": "event"}.',
             ),
+            *tags_filter_parameters(example="marketing,onboarding"),
         ]
     )
 )
@@ -3964,10 +3989,15 @@ class HogFlowViewSet(
         return context
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
+        # One query for every row's tags, under the attribute TaggedItemSerializerMixin reads.
+        queryset = queryset.prefetch_related(
+            Prefetch("tagged_items", queryset=TaggedItem.objects.select_related("tag"), to_attr="prefetched_tags")
+        )
         if self.action == "list":
             # `id` breaks ties so LIMIT/OFFSET paging stays stable: rows sharing an updated_at can
             # otherwise repeat on one page and never appear on another.
             queryset = queryset.order_by("-updated_at", "-id")
+            queryset = filter_queryset_by_tags(queryset, self.request.GET)
 
             search = self.request.GET.get("search")
             if search is not None:

@@ -25,6 +25,7 @@ RELATED_OBJECTS = (
     "replay_scanner",
     "project",
     "experiment",
+    "hog_flow",
 )
 
 
@@ -178,6 +179,16 @@ class TaggedItem(ModelActivityMixin, UUIDTModel):
         related_name="tagged_items",
         # Same deferred-FK pattern as project: the constraint lands NOT VALID in a later
         # migration and is validated separately, keeping the lock on posthog_experiment brief.
+        db_constraint=False,
+    )
+    hog_flow = models.ForeignKey(
+        "workflows.HogFlow",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="tagged_items",
+        # Same deferred-FK pattern as experiment: posthog_hogflow backs the workflows product and is
+        # polled by the CDP workers, so the constraint lands NOT VALID and is validated separately.
         db_constraint=False,
     )
 
