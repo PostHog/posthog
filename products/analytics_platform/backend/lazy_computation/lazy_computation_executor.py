@@ -527,6 +527,7 @@ class LazyComputationTable(StrEnum):
     """Allowed target tables for lazy-computed results."""
 
     PREAGGREGATION_RESULTS = "preaggregation_results"
+    HOURLY_UNIQ_PREAGGREGATED = "hourly_uniq_preaggregated"
     EXPERIMENT_EXPOSURES_PREAGGREGATED = "experiment_exposures_preaggregated"
     EXPERIMENT_METRIC_EVENTS_PREAGGREGATED = "experiment_metric_events_preaggregated"
     MARKETING_TOUCHPOINTS_PREAGGREGATED = "marketing_touchpoints_preaggregated"
