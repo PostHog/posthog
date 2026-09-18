@@ -74,6 +74,7 @@ export type CommandMenuAction =
   | "open-loops"
   | "open-usage"
   | "open-cost-management"
+  | "send-feedback"
   | "search-files"
   | "open-file"
   | "reload-window"
@@ -344,6 +345,16 @@ export interface TaskListGroupingChangedProperties {
   group_by: "repository" | "date";
   sort_by: "updated" | "created" | "alpha";
   surface: TaskListSurface;
+}
+
+export interface BrowserTabTiledProperties {
+  edge: "left" | "right" | "top" | "bottom";
+  source: "strip" | "tile" | "sidebar";
+  tile_count: number;
+}
+
+export interface BrowserTabTileCountProperties {
+  tile_count: number;
 }
 
 export interface TaskListAppearanceChangedProperties {
@@ -1615,6 +1626,10 @@ export const ANALYTICS_EVENTS = {
   SIDEBAR_NAV_ITEM_CLICKED: "Sidebar nav item clicked",
   TASK_LIST_GROUPING_CHANGED: "Task list grouping changed",
   TASK_LIST_APPEARANCE_CHANGED: "Task list appearance changed",
+  BROWSER_TAB_TILED: "Browser tab tiled",
+  BROWSER_TAB_UNTILED: "Browser tab untiled",
+  BROWSER_TAB_TILE_FOCUSED: "Browser tab tile focused",
+  BROWSER_TAB_SPLIT_RENAMED: "Browser tab split renamed",
 
   // Permission events
   PERMISSION_RESPONDED: "Permission responded",
@@ -1828,6 +1843,10 @@ export type EventPropertyMap = {
   [ANALYTICS_EVENTS.SIDEBAR_NAV_ITEM_CLICKED]: SidebarNavItemClickedProperties;
   [ANALYTICS_EVENTS.TASK_LIST_GROUPING_CHANGED]: TaskListGroupingChangedProperties;
   [ANALYTICS_EVENTS.TASK_LIST_APPEARANCE_CHANGED]: TaskListAppearanceChangedProperties;
+  [ANALYTICS_EVENTS.BROWSER_TAB_TILED]: BrowserTabTiledProperties;
+  [ANALYTICS_EVENTS.BROWSER_TAB_UNTILED]: BrowserTabTileCountProperties;
+  [ANALYTICS_EVENTS.BROWSER_TAB_TILE_FOCUSED]: BrowserTabTileCountProperties;
+  [ANALYTICS_EVENTS.BROWSER_TAB_SPLIT_RENAMED]: BrowserTabTileCountProperties;
 
   // Permission events
   [ANALYTICS_EVENTS.PERMISSION_RESPONDED]: PermissionRespondedProperties;

@@ -346,7 +346,8 @@ class ConversationViewSet(
             # Hide internal conversations from customers, but show them to support agents during impersonation
             if not is_impersonated_session(self.request):
                 queryset = queryset.filter(is_internal=False)
-            queryset = queryset.order_by("-updated_at")
+            # `id` breaks ties, because equal `updated_at` values give no stable page order
+            queryset = queryset.order_by("-updated_at", "-id")
         if self.action == "list":
             queryset = queryset.defer("approval_decisions", "messages_json", "sandbox_task_id", "sandbox_run_id")
         return queryset

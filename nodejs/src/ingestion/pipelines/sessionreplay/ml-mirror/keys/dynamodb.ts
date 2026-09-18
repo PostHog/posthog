@@ -14,13 +14,11 @@ import { MlKeyRequest, MlMirrorMetrics } from '~/ingestion/pipelines/sessionrepl
 import { TableKey, holdsCacheableRow, storedSessionId, tableKeyString } from './schema'
 import { isTransientError } from './transient'
 
-// A shredded key decrypts nothing, so these bounds stop a row being held forever rather than meet a deletion deadline.
+// A shred removes the durable key, so a process that runs on a held row writes data that no reader can open, and a
+// lifetime here trades re-reads against how long that lasts. A team row is one row per team per month, so it is held
+// longer for far fewer reads. Both kinds cover their tombstones too. See products/ai_training/docs/replay-data.md.
 const SESSION_ROW_MAX_LIFETIME_MS = 300_000
-// A team image key is one row per team per month, so it survives eviction and a short lifetime only costs re-reads.
-const IMAGE_ROW_MAX_LIFETIME_MS = 172_800_000
-// A tombstone is terminal: shred only ever sets it, and putIfAbsent cannot overwrite a row whose pk exists, so holding
-// one cannot serve a key that came back. It also spares a deleted session a read and a doomed write on every batch.
-const TOMBSTONE_ROW_LIFETIME_MS = 172_800_000
+const TEAM_ROW_LIFETIME_MS = 3_600_000
 // Neither caller passes a deadline, and max.poll.interval.ms is 300s, so the retry loop needs a bound of its own.
 const READ_BUDGET_MS = 30_000
 
@@ -83,8 +81,7 @@ export class MlKeyDynamoDB {
         })
     }
 
-    // Only a usable key row is stable enough to cache, because putIfAbsent writes it once. A team block row decides
-    // whether a batch may mint new keys, so a stale absent one would write durable keys for a team that asked to be blocked.
+    // Only a usable key row is stable enough to cache, because putIfAbsent writes it once.
     private cacheable(key: TableKey): boolean {
         return holdsCacheableRow(key)
     }
@@ -94,16 +91,15 @@ export class MlKeyDynamoDB {
             return
         }
         const id = tableKeyString(key)
-        if (item.deleted?.BOOL === true) {
-            this.rows.set(id, detachedRow(item), { ttl: TOMBSTONE_ROW_LIFETIME_MS })
-        } else if (item.wrapped_key?.B) {
-            this.rows.set(id, detachedRow(item), {
-                ttl: storedSessionId(key.sk) ? this.sessionRowLifetimeMs : IMAGE_ROW_MAX_LIFETIME_MS,
-            })
-        } else {
-            // No wrapped key and no tombstone is a row that repair can still fill in.
+        const usable = item.deleted?.BOOL === true || item.wrapped_key?.B || (item.sealed_key?.B && item.key_nonce?.B)
+        if (!usable) {
+            // No key and no tombstone is a row that repair can still fill in.
             this.rows.delete(id)
+            return
         }
+        this.rows.set(id, detachedRow(item), {
+            ttl: storedSessionId(key.sk) ? this.sessionRowLifetimeMs : TEAM_ROW_LIFETIME_MS,
+        })
     }
 
     public async read(keys: TableKey[], callerDeadline?: AbortSignal): Promise<Map<string, DynamoItem>> {

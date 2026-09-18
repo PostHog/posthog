@@ -1,0 +1,33 @@
+# Depot CI jobs call the GitHub API with the ambient token of the Depot Code Access app.
+# That installation has one hourly bucket, shared by every Depot CI job in every repository
+# the app is installed on, and GitHub Actions cannot read it. This workflow reads it from a
+# Depot job and emits the same `github_rate_limit_observed` event as
+# .github/workflows/monitor-github-rate-limit.yml, with source `depot_ambient`, so the
+# core-bucket alert in the DevEx project covers it.
+name: Monitor Depot ambient rate limit
+on:
+    schedule:
+        - cron: '15,45 * * * *'
+    workflow_dispatch:
+permissions:
+    contents: read
+jobs:
+    poll:
+        name: Poll the Depot ambient token bucket
+        runs-on: depot-ubuntu-24.04
+        timeout-minutes: 3
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  sparse-checkout: |
+                      .github/scripts/monitor-github-rate-limit.js
+                  sparse-checkout-cone-mode: false
+
+            - name: Poll the Depot ambient token bucket and emit to PostHog
+              uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
+              env:
+                  POSTHOG_DEVEX_PROJECT_API_TOKEN: ${{ secrets.POSTHOG_DEVEX_PROJECT_API_TOKEN }}
+              with:
+                  script: |
+                      const script = require('./.github/scripts/monitor-github-rate-limit.js')
+                      await script({ github, context, core }, { source: 'depot_ambient' })
