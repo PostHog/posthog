@@ -809,6 +809,10 @@ describe('experimentReplayTabLogic', () => {
             metric_count: 2,
             linkable_metric_count: 1,
             exposure_scope: 'all_exposed',
+            // The pair that says this visit had a list to show, so a visit with no list rendered
+            // after it is a failure or a bounce rather than an experiment that never had one.
+            experiment_status: 'stopped',
+            list_unavailable_reason: null,
             in_session_available: true,
             in_session_unavailable_reason: null,
             in_session_uses_stamped_fallback: true,
@@ -1061,6 +1065,251 @@ describe('experimentReplayTabLogic', () => {
             metric_unavailable_reason: null,
         })
         filled.unmount()
+    })
+
+    it.each([
+        { verdict: 'not_launched', experimentId: 160, experiment: { start_date: null, end_date: null } },
+        { verdict: 'group_aggregated', experimentId: 161, experiment: GROUP_AGGREGATED_EXPERIMENT },
+        {
+            verdict: 'no_variants',
+            experimentId: 162,
+            experiment: { feature_flag: { filters: { multivariate: { variants: [] } } } },
+        },
+        { verdict: null, experimentId: 163, experiment: {} },
+    ])('resolves $verdict as the list verdict', async ({ verdict, experimentId, experiment }) => {
+        // Every verdict but null is a request `resolve_exposure_linkage` refuses outright. The tab
+        // used to mount the list anyway, so a group-aggregated experiment answered every visit
+        // with an error toast and the playlist's generic banner.
+        const checked = experimentReplayTabLogic({
+            experiment: { ...EXPERIMENT, ...experiment, id: experimentId } as Experiment,
+        })
+        checked.mount()
+        await expectLogic(checked).toFinishAllListeners()
+
+        expect(checked.values.listUnavailableReason).toBe(verdict)
+        checked.unmount()
+    })
+
+    it('reports a failed first page with the backend reason, and clears it on the next list', async () => {
+        // The playlist's own banner says "Error while trying to load recordings." for every
+        // failure, so without the detail neither the viewer nor a reader of the event can tell a
+        // refusal this experiment can never escape from a wait-and-retry.
+        const captureSpy = jest.spyOn(posthog, 'capture').mockReturnValue(undefined as any)
+        const failures = (): any[] =>
+            captureSpy.mock.calls.filter(
+                ([event, properties]) =>
+                    event === 'experiment recordings list failed' && (properties as any)?.experiment_id === 164
+            )
+        const failing = experimentReplayTabLogic({
+            experiment: { ...EXPERIMENT, id: 164, start_date: daysAgo(4), end_date: null } as Experiment,
+        })
+        failing.mount()
+        await expectLogic(failing).toFinishAllListeners()
+
+        failing.actions.recordingsLoadFailed({ status: 400, detail: REFUSAL_DETAIL }, true)
+        await expectLogic(failing).toFinishAllListeners()
+
+        expect(failing.values.listLoadError).toEqual({ status: 400, detail: REFUSAL_DETAIL })
+        expect(failures()).toHaveLength(1)
+        expect(failures()[0][1]).toMatchObject({
+            status: 400,
+            error_detail: REFUSAL_DETAIL,
+            days_since_start: 4,
+            variant: null,
+            exposure_scope: 'all_exposed',
+        })
+
+        // A later page failing is paging against a list that already has rows on screen.
+        failing.actions.recordingsLoadFailed({ status: 500, detail: 'Server error' }, false)
+        await expectLogic(failing).toFinishAllListeners()
+        expect(failures()).toHaveLength(1)
+
+        failing.actions.recordingsLoaded(loadedPage(['s1']))
+        await expectLogic(failing).toFinishAllListeners()
+        expect(failing.values.listLoadError).toBeNull()
+        failing.unmount()
+    })
+
+    it.each([
+        { visit: 'that never saw a list', experimentId: 165, experiment: {}, setup: undefined, abandoned: 1 },
+        {
+            visit: 'whose first page rendered',
+            experimentId: 166,
+            experiment: {},
+            setup: (tab: TabLogic) => tab.actions.recordingsLoaded(loadedPage(['s1'])),
+            abandoned: 0,
+        },
+        {
+            visit: 'whose first page failed',
+            experimentId: 167,
+            experiment: {},
+            setup: (tab: TabLogic) => tab.actions.recordingsLoadFailed({ status: 400, detail: REFUSAL_DETAIL }, true),
+            abandoned: 0,
+        },
+        {
+            visit: 'that never had a list to load',
+            experimentId: 168,
+            experiment: { start_date: null, end_date: null },
+            setup: undefined,
+            abandoned: 0,
+        },
+    ])(
+        'reports $abandoned abandoned list for a visit $visit',
+        async ({ experimentId, experiment, setup, abandoned }) => {
+            // The playlist drops a load at its breakpoint on unmount without dispatching success or
+            // failure, so a viewer who clicks through to another tab produces a tab view and nothing
+            // else. That bounce is most of the tab's unexplained visits, and only this event counts it.
+            const captureSpy = jest.spyOn(posthog, 'capture').mockReturnValue(undefined as any)
+            const bounced = experimentReplayTabLogic({
+                experiment: { ...EXPERIMENT, id: experimentId, ...experiment } as Experiment,
+            })
+            bounced.mount()
+            await expectLogic(bounced).toFinishAllListeners()
+            setup?.(bounced)
+            await expectLogic(bounced).toFinishAllListeners()
+
+            bounced.unmount()
+
+            const abandons = captureSpy.mock.calls.filter(
+                ([event, properties]) =>
+                    event === 'experiment recordings list abandoned' &&
+                    (properties as any)?.experiment_id === experimentId
+            )
+            expect(abandons).toHaveLength(abandoned)
+            if (abandoned > 0) {
+                expect(abandons[0][1]).toMatchObject({
+                    held_for_checks: false,
+                    bucket_loading: false,
+                    exposure_scope: 'all_exposed',
+                    ms_on_tab: expect.any(Number),
+                })
+            }
+        }
+    )
+
+    it.each([
+        {
+            answer: 'a bucket that fails',
+            experimentId: 169,
+            bucket: null,
+            renders: 1,
+        },
+        {
+            answer: 'a bucket that matches nothing',
+            experimentId: 170,
+            bucket: { ...BUCKET_RESPONSE, session_ids: [] },
+            renders: 1,
+        },
+        {
+            answer: 'a bucket that changes the session set',
+            experimentId: 171,
+            bucket: BUCKET_RESPONSE,
+            renders: 1,
+        },
+    ])(
+        'reports $renders render for an empty first page followed by $answer',
+        async ({ experimentId, bucket, renders }) => {
+            // An empty first page while the bucket loads is held back, because the bucket's answer
+            // reloads the list. When the answer leaves `session_ids` as it found them the playlist
+            // compares by value and never reloads, so the held-back page has to be replayed or the
+            // visit reports no list at all. When the answer does change them the reload reports the
+            // render itself, and replaying as well would count one list twice.
+            const captureSpy = jest.spyOn(posthog, 'capture').mockReturnValue(undefined as any)
+            ;(experimentsSessionBucketsCreate as jest.Mock).mockImplementation(() =>
+                bucket ? Promise.resolve(bucket) : Promise.reject(new Error('bucket failed'))
+            )
+            const racing = experimentReplayTabLogic({
+                experiment: { ...EXPERIMENT, id: experimentId, start_date: daysAgo(10), end_date: null } as Experiment,
+            })
+            racing.mount()
+            racing.actions.setMetricSelected('metric-purchase', true)
+            racing.actions.setMetricFilterMode('no_metric_activity')
+
+            // The bucket load debounces, so this page lands while the answer is still out.
+            racing.actions.recordingsLoaded([])
+            expect(listsRendered(captureSpy, experimentId)).toHaveLength(0)
+
+            await expectLogic(racing).toFinishAllListeners()
+
+            // The playlist reloads on a changed session set, which is the caller's next first page.
+            if (bucket?.session_ids.length) {
+                racing.actions.recordingsLoaded(loadedPage(bucket.session_ids))
+                await expectLogic(racing).toFinishAllListeners()
+            }
+
+            expect(listsRendered(captureSpy, experimentId)).toHaveLength(renders)
+            racing.unmount()
+        }
+    )
+
+    it('drops a held-back empty page once a first page fails, rather than replaying it', async () => {
+        // The visit ends on the failure, so the caption and the report both have to describe it.
+        // Replayed, the held-back page reported a render for a list that failed and cleared the
+        // caption underneath the playlist's own error banner.
+        const captureSpy = jest.spyOn(posthog, 'capture').mockReturnValue(undefined as any)
+        let resolveBucket!: (response: unknown) => void
+        ;(experimentsSessionBucketsCreate as jest.Mock).mockImplementation(
+            () => new Promise((resolve) => (resolveBucket = resolve))
+        )
+        const failing = experimentReplayTabLogic({
+            experiment: { ...EXPERIMENT, id: 174, start_date: daysAgo(10), end_date: null } as Experiment,
+        })
+        failing.mount()
+        failing.actions.setMetricSelected('metric-purchase', true)
+        failing.actions.setMetricFilterMode('no_metric_activity')
+
+        // The bucket load debounces, so both of these land while the answer is still out.
+        failing.actions.recordingsLoaded([])
+        failing.actions.recordingsLoadFailed({ status: 500, detail: 'Server error' }, true)
+
+        while ((experimentsSessionBucketsCreate as jest.Mock).mock.calls.length === 0) {
+            await new Promise((resolve) => setTimeout(resolve, 25))
+        }
+        // An answer that matches the session set the dropped page ran under, which is the case the
+        // replay exists for: the playlist compares by value, so it never reloads.
+        resolveBucket({ ...BUCKET_RESPONSE, session_ids: [] })
+        await expectLogic(failing).toFinishAllListeners()
+
+        expect(listsRendered(captureSpy, 174)).toHaveLength(0)
+        expect(failing.values.listLoadError).toEqual({ status: 500, detail: 'Server error' })
+        failing.unmount()
+    })
+
+    it('asks for no session bucket when it states that no list is available', async () => {
+        // The metric filter is one of three paths that reach the bucket without a list on screen:
+        // a results-row link, a multi-event metric's default click, and a mode a previous visit
+        // persisted. Each one used to spend a ClickHouse scan on a session set nothing can show.
+        const grouped = experimentReplayTabLogic({
+            experiment: { ...GROUP_AGGREGATED_EXPERIMENT, id: 172 } as Experiment,
+        })
+        grouped.mount()
+        grouped.actions.setMetricSelected('metric-purchase', true)
+        grouped.actions.setMetricFilterMode('no_metric_activity')
+        await expectLogic(grouped).toFinishAllListeners()
+
+        expect(grouped.values.sessionBucketRequest).toBeNull()
+        expect(experimentsSessionBucketsCreate).not.toHaveBeenCalled()
+        grouped.unmount()
+    })
+
+    it('still reports the group aggregation for a draft experiment', async () => {
+        // The list verdict takes the first refusal in the backend's order, so a draft's verdict is
+        // `not_launched` whatever its flag does. Read from that verdict, the shelf's own reason
+        // would go null on exactly the experiments it describes.
+        const draftGrouped = experimentReplayTabLogic({
+            experiment: {
+                ...GROUP_AGGREGATED_EXPERIMENT,
+                id: 173,
+                start_date: null,
+                end_date: null,
+            } as Experiment,
+        })
+        draftGrouped.mount()
+        await expectLogic(draftGrouped).toFinishAllListeners()
+
+        expect(draftGrouped.values.listUnavailableReason).toBe('not_launched')
+        expect(draftGrouped.values.behaviorComparisonUnavailableReason).toBe('group_aggregated')
+        draftGrouped.unmount()
     })
 
     it('reports the entry point a deep link set, and clears it when the viewer moves a facet', async () => {
@@ -1348,9 +1597,9 @@ describe('experimentReplayTabLogic', () => {
         )
         failing.actions.loadSessionBucket()
         await expectLogic(failing).toFinishAllListeners()
-        failing.actions.recordingsLoaded([])
-        await expectLogic(failing).toFinishAllListeners()
 
+        // A failed bucket leaves the session set empty, exactly as the dropped page found it, so
+        // the playlist never reloads and the answer alone has to produce the report.
         expect(listsRendered(captureSpy, 113)).toHaveLength(1)
         expect(listsRendered(captureSpy, 113)[0][1]).toMatchObject({
             result_count: 0,

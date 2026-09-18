@@ -143,6 +143,18 @@ export interface ExperimentRecordingsTabContext {
      * rather than the scene's union so telemetry doesn't import from the scene.
      */
     metric_unavailable_reason: string | null
+    /**
+     * The experiment's status as the scene reads it, kept as a string rather than the scene's enum
+     * so telemetry doesn't import from the scene. A draft experiment never mounts the list at all,
+     * so without this a draft visit cannot be told from a visit whose list failed to arrive.
+     */
+    experiment_status: string
+    /**
+     * Why the tab stated the list was unavailable instead of mounting it, null when it mounted the
+     * list. One of the tab's `ExperimentRecordingsListUnavailableReason` codes, as a string for the
+     * same reason the other codes here are.
+     */
+    list_unavailable_reason: string | null
     variant_count: number
     metric_count: number
     linkable_metric_count: number
@@ -257,6 +269,42 @@ export interface ExperimentRecordingsListRenderedContext extends ExperimentRecor
     hide_viewed_recordings: 'off' | 'current-user' | 'any-user'
     /** Whether the exposure event is ever seen with a session id. Null while the check is out. */
     exposure_linkable: boolean | null
+}
+
+/**
+ * A first page of the recordings list the tab asked for and did not get. The backend states its
+ * refusals as a 400 carrying a message the tab shows, so `error_detail` is what separates a refusal
+ * no retry can change from a transient failure. Carries the same facets as `experiment recordings
+ * list rendered`, so a failed visit and a rendered one are comparable facet for facet. A page that
+ * scrolling added is not reported here: it fails a list that already has rows.
+ */
+export interface ExperimentRecordingsListFailedContext extends ExperimentRecordingsFilterContext {
+    /** The HTTP status, null when the request failed before it reached a response. */
+    status: number | null
+    /**
+     * The backend's own message, truncated. These messages are fixed strings that name an
+     * experiment id or a variant key at most, so they carry no user data.
+     */
+    error_detail: string
+    /** Null when the experiment has not launched. */
+    days_since_start: number | null
+}
+
+/**
+ * A visit that left the tab before its first page of recordings either arrived or failed. The list
+ * load waits out a debounce and then a request, so a viewer who clicks through to another tab in a
+ * second or two leaves before either outcome, and the playlist drops the load without reporting
+ * one. These visits are the largest part of "tab viewed, list never rendered", and this event is
+ * what accounts for them. A browser tab closed outright does not unmount React, so those visits
+ * still report no outcome at all.
+ */
+export interface ExperimentRecordingsListAbandonedContext extends ExperimentRecordingsFilterContext {
+    /** How long the tab stayed mounted, in milliseconds. */
+    ms_on_tab: number
+    /** Whether the playlist was still held for the tab's own checks, so no list request went out. */
+    held_for_checks: boolean
+    /** Whether the metric filter's session set was still loading, which holds the list empty. */
+    bucket_loading: boolean
 }
 
 /**
@@ -1590,6 +1638,20 @@ export interface eventUsageLogicActions {
         context: ExperimentRecordingsEmptyActionContext
     ) => {
         context: ExperimentRecordingsEmptyActionContext
+        experimentId: ExperimentIdType
+    }
+    reportExperimentRecordingsListAbandoned: (
+        experimentId: ExperimentIdType,
+        context: ExperimentRecordingsListAbandonedContext
+    ) => {
+        context: ExperimentRecordingsListAbandonedContext
+        experimentId: ExperimentIdType
+    }
+    reportExperimentRecordingsListFailed: (
+        experimentId: ExperimentIdType,
+        context: ExperimentRecordingsListFailedContext
+    ) => {
+        context: ExperimentRecordingsListFailedContext
         experimentId: ExperimentIdType
     }
     reportExperimentRecordingsListRendered: (
@@ -3073,6 +3135,14 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             experimentId: ExperimentIdType,
             context: ExperimentRecordingsListRenderedContext
         ) => ({ experimentId, context }),
+        reportExperimentRecordingsListFailed: (
+            experimentId: ExperimentIdType,
+            context: ExperimentRecordingsListFailedContext
+        ) => ({ experimentId, context }),
+        reportExperimentRecordingsListAbandoned: (
+            experimentId: ExperimentIdType,
+            context: ExperimentRecordingsListAbandonedContext
+        ) => ({ experimentId, context }),
         reportExperimentRecordingsEmptyActionClicked: (
             experimentId: ExperimentIdType,
             context: ExperimentRecordingsEmptyActionContext
@@ -4252,6 +4322,18 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         },
         reportExperimentRecordingsListRendered: ({ experimentId, context }) => {
             posthog.capture('experiment recordings list rendered', {
+                experiment_id: experimentId,
+                ...context,
+            })
+        },
+        reportExperimentRecordingsListFailed: ({ experimentId, context }) => {
+            posthog.capture('experiment recordings list failed', {
+                experiment_id: experimentId,
+                ...context,
+            })
+        },
+        reportExperimentRecordingsListAbandoned: ({ experimentId, context }) => {
+            posthog.capture('experiment recordings list abandoned', {
                 experiment_id: experimentId,
                 ...context,
             })
