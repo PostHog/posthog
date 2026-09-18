@@ -61,6 +61,22 @@ async def eval_notebook_cells(ctx: EvalContext) -> None:
             },
             setup=seed_case_team,
         ),
+        SandboxedEvalCase(
+            # The whole-notebook run: the agent has to set the window and re-run every cell
+            # in one step, rather than walking the cells one at a time.
+            name="rerun_notebook_for_a_new_window",
+            prompt=(
+                "Create a notebook called 'Signup window'. Declare a variable `days_back` set to 30, "
+                "add a SQL cell that counts `signed_up` events over the last `days_back` days, and add "
+                "a Python cell that reads that cell's dataframe and prints the total. Then change "
+                "`days_back` to 7 and run the whole notebook again so both cells reflect the new window."
+            ),
+            expected={
+                "notebook_created": {},
+                "cell_runs_completed": {"node_types": ["hogql", "python"]},
+            },
+            setup=seed_case_team,
+        ),
     ]
 
     await SandboxedPublicEval(
