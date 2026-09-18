@@ -37,6 +37,11 @@ class Node(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
         blank=True, default="", help_text="File path in the source control repository for synced nodes"
     )
     properties = models.JSONField(default=dict)
+    last_demand_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When a query last read this model or one of its descendants, taken from the ClickHouse query log",
+    )
 
     def save(self, *args, **kwargs):
         # always inherit name from saved_query when one exists
