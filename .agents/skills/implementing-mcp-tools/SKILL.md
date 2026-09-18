@@ -200,6 +200,31 @@ That hits a whole agent fleet at once.
   operation, until the new name has deployed everywhere. Sunset it with
   `feature_flag_behavior: disable` on the same flag key, which swaps the two atomically.
 
+### Deprecating a tool
+
+A rename or a removal has two stages. Do not stop after the first one.
+
+1. **Alias, while callers migrate.** Register the old name as a thin wrapper that calls the current
+   handler and adds a `_deprecation_notice` to the response. The call still succeeds, and the agent
+   learns the new name. See `services/mcp/src/tools/skills/deprecatedAliases.ts`, spread into
+   `TOOL_MAP` in `services/mcp/src/tools/index.ts`. Use an alias only when the replacement accepts
+   the same arguments.
+2. **Redirect, when you delete the alias.** In the same change, add the old name to
+   `DEPRECATED_TOOL_REDIRECTS` in `services/mcp/src/tools/exec.ts`. The call then fails with a
+   `deprecated_tool` error that names the replacement, instead of the generic `Unknown tool: "..."`.
+   State any argument changes in the text — see the `self-driving-inbox-get` entry.
+
+Go directly to stage 2 when the replacement is not a drop-in. An alias that quietly drops renamed
+parameters is worse than a call that fails.
+
+Keep the redirect entry until the old name stops receiving traffic. `isRecordableToolName` records
+`$mcp_exec_target_tool` only for a name the server owns: a live tool, or a
+`DEPRECATED_TOOL_REDIRECTS` key. If you delete the entry too early, the remaining calls become
+unattributable in MCP analytics, and you can no longer tell whether anything still uses the old name.
+
+A tool that a feature flag removes is a different case. It keeps its definition, declares
+`superseded_by` in the YAML, and `flagGatedToolMessage` answers the call.
+
 ### Syncing after endpoint changes
 
 ```sh
