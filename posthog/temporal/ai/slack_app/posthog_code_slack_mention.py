@@ -46,6 +46,7 @@ _PATCH_ID_FOLLOWUP_MODEL_CLASSIFIER = "slack-app-followup-model-classifier-v1"
 _PATCH_ID_MODEL_CLASSIFIER = "slack-app-model-classifier-v1"
 _PATCH_ID_NO_PERSONAL_GITHUB_GATE = "slack-no-personal-github-gate-v1"
 _PATCH_ID_PROJECT_ROUTE_CLASSIFIER = "slack-app-project-route-classifier-v1"
+_PATCH_ID_PROJECT_ROUTE_QUOTA = "slack-app-project-route-quota-v1"
 _PATCH_ID_UNTAGGED_FOLLOWUP_CONFIRMATION = "slack-untagged-followup-confirmation-v1"
 
 
@@ -217,6 +218,22 @@ class PostHogCodeSlackMentionWorkflow(PostHogWorkflow):
                 )
                 if project_route is not None:
                     inputs = replace(inputs, integration_id=project_route.integration_id)
+                    # The gate at the top of the run checked the project routing had
+                    # resolved, not the one the message named. Without this the run
+                    # spends the thread fetch, the needs-repo classifier and possibly a
+                    # discovery sandbox before task creation refuses on the same quota.
+                    # Its own patch: a history that recorded the classifier marker above
+                    # would not have recorded this activity.
+                    if workflow.patched(_PATCH_ID_PROJECT_ROUTE_QUOTA):
+                        blocked = await _execute_posthog_code_activity(
+                            enforce_posthog_code_billing_quota_activity,
+                            inputs,
+                            channel,
+                            thread_ts,
+                            slack_user_id,
+                        )
+                        if blocked:
+                            return
 
             user_id = inputs.user_id
 

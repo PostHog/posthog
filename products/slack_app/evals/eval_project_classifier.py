@@ -15,6 +15,11 @@ overall rate.
 The projects below are invented, and the phrasings with them. No customer's project names
 or messages appear here.
 
+Every case is held out of the prompt on purpose. An earlier revision paraphrased the
+prompt's own few-shot examples, which measures whether the model repeats them rather than
+whether it reads an unseen sentence — and it scored 100% doing so. When adding a case,
+check it against `project_route.md.j2` first.
+
 To run:
     hogli evals eval_project_classifier
     hogli evals eval_project_classifier --eval project_named_in_a_config_value
@@ -68,7 +73,7 @@ ROUTING_CASES = [
     ),
     BaseEvalCase(
         name="project_as_a_prefix",
-        prompt="@PostHog in the website project, why did the signup funnel drop last week?",
+        prompt="@PostHog on website: what share of sessions bounce off the pricing page?",
         expected=_routes_to(WEBSITE),
     ),
     # The rule that inverts the model classifier: a model named as the subject of a
@@ -76,12 +81,12 @@ ROUTING_CASES = [
     # answer comes from.
     BaseEvalCase(
         name="project_is_the_subject_of_the_problem",
-        prompt="@PostHog why is Northwind production throwing 500s on checkout since this morning?",
+        prompt="@PostHog production has been shedding mobile sessions since the 4.2 release, dig into it",
         expected=_routes_to(PRODUCTION),
     ),
     BaseEvalCase(
         name="environment_word_alone",
-        prompt="@PostHog check staging for a spike in failed exports over the last day",
+        prompt="@PostHog how many people hit the paywall on staging last week?",
         expected=_routes_to(STAGING),
     ),
     BaseEvalCase(
@@ -94,18 +99,18 @@ ROUTING_CASES = [
 NO_ROUTE_CASES = [
     BaseEvalCase(
         name="project_as_the_object_of_a_change",
-        prompt="@PostHog rename the website project to Marketing site and update the docs that mention it",
+        prompt="@PostHog our onboarding doc still tells people to make a Website project, bring it up to date",
         expected=_routes_to(),
     ),
     BaseEvalCase(
         name="project_in_a_proposal",
-        prompt="@PostHog we should split staging and production into separate orgs. Write up what that would take",
+        prompt="@PostHog write up the case for folding Website into Production so we stop paying for both",
         expected=_routes_to(),
     ),
     # One task answers from one project, so picking either silently answers half.
     BaseEvalCase(
         name="two_projects_at_once",
-        prompt="@PostHog compare weekly actives between Northwind staging and Northwind production",
+        prompt="@PostHog which had more failed exports this week, staging or production?",
         expected=_routes_to(),
     ),
     BaseEvalCase(
@@ -121,7 +126,7 @@ NO_ROUTE_CASES = [
     # Past tense is the tell, the same one the model classifier turns on.
     BaseEvalCase(
         name="project_already_ruled_out",
-        prompt="@PostHog I already checked Northwind staging and the data looked fine, dig into the SDK setup instead",
+        prompt="@PostHog staging came back clean when I looked yesterday, so start from the ingestion pipeline",
         expected=_routes_to(),
     ),
     BaseEvalCase(

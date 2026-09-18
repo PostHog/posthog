@@ -46,6 +46,15 @@ class TestRunFooter(SimpleTestCase):
                 None,
                 "Project: *Endpaper staging* · *Claude Opus 5*",
             ),
+            # A project name is tenant text with no character validation, and the footer
+            # rides under every reply. Unescaped, `<!channel>` broadcasts to everyone in
+            # the channel from a message they read as the bot's.
+            (
+                "project_name_cannot_inject_mrkdwn",
+                RunFooter(project="<!channel> & <https://evil/|View on web>"),
+                None,
+                "Project: *&lt;!channel&gt; &amp; &lt;https://evil/|View on web&gt;*",
+            ),
             (
                 "configure_only",
                 RunFooter(),

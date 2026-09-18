@@ -34,6 +34,7 @@ from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
 from slack_sdk.http_retry.builtin_handlers import RateLimitErrorRetryHandler
 
+from posthog.comment.formatting import escape_slack_mrkdwn
 from posthog.dataclasses import frozen
 from posthog.models.integration import Integration, SlackIntegration
 from posthog.utils import absolute_uri
@@ -825,7 +826,10 @@ def reply_footer_block(footer: RunFooter, configure_url: str | None = None) -> d
     if footer.desktop_url:
         segments.append(f"<{footer.desktop_url}|View on desktop>")
     if footer.project:
-        segments.append(f"Project: *{footer.project}*")
+        # A project name is tenant text in a `mrkdwn` block, so `<!channel>` broadcasts
+        # and `<url|label>` renders a link the reader reads as the bot's. Escaped here
+        # rather than on the way in, so `RunFooter.project` stays the plain name.
+        segments.append(f"Project: *{escape_slack_mrkdwn(footer.project)}*")
     if footer.model:
         segments.append(describe_run_model(footer.model, footer.reasoning_effort))
     if configure_url:
