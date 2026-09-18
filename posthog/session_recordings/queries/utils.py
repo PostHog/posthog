@@ -60,6 +60,10 @@ def is_exclusions_under_or_enabled(team: Team) -> bool:
     Evaluated against the `project` group with the team's uuid as the distinct id, so the flag
     can target teams by project id. A team id passed as the distinct id would not match any
     person or group condition.
+
+    Local evaluation only, because this runs on the recordings list request. A cold definition
+    cache reads as off, which keeps the current behavior, and it cannot target by a condition
+    the group properties above do not carry.
     """
     try:
         return feature_enabled_or_false(
@@ -67,6 +71,7 @@ def is_exclusions_under_or_enabled(team: Team) -> bool:
             str(team.uuid),
             groups={"project": str(team.id)},
             group_properties={"project": {"id": str(team.id), "uuid": str(team.uuid)}},
+            only_evaluate_locally=True,
             send_feature_flag_events=False,
         )
     except Exception:
