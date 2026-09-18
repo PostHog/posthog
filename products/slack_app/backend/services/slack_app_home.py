@@ -2478,6 +2478,10 @@ def _filter_accessible_integrations(
     project and organization names of orgs the viewer has no membership in to anyone in
     the workspace. Narrowing keeps every card working and the routing picker usable,
     which is what returning the full list was protecting, without that disclosure.
+
+    `_apply_project_pick` gates on this too, so the same narrowing stops an unidentified
+    viewer saving a personal default for any team in the workspace, which the old
+    behaviour allowed. Such a default is rejected on the mention path anyway.
     """
     user = _resolve_home_user(integration, slack_user_id)
     if user is None:

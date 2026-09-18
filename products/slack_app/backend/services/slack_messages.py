@@ -754,23 +754,22 @@ class RunFooter:
         return any((self.task_url, self.desktop_url, self.model, self.project))
 
 
-def _thread_project_name(task_id: UUID | str) -> str | None:
-    """The project the task's Slack thread belongs to, or `None` when it has no mapping.
+def _project_name(team_id: int) -> str | None:
+    """The project a run answered from, named for the footer.
 
-    Read from the mapping rather than the run, because the mapping is what pins a thread
-    to one project: every run on the task answers from it, so the footer says the same
-    thing on the first answer and on every follow-up.
+    The run's own team is the project, so this needs no join through the thread mapping:
+    a task, its mapping and every run on it belong to one project.
     """
-    from products.slack_app.backend.models import SlackThreadTaskMapping  # noqa: PLC0415 — circular at module scope
+    from posthog.models.team.team import Team  # noqa: PLC0415 — keeps the model off this module's import path
 
     try:
-        mapping = SlackThreadTaskMapping.objects.filter(task_id=task_id).select_related("team").first()
+        team = Team.objects.filter(pk=team_id).only("name").first()
     except Exception:
         # Its own guard, not the caller's: a failed lookup must cost the reader one
         # segment, not the links and the model with it.
-        logger.warning("slack_app_footer_project_lookup_failed", task_id=str(task_id))
+        logger.warning("slack_app_footer_project_lookup_failed", team_id=team_id)
         return None
-    return mapping.team.name if mapping else None
+    return team.name if team else None
 
 
 def load_run_footer(run_id: str | UUID | None) -> RunFooter:
@@ -806,7 +805,7 @@ def load_run_footer(run_id: str | UUID | None) -> RunFooter:
             desktop_url=_desktop_bridge_url(run.task_id),
             model=state.model,
             reasoning_effort=state.reasoning_effort,
-            project=_thread_project_name(run.task_id),
+            project=_project_name(run.team_id),
         )
     except Exception:
         logger.exception("slack_app_run_footer_load_failed", run_id=str(run_id))

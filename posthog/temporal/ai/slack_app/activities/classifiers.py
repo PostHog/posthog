@@ -26,11 +26,12 @@ from products.slack_app.backend.facade.run_preferences import (
     find_model_choice,
     group_by_runtime,
 )
+from products.slack_app.backend.feature_flags import is_slack_app_project_routing_enabled
 from products.slack_app.backend.models import SlackThreadTaskMapping
 from products.slack_app.backend.prompt_templates import PromptTemplates
-from products.slack_app.backend.services.project_routing import (
-    ProjectChoice,
-    render_project_candidates,
+from products.slack_app.backend.services.integration_resolver import (
+    format_project_candidate_list,
+    project_label,
     routable_projects,
 )
 from products.slack_app.backend.services.slack_messages import SlackThreadMessage
@@ -59,9 +60,11 @@ MODEL_OVERRIDE_MAX_TOKENS = 2048
 MODEL_OVERRIDE_TIMEOUT_SECONDS = 10.0
 MODEL_OVERRIDE_MAX_RETRIES = 1
 
-# Same shape of call as the model override, so it takes the same bounds.
+# Same shape of call as the model override, so it takes the same bounds — including the
+# cap riding on `max_completion_tokens`. The reasoning-class chat-completions route
+# rejects `max_tokens` outright, and the classifier would swallow that into its fallback.
 PROJECT_ROUTE_CLASSIFIER_MODEL = "gpt-5.6-luna"
-PROJECT_ROUTE_MAX_TOKENS = 2048
+PROJECT_ROUTE_MAX_COMPLETION_TOKENS = 2048
 PROJECT_ROUTE_TIMEOUT_SECONDS = 10.0
 PROJECT_ROUTE_MAX_RETRIES = 1
 
@@ -541,7 +544,7 @@ def classify_slack_app_model_override_activity(input: SlackAppModelOverrideInput
     return override
 
 
-def _project_route_response_format(projects: tuple[ProjectChoice, ...]) -> ResponseFormatJSONSchema:
+def _project_route_response_format(projects: list[Integration]) -> ResponseFormatJSONSchema:
     """A strict JSON schema pinning the reply to one id from ``projects``.
 
     The enum is what stops the classifier naming a project this mentioner cannot reach.
@@ -571,9 +574,9 @@ class _ProjectRouteReply(BaseModel):
 
 def classify_slack_app_project_route(
     event_text: str,
-    projects: tuple[ProjectChoice, ...],
+    projects: list[Integration],
     default_project_label: str,
-) -> ProjectChoice | None:
+) -> Integration | None:
     """Read the project a mention asked to be answered from, out of its text.
 
     Returns ``None`` when the author named none, which is the overwhelming majority of
@@ -591,7 +594,7 @@ def classify_slack_app_project_route(
     """
     prompt = prompts.render(
         "project_route",
-        projects=render_project_candidates(projects),
+        projects=format_project_candidate_list(projects),
         default_project=default_project_label,
         event_text=event_text,
     )
@@ -603,7 +606,7 @@ def classify_slack_app_project_route(
         response = client.chat.completions.create(
             model=PROJECT_ROUTE_CLASSIFIER_MODEL,
             messages=[{"role": "user", "content": prompt}],
-            max_tokens=PROJECT_ROUTE_MAX_TOKENS,
+            max_completion_tokens=PROJECT_ROUTE_MAX_COMPLETION_TOKENS,
             response_format=_project_route_response_format(projects),
         )
         # Tolerant parse on top of the schema, matching the model-override classifier:
@@ -634,6 +637,11 @@ def classify_slack_app_project_route_activity(input: SlackAppProjectRouteInput) 
     """
     if not input.event_text.strip():
         return None
+    # Cheapest gate first, and the one that answers most workspaces. Everything below is
+    # two queries and a blocking flag call, and a workspace connected to one project has
+    # nothing to route between however they come out.
+    if Integration.objects.filter(kind="slack", integration_id=input.slack_team_id).count() < 2:
+        return None
 
     integration = Integration.objects.select_related("team", "team__organization").get(
         id=input.integration_id,
@@ -643,12 +651,13 @@ def classify_slack_app_project_route_activity(input: SlackAppProjectRouteInput) 
     user = User.objects.filter(id=input.user_id).first()
     if user is None:
         return None
+    if not is_slack_app_project_routing_enabled(integration, distinct_id=user.distinct_id):
+        return None
 
     projects = routable_projects(
         slack_team_id=input.slack_team_id,
         slack_user_id=input.slack_user_id,
         user=user,
-        default=integration,
     )
     if not projects:
         return None
@@ -657,7 +666,7 @@ def classify_slack_app_project_route_activity(input: SlackAppProjectRouteInput) 
         chosen = classify_slack_app_project_route(
             input.event_text,
             projects,
-            default_project_label=f"{integration.team.organization.name} · {integration.team.name}",
+            default_project_label=project_label(integration),
         )
     except Exception:
         # The fallback boundary: a mention we cannot classify stays on the project
@@ -665,13 +674,13 @@ def classify_slack_app_project_route_activity(input: SlackAppProjectRouteInput) 
         logger.exception("slack_app_project_route_classify_failed")
         return None
     # A message naming the project the run was already going to use asked for nothing.
-    if chosen is None or chosen.integration_id == integration.id:
+    if chosen is None or chosen.id == integration.id:
         return None
 
     logger.info(
         "slack_app_project_route_classified",
         integration_id=integration.id,
-        routed_integration_id=chosen.integration_id,
+        routed_integration_id=chosen.id,
         project_candidate_count=len(projects),
     )
-    return SlackAppProjectRoute(integration_id=chosen.integration_id)
+    return SlackAppProjectRoute(integration_id=chosen.id)

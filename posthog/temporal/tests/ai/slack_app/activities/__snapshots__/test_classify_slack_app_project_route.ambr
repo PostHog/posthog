@@ -4,8 +4,8 @@
   You are routing a Slack message addressed to the PostHog agent. This Slack workspace is connected to several PostHog projects, each holding separate data, and this message opens a new thread. Decide which project it should be answered from.
   
   Only these projects can be selected, and the id is the number:
-  - 41 — Northwind · Staging
-  - 42 — Northwind · Production
+  • `41` — Northwind · Staging
+  • `42` — Northwind · Production
   
   Without a project named in the message the task is answered from Northwind · Production, so only name one that would change that.
   

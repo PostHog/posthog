@@ -24,30 +24,42 @@ from __future__ import annotations
 
 import asyncio
 
+from posthog.models.integration import Integration
+from posthog.models.organization import Organization
+from posthog.models.team.team import Team
 from posthog.temporal.ai.slack_app.activities import classifiers
 
 from products.posthog_ai.eval_harness.config import BaseEvalCase
 from products.posthog_ai.eval_harness.harness.context import EvalContext
 from products.posthog_ai.eval_harness.harness.requirements import SuiteKind
 from products.posthog_ai.eval_harness.one_shot import OneShotPublicEval
-from products.slack_app.backend.services.project_routing import ProjectChoice
 from products.slack_app.evals.scorers import PROJECT_ROUTE_KEY, NoUnaskedProjectSwitch, ProjectRouteMatch
 
 SUITE_KIND = SuiteKind.ONE_SHOT
 
+
+def _project(*, team_id: int, integration_id: int, name: str) -> Integration:
+    """An unsaved `Integration` row, which is all the classifier reads."""
+    return Integration(
+        id=integration_id,
+        kind="slack",
+        team=Team(id=team_id, name=name, organization=Organization(name="Northwind")),
+    )
+
+
 # An environment pair differing by one word, plus a project whose name is also an ordinary
 # noun: the two shapes that make the task hard. Team ids and integration ids differ so a
 # case fails if the two are ever swapped.
-STAGING = ProjectChoice(team_id=41, integration_id=410, label="Northwind · Staging")
-PRODUCTION = ProjectChoice(team_id=42, integration_id=420, label="Northwind · Production")
-WEBSITE = ProjectChoice(team_id=43, integration_id=430, label="Northwind · Website")
-PROJECTS = (STAGING, PRODUCTION, WEBSITE)
+STAGING = _project(team_id=41, integration_id=410, name="Staging")
+PRODUCTION = _project(team_id=42, integration_id=420, name="Production")
+WEBSITE = _project(team_id=43, integration_id=430, name="Website")
+PROJECTS = [STAGING, PRODUCTION, WEBSITE]
 
-DEFAULT_PROJECT_LABEL = PRODUCTION.label
+DEFAULT_PROJECT_LABEL = "Northwind · Production"
 
 
-def _routes_to(project: ProjectChoice | None = None) -> dict:
-    return {PROJECT_ROUTE_KEY: {"integration_id": project.integration_id if project else None}}
+def _routes_to(project: Integration | None = None) -> dict:
+    return {PROJECT_ROUTE_KEY: {"integration_id": project.id if project else None}}
 
 
 ROUTING_CASES = [
@@ -142,8 +154,8 @@ async def eval_project_classifier(ctx: EvalContext) -> None:
             }
         return {
             "classifier_model": classifier_model,
-            "route": {"integration_id": chosen.integration_id} if chosen else None,
-            "last_message": f"{classifier_model}: {chosen.label if chosen else None}",
+            "route": {"integration_id": chosen.id} if chosen else None,
+            "last_message": f"{classifier_model}: {chosen.team.name if chosen else None}",
         }
 
     await OneShotPublicEval(

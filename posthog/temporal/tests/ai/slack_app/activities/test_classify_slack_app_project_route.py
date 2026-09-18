@@ -3,15 +3,26 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
+from posthog.models.integration import Integration
+from posthog.models.organization import Organization
+from posthog.models.team.team import Team
 from posthog.temporal.ai.slack_app.activities.classifiers import classify_slack_app_project_route
 from posthog.temporal.ai.slack_app.posthog_code_slack_mention import POSTHOG_CODE_SLACK_MENTION_TIMEOUT_SECONDS
 
-from products.slack_app.backend.services.project_routing import ProjectChoice
+
+def _project(*, team_id: int, integration_id: int, name: str) -> Integration:
+    """An unsaved `Integration` row, which is all the classifier reads."""
+    return Integration(
+        id=integration_id,
+        kind="slack",
+        team=Team(id=team_id, name=name, organization=Organization(name="Northwind")),
+    )
+
 
 # Team ids and integration ids differ so a case fails if the two are ever swapped.
-STAGING = ProjectChoice(team_id=41, integration_id=410, label="Northwind · Staging")
-PRODUCTION = ProjectChoice(team_id=42, integration_id=420, label="Northwind · Production")
-PROJECTS = (STAGING, PRODUCTION)
+STAGING = _project(team_id=41, integration_id=410, name="Staging")
+PRODUCTION = _project(team_id=42, integration_id=420, name="Production")
+PROJECTS = [STAGING, PRODUCTION]
 
 CLASSIFIER = "posthog.temporal.ai.slack_app.activities.classifiers.build_openai_client"
 
@@ -41,6 +52,17 @@ class TestClassifySlackAppProjectRoute:
         # back; this must not.
         with patch(CLASSIFIER, side_effect=RuntimeError("boom")), pytest.raises(RuntimeError):
             classify_slack_app_project_route("check staging", PROJECTS, "Northwind · Production")
+
+    def test_token_cap_uses_the_reasoning_model_parameter(self):
+        # `gpt-5.6-luna` rejects `max_tokens` on chat completions, and the activity turns
+        # that rejection into its fallback — a mention would silently never route.
+        fake_client = self._fake_client('{"project_id": null}')
+        with patch(CLASSIFIER, return_value=fake_client):
+            classify_slack_app_project_route("check staging", PROJECTS, "Northwind · Production")
+
+        kwargs = fake_client.chat.completions.create.call_args.kwargs
+        assert "max_tokens" not in kwargs
+        assert kwargs["max_completion_tokens"] > 0
 
     def test_reply_is_pinned_to_the_offered_projects(self):
         # The enum is the only thing that keeps the classifier from naming a team this

@@ -1,5 +1,4 @@
 import pytest
-from unittest.mock import patch
 
 from posthog.helpers.slack_scopes import REQUIRED_SLACK_SCOPES
 from posthog.models.integration import Integration
@@ -7,11 +6,10 @@ from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
-from products.slack_app.backend.services.project_routing import routable_projects
+from products.slack_app.backend.services.integration_resolver import routable_projects
 
 WORKSPACE = "T_WS"
 SLACK_USER = "U001"
-MODULE = "products.slack_app.backend.services.project_routing"
 
 
 class TestRoutableProjects:
@@ -51,25 +49,17 @@ class TestRoutableProjects:
             sensitive_config={"access_token": "xoxb"},
         )
 
-    def _routable(self, *, flag_enabled: bool = True):
-        with patch(f"{MODULE}.is_slack_app_project_routing_enabled", return_value=flag_enabled):
-            return routable_projects(
-                slack_team_id=WORKSPACE,
-                slack_user_id=SLACK_USER,
-                user=self.user,
-                default=self.default,
-            )
+    def _routable(self):
+        return routable_projects(slack_team_id=WORKSPACE, slack_user_id=SLACK_USER, user=self.user)
 
     def test_offers_every_project_the_mentioner_can_reach(self):
         offered = self._routable()
         assert {project.team_id for project in offered} == {self.default_team.id, self.other_team.id}
-        assert {project.label for project in offered} == {"Org · Production", "Org · Staging"}
-        assert {project.integration_id for project in offered} == {self.default.id, self.other.id}
+        assert {project.id for project in offered} == {self.default.id, self.other.id}
 
     @pytest.mark.parametrize(
         "reason",
         [
-            "flag_is_off",
             "only_one_reachable_project",
             # Routing onto an install without the mention scopes would trade a working
             # run for one that cannot post its answer.
@@ -83,4 +73,4 @@ class TestRoutableProjects:
             self.other.config = {"scope": "chat:write"}
             self.other.save()
 
-        assert self._routable(flag_enabled=reason != "flag_is_off") == ()
+        assert self._routable() == []

@@ -6,6 +6,8 @@ The classifier's own prompt and parse behaviour is covered in
 is what the activity does with both.
 """
 
+from contextlib import contextmanager
+
 import pytest
 from unittest.mock import patch
 
@@ -15,8 +17,6 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.temporal.ai.slack_app.activities.classifiers import classify_slack_app_project_route_activity
 from posthog.temporal.ai.slack_app.types import SlackAppProjectRouteInput
-
-from products.slack_app.backend.services.project_routing import ProjectChoice
 
 ACTIVITY_MODULE = "posthog.temporal.ai.slack_app.activities.classifiers"
 WORKSPACE = "T_WS"
@@ -44,10 +44,7 @@ class TestClassifySlackAppProjectRouteActivity:
             integration_id=WORKSPACE,
             sensitive_config={"access_token": "xoxb"},
         )
-        self.offered = (
-            ProjectChoice(team_id=self.default_team.id, integration_id=self.default.id, label="Org · Production"),
-            ProjectChoice(team_id=self.other_team.id, integration_id=self.other.id, label="Org · Staging"),
-        )
+        self.offered = [self.default, self.other]
 
     def _input(self, text: str = "how many signups on staging yesterday") -> SlackAppProjectRouteInput:
         return SlackAppProjectRouteInput(
@@ -58,41 +55,47 @@ class TestClassifySlackAppProjectRouteActivity:
             slack_user_id=SLACK_USER,
         )
 
-    def test_blank_text_never_reaches_the_llm(self):
-        with patch(f"{ACTIVITY_MODULE}.classify_slack_app_project_route") as classify:
-            assert classify_slack_app_project_route_activity(self._input("   ")) is None
-        classify.assert_not_called()
-
-    def test_no_eligible_projects_never_reaches_the_llm(self):
+    @contextmanager
+    def _classifier(self, *, flag: bool = True, projects: list | None = None, **kwargs):
+        """Run the activity with the LLM call stubbed, yielding the stub."""
         with (
-            patch(f"{ACTIVITY_MODULE}.routable_projects", return_value=()),
-            patch(f"{ACTIVITY_MODULE}.classify_slack_app_project_route") as classify,
+            patch(f"{ACTIVITY_MODULE}.is_slack_app_project_routing_enabled", return_value=flag),
+            patch(f"{ACTIVITY_MODULE}.routable_projects", return_value=self.offered if projects is None else projects),
+            patch(f"{ACTIVITY_MODULE}.classify_slack_app_project_route", **kwargs) as classify,
         ):
-            assert classify_slack_app_project_route_activity(self._input()) is None
+            yield classify
+
+    @pytest.mark.parametrize(
+        "reason",
+        [
+            # A follow-up that is only an attachment carries no sentence to read.
+            "blank_text",
+            "flag_is_off",
+            "no_eligible_projects",
+        ],
+    )
+    def test_gates_return_no_route_without_calling_the_llm(self, reason):
+        text = "   " if reason == "blank_text" else "how many signups on staging yesterday"
+        with self._classifier(
+            flag=reason != "flag_is_off",
+            projects=[] if reason == "no_eligible_projects" else None,
+        ) as classify:
+            assert classify_slack_app_project_route_activity(self._input(text)) is None
         classify.assert_not_called()
 
     def test_named_project_is_returned_as_its_integration(self):
-        with (
-            patch(f"{ACTIVITY_MODULE}.routable_projects", return_value=self.offered),
-            patch(f"{ACTIVITY_MODULE}.classify_slack_app_project_route", return_value=self.offered[1]),
-        ):
+        with self._classifier(return_value=self.other):
             result = classify_slack_app_project_route_activity(self._input())
 
         assert result is not None
         assert result.integration_id == self.other.id
 
     def test_a_gateway_failure_leaves_the_run_where_routing_put_it(self):
-        with (
-            patch(f"{ACTIVITY_MODULE}.routable_projects", return_value=self.offered),
-            patch(f"{ACTIVITY_MODULE}.classify_slack_app_project_route", side_effect=RuntimeError("boom")),
-        ):
+        with self._classifier(side_effect=RuntimeError("boom")):
             assert classify_slack_app_project_route_activity(self._input()) is None
 
     def test_naming_the_project_the_run_already_had_reports_no_route(self):
         # A returned route is what drives both the rebind and the notice posted in the
         # thread, so naming the default must not read as a move.
-        with (
-            patch(f"{ACTIVITY_MODULE}.routable_projects", return_value=self.offered),
-            patch(f"{ACTIVITY_MODULE}.classify_slack_app_project_route", return_value=self.offered[0]),
-        ):
+        with self._classifier(return_value=self.default):
             assert classify_slack_app_project_route_activity(self._input()) is None

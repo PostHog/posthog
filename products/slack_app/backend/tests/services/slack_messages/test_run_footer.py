@@ -154,7 +154,6 @@ class TestFooterProject:
         from products.slack_app.backend.models import SlackThreadTaskMapping
 
         organization = Organization.objects.create(name="Org")
-        default_team = Team.objects.create(organization=organization, name="Production")
         routed_team = Team.objects.create(organization=organization, name="Staging")
         integration = Integration.objects.create(
             team=routed_team, kind="slack", integration_id="T_WS", sensitive_config={"access_token": "xoxb"}
@@ -178,4 +177,3 @@ class TestFooterProject:
 
         # The routed project, not the one the workspace would otherwise have answered from.
         assert footer.project == "Staging"
-        assert footer.project != default_team.name
