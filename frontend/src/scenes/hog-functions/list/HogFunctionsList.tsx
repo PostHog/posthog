@@ -362,6 +362,8 @@ export function HogFunctionList({
                     size="small"
                     loading={loading || manualFunctionsLoading}
                     columns={columns}
+                    // The sparkline loads once per row, so a row must keep its function across a sort or a search.
+                    rowKey="id"
                     pagination={{ pageSize: 30 }}
                     emptyState={
                         // The API applies the search itself, so an empty result with a search is a filter miss.
