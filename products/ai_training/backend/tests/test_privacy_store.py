@@ -99,6 +99,24 @@ class TestAITrainingPrivacyStore(SimpleTestCase):
             )
         client.query.assert_not_called()
 
+    def test_team_deletion_closes_every_month_a_later_session_could_still_open(self) -> None:
+        client = MagicMock()
+        store = AITrainingPrivacyStore(client, "table")
+        with patch(
+            "products.ai_training.backend.privacy.store.timezone.now",
+            return_value=datetime.fromisoformat("2025-12-31T23:59:00+00:00"),
+        ):
+            store.initialize(MagicMock(kind="team", team_id=7, identifiers=[]))
+        updates = client.transact_write_items.call_args.kwargs["TransactItems"]
+        self.assertEqual(
+            [update["Update"]["Key"] for update in updates],
+            [
+                item_key("team:7", "image:2025-11"),
+                item_key("team:7", "image:2025-12"),
+                item_key("team:7", "image:2026-01"),
+            ],
+        )
+
     def test_completion_waits_for_reader_leases_then_sweeps_the_team_once_more(self) -> None:
         request = MagicMock(kind="team", team_id=7, cursor={"work": []}, completed_at=None)
         client = MagicMock()

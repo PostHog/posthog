@@ -83,11 +83,6 @@ class AITrainingPrivacyStore:
         )
         return cls(cast(PrivacyDynamoClient, client), key_table_name())
 
-    def block(self, team_id: int) -> None:
-        self.client.put_item(
-            TableName=self.table_name, Item={**item_key(f"team:{team_id}", "deleted"), "deleted": {"BOOL": True}}
-        )
-
     def delete_month(self, session_month: str) -> int:
         if re.fullmatch(r"[0-9]{4}-(0[1-9]|1[0-2])", session_month) is None:
             raise ValueError("Session month must use YYYY-MM")
@@ -143,12 +138,20 @@ class AITrainingPrivacyStore:
                 ]
             )
 
+    # A sweep reaches only an image key that already exists, so a team that keeps sending would open a month the sweep never saw. Ingestion admits a session up to ML_SESSION_MAX_AGE_DAYS old, which is inside one month, so these three are every month a later session can still open. An update creates the row, so each one closes whether or not it holds a key.
+    def shred_reachable_months(self, team_id: int) -> None:
+        now = timezone.now()
+        current = f"{now:%Y-%m}"
+        previous = f"{datetime(now.year, now.month, 1, tzinfo=UTC) - timedelta(days=1):%Y-%m}"
+        months = (previous, current, f"{month_end(current):%Y-%m}")
+        self.shred([item_key(f"team:{team_id}", f"image:{month}") for month in months])
+
     def initialize(self, request: AITrainingDeletionRequest) -> list[DeletionWork]:
         if request.team_id is None:
             raise ValueError("AI training deletion request has no team")
         team_id = request.team_id
         if request.kind == "team":
-            self.block(team_id)
+            self.shred_reachable_months(team_id)
             return [{"op": "team", "team_id": team_id, "shard": -1}]
         if request.kind == "session":
             self.shred([session_key(team_id, value) for value in request.identifiers])
