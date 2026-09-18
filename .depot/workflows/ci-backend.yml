@@ -2234,7 +2234,7 @@ jobs:
                   git fetch --no-tags --prune --depth=1 https://github.com/PostHog/posthog.git master
                   changed=$(git diff --quiet HEAD FETCH_HEAD -- common/hogql_parser/ && echo "false" || echo "true")
                   echo "changed=$changed" >> $GITHUB_OUTPUT
-                  # A branch that predates the crate has nothing to install, so presence gates the diff.
+                  # A branch that predates the crate has nothing to install.
                   rust_changed=false
                   if [[ -f rust/hogql/parser/pyproject.toml ]] && ! git diff --quiet HEAD FETCH_HEAD -- rust/hogql/parser/; then
                       rust_changed=true
@@ -2300,7 +2300,7 @@ jobs:
               if: ${{ needs.changes.outputs.backend == 'true' && steps.hogql-parser-diff.outputs.rust_changed == 'true' }}
               shell: bash
               # rust-py is the production parser, so its tests must run against this branch's
-              # crate rather than the version pyproject.toml pins.
+              # crate rather than the version pinned in the root pyproject.toml.
               run: pip install ./rust/hogql/parser
             - name: Set up needed files
               shell: bash
