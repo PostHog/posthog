@@ -4043,7 +4043,7 @@ jobs:
                   fail_relay() {
                       echo "::error::$1"
                       {
-                          echo "### Backend tests for this pull request ran on Depot CI"
+                          echo "### Backend tests for this pull request were routed to Depot CI"
                           echo ""
                           echo "$1"
                           echo ""
