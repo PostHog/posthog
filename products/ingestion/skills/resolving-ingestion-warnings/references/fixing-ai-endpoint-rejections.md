@@ -1,11 +1,12 @@
 # Fixing AI endpoint rejections
 
-Covers `invalid_ai_event`, `invalid_ai_payload`, and `no_ai_spans_ingested`.
+Covers `invalid_ai_event`, `invalid_ai_payload`, `no_ai_spans_ingested`, and `misrouted_event`.
 
-These come from capture's two dedicated LLM analytics endpoints, not from the ingestion pipeline:
+These come from capture's dedicated LLM analytics endpoints, not from the ingestion pipeline:
 
 - `/i/v0/ai` — one event per request, sent as multipart with an `event` part and an optional `event.properties` part. Warnings carry `path: ai_events`.
 - `/i/v0/ai/otel` — OTLP trace export, protobuf or JSON. Warnings carry `path: ai_otel`.
+- `/i/v1/ai/events` — JSON batch, the same request shape as the standard v1 capture endpoint. Only `misrouted_event` comes from here.
 
 Both reject at the edge, so a rejected event reaches nothing downstream. It is not in `events`, not in any insight, and has no other trace beyond the warning. `count` is the number of events or spans that didn't land.
 
@@ -57,3 +58,11 @@ Almost always one of:
 To see what is actually arriving, pull the spans' attribute keys from your own tracing backend rather than from PostHog. Nothing reached PostHog to inspect.
 
 A mixed batch that contains at least one AI span does **not** warn, so a team seeing this occasionally alongside successful ingestion is sending some batches with no AI activity in them. That is usually benign. Sustained firing with no AI events landing is the case worth acting on.
+
+## `misrouted_event`
+
+A batch sent to `/i/v1/ai/events` contained an event whose name does not start with `$ai_`. That deployment can only write to the LLM analytics topic, so it drops the offending event and accepts the rest of the batch. `eventName` and `eventUuid` identify the dropped event; the response body lists it under `details` as `misrouted_event`.
+
+This is always a routing mistake on the sending side: a proxy rule, a host override, or an SDK configured to send all events through its AI capture method. Send ordinary analytics events through the standard capture endpoint. Nothing about the event itself needs to change.
+
+The reverse case (an `$ai_*` event sent to the standard endpoint) does not warn. Capture forwards it to the LLM analytics lane.

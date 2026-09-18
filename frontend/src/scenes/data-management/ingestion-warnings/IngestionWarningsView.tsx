@@ -65,6 +65,7 @@ export const WARNING_TYPE_TO_DESCRIPTION: Record<string, string> = {
     invalid_ai_event: 'Discarded an AI event with an unsupported event name or no $ai_model',
     invalid_ai_payload: 'Rejected a malformed AI or OpenTelemetry request',
     no_ai_spans_ingested: 'Accepted an OpenTelemetry export with no AI spans, so nothing was ingested',
+    misrouted_event: 'Discarded a non-AI event sent to the LLM analytics capture endpoint',
     // Emitted by the capture service for its session replay endpoint
     missing_session_id: 'Discarded a session replay batch with no $session_id',
     invalid_session_id: 'Discarded a session replay batch with an invalid $session_id',
