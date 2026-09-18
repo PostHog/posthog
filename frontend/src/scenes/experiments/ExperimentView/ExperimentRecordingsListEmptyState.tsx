@@ -98,6 +98,12 @@ function ReasonBanner({
             <LemonBanner type="info" action={offeredAction}>
                 No recordings yet. The experiment started {startedWhen(context.daysSinceStart)}, and a recording appears
                 here once an exposed person's session has been captured.
+                {/* Only where the way out is the wider scope, because it says what that button
+                    gets them. Its own element rather than a bare text node, so toggling the scope
+                    doesn't remove a text node React may no longer own (frontend/src/AGENTS.md rule 7). */}
+                {offered === 'all_sessions' && (
+                    <span> The same people can already have recordings of their other sessions.</span>
+                )}
             </LemonBanner>
         )
     }
@@ -215,7 +221,7 @@ export function ExperimentRecordingsListEmptyState({ experiment }: { experiment:
         } else if (action === 'show_all_variants') {
             setSelectedVariantKey(null)
         } else if (action === 'all_sessions') {
-            setExposureScope('all_exposed')
+            setExposureScope('all_exposed', 'empty_state')
         } else if (action === 'clear_filters') {
             // The playlist's own reset would drop the tab's scoping too, so the tab's filters go
             // back in whole rather than the playlist defaults.

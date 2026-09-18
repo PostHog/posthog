@@ -37,6 +37,7 @@ import { EXPERIMENT_RECORDING_MODE_OPTIONS } from './experimentRecordingModes'
 import { type ExperimentReplayMetricFilterMode, isFunnelMode } from './experimentRecordingsDeepLink'
 import { ExperimentRecordingsListEmptyState } from './ExperimentRecordingsListEmptyState'
 import {
+    ExperimentInSessionEvidence,
     ExperimentReplayMetricOption,
     ExperimentSessionBucket,
     LinkedScanner,
@@ -59,35 +60,30 @@ const SCANNER_CROSS_SELL_DISMISS_KEY = 'experiment-replay-vision-scanner-cross-s
 const ALL_EXPOSED_CAPTION =
     "Showing sessions of exposed participants from their first exposure onward. The exposure event itself doesn't have to be in the session."
 
-// The copy varies with what the in-session evidence is. 'stamped' means the flag property stands
-// in for the exposure event, so the flag was active in the session rather than the exposure event
-// being captured there, and the copy must not claim more than the query delivers (wording mirrors
-// the behavior-comparison shelf). 'unknown' covers the availability check still pending or failed,
-// where the copy claims only what both kinds share. The scopeLockedReason strings park the control
-// while a bucket or watch card supplies the session set, which carries in-session evidence by
-// construction, so the control could neither widen nor narrow it.
-type InSessionEvidenceKind = 'event' | 'stamped' | 'unknown'
-const IN_SESSION_COPY: Record<InSessionEvidenceKind, { tooltip: string; caption: string; scopeLockedReason: string }> =
-    {
-        event: {
-            tooltip: 'Only sessions where an exposure event for this experiment was captured in the session.',
-            caption: 'Showing sessions of exposed participants where the exposure was captured in the session.',
-            scopeLockedReason:
-                'This metric filter already narrows to sessions where the exposure was captured in the session.',
-        },
-        stamped: {
-            tooltip:
-                'Sessions where the feature flag was active. No exposure event can be matched to a recording for this experiment, so the flag being active stands in.',
-            caption:
-                'Showing sessions of exposed participants where the feature flag was active, since no exposure event can be matched to a recording here.',
-            scopeLockedReason: 'This metric filter already narrows to sessions where the feature flag was active.',
-        },
-        unknown: {
-            tooltip: 'Only sessions carrying in-session exposure evidence for this experiment.',
-            caption: 'Showing sessions of exposed participants carrying in-session exposure evidence.',
-            scopeLockedReason: 'This metric filter already narrows to sessions carrying in-session exposure evidence.',
-        },
-    }
+// The copy varies with whether the availability check has landed. 'unknown' covers the check still
+// pending or failed, where the copy claims only what a landed verdict would share.
+type InSessionEvidenceKind = 'event' | 'unknown'
+const IN_SESSION_COPY: Record<InSessionEvidenceKind, { tooltip: string; caption: string }> = {
+    event: {
+        tooltip: 'Only sessions where an exposure event for this experiment was captured in the session.',
+        caption: 'Showing sessions of exposed participants where the exposure was captured in the session.',
+    },
+    unknown: {
+        tooltip: 'Only sessions carrying in-session exposure evidence for this experiment.',
+        caption: 'Showing sessions of exposed participants carrying in-session exposure evidence.',
+    },
+}
+
+// Why the control is parked while a bucket or watch card supplies the session set, which carries
+// in-session evidence by construction, so the control could neither widen nor narrow it. Keyed on
+// the evidence that set was matched on rather than on the scope's own: the buckets keep the stamped
+// stand-in this scope refuses, so a single reason would claim the exposure was captured in the
+// session on exactly the experiments where it never is.
+const SCOPE_LOCKED_REASON: Record<ExperimentInSessionEvidence, string> = {
+    event: 'This metric filter already narrows to sessions where the exposure was captured in the session.',
+    stamped: 'This metric filter already narrows to sessions where the feature flag was active.',
+    unknown: 'This metric filter already narrows to sessions carrying in-session exposure evidence.',
+}
 
 // A session fires a metric's events, never the metric — the caption spells that out where it
 // has the room the trigger doesn't.
@@ -256,7 +252,7 @@ export function ExperimentReplayTab({ experiment }: { experiment: Experiment }):
     const logic = experimentReplayTabLogic({ experiment })
     const {
         effectiveVariantKey,
-        effectiveExposureScope,
+        displayedExposureScope,
         exposureInSessionUnavailableReason,
         inSessionExposure,
         playlistHeldForChecks,
@@ -269,6 +265,7 @@ export function ExperimentReplayTab({ experiment }: { experiment: Experiment }):
         sessionBucketLoading,
         sessionBucketError,
         sessionBucketRequest,
+        scopeLockEvidence,
         linkedScanners,
         linkedScannersLoading,
     } = useValues(logic)
@@ -284,9 +281,9 @@ export function ExperimentReplayTab({ experiment }: { experiment: Experiment }):
         scannerCrossSellClicked,
     } = useActions(logic)
     const scannerCrossSellEnabled = useFeatureFlag('VISION_ENTRYPOINT_EXPERIMENTS')
-    // Which in-session copy applies, from the evidence kind the availability check resolved.
-    const inSessionCopy =
-        IN_SESSION_COPY[inSessionExposure ? (inSessionExposure.uses_stamped_fallback ? 'stamped' : 'event') : 'unknown']
+    // Which in-session copy applies: the exposure event is the only evidence a landed verdict can
+    // report, so the branch is on whether the verdict has landed at all.
+    const inSessionCopy = IN_SESSION_COPY[inSessionExposure ? 'event' : 'unknown']
 
     // One object feeds both the playlist below and the findMounted lookup, because the logic's
     // kea key is derived from these props: hand-duplicating them at the two sites would let the
@@ -381,9 +378,9 @@ export function ExperimentReplayTab({ experiment }: { experiment: Experiment }):
                 />
                 <LemonSegmentedButton
                     size="small"
-                    value={effectiveExposureScope}
+                    value={displayedExposureScope}
                     onChange={(value) => setExposureScope(value)}
-                    disabledReason={sessionBucketRequest !== null ? inSessionCopy.scopeLockedReason : undefined}
+                    disabledReason={scopeLockEvidence ? SCOPE_LOCKED_REASON[scopeLockEvidence] : undefined}
                     options={[
                         {
                             value: 'in_session' as const,
@@ -479,7 +476,7 @@ export function ExperimentReplayTab({ experiment }: { experiment: Experiment }):
             <div className="mb-2 flex items-center gap-2 text-xs text-secondary">
                 {clientSideFilterApplied ? null : !sessionBucketRequest && metricFilterMode === 'fired_all' ? (
                     <span data-attr="experiment-recordings-population-caption">
-                        {effectiveExposureScope === 'in_session' ? inSessionCopy.caption : ALL_EXPOSED_CAPTION}
+                        {displayedExposureScope === 'in_session' ? inSessionCopy.caption : ALL_EXPOSED_CAPTION}
                     </span>
                 ) : !sessionBucketRequest ? (
                     <span>{unappliedModeReason(metricFilterMode)}</span>
