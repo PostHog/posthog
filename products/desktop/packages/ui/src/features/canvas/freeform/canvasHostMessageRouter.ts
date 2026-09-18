@@ -13,8 +13,17 @@ const EXTERNAL_OPEN_MIN_INTERVAL_MS = 1_000;
 // ship oversized payloads, or hold a request slot forever.
 const MAX_CONCURRENT_DATA_REQUESTS = 8;
 const MAX_CONCURRENT_CONNECTOR_REQUESTS = 8;
+// A canvas that fans out more cards than there are slots is normal, so requests
+// over the cap wait for a free slot instead of failing. The wait list is bounded
+// too: a runaway loop must still hit a wall rather than grow without end.
+const MAX_QUEUED_DATA_REQUESTS = 32;
+const MAX_QUEUED_CONNECTOR_REQUESTS = 32;
 const MAX_DATA_REQUEST_BYTES = 64 * 1024;
 const DATA_REQUEST_TIMEOUT_MS = 30_000;
+// The canvas runtime abandons a request 30s after it sends it, so a longer wait
+// here would reach the canvas as a bare timeout and still run a query nobody
+// waits for. Refuse earlier, while a retry can still finish inside that budget.
+const MAX_QUEUE_WAIT_MS = 10_000;
 const REPLAYABLE_SHORTCUT_KEYS = new Set([
   ",",
   "/",
@@ -52,6 +61,49 @@ function isBoundedPayload(payload: unknown): boolean {
   }
 }
 
+// Concurrency slots with a bounded FIFO wait list. A released slot passes
+// straight to the next waiter rather than going back to the pool, so a request
+// that arrives while waiters are queued cannot jump ahead of them.
+interface RequestSlots {
+  active: number;
+  readonly limit: number;
+  readonly queueLimit: number;
+  readonly waiting: Array<() => void>;
+}
+
+function createRequestSlots(limit: number, queueLimit: number): RequestSlots {
+  return { active: 0, limit, queueLimit, waiting: [] };
+}
+
+function acquireSlot(slots: RequestSlots): Promise<boolean> {
+  if (slots.active < slots.limit) {
+    slots.active += 1;
+    return Promise.resolve(true);
+  }
+  if (slots.waiting.length >= slots.queueLimit) return Promise.resolve(false);
+  return new Promise<boolean>((resolve) => {
+    const take = (): void => {
+      clearTimeout(timer);
+      resolve(true);
+    };
+    const timer = setTimeout(() => {
+      const index = slots.waiting.indexOf(take);
+      if (index > -1) slots.waiting.splice(index, 1);
+      resolve(false);
+    }, MAX_QUEUE_WAIT_MS);
+    slots.waiting.push(take);
+  });
+}
+
+function releaseSlot(slots: RequestSlots): void {
+  const next = slots.waiting.shift();
+  if (next) {
+    next();
+    return;
+  }
+  slots.active -= 1;
+}
+
 interface CanvasHostCallbacks {
   onDataRequest: (method: string, payload: unknown) => Promise<unknown>;
   onError?: (message: string, stack?: string) => void;
@@ -63,6 +115,23 @@ interface CanvasHostCallbacks {
 }
 
 type ExternalOpenBlockReason = "unsafe-url" | "no-interaction" | "throttled";
+
+/** Why a data request was refused before it reached the host callback. */
+export type CanvasDataRequestRejectReason =
+  | "payload-too-large"
+  | "data-queue-full"
+  | "connector-queue-full"
+  | "needs-user-action"
+  | "agent-needs-user-action";
+
+const REJECT_MESSAGES: Record<CanvasDataRequestRejectReason, string> = {
+  "payload-too-large": "Canvas data request is over the 64KB payload limit",
+  "data-queue-full": "Too many canvas data requests are already waiting",
+  "connector-queue-full":
+    "Too many canvas connector requests are already waiting",
+  "needs-user-action": "Canvas actions require a user action",
+  "agent-needs-user-action": "Agent requests require a user action",
+};
 
 export interface CanvasHostMessageRouterOptions {
   /** Transport back into the canvas (window.postMessage or a MessagePort). */
@@ -80,6 +149,11 @@ export interface CanvasHostMessageRouterOptions {
     url: string,
     reason: ExternalOpenBlockReason,
   ) => void;
+  /** A refused data request, with why. Hosts use this to measure the limits. */
+  onDataRequestRejected?: (
+    reason: CanvasDataRequestRejectReason,
+    method: string,
+  ) => void;
 }
 
 // The host side of the canvas postMessage protocol, shared by the built-
@@ -90,8 +164,38 @@ export function createCanvasHostMessageRouter(
   options: CanvasHostMessageRouterOptions,
 ): (message: CanvasToHostMessage) => Promise<void> {
   let lastExternalOpen = 0;
-  let activeDataRequests = 0;
-  let activeConnectorRequests = 0;
+  const dataSlots = createRequestSlots(
+    MAX_CONCURRENT_DATA_REQUESTS,
+    MAX_QUEUED_DATA_REQUESTS,
+  );
+  const connectorSlots = createRequestSlots(
+    MAX_CONCURRENT_CONNECTOR_REQUESTS,
+    MAX_QUEUED_CONNECTOR_REQUESTS,
+  );
+
+  const refuse = (
+    id: string,
+    method: string,
+    reason: CanvasDataRequestRejectReason,
+  ): void => {
+    options.onDataRequestRejected?.(reason, method);
+    options.post({
+      channel: "posthog-canvas",
+      type: "data-response",
+      id,
+      ok: false,
+      error: REJECT_MESSAGES[reason],
+      retryable:
+        reason === "data-queue-full" || reason === "connector-queue-full",
+    });
+  };
+
+  const slotsFor = (method: string): RequestSlots | null => {
+    // Approval waits must not consume ordinary read/write slots.
+    // Connector calls have their own limit; agent requests are single-flight.
+    if (method === "agentRequest") return null;
+    return method === "connectorCall" ? connectorSlots : dataSlots;
+  };
 
   return async (message) => {
     switch (message.type) {
@@ -103,40 +207,32 @@ export function createCanvasHostMessageRouter(
             message.method === "agentRequest") &&
           !options.hasUserActivation()
         ) {
-          options.post({
-            channel: "posthog-canvas",
-            type: "data-response",
-            id: message.id,
-            ok: false,
-            error:
-              message.method === "agentRequest"
-                ? "Agent requests require a user action"
-                : "Canvas actions require a user action",
-          });
+          refuse(
+            message.id,
+            message.method,
+            message.method === "agentRequest"
+              ? "agent-needs-user-action"
+              : "needs-user-action",
+          );
           break;
         }
-        // Approval waits must not consume ordinary read/write slots.
-        // Connector calls have their own limit; agent requests are single-flight.
-        const isConnectorRequest = message.method === "connectorCall";
-        const holdsSlot =
-          message.method !== "agentRequest" && !isConnectorRequest;
-        if (
-          (holdsSlot && activeDataRequests >= MAX_CONCURRENT_DATA_REQUESTS) ||
-          (isConnectorRequest &&
-            activeConnectorRequests >= MAX_CONCURRENT_CONNECTOR_REQUESTS) ||
-          !isBoundedPayload(message.payload)
-        ) {
-          options.post({
-            channel: "posthog-canvas",
-            type: "data-response",
-            id: message.id,
-            ok: false,
-            error: "Canvas data request exceeds runtime limits",
-          });
+        if (!isBoundedPayload(message.payload)) {
+          refuse(message.id, message.method, "payload-too-large");
           break;
         }
-        if (holdsSlot) activeDataRequests += 1;
-        if (isConnectorRequest) activeConnectorRequests += 1;
+        const slots = slotsFor(message.method);
+        // A refusal here means the canvas stayed saturated for the whole wait,
+        // so the request never ran and the canvas may send it again.
+        if (slots && !(await acquireSlot(slots))) {
+          refuse(
+            message.id,
+            message.method,
+            message.method === "connectorCall"
+              ? "connector-queue-full"
+              : "data-queue-full",
+          );
+          break;
+        }
         try {
           const call = options
             .callbacks()
@@ -172,8 +268,7 @@ export function createCanvasHostMessageRouter(
             error: error instanceof Error ? error.message : String(error),
           });
         } finally {
-          if (holdsSlot) activeDataRequests -= 1;
-          if (isConnectorRequest) activeConnectorRequests -= 1;
+          if (slots) releaseSlot(slots);
         }
         break;
       }

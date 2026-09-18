@@ -8,6 +8,8 @@ import {
 } from "@posthog/core/canvas/freeformSchemas";
 import type { CanvasCapabilities } from "@posthog/shared";
 import { isSafeGitHubPullRequestUrl } from "@posthog/shared";
+import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
+import { track } from "@posthog/ui/shell/analytics";
 import { logger } from "@posthog/ui/shell/logger";
 import { openExternalUrl } from "@posthog/ui/shell/openExternal";
 import { useThemeStore } from "@posthog/ui/shell/themeStore";
@@ -206,6 +208,13 @@ export function BuiltCanvas({
         onCommentActivate: (id) => latest.current.onCommentActivate?.(id),
       }),
       hasUserActivation: () => navigator.userActivation?.isActive === true,
+      onDataRequestRejected: (reason, method) => {
+        track(ANALYTICS_EVENTS.CANVAS_DATA_REQUEST_REJECTED, {
+          surface: "built",
+          reason,
+          method,
+        });
+      },
       // Only validated GitHub PR links skip confirmation after the gesture gate.
       openExternal: (url) => {
         if (

@@ -103,49 +103,88 @@ describe("decodeJsxUnicodeEscapes", () => {
   });
 });
 
+interface PostedMessage {
+  type: string;
+  id: string;
+  method?: string;
+  [key: string]: unknown;
+}
+
+interface PublishedRuntimeApi {
+  navigate: {
+    toNewTask: (options: { prompt: string; repository: string }) => void;
+  };
+  openExternal: (url: string) => void;
+  state: { get: (key: string) => Promise<unknown> };
+}
+
+// Boots the published runtime (a string bundle) against stub globals and
+// connects a fake host port, so a test can drive `ph.*` and answer the
+// protocol messages it posts.
+function bootPublishedRuntime(): {
+  ph: PublishedRuntimeApi;
+  userActivation: { isActive: boolean };
+  posted: PostedMessage[];
+  requests: () => PostedMessage[];
+  respond: (id: string, body: Record<string, unknown>) => void;
+} {
+  const source = builderSource.match(/const runtime = `([^`]*)`/)?.[1];
+  if (!source) throw new Error("Published runtime not found");
+  const listeners = new Map<string, (event: unknown) => void>();
+  const portListeners = new Map<string, (event: unknown) => void>();
+  const posted: PostedMessage[] = [];
+  const port = {
+    postMessage: (message: PostedMessage) => posted.push(message),
+    addEventListener: (name: string, listener: (event: unknown) => void) =>
+      portListeners.set(name, listener),
+    start: vi.fn(),
+  };
+  const frame = { ph: undefined as unknown as PublishedRuntimeApi };
+  const userActivation = { isActive: true };
+  const parent = {};
+  new Function(
+    "window",
+    "document",
+    "location",
+    "parent",
+    "navigator",
+    "addEventListener",
+    source,
+  )(
+    frame,
+    document,
+    { hash: "" },
+    parent,
+    { userActivation },
+    (name: string, listener: (event: unknown) => void) =>
+      listeners.set(name, listener),
+  );
+  listeners.get("message")?.({
+    source: parent,
+    data: { channel: "posthog-canvas", type: "connect" },
+    ports: [port],
+  });
+  return {
+    ph: frame.ph,
+    userActivation,
+    posted,
+    requests: () => posted.filter((message) => message.type === "data-request"),
+    respond: (id, body) =>
+      portListeners.get("message")?.({
+        data: { channel: "posthog-canvas", type: "data-response", id, ...body },
+      }),
+  };
+}
+
 describe("buildSandboxDocument", () => {
   it("publishes navigation and the same GitHub URL restriction as the host", () => {
-    const source = builderSource.match(/const runtime = `([^`]*)`/)?.[1];
-    if (!source) throw new Error("Published runtime not found");
-    const listeners = new Map<string, (event: unknown) => void>();
-    const postMessage = vi.fn();
-    const frame = {
-      ph: undefined as unknown as {
-        navigate: {
-          toNewTask: (options: { prompt: string; repository: string }) => void;
-        };
-        openExternal: (url: string) => void;
-      },
-    };
-    const userActivation = { isActive: true };
-    const parent = {};
-    new Function(
-      "window",
-      "document",
-      "location",
-      "parent",
-      "navigator",
-      "addEventListener",
-      source,
-    )(
-      frame,
-      document,
-      { hash: "" },
-      parent,
-      { userActivation },
-      (name: string, listener: (event: unknown) => void) =>
-        listeners.set(name, listener),
-    );
-    listeners.get("message")?.({
-      source: parent,
-      data: { channel: "posthog-canvas", type: "connect" },
-      ports: [{ postMessage, addEventListener: vi.fn(), start: vi.fn() }],
-    });
-    frame.ph.navigate.toNewTask({
+    const { ph, userActivation, posted } = bootPublishedRuntime();
+
+    ph.navigate.toNewTask({
       prompt: "Inspect this PR",
       repository: "example/app",
     });
-    expect(postMessage).toHaveBeenCalledWith({
+    expect(posted.at(-1)).toEqual({
       channel: "posthog-canvas",
       type: "navigate",
       nav: {
@@ -154,26 +193,69 @@ describe("buildSandboxDocument", () => {
         repository: "example/app",
       },
     });
-    frame.ph.openExternal("https://github.com/example/app/pull/42");
-    expect(postMessage).toHaveBeenLastCalledWith({
+    ph.openExternal("https://github.com/example/app/pull/42");
+    expect(posted.at(-1)).toEqual({
       channel: "posthog-canvas",
       type: "open-external",
       url: "https://github.com/example/app/pull/42",
     });
-    expect(() => frame.ph.openExternal("https://github.com/login")).toThrow(
+    expect(() => ph.openExternal("https://github.com/login")).toThrow(
       "not allowed",
     );
     expect(() =>
-      frame.ph.openExternal("https://github.com.evil.com/example/app/pull/42"),
+      ph.openExternal("https://github.com.evil.com/example/app/pull/42"),
     ).toThrow("not allowed");
     userActivation.isActive = false;
     expect(() =>
-      frame.ph.navigate.toNewTask({
-        prompt: "Inspect",
-        repository: "example/app",
-      }),
+      ph.navigate.toNewTask({ prompt: "Inspect", repository: "example/app" }),
     ).toThrow("user action");
   });
+
+  // A canvas that fans out more requests than the host runs at once gets its
+  // extras refused once the host queue is full. Before the retry the cards
+  // stayed broken until someone refreshed the whole canvas.
+  it("sends a refused request again when the host marks it retryable", async () => {
+    vi.useFakeTimers();
+    try {
+      const { ph, requests, respond } = bootPublishedRuntime();
+      const read = ph.state.get("board");
+
+      respond(requests()[0].id, {
+        ok: false,
+        error: "Too many canvas data requests are already waiting",
+        retryable: true,
+      });
+      await vi.advanceTimersByTimeAsync(2_000);
+
+      expect(requests()).toHaveLength(2);
+      const retry = requests()[1];
+      expect(retry.method).toBe("stateGet");
+      respond(retry.id, { ok: true, result: { columns: 3 } });
+      await expect(read).resolves.toEqual({ columns: 3 });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("gives up on a refusal the host does not mark retryable", async () => {
+    const { ph, requests, respond } = bootPublishedRuntime();
+    const read = ph.state.get("board");
+
+    respond(requests()[0].id, {
+      ok: false,
+      error: "Canvas data request is over the 64KB payload limit",
+    });
+
+    await expect(read).rejects.toThrow("64KB payload limit");
+    expect(requests()).toHaveLength(1);
+  });
+
+  it("sends a refused request again in the authoring sandbox too", () => {
+    const html = buildSandboxDocument();
+    expect(html).toContain("d.retryable === true");
+    expect(html).toContain("call(method, payload, attempt + 1)");
+  });
+
   it("inlines the unicode-escape decoder into the bootstrap", () => {
     const html = buildSandboxDocument();
     expect(html).toContain(
