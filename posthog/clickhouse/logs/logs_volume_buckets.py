@@ -19,8 +19,13 @@ from posthog.clickhouse.table_engines import AggregatingMergeTree, Distributed, 
 # series per day are few enough that a dims-early key would make every granule
 # span the whole day.
 #
-# TTL is 42 days (6 weekly samples per time-of-week slot), independent of raw
-# log retention.
+# TTL is 42 days (6 weekly samples per time-of-week slot) or the team's log
+# retention, whichever is longer, so a team that keeps raw logs for longer than
+# the baseline window keeps the rollup alongside them. `retention_days` carries
+# the per-row retention the ingest path applied, which is why it sits in the
+# key: a team that changes retention gets new series rather than rows whose TTL
+# depends on merge order. With ttl_only_drop_parts a part waits for its longest
+# lived row, so mixed retentions round up, never down.
 
 TABLE_NAME = "logs_volume_buckets"
 
@@ -35,12 +40,14 @@ CREATE TABLE IF NOT EXISTS {settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE}.{TABLE_NA
     `namespace` LowCardinality(String),
     `environment` LowCardinality(String),
     `severity_text` LowCardinality(String),
+    `retention_days` UInt16,
     `log_count` SimpleAggregateFunction(sum, UInt64)
 )
 ENGINE = {AggregatingMergeTree(TABLE_NAME, replication_scheme=ReplicationScheme.REPLICATED)}
 PARTITION BY toDate(time_bucket)
-ORDER BY (team_id, time_bucket, service_name, namespace, environment, severity_text)
-TTL time_bucket + INTERVAL 42 DAY
+PRIMARY KEY (team_id, time_bucket, service_name, namespace, environment, severity_text)
+ORDER BY (team_id, time_bucket, service_name, namespace, environment, severity_text, retention_days)
+TTL time_bucket + toIntervalDay(greatest(42, retention_days))
 SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1
 """
 
