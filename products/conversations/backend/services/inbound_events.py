@@ -11,7 +11,6 @@ from uuid import UUID
 
 from django.db import IntegrityError, transaction
 from django.db.models import Q, QuerySet
-from django.http import HttpRequest
 from django.utils import timezone
 
 import structlog
@@ -97,13 +96,6 @@ def slack_retry_metadata_from_values(*, raw_retry_num: str, retry_reason: str) -
     if retry_num < 0:
         return None, reason
     return retry_num, reason
-
-
-def slack_retry_metadata(request: HttpRequest) -> tuple[int | None, str]:
-    return slack_retry_metadata_from_values(
-        raw_retry_num=request.headers.get("X-Slack-Retry-Num") or "",
-        retry_reason=request.headers.get("X-Slack-Retry-Reason") or "",
-    )
 
 
 def slack_events_source_id(*, event_id: str | None, signed_body: bytes) -> str:
