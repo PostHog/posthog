@@ -929,12 +929,24 @@ class Resolver(CloningVisitor):
         # Track CTEs defined at this level (will be attached to new_node)
         current_level_ctes: dict[str, ast.CTE] | None = None
 
-        # First step: resolve all the "WITH" CTEs onto "self.ctes" if there are any
+        # First step: resolve the "WITH" CTEs onto "self.ctes" if there are any.
+        # Subquery CTEs must resolve before FROM, which may reference them. Scalar
+        # ("column") aliases are resolved eagerly too when possible, but an alias that
+        # needs the table scope (e.g. `WITH toStartOfDay(timestamp) AS day`) is deferred
+        # until after the FROM clause is visited, matching ClickHouse semantics.
+        deferred_ctes: list[ast.CTE] = []
         if node.ctes:
             self.ctes = dict(parent_ctes)
             current_level_ctes = {}
             for cte in node.ctes.values():
-                resolved_cte = self.visit(cte)
+                if cte.cte_type == "column":
+                    try:
+                        resolved_cte = self.visit(cte)
+                    except QueryError:
+                        deferred_ctes.append(cte)
+                        continue
+                else:
+                    resolved_cte = self.visit(cte)
                 current_level_ctes[cte.name] = resolved_cte
             node_type.ctes = current_level_ctes
         else:
@@ -956,6 +968,15 @@ class Resolver(CloningVisitor):
 
         # Visit the FROM clauses first. This resolves all table aliases onto self.scopes[-1]
         new_node.select_from = self.visit(node.select_from)
+
+        # Resolve any deferred scalar WITH aliases now that the FROM scope exists, then
+        # restore the WITH clause's written order
+        for cte in deferred_ctes:
+            current_level_ctes[cte.name] = self.visit(cte)
+        if deferred_ctes:
+            ordered_ctes = {name: current_level_ctes[name] for name in node.ctes}
+            current_level_ctes.clear()
+            current_level_ctes.update(ordered_ctes)
 
         if node.limit_percent and self.dialect not in _POSTGRES_FAMILY and self.dialect != "trino":
             if self.dialect == "clickhouse":
