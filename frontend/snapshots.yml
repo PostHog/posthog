@@ -6048,6 +6048,10 @@ snapshots:
         hash: v1.k794b7964.b9a43443a726379620a7b8fcb5a97d6f42eb092717a96a050c1d60e4850d7f29.pqYVY5w4VqCVPWENMeYL5kO5uRWJ3YGEAh2gPbkpg_U
     products-mcp-analytics-feedback-prompt--contextual-copy--light:
         hash: v1.k794b7964.d065e4cb7ecb9502ba7374baaf23d2c0cc4f0885abfcb2e807b6b814e5fdd3d0.tqChEQrfpmRX7tuHb1yU-8v1NiwD-WMDKzBHOirvgEQ
+    products-mcp-analytics-feedback-prompt--dashboard--dark:
+        hash: v1.k794b7964.abf05309b6d53f8ed5bd4e95f172d010aa16182aa688e2a7af19f0a90e333b90.4ej0K229S4L1BIvzue7WJmsGoHdwKJnaVjBNBXxGmU8
+    products-mcp-analytics-feedback-prompt--dashboard--light:
+        hash: v1.k794b7964.ab004091751bca87390230b89d22d97e155e9a88e638e29c5ded1c28fbd13137.a81ftUX03UAAVNhH0EZJG8UrSCuk9pNWO8JIv8hF1HI
     products-mcp-analytics-feedback-prompt--default--dark:
         hash: v1.k794b7964.7c336ecc0b0049054b4a219dea0d12091417decdbf348f9000428570bcca6167.UalRR5QQm9N4vreFdBsJT71WOiU2wexgEXUFTh332Sc
     products-mcp-analytics-feedback-prompt--default--light:

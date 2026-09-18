@@ -119,14 +119,7 @@ class SandboxSession(BaseSandboxService):
         super().__init__(team=conversation.team, user=user)
         self.conversation: Conversation = conversation
 
-    def open(
-        self,
-        data: Mapping[str, Any],
-        *,
-        resumed_context: str | None = None,
-        convert_to_acp: bool = False,
-        repository: str | None = None,
-    ) -> SandboxRouteResult | None:
+    def open(self, data: Mapping[str, Any], *, repository: str | None = None) -> SandboxRouteResult | None:
         task = self.conversation.task
         if task is not None and (task.created_by_id != self.conversation.user_id or task.created_by_id != self.user.id):
             detach_conversations_for_task_handoff(task.id, task.created_by_id)
@@ -146,16 +139,13 @@ class SandboxSession(BaseSandboxService):
         attached_context = self._validate_attached_context(data.get("attached_context"))
 
         if self.conversation.task_id is None:
-            # `resumed_context` / `convert_to_acp` only apply to the conversion event, which is
-            # always a first message (the gate requires `task_id is None`). `repository` is the
-            # auto-routed repo for this first message — followups/resumes reuse the existing Task.
+            # `repository` is the auto-routed repo for this first message — followups/resumes reuse
+            # the existing Task.
             return self._handle_first_message(
                 content=content,
                 trace_id=trace_id,
                 attached_context=attached_context,
                 initial_permission_mode=initial_permission_mode,
-                resumed_context=resumed_context,
-                convert_to_acp=convert_to_acp,
                 repository=repository,
             )
 
@@ -268,18 +258,12 @@ class SandboxSession(BaseSandboxService):
         trace_id: str | None,
         attached_context: list[AttachedContext],
         initial_permission_mode: InitialPermissionMode,
-        resumed_context: str | None = None,
-        convert_to_acp: bool = False,
         repository: str | None = None,
     ) -> SandboxRouteResult:
         context_service = ContextService()
         # First turn — the prior-seen set is empty, so dedupe is a no-op.
         deduped = context_service.prune_repeated_entity_refs(attached_context, prior=[])
         wrapped = context_service.wrap_user_message(content, deduped)
-        if resumed_context:
-            # Conversion event: lead the first prompt with the legacy conversation window so the
-            # sandbox agent has continuity, then the user's own attachments + message.
-            wrapped = f"{resumed_context}\n\n{wrapped}"
 
         system_prompt = PromptService(self.team, self.user).build()
 
@@ -312,36 +296,31 @@ class SandboxSession(BaseSandboxService):
             initial_permission_mode=initial_permission_mode,
             interaction_origin=POSTHOG_AI_INTERACTION_ORIGIN,
             pending_user_message=wrapped,
-            converted_from_langgraph=convert_to_acp,
         )
         state_updates = ph_state.model_dump(mode="json", by_alias=True, exclude_unset=True)
         # Persist the enriched run state and conversation linkage together, under the row lock so a
-        # concurrent first message / conversion in another tab can't double-link. Re-check
-        # `task_id is None` inside the lock; a half-write would orphan the run (enriched state, but
-        # conversation.task still NULL) and the next retry would look like a fresh first message. On
-        # a conversion, the runtime flip to sandbox happens here too, atomically with the link.
+        # concurrent first message in another tab can't double-link. Re-check `task_id is None`
+        # inside the lock; a half-write would orphan the run (enriched state, but conversation.task
+        # still NULL) and the next retry would look like a fresh first message. A conversation
+        # linked to a task is on the sandbox runtime, whatever runtime it was born on.
+        previous_runtime = self.conversation.agent_runtime
         with lock_conversation_for_followup(str(self.conversation.id), self.team.pk) as locked:
             if locked.task_id is not None:
                 raise Conflict("This conversation was just resumed in another tab. Please try again.")
             tasks_facade.update_task_run_state(run_dto.id, updates=state_updates)
             locked.task_id = created.task_id
-            update_fields = ["task", "updated_at"]
-            if convert_to_acp:
-                locked.agent_runtime = Conversation.AgentRuntime.SANDBOX
-                update_fields = ["task", "agent_runtime", "updated_at"]
-            locked.save(update_fields=update_fields)
+            locked.agent_runtime = Conversation.AgentRuntime.SANDBOX
+            locked.save(update_fields=["task", "agent_runtime", "updated_at"])
 
         # Mirror the committed writes onto the in-memory instance for the response + the rollback below.
         self.conversation.task_id = created.task_id
-        if convert_to_acp:
-            self.conversation.agent_runtime = Conversation.AgentRuntime.SANDBOX
+        self.conversation.agent_runtime = Conversation.AgentRuntime.SANDBOX
 
         # Start the run after the commit. `posthog_mcp_scopes="full"` mirrors the legacy
         # first-message path: the agent creates insights, dashboards, and notebooks, so it
         # needs write scopes (the workflow client otherwise defaults to read-only). If the
-        # start fails, un-link the conversation so the user's retry is a fresh first message
-        # rather than a follow-up onto a run that never started; on a conversion, also revert the
-        # runtime flip so the user is left on a clean idle LangGraph conversation.
+        # start fails, un-link the conversation and restore its runtime so the user's retry is a
+        # fresh first message rather than a follow-up onto a run that never started.
         try:
             dispatch_task_processing_workflow(
                 task_id=str(created.task_id),
@@ -353,11 +332,8 @@ class SandboxSession(BaseSandboxService):
             )
         except Exception:
             self.conversation.task_id = None
-            revert_fields = ["task", "updated_at"]
-            if convert_to_acp:
-                self.conversation.agent_runtime = Conversation.AgentRuntime.LANGGRAPH
-                revert_fields = ["task", "agent_runtime", "updated_at"]
-            self.conversation.save(update_fields=revert_fields)
+            self.conversation.agent_runtime = previous_runtime
+            self.conversation.save(update_fields=["task", "agent_runtime", "updated_at"])
             raise
 
         return SandboxRouteResult(
