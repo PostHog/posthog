@@ -13,6 +13,7 @@ import {
     enrichLogRecordWithJsonAttributes,
     extractJsonAttributesFromBody,
     flattenJson,
+    logProcessingDurationHistogram,
     logsJsonAttributeSniffCounter,
     logsJsonEnrichmentSkippedCounter,
     processLogMessageBuffer,
@@ -451,7 +452,7 @@ describe('log-record-avro', () => {
                 expect(record).toEqual(original)
                 expect(record.attributes).toBe(attributes)
                 expect((await logsJsonEnrichmentSkippedCounter.get()).values).toEqual([
-                    expect.objectContaining({ labels: { reason: 'output_size' }, value: 1 }),
+                    expect.objectContaining({ labels: { reason: 'output_size', source: 'body' }, value: 1 }),
                 ])
             } else {
                 expect(record).toEqual({ ...original, attributes: { existing: 'true', a: '"é"' } })
@@ -481,7 +482,7 @@ describe('log-record-avro', () => {
 
             expect(decoded).toEqual([{ ...record, bytes_uncompressed: null }])
             expect((await logsJsonEnrichmentSkippedCounter.get()).values).toEqual([
-                expect.objectContaining({ labels: { reason }, value: 1 }),
+                expect.objectContaining({ labels: { reason, source: 'body' }, value: 1 }),
             ])
         })
 
@@ -668,7 +669,7 @@ describe('log-record-avro', () => {
             enrichLogRecordFromJsonAttribute(record, 'payload')
             expect(record).toEqual(original)
             expect((await logsJsonEnrichmentSkippedCounter.get()).values).toEqual([
-                expect.objectContaining({ labels: { reason }, value: 1 }),
+                expect.objectContaining({ labels: { reason, source: 'selected_attribute' }, value: 1 }),
             ])
         })
 
@@ -676,6 +677,7 @@ describe('log-record-avro', () => {
             const record = createRecord({ attributes: { payload: JSON.stringify({ count: 7 }) } })
             const buffer = await encodeLogRecords(LOG_RECORD_SCHEMA, 'zstandard', [record])
             const visitor = jest.fn()
+            logProcessingDurationHistogram.reset()
             const result = await processLogMessageBuffer(
                 buffer,
                 { json_parse_logs_attribute_key: 'payload' },
@@ -685,6 +687,19 @@ describe('log-record-avro', () => {
             expect(records[0].attributes).toEqual({ ...record.attributes, 'payload.count': '7' })
             expect(visitor.mock.calls[0][0][0].attributes).toEqual(records[0].attributes)
             expect(result.pii).toEqual({ piiReplacements: 0 })
+            // Extraction-only traffic needs its own duration series. Without the label, its cost
+            // merges into the bucket that body parsing, scrubbing and untransformed traffic share.
+            expect((await logProcessingDurationHistogram.get()).values).toContainEqual(
+                expect.objectContaining({
+                    metricName: 'logs_ingestion_processing_duration_seconds_count',
+                    labels: expect.objectContaining({
+                        json_parse_enabled: 'false',
+                        pii_scrub_enabled: 'false',
+                        attribute_extraction_enabled: 'true',
+                    }),
+                    value: 1,
+                })
+            )
         })
 
         it('gives sender attributes priority over selected JSON, then body JSON', async () => {

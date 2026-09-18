@@ -89,8 +89,8 @@ export const recordLogsReceived = swallowing((bytes: number, records: number): v
     addPositive(recordsReceived, records)
 })
 
-export const recordJsonEnrichmentSkipped = swallowing((reason: string): void => {
-    getInstruments().jsonEnrichmentSkipped.add(1, { reason })
+export const recordJsonEnrichmentSkipped = swallowing((reason: string, source: string): void => {
+    getInstruments().jsonEnrichmentSkipped.add(1, { reason, source })
 })
 
 export const recordLogsAllowed = swallowing((bytes: number, records: number): void => {
@@ -117,7 +117,12 @@ export const recordLogMessageDlq = swallowing((reason: string, teamId: string): 
 export const recordLogProcessingDuration = swallowing(
     (
         seconds: number,
-        attributes: { json_parse_enabled: string; pii_scrub_enabled: string; compression_codec: string }
+        attributes: {
+            json_parse_enabled: string
+            pii_scrub_enabled: string
+            attribute_extraction_enabled: string
+            compression_codec: string
+        }
     ): void => {
         getInstruments().processingDuration.record(seconds, attributes)
     }

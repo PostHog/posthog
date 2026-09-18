@@ -31,10 +31,10 @@ const SPAN_LOGS_PROCESS_BUFFER = 'logsIngestionConsumer.handleEachBatch.processL
 
 const logRecordProcessInstrumentOpts = { measureTime: false, sendException: false } as const
 
-const logProcessingDurationHistogram = new Histogram({
+export const logProcessingDurationHistogram = new Histogram({
     name: 'logs_ingestion_processing_duration_seconds',
     help: 'Time spent processing log messages (AVRO decode/encode cycle)',
-    labelNames: ['json_parse_enabled', 'pii_scrub_enabled', 'compression_codec'],
+    labelNames: ['json_parse_enabled', 'pii_scrub_enabled', 'attribute_extraction_enabled', 'compression_codec'],
     buckets: [0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1],
 })
 
@@ -47,12 +47,18 @@ export const logsJsonAttributeSniffCounter = new Counter({
 export const logsJsonEnrichmentSkippedCounter = new Counter({
     name: 'logs_ingestion_json_enrichment_skipped_total',
     help: 'Log JSON enrichment skipped because a size or traversal budget was exceeded',
-    labelNames: ['reason'],
+    labelNames: ['reason', 'source'],
 })
 
-function recordJsonEnrichmentSkip(reason: 'input_size' | 'flatten_budget' | 'output_size'): void {
-    logsJsonEnrichmentSkippedCounter.inc({ reason })
-    recordJsonEnrichmentSkipped(reason)
+/** Which enrichment path hit the budget: the log body, or the configured JSON attribute. */
+type JsonEnrichmentSource = 'body' | 'selected_attribute'
+
+function recordJsonEnrichmentSkip(
+    reason: 'input_size' | 'flatten_budget' | 'output_size',
+    source: JsonEnrichmentSource
+): void {
+    logsJsonEnrichmentSkippedCounter.inc({ reason, source })
+    recordJsonEnrichmentSkipped(reason, source)
 }
 
 export function sniffJsonLogAttributes(
@@ -357,7 +363,7 @@ function jsonAttributesFromBodyParse(bodyParse: LogBodyParseResult): Record<stri
 
     const flattened = flattenJsonWithBudget(bodyParse.value)
     if (flattened === null) {
-        recordJsonEnrichmentSkip('flatten_budget')
+        recordJsonEnrichmentSkip('flatten_budget', 'body')
         return {}
     }
     return flattened.attributes
@@ -369,13 +375,18 @@ function jsonAttributesFromBodyParse(bodyParse: LogBodyParseResult): Record<stri
  */
 export function extractJsonAttributesFromBody(body: string | null): Record<string, string> {
     if (body && Buffer.byteLength(body) > MAX_LOG_RECORD_BYTES) {
-        recordJsonEnrichmentSkip('input_size')
+        recordJsonEnrichmentSkip('input_size', 'body')
         return {}
     }
     return jsonAttributesFromBodyParse(parseLogBodyForIngestion(body))
 }
 
-function addJsonAttributes(record: LogRecord, jsonAttributes: Record<string, string>, recordBytes: number): void {
+function addJsonAttributes(
+    record: LogRecord,
+    jsonAttributes: Record<string, string>,
+    recordBytes: number,
+    source: JsonEnrichmentSource
+): void {
     if (Object.keys(jsonAttributes).length === 0) {
         return
     }
@@ -383,7 +394,7 @@ function addJsonAttributes(record: LogRecord, jsonAttributes: Record<string, str
         if (!record.attributes || !Object.hasOwn(record.attributes, key)) {
             recordBytes += Buffer.byteLength(key) + Buffer.byteLength(value)
             if (recordBytes > MAX_LOG_RECORD_BYTES) {
-                recordJsonEnrichmentSkip('output_size')
+                recordJsonEnrichmentSkip('output_size', source)
                 return
             }
         }
@@ -407,7 +418,7 @@ export function enrichLogRecordWithJsonAttributes(record: LogRecord, bodyParse?:
     }
 
     if (Buffer.byteLength(record.body) > MAX_LOG_RECORD_BYTES) {
-        recordJsonEnrichmentSkip('input_size')
+        recordJsonEnrichmentSkip('input_size', 'body')
         return record
     }
 
@@ -417,11 +428,11 @@ export function enrichLogRecordWithJsonAttributes(record: LogRecord, bodyParse?:
     }
     const recordBytes = logRecordSizeBytes(record)
     if (recordBytes > MAX_LOG_RECORD_BYTES) {
-        recordJsonEnrichmentSkip('input_size')
+        recordJsonEnrichmentSkip('input_size', 'body')
         return record
     }
     const jsonAttributes = jsonAttributesFromBodyParse(parse)
-    addJsonAttributes(record, jsonAttributes, recordBytes)
+    addJsonAttributes(record, jsonAttributes, recordBytes, 'body')
 
     return record
 }
@@ -432,7 +443,7 @@ export function enrichLogRecordFromJsonAttribute(record: LogRecord, key: string)
     }
     const recordBytes = logRecordSizeBytes(record)
     if (recordBytes > MAX_LOG_RECORD_BYTES) {
-        recordJsonEnrichmentSkip('input_size')
+        recordJsonEnrichmentSkip('input_size', 'selected_attribute')
         return
     }
     let parsed: unknown
@@ -449,10 +460,10 @@ export function enrichLogRecordFromJsonAttribute(record: LogRecord, key: string)
     }
     const flattened = flattenJsonWithBudget(parsed, key, MAX_JSON_ATTRIBUTES, MAX_LOG_RECORD_BYTES, 'string')
     if (flattened === null) {
-        recordJsonEnrichmentSkip('flatten_budget')
+        recordJsonEnrichmentSkip('flatten_budget', 'selected_attribute')
         return
     }
-    addJsonAttributes(record, flattened.attributes, recordBytes)
+    addJsonAttributes(record, flattened.attributes, recordBytes, 'selected_attribute')
 }
 
 const enrichBatchJsonAttributes = instrumented({
@@ -578,6 +589,7 @@ export const processLogMessageBuffer = instrumented({
     // Read only by the duration labels in the `finally`, which the passthrough return never reaches.
     const jsonParse = settings.json_parse_logs ?? false
     const piiScrub = settings.pii_scrub_logs ?? false
+    const attributeExtraction = Boolean(settings.json_parse_logs_attribute_key)
     const startTime = Date.now()
     let codec = 'unknown'
 
@@ -615,6 +627,7 @@ export const processLogMessageBuffer = instrumented({
         const durationLabels = {
             json_parse_enabled: String(jsonParse),
             pii_scrub_enabled: String(piiScrub),
+            attribute_extraction_enabled: String(attributeExtraction),
             compression_codec: codec,
         }
         logProcessingDurationHistogram.observe(durationLabels, durationSeconds)
