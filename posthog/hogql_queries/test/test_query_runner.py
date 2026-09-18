@@ -187,7 +187,7 @@ def _calculate_without_clickhouse(_self):
     return TheTestBasicQueryResponse(results=[])
 
 
-def _add_user_modifier(_user, _team, modifiers):
+def _add_user_modifier(_user: User, _team: Team, modifiers: HogQLQueryModifiers | None) -> HogQLQueryModifiers:
     changed = (modifiers or HogQLQueryModifiers()).model_copy()
     changed.typeAwareCastSimplification = True
     return changed
@@ -469,7 +469,7 @@ class TestQueryRunner(BaseTest):
         validation_rule.validate.assert_called_once_with(runner.validation_context)
         mock_calculate.assert_not_called()
 
-    def test_fresh_run_reports_its_own_phase_times_on_the_query_executed_event(self):
+    def test_fresh_run_reports_its_own_phase_times_on_the_query_executed_event(self) -> None:
         TestQueryRunner = self.setup_test_query_runner_class()
         runner = TestQueryRunner(query={"some_attr": "bla"}, team=self.team)
         with mock.patch("posthog.hogql_queries.query_runner.report_user_or_team_action") as report:
@@ -809,7 +809,7 @@ class TestQueryRunner(BaseTest):
         cache_key = runner.get_cache_key()
         assert cache_key == "cache_42_580a20072d3930f66666356574843255ba9418ff58cc0fc92d019bf8bf1cf972"
 
-    def test_query_identity_splits_the_query_from_how_it_is_answered(self):
+    def test_query_identity_splits_the_query_from_how_it_is_answered(self) -> None:
         TestQueryRunner = self.setup_test_query_runner_class()
         team = self.team
 
@@ -835,7 +835,7 @@ class TestQueryRunner(BaseTest):
         changed = TestQueryRunner(query={"some_attr": "different"}, team=team).get_query_identity()
         assert changed.query_hash != base.query_hash
 
-    def test_cache_hit_and_fresh_events_carry_one_identity(self):
+    def test_cache_hit_and_fresh_events_carry_one_identity(self) -> None:
         runner_class = setup_test_query_runner_class()
         with (
             mock.patch(
@@ -857,7 +857,7 @@ class TestQueryRunner(BaseTest):
         assert fresh_props["query_hash"] == hit_props["query_hash"]
         assert fresh_props["runtime_hash"] == hit_props["runtime_hash"]
 
-    def test_fresh_event_carries_clickhouse_counters_with_the_scan_flag_off(self):
+    def test_fresh_event_carries_clickhouse_counters_with_the_scan_flag_off(self) -> None:
         TestQueryRunner = self.setup_test_query_runner_class()
         runner = TestQueryRunner(query={"some_attr": "bla"}, team=self.team, user=self.user)
         with (
@@ -885,12 +885,12 @@ class TestQueryRunner(BaseTest):
         ]
     )
     def test_a_run_that_raises_sends_one_failure_event_and_no_success_event(
-        self, _name, where, failed_in, error_class, outcome
-    ):
+        self, _name: str, where: str, failed_in: str, error_class: type[Exception], outcome: str
+    ) -> None:
         TestQueryRunner = self.setup_test_query_runner_class()
         runner = TestQueryRunner(query={"some_attr": "bla"}, team=self.team, user=self.user)
 
-        def calculate_until_clickhouse_gives_up(_self):
+        def calculate_until_clickhouse_gives_up(_self: QueryRunner) -> None:
             record(rows_read=90, duration_ms=400.0, workload="ONLINE")
             raise error_class()
 
