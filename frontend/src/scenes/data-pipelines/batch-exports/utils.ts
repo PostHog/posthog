@@ -1,7 +1,8 @@
 import { dayjs } from 'lib/dayjs'
 import type { LemonTagType } from 'lib/lemon-ui/LemonTag'
+import { capitalizeFirstLetter } from 'lib/utils/strings'
 
-import type { BatchExportRun, BatchExportService } from '~/types'
+import type { BatchExportInterval, BatchExportRun, BatchExportService } from '~/types'
 import { BATCH_EXPORT_SERVICE_NAMES } from '~/types'
 
 export const humanizeBatchExportName = (service: BatchExportService['type']): string => {
@@ -28,6 +29,19 @@ export const humanizeBatchExportDescription = (service: BatchExportService['type
             return 'Batch export data to an S3-compatible destination'
         default:
             return `${humanizeBatchExportName(service)} batch export`
+    }
+}
+
+export const humanizeBatchExportInterval = (interval: BatchExportInterval): string => {
+    switch (interval) {
+        case 'hour':
+            return 'Hourly'
+        case 'day':
+            return 'Daily'
+        case 'week':
+            return 'Weekly'
+        default:
+            return capitalizeFirstLetter(interval)
     }
 }
 
