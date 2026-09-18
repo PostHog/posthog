@@ -59,6 +59,8 @@ const INTERNAL_DESTINATION_CONTEXT: Partial<
         url: urls.healthAlerts(),
     },
     'batch-export-alerts': { label: 'Batch export alerts' },
+    'billing-alerts': { label: 'Billing alerts' },
+    'replay-vision-alerts': { label: 'Replay vision alerts' },
 }
 
 function NotificationContextTag({ hogFunction }: { hogFunction: HogFunctionType }): JSX.Element | null {
@@ -144,7 +146,9 @@ export function HogFunctionList({
         { label: 'All sources', value: null },
         ...notificationSources
             .map((contextId) => ({
-                label: INTERNAL_DESTINATION_CONTEXT[contextId]?.label ?? contextId,
+                // An internal event with no entry above falls back to the 'standard' context id,
+                // which is an internal token rather than something to show a person.
+                label: INTERNAL_DESTINATION_CONTEXT[contextId]?.label ?? 'Other',
                 value: contextId,
             }))
             .sort((a, b) => a.label.localeCompare(b.label)),
