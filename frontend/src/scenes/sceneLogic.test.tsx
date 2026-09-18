@@ -357,6 +357,22 @@ describe('sceneLogic', () => {
             expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(urls.projectHomepage())
         })
 
+        // The way out of the dead end must keep the URL state the `/` → homepage redirect already
+        // forwards, or a modal bound to `?modal=` closes itself as the person lands on the launchpad.
+        it('carries the hash and allow-listed params onto the launchpad when it drops the homepage', async () => {
+            logic.actions.setHomepage(dashboardHomepage)
+            router.actions.push(urls.projectHomepage(), { modal: 'invite-members' }, { panel: 'max:hi' })
+            await expectLogic(logic).delay(1)
+            expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(urls.dashboard(42))
+
+            logic.actions.resetUnavailableHomepage(urls.dashboard(42))
+            await expectLogic(logic).delay(1)
+
+            expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(urls.projectHomepage())
+            expect(router.values.searchParams).toEqual({ modal: 'invite-members' })
+            expect(router.values.hashParams).toEqual({ panel: 'max:hi' })
+        })
+
         // The reset fires from whichever logic found its object missing, and dashboard logics are
         // also mounted embedded — in notebooks, on the feature flag page — so a missing object that
         // is not the homepage must leave both the setting and the address bar alone.

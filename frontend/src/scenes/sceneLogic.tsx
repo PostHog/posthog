@@ -714,8 +714,18 @@ export const sceneLogic = kea<sceneLogicType>([
             }
             actions.setHomepage(null)
             lemonToast.info('Your home pointed to something that no longer exists, so we reset it.')
-            if (addProjectIdIfMissing(router.values.currentLocation.pathname) === target) {
-                router.actions.replace(urls.projectHomepage())
+            const location = router.values.currentLocation
+            if (addProjectIdIfMissing(location.pathname) === target) {
+                // Carry the hash and allow-listed params over, as the `/` → homepage redirect does,
+                // so a modal bound to `?modal=` does not close on the way out.
+                router.actions.replace(
+                    withForwardedHashAndSearchParams(
+                        urls.projectHomepage(),
+                        location.searchParams,
+                        location.hashParams,
+                        forwardedRedirectQueryParams
+                    )
+                )
             }
         },
         setHomepage: ({ tab }) => {
