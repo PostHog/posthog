@@ -508,7 +508,7 @@ function EmptyShelf({
                 }}
             >
                 Nothing to watch here. None of the people exposed between {covered.from} and {covered.to} had a session
-                we can see since being exposed, looking up to a day after each exposure, so there was nothing to
+                we can see since being exposed, looking up to a week after each exposure, so there was nothing to
                 compare. Sessions only exist where a browser or mobile SDK captured events.
             </LemonBanner>
         )
@@ -714,7 +714,7 @@ function ShelfCaption({
     const covered = coveredWindow(deltas)
     const details = [
         'Each variant is compared against the others on which events people did, counting each person once, in their first session after they were exposed and only from that moment on. Cards only appear where the difference is too big to be chance, and only with recordings that actually exist.',
-        'A card can offer any session a compared person had within a day of being exposed, so the same person can appear on it twice.',
+        'A card can offer any session a compared person had within a week of being exposed, so the same person can appear on it twice.',
         'Page views, autocaptures and the exposure event are never compared, since their names describe a mechanism rather than something a person did.',
         deltas.metric_events.length > 0
             ? `The events this experiment measures (${deltas.metric_events.join(', ')}) can get cards too, but a card never says how a metric moved: the Results tab states that.`

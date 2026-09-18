@@ -798,22 +798,26 @@ class TestExperimentSessionEventDeltas(ClickhouseTestMixin, APILicensedTest):
         [
             # Nobody in the population has a browser session at all: the residual empty state,
             # dated to the exposures the response reports.
-            ("no_browser_sessions", None),
+            ("no_browser_sessions", None, False),
             # The same people, each with a recorded browser session after their exposure: a
             # comparison, exactly as if the exposures had been captured in those sessions.
-            ("browser_sessions_after_exposure", timedelta(hours=1)),
-            # The same people, back only two days later: past the horizon, so their first session
-            # after exposure is not the session where they met the change, and they read as having
-            # none.
-            ("browser_sessions_past_the_horizon", timedelta(days=2)),
+            ("browser_sessions_after_exposure", timedelta(hours=1), True),
+            # The same people, back days rather than hours later. The horizon is a week, so a
+            # first session this late is still the one they are compared in.
+            ("browser_sessions_days_later", timedelta(days=3), True),
+            # The same people, back only eight days later: past the horizon, so they read as
+            # having no session at all.
+            ("browser_sessions_past_the_horizon", timedelta(days=8), False),
         ]
     )
     @rank_anything
     def test_server_side_exposures_compare_when_their_people_have_sessions(
-        self, _name: str, session_delay: Optional[timedelta]
+        self, _name: str, session_delay: Optional[timedelta], compares: bool
     ) -> None:
         experiment = self._create_experiment(metrics=[PURCHASE_METRIC])
-        exposed_at = EXPOSED_AT - timedelta(days=3)
+        # Far enough back that a session eight days later still falls before the window end, so it
+        # is the horizon that leaves that case out rather than the end of the read.
+        exposed_at = EXPOSED_AT - timedelta(days=8)
         for index in range(4):
             variant = "control" if index % 2 else "test"
             distinct_id = self._unsessioned_exposure(variant, at=exposed_at)
@@ -832,7 +836,7 @@ class TestExperimentSessionEventDeltas(ClickhouseTestMixin, APILicensedTest):
 
         data = self._post_deltas(experiment).json()
 
-        if session_delay == timedelta(hours=1):
+        if compares:
             cards = {(card["event"], card["variant"]) for card in self._cards(data, "behavior")}
             assert {("pricing_faq", "test"), ("checkout_start", "control")} <= cards
             assert data["empty_reason"] is None
@@ -1350,8 +1354,11 @@ class TestComparedEnrollmentWalk(SimpleTestCase):
     # instant is an offset from the window end; buckets are listed newest first, as the query
     # returns them.
     WINDOW_END = datetime(2026, 1, 10, 12, 0, 0, tzinfo=UTC)
-    HORIZON = timedelta(hours=24)
-    STRETCH = timedelta(hours=24, minutes=1)
+    DAY_HORIZON = timedelta(hours=24)
+    WEEK_HORIZON = timedelta(hours=168)
+    # What one minute of enrollment costs the day budget on its own: the minute plus the horizon.
+    DAY_STRETCH = DAY_HORIZON + timedelta(minutes=1)
+    WEEK_STRETCH = WEEK_HORIZON + timedelta(minutes=1)
 
     @classmethod
     def _at(cls, offset: timedelta) -> datetime:
@@ -1362,6 +1369,7 @@ class TestComparedEnrollmentWalk(SimpleTestCase):
             (
                 "stops_at_the_person_cap_after_a_whole_minute",
                 [(timedelta(hours=-1), 5), (timedelta(hours=-2), 5), (timedelta(hours=-3), 5)],
+                DAY_HORIZON,
                 8,
                 timedelta(days=14),
                 10,
@@ -1372,16 +1380,18 @@ class TestComparedEnrollmentWalk(SimpleTestCase):
             (
                 "stops_before_the_stretch_that_would_exceed_the_day_budget",
                 [(timedelta(hours=-1), 1), (timedelta(hours=-30), 1), (timedelta(hours=-60), 1)],
+                DAY_HORIZON,
                 100,
                 timedelta(days=2),
                 2,
                 True,
                 timedelta(hours=-30),
-                [(timedelta(hours=-1), timedelta(0)), (timedelta(hours=-30), timedelta(hours=-30) + STRETCH)],
+                [(timedelta(hours=-1), timedelta(0)), (timedelta(hours=-30), timedelta(hours=-30) + DAY_STRETCH)],
             ),
             (
                 "merges_minutes_whose_stretches_overlap_into_one",
                 [(timedelta(hours=-1), 1), (timedelta(hours=-12), 1), (timedelta(hours=-20), 1)],
+                DAY_HORIZON,
                 100,
                 timedelta(days=14),
                 3,
@@ -1392,6 +1402,7 @@ class TestComparedEnrollmentWalk(SimpleTestCase):
             (
                 "skips_the_empty_gap_between_stragglers_and_the_bulk",
                 [(timedelta(hours=-1), 2), (timedelta(days=-10), 100), (timedelta(days=-10, minutes=-5), 100)],
+                DAY_HORIZON,
                 20_000,
                 timedelta(days=14),
                 202,
@@ -1399,16 +1410,40 @@ class TestComparedEnrollmentWalk(SimpleTestCase):
                 timedelta(days=-10, minutes=-5),
                 [
                     (timedelta(hours=-1), timedelta(0)),
-                    (timedelta(days=-10, minutes=-5), timedelta(days=-10) + STRETCH),
+                    (timedelta(days=-10, minutes=-5), timedelta(days=-10) + DAY_STRETCH),
                 ],
             ),
-            ("nobody_exposed", [], 20_000, timedelta(days=14), 0, False, timedelta(0), []),
+            # The arithmetic the day budget rests on at a week-long horizon. The minute five days
+            # back merges into the newest range, because its stretch reaches the window end and
+            # costs only the gap; the one twenty days back is charged a full week and a minute;
+            # the one thirty days back would take the union past fourteen days and stops the walk.
+            (
+                "a_week_long_horizon_merges_near_bursts_and_charges_a_full_week_for_far_ones",
+                [
+                    (timedelta(hours=-1), 1),
+                    (timedelta(days=-5), 1),
+                    (timedelta(days=-20), 1),
+                    (timedelta(days=-30), 1),
+                ],
+                WEEK_HORIZON,
+                100,
+                timedelta(days=14),
+                3,
+                True,
+                timedelta(days=-20),
+                [
+                    (timedelta(days=-5), timedelta(0)),
+                    (timedelta(days=-20), timedelta(days=-20) + WEEK_STRETCH),
+                ],
+            ),
+            ("nobody_exposed", [], DAY_HORIZON, 20_000, timedelta(days=14), 0, False, timedelta(0), []),
         ]
     )
     def test_walk(
         self,
         _name: str,
         buckets: list[tuple[timedelta, int]],
+        horizon: timedelta,
         person_cap: int,
         day_budget: timedelta,
         persons: int,
@@ -1422,7 +1457,7 @@ class TestComparedEnrollmentWalk(SimpleTestCase):
                 for offset, people in buckets
             ],
             window_end=self.WINDOW_END,
-            horizon=self.HORIZON,
+            horizon=horizon,
             day_budget=day_budget,
             person_cap=person_cap,
         )

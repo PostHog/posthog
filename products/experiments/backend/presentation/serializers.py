@@ -2040,7 +2040,7 @@ class ExperimentWatchVariantSerializer(serializers.Serializer):
     )
     sessions = serializers.IntegerField(
         help_text=(
-            f"Sessions those people had within {FIRST_SESSION_HORIZON_HOURS} hours of being exposed, and before "
+            f"Sessions those people had within {FIRST_SESSION_HORIZON_HOURS // 24} days of being exposed, and before "
             "the experiment ended or this request was made, which is more than the comparison reads: it says how "
             "much recorded material sits behind the variant."
         )
@@ -2116,7 +2116,7 @@ class ExperimentSessionEventDeltaResponseSerializer(serializers.Serializer):
             "only those who then had a session. While an experiment runs this sits about an hour before now, "
             "because the newest hour of enrollment is held back until those people's first sessions have "
             "finished rather than read half-way through. Sessions reach past it, up to "
-            f"{FIRST_SESSION_HORIZON_HOURS} hours after each person's own exposure, so this is not the end of "
+            f"{FIRST_SESSION_HORIZON_HOURS // 24} days after each person's own exposure, so this is not the end of "
             "the events that were read."
         )
     )
@@ -2172,7 +2172,7 @@ class ExperimentSessionEventDeltaResponseSerializer(serializers.Serializer):
             "read as 'the variants behaved identically'. Read empty_reason and sessions_truncated before telling "
             "anyone to check back: this is also true when the variants are empty because the people exposed have "
             "no sessions we can see, which empty_reason reports as 'no_session_linked_exposures' and which more "
-            "time fixes only while those people were exposed less than a day ago. And when sessions_truncated is "
+            "time fixes only while those people were exposed less than a week ago. And when sessions_truncated is "
             "true, only people exposed between date_from and date_to were compared, so more time helps only if "
             "more people are exposed within a stretch that long."
         )
@@ -2193,11 +2193,11 @@ class ExperimentSessionEventDeltaResponseSerializer(serializers.Serializer):
             "be opened, so the project's session replay sampling and retention are what decide whether this "
             "surface can ever show anything. 'no_session_linked_exposures': the people exposed between date_from "
             "and date_to had no session we can see since being exposed, looking up to "
-            f"{FIRST_SESSION_HORIZON_HOURS} hours after each exposure, so there was nothing to compare. Two things "
+            f"{FIRST_SESSION_HORIZON_HOURS // 24} days after each exposure, so there was nothing to compare. Two things "
             "reach this state, and they ask for different answers: no browser or mobile SDK is capturing events, "
             "because sessions exist nowhere else, or the exposed people have not come back. While the experiment "
-            "runs the read stops at the time of the request, so people exposed less than a day ago are judged on "
-            "less than a day and can still return. Check which one before telling anyone to check back, because "
+            "runs the read stops at the time of the request, so people exposed less than a week ago are judged on "
+            "less than a week and can still return. Check which one before telling anyone to check back, because "
             "more exposures captured the same way yield more of the same. Never fill an empty shelf with the "
             "experiment's metrics: shortcut cards to those metrics' events are withheld here for exactly that "
             "reason."

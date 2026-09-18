@@ -73,8 +73,8 @@ independent, which is what the ranking's noise test below assumes. The numerator
 treatment: on that experiment one variant's people averaged seven covered sessions each against
 the other's two, so they had seven chances to have done anything rather than two. So a person is
 read from one session: the one holding their earliest event at or after their first exposure,
-among their events up to FIRST_SESSION_HORIZON_HOURS after it, which is the session where they met
-the change and the same amount of behavior on both sides. Only rows at or after the first exposure
+among their events up to FIRST_SESSION_HORIZON_HOURS after it, which is the same amount of
+behavior on both sides. Only rows at or after the first exposure
 count: what a person did in the exposure session before the flag was evaluated is the same in every
 variant, so keeping it only dilutes the comparison. A person with no session in that horizon is
 not compared. A card's *recordings*, by contrast, come from any of a compared person's sessions in
@@ -166,12 +166,14 @@ MAX_DELTA_SCAN_DAYS = 14
 # for the reason the module docstring gives under "Who is compared".
 MAX_DELTA_SCAN_PERSONS = 20_000
 # How far past a person's first exposure their events are read. Their compared session is the one
-# holding their earliest event in this stretch, so the bound keeps "first session after exposure"
-# meaning the session where they met the change, and it caps the per-(person, session) aggregation
-# state for people with many sessions. Stretches are clamped at the window end, so a person first
-# exposed inside the horizon of an experiment's end date is read over what is left of it: still
-# the session they met the change in, with only its tail missing.
-FIRST_SESSION_HORIZON_HOURS = 24
+# holding their earliest event in this stretch, so the bound is how long after exposure a person's
+# first session may start before they drop out of the comparison. A week rather than longer
+# because someone whose first session comes more than a week after exposure is not reacting to the
+# change. It also caps the per-(person, session) aggregation state for people with many sessions,
+# which counts for more over a week than over a day. Stretches are clamped at the window end, so a
+# person first exposed inside the horizon of an experiment's end date is read over what is left of
+# it, with only the tail missing.
+FIRST_SESSION_HORIZON_HOURS = 168
 # How much of a running experiment's newest enrollment the comparison holds back. A person exposed
 # minutes ago is still inside the session that would be read, so their event names are a partial
 # record of it, and an experiment that enrolls a whole comparison within one hour would otherwise
