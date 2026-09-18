@@ -493,6 +493,24 @@ class TestReplayFilter:
 
         assert replay.apply(differs).num_rows == 1
 
+    def test_a_timestamp_the_batch_carries_as_text_is_parsed_the_way_the_loader_stores_it(self):
+        stored = dt.datetime(2026, 9, 18, 18, 4, 16, 103752)
+        held = {(1, "I"): [{"id": 1, "label": "v1", "created_at": stored}]}
+        schema = (
+            _ops([1], [20])
+            .select(["id", "label"])
+            .append_column("created_at", pa.array([stored], pa.timestamp("us")))
+            .schema
+        )
+        replay = ReplayFilter(
+            LanePosition(position=20, applied=held, key_columns=("id", CDC_OP_COLUMN), content_schema=schema)
+        )
+        as_text = _ops([1], [20], ["I"]).append_column(
+            "created_at", pa.array(["2026-09-18 18:04:16.103752+00"], pa.string())
+        )
+
+        assert replay.apply(as_text).num_rows == 0
+
     def test_above_the_cap_the_batch_content_is_never_materialized(self):
         # The table side carried no content, so reading the batch's would cost what the cap avoids.
         replay = ReplayFilter(
