@@ -240,8 +240,7 @@ export const getEffectiveRecordingFilters = (
         effective = { ...effective, recommended_only: false }
     }
     if (!featureFlags[FEATURE_FLAGS.REPLAY_EVENT_MATCH_SCOPE] && effective.event_match_scope !== undefined) {
-        const { event_match_scope: _ignored, ...withoutScope } = effective
-        effective = withoutScope
+        effective = { ...effective, event_match_scope: undefined }
     }
     return effective
 }

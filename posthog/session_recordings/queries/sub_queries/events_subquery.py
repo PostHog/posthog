@@ -135,7 +135,7 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
         self._resolve_group_properties = resolve_group_properties
         self.emitted_sampled_subquery = False
 
-    def _events_join(self, sample: bool = True) -> ast.JoinExpr:
+    def _events_join(self, sample: bool = True, scope_session_ids: list[str] | None = None) -> ast.JoinExpr:
         join = ast.JoinExpr(table=ast.Field(chain=["events"]))
         # Only positive session-selectors sample; a sampled exclusion blocklist would under-exclude.
         if sample and self._sample_factor is not None:
@@ -146,7 +146,7 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
                 # GLOBAL: the initiator builds the per-recording bounds once and ships them to each
                 # shard. Without it every shard would fan the replay scan out across the cluster again.
                 join_type="GLOBAL INNER JOIN",
-                table=self._recording_bounds_query(),
+                table=self._recording_bounds_query(scope_session_ids=scope_session_ids),
                 alias=RECORDING_BOUNDS_ALIAS,
                 constraint=ast.JoinConstraint(
                     expr=ast.CompareOperation(
@@ -162,21 +162,26 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
     def _matches_within_recording(self) -> bool:
         return self._query.event_match_scope == EventMatchScope.RECORDING
 
-    def _recording_bounds_query(self) -> ast.SelectQuery:
+    def _recording_bounds_query(self, scope_session_ids: list[str] | None = None) -> ast.SelectQuery:
         """One row per recording the listing can return: its session id and the span of its snapshots.
 
         Scoped the same way as the listing's replay scan, so every recording the outer query can
         select has a row here. A recording without a row can never match under recording scope.
+        No limit on purpose: a recording without a bounds row can never match, so a truncated set
+        would silently drop results. The set has the same row count as the listing's own replay scan.
         """
         scope: list[ast.Expr] = []
-        if self._query.session_ids:
+        # A caller that already holds its candidate ids (the scoped exclusion query) narrows the
+        # bounds to them; everyone else scopes by the query's own pinned ids.
+        session_ids_to_scope = scope_session_ids or self._query.session_ids
+        if session_ids_to_scope:
             # A pinned list may bypass the date window, so the pinned ids scope the rows. The five
             # year floor is the longest retention and keeps partition pruning.
             scope.append(
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.In,
                     left=ast.Field(chain=["s", "session_id"]),
-                    right=ast.Constant(value=self._query.session_ids),
+                    right=ast.Constant(value=session_ids_to_scope),
                 )
             )
             scope.append(
@@ -708,7 +713,7 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
         )
         return ast.SelectQuery(
             select=[ast.Alias(alias="session_id", expr=_event_session_id_field())],
-            select_from=self._events_join(sample=False),
+            select_from=self._events_join(sample=False, scope_session_ids=session_ids),
             where=where,
             group_by=[_event_session_id_field()],
             # A session id can only be returned once, so the input bounds the output.

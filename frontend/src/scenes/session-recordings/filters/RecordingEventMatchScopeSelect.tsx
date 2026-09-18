@@ -32,6 +32,7 @@ export function RecordingEventMatchScopeSelect({
 
     return (
         <LemonSelect<EventMatchScope>
+            className="ml-2"
             size="small"
             value={value}
             onChange={(scope) => setFilters({ event_match_scope: scope === 'recording' ? 'recording' : undefined })}
