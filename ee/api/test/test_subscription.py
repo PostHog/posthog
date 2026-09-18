@@ -130,6 +130,47 @@ class TestSubscriptionTemporal(APILicensedTest):
         response = self.client.get(f"/api/projects/{self.team.id}/subscriptions/")
         assert response.status_code == status.HTTP_200_OK
 
+    def test_create_uses_project_timezone_for_schedule_validation(self) -> None:
+        # Monday 8am Asia/Tokyo is stored as Sunday 23:00 UTC. Validating against the UTC
+        # weekday would reject this as a "schedule that never fires" for a daily/7 Monday
+        # subscription; the project timezone must be forwarded (#42016).
+        self.team.timezone = "Asia/Tokyo"
+        self.team.save()
+
+        response = self._create_subscription(
+            frequency="daily",
+            interval=7,
+            byweekday=["monday"],
+            start_date="2026-09-06T23:00:00Z",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        # The stored schedule delivers on Monday 8am JST = Sunday 23:00 UTC.
+        next_delivery_date = response.json()["next_delivery_date"]
+        assert next_delivery_date is not None
+        assert next_delivery_date.endswith("23:00:00+00:00") or next_delivery_date.endswith("23:00:00Z")
+
+    def test_patch_uses_the_instance_team_timezone_for_schedule_validation(self) -> None:
+        self.team.timezone = "Asia/Tokyo"
+        self.team.save()
+        create_response = self._create_subscription(
+            frequency="weekly", byweekday=["monday", "wednesday", "friday"], bysetpos=None
+        )
+        assert create_response.status_code == status.HTTP_201_CREATED, create_response.json()
+        subscription_id = create_response.json()["id"]
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/subscriptions/{subscription_id}",
+            {
+                "frequency": "daily",
+                "interval": 7,
+                "byweekday": ["monday"],
+                "start_date": "2026-09-06T23:00:00Z",  # Monday 8am JST, Sunday in UTC
+            },
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+
     @parameterized.expand(
         [
             ("daily", ["monday", "tuesday", "wednesday", "thursday", "friday"]),
