@@ -31,7 +31,11 @@ def is_byte_bounded_extraction_enabled(team_id: int, source_type: str) -> bool:
         # here is the same app-DB connectivity blip class import_data_sync._handle_import_error
         # treats as non-reportable elsewhere (pooler drop, or this worker briefly out of file
         # descriptors) - not a bug in this gate, so it shouldn't page anyone.
-        logger.warning("is_byte_bounded_extraction_enabled: transient app-DB error, failing closed", error=str(e))
+        logger.warning(
+            "is_byte_bounded_extraction_enabled: transient app-DB error, failing closed",
+            error=str(e),
+            exc_info=True,
+        )
         return False
     except Exception as e:
         capture_exception(e)
