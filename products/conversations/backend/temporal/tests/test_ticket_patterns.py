@@ -25,6 +25,7 @@ from products.conversations.backend.temporal.ticket_patterns.constants import (
 )
 from products.conversations.backend.temporal.ticket_patterns.coordinator import _collect_eligible_teams
 from products.conversations.backend.temporal.ticket_patterns.detect import (
+    _can_any_cluster_qualify,
     _detection_text,
     _load_candidates,
     _qualifying_clusters,
@@ -265,6 +266,24 @@ class TestRecentSpikes(SimpleTestCase):
         topics = [s["topic"] for s in recent_spikes(7)]
         assert ("older" in topics) is expected
         assert "newer" in topics
+
+
+class TestCanAnyClusterQualify(SimpleTestCase):
+    # Every cluster the model returns is a subset of the candidates, so the whole set falling
+    # short means no cluster can clear the thresholds. Getting this wrong either buys a sonnet
+    # call whose answer must be discarded, or skips a spike that would have qualified.
+    @parameterized.expand(
+        [
+            ("enough tickets and customers", ["a", "b", "c"], True),
+            ("enough tickets from too few customers", ["a", "b", "d"], False),
+            ("too few unreported tickets", ["a", "b"], False),
+            ("nothing left unreported", [], False),
+        ]
+    )
+    def test_the_thresholds_decide_before_the_model_is_asked(self, _name, fresh_ids, expected):
+        requesters = {"a": "org:1", "b": "org:2", "c": "org:3", "d": "org:1"}
+
+        assert _can_any_cluster_qualify(fresh_ids, requesters, _settings()) is expected
 
 
 class TestDetectionText(SimpleTestCase):

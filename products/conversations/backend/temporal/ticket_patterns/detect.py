@@ -180,6 +180,18 @@ def _parse_clusters(content: str) -> list[dict]:
     return [c for c in clusters if isinstance(c, dict)]
 
 
+def _can_any_cluster_qualify(fresh_ids: list[str], requesters: dict[str, str], settings: DetectionSettings) -> bool:
+    """Whether the thresholds are still reachable, before the model is asked anything.
+
+    Every cluster the model can return is a subset of the candidates, so its unreported tickets
+    are a subset of ``fresh_ids`` and its customers a subset of theirs. When the whole set falls
+    short, no cluster inside it can clear the thresholds, and the answer would only be discarded.
+    """
+    if len(fresh_ids) < settings.min_tickets:
+        return False
+    return len({requesters[i] for i in fresh_ids if i in requesters}) >= settings.min_requesters
+
+
 def _qualifying_clusters(
     raw_clusters: list[dict],
     requesters: dict[str, str],
@@ -253,6 +265,17 @@ async def _detect(team: EligibleTeam, *, report: bool = True, check_flag: bool =
     team_row, candidates, requesters = loaded
 
     if len(candidates) < team.settings.min_tickets:
+        return DetectOutput(team_id=team.team_id, candidate_count=len(candidates))
+
+    # Redis blocks, so keep it off the event loop like the calls further down.
+    fresh_ids = await database_sync_to_async(unreported_ticket_ids, thread_sensitive=False)(
+        team.team_id, [c.ticket_id for c in candidates]
+    )
+    if not _can_any_cluster_qualify(fresh_ids, requesters, team.settings):
+        # A window whose tickets were all reported already, or that never had enough distinct
+        # customers, would otherwise buy a sonnet call on every one of the day's ticks and throw
+        # the answer away.
+        logger.info("ticket_patterns: nothing could qualify, skipping the model", team_id=team.team_id)
         return DetectOutput(team_id=team.team_id, candidate_count=len(candidates))
 
     payload = [{"id": c.ticket_id, "subject": c.subject, "message": c.message} for c in candidates]
