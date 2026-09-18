@@ -1,14 +1,12 @@
 from typing import TYPE_CHECKING, Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
     ExternalWebhookInfo,
     FieldType,
@@ -94,10 +92,10 @@ class MailerLiteSource(
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.MAILER_LITE,
+            name=ExternalDataSourceType.MAILERLITE,
             category=DataWarehouseSourceCategory.MARKETING___EMAIL,
             label="MailerLite",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Enter your MailerLite API key to pull your MailerLite data into the PostHog Data warehouse.
 
 You can create an API key in your [MailerLite integrations settings](https://dashboard.mailerlite.com/integrations/api).""",

@@ -71,6 +71,9 @@ tools:
     engineering-analytics-current-branch-health:
         operation: engineering_analytics_current_branch_health
         enabled: false
+    engineering-analytics-delivery-summary:
+        operation: engineering_analytics_delivery_summary
+        enabled: false
     engineering-analytics-dora:
         operation: engineering_analytics_dora
         enabled: false
@@ -155,6 +158,9 @@ tools:
         feature_flag: engineering-analytics
     engineering-analytics-pr-runs:
         operation: engineering_analytics_pr_runs
+        enabled: false
+    engineering-analytics-pull-request-timelines:
+        operation: engineering_analytics_pull_request_timelines
         enabled: false
     engineering-analytics-quarantine:
         operation: engineering_analytics_quarantine

@@ -20,6 +20,7 @@ jobs:
         # npm provenance requires a github-hosted runner; Depot registers as self-hosted
         runs-on: ubuntu-latest
         timeout-minutes: 30
+        environment: npm-posthog-agent
         permissions:
             contents: read
             id-token: write

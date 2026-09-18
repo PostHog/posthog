@@ -41,7 +41,6 @@ Product = Literal[
     "warehouse_semantic_enrichment",
     "warehouse_custom_source_builder",
     "web_analytics",
-    "stamphog",
 ]  # If you add a product here, make sure it's also in services/llm-gateway/src/llm_gateway/products/config.py
 
 
@@ -454,6 +453,47 @@ def build_async_anthropic_client(
     return get_async_anthropic_gateway_client(product, team_id=team_id, use_bedrock_fallback=use_bedrock_fallback)
 
 
+def _ai_gateway_anthropic_client(
+    gateway: AIGatewayConfig,
+    ai_product: str | None,
+    trace_id: str | None,
+    properties: Mapping[str, str] | None,
+    distinct_id: str | None,
+    team_id: int | None,
+) -> Anthropic:
+    labels = dict(properties or {})
+    if team_id is not None:
+        labels["team_id"] = str(team_id)
+    return Anthropic(
+        api_key=gateway.api_key,
+        base_url=_anthropic_gateway_base_url(gateway.url),
+        default_headers=ai_gateway_headers(
+            ai_product=ai_product,
+            trace_id=trace_id or team_trace_id(team_id),
+            properties=labels,
+            distinct_id=distinct_id,
+        ),
+        http_client=httpx.Client(trust_env=False),
+    )
+
+
+def build_ai_gateway_anthropic_client(
+    ai_product: str | None = None,
+    trace_id: str | None = None,
+    properties: Mapping[str, str] | None = None,
+    distinct_id: str | None = None,
+    team_id: int | None = None,
+) -> Anthropic:
+    """:func:`build_anthropic_client` without the Python-gateway fallback, for callers with no route there.
+
+    Raises when the Go ai-gateway pair is unset or malformed.
+    """
+    gateway = resolve_ai_gateway_config()
+    if gateway is None:
+        raise ValueError("AI_GATEWAY_URL and AI_GATEWAY_API_KEY must be configured")
+    return _ai_gateway_anthropic_client(gateway, ai_product, trace_id, properties, distinct_id, team_id)
+
+
 def build_anthropic_client(
     product: Product,
     ai_product: str | None = None,
@@ -470,20 +510,7 @@ def build_anthropic_client(
     """
     gateway = resolve_ai_gateway_config()
     if gateway:
-        labels = dict(properties or {})
-        if team_id is not None:
-            labels["team_id"] = str(team_id)
-        return Anthropic(
-            api_key=gateway.api_key,
-            base_url=_anthropic_gateway_base_url(gateway.url),
-            default_headers=ai_gateway_headers(
-                ai_product=ai_product,
-                trace_id=trace_id or team_trace_id(team_id),
-                properties=labels,
-                distinct_id=distinct_id,
-            ),
-            http_client=httpx.Client(trust_env=False),
-        )
+        return _ai_gateway_anthropic_client(gateway, ai_product, trace_id, properties, distinct_id, team_id)
     fallback_headers = _python_gateway_observability_headers(trace_id, None, properties)
     return get_anthropic_gateway_client(
         product,

@@ -89,7 +89,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.con
     TOPUP_RESOURCE_NAME,
     TRANSFER_RESOURCE_NAME,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.custom import InvoiceListWithAllLines
+from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.custom import (
+    ClientFactory,
+    InvoiceListWithAllLines,
+    RateLimitCallback,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.settings import (
     APPEND_ONLY_INCREMENTAL_FIELDS,
     DEFAULT_PRIMARY_KEYS,
@@ -224,6 +228,17 @@ def _is_non_list_stripe_response(body: Any) -> bool:
     return not _head_mentions_list_object(raw, start)
 
 
+# Tries a 429 gets before it fails the request; the other retryable errors keep `max_network_retries`.
+RATE_LIMIT_RETRIES = 5
+
+
+def _retry_after_seconds(headers: Mapping[str, str]) -> Optional[float]:
+    try:
+        return float(headers["retry-after"])
+    except (KeyError, ValueError):
+        return None
+
+
 class _RateLimitRetryingRequestsClient(RequestsClient):
     """Stripe's SDK retries 409/5xx (and whatever ``Stripe-Should-Retry`` advises) but never
     retries 429s on its own — ``_should_retry`` excludes them. A rate limit during a large sync,
@@ -231,7 +246,7 @@ class _RateLimitRetryingRequestsClient(RequestsClient):
     straight out of ``get_rows`` and fails the whole import activity.
 
     Opt 429 into the SDK's existing ``Retry-After``-aware exponential backoff so transient rate
-    limits are absorbed in-process (bounded by ``max_network_retries``) instead of crashing the
+    limits are absorbed in-process (bounded by ``RATE_LIMIT_RETRIES``) instead of crashing the
     run. We also retry a connection reset that drops the response mid-body (the SDK declines it,
     see ``_is_retryable_connection_reset``), a 2xx whose list body was truncated mid-stream (Stripe
     surfaces the latter as a JSON decode failure only after the SDK's retry loop), and a 2xx GET
@@ -242,6 +257,10 @@ class _RateLimitRetryingRequestsClient(RequestsClient):
     # Records the method of the in-flight request so `_should_retry` (whose signature omits it) can
     # scope the non-list-body retry to reads, never a single-object write response.
     _last_request_method: str = ""
+
+    def __init__(self, *args: Any, on_rate_limited: Optional[RateLimitCallback] = None, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self._on_rate_limited = on_rate_limited
 
     def request(  # type: ignore[override]  # mirrors RequestsClient.request, which already narrows HTTPClient's (str→bytes)
         self,
@@ -260,20 +279,27 @@ class _RateLimitRetryingRequestsClient(RequestsClient):
         num_retries: int,
         max_network_retries: Optional[int],
     ) -> bool:
+        if response is not None and response[1] == 429:
+            # A throttle gets its own, larger budget so it is absorbed here, with the SDK's
+            # Retry-After-aware backoff, before it costs a Temporal attempt. The pool that owns this
+            # client hears about it first so every worker slows down, not only the one that was hit.
+            headers = response[2] or {}
+            if self._on_rate_limited is not None:
+                self._on_rate_limited(_retry_after_seconds(headers))
+            if str(headers.get("stripe-should-retry", "")).lower() == "false":
+                return False
+            return num_retries < RATE_LIMIT_RETRIES
         if super()._should_retry(response, api_connection_error, num_retries, max_network_retries):
             return True
         # The base logic already enforced the retry budget and declined; the cases it leaves on the
-        # table are a 429 (the SDK omits it), a 2xx with a truncated or non-list body (the SDK only
-        # fails on either later — while parsing, or on `.is_empty` during pagination), and a
-        # connection reset that drops the response mid-body — all safe to retry on our idempotent
-        # list/GET calls.
+        # table are a 2xx with a truncated or non-list body (the SDK only fails on either later —
+        # while parsing, or on `.is_empty` during pagination) and a connection reset that drops the
+        # response mid-body — all safe to retry on our idempotent list/GET calls.
         if num_retries >= (max_network_retries or 0):
             return False
         if response is None:
             return api_connection_error is not None and _is_retryable_connection_reset(api_connection_error)
         body, status_code, _ = response
-        if status_code == 429:
-            return True
         if not (200 <= status_code < 300):
             return False
         if _is_truncated_stripe_list_response(body):
@@ -283,13 +309,13 @@ class _RateLimitRetryingRequestsClient(RequestsClient):
         return self._last_request_method == "get" and _is_non_list_stripe_response(body)
 
 
-def _tracked_stripe_http_client() -> RequestsClient:
+def _tracked_stripe_http_client(on_rate_limited: Optional[RateLimitCallback] = None) -> RequestsClient:
     """Wrap a tracked `requests.Session` in Stripe's `RequestsClient` so every
     Stripe SDK call participates in our HTTP logging, metrics, and sample capture.
 
     Uses a subclass that additionally retries 429 rate limits and truncated list responses via the
-    SDK's built-in backoff."""
-    return _RateLimitRetryingRequestsClient(session=make_tracked_session())
+    SDK's built-in backoff, and reports each 429 to `on_rate_limited`."""
+    return _RateLimitRetryingRequestsClient(session=make_tracked_session(), on_rate_limited=on_rate_limited)
 
 
 def _clean_stripe_error_message(msg: str) -> str:
@@ -672,7 +698,9 @@ def _batch_and_yield(
 
 
 def _build_resources(
-    client: StripeClient, logger: Optional[FilteringBoundLogger] = None
+    client: StripeClient,
+    logger: Optional[FilteringBoundLogger] = None,
+    client_factory: Optional[ClientFactory] = None,
 ) -> dict[str, Union[StripeResource, StripeNestedResource]]:
     """Single source of truth for the resources we sync from Stripe and how they relate.
 
@@ -680,8 +708,9 @@ def _build_resources(
     checks). Nested resources carry their parent on `.parent`, so callers can derive the
     nested→parent linkage without restating it elsewhere.
 
-    `logger` is only consumed by InvoiceListWithAllLines; pass None when the caller doesn't
-    need the wrapped invoice expansion (e.g. validation, which just probes the list endpoint).
+    `logger` and `client_factory` are only consumed by InvoiceListWithAllLines; pass None when the
+    caller doesn't need the wrapped invoice expansion (e.g. validation, which just probes the list
+    endpoint). The factory gives each of its worker threads a client of its own.
     """
     return {
         ACCOUNT_RESOURCE_NAME: StripeResource(method=client.accounts.list),
@@ -692,8 +721,8 @@ def _build_resources(
         INVOICE_ITEM_RESOURCE_NAME: StripeResource(method=client.invoice_items.list),
         INVOICE_RESOURCE_NAME: StripeResource(
             method=(
-                (lambda params: InvoiceListWithAllLines(client, params, logger))  # type: ignore
-                if logger is not None
+                (lambda params: InvoiceListWithAllLines(params, logger, client_factory=client_factory))  # type: ignore
+                if logger is not None and client_factory is not None
                 else client.invoices.list
             )
         ),
@@ -841,16 +870,19 @@ def get_rows(
     should_use_incremental_field: bool = False,
     warehouse_parent: Optional["ParentTableRef"] = None,
 ):
-    client = StripeClient(
-        api_key,
-        stripe_account=account_id,
-        stripe_version=api_version,
-        max_network_retries=2,
-        base_addresses=_stripe_base_addresses(),
-        http_client=_tracked_stripe_http_client(),
-    )
+    def new_client(on_rate_limited: Optional[RateLimitCallback] = None) -> StripeClient:
+        return StripeClient(
+            api_key,
+            stripe_account=account_id,
+            stripe_version=api_version,
+            max_network_retries=2,
+            base_addresses=_stripe_base_addresses(),
+            http_client=_tracked_stripe_http_client(on_rate_limited=on_rate_limited),
+        )
+
+    client = new_client()
     default_params = {"limit": DEFAULT_LIMIT}
-    resources = _build_resources(client, logger=logger)
+    resources = _build_resources(client, logger=logger, client_factory=new_client)
 
     batcher = Batcher(logger=logger, chunk_size=STRIPE_CHUNK_SIZE)
 
@@ -1110,7 +1142,11 @@ def _webhook_table_transformer(table: pa.Table) -> pa.Table:
 
         ts = event_created if isinstance(event_created, int) else 0
         existing = best_by_id.get(obj_id)
-        if existing is None or ts > existing[0]:
+        # Later rows win ties. `created` is a whole second and one Stripe operation emits several
+        # events for an object inside it, so the only finer order the batch holds is the row order,
+        # a best-effort proxy for arrival order. Keeping the first row let a pre-payment snapshot
+        # outrank the payment event that followed it in the same second.
+        if existing is None or ts >= existing[0]:
             best_by_id[obj_id] = (ts, obj)
 
     rows = [_scrub_client_secrets(obj) for _, obj in best_by_id.values()]
@@ -1717,6 +1753,7 @@ def get_external_webhook_info(api_key: str, stripe_account_id: str | None, webho
                     status=endpoint.status,
                     description=endpoint.description,
                     created_at=str(endpoint.created) if endpoint.created else None,
+                    api_version=endpoint.api_version,
                 )
 
         return ExternalWebhookInfo(exists=False)
@@ -1728,3 +1765,119 @@ def get_external_webhook_info(api_key: str, stripe_account_id: str | None, webho
                 error="Your Stripe API key doesn't have permission to read webhooks. Add the 'Read' permission for 'Webhook endpoints' to your API key.",
             )
         return ExternalWebhookInfo(exists=False, error=f"Failed to check webhook status: {error_str}")
+
+
+@frozen
+class WebhookRepin:
+    """Outcome of repinning a webhook endpoint's API version by replacement."""
+
+    status: Literal["replaced", "already_pinned", "no_endpoint", "failed"]
+    previous_api_version: str | None = None
+    signing_secret: str | None = dataclasses.field(default=None, repr=False)
+    replaced_endpoint_id: str | None = None
+    # Set as soon as Stripe creates the replacement, including on the failure that follows it.
+    # Stripe returns the signing secret once, at create, so a caller that loses this id can no
+    # longer identify the endpoint it must delete, and the endpoint keeps failing signature checks.
+    created_endpoint_id: str | None = None
+    error: str | None = None
+
+
+def create_pinned_webhook_replacement(
+    api_key: str,
+    stripe_account_id: str | None,
+    webhook_url: str,
+    *,
+    api_version: str,
+) -> WebhookRepin:
+    """Add a second endpoint on `webhook_url` that is pinned to `api_version`, and return its secret.
+
+    Stripe accepts `api_version` on create only. `POST /v1/webhook_endpoints/{id}` has no such
+    parameter, so an endpoint created before we pinned the version can only be moved onto a
+    version by replacement.
+
+    This leaves the old endpoint in place on purpose. Stripe delivers every event to both
+    endpoints while both exist, and the receiving hog function verifies against the one signing
+    secret it stores, so the caller must store the new secret first and delete the old endpoint
+    after (`delete_webhook_endpoint`). Each event in that window still has one copy that
+    verifies. Deleting first would drop every event until the replacement exists, and Stripe
+    only replays a dropped event on a manual resend.
+    """
+    try:
+        client = StripeClient(
+            api_key,
+            stripe_account=stripe_account_id,
+            stripe_version=api_version,
+            max_network_retries=2,
+            base_addresses=_stripe_base_addresses(),
+            http_client=_tracked_stripe_http_client(),
+        )
+
+        endpoints = client.webhook_endpoints.list(params={"limit": 100})
+        endpoint = next((e for e in endpoints.auto_paging_iter() if e.url == webhook_url), None)
+
+        if endpoint is None:
+            return WebhookRepin(status="no_endpoint")
+
+        if endpoint.api_version == api_version:
+            return WebhookRepin(status="already_pinned", previous_api_version=endpoint.api_version)
+
+        # Carry the live subscription over, including any event the user added by hand. Only a
+        # missing list falls back, because an empty one that fell back would subscribe the
+        # replacement to every event the user had turned off.
+        enabled_events = endpoint.enabled_events if endpoint.enabled_events is not None else _all_known_webhook_events()
+
+        replacement = client.webhook_endpoints.create(
+            params={
+                "url": webhook_url,
+                "enabled_events": enabled_events,  # type: ignore[typeddict-item]
+                "description": endpoint.description or "PostHog data warehouse webhook",
+                "api_version": api_version,  # type: ignore[typeddict-item]
+            }
+        )
+
+        if not replacement.secret:
+            return WebhookRepin(
+                status="failed",
+                created_endpoint_id=replacement.id,
+                error=(
+                    f"Stripe created endpoint {replacement.id} without returning a signing secret. "
+                    "Delete it in Stripe, because nothing can verify its deliveries."
+                ),
+            )
+
+        return WebhookRepin(
+            status="replaced",
+            previous_api_version=endpoint.api_version,
+            signing_secret=replacement.secret,
+            replaced_endpoint_id=endpoint.id,
+            created_endpoint_id=replacement.id,
+        )
+    except Exception as e:
+        error_str = _clean_stripe_error_message(str(e))
+        if "permission" in error_str.lower() or "403" in error_str or "forbidden" in error_str.lower():
+            error_str = (
+                f"{error_str} (the API key needs the 'Write' permission for 'Webhook endpoints'; "
+                "an app-connected source can never have it)"
+            )
+        return WebhookRepin(status="failed", error=error_str)
+
+
+def delete_webhook_endpoint(api_key: str, stripe_account_id: str | None, endpoint_id: str) -> WebhookDeletionResult:
+    """Delete one endpoint by id.
+
+    `delete_webhook` matches on URL, which is ambiguous while a replacement shares the URL with
+    the endpoint it replaces.
+    """
+    try:
+        client = StripeClient(
+            api_key,
+            stripe_account=stripe_account_id,
+            stripe_version="2024-09-30.acacia",
+            max_network_retries=2,
+            base_addresses=_stripe_base_addresses(),
+            http_client=_tracked_stripe_http_client(),
+        )
+        client.webhook_endpoints.delete(endpoint_id)
+        return WebhookDeletionResult(success=True)
+    except Exception as e:
+        return WebhookDeletionResult(success=False, error=_clean_stripe_error_message(str(e)))

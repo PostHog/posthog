@@ -1,11 +1,32 @@
 from typing import Any
 
-from posthog.models.activity_logging.activity_log import AuditableScope, Detail, changes_between, log_activity
+from posthog.models.activity_logging.activity_log import AuditableScope, Change, Detail, changes_between, log_activity
 from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.models.user import User
 
 from products.experiments.backend.models.experiment import Experiment
 from products.experiments.backend.models.web_experiment import WebExperiment
+
+# Kept in sync with DERIVED_RUNNING_TIME_KEYS in
+# frontend/src/scenes/experiments/activity-descriptions/experimentChangeDescription.tsx.
+DERIVED_RUNNING_TIME_KEYS = ("recommended_running_time", "recommended_sample_size")
+
+
+def _without_derived_running_time_keys(value: object) -> dict[str, object]:
+    if not isinstance(value, dict):
+        return {}
+    return {key: item for key, item in value.items() if key not in DERIVED_RUNNING_TIME_KEYS}
+
+
+def _is_derived_running_time_drift(change: Change) -> bool:
+    if change.field != "running_time_calculation":
+        return False
+    # The validator lets falsy non-dict values (for example []) through, and those are
+    # never calculator drift, so a transition involving one must stay logged.
+    for value in (change.before, change.after):
+        if value is not None and not isinstance(value, dict):
+            return False
+    return _without_derived_running_time_keys(change.before) == _without_derived_running_time_keys(change.after)
 
 
 @mutable_receiver(model_activity_signal, sender=Experiment)
@@ -29,6 +50,10 @@ def handle_experiment_change(
         after_deleted = getattr(after_update, "deleted", None)
         if before_deleted is not None and after_deleted is not None and before_deleted != after_deleted:
             activity = "restored" if after_deleted is False else "deleted"
+        # Clearing the start date returns the experiment to draft, which is what a reset does,
+        # whichever endpoint performed the write.
+        elif activity == "updated" and before_update.start_date is not None and after_update.start_date is None:
+            activity = "reset"
 
     changes = changes_between(scope, previous=before_update, current=after_update)
 
@@ -36,6 +61,12 @@ def handle_experiment_change(
         # Web experiments don't use parameters (a product experiment field), but it can
         # get cleared to null during updates, producing a noisy diff
         changes = [change for change in changes if change.field != "parameters"]
+
+    # Opening the calculator re-saves the recomputed outputs, so they drift as exposure data
+    # changes. A change earns a log entry only when a calculator input was edited.
+    # log_activity drops an "updated" activity whose changes end up empty, so a pure-drift
+    # save produces no row at all.
+    changes = [change for change in changes if not _is_derived_running_time_drift(change)]
 
     log_activity(
         organization_id=after_update.team.organization_id,

@@ -911,7 +911,7 @@ def _stub_create_workspace(captured: dict[str, str | None]) -> Callable[..., Non
 
     def stub(
         name: str,
-        disk_size: int,
+        disk_size: int | None,
         *,
         git_name: str | None = None,
         git_email: str | None = None,
@@ -967,7 +967,7 @@ class TestWorkspaceCreation:
                 ["Default (warm)", "Cold"],
                 "posthog-linux",
                 "none",
-                {"disk_size": "100", "repo": _REPO, "workspace_region": "us-east-1"},
+                {"repo": _REPO, "workspace_region": "us-east-1"},
             ),
             # An explicit warm preset that the template defines flows through to
             # the coder argv unchanged, alongside all optional params.
@@ -982,7 +982,6 @@ class TestWorkspaceCreation:
                 "posthog-linux",
                 "Default (warm)",
                 {
-                    "disk_size": "100",
                     "repo": _REPO,
                     "workspace_region": "us-east-1",
                     "git_name": "PostHog Engineer",
@@ -995,7 +994,7 @@ class TestWorkspaceCreation:
                 ["Default (warm)"],
                 "posthog-microvm",
                 "none",
-                {"disk_size": "100", "repo": _REPO, "workspace_region": "us-east-1"},
+                {"repo": _REPO, "workspace_region": "us-east-1"},
             ),
             # Resolution fallback to "none" is exhaustively covered by
             # TestTemplatePresetResolution; one case here is enough to prove
@@ -1006,7 +1005,7 @@ class TestWorkspaceCreation:
                 ["Cold only"],
                 "posthog-microvm",
                 "none",
-                {"disk_size": "100", "repo": _REPO, "workspace_region": "us-east-1"},
+                {"repo": _REPO, "workspace_region": "us-east-1"},
             ),
             # A non-default region is forwarded verbatim as workspace_region.
             (
@@ -1014,7 +1013,7 @@ class TestWorkspaceCreation:
                 ["Default (warm)"],
                 "posthog-linux",
                 "none",
-                {"disk_size": "100", "repo": _REPO, "workspace_region": "eu-central-1"},
+                {"repo": _REPO, "workspace_region": "eu-central-1"},
             ),
         ],
         ids=[
@@ -1038,7 +1037,7 @@ class TestWorkspaceCreation:
         monkeypatch.setattr(coder, "_run_build", _fake_run_build_capturing(captured))
         monkeypatch.setattr(coder, "_list_template_presets", lambda template: list(available_presets))
 
-        coder.create_workspace("devbox-test-user", 100, **kwargs)
+        coder.create_workspace("devbox-test-user", None, **kwargs)
 
         args = captured["args"]
         assert args[:3] == ["coder", "create", "devbox-test-user"]
@@ -1592,7 +1591,7 @@ class TestDevboxCommands:
         assert result.exit_code == 0
         assert captured == {
             "name": "devbox-test-user",
-            "disk_size": "100",
+            "disk_size": "None",
             "git_name": None,
             "git_email": None,
             "dotfiles_uri": None,
@@ -1603,8 +1602,6 @@ class TestDevboxCommands:
         }
 
     def test_devbox_start_forwards_larger_disk_size(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        # Guards that --disk 200 is an accepted choice and reaches create_workspace;
-        # regresses if the choice list drifts from the Coder template's disk_size options.
         captured: dict[str, str | None] = {}
 
         monkeypatch.setattr(devbox_cli, "ensure_runtime_ready", lambda: None)
@@ -2978,44 +2975,6 @@ class TestSetupClaudeSecret:
         assert called == []
 
 
-class TestDevboxTaskClaudeWarning:
-    """Test the Claude-secret warning printed by devbox:task."""
-
-    def test_warns_when_secret_missing(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setattr(devbox_cli, "ensure_runtime_ready", lambda: None)
-        monkeypatch.setattr(devbox_cli, "server_supports_user_secrets", lambda: True)
-        monkeypatch.setattr(devbox_cli, "has_claude_oauth_secret", lambda: False)
-        monkeypatch.setattr(devbox_cli, "create_task", lambda *a, **kw: None)
-
-        result = runner.invoke(cli, ["devbox:task", "do something"])
-
-        assert result.exit_code == 0
-        assert "no 'CLAUDE_CODE_OAUTH_TOKEN' Coder user secret set" in result.output
-
-    def test_no_warning_when_secret_present(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setattr(devbox_cli, "ensure_runtime_ready", lambda: None)
-        monkeypatch.setattr(devbox_cli, "server_supports_user_secrets", lambda: True)
-        monkeypatch.setattr(devbox_cli, "has_claude_oauth_secret", lambda: True)
-        monkeypatch.setattr(devbox_cli, "create_task", lambda *a, **kw: None)
-
-        result = runner.invoke(cli, ["devbox:task", "do something"])
-
-        assert result.exit_code == 0
-        assert "no 'CLAUDE_CODE_OAUTH_TOKEN' Coder user secret set" not in result.output
-
-    def test_no_warning_when_server_unsupported(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setattr(devbox_cli, "ensure_runtime_ready", lambda: None)
-        monkeypatch.setattr(devbox_cli, "server_supports_user_secrets", lambda: False)
-        called: list[bool] = []
-        monkeypatch.setattr(devbox_cli, "has_claude_oauth_secret", lambda: called.append(True) or False)
-        monkeypatch.setattr(devbox_cli, "create_task", lambda *a, **kw: None)
-
-        result = runner.invoke(cli, ["devbox:task", "do something"])
-
-        assert result.exit_code == 0
-        assert called == []
-
-
 class TestDevboxSecretCommands:
     """Test the devbox:secret:list / set / rm wrappers."""
 
@@ -3093,123 +3052,6 @@ class TestDevboxSecretCommands:
         result = runner.invoke(cli, ["devbox:secret:rm", "GH_TOKEN"])
         assert result.exit_code == 0
         assert captured == ["GH_TOKEN"]
-
-
-class TestCreateTask:
-    """Test the coder task create argv assembly."""
-
-    @pytest.mark.parametrize(
-        "prompt, task_name, quiet, expected_tail",
-        [
-            ("fix CI on PR #1234", None, False, ["fix CI on PR #1234"]),
-            (None, None, False, ["--stdin"]),
-            ("do the thing", "my-task", True, ["--name", "my-task", "--quiet", "do the thing"]),
-        ],
-    )
-    def test_create_task_argv(
-        self,
-        monkeypatch: pytest.MonkeyPatch,
-        prompt: str | None,
-        task_name: str | None,
-        quiet: bool,
-        expected_tail: list[str],
-    ) -> None:
-        captured: list[list[str]] = []
-        monkeypatch.setattr(coder, "_run_or_exit", lambda args: captured.append(args))
-
-        coder.create_task(prompt, task_name=task_name, quiet=quiet)
-
-        assert captured == [["coder", "task", "create", "--template", "posthog-linux", *expected_tail]]
-
-    def test_create_task_argv_uses_selected_template(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        captured: list[list[str]] = []
-        monkeypatch.setattr(coder, "_run_or_exit", lambda args: captured.append(args))
-
-        coder.create_task("do it", template="posthog-microvm")
-
-        assert captured == [["coder", "task", "create", "--template", "posthog-microvm", "do it"]]
-
-
-class TestDevboxTaskCommand:
-    """Test the devbox:task Click command."""
-
-    @pytest.mark.parametrize(
-        "cli_args, expected",
-        [
-            (
-                ["devbox:task", "fix CI on PR #1234"],
-                {"prompt": "fix CI on PR #1234", "task_name": None, "quiet": False, "template": "posthog-linux"},
-            ),
-            (
-                ["devbox:task", "--name", "my-task", "-q", "do it"],
-                {"prompt": "do it", "task_name": "my-task", "quiet": True, "template": "posthog-linux"},
-            ),
-            (
-                ["devbox:task", "-t", "posthog-microvm", "do it"],
-                {"prompt": "do it", "task_name": None, "quiet": False, "template": "posthog-microvm"},
-            ),
-            (
-                ["devbox:task", "--template", "posthog-microvm", "do it"],
-                {"prompt": "do it", "task_name": None, "quiet": False, "template": "posthog-microvm"},
-            ),
-        ],
-    )
-    def test_options_forwarded_to_create_task(
-        self,
-        monkeypatch: pytest.MonkeyPatch,
-        cli_args: list[str],
-        expected: dict[str, object],
-    ) -> None:
-        captured: dict[str, object] = {}
-
-        monkeypatch.setattr(devbox_cli, "ensure_runtime_ready", lambda: None)
-        monkeypatch.setattr(
-            devbox_cli,
-            "create_task",
-            lambda prompt, task_name=None, quiet=False, template="posthog-linux": captured.update(
-                {"prompt": prompt, "task_name": task_name, "quiet": quiet, "template": template}
-            ),
-        )
-
-        result = runner.invoke(cli, cli_args)
-
-        assert result.exit_code == 0
-        assert captured == expected
-
-    def test_no_prompt_on_tty_errors(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setattr(devbox_cli, "ensure_runtime_ready", lambda: None)
-
-        class FakeTTY:
-            def isatty(self) -> bool:
-                return True
-
-        monkeypatch.setattr(devbox_cli.click, "get_text_stream", lambda stream: FakeTTY())
-
-        called: list[bool] = []
-        monkeypatch.setattr(devbox_cli, "create_task", lambda *a, **kw: called.append(True))
-
-        result = runner.invoke(cli, ["devbox:task"])
-
-        assert result.exit_code != 0
-        assert "Provide a prompt" in result.output
-        assert called == []
-
-    def test_piped_stdin_passes_none_as_prompt(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        captured: dict[str, object] = {}
-
-        monkeypatch.setattr(devbox_cli, "ensure_runtime_ready", lambda: None)
-        monkeypatch.setattr(
-            devbox_cli,
-            "create_task",
-            lambda prompt, task_name=None, quiet=False, template="posthog-linux": captured.update(
-                {"prompt": prompt, "task_name": task_name, "quiet": quiet, "template": template}
-            ),
-        )
-
-        result = runner.invoke(cli, ["devbox:task"], input="piped prompt\n")
-
-        assert result.exit_code == 0
-        assert captured == {"prompt": None, "task_name": None, "quiet": False, "template": "posthog-linux"}
 
 
 class TestResolveLocalSigningKey:

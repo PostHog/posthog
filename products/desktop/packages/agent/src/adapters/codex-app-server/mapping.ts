@@ -4,8 +4,8 @@ import type {
   ToolCallLocation,
 } from "@agentclientprotocol/sdk";
 import {
+  boundPersistedMcpResult,
   mcpToolKey,
-  omitNullCallToolResultFields,
   posthogToolMeta,
 } from "@posthog/shared";
 import { APP_SERVER_NOTIFICATIONS } from "./protocol";
@@ -416,7 +416,9 @@ function describeTool(item: AppServerItem): ToolDescriptor | null {
         // the schema-valid result an app receives. Stripping here keeps the nulls
         // out of stored transcripts and McpAppsService events, so a delivery path
         // that skips `toCallToolResult` cannot carry them either.
-        rawOutput: omitNullCallToolResultFields(item.result),
+        ...(item.result != null
+          ? { rawOutput: boundPersistedMcpResult(item.result) }
+          : {}),
         mcp: { server: item.server ?? "mcp", tool: item.tool ?? "tool" },
       };
     case "dynamicToolCall":
@@ -617,6 +619,11 @@ function mapStatus(
 ): "completed" | "failed" | "in_progress" {
   if (status === "completed") return "completed";
   if (status === "failed" || status === "declined") return "failed";
+  // Both callers describe a finished item, and item types such as `webSearch`
+  // carry no status field at all. Reporting `in_progress` there leaves the tool
+  // call open for good: the thread chip keeps reading as active and the APM
+  // span only ends when the turn does.
+  if (status === undefined) return "completed";
   return "in_progress";
 }
 

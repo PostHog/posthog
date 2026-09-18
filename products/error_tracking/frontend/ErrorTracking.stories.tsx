@@ -743,6 +743,14 @@ export const GroupPage: Story = {
     parameters: { pageUrl: urls.errorTrackingIssue(ISSUE_ID) },
 }
 
+export const GroupPageWithVisionCrossSell: Story = {
+    name: 'Issue scene with Replay vision cross-sell',
+    parameters: {
+        pageUrl: urls.errorTrackingIssue(ISSUE_ID),
+        featureFlags: [FEATURE_FLAGS.VISION_ENTRYPOINT_ERROR_TRACKING],
+    },
+}
+
 export const GroupPageManyAssignees: Story = {
     name: 'Issue scene with many assignees',
     parameters: { pageUrl: urls.errorTrackingIssue(ISSUE_ID) },

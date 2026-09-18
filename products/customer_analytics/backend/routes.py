@@ -24,6 +24,7 @@ from products.customer_analytics.backend.presentation.views.views import (
     FeatureRequestViewSet,
     UserCustomerAnalyticsConfigViewSet,
 )
+from products.customer_analytics.backend.presentation.views.workflow_customer_tasks import WorkflowCustomerTaskViewSet
 
 
 def register_routes(routers: RouterRegistry) -> None:
@@ -129,3 +130,9 @@ def register_routes(routers: RouterRegistry) -> None:
         ["team_id", "account_id"],
     )
     routers.projects.register(r"customer_tasks", CustomerTaskViewSet, "project_customer_tasks", ["team_id"])
+    routers.projects.register(
+        r"workflow_customer_tasks",
+        WorkflowCustomerTaskViewSet,
+        "project_workflow_customer_tasks",
+        ["team_id"],
+    )

@@ -62,6 +62,16 @@ pub fn distinct_id_tables_for(person_table: &str) -> &'static [&'static str] {
     }
 }
 
+/// The saga tables paired with a person table, derived the way identity
+/// and the leader derive them.
+pub fn lifecycle_tables_for(person_table: &str) -> (&'static str, &'static str) {
+    if person_table == "personhog_person_tmp" {
+        ("lifecycle_op_tmp", "lifecycle_op_person_tmp")
+    } else {
+        ("lifecycle_op", "lifecycle_op_person")
+    }
+}
+
 /// Create (or revive) one person per distinct id through the identity
 /// service and return their row ids in entry order. This is the bed's
 /// seeding path: creation runs the same get-or-create the ingestion

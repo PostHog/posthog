@@ -2,7 +2,8 @@
 
 This module is the single definition of the run triple — runtime adapter, model, and
 reasoning effort — together with the model each adapter falls back to when a run pins
-none. Every surface that offers or validates a selection derives from here:
+none, and what each model costs relative to the rest. Every surface that offers or
+validates a selection derives from here:
 
 - the backend, through ``products.tasks.backend.temporal.process_task.utils``;
 - the web composer and settings, through ``products/tasks/frontend/modelCatalog.generated.ts``;
@@ -55,6 +56,18 @@ _NO_EFFORT: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
+class ModelCost:
+    """List price in US dollars per million tokens, not the negotiated rate PostHog pays.
+
+    A picker states a comparison between models, and a negotiated rate would make it one
+    nobody outside PostHog could check.
+    """
+
+    input_per_mtok: float
+    output_per_mtok: float
+
+
+@dataclass(frozen=True)
 class CatalogModel:
     """One model a run may use.
 
@@ -71,6 +84,9 @@ class CatalogModel:
     checked in and the desktop app auto-updates into it, so it is readable by anyone and can
     be stale. Whether a run may actually use the model stays a server question, answered by
     ``get_model_access_error`` on every write path.
+
+    ``cost`` is ``None`` where no public price list covers the model, and a picker then shows
+    it with no cost rather than a guessed one.
     """
 
     id: str
@@ -78,40 +94,82 @@ class CatalogModel:
     reasoning_efforts: tuple[str, ...]
     label: str | None = None
     access_flag: str | None = None
+    cost: ModelCost | None = None
 
+
+# Rates a model family lists at. Sources, checked 2026-09-17: Anthropic and OpenAI publish
+# theirs; the models PostHog serves through Cloudflare, Baseten and Modal are quoted at what
+# the gateway bills, pinned in
+# `services/llm-gateway/src/llm_gateway/rate_limiting/model_cost_overrides.py`.
+_GLM_COST = ModelCost(1.4, 4.4)
+_GLM_FLASH_COST = ModelCost(0.15, 0.5)
+_KIMI_COST = ModelCost(3, 15)
+_DEEPSEEK_COST = ModelCost(0.13, 0.26)
+_OPUS_COST = ModelCost(5, 25)
+_FABLE_COST = ModelCost(10, 50)
+_SONNET_COST = ModelCost(2, 10)
+_SONNET_4_COST = ModelCost(3, 15)
+_GPT_PRO_COST = ModelCost(5, 30)
+_GPT_MID_COST = ModelCost(2.5, 15)
+_GPT_LIGHT_COST = ModelCost(1, 6)
+_GPT_FRONTIER_COST = ModelCost(10, 50)
 
 MODELS: tuple[CatalogModel, ...] = (
     # GLM 5.2 is Cloudflare-served and driven through the `claude` adapter: the LLM gateway
     # exposes it over its Anthropic-Messages surface and translates the `@cf/` id upstream,
     # so the `anthropic` provider is the intended routing rather than a direct Anthropic call.
-    CatalogModel("@cf/zai-org/glm-5.2", CLAUDE, _GLM, label="GLM-5.2", access_flag="posthog-code-glm-model"),
-    CatalogModel("zai-org/glm-5.3", CLAUDE, _GLM, label="GLM-5.3", access_flag="posthog-code-glm-53-model"),
     CatalogModel(
-        "zai-org/glm-5.3-flash", CLAUDE, _GLM, label="GLM-5.3 Flash", access_flag="posthog-code-glm-53-flash-model"
+        "@cf/zai-org/glm-5.2",
+        CLAUDE,
+        _GLM,
+        label="GLM-5.2",
+        access_flag="posthog-code-glm-model",
+        cost=_GLM_COST,
     ),
-    CatalogModel("moonshotai/kimi-k3", CLAUDE, _NO_EFFORT, label="Kimi K3", access_flag="tasks-kimi-k3"),
+    CatalogModel(
+        "zai-org/glm-5.3",
+        CLAUDE,
+        _GLM,
+        label="GLM-5.3",
+        access_flag="posthog-code-glm-53-model",
+        cost=_GLM_COST,
+    ),
+    CatalogModel(
+        "zai-org/glm-5.3-flash",
+        CLAUDE,
+        _GLM,
+        label="GLM-5.3 Flash",
+        access_flag="posthog-code-glm-53-flash-model",
+        cost=_GLM_FLASH_COST,
+    ),
+    CatalogModel(
+        "moonshotai/kimi-k3", CLAUDE, _NO_EFFORT, label="Kimi K3", access_flag="tasks-kimi-k3", cost=_KIMI_COST
+    ),
     CatalogModel(
         "deepseek-ai/deepseek-v4-flash-0731",
         CLAUDE,
         _NO_EFFORT,
         label="DeepSeek V4 Flash",
         access_flag="posthog-code-deepseek-model",
+        cost=_DEEPSEEK_COST,
     ),
-    CatalogModel("claude-opus-4-5", CLAUDE, _STANDARD),
-    CatalogModel("claude-opus-4-6", CLAUDE, _THROUGH_MAX),
-    CatalogModel("claude-opus-4-7", CLAUDE, _EXTENDED),
-    CatalogModel("claude-opus-4-8", CLAUDE, _EXTENDED),
-    CatalogModel("claude-opus-5", CLAUDE, _EXTENDED),
-    CatalogModel("claude-fable-5", CLAUDE, _EXTENDED),
-    CatalogModel("claude-fable-5-1", CLAUDE, _EXTENDED),
-    CatalogModel("claude-sonnet-5", CLAUDE, _EXTENDED),
-    CatalogModel("claude-sonnet-4-6", CLAUDE, _STANDARD),
+    CatalogModel("claude-opus-4-5", CLAUDE, _STANDARD, cost=_OPUS_COST),
+    CatalogModel("claude-opus-4-6", CLAUDE, _THROUGH_MAX, cost=_OPUS_COST),
+    CatalogModel("claude-opus-4-7", CLAUDE, _EXTENDED, cost=_OPUS_COST),
+    CatalogModel("claude-opus-4-8", CLAUDE, _EXTENDED, cost=_OPUS_COST),
+    CatalogModel("claude-opus-5", CLAUDE, _EXTENDED, cost=_OPUS_COST),
+    CatalogModel("claude-fable-5", CLAUDE, _EXTENDED, cost=_FABLE_COST),
+    CatalogModel("claude-fable-5-1", CLAUDE, _EXTENDED, cost=_FABLE_COST),
+    CatalogModel("claude-sonnet-5", CLAUDE, _EXTENDED, cost=_SONNET_COST),
+    CatalogModel("claude-sonnet-4-6", CLAUDE, _STANDARD, cost=_SONNET_4_COST),
+    # No cost: the gateway does not serve bare `gpt-5` to a task run, so there is no rate
+    # anyone can check it against.
     CatalogModel("gpt-5", CODEX, _STANDARD),
-    CatalogModel("gpt-5.5", CODEX, (*_STANDARD, XHIGH)),
-    CatalogModel("gpt-5.6-sol", CODEX, _THROUGH_MAX),
-    CatalogModel("gpt-5.6-terra", CODEX, _THROUGH_MAX),
-    CatalogModel("gpt-5.6-luna", CODEX, _THROUGH_MAX),
-    CatalogModel("gpt-6-astra", CODEX, _THROUGH_MAX),
+    CatalogModel("gpt-5.5", CODEX, (*_STANDARD, XHIGH), cost=_GPT_PRO_COST),
+    CatalogModel("gpt-5.6-sol", CODEX, _THROUGH_MAX, cost=_GPT_PRO_COST),
+    CatalogModel("gpt-5.6-terra", CODEX, _THROUGH_MAX, cost=_GPT_MID_COST),
+    CatalogModel("gpt-5.6-luna", CODEX, _THROUGH_MAX, cost=_GPT_LIGHT_COST),
+    CatalogModel("gpt-6-astra", CODEX, _THROUGH_MAX, cost=_GPT_FRONTIER_COST),
 )
 
 # Depths a whole model family exposes, used when no exact id matches. OpenAI ships
@@ -248,6 +306,74 @@ def display_name_for_model(model_id: str) -> str:
     return (model.label if model else None) or format_model_id(normalized)
 
 
+# A mid-range anchor, so both the cheap end and the expensive end read as a useful ratio.
+COST_BASELINE_MODEL = "claude-sonnet-5"
+
+# Past this divergence between the input and output ratios, one number stops describing both
+# and the multiplier is marked approximate rather than dropped.
+_COST_RATIO_TOLERANCE = 0.1
+
+
+def cost_for_model(model_id: str) -> ModelCost | None:
+    """What this model lists at, or ``None`` when no public rate covers it."""
+    model = _MODEL_BY_ID.get(normalize_model_id(model_id))
+    return model.cost if model else None
+
+
+def _baseline_cost() -> ModelCost:
+    baseline = cost_for_model(COST_BASELINE_MODEL)
+    if baseline is None:
+        raise RuntimeError(f"the cost baseline {COST_BASELINE_MODEL!r} must carry a cost")
+    return baseline
+
+
+def cost_multiplier_for(model_id: str) -> tuple[float, bool] | None:
+    """This model's per-token cost relative to the baseline, and whether it is approximate.
+
+    Input and output rarely scale together, so one multiplier is the mean of both ratios.
+    """
+    cost = cost_for_model(model_id)
+    if cost is None:
+        return None
+    baseline = _baseline_cost()
+    input_ratio = cost.input_per_mtok / baseline.input_per_mtok
+    output_ratio = cost.output_per_mtok / baseline.output_per_mtok
+    spread = abs(input_ratio - output_ratio) / max(input_ratio, output_ratio)
+    return (input_ratio + output_ratio) / 2, spread > _COST_RATIO_TOLERANCE
+
+
+def _format_multiplier(multiplier: float) -> str:
+    """Round to the precision that stays meaningful at this magnitude: `5×`, `1.5×`, `0.06×`."""
+    if multiplier >= 10:
+        return str(round(multiplier))
+    if multiplier >= 0.95:
+        one_decimal = round(multiplier, 1)
+        return str(int(one_decimal)) if one_decimal.is_integer() else f"{one_decimal:.1f}"
+    return str(round(multiplier, 2))
+
+
+def cost_multiplier_label(model_id: str) -> str | None:
+    """The multiplier a picker shows beside a model, `2.5×` or `≈0.55×`, or ``None``.
+
+    Resolved here so the web composer, the Slack picker and the desktop app cannot quote one
+    model differently.
+    """
+    resolved = cost_multiplier_for(model_id)
+    if resolved is None:
+        return None
+    multiplier, approximate = resolved
+    return f"{'≈' if approximate else ''}{_format_multiplier(multiplier)}×"
+
+
+def format_cost_rates(cost: ModelCost) -> str:
+    """The rates behind a multiplier, for a tooltip: `Input $2 · Output $10 per 1M tokens`."""
+
+    def money(amount: float) -> str:
+        return f"${amount:.0f}" if float(amount).is_integer() else f"${amount:.2f}"
+
+    return f"Input {money(cost.input_per_mtok)} · Output {money(cost.output_per_mtok)} per 1M tokens"
+
+
 def reasoning_efforts_for(runtime_adapter: str, model_id: str) -> tuple[str, ...]:
     """The efforts this model may run at, empty when it takes no effort at all.
 
@@ -274,6 +400,7 @@ __all__ = [
     "ANTHROPIC",
     "CLAUDE",
     "CODEX",
+    "COST_BASELINE_MODEL",
     "DEFAULT_MODEL_BY_RUNTIME_ADAPTER",
     "FALLBACK_REASONING_EFFORTS_BY_RUNTIME_ADAPTER",
     "MODELS",
@@ -283,6 +410,11 @@ __all__ = [
     "access_flag_for_model",
     "RUNTIME_ADAPTERS",
     "CatalogModel",
+    "ModelCost",
+    "cost_for_model",
+    "cost_multiplier_for",
+    "cost_multiplier_label",
+    "format_cost_rates",
     "label_for_model",
     "models_for_runtime_adapter",
     "normalize_model_id",

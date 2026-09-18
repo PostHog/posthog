@@ -1,14 +1,26 @@
 import re
 from collections.abc import Iterator
+from io import StringIO
 from typing import Any
 
-from django.test import SimpleTestCase
+from unittest.mock import patch
 
+from django.core.management import call_command
+from django.test import SimpleTestCase, TestCase
+
+from oauth2_provider.settings import oauth2_settings
 from parameterized import parameterized
 
 from posthog.schema import InsightVizNode
 
-from posthog.management.commands.ensure_migration_defaults import _FEATURE_FLAG_TEMPLATE, _PRODUCT_ANALYTICS_TEMPLATE
+from posthog.management.commands.ensure_migration_defaults import (
+    _FEATURE_FLAG_TEMPLATE,
+    _PRODUCT_ANALYTICS_TEMPLATE,
+    _STREAMLIT_OAUTH_CLIENT_ID,
+)
+from posthog.models.oauth import OAuthApplication
+
+from products.dashboards.backend.models.dashboard_templates import DashboardTemplate
 
 _PLACEHOLDER = re.compile(r"^\{([A-Z0-9_]+)\}$")
 
@@ -68,3 +80,20 @@ class TestSeededDashboardTemplates(SimpleTestCase):
     ) -> None:
         declared = {variable["id"] for variable in template.get("variables", [])}
         assert _placeholders(tile.get("query")) <= declared
+
+
+class TestEnsureMigrationDefaults(TestCase):
+    @parameterized.expand([("with an OIDC key", "-----FAKE KEY-----", True), ("without an OIDC key", "", False)])
+    def test_seeds_every_default_and_creates_the_oauth_app_only_when_rs256_can_sign(
+        self, _label: str, oidc_key: str, expects_oauth_app: bool
+    ) -> None:
+        OAuthApplication.objects.filter(client_id=_STREAMLIT_OAUTH_CLIENT_ID).delete()
+        template_name = _PRODUCT_ANALYTICS_TEMPLATE["template_name"]
+        DashboardTemplate.objects.filter(template_name=template_name, team__isnull=True).delete()
+
+        with patch.object(oauth2_settings, "OIDC_RSA_PRIVATE_KEY", oidc_key):
+            call_command("ensure_migration_defaults", stdout=StringIO())
+
+        assert OAuthApplication.objects.filter(client_id=_STREAMLIT_OAUTH_CLIENT_ID).exists() is expects_oauth_app
+        # Seeded after the OAuth app, so its presence proves the command ran to the end.
+        assert DashboardTemplate.objects.filter(template_name=template_name, team__isnull=True).exists()

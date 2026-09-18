@@ -12,6 +12,7 @@ import { LemonDialog } from '~/lib/lemon-ui/LemonDialog'
 
 import type { SkillFormFileValues } from './llmSkillLogic'
 import { isSkill, llmSkillLogic } from './llmSkillLogic'
+import { PublishToCommunityContents } from './PublishToCommunityContents'
 import { SKILL_NAME_MAX_LENGTH, validateSkillName } from './skillConstants'
 
 export { LLMSkillsScene } from './LLMSkillsScene'
@@ -53,9 +54,41 @@ export function openRenameSkillDialog(skillName: string, onRename: (newName: str
 }
 
 interface PublishToCommunityOptions {
+    expected_skill_id: string
+    expected_version: number
     display_name?: string
     tags?: string[]
     author_handle?: string
+}
+
+/** Owner-only on the backend, so mirror that here instead of letting a click come back a 403.
+ * Shared so the list view and the single-skill view guard the trigger identically. */
+export function publishToCommunityDisabledReason({
+    ownerUuids,
+    currentUserUuid,
+    publishing,
+    isHistoricalVersion,
+}: {
+    ownerUuids: string[]
+    currentUserUuid: string | undefined
+    publishing: boolean
+    isHistoricalVersion?: boolean
+}): string | undefined {
+    if (publishing) {
+        return 'Publishing…'
+    }
+    if (ownerUuids.length === 0) {
+        return 'Add an owner before you publish this skill'
+    }
+    if (!currentUserUuid || !ownerUuids.includes(currentUserUuid)) {
+        return "Only the skill's owners can publish it"
+    }
+    // The backend shares the latest version by name, so block sharing from a historical version to
+    // avoid pushing content the user is not looking at.
+    if (isHistoricalVersion) {
+        return 'Switch to the latest version to publish'
+    }
+    return undefined
 }
 
 /** Collect the publish fields, then hand them to `onPublish`. Shared so the list view and the
@@ -69,19 +102,28 @@ export function openPublishToCommunityDialog({
     githubLogin: string | null
     onPublish: (skillName: string, options: PublishToCommunityOptions) => void
 }): void {
+    let expectedSkill: { id: string; version: number } | null = null
+
     LemonDialog.openForm({
-        title: 'Publish to community',
+        title: 'Publish to the PostHog community?',
         description:
-            "Publishing commits the skill's instructions, every bundled file, and any template variables (their prompts and defaults) to a public GitHub repo, then opens a pull request for a maintainer to review. The contents are public from the moment you submit, so don't include credentials or internal details.",
+            'If approved for the PostHog catalog, all PostHog users can find and use this skill. Its contents will be public on GitHub immediately.',
         initialValues: {
             display_name: skillName.replace(/-/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()),
             tags: '',
             // Prefill with the user's resolved GitHub handle when we have one; the field stays
             // editable so users without a linked GitHub identity can still type one (free-text fallback).
             author_handle: githubLogin ?? '',
+            consent: false,
         },
         content: (
             <div className="flex flex-col gap-2">
+                <PublishToCommunityContents
+                    skillName={skillName}
+                    onPreviewChange={(preview) => {
+                        expectedSkill = preview ? { id: preview.id, version: preview.version } : null
+                    }}
+                />
                 <LemonField name="display_name" label="Display name">
                     <LemonInput data-attr="llma-publish-display-name" autoFocus />
                 </LemonField>
@@ -93,8 +135,18 @@ export function openPublishToCommunityDialog({
                 </LemonField>
             </div>
         ),
-        onSubmit: ({ display_name, tags, author_handle }) =>
+        errors: {
+            consent: (consent: boolean) =>
+                consent ? undefined : 'Review the skill and confirm that you can share it publicly',
+        },
+        primaryButtonProps: { children: 'Publish to community' },
+        onSubmit: ({ display_name, tags, author_handle }) => {
+            if (expectedSkill === null) {
+                return
+            }
             onPublish(skillName, {
+                expected_skill_id: expectedSkill.id,
+                expected_version: expectedSkill.version,
                 display_name: display_name?.trim() || undefined,
                 tags: tags
                     ? tags
@@ -103,7 +155,8 @@ export function openPublishToCommunityDialog({
                           .filter(Boolean)
                     : undefined,
                 author_handle: author_handle?.trim() || undefined,
-            }),
+            })
+        },
     })
 }
 

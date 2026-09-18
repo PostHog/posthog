@@ -25,6 +25,7 @@ Start with the guide that matches the work you are doing. [AGENTS.md](../AGENTS.
 
 | Guide | Use it for |
 | --- | --- |
+| [Inbox report states](./INBOX-REPORT-STATES.md) | Understand dismissal feedback and investigation status. |
 | [Deep links](./DEEP-LINKS.md) | Work with `posthog-code://` routes and OAuth callbacks. |
 | [Pi extensions](./PI-EXTENSIONS.md) | Understand repository trust and desktop RPC behavior for Pi extensions. |
 | [Cloud MCP import](./CLOUD-MCP-IMPORT.md) | Understand importing local MCP configuration into cloud task runs. |
