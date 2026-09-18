@@ -68,6 +68,7 @@ This is a Linux virtual machine running in your browser.
 
 /posthog/files       Your project tree. Markdown notebooks have a .md extension.
 /posthog/api         Read-only JSON representations, grouped by object type and ID.
+/posthog/tools       Command descriptions and argument schemas. Run ph tools to discover MCP tools.
 /posthog/recovery    Edits that could not be saved. Copy them before leaving this page.
 /root and /tmp       Local Linux files. These disappear when the terminal closes.
 
@@ -78,6 +79,9 @@ Try:
   cat '/posthog/files/Unfiled/Notebooks/My notebook.md'
   vi '/posthog/files/Unfiled/Notebooks/My notebook.md'
   jq '.title' /posthog/api/notebook/<short-id>.json
+  ph help
+  ph tools notebook
+  ph notebook-get '/posthog/files/Unfiled/Notebooks/My notebook.md'
 
 Saving an existing .md notebook updates PostHog using your current permissions.
 Writes commit on fsync or close. Concurrent edits fail instead of overwriting
@@ -90,7 +94,7 @@ Directories are a snapshot from startup. File contents load from the API on open
 Listing directories never downloads object contents. Sizes are zero until a file
 is opened, then show its last known size. Startup uses the notebook index to find
 markdown notebooks without fetching their bodies.
-Restart the terminal to discover new or renamed objects. Unsupported object types
+Run ph refresh to discover new or renamed objects. Unsupported object types
 expose their filesystem record as JSON. Legacy rich-text notebooks stay JSON.
 Characters that cannot appear in Unix filenames are percent-encoded. Duplicate
 names receive an ID suffix. Long names get a shortened prefix and stable hash.
@@ -101,6 +105,10 @@ The browser makes authenticated requests through the existing PostHog APIs.
 Files are limited to 4 MiB. Use Ctrl+C to interrupt, Tab to complete, and the
 mouse wheel for scrollback. Run busybox to see the installed Unix utilities.
 jq 1.8.2 is installed for JSON queries and formatting.
+ph runs project commands and tools from connected MCP servers with your permissions.
+Run ph help <command> for its arguments. Notebook commands accept IDs or file paths.
+Use --json @file.json or --json - for arguments from a file or stdin.
+Commands such as ph notebook-delete change real data. Errors exit nonzero.
 Select text to copy with Cmd+C (macOS) or Ctrl+Shift+C (Linux/Windows).
 Paste with Cmd+V or Ctrl+Shift+V, or use the Copy selection and Paste buttons.
 
@@ -111,6 +119,32 @@ window.posthogTerminal.read() to interact with this same terminal.
 export class PosthogFilesystem extends TerminalFilesystem {
     private readonly files = this.directory('files', this.root)
     private readonly api = this.directory('api', this.root)
+    private readonly references = new Map<string, FileSystemApi>()
+
+    resolveReference(value: string, cwd: string, type?: string): string {
+        const parts: string[] = []
+        for (const part of (value.startsWith('/') ? value : `${cwd}/${value}`).split('/')) {
+            if (part === '..') {
+                parts.pop()
+            } else if (part && part !== '.') {
+                parts.push(part)
+            }
+        }
+        const entry = this.references.get(`/${parts.join('/')}`)
+        if (entry) {
+            if (type && entry.type !== type) {
+                throw new Error(`Expected a ${type} file, but this is a ${entry.type} file.`)
+            }
+            if (!entry.ref) {
+                throw new Error('This file has no object ID. Pass the tool an ID directly.')
+            }
+            return entry.ref
+        }
+        if (value.includes('/') || /\.(md|json)$/.test(value)) {
+            throw new Error(`No project file at ${value}. Run ph refresh if the file was just created.`)
+        }
+        return value
+    }
 
     constructor(
         private projectId: string,
@@ -179,9 +213,6 @@ export class PosthogFilesystem extends TerminalFilesystem {
             offset += page.results.length
         }
         entries.sort((a, b) => a.path.localeCompare(b.path) || a.id.localeCompare(b.id))
-        for (const entry of entries.filter((item) => item.type === 'folder')) {
-            this.parent(splitPath(entry.path), this.files)
-        }
         const markdownNotebooks = new Map<string, NotebookMinimalApi>()
         if (entries.some((entry) => entry.type === 'notebook')) {
             let offset = 0
@@ -202,6 +233,12 @@ export class PosthogFilesystem extends TerminalFilesystem {
                 }
                 offset += page.results.length
             }
+        }
+        this.files.children!.clear()
+        this.api.children!.clear()
+        this.references.clear()
+        for (const entry of entries.filter((item) => item.type === 'folder')) {
+            this.parent(splitPath(entry.path), this.files)
         }
         for (const entry of entries) {
             if (entry.type === 'folder' || entry.user_access_level === 'none') {
@@ -228,10 +265,12 @@ export class PosthogFilesystem extends TerminalFilesystem {
                     (notebook.user_access_level === null ||
                         ['editor', 'manager'].includes(notebook.user_access_level ?? ''))
             )
+            this.references.set(`/posthog/files/${[...parts.map(terminalFilename), name].join('/')}`, entry)
             const type = this.directory(terminalFilename(entry.type ?? 'unknown'), this.api)
             const apiName = `${terminalFilename(entry.ref ?? entry.id)}.json`
             if (!type.children!.has(apiName)) {
                 this.file(apiName, type, async () => jsonFile(await this.object(entry)))
+                this.references.set(`/posthog/api/${type.name}/${apiName}`, entry)
             }
         }
     }

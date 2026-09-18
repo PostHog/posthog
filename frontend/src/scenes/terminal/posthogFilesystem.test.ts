@@ -60,6 +60,11 @@ describe('PostHog filesystem projection', () => {
     it('projects markdown without changing the stored path and saves with the version it read', async () => {
         const fs = new PosthogFilesystem('42', new AbortController().signal)
         await fs.load()
+        expect(fs.resolveReference('./Notes.md', '/posthog/files/Research', 'notebook')).toBe('note-1')
+        expect(fs.resolveReference('/posthog/api/notebook/note-1.json', '/', 'notebook')).toBe('note-1')
+        expect(() => fs.resolveReference('./Notes.md', '/posthog/files/Research', 'dashboard')).toThrow(
+            'Expected a dashboard'
+        )
         expect(notebooksRetrieve).not.toHaveBeenCalled()
         expect(notebooksList).toHaveBeenCalledWith(
             '42',
@@ -88,6 +93,19 @@ describe('PostHog filesystem projection', () => {
         jest.mocked(notebooksPartialUpdate).mockRejectedValue(new Error('Version conflict'))
         await expect(opened.save!(new TextEncoder().encode('Conflict'))).rejects.toThrow('Version conflict')
         expect(jest.mocked(notebooksPartialUpdate).mock.calls[1][2]?.version).toBe(8)
+    })
+
+    it('refreshes paths without fetching bodies or keeping deleted files addressable', async () => {
+        const fs = new PosthogFilesystem('42', new AbortController().signal)
+        await fs.load()
+        const oldId = fs.root.children!.get('files')!.children!.get('Research')!.children!.get('Notes.md')!.id
+        jest.mocked(fileSystemList).mockResolvedValue({ count: 1, next: null, results: [entry('note-1', 'Renamed')] })
+        await fs.load()
+        const renamed = fs.root.children!.get('files')!.children!.get('Renamed.md')!
+        expect(renamed.id).toBeGreaterThan(oldId)
+        expect(fs.resolveReference('Renamed.md', '/posthog/files', 'notebook')).toBe('note-1')
+        expect(() => fs.resolveReference('Research/Notes.md', '/posthog/files', 'notebook')).toThrow('No project file')
+        expect(notebooksRetrieve).not.toHaveBeenCalled()
     })
 
     it('loads every page and keeps legacy notebooks and duplicate names accessible', async () => {

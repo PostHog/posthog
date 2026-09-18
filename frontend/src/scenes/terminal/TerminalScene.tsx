@@ -5,8 +5,8 @@ import { Terminal } from '@xterm/xterm'
 import { useActions, useValues } from 'kea'
 import { useEffect, useRef, useState } from 'react'
 
-import { IconTerminal } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonTag } from '@posthog/lemon-ui'
+import { IconEllipsis, IconTerminal } from '@posthog/icons'
+import { LemonBanner, LemonButton, LemonMenu, LemonTag } from '@posthog/lemon-ui'
 
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -19,6 +19,23 @@ import { TerminalRuntime } from './terminalRuntime'
 
 export const scene: SceneExport = { component: TerminalScene, logic: terminalLogic }
 
+const examples = ['ls --color=auto', "find /posthog/files -name '*.md'", 'cat /posthog/README.txt', 'ph help']
+const moreExamples = [
+    { title: 'Explore files', commands: ['ls -lh /posthog/api', 'du -ah /posthog/files', 'pwd', 'busybox'] },
+    { title: 'PostHog tools', commands: ['ph tools', 'ph tools notebook', 'ph help notebooks-retrieve', 'ph refresh'] },
+    {
+        title: 'Read and filter',
+        commands: [
+            'ph notebooks-list --limit 10 | jq .',
+            "grep -r -n 'revenue' /posthog/files",
+            "find /posthog/files -name '*.md' | wc -l",
+            'jq -n \'{hello: "PostHog"}\'',
+            'less /posthog/README.txt',
+            'ls -la /tmp',
+        ],
+    },
+]
+
 export function TerminalScene(): JSX.Element {
     const { status, error, saveError } = useValues(terminalLogic)
     const { start, stop } = useActions(terminalLogic)
@@ -29,6 +46,11 @@ export function TerminalScene(): JSX.Element {
     const [hasSelection, setHasSelection] = useState(false)
     const [pasting, setPasting] = useState(false)
     const [clipboardError, setClipboardError] = useState<string | null>(null)
+
+    function insertCommand(command: string): void {
+        terminal.current?.paste(command)
+        terminal.current?.focus()
+    }
 
     async function pasteClipboard(): Promise<void> {
         setPasting(true)
@@ -127,7 +149,7 @@ export function TerminalScene(): JSX.Element {
                 </span>
             </div>
             <LemonBanner type="info">
-                Saving a markdown notebook writes to PostHog. Local files and unsaved edits disappear when you leave
+                Commands and notebook edits can change real data. Local files and unsaved edits disappear when you leave
                 this page. The first start downloads Linux and jq (about 8 MB).
             </LemonBanner>
             <div className="flex items-center gap-2 flex-wrap">
@@ -184,10 +206,41 @@ export function TerminalScene(): JSX.Element {
                 translate="no"
                 className="h-128 min-w-0 overflow-hidden rounded border p-3 bg-[var(--color-black)] text-[var(--color-white)]"
             />
+            <div className="flex items-center gap-1 flex-wrap" data-attr="terminal-examples">
+                <span className="text-secondary text-sm">Try</span>
+                {examples.map((command) => (
+                    <LemonButton
+                        key={command}
+                        size="xsmall"
+                        type="secondary"
+                        tooltip="Insert command. Press Enter to run."
+                        disabledReason={status !== 'ready' ? 'Start the terminal first' : undefined}
+                        onClick={() => insertCommand(command)}
+                    >
+                        <code>{command}</code>
+                    </LemonButton>
+                ))}
+                <LemonMenu
+                    items={moreExamples.map(({ title, commands }) => ({
+                        title,
+                        items: commands.map((command) => ({
+                            label: <code className="whitespace-normal break-words">{command}</code>,
+                            onClick: () => insertCommand(command),
+                        })),
+                    }))}
+                >
+                    <LemonButton
+                        size="xsmall"
+                        type="secondary"
+                        icon={<IconEllipsis />}
+                        aria-label="More terminal examples"
+                        disabledReason={status !== 'ready' ? 'Start the terminal first' : undefined}
+                    />
+                </LemonMenu>
+            </div>
             <p className="text-secondary text-sm mb-0">
-                Try <code>ls --color=auto</code>, <code>find /posthog/files -name '*.md'</code>, or{' '}
-                <code>cat /posthog/README.txt</code>. Tab completes paths. Ctrl+C interrupts. Copy/paste with ⌘C/⌘V on
-                macOS or Ctrl+Shift+C/V on Linux and Windows. Scroll up for history.
+                Click an example to insert it, then press Enter. Tab completes paths. Ctrl+C interrupts. Copy/paste with
+                ⌘C/⌘V on macOS or Ctrl+Shift+C/V on Linux and Windows. Scroll up for history.
             </p>
         </SceneContent>
     )

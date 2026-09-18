@@ -3,6 +3,7 @@ import { MakeLogicType, actions, connect, kea, listeners, path, reducers } from 
 import { teamLogic } from 'scenes/teamLogic'
 
 import { NinePServer } from './ninepServer'
+import { PosthogCommands } from './posthogCommands'
 import { PosthogFilesystem } from './posthogFilesystem'
 import { TerminalRuntime } from './terminalRuntime'
 
@@ -88,6 +89,7 @@ export const terminalLogic = kea<terminalLogicType>([
             try {
                 const filesystem = new PosthogFilesystem(String(projectId), controller.signal)
                 await filesystem.load()
+                new PosthogCommands(String(projectId), controller.signal, filesystem)
                 breakpoint()
                 if (controller.signal.aborted) {
                     return
