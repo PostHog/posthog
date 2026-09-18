@@ -9,6 +9,13 @@ import {
 } from "../skills/skill-discovery";
 import type { AgentScopedLogger } from "./ports";
 
+/** The CODEX_HOME the user logs into for cloud runs. Separate from `~/.codex`, which stays local. */
+export const CODEX_CLOUD_HOME_DIRNAME = ".codex-posthog";
+
+export function getCodexCloudAuthFilePath(): string {
+  return path.join(os.homedir(), CODEX_CLOUD_HOME_DIRNAME, "auth.json");
+}
+
 /**
  * Resolves a task run's private CODEX_HOME directory. Each run gets its own so
  * concurrent Codex sessions never share — and never race to rebuild — the same
@@ -22,15 +29,6 @@ export function getCodexHomeDir(
     throw new Error(`Unsafe taskRunId: ${JSON.stringify(taskRunId)}`);
   }
   return path.join(appDataPath, "codex-home", taskRunId);
-}
-
-/**
- * CODEX_HOME for the account cloud tasks bill to. A separate device
- * authorization from the user's own `~/.codex`, so neither login breaks the
- * other.
- */
-export function getCloudAccountCodexHome(appDataPath: string): string {
-  return path.join(appDataPath, "codex-cloud-account");
 }
 
 /**

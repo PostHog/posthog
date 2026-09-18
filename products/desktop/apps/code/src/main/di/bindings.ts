@@ -12,8 +12,6 @@ import type {
   CLAUDE_SUBSCRIPTION_TOKEN_STORE,
   CLOUD_TASK_AUTH,
   ClaudeSubscriptionTokenStore,
-  CODEX_SUBSCRIPTION_TOKEN_SOURCE,
-  CodexSubscriptionTokenSource,
   ICloudTaskAuth,
   MCP_RELAY_EXECUTOR,
   McpRelayExecutor,
@@ -396,7 +394,6 @@ export interface MainBindings {
   [MCP_RELAY_SERVICE]: McpRelayService;
   [MCP_RELAY_EXECUTOR]: McpRelayExecutor;
   [CLAUDE_SUBSCRIPTION_TOKEN_STORE]: ClaudeSubscriptionTokenStore;
-  [CODEX_SUBSCRIPTION_TOKEN_SOURCE]: CodexSubscriptionTokenSource;
 
   // Archive / suspension host ports
   [ARCHIVE_SESSION_CANCELLER]: SessionCanceller;

@@ -55,6 +55,10 @@ AGENT_SERVER_HEALTH_MAX_ATTEMPTS = 240
 # The whole diagnostics dict rides in the Temporal failure payload, which is capped at about 2 MiB.
 STARTUP_LOG_MAX_BYTES = 64 * 1024
 AGENT_SERVER_HEALTH_DURATION_PREFIX = "__posthog_agent_health_ms="
+# The agent-server reads this fd once at boot and closes it, so processes it starts never see the
+# token. The launch shell opens the file on fd 3 and deletes it before the server starts.
+CODEX_RUN_TOKEN_FD = 3
+CODEX_RUN_TOKEN_FILE = "/tmp/agent-codex-run-token"
 
 # The read probe wants a large file the agent-server boot never opens, so its first read is cold:
 # nothing at boot loads the global TypeScript compiler. Its prefix follows the Node install and its
@@ -235,6 +239,7 @@ class AgentServerLaunchMixin(SandboxBase):
         posthog_exec_permission_regex: str | None = None,
         claude_model_access: str | None = None,
         codex_model_access: str | None = None,
+        codex_run_token_file: str | None = None,
     ) -> str:
         env_prefix = build_agent_runtime_env_prefix(
             interaction_origin=interaction_origin,
@@ -295,6 +300,8 @@ class AgentServerLaunchMixin(SandboxBase):
                 f"{launch_started_at}; exec {server_cmd}"
             )
             server_cmd = f"bash -c {shlex.quote(wait_for_repo)}"
+        if codex_run_token_file:
+            server_cmd = self._with_codex_run_token_fd(server_cmd, codex_run_token_file)
 
         inner = f"cd /scripts && {server_cmd} > /tmp/agent-server.log 2>&1"
         initialize_env_file = f"bash {shlex.quote(BASH_ENV_SCRIPT)}"
@@ -310,6 +317,16 @@ class AgentServerLaunchMixin(SandboxBase):
                 f"cd /scripts && {launch_started_prefix}{initialize_env_file} && "
                 f"(nohup {server_cmd} > /tmp/agent-server.log 2>&1 & echo $! > /tmp/agent-server.pid)"
             )
+
+    @staticmethod
+    def _with_codex_run_token_fd(server_cmd: str, token_file: str) -> str:
+        """Open the run token on fd 3 for the agent-server and remove the file before it starts.
+
+        Runs inside the launched process tree, so it works the same under ``nohup`` and under
+        ``agentsh exec``, which does not forward the caller's descriptors.
+        """
+        quoted_file = shlex.quote(token_file)
+        return f"bash -c {shlex.quote(f'exec {CODEX_RUN_TOKEN_FD}< {quoted_file} && rm -f {quoted_file} && exec {server_cmd}')}"
 
     def _termination_failure_reason(self) -> str:
         """Provider-specific detail for a sandbox that died before becoming healthy."""
@@ -506,6 +523,7 @@ class AgentServerLaunchMixin(SandboxBase):
         peer_messaging: bool = False,
         claude_model_access: str | None = None,
         codex_model_access: str | None = None,
+        codex_run_token: str | None = None,
     ) -> int | None:
         """Start the agent-server HTTP server in the sandbox.
 
@@ -527,6 +545,17 @@ class AgentServerLaunchMixin(SandboxBase):
             repo_path = f"/tmp/workspace/repos/{org}/{repo}"
 
         self._prepare_agent_server_launch(allowed_domains)
+
+        codex_run_token_file: str | None = None
+        if codex_run_token:
+            self._write_required_file(CODEX_RUN_TOKEN_FILE, codex_run_token.encode())
+            # Best effort: a child process must not read the token out of the agent-server's memory.
+            # agentsh still traces its own descendants under scope 1. Kernels without Yama ignore this.
+            self.execute(
+                f"chmod 600 {CODEX_RUN_TOKEN_FILE}; (echo 1 > /proc/sys/kernel/yama/ptrace_scope) 2>/dev/null || true",
+                timeout_seconds=5,
+            )
+            codex_run_token_file = CODEX_RUN_TOKEN_FILE
 
         mcp_servers_arg = ""
         if mcp_configs:
@@ -585,6 +614,7 @@ class AgentServerLaunchMixin(SandboxBase):
                 posthog_exec_permission_regex=exec_permission_regex,
                 claude_model_access=claude_model_access,
                 codex_model_access=codex_model_access,
+                codex_run_token_file=codex_run_token_file,
             )
 
         logger.info(f"Starting agent-server in sandbox {self.id} for {repository or 'no-repo'}")

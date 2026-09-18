@@ -61,14 +61,6 @@ export const cloudTaskRouter = router({
         .designateClaudeSubscription(input),
     ),
 
-  designateCodexSubscription: publicProcedure
-    .input(designateClaudeSubscriptionInput)
-    .mutation(({ ctx, input }) =>
-      ctx.container
-        .get<CloudTaskService>(CLOUD_TASK_SERVICE)
-        .designateCodexSubscription(input),
-    ),
-
   sendCommand: publicProcedure
     .input(sendCommandInput)
     .output(sendCommandOutput)

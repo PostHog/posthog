@@ -108,10 +108,6 @@ export class TaskCreationSaga extends Saga<
     const codexCloudModelAccess = isPiRuntime
       ? undefined
       : input.codexCloudModelAccess;
-    // A warm sandbox was started for gateway billing, so a plan run cannot use it.
-    const ownSubscriptionCloudRun =
-      claudeCloudModelAccess === "own-subscription" ||
-      codexCloudModelAccess === "own-subscription";
     const folderPromise =
       !taskId && input.repoPath
         ? this.resolveFolder(input.repoPath)
@@ -125,7 +121,8 @@ export class TaskCreationSaga extends Saga<
       !isPiRuntime &&
       !taskId &&
       input.workspaceMode === "cloud" &&
-      !ownSubscriptionCloudRun
+      claudeCloudModelAccess !== "own-subscription" &&
+      codexCloudModelAccess !== "own-subscription"
         ? await this.prepareWarmActivation(input)
         : null;
 
@@ -475,12 +472,6 @@ export class TaskCreationSaga extends Saga<
 
           if (claudeCloudModelAccess === "own-subscription") {
             await this.deps.sessionService.designateClaudeSubscription(
-              task.id,
-              taskRun.id,
-            );
-          }
-          if (codexCloudModelAccess === "own-subscription") {
-            await this.deps.sessionService.designateCodexSubscription(
               task.id,
               taskRun.id,
             );

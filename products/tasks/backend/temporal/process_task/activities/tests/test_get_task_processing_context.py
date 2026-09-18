@@ -260,6 +260,36 @@ class TestGetTaskProcessingContextActivity:
         assert result.claude_model_access == ("own-subscription" if subscription else "posthog-gateway")
 
     @pytest.mark.django_db(transaction=True)
+    @pytest.mark.parametrize("integration_status", [None, "reauth_required", "connected"])
+    def test_codex_subscription_run_needs_a_connected_chatgpt_account(
+        self, activity_environment, test_task, integration_status
+    ):
+        owner = User.objects.create_user(
+            email="codex-owner@example.com", password=None, first_name="Owner", distinct_id="codex-owner"
+        )
+        OrganizationMembership.objects.create(organization=test_task.team.organization, user=owner)
+        if integration_status is not None:
+            UserIntegration.objects.create(
+                user=owner, kind="codex", integration_id="acct_1", config={"status": integration_status}
+            )
+        task_run = test_task.create_run(
+            acting_user_id=owner.id,
+            extra_state={"codex_model_access": "own-subscription", "runtime_adapter": "codex"},
+        )
+        input_data = GetTaskProcessingContextInput(run_id=str(task_run.id))
+
+        with patch(
+            "products.tasks.backend.temporal.process_task.activities.get_task_processing_context.posthoganalytics.feature_enabled",
+            return_value=True,
+        ):
+            if integration_status == "connected":
+                result = async_to_sync(activity_environment.run)(get_task_processing_context, input_data)
+                assert result.codex_model_access == "own-subscription"
+            else:
+                with pytest.raises(ProcessTaskFatalError, match="ChatGPT account is not connected"):
+                    async_to_sync(activity_environment.run)(get_task_processing_context, input_data)
+
+    @pytest.mark.django_db(transaction=True)
     def test_get_task_processing_context_rejects_previous_owner_run(self, activity_environment, test_task):
         task_run = test_task.create_run()
         test_task.state = {TASK_OWNERSHIP_VERSION_STATE_KEY: "new-owner"}

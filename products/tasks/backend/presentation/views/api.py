@@ -48,6 +48,7 @@ from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentic
 from posthog.event_usage import groups
 from posthog.middleware import is_read_only_impersonation
 from posthog.models import User
+from posthog.models.integration.codex import CodexAuthError, CodexReauthRequired
 from posthog.permissions import (
     APIScopePermission,
     get_authenticator_scoped_team_ids,
@@ -192,6 +193,8 @@ from products.tasks.backend.presentation.serializers import (
     TaskRunSetOutputRequestSerializer,
     TaskRunSetSummaryRequestSerializer,
     TaskRunStartRequestSerializer,
+    TaskRunSubscriptionTokenRequestSerializer,
+    TaskRunSubscriptionTokenResponseSerializer,
     TaskRunUpdateSerializer,
     TaskSearchQuerySerializer,
     TaskSearchResultSerializer,
@@ -2230,6 +2233,87 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         return Response(TaskSessionSyncResponseSerializer({"id": session_id, "content_sha256": content_sha256}).data)
 
     @validated_request(
+        request_serializer=TaskRunSubscriptionTokenRequestSerializer,
+        parameters=[
+            OpenApiParameter(
+                name="X-Task-Run-Token",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.HEADER,
+                required=True,
+                description="Run-scoped Codex subscription token handed to the agent-server at launch",
+            ),
+        ],
+        responses={
+            200: OpenApiResponse(
+                response=TaskRunSubscriptionTokenResponseSerializer,
+                description="Short-lived ChatGPT access token for this run",
+            ),
+            400: OpenApiResponse(description="Missing required header"),
+            403: OpenApiResponse(description="Caller is not this run's sandbox, or the run token is invalid"),
+            404: OpenApiResponse(description="Task run not found"),
+            409: OpenApiResponse(
+                response=TaskRunErrorResponseSerializer,
+                description="reauth_required: the run owner must reconnect their ChatGPT account",
+            ),
+            502: OpenApiResponse(
+                response=TaskRunErrorResponseSerializer,
+                description="openai_unavailable: OpenAI did not answer the token refresh",
+            ),
+        },
+        summary="Issue a ChatGPT access token for a Codex run",
+        description="Give the run's agent-server a short-lived ChatGPT access token from the run owner's connected "
+        "account. Only the run's sandbox may call this, and it must present the run token it received at "
+        "launch. Set force when Codex rejected the current token so the server refreshes it early.",
+    )
+    @action(
+        detail=True,
+        methods=["post"],
+        url_path="subscription_token",
+        required_scopes=["task:write"],
+    )
+    def subscription_token(self, request, pk=None, **kwargs):
+        task_id = self._ensure_task_accessible()
+        if not is_sandbox_agent_request(request, task_id):
+            raise PermissionDenied("Only this run's sandbox can request its ChatGPT access token.")
+        run_token = request.headers.get("X-Task-Run-Token")
+        if not run_token:
+            raise ValidationError({"X-Task-Run-Token": "This header is required."})
+        try:
+            grant = tasks_facade.issue_codex_subscription_access_grant(
+                pk,
+                task_id,
+                self.team_id,
+                run_token=run_token,
+                force=request.validated_data["force"],
+            )
+        except CodexReauthRequired:
+            return Response(
+                TaskRunErrorResponseSerializer(
+                    {"error": "The ChatGPT account for this run must be reconnected.", "code": "reauth_required"}
+                ).data,
+                status=status.HTTP_409_CONFLICT,
+            )
+        except CodexAuthError:
+            return Response(
+                TaskRunErrorResponseSerializer(
+                    {"error": "OpenAI did not answer the token refresh.", "code": "openai_unavailable"}
+                ).data,
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+        if grant is None:
+            raise PermissionDenied("The task run token is invalid")
+        return Response(
+            TaskRunSubscriptionTokenResponseSerializer(
+                {
+                    "access_token": grant.access_token,
+                    "account_id": grant.account_id,
+                    "plan_type": grant.plan_type,
+                    "expires_at": grant.expires_at,
+                }
+            ).data
+        )
+
+    @validated_request(
         request_serializer=TaskRunRelayMessageRequestSerializer,
         responses={
             200: OpenApiResponse(
@@ -3037,17 +3121,13 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             self._ensure_subscription_owner(task_id, pk)
         if method == "credential_response":
             run = tasks_facade.get_task_run_detail(pk, task_id, self.team_id)
-            owner_ids = (
-                {
-                    run.state.get(f"{adapter}_subscription_user_id")
-                    for adapter in tasks_facade.SUBSCRIPTION_PLAN_NAMES
-                    if run.state.get(f"{adapter}_model_access") == "own-subscription"
-                }
-                if run is not None
-                else set()
-            )
-            if run is None or is_sandbox_oauth_request(request) or owner_ids != {self._user_id()}:
-                raise PermissionDenied("Only the user who started this run can send its subscription token.")
+            # Only Claude tokens travel through the relay. Codex runs fetch theirs from the server.
+            if (
+                run is None
+                or is_sandbox_oauth_request(request)
+                or run.state.get("claude_subscription_user_id") != self._user_id()
+            ):
+                raise PermissionDenied("Only the user who started this run can send a Claude token.")
         # Steering an analysis run spends model tokens on a task whose generations are excluded
         # from the customer's rollup, so these are the reuse path the one-shot rule closes. Cancel
         # and the agent's own operations stay open.

@@ -12,6 +12,7 @@ from temporalio import activity
 
 from posthog.dataclasses import frozen
 from posthog.models import Team
+from posthog.models.integration.codex import CodexUserIntegration
 from posthog.temporal.common.utils import asyncify, close_db_connections
 
 from products.context_layer.backend.facade import api as context_layer_facade
@@ -541,6 +542,18 @@ def _resolve_subscription_model_access(
             capture=False,
         )
     return "own-subscription"
+
+
+def _ensure_codex_account_connected(state: dict, run_id: str) -> None:
+    owner_id = state.get("codex_subscription_user_id")
+    integration = CodexUserIntegration.for_user(owner_id) if isinstance(owner_id, int) else None
+    if integration is None or not integration.is_connected():
+        raise ProcessTaskFatalError(
+            "Your ChatGPT account is not connected. Open ChatGPT subscription settings, connect it, and try again.",
+            {"run_id": run_id},
+            cause=ValueError("Codex subscription requested without a connected ChatGPT account"),
+            capture=False,
+        )
 
 
 def _is_benjamin_enabled(
@@ -1320,6 +1333,8 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         )
         for adapter in ("claude", "codex")
     ]
+    if codex_model_access == "own-subscription":
+        _ensure_codex_account_connected(state, run_id)
     pi_persistent_streaming = task.runtime == Task.Runtime.PI and not is_slack_interaction_state(state)
     sandbox_event_ingest_override = state.get("sandbox_event_ingest_enabled")
     if "own-subscription" in (claude_model_access, codex_model_access) or (

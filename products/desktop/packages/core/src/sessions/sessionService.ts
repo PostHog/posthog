@@ -337,7 +337,6 @@ export interface SessionTrpc {
     onSessionEvent: TrpcSubscription;
     onPermissionRequest: TrpcSubscription;
     onSessionIdleKilled: TrpcSubscription;
-    codexSubscriptionStatus?: TrpcQuery;
   };
   workspace: { verify: TrpcQuery };
   claudeSubscriptionToken: { has: TrpcQuery };
@@ -349,7 +348,6 @@ export interface SessionTrpc {
     stop: TrpcMutation;
     designateRelayedMcpServers: TrpcMutation;
     designateClaudeSubscription: TrpcMutation;
-    designateCodexSubscription: TrpcMutation;
     onUpdate: TrpcSubscription;
   };
   logs: {
@@ -5456,20 +5454,12 @@ export class SessionService {
                 : undefined,
           },
         );
-        if (
-          (resumeOnClaudePlan || resumeOnCodexPlan) &&
-          updatedTask.latest_run?.id
-        ) {
+        if (resumeOnClaudePlan && updatedTask.latest_run?.id) {
           try {
-            await (resumeOnClaudePlan
-              ? this.designateClaudeSubscription(
-                  session.taskId,
-                  updatedTask.latest_run.id,
-                )
-              : this.designateCodexSubscription(
-                  session.taskId,
-                  updatedTask.latest_run.id,
-                ));
+            await this.designateClaudeSubscription(
+              session.taskId,
+              updatedTask.latest_run.id,
+            );
           } catch (error) {
             await authCredentials.client
               .cancelTaskRun(session.taskId, updatedTask.latest_run.id)
@@ -6660,8 +6650,17 @@ export class SessionService {
         "ChatGPT plan billing is unavailable for cloud tasks. Try again later.",
       );
     }
-    const status = await this.d.trpc.agent.codexSubscriptionStatus?.query();
-    if (status?.loginState !== "logged-in") {
+    const authStatus = await this.getAuthCredentialsStatus();
+    if (authStatus.kind !== "ready") {
+      throw new Error("Authentication required for cloud commands");
+    }
+    const integration = await authStatus.auth.client.getCodexUserIntegration();
+    if (integration.status === "reauth_required") {
+      throw new Error(
+        "Your ChatGPT account needs a new login. Connect it again in Settings > Harness before you start or resume this task.",
+      );
+    }
+    if (integration.status !== "connected") {
       throw new Error(
         "Connect your ChatGPT account in Settings > Harness before you start or resume this task.",
       );
@@ -6674,16 +6673,6 @@ export class SessionService {
     runId: string,
   ): Promise<void> {
     await this.d.trpc.cloudTask.designateClaudeSubscription.mutate({
-      taskId,
-      runId,
-    });
-  }
-
-  async designateCodexSubscription(
-    taskId: string,
-    runId: string,
-  ): Promise<void> {
-    await this.d.trpc.cloudTask.designateCodexSubscription.mutate({
       taskId,
       runId,
     });
@@ -8891,14 +8880,27 @@ export class SessionService {
           params?: { initializationPhase?: string; message?: string };
         };
         if (
-          notification.method === POSTHOG_NOTIFICATIONS.INITIALIZATION_FAILED &&
-          notification.params?.initializationPhase === "credential_relay"
+          notification.method !== POSTHOG_NOTIFICATIONS.INITIALIZATION_FAILED
         ) {
+          continue;
+        }
+        if (notification.params?.initializationPhase === "credential_relay") {
           this.d.store.updateSession(taskRunId, {
             status: "error",
             errorTitle: "Claude token unavailable",
             errorMessage:
               "Open Desktop and check your Claude token in Settings > Harness. Then start the task again.",
+            errorRetryable: false,
+            isPromptPending: false,
+          });
+        } else if (
+          notification.params?.initializationPhase === "subscription_token"
+        ) {
+          this.d.store.updateSession(taskRunId, {
+            status: "error",
+            errorTitle: "ChatGPT account unavailable",
+            errorMessage:
+              "Connect your ChatGPT account again in Settings > Harness. Then start the task again.",
             errorRetryable: false,
             isPromptPending: false,
           });

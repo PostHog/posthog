@@ -10,8 +10,6 @@ import {
   CLAUDE_SUBSCRIPTION_TOKEN_STORE,
   CLOUD_TASK_AUTH,
   type ClaudeSubscriptionTokenStore,
-  CODEX_SUBSCRIPTION_TOKEN_SOURCE,
-  type CodexSubscriptionTokenSource,
   type ICloudTaskAuth,
   MCP_RELAY_EXECUTOR,
   type McpRelayExecutor,
@@ -32,9 +30,6 @@ export class CloudTaskService extends CloudTaskEngine {
     @inject(CLAUDE_SUBSCRIPTION_TOKEN_STORE)
     @optional()
     claudeSubscriptionTokenStore: ClaudeSubscriptionTokenStore | null = null,
-    @inject(CODEX_SUBSCRIPTION_TOKEN_SOURCE)
-    @optional()
-    codexSubscriptionTokenSource: CodexSubscriptionTokenSource | null = null,
   ) {
     // The desktop renderer pages older history in from `windowStart`.
     super({
@@ -43,7 +38,6 @@ export class CloudTaskService extends CloudTaskEngine {
       logger,
       mcpRelayExecutor,
       claudeSubscriptionTokenStore,
-      codexSubscriptionTokenSource,
       transcriptTailWindow: TRANSCRIPT_TAIL_WINDOW,
     });
   }

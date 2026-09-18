@@ -388,7 +388,7 @@ export interface SettingChangedProperties {
 }
 
 export interface CloudCredentialRelayProperties {
-  credential: "claude_subscription_token" | "codex_subscription_tokens";
+  credential: "claude_subscription_token";
   outcome: "sent" | "no_token" | "expired" | "rejected";
 }
 
@@ -1651,7 +1651,8 @@ export const ANALYTICS_EVENTS = {
   CLAUDE_SUBSCRIPTION_SIGNED_OUT: "Claude subscription signed out",
   CLAUDE_CLOUD_TOKEN_SAVED: "Claude cloud token saved",
   CLAUDE_CLOUD_TOKEN_REMOVED: "Claude cloud token removed",
-  CODEX_CLOUD_DEVICE_LOGIN_STARTED: "Codex cloud device login started",
+  CODEX_CLOUD_ACCOUNT_CONNECTED: "Codex cloud account connected",
+  CODEX_CLOUD_ACCOUNT_DISCONNECTED: "Codex cloud account disconnected",
   CLOUD_CREDENTIAL_RELAY: "Cloud credential relay",
 
   // Feedback events
@@ -1863,7 +1864,8 @@ export type EventPropertyMap = {
   [ANALYTICS_EVENTS.SETTING_CHANGED]: SettingChangedProperties;
   [ANALYTICS_EVENTS.CLAUDE_CLOUD_TOKEN_SAVED]: never;
   [ANALYTICS_EVENTS.CLAUDE_CLOUD_TOKEN_REMOVED]: never;
-  [ANALYTICS_EVENTS.CODEX_CLOUD_DEVICE_LOGIN_STARTED]: never;
+  [ANALYTICS_EVENTS.CODEX_CLOUD_ACCOUNT_CONNECTED]: never;
+  [ANALYTICS_EVENTS.CODEX_CLOUD_ACCOUNT_DISCONNECTED]: never;
   [ANALYTICS_EVENTS.CLOUD_CREDENTIAL_RELAY]: CloudCredentialRelayProperties;
   [ANALYTICS_EVENTS.CUSTOM_SOUND_ADDED]: CustomSoundAddedProperties;
   [ANALYTICS_EVENTS.CUSTOM_SOUND_RECORDING_SILENT]: never;

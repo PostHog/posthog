@@ -1211,6 +1211,22 @@ class TaskSessionSyncResponseSerializer(serializers.Serializer):
     content_sha256 = serializers.CharField(help_text="SHA-256 digest of the uploaded session content")
 
 
+class TaskRunSubscriptionTokenRequestSerializer(serializers.Serializer):
+    force = serializers.BooleanField(
+        default=False,
+        help_text="Refresh the ChatGPT access token even when it has not expired, because Codex reported it as rejected.",
+    )
+
+
+class TaskRunSubscriptionTokenResponseSerializer(serializers.Serializer):
+    access_token = serializers.CharField(help_text="Short-lived ChatGPT access token for the Codex app-server")
+    account_id = serializers.CharField(help_text="ChatGPT account the access token belongs to")
+    plan_type = serializers.CharField(allow_null=True, help_text="ChatGPT plan of the account, when known")
+    expires_at = serializers.DateTimeField(
+        help_text="When the access token expires. Request a new one before this time."
+    )
+
+
 class TaskRunRelayMessageResponseSerializer(serializers.Serializer):
     status = serializers.CharField(help_text="Relay status: 'accepted' or 'skipped'")
     relay_id = serializers.CharField(required=False, help_text="Relay workflow ID when accepted")

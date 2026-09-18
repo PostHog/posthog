@@ -16,8 +16,6 @@ export const APP_SERVER_METHODS = {
   ACCOUNT_LOGIN_START: "account/login/start",
   ACCOUNT_LOGIN_CANCEL: "account/login/cancel",
   ACCOUNT_LOGOUT: "account/logout",
-  ACCOUNT_RATE_LIMITS_READ: "account/rateLimits/read",
-  GET_AUTH_STATUS: "getAuthStatus",
   THREAD_START: "thread/start",
   THREAD_RESUME: "thread/resume",
   THREAD_FORK: "thread/fork",
@@ -36,7 +34,6 @@ export const APP_SERVER_METHODS = {
 export const APP_SERVER_NOTIFICATIONS = {
   INITIALIZED: "initialized",
   ACCOUNT_LOGIN_COMPLETED: "account/login/completed",
-  ACCOUNT_RATE_LIMITS_UPDATED: "account/rateLimits/updated",
   THREAD_STARTED: "thread/started",
   // Carries the active turn id — precondition for turn/steer + turn/interrupt.
   TURN_STARTED: "turn/started",

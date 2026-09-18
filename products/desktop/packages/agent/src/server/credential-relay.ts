@@ -9,7 +9,7 @@ export class CredentialRelayError extends Error {
         ? "Session is shutting down."
         : code === "timeout"
           ? "The credential request timed out waiting for PostHog Desktop."
-          : "PostHog Desktop could not provide the subscription token.",
+          : "PostHog Desktop could not provide the Claude token.",
     );
     this.name = "CredentialRelayError";
   }
@@ -33,16 +33,12 @@ export class CredentialRelay {
 
   constructor(private readonly config: CredentialRelayConfig) {}
 
-  request(
-    credential: string,
-    options: { force?: boolean; timeoutMs?: number } = {},
-  ): Promise<string> {
+  request(credential: string): Promise<string> {
     if (this.stopped) {
       return Promise.reject(new CredentialRelayError("cancelled"));
     }
     const requestId = randomUUID();
-    const timeoutMs =
-      options.timeoutMs ?? this.config.timeoutMs ?? CREDENTIAL_RELAY_TIMEOUT_MS;
+    const timeoutMs = this.config.timeoutMs ?? CREDENTIAL_RELAY_TIMEOUT_MS;
     const expiresAt = new Date(Date.now() + timeoutMs).toISOString();
 
     const tokenPromise = new Promise<string>((resolve, reject) => {
@@ -60,7 +56,6 @@ export class CredentialRelay {
       requestId,
       credential,
       expiresAt,
-      ...(options.force ? { force: true } : {}),
     });
     return tokenPromise;
   }

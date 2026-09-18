@@ -289,50 +289,17 @@ export const codexSubscriptionLoginOutput = z.object({
   authUrl: z.string(),
 });
 
-export const codexSubscriptionDeviceLoginOutput = z.object({
-  verificationUrl: z.string(),
-  userCode: z.string(),
+/**
+ * The `tokens` object of the `auth.json` that `codex login` writes into the
+ * Desktop-only `~/.codex-posthog` home. Never the user's own `~/.codex`.
+ */
+export const codexCloudAuthTokensOutput = z.object({
+  access_token: z.string().min(1),
+  refresh_token: z.string().min(1),
+  id_token: z.string().nullable().optional(),
 });
 
-export type CodexSubscriptionDeviceLogin = z.infer<
-  typeof codexSubscriptionDeviceLoginOutput
->;
-
-export const codexSubscriptionTokensInput = z.object({
-  /** Ask codex to rotate the token first. Set after the sandbox saw a 401. */
-  force: z.boolean().optional(),
-});
-
-export const codexSubscriptionTokensOutput = z
-  .object({
-    accessToken: z.string(),
-    chatgptAccountId: z.string(),
-    chatgptPlanType: z.string().optional(),
-  })
-  .nullable();
-
-export type CodexSubscriptionTokensResult = z.infer<
-  typeof codexSubscriptionTokensOutput
->;
-
-export const codexRateLimitsOutput = z
-  .object({
-    primary: z
-      .object({
-        usedPercent: z.number(),
-        windowDurationMins: z.number().optional(),
-        resetsAt: z.string().optional(),
-      })
-      .optional(),
-    secondary: z
-      .object({
-        usedPercent: z.number(),
-        windowDurationMins: z.number().optional(),
-        resetsAt: z.string().optional(),
-      })
-      .optional(),
-  })
-  .nullable();
+export type CodexCloudAuthTokens = z.infer<typeof codexCloudAuthTokensOutput>;
 
 // Set config option input (for Codex reasoning level, etc.)
 export const setConfigOptionInput = z.object({

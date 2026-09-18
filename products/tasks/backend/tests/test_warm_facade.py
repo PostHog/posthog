@@ -1673,7 +1673,13 @@ class TestRunTaskWarmActivation(APIBaseTest):
         run.refresh_from_db()
         assert run.state.get("await_user_message") is True
 
-    @parameterized.expand([("context_window", "1m"), ("claude_model_access", "own-subscription")])
+    @parameterized.expand(
+        [
+            ("context_window", "1m"),
+            ("claude_model_access", "own-subscription"),
+            ("codex_model_access", "own-subscription"),
+        ]
+    )
     def test_runtime_selection_mismatch_does_not_activate_warm_run(self, field, value):
         task, run = self._warm_run()
         with (

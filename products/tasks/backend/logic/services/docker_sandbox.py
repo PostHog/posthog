@@ -952,6 +952,7 @@ class DockerSandbox(AgentServerLaunchMixin):
         posthog_exec_permission_regex: str | None = None,
         claude_model_access: str | None = None,
         codex_model_access: str | None = None,
+        codex_run_token_file: str | None = None,
     ) -> str:
         # The host proxy URL (e.g. localhost:8003) is unreachable from inside the container;
         # rewrite it the same way POSTHOG_API_URL is for Docker sandboxes.
@@ -1005,6 +1006,8 @@ class DockerSandbox(AgentServerLaunchMixin):
             f"{create_pr_flag}{auto_publish_flag}{branch_flag}{mcp_servers_arg}{relay_mcp_servers_arg}"
             f"{domains_flag}{repo_ready_flag}{exec_permission_flag}{subscription_flag}"
         )
+        if codex_run_token_file:
+            server_cmd = self._with_codex_run_token_fd(server_cmd, codex_run_token_file)
 
         # agentsh injects HTTP_PROXY pointing at a per-session egress proxy port; undici
         # (Node fetch) honors it for local-host traffic unless NO_PROXY says otherwise. The

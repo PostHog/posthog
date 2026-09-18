@@ -634,6 +634,7 @@ class SandboxBase(ABC):
         peer_messaging: bool = False,
         claude_model_access: str | None = None,
         codex_model_access: str | None = None,
+        codex_run_token: str | None = None,
     ) -> int | None:
         """Start the agent-server HTTP server in the sandbox.
 

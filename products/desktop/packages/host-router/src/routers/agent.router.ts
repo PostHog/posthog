@@ -12,12 +12,9 @@ import {
   claudeAuthTerminalInput,
   claudeAuthTerminalOutput,
   claudeSubscriptionStatusOutput,
-  codexRateLimitsOutput,
-  codexSubscriptionDeviceLoginOutput,
+  codexCloudAuthTokensOutput,
   codexSubscriptionLoginOutput,
   codexSubscriptionStatusOutput,
-  codexSubscriptionTokensInput,
-  codexSubscriptionTokensOutput,
   getPiModelCatalogInput,
   getPiModelCatalogOutput,
   getPreviewConfigOptionsInput,
@@ -126,42 +123,15 @@ export const agentRouter = router({
         .startCodexSubscriptionLogin(),
     ),
 
-  codexCloudSubscriptionStatus: publicProcedure
-    .output(codexSubscriptionStatusOutput)
+  codexCloudAuthFileRead: publicProcedure
+    .output(codexCloudAuthTokensOutput)
     .query(({ ctx }) =>
-      ctx.container
-        .get<AgentService>(AGENT_SERVICE)
-        .getCodexCloudSubscriptionStatus(),
+      ctx.container.get<AgentService>(AGENT_SERVICE).readCodexCloudAuthFile(),
     ),
 
-  codexCloudSubscriptionDisconnect: publicProcedure.mutation(({ ctx }) =>
-    ctx.container
-      .get<AgentService>(AGENT_SERVICE)
-      .disconnectCodexCloudSubscription(),
+  codexCloudAuthFileRemove: publicProcedure.mutation(({ ctx }) =>
+    ctx.container.get<AgentService>(AGENT_SERVICE).removeCodexCloudAuthFile(),
   ),
-
-  codexSubscriptionDeviceLoginStart: publicProcedure
-    .output(codexSubscriptionDeviceLoginOutput)
-    .mutation(({ ctx }) =>
-      ctx.container
-        .get<AgentService>(AGENT_SERVICE)
-        .startCodexSubscriptionDeviceLogin(),
-    ),
-
-  codexSubscriptionTokens: publicProcedure
-    .input(codexSubscriptionTokensInput)
-    .output(codexSubscriptionTokensOutput)
-    .mutation(({ ctx, input }) =>
-      ctx.container
-        .get<AgentService>(AGENT_SERVICE)
-        .readCodexSubscriptionTokens(input.force),
-    ),
-
-  codexRateLimits: publicProcedure
-    .output(codexRateLimitsOutput)
-    .query(({ ctx }) =>
-      ctx.container.get<AgentService>(AGENT_SERVICE).getCodexRateLimits(),
-    ),
 
   codexSubscriptionSignOut: publicProcedure.mutation(({ ctx }) =>
     ctx.container.get<AgentService>(AGENT_SERVICE).signOutCodexSubscription(),

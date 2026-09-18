@@ -116,6 +116,14 @@ def test_build_agent_server_command_gates_connected_project_operations(sandbox: 
     assert "--posthogExecPermissionRegex" not in without_flag
 
 
+def test_build_agent_server_command_opens_the_codex_run_token_on_fd_3(sandbox: DockerSandbox):
+    with_token = sandbox._build_agent_server_command(
+        None, "t1", "r1", "interactive", True, codex_run_token_file="/tmp/agent-codex-run-token"
+    )
+    assert "exec 3< /tmp/agent-codex-run-token && rm -f /tmp/agent-codex-run-token && exec " in with_token
+    assert "exec 3<" not in sandbox._build_agent_server_command(None, "t1", "r1", "interactive", True)
+
+
 def test_start_agent_server_launch_failure_is_captured(sandbox: DockerSandbox):
     failed = ExecutionResult(stdout="", stderr="boom", exit_code=1)
 

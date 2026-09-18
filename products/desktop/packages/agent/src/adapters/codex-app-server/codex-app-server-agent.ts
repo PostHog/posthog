@@ -2366,7 +2366,7 @@ export class CodexAppServerAgent extends BaseAcpAgent {
       chatgptAccountId: this.chatgptAuthTokens.chatgptAccountId,
       chatgptPlanType: this.chatgptAuthTokens.chatgptPlanType,
     });
-    this.logger.info("Codex signed in with a relayed ChatGPT access token", {
+    this.logger.info("Codex signed in with the run's ChatGPT access token", {
       hasAccountId: Boolean(this.chatgptAuthTokens.chatgptAccountId),
       planType: this.chatgptAuthTokens.chatgptPlanType,
     });
@@ -2379,7 +2379,7 @@ export class CodexAppServerAgent extends BaseAcpAgent {
     const tokens = await this.refreshChatgptAuthTokens();
     // Never include the cause: a token refresh error can carry the token.
     if (!tokens.accessToken) {
-      throw new Error("PostHog Desktop returned no ChatGPT access token.");
+      throw new Error("PostHog returned no ChatGPT access token.");
     }
     return tokens;
   }

@@ -316,26 +316,6 @@ Subscription runs skip prewarming because a warm Claude process has already sele
 An unused warm run expires through its idle timeout; its cleanup does not block a subscription run.
 Sandbox compute still uses PostHog credits.
 
-## ChatGPT subscription credentials
-
-The Codex cloud subscription uses the same transport under `posthog-code-codex-own-subscription-cloud`.
-Desktop stores no ChatGPT token. The codex on the user's machine owns the login and the refresh token, and Desktop reads a live access token from it for each request.
-Copying `~/.codex/auth.json` into a sandbox would break that: the refresh token rotates and is single use, so a second holder logs the user out.
-
-Users connect with a device code. Desktop asks codex to start a `chatgptDeviceCode` login, then shows the sign-in link and the code.
-The code stops working after 15 minutes. Device code login must be on in the user's ChatGPT security settings, and a workspace member needs an admin to turn it on.
-
-The cloud account signs in to its own `CODEX_HOME` under the app data directory, with `cli_auth_credentials_store = "file"`.
-It is a separate device authorization from the user's own `~/.codex` login.
-A `codex logout` on the user's machine therefore cannot remove it, and a token rotation inside a sandbox can never reach the login they use themselves.
-
-A subscription run emits a `credential_request` for `codex_subscription_tokens` before it starts codex.
-The reply carries an access token, the workspace id, and the plan type. Codex refuses the login without the workspace id, which comes from the access token claims because `account/read` does not report it. Codex signs in with `chatgptAuthTokens`, which keeps the token in memory and writes no auth file.
-On a 401 codex asks the host for a fresh token and waits ten seconds. The request carries a `force` marker, and Desktop asks codex to rotate the token before it answers.
-The owner check, the run binding, the redirect block, and the retry rules match the Claude path.
-
-Codex tokens are JSON Web Tokens, so logs and events redact anything with that shape as well as `sk-ant-oat01-` tokens.
-
 Claude tokens go only to the signed-in PostHog server and project. Token requests cannot follow redirects.
 Desktop checks for a token before all Claude cloud starts and resumes, including Inbox actions.
 If delivery fails after a new run starts, Desktop cancels that run. It releases unused warm runs when the billing choice changes.
@@ -350,3 +330,35 @@ The task sandbox has the same credential boundary as GitHub runs. Code inside it
 A Claude setup token lasts longer than a GitHub token. Remove token does not revoke it or clear an active Claude process.
 
 Direct event uploads stay open by default. Local development closes each batch because local proxies can buffer an open request.
+
+## ChatGPT subscription credentials
+
+The Codex cloud subscription is under `posthog-code-codex-own-subscription-cloud`.
+It does not use the credential relay. PostHog stores the ChatGPT login server-side, as it stores the GitHub login, and each cloud run gets a short-lived access token from PostHog.
+Desktop holds no ChatGPT token and is not needed while a run is active. Tasks continue when Desktop is closed.
+
+Users log in once on their own machine with `CODEX_HOME=~/.codex-posthog codex login --device-auth`.
+The command writes `~/.codex-posthog/auth.json`. Desktop never reads `~/.codex`, so the user's own codex login is not affected.
+Connect in Settings > Harness reads that file, sends the tokens to `POST /api/users/@me/integrations/codex/`, and deletes the file after PostHog accepts them.
+A failed connect keeps the file for another try. Desktop shows an error when the file is missing, is not JSON, or holds an API key login instead of ChatGPT tokens.
+PostHog refreshes the tokens once on connect, so the local copy is stale after that. The refresh token rotates and is single use.
+`GET` on the same path reports `not_connected`, `connected`, or `reauth_required`, with the plan type and account email. `DELETE` disconnects. No route returns a refresh token.
+
+PostHog stores the tokens in an encrypted `UserIntegration` row of kind `codex`, owned by the user, not by a project.
+It refreshes the access token against OpenAI on demand and keeps only one refresh in flight per user.
+When OpenAI rejects the refresh token, the row moves to `reauth_required`, and Desktop asks the user to log in and connect again.
+Desktop checks the account state before each Codex cloud start or resume that uses the plan.
+
+Each subscription run gets a run-scoped secret. The worker writes it to a file that the sandbox command opens on file descriptor 3 and deletes before the agent server starts.
+The agent server reads descriptor 3 once. The secret is absent from the environment, the command arguments, and the filesystem after that.
+The agent server calls `POST /api/projects/{team}/tasks/{task_id}/runs/{run_id}/subscription_token/` with the secret in `X-Task-Run-Token`.
+The endpoint accepts only that secret for that run, together with the sandbox identity, and returns an access token, the workspace id, and the plan type.
+The general sandbox token alone cannot obtain a ChatGPT token. Code that runs inside the sandbox as a tool does not receive descriptor 3.
+The sandbox sets `kernel.yama.ptrace_scope=1`, so a tool process cannot read the agent server memory.
+
+Codex signs in with `chatgptAuthTokens`, which keeps the token in memory and writes no auth file.
+On a 401 codex asks the agent server for a fresh token and waits ten seconds. The agent server calls the endpoint with `force`, and PostHog refreshes before it answers.
+The run fails at the `subscription_token` phase when PostHog reports `reauth_required` or when OpenAI is unreachable. Desktop then shows the account state with the next step.
+Subscription runs do not use a warm sandbox, because a warm sandbox started before the plan choice holds no run secret.
+Codex tokens are JSON Web Tokens, so logs and events redact anything with that shape.
+Sandbox compute still uses PostHog credits.

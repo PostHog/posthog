@@ -56,6 +56,7 @@ from products.tasks.backend.logic.services.code_usage_gate import (
     usage_limit_response,
 )
 from products.tasks.backend.logic.services.connection_token import (
+    create_codex_subscription_run_token,
     create_sandbox_event_ingest_token,
     get_sandbox_jwt_public_key,
     reset_sandbox_jwt_key_cache,
@@ -11904,14 +11905,16 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.json()["error"], "permission_response is not supported for Pi tasks.")
 
-    @parameterized.expand([(True,), (False,)])
+    @parameterized.expand([("claude", True), ("claude", False), ("codex", True), ("codex", False)])
     @patch("products.tasks.backend.temporal.client.signal_task_followup_message")
-    def test_command_signals_user_message(self, subscription_owner_matches, mock_signal_followup):
+    def test_command_signals_user_message(self, adapter, subscription_owner_matches, mock_signal_followup):
         task = self.create_task()
         run = self._create_run_with_sandbox(task)
         run.state.update(
-            claude_model_access="own-subscription",
-            claude_subscription_user_id=self.user.id if subscription_owner_matches else self.user.id + 1,
+            {
+                f"{adapter}_model_access": "own-subscription",
+                f"{adapter}_subscription_user_id": self.user.id if subscription_owner_matches else self.user.id + 1,
+            }
         )
         run.save(update_fields=["state"])
 
@@ -12578,6 +12581,105 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.json()["detail"], "The task session content size is invalid")
+
+    def _connect_codex(self, user, *, status_value="connected", expires_in=timedelta(hours=1)):
+        expires_at = django_timezone.now() + expires_in
+        access_token = jwt.encode(
+            {"https://api.openai.com/auth": {"chatgpt_account_id": "acct_1", "chatgpt_plan_type": "plus"}},
+            "unused",
+            algorithm="HS256",
+        )
+        return UserIntegration.objects.create(
+            user=user,
+            kind="codex",
+            integration_id="acct_1",
+            config={"status": status_value, "plan_type": "plus"},
+            sensitive_config={
+                "access_token": access_token,
+                "refresh_token": "rt_stored",
+                "access_token_expires_at": expires_at.isoformat(),
+            },
+        )
+
+    def _create_codex_subscription_run(self, owner, sandbox_id="sandbox-1"):
+        task = self.create_task(created_by=owner)
+        run = self._create_run_with_sandbox(task)
+        run.state = {
+            **run.state,
+            "codex_model_access": "own-subscription",
+            "codex_subscription_user_id": owner.id,
+        }
+        run.save(update_fields=["state"])
+        self._open_sandbox_session(run, sandbox_id)
+        return task, run
+
+    def _subscription_token_url(self, task, run):
+        return f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/subscription_token/"
+
+    def test_subscription_token_returns_only_a_short_lived_access_token_to_the_runs_sandbox(self):
+        owner = self.create_organization_user("codex-owner")
+        self._connect_codex(owner)
+        task, run = self._create_codex_subscription_run(owner)
+        client = self._sandbox_oauth_client(task.id)
+
+        with patch("requests.request") as openai:
+            response = client.post(
+                self._subscription_token_url(task, run),
+                {"force": False},
+                format="json",
+                HTTP_X_TASK_RUN_TOKEN=create_codex_subscription_run_token(run, sandbox_id="sandbox-1"),
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        body = response.json()
+        self.assertEqual(set(body), {"access_token", "account_id", "plan_type", "expires_at"})
+        self.assertEqual(body["account_id"], "acct_1")
+        self.assertEqual(body["plan_type"], "plus")
+        self.assertNotIn("rt_stored", json.dumps(body))
+        openai.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("human_session", "session", "sandbox-1", None, status.HTTP_403_FORBIDDEN),
+            ("missing_run_token", "sandbox", "sandbox-1", "", status.HTTP_400_BAD_REQUEST),
+            ("wrong_sandbox", "sandbox", "other-sandbox", None, status.HTTP_403_FORBIDDEN),
+            ("wrong_audience", "sandbox", "sandbox-1", "ingest", status.HTTP_403_FORBIDDEN),
+        ]
+    )
+    def test_subscription_token_refuses_callers_without_the_run_secret(
+        self, _name, caller, token_sandbox_id, token_override, expected_status
+    ):
+        self._connect_codex(self.user)
+        task, run = self._create_codex_subscription_run(self.user)
+        client = self._sandbox_oauth_client(task.id) if caller == "sandbox" else self.client
+        if token_override == "ingest":
+            run_token = create_sandbox_event_ingest_token(run)
+        elif token_override == "":
+            run_token = None
+        else:
+            run_token = create_codex_subscription_run_token(run, sandbox_id=token_sandbox_id)
+        headers = {"X-Task-Run-Token": run_token} if run_token is not None else {}
+
+        response = client.post(self._subscription_token_url(task, run), {}, format="json", headers=headers)
+
+        self.assertEqual(response.status_code, expected_status)
+        self.assertNotIn("access_token", response.json())
+
+    def test_subscription_token_reports_a_dead_chatgpt_chain_as_reauth_required(self):
+        owner = self.create_organization_user("codex-owner")
+        self._connect_codex(owner, status_value="reauth_required")
+        task, run = self._create_codex_subscription_run(owner)
+        client = self._sandbox_oauth_client(task.id)
+
+        response = client.post(
+            self._subscription_token_url(task, run),
+            {"force": True},
+            format="json",
+            HTTP_X_TASK_RUN_TOKEN=create_codex_subscription_run_token(run, sandbox_id="sandbox-1"),
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
+        self.assertEqual(response.json()["code"], "reauth_required")
 
     @patch("posthog.storage.object_storage.get_presigned_url")
     def test_task_session_is_readable_for_a_public_channel_task(self, mock_download_url):
