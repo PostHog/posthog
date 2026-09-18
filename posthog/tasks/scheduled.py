@@ -88,6 +88,7 @@ from products.conversations.backend.tasks.email import flush_pending_email_repli
 from products.conversations.backend.tasks.maintenance import wake_snoozed_tickets
 from products.conversations.backend.tasks.slack import sweep_inbound_events
 from products.conversations.backend.tasks.teams import poll_teams_shared_channels
+from products.customer_analytics.backend.facade.tasks import schedule_task_digests
 from products.data_modeling.backend.facade.tasks import cleanup_expired_test_saved_queries
 from products.data_warehouse.backend.facade.tasks import (
     reconcile_all_managed_warehouse_tables_task,
@@ -1175,4 +1176,12 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         MCP_REGISTRY_SYNC_CRONTAB,
         run_mcp_registry_sync.s(),
         name="mcp registry daily sync",
+    )
+
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(minute="*/5"),
+        schedule_task_digests.s(),
+        name="schedule customer task digests",
+        expires_seconds=300,
     )
