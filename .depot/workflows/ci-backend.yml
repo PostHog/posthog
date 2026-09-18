@@ -2111,6 +2111,9 @@ jobs:
                           echo "::warning::Could not fetch base ref $BASE_REF; counting CH migrations against master instead"
                       fi
                   fi
+                  # test_ch_migrations_are_safe runs `git checkout master`. Git creates that branch from a
+                  # remote-tracking ref only for a configured remote, and upstream/master is not one.
+                  git show-ref --verify --quiet refs/heads/master || git branch master upstream/master
                   # Same as above, except now for CH looking at files that were added in posthog/clickhouse/migrations/
                   git diff --name-status "$DIFF_BASE"..HEAD | grep "A\sposthog/clickhouse/migrations/" | grep -v README | awk '{print $2}' | python manage.py test_ch_migrations_are_safe
 
