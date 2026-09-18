@@ -212,6 +212,7 @@ class HourlyUniqPlan:
 
     def reference_query(self) -> ast.SelectQuery:
         result = deepcopy(self.original)
+        assert result.select_from is not None
         inner = result.select_from.table if self.nested else result
         assert isinstance(inner, ast.SelectQuery)
         inner.where = ast.And(
@@ -254,7 +255,7 @@ def plan_hourly_uniq(sql: str, *, now: datetime, timezone: str) -> HourlyUniqPla
         ):
             return None
         buckets = [name for name, expr in aliases.items() if _hour(expr)]
-        if len(buckets) != 1 or len(inner.group_by or []) != 1:
+        if len(buckets) != 1 or not inner.group_by or len(inner.group_by) != 1:
             return None
         group = inner.group_by[0]
         if not (_hour(group) or _field(group, buckets[0])):
@@ -282,11 +283,13 @@ def plan_hourly_uniq(sql: str, *, now: datetime, timezone: str) -> HourlyUniqPla
                     return None
         # A chronological order is part of the series contract; GROUP BY alone
         # does not promise the same row order when its source changes.
-        if len(original.order_by or []) != 1:
+        if not original.order_by or len(original.order_by) != 1:
             return None
         ordered = original.order_by[0].expr
         if nested and isinstance(ordered, ast.Field) and len(ordered.chain) == 1:
             outer_aliases = {s.alias: s.expr for s in original.select if isinstance(s, ast.Alias)}
+            if not isinstance(ordered.chain[0], str):
+                return None
             ordered = outer_aliases.get(ordered.chain[0], ordered)
         if not _field(ordered, buckets[0]):
             return None
