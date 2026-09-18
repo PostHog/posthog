@@ -5,8 +5,8 @@ import { Terminal } from '@xterm/xterm'
 import { useActions, useValues } from 'kea'
 import { useEffect, useRef, useState } from 'react'
 
-import { IconEllipsis, IconTerminal } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonMenu, LemonTag } from '@posthog/lemon-ui'
+import { IconInfo, IconTerminal } from '@posthog/icons'
+import { LemonBanner, LemonButton, LemonMenu, LemonTag, Popover } from '@posthog/lemon-ui'
 
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -19,8 +19,11 @@ import { TerminalRuntime } from './terminalRuntime'
 
 export const scene: SceneExport = { component: TerminalScene, logic: terminalLogic }
 
-const examples = ['ls --color=auto', "find /posthog/files -name '*.md'", 'cat /posthog/README.txt', 'ph help']
-const moreExamples = [
+const examples = [
+    {
+        title: 'Get started',
+        commands: ['ls --color=auto', "find /posthog/files -name '*.md'", 'cat /posthog/README.txt', 'ph help'],
+    },
     { title: 'Explore files', commands: ['ls -lh /posthog/api', 'du -ah /posthog/files', 'pwd', 'busybox'] },
     { title: 'PostHog tools', commands: ['ph tools', 'ph tools notebook', 'ph help notebooks-retrieve', 'ph refresh'] },
     {
@@ -54,6 +57,7 @@ export function TerminalScene(): JSX.Element {
     const [hasSelection, setHasSelection] = useState(false)
     const [pasting, setPasting] = useState(false)
     const [clipboardError, setClipboardError] = useState<string | null>(null)
+    const [infoOpen, setInfoOpen] = useState(false)
 
     function insertCommand(command: string): void {
         terminal.current?.paste(command)
@@ -153,19 +157,9 @@ export function TerminalScene(): JSX.Element {
     const starting = status === 'loading' || status === 'booting'
 
     return (
-        <SceneContent>
+        <SceneContent className="h-full min-h-0 flex-1 pb-4">
             <SceneTitleSection name="Terminal" resourceType={{ type: 'terminal', forceIcon: <IconTerminal /> }} />
-            <div className="flex items-center gap-2 flex-wrap">
-                <LemonTag type="warning">Experiment</LemonTag>
-                <span className="text-secondary">
-                    Linux in your browser, with your PostHog project mounted at /posthog.
-                </span>
-            </div>
-            <LemonBanner type="info">
-                Commands and notebook edits can change real data. Local files and unsaved edits disappear when you leave
-                this page. The first start downloads Linux and jq (about 8 MB).
-            </LemonBanner>
-            <div className="flex items-center gap-2 flex-wrap">
+            <div className="flex shrink-0 items-center gap-2 flex-wrap">
                 <LemonButton
                     type="primary"
                     onClick={startTerminal}
@@ -197,7 +191,25 @@ export function TerminalScene(): JSX.Element {
                 >
                     Paste
                 </LemonButton>
-                <span role="status" className="text-secondary">
+                <LemonMenu
+                    items={examples.map(({ title, commands }) => ({
+                        title,
+                        items: commands.map((command) => ({
+                            label: <code className="whitespace-normal break-words">{command}</code>,
+                            onClick: () => insertCommand(command),
+                        })),
+                    }))}
+                >
+                    <LemonButton
+                        type="secondary"
+                        aria-label="Examples"
+                        tooltip="Insert a command, then press Enter to run it."
+                        disabledReason={status !== 'ready' ? 'Start the terminal first' : undefined}
+                    >
+                        Examples
+                    </LemonButton>
+                </LemonMenu>
+                <span role="status" className="text-secondary ml-auto text-sm">
                     {status === 'loading'
                         ? 'Loading project files…'
                         : status === 'booting'
@@ -208,6 +220,40 @@ export function TerminalScene(): JSX.Element {
                               ? 'Could not start'
                               : 'Stopped'}
                 </span>
+                <Popover
+                    visible={infoOpen}
+                    onClickOutside={() => setInfoOpen(false)}
+                    placement="bottom-end"
+                    overlay={
+                        <div className="flex max-w-80 flex-col items-start gap-3 p-1 text-sm">
+                            <LemonTag type="warning">Experiment</LemonTag>
+                            <p className="mb-0">
+                                Linux in your browser, with your PostHog project mounted at <code>/posthog</code>. The
+                                first start downloads Linux and jq (about 8 MB).
+                            </p>
+                            <p className="mb-0">
+                                Commands and notebook edits can change real data. Local files and unsaved edits
+                                disappear when you leave this page.
+                            </p>
+                            <p className="mb-0">
+                                Choose an example to insert it, then press Enter. Tab completes paths. Ctrl+C
+                                interrupts. Scroll up for history.
+                            </p>
+                            <p className="mb-0">
+                                Selecting text copies it. Copy/paste with ⌘C/⌘V on macOS or Ctrl+Shift+C/V on Linux and
+                                Windows.
+                            </p>
+                        </div>
+                    }
+                >
+                    <LemonButton
+                        icon={<IconInfo />}
+                        aria-label="Terminal information"
+                        aria-expanded={infoOpen}
+                        active={infoOpen}
+                        onClick={() => setInfoOpen(!infoOpen)}
+                    />
+                </Popover>
             </div>
             {error && <LemonBanner type="error">{error}</LemonBanner>}
             {saveError && <LemonBanner type="error">{saveError}</LemonBanner>}
@@ -217,46 +263,8 @@ export function TerminalScene(): JSX.Element {
                 aria-label="Linux terminal"
                 data-attr="posthog-terminal"
                 translate="no"
-                className="h-128 min-w-0 overflow-hidden rounded border p-3 bg-[var(--color-black)] text-[var(--color-white)]"
+                className="min-h-0 min-w-0 flex-1 overflow-hidden rounded border p-3 bg-[var(--color-black)] text-[var(--color-white)]"
             />
-            <div className="flex items-center gap-1 flex-wrap" data-attr="terminal-examples">
-                <span className="text-secondary text-sm">Try</span>
-                {examples.map((command) => (
-                    <LemonButton
-                        key={command}
-                        size="xsmall"
-                        type="secondary"
-                        tooltip="Insert command. Press Enter to run."
-                        aria-label={command}
-                        disabledReason={status !== 'ready' ? 'Start the terminal first' : undefined}
-                        onClick={() => insertCommand(command)}
-                    >
-                        <code>{command}</code>
-                    </LemonButton>
-                ))}
-                <LemonMenu
-                    items={moreExamples.map(({ title, commands }) => ({
-                        title,
-                        items: commands.map((command) => ({
-                            label: <code className="whitespace-normal break-words">{command}</code>,
-                            onClick: () => insertCommand(command),
-                        })),
-                    }))}
-                >
-                    <LemonButton
-                        size="xsmall"
-                        type="secondary"
-                        icon={<IconEllipsis />}
-                        aria-label="More terminal examples"
-                        disabledReason={status !== 'ready' ? 'Start the terminal first' : undefined}
-                    />
-                </LemonMenu>
-            </div>
-            <p className="text-secondary text-sm mb-0">
-                Click an example to insert it, then press Enter. Selecting text copies it. Tab completes paths. Ctrl+C
-                interrupts. Copy/paste with ⌘C/⌘V on macOS or Ctrl+Shift+C/V on Linux and Windows. Scroll up for
-                history.
-            </p>
         </SceneContent>
     )
 }

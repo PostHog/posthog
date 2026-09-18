@@ -35,12 +35,13 @@ jq '.title' /posthog/api/notebook/<short-id>.json
 
 The guest includes BusyBox tools, `jq`, `vi`, `joe`, `less`, and Lua.
 Pipes, redirection, completion, terminal colors, Ctrl+C, and scrollback use the real shell and terminal.
-The terminal uses a black background in both app themes.
+The terminal uses a black background in both app themes and fills the available page height.
 Selecting text copies it automatically. **Copy selection** also copies selected text, and **Paste** inserts clipboard text into the terminal.
 Keyboard shortcuts are ⌘C/⌘V on macOS and Ctrl+Shift+C/V on Linux and Windows; Ctrl+C still interrupts the running command.
 If the browser denies clipboard access, focus the terminal and use its native paste shortcut or context menu.
-Click a command below the terminal to insert it without running it; press Enter to run.
-The **…** menu contains more examples for files, commands, and JSON filtering.
+The toolbar's **Examples** menu contains commands for files, PostHog tools, and JSON filtering.
+Choose a command to insert it without running it; press Enter to run.
+The information button in the toolbar contains help, keyboard shortcuts, and details about saving changes.
 Midnight Commander is not included in this image.
 Directories are a snapshot; run `ph refresh` to discover newly created, renamed, or deleted objects.
 Startup uses the filesystem index and the filtered notebook index without downloading notebook bodies.
