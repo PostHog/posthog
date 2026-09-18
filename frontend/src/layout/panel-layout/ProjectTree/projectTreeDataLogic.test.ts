@@ -5,11 +5,11 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
-import { UserProductListReason } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 
 import { customProductsLogic } from './customProductsLogic'
 import { MovedItem, projectTreeDataLogic } from './projectTreeDataLogic'
+import { projectTreeLogic } from './projectTreeLogic'
 
 // pluralize() joins the count to the unit with a non-breaking space, which no reader can see in an assertion.
 const toastText = (message: unknown): string => String(message).replace(/\u00a0/g, ' ')
@@ -27,7 +27,7 @@ describe('projectTreeDataLogic', () => {
         initKeaTests()
         logic = projectTreeDataLogic()
         unmount = logic.mount()
-        await expectLogic(logic).toDispatchActions(['loadUnfiledItemsSuccess'])
+        await expectLogic(logic).toDispatchActions(['loadFolderSuccess'])
         jest.clearAllMocks()
     })
 
@@ -36,14 +36,12 @@ describe('projectTreeDataLogic', () => {
         jest.restoreAllMocks()
     })
 
-    it('shows Replay vision to anyone who pinned Session replay', () => {
+    it('shows only the products the user added, with nothing injected alongside them', () => {
         customProductsLogic.actions.loadCustomProductsSuccess([
             {
                 id: 'abc',
                 product_path: 'Session replay',
                 enabled: true,
-                reason: UserProductListReason.PRODUCT_INTENT,
-                reason_text: null,
                 created_at: '2026-01-01T00:00:00Z',
                 updated_at: '2026-01-01T00:00:00Z',
             },
@@ -51,8 +49,7 @@ describe('projectTreeDataLogic', () => {
 
         const paths = logic.values.getCustomProductTreeItems('').map((item) => item.record?.path)
 
-        expect(paths).toContain('Session replay')
-        expect(paths).toContain('Replay vision')
+        expect(paths).toEqual(['Session replay'])
     })
 
     it('shows Warehouse properties in Data when its persisted feature flag is enabled', () => {
@@ -69,7 +66,6 @@ describe('projectTreeDataLogic', () => {
 
     it('handles null unfiled item responses', async () => {
         jest.mocked(api.fileSystem.unfiled).mockResolvedValueOnce(null)
-
         await expectLogic(logic, () => {
             logic.actions.loadUnfiledItems()
         })
@@ -77,6 +73,52 @@ describe('projectTreeDataLogic', () => {
             .toMatchValues({ unfiledItems: true })
 
         expect(api.fileSystem.list).not.toHaveBeenCalled()
+    })
+
+    it('reconciles unfiled items when the project tree becomes active', async () => {
+        const rootlessTree = projectTreeLogic({ key: 'project-tree' })
+        rootlessTree.mount()
+
+        const projectTree = projectTreeLogic({ key: 'project-tree', root: 'project://', isActiveInPanel: true })
+
+        await expectLogic(logic, () => {
+            projectTree.mount()
+        }).toDispatchActions(['loadUnfiledItems', 'loadUnfiledItemsSuccess'])
+
+        projectTree.unmount()
+        rootlessTree.unmount()
+    })
+
+    it('does not reconcile unfiled items when the project tree is hidden', () => {
+        const projectTree = projectTreeLogic({ key: 'project-tree', root: 'project://', isActiveInPanel: false })
+
+        projectTree.mount()
+
+        expect(api.fileSystem.unfiled).not.toHaveBeenCalled()
+        projectTree.unmount()
+    })
+
+    it('reconciles unfiled items when a non-panel project tree opens', async () => {
+        const projectTree = projectTreeLogic({ key: 'folder-select', root: 'project://' })
+
+        await expectLogic(logic, () => {
+            projectTree.mount()
+        }).toDispatchActions(['loadUnfiledItems', 'loadUnfiledItemsSuccess'])
+
+        projectTree.unmount()
+    })
+
+    it('does not load Unfiled after the root folder loads in a hidden project tree', async () => {
+        const projectTree = projectTreeLogic({ key: 'project-tree', root: 'project://', isActiveInPanel: false })
+        projectTree.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        jest.clearAllMocks()
+
+        logic.actions.loadFolderSuccess('', [], false, 0)
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(api.fileSystem.list).not.toHaveBeenCalled()
+        projectTree.unmount()
     })
 
     it('loads unfiled folders when the count response reports items', async () => {

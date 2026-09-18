@@ -1,5 +1,3 @@
-import { readFile, realpath, stat } from "node:fs/promises";
-import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import {
   buildSessionContext,
   type FileEntry,
@@ -18,11 +16,6 @@ import {
   type RpcExtensionUIResponse,
 } from "@posthog/agent/pi/types";
 import { ROOT_LOGGER, type RootLogger } from "@posthog/di/logger";
-import {
-  type PiProjectTrust,
-  readPiProjectTrust,
-  writePiProjectTrust,
-} from "@posthog/harness/project-trust";
 import {
   type AgentConversationEvent,
   type McpToolPermissionDecision,
@@ -93,7 +86,6 @@ interface ManagedPiSession {
   pendingMcpPermissions: Map<string, McpToolPermissionRequest>;
   runtime: PiRuntime;
   cwd: string;
-  projectTrustPath: string;
   state: PiPoolSessionState;
   lastUsedAt: number;
   activeRequestCount: number;
@@ -120,106 +112,6 @@ function isPiExtensionDialogRequest(
 }
 
 const DEFAULT_PI_HOT_POOL_SIZE = 4;
-
-interface GitRepositoryIdentity {
-  commonDir: string;
-  kind: "main" | "worktree";
-}
-
-async function resolveExistingPath(path: string): Promise<string> {
-  try {
-    return await realpath(path);
-  } catch {
-    return resolve(path);
-  }
-}
-
-async function resolveGitRepositoryIdentity(
-  repositoryPath: string,
-): Promise<GitRepositoryIdentity | null> {
-  const resolvedRepositoryPath = await resolveExistingPath(repositoryPath);
-  const gitMarker = join(resolvedRepositoryPath, ".git");
-
-  try {
-    const gitMarkerStat = await stat(gitMarker);
-    if (gitMarkerStat.isDirectory()) {
-      return {
-        commonDir: await resolveExistingPath(gitMarker),
-        kind: "main",
-      };
-    }
-    if (!gitMarkerStat.isFile()) {
-      return null;
-    }
-
-    const markerMatch = (await readFile(gitMarker, "utf8")).match(
-      /^gitdir:\s*(.+)$/m,
-    );
-    if (!markerMatch) {
-      return null;
-    }
-
-    const gitDir = await resolveExistingPath(
-      isAbsolute(markerMatch[1])
-        ? markerMatch[1]
-        : resolve(resolvedRepositoryPath, markerMatch[1]),
-    );
-    const commonDir = await resolveExistingPath(
-      resolve(
-        gitDir,
-        (await readFile(join(gitDir, "commondir"), "utf8")).trim(),
-      ),
-    );
-    const gitDirRelativeToCommon = relative(commonDir, gitDir);
-    if (
-      gitDirRelativeToCommon.startsWith("..") ||
-      isAbsolute(gitDirRelativeToCommon) ||
-      !gitDirRelativeToCommon.startsWith(`worktrees${sep}`)
-    ) {
-      return null;
-    }
-
-    const registeredMarker = await resolveExistingPath(
-      (await readFile(join(gitDir, "gitdir"), "utf8")).trim(),
-    );
-    if (registeredMarker !== (await resolveExistingPath(gitMarker))) {
-      return null;
-    }
-
-    return { commonDir, kind: "worktree" };
-  } catch {
-    return null;
-  }
-}
-
-async function assertProjectTrustAppliesToCwd(
-  projectTrustPath: string,
-  cwd: string,
-): Promise<void> {
-  const [resolvedProjectTrustPath, resolvedCwd] = await Promise.all([
-    resolveExistingPath(projectTrustPath),
-    resolveExistingPath(cwd),
-  ]);
-  if (resolvedProjectTrustPath === resolvedCwd) {
-    return;
-  }
-
-  const [trustedRepository, runtimeRepository] = await Promise.all([
-    resolveGitRepositoryIdentity(resolvedProjectTrustPath),
-    resolveGitRepositoryIdentity(resolvedCwd),
-  ]);
-  if (
-    trustedRepository?.kind === "main" &&
-    runtimeRepository?.kind === "worktree" &&
-    trustedRepository.commonDir === runtimeRepository.commonDir
-  ) {
-    return;
-  }
-
-  throw new Error(
-    "Pi project trust path must match the runtime repository or its registered Git worktree",
-  );
-}
 
 function readHotPoolSize(): number {
   const configured = Number.parseInt(
@@ -260,32 +152,25 @@ export class PiSessionService extends TypedEventEmitter<PiSessionEvents> {
   async start(
     input: StartPiSessionInput,
   ): Promise<{ sessionFile: string | null; sessionId: string }> {
-    return this.runExclusive(input.taskId, () => this.startLocked(input));
+    return this.runExclusive(input.taskContext.taskId, () =>
+      this.startLocked(input),
+    );
   }
 
   private async startLocked(
     input: StartPiSessionInput,
   ): Promise<{ sessionFile: string | null; sessionId: string }> {
-    await this.stopLocked(input.taskId);
+    const { taskId, cwd } = input.taskContext;
+    await this.stopLocked(taskId);
 
-    const projectTrustPath = input.projectTrustPath ?? input.cwd;
-    await assertProjectTrustAppliesToCwd(projectTrustPath, input.cwd);
-    const projectTrust = readPiProjectTrust(projectTrustPath, input.cwd);
     const runtime = await this.runtimeFactory.create({
-      taskId: input.taskId,
-      cwd: input.cwd,
+      taskContext: input.taskContext,
       model: input.model,
-      projectTrusted: projectTrust.trusted,
     });
     const client = runtime.client;
-    const session = this.registerSession(
-      input.taskId,
-      runtime,
-      input.cwd,
-      projectTrustPath,
-    );
+    const session = this.registerSession(taskId, runtime, cwd);
 
-    return this.startSession(input.taskId, client, session, async () => {
+    return this.startSession(taskId, client, session, async () => {
       if (input.thinkingLevel) {
         await client.setThinkingLevel(input.thinkingLevel);
       }
@@ -297,7 +182,7 @@ export class PiSessionService extends TypedEventEmitter<PiSessionEvents> {
         );
       }
 
-      this.taskMetadataRepository.upsert(input.taskId, {
+      this.taskMetadataRepository.upsert(taskId, {
         piSessionFile: state.sessionFile,
       });
 
@@ -311,50 +196,40 @@ export class PiSessionService extends TypedEventEmitter<PiSessionEvents> {
   }
 
   async resume(input: ResumePiSessionInput): Promise<void> {
-    await this.runExclusive(input.taskId, () => this.resumeLocked(input));
+    await this.runExclusive(input.taskContext.taskId, () =>
+      this.resumeLocked(input),
+    );
   }
 
   private async resumeLocked(input: ResumePiSessionInput): Promise<void> {
-    const existingSession = this.sessions.get(input.taskId);
-    const projectTrustPath = input.projectTrustPath ?? input.cwd;
+    const { taskId, cwd } = input.taskContext;
+    const existingSession = this.sessions.get(taskId);
     if (
       existingSession &&
       !existingSession.stopFailed &&
-      existingSession.cwd === input.cwd &&
-      existingSession.projectTrustPath === projectTrustPath
+      existingSession.cwd === cwd
     ) {
       this.touchSession(existingSession);
       return;
     }
 
-    const metadata = this.taskMetadataRepository.findByTaskId(input.taskId);
+    const metadata = this.taskMetadataRepository.findByTaskId(taskId);
     const sessionFile = metadata?.piSessionFile;
 
     if (!sessionFile) {
-      throw new Error(
-        `Pi session metadata is missing for task ${input.taskId}`,
-      );
+      throw new Error(`Pi session metadata is missing for task ${taskId}`);
     }
 
-    await this.stopLocked(input.taskId);
+    await this.stopLocked(taskId);
 
-    await assertProjectTrustAppliesToCwd(projectTrustPath, input.cwd);
-    const projectTrust = readPiProjectTrust(projectTrustPath, input.cwd);
     const runtime = await this.runtimeFactory.create({
-      taskId: input.taskId,
-      cwd: input.cwd,
+      taskContext: input.taskContext,
       sessionFile,
-      projectTrusted: projectTrust.trusted,
     });
     const client = runtime.client;
-    const session = this.registerSession(
-      input.taskId,
-      runtime,
-      input.cwd,
-      projectTrustPath,
-    );
+    const session = this.registerSession(taskId, runtime, cwd);
 
-    await this.startSession(input.taskId, client, session, async () => {});
+    await this.startSession(taskId, client, session, async () => {});
   }
 
   request(taskId: string, command: RpcCommand): Promise<RpcResponse> {
@@ -375,7 +250,14 @@ export class PiSessionService extends TypedEventEmitter<PiSessionEvents> {
   }
 
   getPendingMcpToolPermissions(taskId: string): McpToolPermissionRequest[] {
-    return [...this.requireSession(taskId).pendingMcpPermissions.values()];
+    const session = this.sessions.get(taskId);
+
+    if (!session) {
+      return [];
+    }
+
+    this.touchSession(session);
+    return [...session.pendingMcpPermissions.values()];
   }
 
   async respondMcpToolPermission(
@@ -409,22 +291,6 @@ export class PiSessionService extends TypedEventEmitter<PiSessionEvents> {
       const queue = await session.client.clearQueue();
       session.runtime.clearPendingQueuedUserMessages();
       return queue;
-    });
-  }
-
-  getProjectTrust(taskId: string): PiProjectTrust {
-    const session = this.requireSession(taskId);
-    return readPiProjectTrust(session.projectTrustPath, session.cwd);
-  }
-
-  async setProjectTrusted(taskId: string, trusted: boolean): Promise<void> {
-    await this.runExclusive(taskId, async () => {
-      const session = this.requireSession(taskId);
-      if (session.state !== "idle" || session.activeRequestCount > 0) {
-        throw new Error("Cannot change project trust while Pi is busy");
-      }
-      await this.stopLocked(taskId);
-      writePiProjectTrust(session.projectTrustPath, trusted);
     });
   }
 
@@ -654,7 +520,6 @@ export class PiSessionService extends TypedEventEmitter<PiSessionEvents> {
     taskId: string,
     runtime: PiRuntime,
     cwd: string,
-    projectTrustPath: string,
   ): ManagedPiSession {
     const pendingMcpPermissions = new Map<string, McpToolPermissionRequest>();
     runtime.client.onMcpToolPermissionRequest((request) => {
@@ -667,7 +532,6 @@ export class PiSessionService extends TypedEventEmitter<PiSessionEvents> {
       pendingMcpPermissions,
       runtime,
       cwd,
-      projectTrustPath,
       state: "starting",
       lastUsedAt: Date.now(),
       activeRequestCount: 0,

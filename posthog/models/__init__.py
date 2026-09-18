@@ -27,7 +27,6 @@ from products.event_definitions.backend.models import EventDefinition
 from products.event_definitions.backend.models import EventProperty
 from .file_system.file_system import FileSystem
 from .file_system.file_system_view_log import FileSystemViewLog
-from .file_system.persisted_folder import PersistedFolder
 from .file_system.user_product_list import UserProductList
 from .filters import Filter, RetentionFilter
 from .group import Group
@@ -45,6 +44,7 @@ from .messaging import MessagingRecord
 from .object_media_preview import ObjectMediaPreview
 from .organization import Organization, OrganizationMembership
 from .organization_domain import OrganizationDomain
+from .organization_notification_lock import OrganizationMemberNotificationLock
 from .organization_integration import OrganizationIntegration
 from .organization_invite import OrganizationInvite, InviteExpiredException
 from .person import Person, PersonDistinctId, PersonOverride, PersonOverrideMapping
@@ -75,6 +75,7 @@ from .repo_routing_rule import RepoRoutingRule
 from .user_repo_preference import UserRepoPreference
 from .user_scene_personalisation import UserScenePersonalisation
 from .user_home_settings import UserHomeSettings
+from .user_facet_settings import UserFacetSettings
 from .oauth import (
     CIMDVerificationToken,
     OAuthAccessToken,
@@ -107,7 +108,6 @@ __all__ = [
     "EventProperty",
     "FileSystem",
     "FileSystemViewLog",
-    "PersistedFolder",
     "UserProductList",
     "Filter",
     "Group",
@@ -129,6 +129,7 @@ __all__ = [
     "ObjectMediaPreview",
     "Organization",
     "OrganizationDomain",
+    "OrganizationMemberNotificationLock",
     "OrganizationIntegration",
     "OrganizationInvite",
     "OrganizationMembership",
@@ -174,6 +175,7 @@ __all__ = [
     "UserRepoPreference",
     "UserScenePersonalisation",
     "UserHomeSettings",
+    "UserFacetSettings",
     "UserManager",
     "UserGroup",
     "UserGroupMembership",

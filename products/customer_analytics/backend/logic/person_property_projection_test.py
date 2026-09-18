@@ -1,7 +1,7 @@
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized, parameterized_class
 
@@ -31,6 +31,16 @@ class PersonPropertyRolloutFlagTest(SimpleTestCase):
 
         assert person_properties_flag_enabled(1) is True
         is_cloud.assert_called_once_with()
+        feature_enabled.assert_not_called()
+
+    @patch("products.customer_analytics.backend.logic.person_property_projection.Team.objects.only")
+    @patch("products.customer_analytics.backend.logic.person_property_projection.posthoganalytics.feature_enabled")
+    @patch("products.customer_analytics.backend.logic.person_property_projection.is_cloud", return_value=False)
+    @override_settings(WAREHOUSE_PERSON_PROPERTIES_ENABLED_SELF_HOSTED=False)
+    def test_self_hosted_operator_kill_switch_disables_the_feature(self, is_cloud, feature_enabled, only):
+        self._set_team(only)
+
+        assert person_properties_flag_enabled(1) is False
         feature_enabled.assert_not_called()
 
     @patch("products.customer_analytics.backend.logic.person_property_projection.Team.objects.only")

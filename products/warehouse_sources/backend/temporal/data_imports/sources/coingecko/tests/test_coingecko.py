@@ -191,6 +191,26 @@ class TestPagination:
         _rows(_source(PLAN_DEMO, "key", "coins_markets", _manager()))
         assert snaps[0]["params"]["vs_currency"] == "usd"
 
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_insights_requests_capped_per_page(self, MockSession) -> None:
+        session = MockSession.return_value
+        # CoinGecko caps /insights per_page at 20, so the source must not send the default 250.
+        snaps = _wire(session, [_response([{"title": "t", "posted_at": "2026-01-01T00:00:00Z"}])])
+
+        _rows(_source(PLAN_PRO, "key", "insights", _manager()))
+        assert snaps[0]["params"]["per_page"] == 20
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_insights_stops_at_max_page_cap(self, MockSession) -> None:
+        session = MockSession.return_value
+        # 20 full pages back to back would normally trigger a 21st request, but CoinGecko rejects
+        # page > 20 for /insights, so the cap must stop paging without that doomed request.
+        full_page = [{"title": f"t{i}", "posted_at": "2026-01-01T00:00:00Z"} for i in range(20)]
+        _wire(session, [_response(full_page) for _ in range(20)])
+
+        _rows(_source(PLAN_PRO, "key", "insights", _manager()))
+        assert session.send.call_count == 20
+
 
 class TestRateLimitAndErrors:
     @parameterized.expand([("compact", True), ("spaced", False)])

@@ -154,7 +154,7 @@ export function ApprovalPolicies(): JSX.Element {
     ]
 
     return (
-        <PayGateMini feature={AvailableFeature.APPROVALS}>
+        <PayGateMini feature={AvailableFeature.APPROVALS} featureDetail="approval-policies">
             <div className="space-y-4">
                 <div className="flex justify-end items-center">
                     <LemonButton type="primary" onClick={() => setIsCreating(true)} disabledReason={restrictionReason}>

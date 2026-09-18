@@ -2,8 +2,10 @@ import { MOCK_DEFAULT_TEAM, MOCK_TEAM_ID } from 'lib/api.mock'
 
 import { router } from 'kea-router'
 import { expectLogic, partial, truth } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import api from 'lib/api'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { objectsEqual } from 'lib/utils/objects'
 import 'lib/constants'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
@@ -15,6 +17,7 @@ import { urls } from 'scenes/urls'
 import { useMocks } from '~/mocks/jest'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { insightsModel } from '~/models/insightsModel'
+import { tagsModel } from '~/models/tagsModel'
 import { examples } from '~/queries/examples'
 import { DataTableNode, type InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
@@ -1044,6 +1047,50 @@ describe('insightLogic', () => {
 
             await expectLogic(router).toNotHaveDispatchedActions(['push'])
         })
+
+        it('marks the insight as duplicating until the request settles', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.duplicateInsight(logic.values.insight as QueryBasedInsightModel, true)
+            })
+                .toMatchValues({ insightDuplicating: true })
+                .toFinishAllListeners()
+                .toMatchValues({ insightDuplicating: false })
+        })
+
+        // Catching the rejection skips the gate `initKea` applies to loader failures, so the
+        // listener has to reapply it: a validation error is the app's own bug and stays
+        // reportable, while an access-denied 403 the AccessDenied scene already handles would
+        // file an issue sharing its stack with every other ApiError, burying real crashes.
+        it.each([
+            ['a validation error', 400, { detail: 'Insight limit reached' }, 1],
+            [
+                'a failure the app recovers from',
+                403,
+                { detail: 'You do not have permission', code: 'permission_denied' },
+                0,
+            ],
+        ])(
+            'toasts %s rather than doing nothing, and reports it only if it is worth filing',
+            async (_, status, body, timesReported) => {
+                useMocks({
+                    post: {
+                        '/api/environments/:team_id/insights/': () => [status, body],
+                    },
+                })
+                jest.spyOn(lemonToast, 'error')
+                jest.spyOn(posthog, 'captureException')
+
+                await expectLogic(logic, () => {
+                    logic.actions.duplicateInsight(logic.values.insight as QueryBasedInsightModel, true)
+                })
+                    .toFinishAllListeners()
+                    .toMatchValues({ insightDuplicating: false })
+
+                expect(lemonToast.error).toHaveBeenCalledWith(body.detail)
+                expect(posthog.captureException).toHaveBeenCalledTimes(timesReported)
+                await expectLogic(router).toNotHaveDispatchedActions(['push'])
+            }
+        )
     })
 
     describe('hasOverrides', () => {
@@ -1133,6 +1180,24 @@ describe('insightLogic', () => {
         })
     })
 
+    describe('insightMissing', () => {
+        // A notebook cell binds a saved insight by short id. When that insight is gone, the API
+        // returns no results and the loader throws — the cell needs a flag it can turn into a
+        // "not found" screen instead of silently rendering a blank default query.
+        it('is set when the insight cannot be found', async () => {
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/insights/': () => [200, { results: [] }],
+                },
+            })
+            logic = insightLogic({ dashboardItemId: Insight42 })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadInsightFailure'])
+
+            expect(logic.values.insightMissing).toBe(true)
+        })
+    })
+
     describe('editingDisabledReason', () => {
         it.each([
             ['overrides present', { filtersOverride: { date_from: '-7d' } }, 'Discard overrides to edit the insight.'],
@@ -1205,7 +1270,7 @@ describe('insightLogic', () => {
             await expectLogic(logic, () => {
                 logic.actions.setInsightMetadata({ name: 'Foobar 43', description: 'Lorem ipsum.', tags: ['good'] })
             })
-                .toDispatchActions(['setInsightMetadataSuccess'])
+                .toDispatchActions([tagsModel.actionTypes.loadTags, 'setInsightMetadataSuccess'])
                 .toMatchValues({
                     savedInsight: partial({ name: 'Foobar 43', description: 'Lorem ipsum.', tags: ['good'] }),
                     insightChanged: false,
@@ -1254,6 +1319,7 @@ describe('insightLogic', () => {
                 logic.actions.setInsightMetadata({ favorited: true })
             })
                 .toDispatchActions(['setInsightMetadataSuccess'])
+                .toNotHaveDispatchedActions([tagsModel.actionTypes.loadTags])
                 .toMatchValues({
                     savedInsight: partial({ favorited: true }),
                 })

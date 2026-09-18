@@ -1,7 +1,11 @@
+import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
+
 import '@testing-library/jest-dom'
 
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { Provider } from 'kea'
+
+import { OrganizationMembershipLevel } from 'lib/constants'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -23,7 +27,21 @@ describe('IntegrationChoice', () => {
     beforeEach(() => {
         useMocks({
             get: {
-                '/api/environments/:team_id/integrations': () => [200, { results: [GITHUB_INTEGRATION] }],
+                '/api/projects/:team_id/integrations': () => [200, { results: [GITHUB_INTEGRATION] }],
+            },
+            post: {
+                '/api/environments/:team_id/integrations': () => [
+                    200,
+                    {
+                        id: 42,
+                        kind: 'aws-s3',
+                        display_name: 'Test connection',
+                        icon_url: '',
+                        config: {},
+                        created_by: null,
+                        created_at: '2026-01-01T00:00:00Z',
+                    },
+                ],
             },
         })
         initKeaTests()
@@ -73,6 +91,63 @@ describe('IntegrationChoice', () => {
             </Provider>
         )
         expect(onChange).toHaveBeenCalledTimes(1)
+    })
+
+    it('routes a new connection to the picker that opened the modal, not a same-kind sibling', async () => {
+        // A Redshift COPY export renders two aws-s3 pickers that share one unkeyed setup-modal
+        // logic. Completing the modal opened from the first picker must call the first picker's
+        // onChange — not the last-rendered sibling's, which would drop the new id into the wrong
+        // field and fail the backend kind check on save.
+        const onChangeFirst = jest.fn()
+        const onChangeSecond = jest.fn()
+        render(
+            <Provider>
+                <div data-attr="picker-first">
+                    <IntegrationChoice integration="aws-s3" onChange={onChangeFirst} />
+                </div>
+                <div data-attr="picker-second">
+                    <IntegrationChoice integration="aws-s3" onChange={onChangeSecond} />
+                </div>
+            </Provider>
+        )
+
+        const firstTrigger = await within(screen.getByTestId('picker-first')).findByText('Choose AWS S3 connection')
+        fireEvent.click(firstTrigger)
+        fireEvent.click(await screen.findByText('Configure new AWS S3 connection'))
+
+        // Fill the minimal valid form (default 'Assume IAM role' mode) and save.
+        fireEvent.change(await screen.findByPlaceholderText('e.g. Production data lake'), {
+            target: { value: 'Test connection' },
+        })
+        fireEvent.change(screen.getByPlaceholderText(/arn:aws:iam/), {
+            target: { value: 'arn:aws:iam::123456789012:role/posthog' },
+        })
+        fireEvent.click(screen.getByText('Save'))
+
+        await waitFor(() => {
+            expect(onChangeFirst).toHaveBeenCalledWith(42)
+        })
+        expect(onChangeSecond).not.toHaveBeenCalled()
+    })
+
+    it('disables connecting for a member who cannot create integrations', async () => {
+        // Creating an integration needs project admin, which is stricter than the access a product
+        // needs to reach this picker. Members used to be sent through the provider's whole OAuth
+        // flow only to have the callback fail to save the connection.
+        initKeaTests(true, {
+            ...MOCK_DEFAULT_TEAM,
+            effective_membership_level: OrganizationMembershipLevel.Member,
+        })
+
+        render(
+            <Provider>
+                <IntegrationChoice integration="google-ads" onChange={jest.fn()} />
+            </Provider>
+        )
+
+        fireEvent.click(await screen.findByText('Choose Google Ads connection'))
+        const connect = await screen.findByText('Connect to Google Ads')
+        expect(connect.closest('[aria-disabled]')).toHaveAttribute('aria-disabled', 'true')
     })
 
     it('still warns when the stored id matches no integration', async () => {

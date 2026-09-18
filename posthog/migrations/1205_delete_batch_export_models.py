@@ -40,8 +40,6 @@ def reverse_content_types(apps, schema_editor):
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("batch_exports", "0002_batchexport_batchexportbackfill_and_more"),
-        ("cdp", "0002_alter_hogfunction_batch_export"),
         ("posthog", "1204_migrate_batch_exports_models"),
     ]
 

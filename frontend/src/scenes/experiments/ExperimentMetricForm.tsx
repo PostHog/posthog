@@ -27,6 +27,7 @@ import {
     ExperimentMetricSource,
     ExperimentMetricType,
     NodeKind,
+    isExperimentExposureNode,
     isExperimentFunnelMetric,
     isExperimentMeanMetric,
     isExperimentRatioMetric,
@@ -41,7 +42,7 @@ import {
     ExperimentRatioMetricOutlierHandling,
 } from './ExperimentMetricOutlierHandling'
 import { ExperimentMetricThreshold, isThresholdAvailableForMath } from './ExperimentMetricThreshold'
-import { EXPOSURE_DEFAULT_EVENT, isDefaultExposureConfig } from './exposureContract'
+import { EXPOSURE_DEFAULT_EVENT, getActivationConfig, isDefaultExposureConfig } from './exposureContract'
 import { filterToMetricConfig, filterToMetricSource } from './metricQueryUtils'
 import { createFilterForSource, getFilter } from './metricQueryUtils'
 import { commonActionFilterProps } from './Metrics/Selectors'
@@ -190,7 +191,10 @@ export function ExperimentMetricForm({
                 sources.push(metric.denominator)
             }
         } else if (isExperimentRetentionMetric(metric)) {
-            sources = [metric.start_event]
+            // An exposure-anchored start has no literal event to carry over
+            if (!isExperimentExposureNode(metric.start_event)) {
+                sources = [metric.start_event]
+            }
             if (metric.completion_event) {
                 sources.push(metric.completion_event)
             }
@@ -281,6 +285,8 @@ export function ExperimentMetricForm({
 
     const hideDeleteBtn = (_: any, index: number): boolean => index === 0
 
+    const activationConfig = getActivationConfig(exposureCriteria)
+
     return (
         <SceneContent>
             <SceneSection title={isSharedMetric ? 'Shared metric type' : 'Metric type'} className="max-w-prose">
@@ -313,6 +319,12 @@ export function ExperimentMetricForm({
                             <>
                                 Counts only after exposure event{' '}
                                 <LemonTag>{getExposureCriteriaLabel(exposureCriteria, resolvedExposureEvent)}</LemonTag>
+                                {activationConfig && (
+                                    <>
+                                        and activation event{' '}
+                                        <LemonTag>{getExposureConfigDisplayName(activationConfig)}</LemonTag>
+                                    </>
+                                )}
                             </>
                         ) : (
                             <>
@@ -408,8 +420,7 @@ export function ExperimentMetricForm({
                         // showNumericalPropsOnly={true}
                         mathAvailability={mathAvailability}
                         allowedMathTypes={allowedMathTypes}
-                        actionsTaxonomicGroupTypes={commonActionFilterProps.actionsTaxonomicGroupTypes}
-                        propertiesTaxonomicGroupTypes={commonActionFilterProps.propertiesTaxonomicGroupTypes}
+                        {...commonActionFilterProps}
                         dataWarehousePopoverFields={dataWarehousePopoverFields}
                     />
                 )}
@@ -489,7 +500,11 @@ export function ExperimentMetricForm({
                             </LemonLabel>
                             <ActionFilter
                                 bordered
-                                filters={createFilterForSource(metric.start_event)}
+                                filters={
+                                    isExperimentExposureNode(metric.start_event)
+                                        ? {}
+                                        : createFilterForSource(metric.start_event)
+                                }
                                 setFilters={(filters) => {
                                     const source = filterToMetricSource(
                                         filters.actions,

@@ -138,11 +138,46 @@ class DataWarehouseTable:
 
 
 @dataclass(frozen=True)
+class DuckLakeImportedTable:
+    logical_table_names: tuple[str, ...]
+    physical_table_name: str
+
+
+@dataclass(frozen=True)
 class TableSourceLocation:
     """Where a synced table is administered: the source and schema its detail page hangs off."""
 
     source_id: UUID
     schema_id: UUID
+
+
+@dataclass(frozen=True)
+class TableNames:
+    """The two names one warehouse table answers to.
+
+    ``row_name`` is what the table row stores and a listing shows. ``queryable_key`` is what a
+    query writes, which for a source table is the dotted form. They are equal for a direct-access
+    source and for a table with no source.
+    """
+
+    row_name: str
+    queryable_key: str
+
+
+WAREHOUSE_OBJECT_TABLE = "table"
+WAREHOUSE_OBJECT_VIEW = "view"
+
+
+@dataclass(frozen=True)
+class WarehouseObjectRef:
+    """Which warehouse object a queryable name resolves to, for a caller that must record identity.
+
+    ``kind`` is ``WAREHOUSE_OBJECT_TABLE`` or ``WAREHOUSE_OBJECT_VIEW``, since a name reaches either
+    a warehouse table or a saved query and the two are stored apart.
+    """
+
+    kind: str
+    id: UUID
 
 
 # --- Job ---

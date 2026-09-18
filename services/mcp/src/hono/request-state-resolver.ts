@@ -1,7 +1,7 @@
 import type { GroupType } from '@/api/client'
 import { hasScope } from '@/lib/api'
 import { MCPClientProfile } from '@/lib/client-detection'
-import { isCloudApi, isLocalApi, MCP_GATEWAY_FLAG, PRODUCT_DATA_CATALOG_FLAG } from '@/lib/constants'
+import { isCloudApi, isLocalApi, MCP_GATEWAY_FLAG } from '@/lib/constants'
 import { buildMCPAnalyticsGroups } from '@/lib/posthog/analytics'
 import {
     type EvaluatedFlags,
@@ -13,11 +13,18 @@ import type { RequestProperties } from '@/lib/request-properties'
 import { filterStaffOnlyTools } from '@/lib/staff-only-tools'
 import type { McpMode } from '@/lib/utils'
 import { TASKS_CONTEXT_TOOL_NAMES } from '@/tools/tasksContext'
-import { getRequiredFeatureFlags, getScopeGatedTools, type ScopeGatedTool } from '@/tools/toolDefinitions'
+import {
+    type FlagGatedTool,
+    getFlagGatedTools,
+    getRequiredFeatureFlags,
+    getScopeGatedTools,
+    type ScopeGatedTool,
+} from '@/tools/toolDefinitions'
 import type { Context, Tool, Env, ZodObjectAny } from '@/tools/types'
 
 import { McpSessionRedisStore } from './cache/McpSessionRedisStore'
 import type { RedisLike } from './cache/RedisCache'
+import { MCP_EXEC_SKILLS_FEATURE_FLAG } from './constants'
 import {
     buildMCPRequestContext,
     getEffectiveMCPClientContext,
@@ -41,6 +48,7 @@ export interface ResolvedState {
     sessionContext: MCPSessionContext | null
     allTools: Tool<ZodObjectAny>[]
     scopeGatedTools: ScopeGatedTool[]
+    flagGatedTools: FlagGatedTool[]
     /**
      * Whether the caller's team may reach third-party MCP tools through `exec`.
      * Gated on the same flag as the gateway UI — the tools are the gateway's payoff,
@@ -76,9 +84,9 @@ export function resolveMode(args: { mode: McpMode | undefined; clientProfile: MC
     useSingleExec: boolean
 } {
     const { mode, clientProfile } = args
-    // CLI (single-exec) is the default; only allow-listed clients (Cursor,
-    // ChatGPT) keep the full per-tool roster, and an explicit ?mode= /
-    // x-posthog-mcp-mode header always wins over auto-detection.
+    // CLI (single-exec) is the default; only allow-listed clients (Cursor) keep
+    // the full per-tool roster, and an explicit ?mode= / x-posthog-mcp-mode
+    // header always wins over auto-detection.
     const resolved: McpMode = mode ?? (clientProfile.isToolsModeClient() ? 'tools' : 'cli')
     return { mode: resolved, useSingleExec: resolved === 'cli' }
 }
@@ -112,6 +120,17 @@ export function switchToolsToExclude(pinned: { organizationId?: string | undefin
 
 // ─── Resolver ───
 
+// Task origins whose sandbox mounts every shared gateway server as its own MCP server
+// (`mcp__<server>__<tool>`). Surfacing the same tools through `exec` as `<slug>__<tool>` gives
+// those agents a second, member-scoped name for each tool — one that resolves for a person
+// running the task interactively and comes back empty for the service account the scheduled
+// run uses, so instructions learned on one path silently fail on the other.
+const DIRECT_GATEWAY_MOUNT_ORIGINS: ReadonlySet<string> = new Set(['signals_scout'])
+
+function mountsGatewayServersDirectly(taskOriginProduct: string | undefined): boolean {
+    return taskOriginProduct !== undefined && DIRECT_GATEWAY_MOUNT_ORIGINS.has(taskOriginProduct)
+}
+
 export class RequestStateResolver {
     private readonly catalog: ToolCatalog
     private readonly redis: RedisLike
@@ -131,12 +150,12 @@ export class RequestStateResolver {
         const contextPromise = reqCtx.getContext()
         const pinnedSessionContextPromise = projectId ? this.resolveSessionContext(requestContext) : undefined
 
-        await reqCtx.tokenCache.setMany({
-            ...(organizationId ? { orgId: organizationId } : {}),
-            ...(projectId ? { projectId } : {}),
-        })
+        await this.applyPinnedContext(reqCtx, { organizationId, projectId })
 
-        let cachedProjectId = projectId || (await reqCtx.tokenCache.get('projectId'))
+        // Read the active project back from the token cache (the source every tool
+        // resolves through) rather than the request pin, so the banner and group
+        // types reflect an in-session switch instead of the resent pin value.
+        let cachedProjectId = (await reqCtx.tokenCache.get('projectId')) || projectId
         if (!cachedProjectId) {
             const contextForDefault = await contextPromise
             await contextForDefault.stateManager.setDefaultOrganizationAndProject()
@@ -149,10 +168,10 @@ export class RequestStateResolver {
         ])
         const clientContext = getEffectiveMCPClientContext(requestContext, sessionContext)
 
-        // Neither of these gates a catalog tool, so the tool-definition scan can't discover
-        // them: PRODUCT_DATA_CATALOG_FLAG gates instructions content (the metric-discovery
-        // prompt section), MCP_GATEWAY_FLAG gates the third-party tools `exec` resolves.
-        const allFlagKeys = [...new Set([...getRequiredFeatureFlags(), PRODUCT_DATA_CATALOG_FLAG, MCP_GATEWAY_FLAG])]
+        // MCP_GATEWAY_FLAG gates no tool of its own — it gates the third-party tools `exec`
+        // resolves — so the tool-definition scan can't discover it; join it in explicitly.
+        // MCP_EXEC_SKILLS_FEATURE_FLAG gates the `learn` skill commands the same way.
+        const allFlagKeys = [...new Set([...getRequiredFeatureFlags(), MCP_GATEWAY_FLAG, MCP_EXEC_SKILLS_FEATURE_FLAG])]
 
         const flagAnalyticsContext = await reqCtx.safelyGetAnalyticsContext(context)
         const flagGroups = flagAnalyticsContext ? buildMCPAnalyticsGroups(flagAnalyticsContext) : undefined
@@ -207,6 +226,8 @@ export class RequestStateResolver {
         const excludeTools = [
             ...switchToolsToExclude({ organizationId }),
             ...tasksContextToolsToExclude(clientProfile, props.taskId),
+            ...(apiKeyScopes.includes('internal_run:read') ? ['tasks-run-create', 'tasks-create-and-run'] : []),
+            ...(props.excludeTools ?? []),
         ]
 
         const filterOptions = {
@@ -230,6 +251,8 @@ export class RequestStateResolver {
         // Scope-gated hints are only consumed by the exec `search` command, which
         // only exists in single-exec mode — skip the extra scan otherwise.
         const scopeGatedTools = useSingleExec ? getScopeGatedTools(apiKeyScopes, filterOptions) : []
+        // Only exec redirects a call to a gated tool; tools mode just omits it.
+        const flagGatedTools = useSingleExec ? getFlagGatedTools(filterOptions) : []
 
         const [groupTypes, metadata, metadataCompact] = await Promise.all([
             cachedProjectId && hasScope(apiKeyScopes, 'group:read')
@@ -251,13 +274,96 @@ export class RequestStateResolver {
             sessionContext,
             allTools,
             scopeGatedTools,
-            gatewayToolsEnabled: useSingleExec && !readOnly && mergedFlags[MCP_GATEWAY_FLAG] === true,
+            flagGatedTools,
+            gatewayToolsEnabled:
+                useSingleExec &&
+                !readOnly &&
+                mergedFlags[MCP_GATEWAY_FLAG] === true &&
+                !mountsGatewayServersDirectly(props.taskOriginProduct),
             distinctId,
             renderUiEnabled,
             metadata,
             metadataCompact,
             groupTypes,
         }
+    }
+
+    /**
+     * Apply an org/project pinned via request params to the token-scoped active
+     * context every tool resolves through.
+     *
+     * A pin sets the session's default active context, not a per-request hard
+     * lock: `switch-project` stays available on a project pin (the documented
+     * cross-org flow depends on it), so a switch made mid-session must survive
+     * the client resending the same static pin on every request. The token cache
+     * is shared by every concurrent session on the same credential, though, so
+     * the pin can't simply be written once and left alone either — two sessions
+     * pinned to different projects would bleed into each other. Instead each
+     * request re-asserts its own session's effective context: the session's
+     * recorded switch (see `Context.setSessionActiveContext`) when one exists,
+     * otherwise the pin. A genuinely changed pin retargets the session and
+     * discards the recorded switch.
+     *
+     * Without an MCP session id there is no cross-request session state, so the
+     * pin is applied unconditionally as before.
+     */
+    private async applyPinnedContext(
+        reqCtx: RequestContext,
+        pinned: { organizationId?: string | undefined; projectId?: string | undefined }
+    ): Promise<void> {
+        const { organizationId, projectId } = pinned
+        if (!organizationId && !projectId) {
+            return
+        }
+
+        const sessionCache = reqCtx.sessionScopedCache
+        if (!sessionCache) {
+            await reqCtx.tokenCache.setMany({
+                ...(organizationId ? { orgId: organizationId } : {}),
+                ...(projectId ? { projectId } : {}),
+            })
+            return
+        }
+
+        const [appliedPinOrg, appliedPinProject, activeOrg, activeProject] = await Promise.all([
+            sessionCache.get('appliedPinOrgId'),
+            sessionCache.get('appliedPinProjectId'),
+            sessionCache.get('activeOrgId'),
+            sessionCache.get('activeProjectId'),
+        ])
+
+        // These keys carry a write-based TTL, but the MCP session they belong to
+        // renews its own context store on every request. Renew them too, so a
+        // switch recorded early in a long-lived session does not expire before
+        // the session ends and read back as a missing marker — which reads as a
+        // changed pin, discards the switch, and reverts to the pin mid-session.
+        await sessionCache.refreshTtl(['appliedPinOrgId', 'appliedPinProjectId', 'activeOrgId', 'activeProjectId'])
+
+        const pinChanged =
+            (organizationId !== undefined && appliedPinOrg !== organizationId) ||
+            (projectId !== undefined && appliedPinProject !== projectId)
+
+        let overrideOrg = activeOrg
+        let overrideProject = activeProject
+        if (pinChanged) {
+            overrideOrg = undefined
+            overrideProject = undefined
+            await Promise.all([
+                sessionCache.delete('activeOrgId'),
+                sessionCache.delete('activeProjectId'),
+                sessionCache.setMany({
+                    ...(organizationId ? { appliedPinOrgId: organizationId } : {}),
+                    ...(projectId ? { appliedPinProjectId: projectId } : {}),
+                }),
+            ])
+        }
+
+        const orgId = overrideOrg ?? organizationId
+        const effectiveProjectId = overrideProject ?? projectId
+        await reqCtx.tokenCache.setMany({
+            ...(orgId ? { orgId } : {}),
+            ...(effectiveProjectId ? { projectId: effectiveProjectId } : {}),
+        })
     }
 
     private async resolveSessionContext(requestContext: MCPRequestContext): Promise<MCPSessionContext | null> {

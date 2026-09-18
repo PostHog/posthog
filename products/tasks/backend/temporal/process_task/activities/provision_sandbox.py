@@ -41,11 +41,7 @@ from products.tasks.backend.logic.services.agentsh import (
     enforced_egress_domains,
 )
 from products.tasks.backend.logic.services.compute_quota import get_compute_quota_denial_reason
-from products.tasks.backend.logic.services.connection_token import (
-    SANDBOX_JWT_STATE_KID_KEY,
-    get_primary_sandbox_jwt_kid,
-    get_sandbox_jwt_public_key,
-)
+from products.tasks.backend.logic.services.connection_token import SANDBOX_JWT_STATE_KID_KEY, get_sandbox_jwt_public_key
 from products.tasks.backend.logic.services.network_policy import (
     EffectiveNetworkPolicy,
     NetworkPolicyValidationError,
@@ -58,13 +54,9 @@ from products.tasks.backend.logic.services.sandbox import (
     SandboxTemplate,
     get_sandbox_class_for_run_backend,
     get_sandbox_class_for_sandbox_id,
+    needs_full_history,
     sandbox_repo_path,
     workload_for_origin_product,
-)
-from products.tasks.backend.logic.services.sandbox_usage import (
-    measure_sandbox_billed_cpu_usage,
-    measure_sandbox_cpu_usage,
-    open_sandbox_session,
 )
 from products.tasks.backend.models import TASK_OWNERSHIP_VERSION_STATE_KEY, SandboxSnapshot, Task, TaskRun
 from products.tasks.backend.temporal.metrics import (
@@ -84,6 +76,7 @@ from products.tasks.backend.temporal.observability import (
     log_activity_execution,
     log_with_activity_context,
 )
+from products.tasks.backend.temporal.process_task.sandbox_connection import persist_sandbox_connection
 from products.tasks.backend.temporal.process_task.sandbox_credentials import (
     replace_sandbox_credentials,
     set_git_remote_token,
@@ -97,6 +90,7 @@ from products.tasks.backend.temporal.process_task.utils import (
     get_sandbox_otel_env_vars,
     get_sandbox_snapshot_metadata,
     get_task_run_credential_user,
+    mcp_exec_skills_env_vars,
     parse_run_state,
     run_gateway_env_vars,
 )
@@ -155,6 +149,7 @@ class CreateSandboxForRepositoryOutput:
     create_ms: int | None = None
     jwt_kid: str | None = None
     ttl_expires_at: str | None = None
+    dev_stack_preview_sized: bool = False
 
 
 @dataclass
@@ -295,24 +290,35 @@ def _prewarmed_resume_needs_fresh_agent(
     *,
     used_snapshot: bool,
 ) -> bool:
-    """Whether a full resume snapshot bundled an agent that cannot idle before the resumed prompt."""
+    """Whether a restored full snapshot bundled an agent that cannot idle before the resumed prompt.
+
+    A repository snapshot (``snapshot_id``) restores the same filesystem as a resume snapshot
+    (``snapshot_external_id``), so it supplies the snapshot's own agent binary too and needs the
+    same probe. Only a directory restore keeps the vetted image's agent.
+    """
+    # `prewarmedResumeMessageDriven` is an ACP capability, advertised and consumed only by the
+    # ACP agent server. The Pi server dispatches no startup turn and downloads its session
+    # history from the API instead of the snapshot, so probing a Pi bundle for the string
+    # rejects a healthy snapshot and re-clones the repository for no behavior change.
+    if ctx.task_runtime == Task.Runtime.PI:
+        return False
     if (
         not used_snapshot
-        or prepared.snapshot_external_id is None
+        or (prepared.snapshot_external_id is None and prepared.snapshot_id is None)
         or prepared.snapshot_kind == SNAPSHOT_KIND_DIRECTORY
         or not (ctx.state or {}).get("prewarmed")
         or not (ctx.state or {}).get("resume_from_run_id")
     ):
         return False
     try:
-        return not sandbox.agent_server_supports_prewarmed_resume_idle()
+        return not sandbox.agent_server_supports_prewarmed_resume_message_driven()
     except Exception:
         logger.warning("prewarmed_resume_agent_capability_probe_failed", extra={"run_id": ctx.run_id})
         return True
 
 
 def _is_blobless_signals_clone_enabled(ctx: TaskProcessingContext) -> bool:
-    if ctx.origin_product != Task.OriginProduct.SIGNAL_REPORT:
+    if not needs_full_history(ctx.origin_product):
         return False
 
     try:
@@ -335,6 +341,21 @@ def _is_blobless_signals_clone_enabled(ctx: TaskProcessingContext) -> bool:
         return False
 
 
+def _repository_snapshot_integration_id(ctx: TaskProcessingContext, *, has_repo: bool) -> int | None:
+    """The integration to look up a repository-setup snapshot under, or None to clone instead.
+
+    A read-only run never restores one. Those snapshots carry the token their creator cloned with in every
+    `.git/config`, which is the write-capable installation token for a task sandbox, and nothing
+    rewrites a restored remote before the agent starts unless a branch is checked out. They are
+    also arbitrarily old, and a run without a branch never fetches, so a scout would read a tree
+    from whenever the snapshot was taken. A fresh clone with the read-only mint is the only tree
+    that holds both guarantees.
+    """
+    if not has_repo or ctx.custom_image_name or ctx.github_read_access:
+        return None
+    return ctx.github_integration_id
+
+
 def _resolve_sandbox_github_token(
     ctx: TaskProcessingContext,
     *,
@@ -345,14 +366,20 @@ def _resolve_sandbox_github_token(
 ) -> str:
     """Decide which GitHub credential (if any) a fresh sandbox gets.
 
-    A repo-less run that requested read-only access is resolved FIRST: _build_task attaches the
-    team's GitHub integration to every task, so has_github_credentials is true whenever the team
-    has GitHub connected at all — resolved the other way around, the write-capable installation
-    token would reach a run that asked for read-only. The read-only mint is best-effort (empty
-    string on failure, never the full token); the full credential path keeps its raise-on-failure
-    contract for repo-backed runs that can't work without credentials.
+    A run that requested read-only access is resolved FIRST: a task whose team has GitHub
+    connected can carry the team integration, so has_github_credentials is true for it. Resolved the
+    other way around, the write-capable installation token would reach a run that asked for
+    read-only. Repository selection does not grant write access. The read-only mint is best-effort (empty string on failure, never the full token);
+    the full credential path keeps its raise-on-failure contract for repo-backed runs that can't
+    work without credentials.
+
+    Everything else follows the attached integration, including a repo-less signals run: a scout or
+    scout-chat task never gets one (`github_resolution_allowed` in `Task._build_task` refuses to
+    resolve one, and `update_task` keeps it unattachable afterwards), while a report discussion gets
+    one only after the create-time Desktop gate passed. So a repo-less run with no integration
+    stays credential-less, and an entitled discussion can clone a private repository and push.
     """
-    if ctx.github_read_access and not has_repo:
+    if ctx.github_read_access:
         github_token = get_readonly_github_token(ctx.team_id) or ""
         emit_agent_log(
             ctx.run_id,
@@ -362,9 +389,6 @@ def _resolve_sandbox_github_token(
             else "Read-only GitHub token unavailable, continuing without GitHub access",
         )
         return github_token
-
-    if not has_repo and task.origin_product in (Task.OriginProduct.SIGNALS_CHAT, Task.OriginProduct.SIGNAL_REPORT):
-        return ""
 
     should_inject_github_token = ctx.has_github_credentials and (
         has_repo or ctx.github_user_integration_id is not None or ctx.github_integration_id is not None
@@ -515,6 +539,7 @@ def _build_environment_variables(
         environment_variables["LLM_GATEWAY_URL"] = settings.SANDBOX_LLM_GATEWAY_URL
 
     environment_variables.update(run_gateway_env_vars(ctx, task))
+    environment_variables.update(mcp_exec_skills_env_vars(ctx))
 
     if settings.DEBUG:
         # Local eval runs pin models per unit; the agent's overload rescue would silently switch a
@@ -533,9 +558,9 @@ def _build_environment_variables(
     run_state = parse_run_state(ctx.state)
     if run_state.resume_from_run_id:
         environment_variables["POSTHOG_RESUME_RUN_ID"] = run_state.resume_from_run_id
-    elif run_state.handoff_resumed:
+    elif run_state.same_run_resume:
         environment_variables["POSTHOG_RESUME_RUN_ID"] = str(ctx.run_id)
-        if run_state.handoff_resume_idle:
+        if run_state.same_run_resume_idle:
             environment_variables["POSTHOG_RESUME_IDLE"] = "1"
 
     # Cloud wizard runs get a SEPARATE token, minted under the wizard's own OAuth app with the
@@ -572,9 +597,10 @@ def _build_sandbox_tags(
     prepared: PrepareSandboxForRepositoryOutput,
     use_vm_sandbox: bool,
 ) -> dict[str, str]:
-    """Tags forwarded to the Modal sandbox so it can be traced back when debugging.
+    """Tags forwarded to the sandbox so it can be traced back when debugging.
 
-    Modal tag values must be strings; None values are dropped so we don't emit empty tags.
+    Tag values must be strings; None values are dropped so we don't emit empty tags.
+    Hogland also caps each tag at 64 characters and truncates on its side.
     """
     tags: dict[str, str | int | None] = {
         "task_id": ctx.task_id,
@@ -608,13 +634,14 @@ def prepare_sandbox_for_repository(input: PrepareSandboxForRepositoryInput) -> P
         snapshot_mount_path: str | None = None
         # Repo-setup snapshots come from default-base sandboxes; restoring one would silently
         # drop the custom base image. Resume snapshots were taken from this task's own sandbox.
-        if has_repo and ctx.github_integration_id is not None and not ctx.custom_image_name:
+        snapshot_integration_id = _repository_snapshot_integration_id(ctx, has_repo=has_repo)
+        if snapshot_integration_id is not None:
             with StepTimer(
                 "snapshot_lookup",
                 origin_product=ctx.origin_product,
                 runtime=sandbox_runtime_label(ctx.use_modal_vm_sandbox),
             ) as snapshot_lookup_timer:
-                snapshot = SandboxSnapshot.get_latest_snapshot_with_repos(ctx.github_integration_id, ctx.repositories)
+                snapshot = SandboxSnapshot.get_latest_snapshot_with_repos(snapshot_integration_id, ctx.repositories)
                 used_snapshot = snapshot is not None
                 snapshot_lookup_timer.set_used_snapshot(used_snapshot)
             if snapshot is not None:
@@ -630,7 +657,7 @@ def prepare_sandbox_for_repository(input: PrepareSandboxForRepositoryInput) -> P
             emit_agent_log(ctx.run_id, "debug", "Creating environment without repository")
 
         task = _load_task(ctx)
-        shallow_clone = task.origin_product != Task.OriginProduct.SIGNAL_REPORT
+        shallow_clone = not needs_full_history(task.origin_product)
 
         actor_user = get_task_run_credential_user(task, ctx.state)
         credential_repository = repository or (ctx.repositories[0] if ctx.repositories else None)
@@ -668,9 +695,9 @@ def prepare_sandbox_for_repository(input: PrepareSandboxForRepositoryInput) -> P
                 snapshot_kind = run_state.resume_snapshot_kind()
                 snapshot_mount_path = run_state.resume_snapshot_mount_path()
 
-        is_resume = bool(run_state.handoff_resumed or run_state.resume_from_run_id)
+        is_resume = bool(run_state.same_run_resume or run_state.resume_from_run_id)
         resume_mode = resume_mode_label(
-            handoff_resumed=run_state.handoff_resumed,
+            same_run_resume=run_state.same_run_resume,
             using_modal_snapshot=resume_snapshot_external_id is not None,
         )
         resume_decision_log = (
@@ -686,8 +713,8 @@ def prepare_sandbox_for_repository(input: PrepareSandboxForRepositoryInput) -> P
                 "effective_snapshot_external_id": resume_snapshot_external_id,
                 "effective_snapshot_kind": snapshot_kind,
                 "effective_snapshot_mount_path": snapshot_mount_path,
-                "handoff_resumed": run_state.handoff_resumed,
-                "handoff_resume_idle": run_state.handoff_resume_idle,
+                "same_run_resume": run_state.same_run_resume,
+                "same_run_resume_idle": run_state.same_run_resume_idle,
                 "resume_from_run_id": run_state.resume_from_run_id,
                 "posthog_resume_run_id_set": "POSTHOG_RESUME_RUN_ID" in environment_variables,
                 "used_snapshot": used_snapshot,
@@ -697,8 +724,8 @@ def prepare_sandbox_for_repository(input: PrepareSandboxForRepositoryInput) -> P
             emit_agent_log(
                 ctx.run_id,
                 "debug",
-                f"Resume mode: handoff_resumed={run_state.handoff_resumed}, "
-                f"resume_idle={run_state.handoff_resume_idle}, "
+                f"Resume mode: same_run_resume={run_state.same_run_resume}, "
+                f"resume_idle={run_state.same_run_resume_idle}, "
                 f"resume_from_run_id={run_state.resume_from_run_id}, "
                 f"using_modal_snapshot={resume_snapshot_external_id is not None}",
             )
@@ -761,6 +788,7 @@ def _create_sandbox_for_repository(input: CreateSandboxForRepositoryInput) -> Cr
         # The VM template bakes in Docker (and forces the VM runtime), so the agent
         # can run nested containers; the default template has neither.
         use_vm_sandbox = ctx.use_modal_vm_sandbox
+        resource_overrides = ctx.sandbox_resource_overrides()
         config = SandboxConfig(
             name=prepared.sandbox_name,
             template=SandboxTemplate.VM_BASE if use_vm_sandbox else SandboxTemplate.DEFAULT_BASE,
@@ -774,7 +802,7 @@ def _create_sandbox_for_repository(input: CreateSandboxForRepositoryInput) -> Cr
             snapshot_source=prepared.snapshot_source,
             metadata=_build_sandbox_tags(ctx, prepared, use_vm_sandbox),
             vm_runtime=use_vm_sandbox,
-            **ctx.sandbox_resource_overrides(),
+            **resource_overrides,
         )
 
         # Request a small slice and let the box burst up to the configured size. Burstable by
@@ -848,72 +876,62 @@ def _create_sandbox_for_repository(input: CreateSandboxForRepositoryInput) -> Cr
                     "sandbox_creation_with_policy_request", runtime, "modal_requested", "failure"
                 )
             raise
-        if config.outbound_domain_allowlist is not None:
-            emit_agent_log(ctx.run_id, "debug", "Modal sandbox created with network policy requested")
-            record_network_enforcement("sandbox_creation_with_policy_request", runtime, "modal_requested", "success")
-        if not sandbox.start_cpu_billing_sampler():
-            activity.logger.warning("Failed to start sandbox CPU billing sampler", extra={"sandbox_id": sandbox.id})
-        if sandbox.config.image_fallback:
-            emit_agent_log(
-                ctx.run_id,
-                "warn",
-                f"Sandbox image downgraded: {sandbox.config.image_fallback}",
-            )
-        if sandbox.launch_dev_stack_bootstrap():
-            emit_agent_log(
-                ctx.run_id,
-                "debug",
-                "Warming the prebaked dev stack in the background (compose host aliases + dockerd)",
-            )
-        create_ms = sandbox_creation_timer.elapsed_ms
-        snapshot_outcome = (
-            "used" if actual_used_snapshot else "fresh" if prepared.snapshot_source == "none" else "fallback"
-        )
-        metrics_snapshot_kind = prepared.snapshot_kind if prepared.snapshot_source != "none" else "none"
-        increment_snapshot_usage(
-            actual_used_snapshot,
-            snapshot_source=prepared.snapshot_source,
-            snapshot_kind=metrics_snapshot_kind,
-        )
-        increment_snapshot_restore(prepared.snapshot_source, metrics_snapshot_kind, snapshot_outcome)
-
-        record_sandbox_created(
-            runtime,
-            _sandbox_image_kind(prepared.image_source, config.custom_image_name),
-            sandbox.config.image_fallback is not None,
-            create_ms,
-            sandbox_backend=sandbox_backend,
-        )
-
-        credentials = sandbox.get_connect_credentials()
-
         try:
-            jwt_kid = get_primary_sandbox_jwt_kid()
-            sandbox_state = {
-                "sandbox_id": sandbox.id,
-                "sandbox_url": credentials.url,
-                SANDBOX_JWT_STATE_KID_KEY: jwt_kid,
-            }
-            if ctx.sandbox_backend != "modal":
-                sandbox_state["sandbox_backend"] = ctx.sandbox_backend
-            if credentials.token:
-                sandbox_state["sandbox_connect_token"] = credentials.token
-            TaskRun.update_state_atomic(ctx.run_id, updates=sandbox_state)
-            cpu_usage_attribution_usec, cpu_usage_attribution_measured_at = measure_sandbox_cpu_usage(sandbox)
-            billed_cpu_usage_attribution_usec = measure_sandbox_billed_cpu_usage(sandbox)
-            open_sandbox_session(
+            if config.outbound_domain_allowlist is not None:
+                emit_agent_log(ctx.run_id, "debug", "Modal sandbox created with network policy requested")
+                record_network_enforcement(
+                    "sandbox_creation_with_policy_request", runtime, "modal_requested", "success"
+                )
+            if not sandbox.start_cpu_billing_sampler():
+                activity.logger.warning("Failed to start sandbox CPU billing sampler", extra={"sandbox_id": sandbox.id})
+            if sandbox.config.image_fallback:
+                emit_agent_log(
+                    ctx.run_id,
+                    "warn",
+                    f"Sandbox image downgraded: {sandbox.config.image_fallback}",
+                )
+            if sandbox.launch_dev_stack_bootstrap():
+                emit_agent_log(
+                    ctx.run_id,
+                    "debug",
+                    "Warming the prebaked dev stack in the background (compose host aliases + dockerd)",
+                )
+            create_ms = sandbox_creation_timer.elapsed_ms
+            snapshot_outcome = (
+                "used" if actual_used_snapshot else "fresh" if prepared.snapshot_source == "none" else "fallback"
+            )
+            metrics_snapshot_kind = prepared.snapshot_kind if prepared.snapshot_source != "none" else "none"
+            increment_snapshot_usage(
+                actual_used_snapshot,
+                snapshot_source=prepared.snapshot_source,
+                snapshot_kind=metrics_snapshot_kind,
+            )
+            increment_snapshot_restore(prepared.snapshot_source, metrics_snapshot_kind, snapshot_outcome)
+
+            record_sandbox_created(
+                runtime,
+                _sandbox_image_kind(prepared.image_source, config.custom_image_name),
+                sandbox.config.image_fallback is not None,
+                create_ms,
+                sandbox_backend=sandbox_backend,
+            )
+
+            credentials = sandbox.get_connect_credentials()
+            jwt_kid = persist_sandbox_connection(
                 run_id=ctx.run_id,
-                sandbox_id=sandbox.id,
-                config=sandbox.config,
+                sandbox=sandbox,
+                credentials=credentials,
                 sandbox_created_at=sandbox_created_at,
-                cpu_usage_attribution_usec=cpu_usage_attribution_usec,
-                billed_cpu_usage_attribution_usec=billed_cpu_usage_attribution_usec,
-                cpu_usage_attribution_measured_at=cpu_usage_attribution_measured_at,
-                required=ctx.task_runtime == "pi",
+                task_runtime=ctx.task_runtime,
+                sandbox_backend=ctx.sandbox_backend if ctx.sandbox_backend != "modal" else None,
             )
         except Exception:
             try:
                 sandbox.destroy()
+            except Exception:
+                activity.logger.warning(
+                    "Failed to destroy sandbox after provisioning failure", extra={"sandbox_id": sandbox.id}
+                )
             finally:
                 TaskRun.clear_sandbox_connection_state_atomic(ctx.run_id, sandbox.id)
             raise
@@ -929,6 +947,7 @@ def _create_sandbox_for_repository(input: CreateSandboxForRepositoryInput) -> Cr
             create_ms=create_ms,
             ttl_expires_at=(sandbox_created_at + timedelta(seconds=sandbox.config.ttl_seconds)).isoformat(),
             jwt_kid=jwt_kid,
+            dev_stack_preview_sized=ctx.dev_stack_preview_enabled,
         )
 
 
@@ -1006,8 +1025,8 @@ def clone_repository_in_sandbox(input: CloneRepositoryInSandboxInput) -> CloneRe
         emit_agent_log(ctx.run_id, "debug", f"Cloning {input.repository} into sandbox")
         sandbox = get_sandbox_class_for_sandbox_id(input.sandbox_id).get_by_id(input.sandbox_id)
 
-        state = ctx.state or {}
-        is_resume = bool(state.get("resume_from_run_id") or state.get("handoff_resumed"))
+        state = parse_run_state(ctx.state)
+        is_resume = bool(state.resume_from_run_id or state.same_run_resume)
 
         with StepTimer(
             "repository_clone",
@@ -1027,7 +1046,7 @@ def clone_repository_in_sandbox(input: CloneRepositoryInSandboxInput) -> CloneRe
                 emit_agent_log(
                     ctx.run_id,
                     "debug",
-                    f"Resume branch {ctx.branch} is unavailable; cloning the repository default branch so the agent can restore its git checkpoint",
+                    f"Resume branch {ctx.branch} is unavailable; cloning the repository default branch so the agent can continue from its preserved conversation",
                 )
                 clone_result = sandbox.clone_repository(
                     input.repository,
@@ -1206,10 +1225,10 @@ def inject_fresh_tokens_on_resume(input: InjectFreshTokensOnResumeInput) -> None
 
         actor_user = get_task_run_credential_user(task, ctx.state)
         github_token = ""
-        if ctx.github_read_access and input.repository is None:
-            # Same priority rule as fresh provisioning (_resolve_sandbox_github_token): a repo-less
-            # read-only run must never regain the write-capable token on resume. Best-effort — an
-            # empty token just leaves the sandbox without GitHub access.
+        if ctx.github_read_access:
+            # Same priority rule as fresh provisioning (_resolve_sandbox_github_token): a
+            # read-only run must never regain the write-capable token on resume, cloned repos or
+            # not. Best-effort, since an empty token just leaves the sandbox without GitHub access.
             github_token = get_readonly_github_token(ctx.team_id) or ""
         elif ctx.has_github_credentials:
             try:
@@ -1253,8 +1272,10 @@ def inject_fresh_tokens_on_resume(input: InjectFreshTokensOnResumeInput) -> None
 
         sandbox = get_sandbox_class_for_sandbox_id(input.sandbox_id).get_by_id(input.sandbox_id)
 
-        if input.repository:
-            set_git_remote_token(sandbox, input.repository, github_token or None)
+        # Every clone embeds the token in its own `origin`, so a multi-repository run has to rewrite
+        # each of them or the secondary checkouts keep the snapshot's expired token.
+        for repository in ctx.repositories or ([input.repository] if input.repository else []):
+            set_git_remote_token(sandbox, repository, github_token or None)
 
         # Replace both credential domains even when resolution returns no token,
         # so revoked credentials cannot survive in a resumed filesystem snapshot.

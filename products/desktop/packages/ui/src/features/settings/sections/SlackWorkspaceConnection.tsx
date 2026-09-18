@@ -5,7 +5,7 @@ import {
 } from "@posthog/core/integrations/connectErrors";
 import { slackInvalidationKeys } from "@posthog/core/integrations/connectMachine";
 import { SLACK_DISCONNECT_DESCRIPTION } from "@posthog/core/integrations/disconnectCopy";
-import { Button, Spinner, Text } from "@posthog/quill";
+import { Button, Text } from "@posthog/quill";
 import { formatRelativeTimeLong } from "@posthog/shared";
 import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
 import { useAuthStateValue } from "@posthog/ui/features/auth/store";
@@ -19,6 +19,7 @@ import {
   type SlackConnectResult,
   useSlackConnect,
 } from "@posthog/ui/features/integrations/useSlackConnect";
+import { Spinner } from "@posthog/ui/primitives/Spinner";
 import { toast } from "@posthog/ui/primitives/toast";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
@@ -40,8 +41,8 @@ export function SlackWorkspaceConnection({
 
   if (isLoading) {
     return (
-      <div className="flex items-center gap-2 rounded-(--radius-3) border border-(--gray-5) bg-(--color-panel-solid) px-3.5 py-3">
-        <Spinner />
+      <div className="flex items-center gap-2 rounded-(--radius-3) border border-border bg-card px-3.5 py-3">
+        <Spinner size="sm" />
         <Text size="xs" variant="muted">
           Loading Slack…
         </Text>
@@ -52,7 +53,7 @@ export function SlackWorkspaceConnection({
   if (hasSlackIntegration) {
     return (
       <div className="flex flex-col gap-2">
-        <div className="divide-y divide-(--gray-4) rounded-(--radius-3) border border-(--gray-5) bg-(--color-panel-solid)">
+        <div className="divide-y divide-border rounded-(--radius-3) border border-border bg-card">
           {slackIntegrations.map((integration) => (
             <SlackWorkspaceRow key={integration.id} integration={integration} />
           ))}
@@ -79,12 +80,12 @@ export function SlackWorkspaceConnection({
   }
 
   return (
-    <div className="flex min-h-11 items-center justify-between gap-6 rounded-(--radius-3) border border-(--gray-5) bg-(--color-panel-solid) px-3.5 py-2">
+    <div className="flex min-h-11 items-center justify-between gap-6 rounded-(--radius-3) border border-border bg-card px-3.5 py-2">
       <div className="flex min-w-0 flex-col gap-0.5 py-0.5">
-        <span className="font-medium text-[13px] text-gray-12 leading-5">
+        <span className="font-medium text-[13px] text-foreground leading-snug">
           No Slack workspace connected yet
         </span>
-        <span className="text-[12px] text-gray-10 leading-snug">
+        <span className="text-[12px] text-muted-foreground leading-snug">
           Connect a workspace so reports can post to channels and reviewers get
           pinged.
         </span>
@@ -162,11 +163,11 @@ function SlackWorkspaceRow({ integration }: { integration: Integration }) {
             <SlackLogoIcon size={24} />
           </div>
           <div className="flex min-w-0 flex-col gap-0.5">
-            <span className="truncate font-medium text-[13px] text-gray-12 leading-5">
+            <span className="truncate font-medium text-[13px] text-foreground leading-snug">
               {workspaceName}
             </span>
             {createdAt ? (
-              <span className="truncate text-[12px] text-gray-10 leading-snug">
+              <span className="truncate text-[12px] text-muted-foreground leading-snug">
                 Connected {formatRelativeTimeLong(createdAt)}
               </span>
             ) : null}
@@ -216,7 +217,7 @@ export function SlackWorkspaceConnectionCallouts({
         </div>
       ) : null}
       {slackConnect.isTimedOut ? (
-        <div className="rounded-(--radius-2) border border-(--gray-5) bg-(--gray-2) px-3 py-2">
+        <div className="rounded-(--radius-2) border border-border bg-(--gray-2) px-3 py-2">
           <Text size="xs" variant="muted">
             We didn't hear back from PostHog. If you completed the connection in
             your browser it should appear shortly, otherwise try again.

@@ -6,6 +6,7 @@ Detects the test type from a file path and dispatches to the correct runner
 
 from __future__ import annotations
 
+import os
 import json
 import shlex
 import tomllib
@@ -133,6 +134,70 @@ class TestRunConfig:
     @property
     def env_or_none(self) -> dict[str, str] | None:
         return self.env or None
+
+
+_DIRECTORY_HINT_MIN_FILES = 10
+_PYTEST_VERBOSITY_ARGS = {"-q", "--quiet", "-v", "-vv", "-vvv", "--verbose", "-s", "--capture"}
+_DEV_STACK_BAKE_MANIFEST = Path("/opt/posthog/dev-stack-bake.json")
+
+
+def _in_cloud_task_sandbox() -> bool:
+    return bool(os.environ.get("POSTHOG_TASK_RUN_ID")) and not os.environ.get("HOGLI_TEST_VERBOSE")
+
+
+def _seeded_test_database_ready() -> bool:
+    try:
+        import psycopg
+
+        with psycopg.connect(
+            host=os.environ.get("PGHOST", "localhost"),
+            port=os.environ.get("PGPORT", "5432"),
+            user=os.environ.get("PGUSER", "posthog"),
+            password=os.environ.get("PGPASSWORD", "posthog"),
+            dbname="test_posthog",
+            connect_timeout=2,
+        ) as connection:
+            row = connection.execute("SELECT to_regclass('posthog_team')").fetchone()
+            return bool(row and row[0] is not None)
+    except Exception:
+        return False
+
+
+def _warn_if_dev_stack_is_down(command: list[str]) -> None:
+    if command[:1] != ["pytest"] or not os.environ.get("POSTHOG_TASK_RUN_ID"):
+        return
+    if not _DEV_STACK_BAKE_MANIFEST.exists() or _seeded_test_database_ready():
+        return
+    click.secho(
+        "The migrated test_posthog database is not reachable, so a test that needs one will "
+        "fail or replay every migration. This image ships it: run `bootstrap-dev-stack`, then "
+        "`hogli start -y -d && hogli wait`. Do not start your own database container, because "
+        "it takes the port the baked stack needs. See docs/internal/cloud-task-sandbox.md.",
+        fg="yellow",
+    )
+
+
+def _quiet_pytest_in_cloud_sandbox(command: list[str], extra_args: list[str]) -> list[str]:
+    """A cloud task agent reads pytest output as tokens, so in a sandbox the default swaps
+    ``-s`` (stream every print) for ``-q`` unless the agent chose a verbosity."""
+    if command[:1] != ["pytest"] or not _in_cloud_task_sandbox():
+        return command
+    if any(arg.split("=", 1)[0] in _PYTEST_VERBOSITY_ARGS for arg in extra_args):
+        return command
+    return ["-q" if arg == "-s" else arg for arg in command]
+
+
+def _hint_scoped_run(dir_path: str) -> None:
+    if not _in_cloud_task_sandbox():
+        return
+    file_count = len(_find_test_files(dir_path))
+    if file_count < _DIRECTORY_HINT_MIN_FILES:
+        return
+    click.secho(
+        f"Running every test under {dir_path} ({file_count} files). For changes on this branch, "
+        "`hogli test --changed` or a single test file is faster and quieter.",
+        fg="yellow",
+    )
 
 
 def _python_env() -> dict[str, str]:
@@ -640,7 +705,8 @@ def _run_grouped(detected: list[tuple[str, TestRunConfig]], extra_args: list[str
             cfg = entries[0][1]
             command = cfg.command[:-1] + [f for f, _ in entries]
             click.secho(f"Running {len(entries)} Python test file(s)...", fg="cyan")
-            _run(command + extra_args, env=cfg.env_or_none, cwd=cfg.cwd)
+            _warn_if_dev_stack_is_down(command)
+            _run(_quiet_pytest_in_cloud_sandbox(command, extra_args) + extra_args, env=cfg.env_or_none, cwd=cfg.cwd)
         elif test_type == "jest":
             # Sub-group by package so each pnpm --filter is correct
             by_package: dict[str, tuple[TestRunConfig, list[str]]] = {}
@@ -787,6 +853,7 @@ def test_command(ctx: click.Context, file_path: str | None, changed: bool, watch
 
     # For directories, check if multiple test types are present and run each group.
     if abs_path.is_dir():
+        _hint_scoped_run(resolved)
         multi_type = _check_multi_type(resolved)
         if multi_type is not None:
             detected, types = multi_type
@@ -799,4 +866,8 @@ def test_command(ctx: click.Context, file_path: str | None, changed: bool, watch
 
     config = detect_test_type(resolved)
     click.secho(f"Detected: {config.description}", fg="cyan")
-    _run(config.command + list(ctx.args), env=config.env_or_none, cwd=config.cwd)
+    extra_args = list(ctx.args)
+    _warn_if_dev_stack_is_down(config.command)
+    _run(
+        _quiet_pytest_in_cloud_sandbox(config.command, extra_args) + extra_args, env=config.env_or_none, cwd=config.cwd
+    )

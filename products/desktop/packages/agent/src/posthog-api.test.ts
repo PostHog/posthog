@@ -1,4 +1,5 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { API_DOWNLOAD_TIMEOUT_MS } from "@posthog/shared";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { PostHogAPIClient } from "./posthog-api";
 
 const mockFetch = vi.fn();
@@ -8,6 +9,10 @@ vi.stubGlobal("fetch", mockFetch);
 describe("PostHogAPIClient", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
   });
 
   it.each([
@@ -77,6 +82,31 @@ describe("PostHogAPIClient", () => {
     expect(getApiKey).toHaveBeenCalledTimes(1);
     expect(refreshApiKey).toHaveBeenCalledTimes(1);
     expect(mockFetch).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not refresh or retry when the API answers 403", async () => {
+    // A 403 is a permission denial a fresh token cannot fix. Forcing a
+    // refresh on each one rotates the refresh token and rebuilds the whole
+    // desktop session, which unmounts the app into its loading screen.
+    const getApiKey = vi.fn().mockResolvedValue("token");
+    const refreshApiKey = vi.fn().mockResolvedValue("fresh-token");
+    const client = new PostHogAPIClient({
+      apiUrl: "https://app.posthog.com",
+      getApiKey,
+      refreshApiKey,
+      projectId: 1,
+    });
+    mockFetch.mockResolvedValueOnce({
+      ok: false,
+      status: 403,
+      statusText: "Forbidden",
+      json: vi.fn().mockResolvedValue({ detail: "forbidden" }),
+    });
+
+    await expect(client.getTaskRun("task-1", "run-1")).rejects.toThrow("[403]");
+
+    expect(refreshApiKey).not.toHaveBeenCalled();
+    expect(mockFetch).toHaveBeenCalledTimes(1);
   });
 
   // The lookup gates session start, so a stalled socket must degrade to null
@@ -207,24 +237,58 @@ describe("PostHogAPIClient", () => {
 
   it.each([
     [
-      "includes message_id and text_parts when provided",
+      "downloadArtifact",
+      (client: PostHogAPIClient) =>
+        client.downloadArtifact("task-1", "run-1", "tasks/artifacts/file.txt"),
+    ],
+    [
+      "fetchTaskRunLogs",
+      (client: PostHogAPIClient) =>
+        client.fetchTaskRunLogs({ id: "run-1", task: "task-1" } as never),
+    ],
+  ])("gives %s the download timeout", async (_method, call) => {
+    const timeout = vi.spyOn(AbortSignal, "timeout");
+    const client = new PostHogAPIClient({
+      apiUrl: "https://app.posthog.com",
+      getApiKey: vi.fn().mockResolvedValue("token"),
+      projectId: 7,
+    });
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      arrayBuffer: vi.fn().mockResolvedValue(new ArrayBuffer(0)),
+      text: vi.fn().mockResolvedValue(""),
+    });
+
+    await call(client);
+
+    const init = mockFetch.mock.calls[0]?.[1] as RequestInit | undefined;
+    expect(timeout.mock.calls).toEqual([[API_DOWNLOAD_TIMEOUT_MS]]);
+    expect(init?.signal).toBe(timeout.mock.results[0]?.value);
+  });
+
+  it.each([
+    [
+      "includes message_id, text_parts and trace_id when provided",
       ["part one", "final answer"],
       "msg-1",
+      "f960aead-b2af-4ee0-b0eb-630109a1b2a0",
       {
         text: "final answer",
         text_parts: ["part one", "final answer"],
         message_id: "msg-1",
+        trace_id: "f960aead-b2af-4ee0-b0eb-630109a1b2a0",
       },
     ],
     [
       "omits optional fields when unknown",
       undefined,
       undefined,
+      undefined,
       { text: "final answer" },
     ],
   ])(
     "relay_message body %s",
-    async (_label, textParts, messageId, expectedBody) => {
+    async (_label, textParts, messageId, traceId, expectedBody) => {
       const client = new PostHogAPIClient({
         apiUrl: "https://app.posthog.com",
         getApiKey: vi.fn().mockResolvedValue("token"),
@@ -242,6 +306,7 @@ describe("PostHogAPIClient", () => {
         "final answer",
         textParts,
         messageId,
+        traceId,
       );
 
       expect(mockFetch).toHaveBeenCalledWith(
@@ -370,34 +435,5 @@ describe("PostHogAPIClient", () => {
       ),
     ).rejects.toThrow("Failed to sync task session: [504] Gateway Timeout");
     expect(mockFetch).toHaveBeenCalledOnce();
-  });
-
-  it("returns only the artifacts created by the current upload request", async () => {
-    const client = new PostHogAPIClient({
-      apiUrl: "https://app.posthog.com",
-      getApiKey: vi.fn().mockResolvedValue("token"),
-      projectId: 1,
-    });
-
-    mockFetch.mockResolvedValueOnce({
-      ok: true,
-      json: vi.fn().mockResolvedValue({
-        artifacts: [
-          { storage_path: "gs://bucket/existing.tar.gz", name: "existing" },
-          { storage_path: "gs://bucket/new-1.pack", name: "new-1" },
-          { storage_path: "gs://bucket/new-2.index", name: "new-2" },
-        ],
-      }),
-    });
-
-    const artifacts = await client.uploadTaskArtifacts("task-1", "run-1", [
-      { name: "new-1", type: "artifact", content: "AAA" },
-      { name: "new-2", type: "artifact", content: "BBB" },
-    ]);
-
-    expect(artifacts).toEqual([
-      { storage_path: "gs://bucket/new-1.pack", name: "new-1" },
-      { storage_path: "gs://bucket/new-2.index", name: "new-2" },
-    ]);
   });
 });

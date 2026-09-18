@@ -22,6 +22,19 @@ DEFAULT_NOT_ACTIONABLE_KEY = "default_not_actionable"
 # defensively so a row written by another path cannot bloat every gate prompt.
 STEERING_MAX_LENGTH = 2000
 
+# The sources that emit straight through `emit_signal` and still honor steering, via the gate in
+# `emission/direct_gate.py`. Every other direct source skips the gate, so writing steering onto its
+# row would store text nothing reads. The roster's `steerable` flags in `agentRosterMeta.ts` mirror
+# this set, and only these pairs may be offered the steering form.
+DIRECT_STEERABLE_SOURCES: frozenset[tuple[str, str]] = frozenset(
+    {
+        (SignalSourceProduct.ERROR_TRACKING, SignalSourceType.ISSUE_CREATED),
+        (SignalSourceProduct.ERROR_TRACKING, SignalSourceType.ISSUE_REOPENED),
+        (SignalSourceProduct.ERROR_TRACKING, SignalSourceType.ISSUE_SPIKING),
+        (SignalSourceProduct.HEALTH_CHECKS, SignalSourceType.HEALTH_ISSUE),
+    }
+)
+
 
 class ContractModel(BaseModel):
     # Emitted payloads are validated against these models at the emit boundary; unknown fields are
@@ -332,6 +345,32 @@ class SignalsScoutSignalInput(SignalInputBase):
     extra: SignalsScoutSignalExtra
 
 
+# ── Report checks ──────────────────────────────────────────────────────────────
+
+
+class CheckFailedSignalExtra(SignalExtraBase):
+    check_id: str
+    report_id: str
+    check_title: str
+    explanation: str
+    observed_value: float | None = None
+    baseline_value: float | None = None
+    threshold: str | None = None
+
+
+class CheckFailedSignalInput(SignalInputBase):
+    """A deterministic check that breached after its report was resolved.
+
+    The inbox emitting to itself. An `agent` check has a scout that can author a fresh report; a
+    `metric_threshold` check has nobody, so the verdict becomes a signal and the pipeline treats the
+    relapse the way it treats any other recurrence on a resolved report.
+    """
+
+    source_type: Literal[SignalSourceType.CHECK_FAILED]
+    source_product: Literal[SignalSourceProduct.SIGNALS_CHECK]
+    extra: CheckFailedSignalExtra
+
+
 # ── Logs ────────────────────────────────────────────────────────────────────────
 
 
@@ -511,11 +550,18 @@ class SignalReviewerUserInfo(ContractModel):
 
 
 class EnrichedReviewer(ContractModel):
-    github_login: str
+    # A reviewer is identified by their PostHog user, their GitHub login, or both. `github_login` is
+    # null for a reviewer with no linked GitHub account; `user_uuid` is null on entries written
+    # before reviewers carried one, where `user` still resolves from the login at read time.
+    github_login: str | None
+    user_uuid: str | None = None
     github_name: str | None
     relevant_commits: list[RelevantCommit]
     user: SignalReviewerUserInfo | None
     reason: str | None = None
+    source_skill: str | None = None
+    source_label: str
+    explanation: str | None = None
 
 
 # ── Tier-1 data-warehouse inbox sources ──────────────────────────────────────────
@@ -999,6 +1045,7 @@ SignalInput = Annotated[
     | EndpointBreakdownLimitExceededSignalInput
     | PgAnalyzeIssueSignalInput
     | SignalsScoutSignalInput
+    | CheckFailedSignalInput
     | LogsAlertStateChangeSignalInput
     | AnalyticsAnomalyInvestigationSignalInput
     | HealthCheckSignalInput

@@ -58,43 +58,11 @@ def elements_to_string(elements: list[Element]) -> str:
     return ";".join(ret)
 
 
-def chain_to_elements(chain: str) -> list[Element]:
-    """
-    Converts an elements chain string into a list of Element objects.
-    """
-    elements = []
-    for idx, el_string in enumerate(re.findall(split_chain_regex, chain)):
-        el_string_split = re.findall(split_class_attributes, el_string)[0]
-        attributes = re.finditer(parse_attributes_regex, el_string_split[2]) if len(el_string_split) > 2 else []
-
-        element = Element(order=idx)
-
-        if el_string_split[0]:
-            tag_and_class = el_string_split[0].split(".", 1)
-            element.tag_name = tag_and_class[0]
-            if len(tag_and_class) > 1:
-                element.attr_class = [cl for cl in tag_and_class[1].split(".") if cl != ""]
-
-        for ii in attributes:
-            item = ii.groupdict()
-            if item["key"] == "href":
-                element.href = item["value"]
-            elif item["key"] == "nth-child":
-                element.nth_child = int(item["value"])
-            elif item["key"] == "nth-of-type":
-                element.nth_of_type = int(item["value"])
-            elif item["key"] == "text":
-                element.text = item["value"]
-            elif item["key"] == "attr_id":
-                element.attr_id = item["value"]
-            elif item["key"]:
-                element.attributes[item["key"]] = item["value"]
-
-        elements.append(element)
-    return elements
-
-
 _MAX_DATA_ATTRIBUTES = 50
+
+
+def wanted_attribute_entries(wanted_data_attributes: list[str]) -> list[str]:
+    return [attribute.strip() for attribute in wanted_data_attributes if attribute.strip()][:_MAX_DATA_ATTRIBUTES]
 
 
 def _glob_matcher(pattern: str) -> Callable[[str], bool]:
@@ -125,7 +93,7 @@ def build_attributes_filter(wanted_data_attributes: list[str]) -> Callable[[str]
     * wildcards (e.g. data-*). Entries beyond the first 50 are ignored to bound per-key cost.
     Returns None when there is nothing to filter by.
     """
-    entries = [attribute.strip() for attribute in wanted_data_attributes if attribute.strip()][:_MAX_DATA_ATTRIBUTES]
+    entries = wanted_attribute_entries(wanted_data_attributes)
     if not entries:
         return None
 
@@ -143,6 +111,52 @@ def build_attributes_filter(wanted_data_attributes: list[str]) -> Callable[[str]
     return matches
 
 
+_PROMOTED_ATTRIBUTES: dict[str, tuple[str, Callable[[str], object]]] = {
+    "text": ("text", str),
+    "href": ("href", str),
+    "attr_id": ("attr_id", str),
+    "nth-child": ("nth_child", int),
+    "nth-of-type": ("nth_of_type", int),
+}
+
+
+def _parse_element(el_string: str, order: int, attributes_filter: Callable[[str], bool] | None) -> dict:
+    match = split_class_attributes.search(el_string)
+    tag_part = match.group(1) if match else ""
+    attrs_part = match.group(3) if match else None
+
+    element: dict = {
+        "text": None,
+        "tag_name": None,
+        "attr_class": None,
+        "href": None,
+        "attr_id": None,
+        "nth_child": None,
+        "nth_of_type": None,
+        "attributes": {},
+        "order": order,
+    }
+
+    if tag_part:
+        tag_and_class = tag_part.split(".", 1)
+        element["tag_name"] = tag_and_class[0]
+        if len(tag_and_class) > 1:
+            element["attr_class"] = [cl for cl in tag_and_class[1].split(".") if cl != ""]
+
+    if attrs_part:
+        for attribute_match in parse_attributes_regex.finditer(attrs_part):
+            key = attribute_match.group("key")
+            value = attribute_match.group("value")
+            promoted = _PROMOTED_ATTRIBUTES.get(key)
+            if promoted:
+                field, convert = promoted
+                element[field] = convert(value)
+            elif key and (attributes_filter is None or attributes_filter(key)):
+                element["attributes"][key] = value
+
+    return element
+
+
 def chain_to_element_dicts(chain: str, attributes_filter: Callable[[str], bool] | None = None) -> list[dict]:
     """
     Converts an elements chain string into serialized element dicts, shaped exactly like
@@ -150,47 +164,14 @@ def chain_to_element_dicts(chain: str, attributes_filter: Callable[[str], bool] 
     can serialize large pages cheaply. attributes_filter optionally restricts the attributes
     map to matching keys (see build_attributes_filter).
     """
-    element_dicts: list[dict] = []
-    for idx, el_string in enumerate(split_chain_regex.findall(chain)):
-        el_string_match = split_class_attributes.search(el_string)
-        tag_part = el_string_match.group(1) if el_string_match else ""
-        attrs_part = el_string_match.group(3) if el_string_match else None
+    return [
+        _parse_element(el_string, idx, attributes_filter)
+        for idx, el_string in enumerate(split_chain_regex.findall(chain))
+    ]
 
-        element: dict = {
-            "text": None,
-            "tag_name": None,
-            "attr_class": None,
-            "href": None,
-            "attr_id": None,
-            "nth_child": None,
-            "nth_of_type": None,
-            "attributes": {},
-            "order": idx,
-        }
 
-        if tag_part:
-            tag_and_class = tag_part.split(".", 1)
-            element["tag_name"] = tag_and_class[0]
-            if len(tag_and_class) > 1:
-                element["attr_class"] = [cl for cl in tag_and_class[1].split(".") if cl != ""]
-
-        if attrs_part:
-            for attribute_match in parse_attributes_regex.finditer(attrs_part):
-                key = attribute_match.group("key")
-                value = attribute_match.group("value")
-                if key == "href":
-                    element["href"] = value
-                elif key == "nth-child":
-                    element["nth_child"] = int(value)
-                elif key == "nth-of-type":
-                    element["nth_of_type"] = int(value)
-                elif key == "text":
-                    element["text"] = value
-                elif key == "attr_id":
-                    element["attr_id"] = value
-                elif key:
-                    if attributes_filter is None or attributes_filter(key):
-                        element["attributes"][key] = value
-
-        element_dicts.append(element)
-    return element_dicts
+def chain_to_elements(chain: str) -> list[Element]:
+    """
+    Converts an elements chain string into a list of Element objects.
+    """
+    return [Element(**element) for element in chain_to_element_dicts(chain)]

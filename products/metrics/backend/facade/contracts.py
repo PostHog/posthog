@@ -27,10 +27,21 @@ from .enums import AttributeScope, FilterOp, MetricAggregation, MetricType
 # Each clause runs its own ClickHouse query on the shared logs cluster, so
 # the clause count per request is hard-capped.
 MAX_CLAUSES_PER_QUERY = 10
+MAX_SPARKLINE_BATCH_SIZE = 20
 
 # Private-alpha gate. Every read surface (viewset, query runner, MCP tools)
 # must check the same flag, or one of them becomes a bypass.
 METRICS_FEATURE_FLAG = "metrics"
+
+# Extra gate for the error-spike overlay PoC, layered on top of METRICS_FEATURE_FLAG.
+# Staff-only while it is a proof of concept.
+METRICS_ERROR_OVERLAYS_FEATURE_FLAG = "metrics-error-overlays"
+
+# Fundamentals recomputes a chart point from its raw samples so the viewer's own
+# reductions can be checked. That makes it a tool for the people who build the
+# viewer, not a feature for the teams on the alpha, so it needs a gate of its own
+# on top of METRICS_FEATURE_FLAG.
+METRICS_FUNDAMENTALS_FEATURE_FLAG = "metrics-fundamentals"
 
 
 @dataclass(frozen=True, slots=True)
@@ -127,6 +138,9 @@ class MetricSeries:
     points: tuple[MetricPoint, ...]
     metric_name: str | None = None
     clause: str | None = None
+    # UCUM unit of the metric as ingested (e.g. "By", "ms"). Empty when the SDK
+    # did not set one. Set by `run_metric_query`, not by callers.
+    unit: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -169,7 +183,7 @@ class MetricAnomalyReport:
 
 @dataclass(frozen=True, slots=True)
 class MetricEventSample:
-    """A single raw metric emission: one `metric_samples` row enriched with its
+    """A single raw metric emission: one `metrics` row enriched with its
     `metric_series` labels. Backs the Samples view and the metric->trace pivot.
     Distinct from `MetricSeries`, which is aggregated at query time.
     """
@@ -189,6 +203,27 @@ class MetricEventSample:
     span_id: str
     attributes: dict[str, str]
     resource_attributes: dict[str, str]
+
+
+@dataclass(frozen=True, slots=True)
+class MetricErrorSpike:
+    """An Error Tracking issue spike detected in a time window.
+
+    PoC for the metrics chart's error-spike overlay: team-wide, not yet
+    scoped to a specific metric's service (Error Tracking issues carry no
+    service attribution today; scoping needs a service attribute on spikes
+    or a trace_id join against $exception events).
+
+    Deliberately narrower than error_tracking's own ErrorTrackingSpikeEvent
+    contract (fewer fields, string timestamps instead of datetime) since the
+    chart overlay only needs enough to render and link a marker. Keep it
+    narrow rather than reusing that contract directly, so metrics isn't
+    coupled to error_tracking's internal shape.
+    """
+
+    detected_at: str  # ISO 8601
+    issue_id: str
+    issue_name: str | None
 
 
 @dataclass(frozen=True, slots=True)

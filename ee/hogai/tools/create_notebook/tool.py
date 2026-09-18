@@ -1,13 +1,20 @@
 import uuid
-from typing import Any, Literal
+from typing import Any, Literal, Self
 
+from langchain_core.runnables import RunnableConfig
 from pydantic import BaseModel, Field
 
 from posthog.schema import ArtifactContentType, ArtifactSource, AssistantTool, AssistantToolCallMessage
 
+from posthog.models import Team, User
+from posthog.sync import database_sync_to_async
+
+from products.notebooks.backend.facade import api as notebooks
 from products.notebooks.backend.facade.contracts import NotebookCellLimitExceeded
 from products.notebooks.backend.facade.widget_catalog import format_notebook_widget_catalog_for_agents
 
+from ee.hogai.context.context import AssistantContextManager
+from ee.hogai.context.notebook.prompts import cell_guidance_prompt
 from ee.hogai.tool import MaxTool, ToolMessagesArtifact
 from ee.hogai.tools.create_notebook.helpers import (
     ArtifactStatus,
@@ -16,10 +23,21 @@ from ee.hogai.tools.create_notebook.helpers import (
     notebook_exists_for_artifact,
     save_notebook_to_db,
 )
+from ee.hogai.utils.types.base import AssistantState, NodePath
 
 NOTEBOOK_WIDGET_CATALOG_PROMPT = format_notebook_widget_catalog_for_agents()
 
-CREATE_NOTEBOOK_PROMPT = f"""
+
+def create_notebook_prompt(*, sql_v2_enabled: bool, widgets_enabled: bool) -> str:
+    """Build the tool description for one user.
+
+    `sql_v2_enabled` follows the same flag the notebook run endpoint enforces. Without it the
+    endpoint rejects a run, and the editor still renders the cell with a working-looking Run
+    button, so an authored SQLV2 or PythonV2 cell gives the user a dead control and no
+    explanation. Offer the ungated `<Query />` cell to those users instead.
+    """
+    cell_guidance = cell_guidance_prompt(sql_v2_enabled=sql_v2_enabled, widgets_enabled=widgets_enabled)
+    return f"""
 Use this tool to create a notebook document with rich content.
 
 # Use this when:
@@ -87,10 +105,10 @@ Our signup funnel shows the following conversion rates:
 # Editing a Markdown notebook v2 from inline AI:
 - When the UI context includes a Markdown notebook with an inline response placeholder, use this tool with `content` when the user asks to clean up, rewrite, reorganize, or replace the whole notebook
 - In that case, `content` must be the complete final markdown for the notebook, not just the text that replaces the inline prompt
+- The editor applies the artifact to the open notebook. Do not save a separate notebook or call another notebook editing tool for the same change
 - Do not include the inline placeholder text, empty `<Prompt question="" />` blocks, or the user's instruction prompt in the final markdown unless the user explicitly asks to keep them
 - Use a direct assistant markdown response instead of this tool only for local answers or small insertions that should replace the inline response placeholder
-- Component tags such as `<Query … />`, `<SQLV2 … />`, and `<PythonV2 … />` render a `title` prop in their block header. Keep the titles already there, and give any tag you add a short one saying what it shows, so a reader can skim the notebook without opening each block
-- `<SQLV2 />` and `<PythonV2 />` carry their body in a `code` prop holding the SQL or Python as a string. Only `<Query />` takes a `query` prop holding a query object, so never give a code cell a `query` prop
+{cell_guidance}
 
 # Transient vs saved notebooks:
 - By default, notebooks are created as transient artifacts visible only in this conversation. Do NOT share URLs or references to notebook pages for transient artifacts.
@@ -121,7 +139,34 @@ class CreateNotebookToolArgs(BaseModel):
 class CreateNotebookTool(MaxTool):
     name: Literal[AssistantTool.CREATE_NOTEBOOK] = AssistantTool.CREATE_NOTEBOOK
     args_schema: type[BaseModel] = CreateNotebookToolArgs
-    description: str = CREATE_NOTEBOOK_PROMPT
+    # Fail closed: a caller that skips `create_tool_class` gets the description that authors no
+    # cell the user may be unable to run.
+    description: str = create_notebook_prompt(sql_v2_enabled=False, widgets_enabled=False)
+
+    @classmethod
+    async def create_tool_class(
+        cls,
+        *,
+        team: Team,
+        user: User,
+        node_path: tuple[NodePath, ...] | None = None,
+        state: AssistantState | None = None,
+        config: RunnableConfig | None = None,
+        context_manager: AssistantContextManager | None = None,
+    ) -> Self:
+        # The flag lookup reads `user.organization`, so it needs a thread with a database
+        # connection rather than this coroutine.
+        sql_v2_enabled = await database_sync_to_async(notebooks.is_sql_v2_enabled)(user)
+        widgets_enabled = await database_sync_to_async(notebooks.is_notebook_widget_enabled)(user)
+        return cls(
+            team=team,
+            user=user,
+            node_path=node_path,
+            state=state,
+            config=config,
+            context_manager=context_manager,
+            description=create_notebook_prompt(sql_v2_enabled=sql_v2_enabled, widgets_enabled=widgets_enabled),
+        )
 
     async def _arun_impl(
         self,
@@ -141,6 +186,16 @@ class CreateNotebookTool(MaxTool):
         notebook_content = draft_content if is_draft else content
         assert notebook_content is not None
 
+        ui_context = self._context_manager.get_ui_context(self._state)
+        inline_notebook = (
+            next(
+                (notebook for notebook in (ui_context.notebooks or []) if notebook.insertion_placeholder_block_id),
+                None,
+            )
+            if ui_context
+            else None
+        )
+
         artifact, status, blocks = await create_or_update_notebook_artifact(
             artifacts_manager=self._context_manager.artifacts,
             content=notebook_content,
@@ -152,7 +207,9 @@ class CreateNotebookTool(MaxTool):
         is_already_saved = await notebook_exists_for_artifact(self._team, artifact.short_id)
 
         # Save to DB if explicitly requested or if updating an already-saved notebook
-        if save_to_notebook or is_already_saved:
+        # The inline editor owns the save, including the user's retained prompt and unsaved edits.
+        should_save = (save_to_notebook or is_already_saved) and inline_notebook is None
+        if should_save:
             try:
                 await save_notebook_to_db(
                     team=self._team,
@@ -178,7 +235,13 @@ class CreateNotebookTool(MaxTool):
                 )
 
         # Build response message
-        if save_to_notebook or is_already_saved:
+        if inline_notebook is not None:
+            message = (
+                f"The notebook artifact is for the open notebook {inline_notebook.id}. "
+                "The editor applies it there when streamed. No separate notebook was saved. "
+                "Do not save another copy or repeat this edit with another notebook tool."
+            )
+        elif should_save:
             if status == ArtifactStatus.UPDATED:
                 message = f"The notebook artifact and saved notebook have been updated (short_id: {artifact.short_id})."
             else:

@@ -17,6 +17,7 @@ import { loaders } from 'kea-loaders'
 import { actionToUrl, combineUrl, router, urlToAction } from 'kea-router'
 
 import { ApiConfig, ApiError } from '~/lib/api'
+import { isAccessDeniedError } from '~/lib/api-error'
 import { lemonToast } from '~/lib/lemon-ui/LemonToast/LemonToast'
 import { urls } from '~/scenes/urls'
 import { Breadcrumb } from '~/types'
@@ -27,6 +28,7 @@ import {
     llmSkillsNameArchiveCreate,
     llmSkillsNameFilesRetrieve,
     llmSkillsNamePartialUpdate,
+    llmSkillsNameRenameCreate,
     llmSkillsResolveNameRetrieve,
 } from 'products/skills/frontend/generated/api'
 import type {
@@ -124,6 +126,12 @@ export interface PublishConflict {
     latestVersion: number | null
 }
 
+export interface SkillLoadError {
+    /** Undefined when the request never reached the server: a `NetworkError` carries no status. */
+    status: number | undefined
+    code: string | null
+}
+
 // Sorted by path so a reorder that ends up byte-identical on the server is not presented as a change.
 function sortSkillFilesByPath(files: SkillFormFileValues[]): SkillFormFileValues[] {
     return [...files].sort((a, b) => a.path.localeCompare(b.path))
@@ -202,12 +210,14 @@ export interface llmSkillLogicValues {
     }>
     downloadingZip: boolean
     fileContentsLoading: boolean
+    hasSkillLoadError: boolean
     isDiffVisible: boolean
     isEditMode: boolean
     isHistoricalVersion: boolean
     isNewSkill: boolean
     isOutlineExpanded: boolean
     isPublishReviewOpen: boolean
+    isSkillAccessDenied: boolean
     isSkillFormDirty: boolean
     isSkillFormSubmitting: boolean
     isSkillFormValid: boolean
@@ -219,7 +229,9 @@ export interface llmSkillLogicValues {
     ownerDraftChanged: boolean
     ownersEditing: boolean
     publishConflict: PublishConflict | null
+    renamingSkill: boolean
     savingOwners: boolean
+    selectedVersion: number | null
     shouldDisplaySkeleton: boolean
     showSkillFormErrors: boolean
     skill: ResolvedLLMSkill | SkillFormValues | null
@@ -234,7 +246,9 @@ export interface llmSkillLogicValues {
     skillFormTouched: boolean
     skillFormTouches: Record<string, boolean>
     skillFormValidationErrors: DeepPartialMap<SkillFormValues, ValidationErrorType>
+    skillLoadError: SkillLoadError | null
     skillLoading: boolean
+    skillName: string
     skillOwners: readonly UserBasicApi[]
     versionDescription: string
     versions: LLMSkillVersionSummaryApi[]
@@ -303,6 +317,9 @@ export interface llmSkillLogicActions {
     openPublishReview: () => {
         value: true
     }
+    renameSkill: (newName: string) => {
+        newName: string
+    }
     requestPublish: () => {
         value: true
     }
@@ -329,6 +346,9 @@ export interface llmSkillLogicActions {
     }
     setPublishConflict: (publishConflict: PublishConflict | null) => {
         publishConflict: PublishConflict | null
+    }
+    setRenamingSkill: (renaming: boolean) => {
+        renaming: boolean
     }
     setSavingOwners: (saving: boolean) => {
         saving: boolean
@@ -387,10 +407,15 @@ export interface llmSkillLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
         isNewSkill: (arg: any) => boolean
+        skillName: (arg: SkillLogicProps) => string
+        selectedVersion: (arg: SkillLogicProps) => number | null
+        isSkillAccessDenied: (skillLoadError: SkillLoadError | null) => boolean
+        hasSkillLoadError: (skillLoadError: SkillLoadError | null, isSkillAccessDenied: boolean) => boolean
         isSkillMissing: (
             skill: ResolvedLLMSkill | SkillFormValues | null,
             skillLoading: boolean,
-            skillFetched: boolean
+            skillFetched: boolean,
+            skillLoadError: SkillLoadError | null
         ) => boolean
         shouldDisplaySkeleton: (
             skill: ResolvedLLMSkill | SkillFormValues | null,
@@ -401,6 +426,7 @@ export interface llmSkillLogicMeta {
         isHistoricalVersion: (skill: ResolvedLLMSkill | SkillFormValues | null) => boolean
         breadcrumbs: (
             skill: ResolvedLLMSkill | SkillFormValues | null,
+            skillName: string,
             searchParams: Record<string, any>
         ) => Breadcrumb[]
         isViewMode: (mode: SkillMode, arg: any) => boolean
@@ -442,6 +468,8 @@ export const llmSkillLogic = kea<llmSkillLogicType>([
         addUploadedFiles: (files: SkillFileUpload[]) => ({ files }),
         setSkill: (skill: ResolvedLLMSkill | SkillFormValues) => ({ skill }),
         deleteSkill: true,
+        renameSkill: (newName: string) => ({ newName }),
+        setRenamingSkill: (renaming: boolean) => ({ renaming }),
         loadMoreVersions: true,
         setVersionsLoading: (versionsLoading: boolean) => ({ versionsLoading }),
         setMode: (mode: SkillMode) => ({ mode }),
@@ -478,6 +506,17 @@ export const llmSkillLogic = kea<llmSkillLogicType>([
             {
                 loadSkillSuccess: () => true,
                 loadSkillFailure: () => true,
+            },
+        ],
+        skillLoadError: [
+            null as SkillLoadError | null,
+            {
+                loadSkill: () => null,
+                loadSkillSuccess: () => null,
+                loadSkillFailure: (_, { errorObject }) => ({
+                    status: errorObject?.status,
+                    code: errorObject?.code ?? null,
+                }),
             },
         ],
         versionsLoading: [
@@ -584,6 +623,13 @@ export const llmSkillLogic = kea<llmSkillLogicType>([
             {
                 saveOwners: () => true,
                 setSavingOwners: (_, { saving }) => saving,
+            },
+        ],
+        renamingSkill: [
+            false,
+            {
+                renameSkill: () => true,
+                setRenamingSkill: (_, { renaming }) => renaming,
             },
         ],
     })),
@@ -747,10 +793,43 @@ export const llmSkillLogic = kea<llmSkillLogicType>([
     selectors({
         isNewSkill: [() => [(_, props) => props], (props) => props.skillName === 'new'],
 
+        skillName: [
+            () => [(_: unknown, props: SkillLogicProps) => props],
+            (props: SkillLogicProps): string => props.skillName,
+        ],
+
+        selectedVersion: [
+            () => [(_: unknown, props: SkillLogicProps) => props],
+            (props: SkillLogicProps): number | null => props.selectedVersion ?? null,
+        ],
+
+        isSkillAccessDenied: [
+            (s) => [s.skillLoadError],
+            (skillLoadError: SkillLoadError | null): boolean =>
+                skillLoadError !== null && isAccessDeniedError(skillLoadError),
+        ],
+
+        hasSkillLoadError: [
+            (s) => [s.skillLoadError, s.isSkillAccessDenied],
+            (skillLoadError: SkillLoadError | null, isSkillAccessDenied: boolean): boolean =>
+                skillLoadError !== null && skillLoadError.status !== 404 && !isSkillAccessDenied,
+        ],
+
+        // A 404 is the only failure that proves the skill isn't there. Every other failure (no access,
+        // a server error, a request that never left the browser) leaves the question open, so it gets
+        // its own state rather than telling the user a skill they may well own does not exist.
         isSkillMissing: [
-            (s) => [s.skill, s.skillLoading, s.skillFetched],
-            (skill: ResolvedLLMSkill | SkillFormValues | null, skillLoading: boolean, skillFetched: boolean) =>
-                skillFetched && !skillLoading && skill === null,
+            (s) => [s.skill, s.skillLoading, s.skillFetched, s.skillLoadError],
+            (
+                skill: ResolvedLLMSkill | SkillFormValues | null,
+                skillLoading: boolean,
+                skillFetched: boolean,
+                skillLoadError: SkillLoadError | null
+            ) =>
+                skillFetched &&
+                !skillLoading &&
+                skill === null &&
+                (skillLoadError === null || skillLoadError.status === 404),
         ],
 
         shouldDisplaySkeleton: [
@@ -769,8 +848,12 @@ export const llmSkillLogic = kea<llmSkillLogicType>([
         ],
 
         breadcrumbs: [
-            (s) => [s.skill, router.selectors.searchParams],
-            (skill: LLMSkillApi | SkillFormValues | null, searchParams: Record<string, any>): Breadcrumb[] => [
+            (s) => [s.skill, s.skillName, router.selectors.searchParams],
+            (
+                skill: LLMSkillApi | SkillFormValues | null,
+                skillName: string,
+                searchParams: Record<string, any>
+            ): Breadcrumb[] => [
                 {
                     name: 'Skills',
                     path: combineUrl(urls.skills(), searchParams).url,
@@ -782,7 +865,9 @@ export const llmSkillLogic = kea<llmSkillLogicType>([
                             ? isSkill(skill)
                                 ? `${skill.name} v${skill.version}`
                                 : skill.name || 'New skill'
-                            : 'New skill',
+                            : skillName === 'new'
+                              ? 'New skill'
+                              : skillName,
                     key: 'Skill',
                 },
             ],
@@ -960,6 +1045,28 @@ export const llmSkillLogic = kea<llmSkillLogicType>([
                     console.error('Failed to archive skill', e)
                     lemonToast.error('Failed to archive skill')
                 }
+            }
+        },
+
+        renameSkill: async ({ newName }) => {
+            const currentSkill = values.skill
+            if (props.skillName === 'new' || !isSkill(currentSkill) || newName === currentSkill.name) {
+                actions.setRenamingSkill(false)
+                return
+            }
+            try {
+                await llmSkillsNameRenameCreate(String(ApiConfig.getCurrentTeamId()), currentSkill.name, {
+                    new_name: newName,
+                })
+                lemonToast.success(`Skill renamed to "${newName}".`)
+                llmSkillsLogic.findMounted()?.actions.loadSkills(false)
+                // The name is the route key, so the open page has to follow the skill to its new URL.
+                router.actions.replace(urls.skill(newName))
+            } catch (error) {
+                console.error('Failed to rename skill', error)
+                lemonToast.error(getApiErrorDetail(error) || "Couldn't rename the skill. Try again.")
+            } finally {
+                actions.setRenamingSkill(false)
             }
         },
 

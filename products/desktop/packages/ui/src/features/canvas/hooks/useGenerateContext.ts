@@ -8,7 +8,11 @@ import {
 } from "@posthog/core/task-detail/taskService";
 import { useService } from "@posthog/di/react";
 import { useHostTRPC } from "@posthog/host-router/react";
-import { getCloudUrlFromRegion, type WorkspaceMode } from "@posthog/shared";
+import {
+  CONTEXT_LAYER_FLAG,
+  getCloudUrlFromRegion,
+  type WorkspaceMode,
+} from "@posthog/shared";
 import type { Task } from "@posthog/shared/domain-types";
 import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
 import { useAuthStateValue } from "@posthog/ui/features/auth/store";
@@ -19,6 +23,14 @@ import {
 import { channelFeedQueryKey } from "@posthog/ui/features/canvas/hooks/useChannelFeed";
 import { channelFeedMessagesQueryKey } from "@posthog/ui/features/canvas/hooks/useChannelFeedMessages";
 import { useChannelTaskMutations } from "@posthog/ui/features/canvas/hooks/useChannelTasks";
+import {
+  FEATURE_FLAGS,
+  type FeatureFlags,
+} from "@posthog/ui/features/feature-flags/identifiers";
+import {
+  resolveFeatureFlagAfterLoad,
+  useFeatureFlagsLoaded,
+} from "@posthog/ui/features/feature-flags/useFeatureFlagsLoaded";
 import { toastError } from "@posthog/ui/features/notifications/errorDetails";
 import { useSettingsStore } from "@posthog/ui/features/settings/settingsStore";
 import { usePreviewConfig } from "@posthog/ui/features/task-detail/hooks/usePreviewConfig";
@@ -48,6 +60,8 @@ interface GenerateContextInput {
 export function useGenerateContext() {
   const taskService = useService<TaskService>(TASK_SERVICE);
   const modelResolver = useService<ReportModelResolver>(REPORT_MODEL_RESOLVER);
+  const featureFlags = useService<FeatureFlags>(FEATURE_FLAGS);
+  const featureFlagsLoaded = useFeatureFlagsLoaded();
   const cloudRegion = useAuthStateValue((state) => state.cloudRegion);
   const trpc = useHostTRPC();
   const queryClient = useQueryClient();
@@ -73,6 +87,11 @@ export function useGenerateContext() {
     }: GenerateContextInput): Promise<Task | null> => {
       setIsStarting(true);
       try {
+        const contextLayerEnabled = await resolveFeatureFlagAfterLoad(
+          featureFlags,
+          CONTEXT_LAYER_FLAG,
+          featureFlagsLoaded,
+        );
         // The composer's picker may not have resolved yet (or the user never
         // used it), so fall back to the adapter's server default the way the
         // inbox one-click flows do; the resolver validates against the gateway.
@@ -101,6 +120,7 @@ export function useGenerateContext() {
               channelName,
               channelId,
               description,
+              contextLayerEnabled,
             }),
             taskDescription: contextMdTaskTitle(channelName),
             workspaceMode,
@@ -173,6 +193,8 @@ export function useGenerateContext() {
       currentModel,
       modelResolver,
       cloudRegion,
+      featureFlags,
+      featureFlagsLoaded,
     ],
   );
 

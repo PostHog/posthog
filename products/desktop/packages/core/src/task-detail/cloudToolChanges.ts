@@ -8,6 +8,7 @@ import {
   isJsonRpcNotification,
 } from "@posthog/shared";
 import type { ChangedFile } from "@posthog/shared/domain-types";
+import { createAppendOnlyTracker } from "../sessions/appendOnlyTracker";
 
 function getContentText(
   content: ToolCallContent[] | undefined,
@@ -189,48 +190,99 @@ export function buildCloudEventSummary(
   const toolCalls = new Map<string, ParsedToolCall>();
 
   for (const event of events) {
-    const message = event.message;
-    if (!isJsonRpcNotification(message)) continue;
-
-    if (message.method === "session/update") {
-      const params = message.params as
-        | { update?: Record<string, unknown> }
-        | undefined;
-      const update = params?.update;
-      if (!update || typeof update !== "object") continue;
-
-      const sessionUpdate = update.sessionUpdate;
-      if (
-        sessionUpdate !== "tool_call" &&
-        sessionUpdate !== "tool_call_update"
-      ) {
-        continue;
-      }
-
-      const toolCallId =
-        typeof update.toolCallId === "string" ? update.toolCallId : undefined;
-      if (!toolCallId) continue;
-
-      const patch: Partial<ParsedToolCall> = {
-        toolCallId,
-        kind: typeof update.kind === "string" ? update.kind : null,
-        title: typeof update.title === "string" ? update.title : undefined,
-        status: typeof update.status === "string" ? update.status : null,
-        locations: Array.isArray(update.locations)
-          ? (update.locations as ToolCallLocation[])
-          : undefined,
-        content: Array.isArray(update.content)
-          ? (update.content as ToolCallContent[])
-          : undefined,
-        rawOutput: update.rawOutput,
-      };
-
-      const merged = mergeToolCall(toolCalls.get(toolCallId), patch);
-      toolCalls.set(toolCallId, merged);
-    }
+    const patch = readToolCallPatch(event);
+    if (patch)
+      toolCalls.set(
+        patch.toolCallId,
+        mergeToolCall(toolCalls.get(patch.toolCallId), patch),
+      );
   }
-
   return { toolCalls };
+}
+
+function readToolCallPatch(event: AcpMessage): ParsedToolCall | undefined {
+  const message = event.message;
+  if (!isJsonRpcNotification(message) || message.method !== "session/update")
+    return undefined;
+  const params = message.params as
+    | { update?: Record<string, unknown> }
+    | undefined;
+  const update = params?.update;
+  if (
+    !update ||
+    typeof update !== "object" ||
+    (update.sessionUpdate !== "tool_call" &&
+      update.sessionUpdate !== "tool_call_update") ||
+    typeof update.toolCallId !== "string" ||
+    !update.toolCallId
+  )
+    return undefined;
+  return {
+    toolCallId: update.toolCallId,
+    kind: typeof update.kind === "string" ? update.kind : null,
+    title: typeof update.title === "string" ? update.title : undefined,
+    status: typeof update.status === "string" ? update.status : null,
+    locations: Array.isArray(update.locations)
+      ? (update.locations as ToolCallLocation[])
+      : undefined,
+    content: Array.isArray(update.content)
+      ? (update.content as ToolCallContent[])
+      : undefined,
+    rawOutput: update.rawOutput,
+  };
+}
+
+const EMPTY_SUMMARY: CloudEventSummary = { toolCalls: new Map() };
+
+function createSummaryTracker() {
+  return createAppendOnlyTracker({
+    init: () => ({
+      toolCalls: new Map<string, ParsedToolCall>(),
+      result: EMPTY_SUMMARY,
+      dirty: false,
+    }),
+    processEvent: (state, event) => {
+      const patch = readToolCallPatch(event);
+      if (!patch) return;
+      state.toolCalls.set(
+        patch.toolCallId,
+        mergeToolCall(state.toolCalls.get(patch.toolCallId), patch),
+      );
+      state.dirty = true;
+    },
+    getResult: (state) => {
+      if (state.dirty) {
+        state.result = { toolCalls: new Map(state.toolCalls) };
+        state.dirty = false;
+      }
+      return state.result;
+    },
+  });
+}
+
+// Weak keys let eviction release a transcript and its derived tools together.
+const summaryTrackers = new WeakMap<
+  AcpMessage,
+  ReturnType<typeof createSummaryTracker>
+>();
+
+const summarySnapshots = new WeakMap<AcpMessage[], CloudEventSummary>();
+
+export function getCloudEventSummary(
+  events: AcpMessage[] | undefined,
+): CloudEventSummary {
+  const first = events?.[0];
+  if (!first || !events) return EMPTY_SUMMARY;
+  const cached = summarySnapshots.get(events);
+  if (cached) return cached;
+  let tracker = summaryTrackers.get(first);
+  if (!tracker) {
+    tracker = createSummaryTracker();
+    summaryTrackers.set(first, tracker);
+  }
+  const result = tracker.update(events);
+  summarySnapshots.set(events, result);
+  return result;
 }
 
 export function extractCloudFileDiff(

@@ -19,6 +19,7 @@ export interface DisplayTypeOption {
 
 export const DISPLAY_TYPE_OPTIONS: DisplayTypeOption[] = [
     { value: 'text', label: 'Text', isNumeric: false },
+    { value: 'link', label: 'Link', isNumeric: false },
     { value: 'number', label: 'Number', isNumeric: true },
     { value: 'currency', label: 'Currency', isNumeric: true },
     { value: 'percent', label: 'Percent', isNumeric: true },
@@ -132,7 +133,7 @@ export function runOutcomeNote(run: CustomPropertySyncRunApi, entityPlural: stri
     if (run.rows_read === 0) {
         return {
             label: 'no new rows',
-            tooltip: `This sync imported no rows for the table, so there was nothing to map onto ${entityPlural}.`,
+            tooltip: `This run read no warehouse rows, so there was nothing to map onto ${entityPlural}.`,
         }
     }
     if (run.changed === 0) {

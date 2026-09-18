@@ -2,6 +2,9 @@ import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
 import { expectLogic } from 'kea-test-utils'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+
 import { initKeaTests } from '~/test/init'
 
 import {
@@ -14,6 +17,7 @@ import {
 } from '../generated/api'
 import { visionQuotaLogic } from '../logics/visionQuotaLogic'
 import { makeQuota } from '../utils/quotaTestUtils'
+import { calibrationActivationLogic } from './calibrationActivationLogic'
 import {
     DEFAULT_TEST_SESSIONS,
     CALIBRATION_PAGE_SIZE,
@@ -236,6 +240,50 @@ describe('scannerCalibrationLogic', () => {
             feedback: 'should be yes',
         })
         expect(logic.values.observations.find((obs) => obs.id === 'obs-1')?.label).toBeNull()
+    })
+
+    it('a rating clears the nudge that told the user to rate', async () => {
+        // The nudge counts ratings on its own and only fetches at mount, so without the refresh it keeps
+        // asking for a rating the user just gave, for the rest of the visit.
+        await mountLogic()
+        featureFlagLogic.mount()
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.REPLAY_VISION_CALIBRATION_ACTIVATION], {
+            [FEATURE_FLAGS.REPLAY_VISION_CALIBRATION_ACTIVATION]: 'prompt',
+        })
+        ;(visionScannersObservationsStatsRetrieve as jest.Mock).mockResolvedValue({
+            labels: { up_total: 0, down_total: 0, by_day: [], by_rating_day: [], version_markers: [] },
+            status_counts: { succeeded: 12 },
+        })
+        const activation = calibrationActivationLogic({ scannerId: 'scan-1' })
+        activation.mount()
+        await expectLogic(activation).toDispatchActions(['loadStatsSuccess'])
+        expect(activation.values.neverRated).toBe(true)
+
+        ;(visionScannersObservationsStatsRetrieve as jest.Mock).mockResolvedValue({
+            labels: { up_total: 1, down_total: 0, by_day: [], by_rating_day: [], version_markers: [] },
+            status_counts: { succeeded: 12 },
+        })
+        logic.actions.labelChanged('obs-1', { is_correct: true, feedback: '' })
+
+        await expectLogic(activation).toDispatchActions(['loadStatsSuccess'])
+        expect(activation.values.neverRated).toBe(false)
+    })
+
+    it('a rating leaves the control arm alone, which never counted', async () => {
+        // The control arm never fetches a count, so a rating must not hand it one and put a variant
+        // that is meant to see nothing into the same state as the treated arms.
+        await mountLogic()
+        featureFlagLogic.mount()
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.REPLAY_VISION_CALIBRATION_ACTIVATION], {
+            [FEATURE_FLAGS.REPLAY_VISION_CALIBRATION_ACTIVATION]: 'control',
+        })
+        const activation = calibrationActivationLogic({ scannerId: 'scan-1' })
+        activation.mount()
+
+        logic.actions.labelChanged('obs-1', { is_correct: true, feedback: '' })
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(activation.values.stats).toBeNull()
     })
 
     it('evaluate stores the running test on the current suggestion', async () => {

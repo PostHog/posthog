@@ -13,9 +13,7 @@ import {
   DEFAULT_GATEWAY_MODEL,
   DEFAULT_REASONING_EFFORT,
   type ExecutionMode,
-  isModalModelId,
   isSupportedReasoningEffort,
-  KIMI_MODEL_FLAG,
   readPrUrls,
   type SupportedReasoningEffort,
   serializeCloudPrompt,
@@ -25,7 +23,6 @@ import { useQueryClient } from "@tanstack/react-query";
 import * as Haptics from "expo-haptics";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { UserSwitch } from "phosphor-react-native";
-import { useFeatureFlag } from "posthog-react-native";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -194,18 +191,11 @@ export default function TaskDetailScreen() {
   const composerMode: ExecutionMode =
     (composerConfigMatchesAdapter ? composerConfig?.mode : undefined) ??
     getDefaultExecutionModeForAdapter(composerAdapter);
-  const kimiEnabled = !!useFeatureFlag(KIMI_MODEL_FLAG);
-  const persistedComposerModel =
+  // The composer independently re-resolves this against the live config once mounted.
+  const composerModel =
     (composerConfigMatchesAdapter ? composerConfig?.model : undefined) ??
     task?.latest_run?.model ??
     (composerAdapter === "codex" ? DEFAULT_CODEX_MODEL : DEFAULT_GATEWAY_MODEL);
-  // Fall a persisted Kimi selection back to the default when the flag is off so
-  // a hidden model never gets sent on the retry-after-terminal path. The
-  // composer independently re-resolves against the live config once mounted.
-  const composerModel =
-    !kimiEnabled && isModalModelId(persistedComposerModel)
-      ? DEFAULT_GATEWAY_MODEL
-      : persistedComposerModel;
   const requestedComposerReasoning = composerConfigMatchesAdapter
     ? composerConfig?.reasoning
     : undefined;
@@ -743,25 +733,18 @@ export default function TaskDetailScreen() {
 
   const prUrl = readPrUrls(task?.latest_run?.output)[0];
 
-  const activityPhase = getSessionActivityPhase({ retrying, session });
-  const isConnecting = activityPhase === "connecting";
-  const isThinking = activityPhase === "working";
-
-  // Show the loading overlay until the SSE snapshot has populated the
-  // session's events. For tasks that already have a run (i.e. opening an
-  // old task), `session.status` stays `"connecting"` until the first
-  // snapshot arrives — that's when historical events become available.
-  // For brand-new tasks (no `latest_run`), there's no history to wait
-  // for, so we only gate on the initial metadata fetch.
   const isHistoryLoading =
     !!task?.latest_run &&
     !!session &&
     session.status === "connecting" &&
     session.events.length === 0;
-  // Suppress the full-screen overlay when we have an optimistic prompt to
-  // show — the user just submitted and seeing their own text + a connecting
-  // indicator is friendlier than a blank spinner.
-  const showLoading = (loading || isHistoryLoading) && !optimisticPrompt;
+  const activityPhase = getSessionActivityPhase({
+    retrying: retrying || isHistoryLoading,
+    session,
+  });
+  const isConnecting = activityPhase === "connecting";
+  const isThinking = activityPhase === "working";
+  const showLoading = !task && loading && !optimisticPrompt;
 
   // Haptic pulse when connecting/thinking indicators dismiss
   const prevWaiting = useRef(false);
@@ -857,19 +840,10 @@ export default function TaskDetailScreen() {
           }}
         />
 
-        {/* Loading overlay — covers the list while initial task metadata
-            is fetched AND while the SSE watcher is still loading the
-            historical events snapshot for an existing run. */}
         {showLoading && (
           <View className="absolute inset-0 items-center justify-center bg-background">
             <ActivityIndicator size="large" color={themeColors.accent[9]} />
-            <Text className="mt-4 text-gray-11">
-              {task?.latest_run
-                ? loading
-                  ? "Connecting..."
-                  : "Loading history..."
-                : "Loading task..."}
-            </Text>
+            <Text className="mt-4 text-gray-11">Loading task...</Text>
           </View>
         )}
 

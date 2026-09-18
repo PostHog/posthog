@@ -10,13 +10,14 @@ import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { objectsEqual } from 'lib/utils/objects'
-import { personsLogic } from 'scenes/persons/personsLogic'
 import { urls } from 'scenes/urls'
 
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import { deleteFromTree, refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { processCohort } from '~/models/cohortsModel'
 import { ActivityScope, Breadcrumb, CohortType, ExporterFormat } from '~/types'
+
+import { personsLogic } from 'products/persons/frontend/logics/personsLogic'
 
 import type { TriggerExportProps } from '../../lib/components/ExportButton/exporter'
 

@@ -1,7 +1,7 @@
 {
     "id": "019b6f44-f9a3-0000-c4a7-b8050d25d690",
-    "name": "Welcome Email Sequence",
-    "description": "This is a simple workflow you can use when a user signs up for your product, and you want to send an email introducing the product, followed up by emails checking in on how your users are doing.",
+    "name": "Welcome email sequence",
+    "description": "Welcome new signups with an intro email, then check in on how they are getting on.",
     "image_url": "https://res.cloudinary.com/dmukukwp6/image/upload/f_webp,h_270,w_480,c_fill,g_auto,q_auto/growth_think_905cd0fa65?_a=AXAH4nI0",
     "scope": "global",
     "created_at": "2025-12-30T12:39:09.987406Z",

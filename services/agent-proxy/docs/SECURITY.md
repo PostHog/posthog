@@ -33,6 +33,13 @@ cryptographic, not a matter of which token each party happens to hold.
 Beyond audience, both handlers bind the token to the URL: the `run_id`, `task_id` and `team_id`
 claims must match the path, else `403`. A token for run A cannot touch run B.
 
+Both tokens may also carry an optional `presence_gated` boolean. It is a mirroring hint, not
+a grant: on the ingest leg, when it is true and no reader is attached, ingested events advance
+the run's sequence but are not written into the Redis stream; on the read leg it tells the SSE
+handler that a missing stream is normal (no viewer marked presence yet), so it starts reading
+instead of reporting the stream unavailable. It must be a boolean if present; an absent claim
+means false, so tokens minted before the claim existed keep validating.
+
 Credential delivery:
 
 - The browser gets its read token from Django's `stream_token` endpoint, which is

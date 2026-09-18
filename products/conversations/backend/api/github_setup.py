@@ -13,7 +13,7 @@ from posthog.models.integration import GitHubIntegration, Integration
 from posthog.models.user import User
 
 from products.conversations.backend.permissions import IsConversationsAdmin
-from products.conversations.backend.tasks import create_github_issue
+from products.conversations.backend.tasks.github import create_github_issue
 
 logger = structlog.get_logger(__name__)
 

@@ -11,6 +11,8 @@ once a binding is confirmed to have enabled person sources, so unconfigured tabl
 vast majority of runs) never pay a flag-service call.
 """
 
+from django.conf import settings
+
 import posthoganalytics
 
 from posthog.cloud_utils import is_cloud
@@ -38,7 +40,8 @@ def person_properties_flag_enabled(team_id: int) -> bool:
     except Team.DoesNotExist:
         return False
     if not is_cloud():
-        return True
+        # Self-hosted has no staged rollout to consult; respect the operator's kill switch instead.
+        return settings.WAREHOUSE_PERSON_PROPERTIES_ENABLED_SELF_HOSTED
     try:
         return bool(
             posthoganalytics.feature_enabled(

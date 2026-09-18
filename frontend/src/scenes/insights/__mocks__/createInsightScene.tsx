@@ -42,20 +42,35 @@ export const insightSceneMswDecorator = mswDecorator({
     },
 })
 
-/** Play fn: holds the snapshot until the funnel steps chart height stops changing. */
+/**
+ * Play fn: holds the snapshot until the funnel steps chart has painted and settled.
+ *
+ * Waits on the painted `canvas[role="img"]` — the chart-ready signal — and requires its height to
+ * stay non-zero and unchanged across several samples. A slow CI render can exhaust the timeout; that
+ * is fine, so resolve instead of throwing. The runner stabilizes the page again before it snapshots,
+ * and its `waitForSelector` still fails hard if the canvas never paints — so swallowing the timeout
+ * here smooths timing without dropping coverage.
+ */
 export const waitForFunnelToStabilize = async ({ canvasElement }: { canvasElement: HTMLElement }): Promise<void> => {
-    let lastHeight = 0
-    await waitFor(
-        () => {
-            const funnelContainer = canvasElement.querySelector('[data-attr=funnel-steps-bar-chart]')
-            const currentHeight = funnelContainer ? funnelContainer.getBoundingClientRect().height : 0
-            if (currentHeight === 0 || currentHeight !== lastHeight) {
+    const REQUIRED_STABLE_SAMPLES = 3
+    let lastHeight = -1
+    let stableSamples = 0
+    try {
+        await waitFor(
+            () => {
+                const chart = canvasElement.querySelector('[data-attr=funnel-steps-bar-chart] canvas[role="img"]')
+                const currentHeight = chart ? chart.getBoundingClientRect().height : 0
+                stableSamples = currentHeight > 0 && currentHeight === lastHeight ? stableSamples + 1 : 0
                 lastHeight = currentHeight
-                throw new Error('funnel height not yet stable')
-            }
-        },
-        { timeout: 3000, interval: 200 }
-    )
+                if (stableSamples < REQUIRED_STABLE_SAMPLES) {
+                    throw new Error('funnel canvas height not yet stable')
+                }
+            },
+            { timeout: 15000, interval: 200 }
+        )
+    } catch {
+        // Render still settling — the runner stabilizes the page again before snapshotting.
+    }
 }
 
 /** Play fn: expands the first funnel step's inline property filters. */

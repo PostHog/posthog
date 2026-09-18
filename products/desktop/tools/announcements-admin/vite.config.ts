@@ -4,10 +4,10 @@ import { dirname, join } from "node:path";
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
 
-// The installed @posthog/brand release is the authority on which hoggie PNGs
-// exist (metadata slugs alone 404 for variants). The dependency is pinned to
-// the same version hoggiePngUrl loads from the CDN, so every name injected
-// here resolves there — the images themselves are never bundled.
+// The installed @posthog/brand release is the authority on which hoggie PNG
+// file names exist, because the metadata manifest shares one slug across a
+// hoggie's variants. Only the names are read here; the images come from the
+// bundled set through hoggiePng.
 const require = createRequire(import.meta.url);
 const hoggiePngDir = join(
   dirname(require.resolve("@posthog/brand/package.json")),

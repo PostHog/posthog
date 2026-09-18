@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { useMemo } from 'react'
 
 import { IconCheck, IconX } from '@posthog/icons'
 
@@ -28,6 +29,23 @@ export function QueryPane(props: QueryPaneProps): JSX.Element {
     const { queryPaneHeight, queryPaneDesiredSize, queryPaneResizerProps } = useValues(editorSizingLogic)
     const { onAcceptSuggestedQueryInput, onRejectSuggestedQueryInput } = useActions(sqlEditorLogic)
     const { acceptText, rejectText, diffShowRunButton } = useValues(sqlEditorLogic)
+    const editorOptions = useMemo<CodeEditorProps['options']>(
+        () => ({
+            minimap: {
+                enabled: false,
+            },
+            wordWrap: 'on',
+            scrollBeyondLastLine: !!props.originalValue,
+            automaticLayout: true,
+            fixedOverflowWidgets: true,
+            glyphMargin: true,
+            suggest: {
+                showInlineDetails: true,
+            },
+            quickSuggestionsDelay: 300,
+        }),
+        [props.originalValue]
+    )
     // Without an output pane beneath it the editor owns its column, so it takes whatever height the
     // database tree gives the row rather than leaving dead space next to the schema list.
     const fillsColumn = props.constrainHeight === false
@@ -47,7 +65,17 @@ export function QueryPane(props: QueryPaneProps): JSX.Element {
                 ref={queryPaneResizerProps.containerRef}
             >
                 <div className="relative flex flex-col w-full min-h-0">
-                    <div className="flex-1 min-h-0" data-attr="hogql-query-editor">
+                    {/*
+                     * A notebook cell puts this pane in a container that the browser sizes from
+                     * its content. The pane is a flex item there, so the editor inside it sets
+                     * the floor the pane can reach. Monaco reports the height it already has, so
+                     * a drag could only make the pane taller. The editor leaves the flow here so
+                     * that `queryPaneHeight` alone sets the height.
+                     */}
+                    <div
+                        className={cn('flex-1 min-h-0', fillsColumn && 'absolute inset-0')}
+                        data-attr="hogql-query-editor"
+                    >
                         <AutoSizer
                             renderProp={({ height, width }) =>
                                 height && width ? (
@@ -61,20 +89,7 @@ export function QueryPane(props: QueryPaneProps): JSX.Element {
                                         enableVimMode={props.editorVimModeEnabled}
                                         autoFocus={true}
                                         {...props.codeEditorProps}
-                                        options={{
-                                            minimap: {
-                                                enabled: false,
-                                            },
-                                            wordWrap: 'on',
-                                            scrollBeyondLastLine: !!props.originalValue,
-                                            automaticLayout: true,
-                                            fixedOverflowWidgets: true,
-                                            glyphMargin: true,
-                                            suggest: {
-                                                showInlineDetails: true,
-                                            },
-                                            quickSuggestionsDelay: 300,
-                                        }}
+                                        options={editorOptions}
                                     />
                                 ) : null
                             }

@@ -14,6 +14,8 @@ from products.data_modeling.backend.logic.incremental import (
     deserialize_watermark,
     get_incremental_config,
     get_incremental_state,
+    has_incremental_history,
+    record_incremental_history,
     set_incremental_state,
     window_start,
 )
@@ -177,10 +179,11 @@ class TestIncrementalConfig(BaseTest):
         assert get_incremental_config(saved_query) is not None
         assert get_incremental_state(saved_query).watermark == 1
 
-    def test_clearing_state_drops_progress_but_keeps_config(self) -> None:
+    def test_clearing_state_drops_progress_but_keeps_config_and_history(self) -> None:
         saved_query = self._saved_query(
             incremental_config={"enabled": True, "incremental_key": "day", "unique_key": ["day"]}
         )
+        record_incremental_history(saved_query)
         set_incremental_state(saved_query, watermark=5, fingerprint="abc", mode="incremental")
 
         clear_incremental_state(saved_query)
@@ -189,7 +192,18 @@ class TestIncrementalConfig(BaseTest):
         state = get_incremental_state(saved_query)
         assert state.watermark is None
         assert state.watermark_type is None
+        assert state.has_incremental_history is True
         assert get_incremental_config(saved_query) is not None
+
+    def test_existing_incremental_config_is_history_evidence(self) -> None:
+        saved_query = self._saved_query(
+            incremental_config={"enabled": False, "incremental_key": "day", "unique_key": ["day"]}
+        )
+
+        assert has_incremental_history(saved_query) is True
+
+        saved_query.incremental_config = None
+        assert has_incremental_history(saved_query) is False
 
     @parameterized.expand(
         [
@@ -214,6 +228,27 @@ class TestIncrementalConfig(BaseTest):
                 "datetime",
                 0,
                 datetime(2026, 8, 2, tzinfo=UTC),
+            ),
+            (
+                "date_shifts_back_whole_days",
+                date(2026, 8, 10),
+                "date",
+                60 * 60 * 24 * 5,
+                date(2026, 8, 5),
+            ),
+            (
+                "date_rounds_partial_day_lookback_up_to_whole_days",
+                date(2026, 8, 10),
+                "date",
+                60 * 60 * 24 + 3600,
+                date(2026, 8, 8),
+            ),
+            (
+                "date_sub_day_lookback_reaches_previous_bucket",
+                date(2026, 8, 10),
+                "date",
+                3600,
+                date(2026, 8, 9),
             ),
             ("integer_key_ignores_lookback", 42, "int", 3600, 42),
             ("string_key_ignores_lookback", "2026-08-02", "string", 3600, "2026-08-02"),

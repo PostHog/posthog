@@ -12,15 +12,16 @@ from rest_framework.request import Request as DRFRequest
 
 from posthog.models.team import Team
 from posthog.rate_limit import TeamsEventWebhookThrottle
+from posthog.regions import is_primary_region
 
 from products.conversations.backend.models import TeamConversationsTeamsConfig
-from products.conversations.backend.services.region_routing import is_primary_region, proxy_to_secondary_region
+from products.conversations.backend.services.region_routing import proxy_to_secondary_region
 from products.conversations.backend.support_teams import (
     get_bot_from_id,
     is_trusted_teams_service_url,
     validate_teams_request,
 )
-from products.conversations.backend.tasks import is_duplicate_teams_event, process_teams_event, send_teams_help
+from products.conversations.backend.tasks.teams import is_duplicate_teams_event, process_teams_event, send_teams_help
 from products.conversations.backend.teams import is_bot_added_event, is_command_message
 
 logger = structlog.get_logger(__name__)

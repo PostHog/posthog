@@ -2,7 +2,7 @@ import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, _create_person
 
 from posthog.schema import DateRange, EventPropertyFilter, PropertyOperator, TraceNeighborsQuery
@@ -391,7 +391,7 @@ class TestTraceNeighborsQueryRunner(ClickhouseTestMixin, BaseTest):
         self.assertEqual(response.olderTraceId, "trace1")
         self.assertEqual(response.newerTraceId, "trace4")
 
-    @freeze_time("2025-01-15T00:00:00Z")
+    @time_machine.travel("2025-01-15T00:00:00Z", tick=False)
     def test_filter_test_accounts(self):
         """Test that test account filtering works correctly."""
         self.team.test_account_filters = [

@@ -1,18 +1,35 @@
 import { POSTHOG_OBJECT_KINDS } from "@posthog/core/message-editor/content";
+import { ServiceProvider } from "@posthog/di/react";
+import { BROWSER_TABS_CLIENT } from "@posthog/ui/features/browser-tabs/browserTabsClient";
 import { useDraftStore } from "@posthog/ui/features/message-editor/draftStore";
+import { usePanelLayoutStore } from "@posthog/ui/features/panels/panelLayoutStore";
 import { SessionTaskIdProvider } from "@posthog/ui/features/sessions/useSessionTaskId";
 import { Theme } from "@radix-ui/themes";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+
+const mocks = vi.hoisted(() => ({
+  openReport: vi.fn(),
+  getSignalReport: vi.fn(async (id: string) => ({ id })),
+}));
+
+vi.mock("@posthog/ui/router/navigationBridge", () => ({
+  navigateToReport: mocks.openReport,
+}));
 
 vi.mock("../../../shell/openExternal", () => ({
   openExternalUrl: vi.fn(),
 }));
 
-// The hover card resolves its preview through the app shell; without it the
-// loader renders the static card, which is all the chip tests need.
+vi.mock("../useEvidencePreviewPrefetch", () => ({
+  useEvidencePreviewPrefetch: () => {},
+}));
+
 vi.mock("../../auth/authClient", () => ({
-  useOptionalAuthenticatedClient: () => null,
+  useOptionalAuthenticatedClient: () => ({
+    getSignalReport: mocks.getSignalReport,
+  }),
 }));
 vi.mock("../../../hooks/useAuthenticatedQuery", () => ({
   useAuthenticatedQuery: () => ({
@@ -23,13 +40,37 @@ vi.mock("../../../hooks/useAuthenticatedQuery", () => ({
   }),
 }));
 
+import { setRootContainer } from "@posthog/di/container";
+import { Container } from "inversify";
+import { ANALYTICS_TRACKER } from "../../../shell/analytics";
 import { openExternalUrl } from "../../../shell/openExternal";
 import { ANONYMOUS_AUTH_STATE, useAuthStore } from "../../auth/store";
-import { EvidenceHoverCard, EvidenceRefChip } from "./EvidenceRefChip";
+import { evidencePreviewQueryKey } from "../evidencePreview";
+import {
+  EvidenceHoverCard,
+  EvidenceRefChip,
+  ReportReferenceNavigationContext,
+} from "./EvidenceRefChip";
 import { MarkdownRenderer } from "./MarkdownRenderer";
 
-function renderInTheme(node: React.ReactNode) {
-  return render(<Theme>{node}</Theme>);
+const queryClient = new QueryClient({
+  defaultOptions: { queries: { retry: false } },
+});
+
+function renderInTheme(node: React.ReactNode, withServices = true) {
+  const container = new Container();
+  container.bind(BROWSER_TABS_CLIENT).toConstantValue({});
+  return render(
+    <QueryClientProvider client={queryClient}>
+      <Theme>
+        {withServices ? (
+          <ServiceProvider container={container}>{node}</ServiceProvider>
+        ) : (
+          node
+        )}
+      </Theme>
+    </QueryClientProvider>,
+  );
 }
 
 function signIn() {
@@ -42,8 +83,19 @@ function signIn() {
   });
 }
 
+function bindTracker() {
+  const track = vi.fn();
+  const container = new Container();
+  container.bind(ANALYTICS_TRACKER).toConstantValue({ track });
+  setRootContainer(container);
+  return track;
+}
+
 afterEach(() => {
+  vi.restoreAllMocks();
+  vi.clearAllMocks();
   useAuthStore.setState({ authState: ANONYMOUS_AUTH_STATE });
+  queryClient.clear();
   const actions = useDraftStore.getState().actions;
   actions.setDraft("task-1", null);
   actions.clearPendingInsert("task-1");
@@ -61,18 +113,111 @@ describe("EvidenceRefChip", () => {
     expect(screen.queryByRole("link")).toBeNull();
   });
 
-  it("derives the PostHog url from the reference and opens it externally", () => {
-    signIn();
+  it.each([
+    { kind: "report", taskId: "task-1", destination: "report" },
+    { kind: "report", taskId: null, destination: "report" },
+    { kind: "insight", taskId: "task-1", destination: "tab" },
+    { kind: "insight", taskId: null, destination: "external" },
+  ] as const)(
+    "opens $kind in $destination with task context $taskId",
+    async ({ kind, taskId, destination }) => {
+      signIn();
+      const openObjectTab = vi
+        .spyOn(usePanelLayoutStore.getState(), "openPostHogObjectTab")
+        .mockImplementation(() => {});
+      const reference = (
+        <EvidenceRefChip target={{ kind, id: "reference-1" }}>
+          Linked reference
+        </EvidenceRefChip>
+      );
+      renderInTheme(
+        taskId ? (
+          <SessionTaskIdProvider taskId={taskId}>
+            {reference}
+          </SessionTaskIdProvider>
+        ) : (
+          reference
+        ),
+      );
+
+      fireEvent.click(screen.getByRole("link", { name: "Linked reference" }));
+
+      if (destination === "report") {
+        await waitFor(() =>
+          expect(mocks.openReport).toHaveBeenCalledWith(
+            "reference-1",
+            undefined,
+          ),
+        );
+        expect(mocks.getSignalReport).toHaveBeenCalledWith("reference-1");
+        expect(openObjectTab).not.toHaveBeenCalled();
+        expect(openExternalUrl).not.toHaveBeenCalled();
+      } else if (destination === "tab") {
+        expect(openObjectTab).toHaveBeenCalledWith(taskId, {
+          kind,
+          id: "reference-1",
+          name: "Linked reference",
+        });
+        expect(mocks.openReport).not.toHaveBeenCalled();
+        expect(openExternalUrl).not.toHaveBeenCalled();
+      } else {
+        expect(openExternalUrl).toHaveBeenCalledWith(
+          "https://us.posthog.com/project/2/insights/reference-1",
+        );
+        expect(mocks.openReport).not.toHaveBeenCalled();
+        expect(openObjectTab).not.toHaveBeenCalled();
+      }
+    },
+  );
+
+  it.each(["report", "insight"] as const)(
+    "opens a %s from Quick Ask without main-window services",
+    (kind) => {
+      signIn();
+      const openReport = vi.fn().mockResolvedValue(undefined);
+      renderInTheme(
+        <ReportReferenceNavigationContext.Provider value={openReport}>
+          <MarkdownRenderer
+            content={`Open <${kind} id="reference-1">Linked reference</${kind}>.`}
+            renderObjectTags
+          />
+        </ReportReferenceNavigationContext.Provider>,
+        false,
+      );
+
+      fireEvent.click(screen.getByRole("link", { name: "Linked reference" }));
+
+      if (kind === "report") {
+        expect(openReport).toHaveBeenCalledWith("reference-1");
+        expect(openExternalUrl).not.toHaveBeenCalled();
+      } else {
+        expect(openReport).not.toHaveBeenCalled();
+        expect(openExternalUrl).toHaveBeenCalledWith(
+          "https://us.posthog.com/project/2/insights/reference-1",
+        );
+      }
+      expect(mocks.openReport).not.toHaveBeenCalled();
+      expect(mocks.getSignalReport).not.toHaveBeenCalled();
+    },
+  );
+
+  it("opens a report from Quick Ask before auth state arrives", () => {
+    // No region or project yet, so the chip has no web url to fall back on;
+    // the host route is the only way to the report and must stay clickable.
+    const openReport = vi.fn().mockResolvedValue(undefined);
     renderInTheme(
-      <EvidenceRefChip target={{ kind: "insight", id: "9pQx3" }}>
-        Checkout funnel
-      </EvidenceRefChip>,
+      <ReportReferenceNavigationContext.Provider value={openReport}>
+        <EvidenceRefChip target={{ kind: "report", id: "reference-1" }}>
+          Linked reference
+        </EvidenceRefChip>
+      </ReportReferenceNavigationContext.Provider>,
+      false,
     );
-    const link = screen.getByRole("link", { name: "Checkout funnel" });
-    fireEvent.click(link);
-    expect(openExternalUrl).toHaveBeenCalledWith(
-      "https://us.posthog.com/project/2/insights/9pQx3",
-    );
+
+    fireEvent.click(screen.getByRole("link", { name: "Linked reference" }));
+
+    expect(openReport).toHaveBeenCalledWith("reference-1");
+    expect(openExternalUrl).not.toHaveBeenCalled();
   });
 
   it("stays plain for a kind with no canonical page even when signed in", () => {
@@ -116,6 +261,54 @@ describe("EvidenceRefChip", () => {
     expect(
       screen.getByRole("button", { name: /Open in PostHog/ }),
     ).toBeDefined();
+  });
+
+  it("lets the card follow the active theme instead of forcing dark", () => {
+    signIn();
+    renderInTheme(
+      <EvidenceRefChip target={{ kind: "insight", id: "9pQx3" }}>
+        Checkout funnel
+      </EvidenceRefChip>,
+    );
+    fireEvent.focus(screen.getByRole("link", { name: "Checkout funnel" }));
+    const popup = screen.getByTestId("evidence-hover-card");
+    expect(popup.className.split(" ")).not.toContain("dark");
+  });
+
+  it("reports the preview as shown with a cache miss on first open", () => {
+    const track = bindTracker();
+    signIn();
+    renderInTheme(
+      <EvidenceRefChip target={{ kind: "insight", id: "9pQx3" }}>
+        Checkout funnel
+      </EvidenceRefChip>,
+    );
+    fireEvent.focus(screen.getByRole("link", { name: "Checkout funnel" }));
+    expect(track).toHaveBeenCalledWith(
+      "Evidence preview shown",
+      expect.objectContaining({ kind: "insight", cache: "miss" }),
+    );
+  });
+
+  it("reports the preview as shown with a cache hit after a resolved lookup is seeded", () => {
+    queryClient.setQueryData(
+      evidencePreviewQueryKey({ kind: "insight", id: "9pQx3" }),
+      {
+        title: "Checkout funnel",
+      },
+    );
+    const track = bindTracker();
+    signIn();
+    renderInTheme(
+      <EvidenceRefChip target={{ kind: "insight", id: "9pQx3" }}>
+        Checkout funnel
+      </EvidenceRefChip>,
+    );
+    fireEvent.focus(screen.getByRole("link", { name: "Checkout funnel" }));
+    expect(track).toHaveBeenCalledWith(
+      "Evidence preview shown",
+      expect.objectContaining({ kind: "insight", cache: "hit" }),
+    );
   });
 
   it("gives an unlinked reference a focusable trigger that opens the card", () => {

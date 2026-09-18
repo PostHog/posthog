@@ -14,7 +14,14 @@ pub const CACHE_FILL_RATIO: &str = "prop_defs_cache_fill_ratio";
 pub const CACHE_LEN: &str = "prop_defs_cache_len";
 pub const CACHE_HITS: &str = "prop_defs_cache_hits";
 pub const CACHE_MISSES: &str = "prop_defs_cache_misses";
+// quick_cache fires its eviction hook for capacity evictions and for in-place
+// replacements of a resident key alike, so this counter is the sum of both.
+// CACHE_REPLACEMENTS counts the replacements on their own; capacity evictions
+// are EVICTIONS minus REPLACEMENTS.
 pub const CACHE_EVICTIONS: &str = "prop_defs_cache_evictions";
+// Inserts that moved a cached row identity forward in place: a newer eventdef
+// last_seen bucket, or a property type refreshed or upgraded from None.
+pub const CACHE_REPLACEMENTS: &str = "prop_defs_cache_replacements";
 pub const UPDATES_CACHE: &str = "prop_defs_updates_cache";
 // Kafka offset stores that failed. The producer loop continues past a failure, so a later
 // successful store on the same partition supersedes it and nothing is redelivered. Redelivery
@@ -84,3 +91,9 @@ pub const V2_PROP_DEFS_DROPPED_UNCACHED: &str = "propdefs_v2_propdefs_dropped_un
 // target table. Stripped rows stay in the shared dedup cache on purpose, so the dead
 // tenant's events stop re-issuing the same failing write.
 pub const V2_BATCH_ROWS_DROPPED_FK: &str = "propdefs_v2_batch_rows_dropped_fk";
+
+// Read-before-write: batches are checked against a Postgres reader before the
+// upsert, and rows the database already covers are dropped from the write.
+pub const READ_FILTER_ATTEMPT: &str = "propdefs_v2_read_filter_attempt";
+pub const READ_FILTER_ROWS_DROPPED: &str = "propdefs_v2_read_filter_rows_dropped";
+pub const READ_FILTER_TIME: &str = "propdefs_v2_read_filter_ms";

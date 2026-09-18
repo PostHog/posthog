@@ -45,7 +45,7 @@ class MCPAnalyticsSubmission(UUIDModel):
         DOCS = "docs", "Docs"
         OTHER = "other", "Other"
 
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
     created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
 
     kind = models.CharField(max_length=32, choices=Kind)
@@ -85,7 +85,7 @@ class MCPIntentEmbeddingCache(UUIDModel, TeamScopedRootMixin):
     in Postgres, so a typed Postgres array buys us nothing.
     """
 
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
     content_hash = models.CharField(max_length=64)
     model = models.CharField(max_length=64)
     embedding = models.BinaryField()
@@ -112,7 +112,7 @@ class MCPSession(UUIDModel, TeamScopedRootMixin):
     # On-demand intent store keyed by (team, session_id). The session list itself
     # is aggregated on the fly from $mcp_tool_call events (see logic.py); the
     # backfill that once populated session_start/_end/duration/etc. is gone.
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
     session_id = models.CharField(max_length=64)
     intent = models.TextField(null=True, blank=True)
 

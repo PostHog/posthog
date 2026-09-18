@@ -58,6 +58,7 @@ function gatewayServer(overrides: Record<string, unknown> = {}) {
     docs_url: "",
     template_id: null,
     template_auth_type: null,
+    auth_type: null,
     tool_count: 0,
     connections: [],
     your_connection: {

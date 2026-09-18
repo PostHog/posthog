@@ -18,11 +18,15 @@ export function NewTaskScreen() {
   });
   const sessionId = getTaskInputSessionId(tabId);
 
+  if (!tabId) return null;
+
   return (
     <TaskInput
       key={sessionId}
       sessionId={sessionId}
       initialPrompt={view.initialPrompt}
+      initialContent={view.initialContent}
+      recoveredFromKey={view.recoveredFromKey}
       initialPromptKey={view.taskInputRequestId}
       initialCloudRepository={view.initialCloudRepository}
       initialModel={view.initialModel}

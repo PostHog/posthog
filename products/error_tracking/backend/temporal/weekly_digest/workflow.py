@@ -43,8 +43,13 @@ CLEANUP_TIMEOUT = timedelta(minutes=1)
 
 SEND_ORG_START_TO_CLOSE_TIMEOUT = timedelta(minutes=30)
 SEND_ORG_HEARTBEAT_TIMEOUT = timedelta(minutes=5)
-SEND_ORG_INITIAL_RETRY_INTERVAL = timedelta(seconds=1)
-SEND_ORG_MAXIMUM_RETRY_INTERVAL = timedelta(seconds=30)
+# The retry budget must outlast a ClickHouse capacity incident, because every attempt made during
+# one fails the same way and a budget that fits inside the incident guarantees the org fails.
+# These values give 5s, 20s, 80s, 320s, then 600s per retry, so the default 8 attempts spread
+# across about 37 minutes.
+SEND_ORG_INITIAL_RETRY_INTERVAL = timedelta(seconds=5)
+SEND_ORG_BACKOFF_COEFFICIENT = 4.0
+SEND_ORG_MAXIMUM_RETRY_INTERVAL = timedelta(minutes=10)
 
 
 def _sent_from_error(error: BaseException) -> int:
@@ -81,11 +86,11 @@ async def _send_orgs(org_ids: list[str], dry_run: bool, max_concurrent: int, max
                 start_to_close_timeout=SEND_ORG_START_TO_CLOSE_TIMEOUT,
                 heartbeat_timeout=SEND_ORG_HEARTBEAT_TIMEOUT,
                 retry_policy=common.RetryPolicy(
-                    # Must match SendOrgDigestInputs.max_attempts — final-attempt detection
+                    # Must match SendOrgDigestInputs.max_attempts, because final-attempt detection
                     # inside the activity depends on the two agreeing.
                     maximum_attempts=max_attempts,
                     initial_interval=SEND_ORG_INITIAL_RETRY_INTERVAL,
-                    backoff_coefficient=2.0,
+                    backoff_coefficient=SEND_ORG_BACKOFF_COEFFICIENT,
                     maximum_interval=SEND_ORG_MAXIMUM_RETRY_INTERVAL,
                 ),
             )
@@ -139,8 +144,9 @@ class ErrorTrackingWeeklyDigestWorkflow(PostHogWorkflow):
     a child workflow immediately.
 
     Only a storage key and a count ride through workflow history, so history and payload
-    sizes stay flat regardless of org count. All children start at once, so the worker
-    fleet's activity-slot capacity is the intended global throttle.
+    sizes stay flat regardless of org count. All children start at once, so the run's peak
+    ClickHouse demand is ``max_concurrent`` per page times the page count, and it grows with
+    the org count. The worker fleet's activity-slot capacity is the outer bound.
     """
 
     inputs_cls = WeeklyDigestInputs

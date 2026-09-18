@@ -7,7 +7,7 @@ from django.core.cache import cache as real_cache
 
 from parameterized import parameterized
 
-from posthog.api.oauth.cimd import _blocked_key, _cache_key, fetch_and_upsert_cimd_application
+from posthog.api.oauth.cimd import _cache_key, fetch_and_upsert_cimd_application
 from posthog.models.oauth import OAuthApplication
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.user import User
@@ -260,7 +260,7 @@ class TestProvisioningAuthentication(ProvisioningTestBase):
         self._post_with_bearer("/api/agentic/provisioning/resources", {}, token=token)
 
         user = User.objects.get(email=email)
-        # The wizard app does not set provisioning_issues_personal_api_key, so no PAT is minted.
+        # The wizard app does not set issues_personal_api_key, so no PAT is minted.
         pat = PersonalAPIKey.objects.filter(user=user).first()
         assert pat is None
 
@@ -271,6 +271,15 @@ class TestProvisioningAuthentication(ProvisioningTestBase):
 
         _, challenge = self._pkce_pair()
         res = self._wizard_account_request("req_inactive_pkce", "inactive-pkce@example.com", challenge)
+        assert res.status_code == 401
+
+    def test_deactivated_user_bearer_token_rejected(self):
+        token = self._get_bearer_token()
+
+        self.user.is_active = False
+        self.user.save()
+
+        res = self._post_with_bearer("/api/agentic/provisioning/resources", {}, token=token)
         assert res.status_code == 401
 
     # --- can_provision_resources enforcement ---
@@ -295,8 +304,8 @@ class TestProvisioningAuthentication(ProvisioningTestBase):
             authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
             redirect_uris="http://localhost:8239/callback",
             algorithm="RS256",
+            client_id=cimd_url,
             is_cimd_client=True,
-            cimd_metadata_url=cimd_url,
             is_provisioning_partner=True,
             _provisioning_config=provisioning_config(
                 active=True, can_create_accounts=True, can_provision_resources=True
@@ -327,8 +336,8 @@ class TestProvisioningAuthentication(ProvisioningTestBase):
             authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
             redirect_uris="http://localhost:8239/callback",
             algorithm="RS256",
+            client_id=cimd_url,
             is_cimd_client=True,
-            cimd_metadata_url=cimd_url,
             is_provisioning_partner=True,
             _provisioning_config=provisioning_config(active=False, can_create_accounts=True),
         )
@@ -364,16 +373,14 @@ class TestProvisioningAuthentication(ProvisioningTestBase):
             authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
             redirect_uris="http://localhost:8239/callback",
             algorithm="RS256",
+            client_id=cimd_url,
             is_cimd_client=True,
-            cimd_metadata_url=cimd_url,
             is_provisioning_partner=True,
             _provisioning_config=provisioning_config(
                 active=True, can_create_accounts=True, can_provision_resources=True
             ),
         )
         self.addCleanup(real_cache.delete, _cache_key(cimd_url))
-        # _identify_pkce_partner warms the blocklist cache with a 1-year TTL; clear it too.
-        self.addCleanup(real_cache.delete, _blocked_key(cimd_url))
 
         if cache_is_fresh:
             real_cache.set(_cache_key(cimd_url), True, timeout=300)
@@ -437,7 +444,7 @@ def _cimd_mock_response(metadata: dict | None, status_code: int = 200):
 class TestCimdProvisioningRegistration(ProvisioningTestBase):
     def setUp(self):
         super().setUp()
-        OAuthApplication.objects.filter(cimd_metadata_url=CIMD_PROV_URL).delete()
+        OAuthApplication.objects.filter(client_id=CIMD_PROV_URL).delete()
         real_cache.clear()
 
     def _register(self) -> OAuthApplication:
@@ -480,7 +487,7 @@ class TestCimdProvisioningRegistration(ProvisioningTestBase):
         mock_get.return_value = _cimd_mock_response(initial)
         self._register()
 
-        app = OAuthApplication.objects.get(cimd_metadata_url=CIMD_PROV_URL)
+        app = OAuthApplication.objects.get(client_id=CIMD_PROV_URL)
         assert app.scopes == ["insight:read"]
 
         # Partner edits the live metadata to widen the ceiling; the cached doc goes stale.
@@ -517,8 +524,8 @@ class TestCimdProvisioningRegistration(ProvisioningTestBase):
             authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
             redirect_uris="http://127.0.0.1:3000/callback",
             algorithm="RS256",
+            client_id=CIMD_PROV_URL,
             is_cimd_client=True,
-            cimd_metadata_url=CIMD_PROV_URL,
             is_provisioning_partner=True,
             _provisioning_config=provisioning_config(
                 active=True,
@@ -545,7 +552,7 @@ class TestCimdProvisioningRegistration(ProvisioningTestBase):
 
         assert post_account_request("ratelimit-1@example.com").status_code == 200
 
-        partner = OAuthApplication.objects.get(cimd_metadata_url=CIMD_PROV_URL)
+        partner = OAuthApplication.objects.get(client_id=CIMD_PROV_URL)
         partner.update_provisioning_rate_limits(account_requests=2)
 
         assert post_account_request("ratelimit-2@example.com").status_code == 200
@@ -628,8 +635,8 @@ class TestCimdProvisioningRegistration(ProvisioningTestBase):
                 authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
                 redirect_uris="http://127.0.0.1:3000/callback",
                 algorithm="RS256",
+                client_id=url,
                 is_cimd_client=True,
-                cimd_metadata_url=url,
                 is_provisioning_partner=True,
                 _provisioning_config=provisioning_config(
                     active=True, can_create_accounts=True, can_provision_resources=True
@@ -659,8 +666,8 @@ class TestCimdProvisioningRegistration(ProvisioningTestBase):
             authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
             redirect_uris="http://127.0.0.1:3000/callback",
             algorithm="RS256",
+            client_id=CIMD_PROV_URL,
             is_cimd_client=True,
-            cimd_metadata_url=CIMD_PROV_URL,
             is_provisioning_partner=True,
             _provisioning_config=provisioning_config(
                 active=True, can_create_accounts=True, can_provision_resources=True
@@ -684,56 +691,3 @@ class TestCimdProvisioningRegistration(ProvisioningTestBase):
         user = User.objects.get(email=email)
         org = user.organization_memberships.first().organization
         assert org.name == f"Partner App ({email})"
-
-    def test_blocked_cimd_url_returns_unauthorized(self, _url_mock):
-        from posthog.api.oauth.cimd import block_cimd_url
-
-        block_cimd_url(CIMD_PROV_URL)
-
-        _, challenge = self._pkce_pair()
-        res = self.client.post(
-            "/api/agentic/provisioning/account_requests",
-            data={
-                "id": "req_blocked",
-                "email": "blocked@example.com",
-                "client_id": CIMD_PROV_URL,
-                "code_challenge": challenge,
-                "code_challenge_method": "S256",
-            },
-            content_type="application/json",
-        )
-        assert res.status_code == 401
-
-    @patch("posthog.api.oauth.cimd.refresh_cimd_metadata_task")
-    def test_blocked_cimd_url_with_existing_app_returns_unauthorized(self, mock_refresh, _url_mock):
-        from posthog.api.oauth.cimd import block_cimd_url
-
-        OAuthApplication.objects.create(
-            name="Blocked CIMD App",
-            client_secret="",
-            client_type=OAuthApplication.CLIENT_PUBLIC,
-            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
-            redirect_uris="http://127.0.0.1:3000/callback",
-            algorithm="RS256",
-            is_cimd_client=True,
-            cimd_metadata_url=CIMD_PROV_URL,
-            is_provisioning_partner=True,
-            _provisioning_config=provisioning_config(
-                active=True, can_create_accounts=True, can_provision_resources=True
-            ),
-        )
-        block_cimd_url(CIMD_PROV_URL)
-
-        _, challenge = self._pkce_pair()
-        res = self.client.post(
-            "/api/agentic/provisioning/account_requests",
-            data={
-                "id": "req_blocked_existing",
-                "email": "blocked-existing@example.com",
-                "client_id": CIMD_PROV_URL,
-                "code_challenge": challenge,
-                "code_challenge_method": "S256",
-            },
-            content_type="application/json",
-        )
-        assert res.status_code == 401

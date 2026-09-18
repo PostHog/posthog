@@ -29,19 +29,18 @@ use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::EnvFilter;
 
 use metrics::{counter, gauge};
-use personhog_leader::cache::{DirtyIndex, PartitionedCache};
+use personhog_leader::cache::{DirtyIndex, PartitionedCache, PersonCacheKey};
 use personhog_leader::config::Config;
 use personhog_leader::coordination::LeaderHandoffHandler;
 use personhog_leader::fencing::{
     preregister_fencing_metrics, FencedChangelogProducers, FencedProducerConfig,
 };
 use personhog_leader::inflight::InflightTracker;
-use personhog_leader::pg::{validate_table_name, PgFallback};
+use personhog_leader::pg::{validate_table_name, LifecycleTables, PgFallback};
 use personhog_leader::recovery::{ChangelogRecovery, RecoveryConfig};
 use personhog_leader::service::{sweep_idle_locks, PersonHogLeaderService, PropertySizeLimits};
-use personhog_leader::warming::{
-    fetch_writer_committed_offsets, WarmClientPools, WarmingConfig, WarmingRetryPolicy,
-};
+use personhog_leader::settle::prune_and_settle_tick;
+use personhog_leader::warming::{WarmClientPools, WarmingConfig, WarmingRetryPolicy};
 use personhog_leader::warnings::WarningsProducer;
 
 common_alloc::used!();
@@ -67,6 +66,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .validate_shutdown_budgets()
         .expect("Invalid shutdown configuration");
     validate_table_name(&config.fallback_table).expect("Invalid FALLBACK_TABLE");
+    validate_table_name(&config.lifecycle_op_table).expect("Invalid LIFECYCLE_OP_TABLE");
+    validate_table_name(&config.lifecycle_op_person_table)
+        .expect("Invalid LIFECYCLE_OP_PERSON_TABLE");
 
     // Initialize tracing
     let log_layer = fmt::layer()
@@ -202,6 +204,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 WRITE_PATH_LATENCY_BUCKETS_MS,
             ),
             (
+                Matcher::Full("personhog_leader_release_phase_ms".into()),
+                WRITE_PATH_LATENCY_BUCKETS_MS,
+            ),
+            (
+                Matcher::Full("personhog_leader_fallback_pool_acquire_ms".into()),
+                WRITE_PATH_LATENCY_BUCKETS_MS,
+            ),
+            (
+                Matcher::Full("personhog_leader_fenced_producer_window_ms".into()),
+                WRITE_PATH_LATENCY_BUCKETS_MS,
+            ),
+            (
                 Matcher::Full("grpc_server_request_duration_ms".into()),
                 WRITE_PATH_LATENCY_BUCKETS_MS,
             ),
@@ -297,13 +311,26 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             statement_timeout_ms: Some(5_000),
             ..Default::default()
         };
-        Some(PgFallback {
+        let fallback = PgFallback {
             pool: common_database::get_pool_with_config(
                 &config.fallback_database_url,
                 pool_config,
             )?,
             table: config.fallback_table.clone(),
-        })
+            lifecycle: LifecycleTables::new(
+                &config.lifecycle_op_table,
+                &config.lifecycle_op_person_table,
+            ),
+        };
+        personhog_common::spawn_pool_monitor(
+            vec![personhog_common::MonitoredPool {
+                pool: fallback.pool.clone(),
+                label: "fallback".to_string(),
+                max_connections: config.fallback_pg_max_connections,
+            }],
+            Duration::from_secs(10),
+        );
+        Some(fallback)
     };
 
     // Connect to etcd for coordination and the partition count
@@ -350,7 +377,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         kafka_producer.clone(),
         config.ingestion_warnings_topic.clone(),
     );
-    let fence_scan_pool = fallback.as_ref().map(|f| f.pool.clone());
+    let fence_scan = fallback.clone();
     let mut fence_repair_nudge: Option<Arc<Notify>> = None;
     let fenced = if config.kafka_transactional_fencing {
         // Every one of these is derived from LEASE_TTL rather than set
@@ -375,9 +402,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         // shared one: its writes must resolve inside the lease runway.
         let fencing_kafka = common_kafka::config::KafkaConfig {
             kafka_message_timeout_ms: config.fencing_message_timeout().as_millis() as u32,
-            // One producer per owned partition, so the shared producer's
-            // queue limits are an aggregate to divide rather than a
-            // per-producer figure to copy.
+            // One producer per lane per owned partition, so the shared
+            // producer's queue limits are an aggregate to divide rather
+            // than a per-producer figure to copy.
             kafka_producer_queue_mib: config.fencing_queue_mib(num_partitions),
             kafka_producer_queue_messages: config.fencing_queue_messages(num_partitions),
             ..config.kafka.clone()
@@ -392,6 +419,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 window: Duration::from_millis(config.fencing_window_ms),
                 window_max_writes: config.fencing_window_max_writes,
                 settle_budget: config.fencing_settle_budget(),
+                lanes: config.fencing_lanes,
             })
             .with_repair_nudge(repair_nudge),
         ))
@@ -507,7 +535,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             },
         },
         Arc::clone(&fences),
-        fence_scan_pool,
+        fence_scan,
         num_partitions,
         Arc::clone(&warm_pools),
         fenced.clone(),
@@ -638,6 +666,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tokio::spawn(run_dirty_index_prune_loop(
         Arc::clone(&dirty_index),
         Arc::clone(&cache),
+        Arc::clone(&locks),
         Arc::clone(&warm_pools),
         config.kafka_person_state_topic.clone(),
         Duration::from_secs(config.warm_committed_offsets_timeout_secs),
@@ -732,6 +761,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 async fn run_dirty_index_prune_loop(
     dirty_index: Arc<DirtyIndex>,
     cache: Arc<PartitionedCache>,
+    locks: Arc<DashMap<PersonCacheKey, Arc<tokio::sync::Mutex<()>>>>,
     pools: Arc<WarmClientPools>,
     topic: String,
     offsets_timeout: Duration,
@@ -744,31 +774,23 @@ async fn run_dirty_index_prune_loop(
         // marks actually reclaimed — a tick never scans the index, which
         // is what makes the 1s interval affordable even when a lagging
         // writer has made the index large.
-        let partitions = dirty_index.partitions_with_marks();
         gauge!("personhog_leader_dirty_index_size").set(dirty_index.len() as f64);
         gauge!("personhog_leader_dirty_index_max_entries").set(dirty_index.max_entries() as f64);
         gauge!("personhog_leader_cache_weight_bytes").set(cache.usage_bytes() as f64);
-        if partitions.is_empty() {
-            continue;
-        }
-        let committed_offsets = match fetch_writer_committed_offsets(
+        let Some((partitions, committed_offsets)) = prune_and_settle_tick(
+            &dirty_index,
+            &cache,
+            &locks,
             &pools.offsets,
             &topic,
-            &partitions,
             offsets_timeout,
         )
         .await
-        {
-            Ok(offsets) => offsets,
-            Err(e) => {
-                tracing::warn!(error = %e, "dirty-index prune offset fetch failed");
-                continue;
-            }
+        else {
+            continue;
         };
-
-        let pruned = dirty_index.prune_applied(&committed_offsets);
-        if pruned > 0 {
-            counter!("personhog_leader_dirty_index_pruned_total").increment(pruned as u64);
+        if partitions.is_empty() {
+            continue;
         }
         // A partition absent from the committed offsets has no writer
         // commit yet: nothing is applied, every mark stays, and its lag
@@ -831,6 +853,7 @@ fn preregister_metrics() {
         counter!("personhog_leader_indeterminate_outcomes_total", "fenced" => fenced).increment(0);
     }
     counter!("personhog_leader_unresolved_versions_total").increment(0);
+    counter!("personhog_leader_death_documents_settled_total").increment(0);
     gauge!("personhog_leader_unresolved_versions").set(0.0);
     counter!("personhog_leader_warmed_messages_total").increment(0);
     counter!("personhog_leader_warm_retries_exhausted_total", "stage" => "committed_offset")

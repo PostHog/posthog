@@ -2,10 +2,10 @@ import { expectLogic } from 'kea-test-utils'
 
 import { FEATURE_FLAGS, FunnelLayout } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { funnelInvalidExclusionError, funnelResult } from 'scenes/funnels/__mocks__/funnelDataLogicMocks'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 import { useMocks } from '~/mocks/jest'
+import { actionsModel } from '~/models/actionsModel'
 import { LATEST_VERSIONS } from '~/queries/latest-versions'
 import { funnelsQueryDefault, trendsQueryDefault } from '~/queries/nodes/InsightQuery/defaults'
 import {
@@ -29,6 +29,11 @@ import {
     PropertyOperator,
 } from '~/types'
 
+import {
+    funnelInvalidExclusionError,
+    funnelResult,
+} from 'products/product_analytics/frontend/insights/funnels/__mocks__/funnelDataLogicMocks'
+
 import { insightDataLogic } from './insightDataLogic'
 
 const Insight123 = '123' as InsightShortId
@@ -43,6 +48,9 @@ describe('insightVizDataLogic', () => {
             get: {
                 '/api/environments/:team_id/insights/trend': [],
                 '/api/environments/:team_id/insights/': { results: [{}] },
+                '/api/projects/:team_id/actions/': {
+                    results: [{ id: 7, name: 'Sign up', steps: [{ event: '$pageview' }, { event: 'sign_up' }] }],
+                },
             },
         })
         initKeaTests()
@@ -942,6 +950,27 @@ describe('insightVizDataLogic', () => {
                 } as Record<string, any>)
             }).toMatchValues({ hasRenderableResults: false })
         })
+
+        it.each([
+            ['blocks time series rows under a donut chart', ChartDisplayType.ActionsDonut, { data: [1, 2, 3] }, false],
+            [
+                'renders total value rows under a donut chart',
+                ChartDisplayType.ActionsDonut,
+                { aggregated_value: 6 },
+                true,
+            ],
+            ['renders time series rows under a scatter plot', ChartDisplayType.ScatterPlot, { data: [1, 2, 3] }, true],
+            [
+                'renders time series rows under a two dimensional heatmap',
+                ChartDisplayType.TwoDimensionalHeatmap,
+                { data: [1, 2, 3] },
+                true,
+            ],
+        ])('%s', (_, display, row, expected) => {
+            builtInsightVizDataLogic.actions.updateQuerySource({ ...trendsQueryDefault, trendsFilter: { display } })
+            builtInsightDataLogic.actions.loadDataSuccess({ results: [row] })
+            expect(builtInsightVizDataLogic.values.hasRenderableResults).toBe(expected)
+        })
     })
 
     describe('isSingleSeriesOutput', () => {
@@ -1211,6 +1240,31 @@ describe('insightVizDataLogic', () => {
             setFunnelVizType(funnelVizType)
 
             expect(builtInsightVizDataLogic.values.supportsCompare).toBe(expected)
+        })
+    })
+
+    describe('allEventNames', () => {
+        it('resolves action series once actionsModel mounts, without mounting it itself', async () => {
+            initKeaTests()
+            actionsModel.build()
+            const props = { dashboardItemId: Insight123 }
+            builtInsightDataLogic = insightDataLogic(props)
+            builtInsightVizDataLogic = insightVizDataLogic(props)
+            builtInsightDataLogic.mount()
+            builtInsightVizDataLogic.mount()
+
+            builtInsightVizDataLogic.actions.updateQuerySource({
+                ...trendsQueryDefault,
+                series: [{ kind: NodeKind.ActionsNode, id: 7 }],
+            } as TrendsQuery)
+
+            expect(actionsModel.isMounted()).toBe(false)
+            expect(builtInsightVizDataLogic.values.allEventNames).toEqual([])
+
+            actionsModel.mount()
+            await expectLogic(builtInsightVizDataLogic)
+                .toDispatchActions([actionsModel.actionTypes.loadActionsSuccess])
+                .toMatchValues({ allEventNames: ['$pageview', 'sign_up'] })
         })
     })
 })

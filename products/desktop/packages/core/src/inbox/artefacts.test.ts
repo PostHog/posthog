@@ -5,6 +5,7 @@ import type {
 import { describe, expect, it } from "vitest";
 import {
   buildReviewerOptions,
+  buildSuggestedReviewerItems,
   extractSuggestedReviewers,
   orderSuggestedReviewers,
   reviewerMatchesAvailable,
@@ -71,6 +72,64 @@ describe("artefacts", () => {
         },
       }),
     ).toBe("Ben W.");
+  });
+
+  it("groups repeated reviewer reasons within the same source category", () => {
+    const sharedReason = "Maintains the request execution parser.";
+    const reviewer = (
+      id: string,
+      sourceLabel: string,
+      sourceSkill: string | null,
+      explanation: string | null = sharedReason,
+    ): SuggestedReviewer =>
+      makeReviewer({
+        github_login: id,
+        github_name: id,
+        relevant_commits:
+          sourceLabel === "Code history"
+            ? [
+                {
+                  sha: "abc123f",
+                  url: "https://example.com/c/abc123f",
+                  reason: explanation ?? "",
+                },
+              ]
+            : [],
+        source_skill: sourceSkill,
+        source_label: sourceLabel,
+        explanation,
+      });
+
+    const items = buildSuggestedReviewerItems([
+      reviewer("avery", "Runtime ownership scout", "runtime-ownership"),
+      reviewer("jordan", "Code history", null),
+      reviewer("morgan", "Infrastructure scout", "infrastructure"),
+      reviewer("taylor", "Code history", null),
+      reviewer(
+        "rowan",
+        "Runtime ownership scout",
+        "runtime-ownership",
+        `${sharedReason} `,
+      ),
+      reviewer("casey", "Agent suggestion", null, null),
+    ]);
+
+    expect(items.map((item) => [item.kind, item.key])).toEqual([
+      [
+        "reason-group",
+        JSON.stringify(["reason-group", sharedReason, "scout", null]),
+      ],
+      [
+        "reason-group",
+        JSON.stringify(["reason-group", sharedReason, "other", "Code history"]),
+      ],
+      ["person", "rowan"],
+      ["person", "casey"],
+    ]);
+    expect(items[0]?.kind === "reason-group" && items[0].reviewers).toEqual([
+      expect.objectContaining({ github_login: "avery" }),
+      expect.objectContaining({ github_login: "morgan" }),
+    ]);
   });
 
   it("moves the current user to the front", () => {
@@ -173,7 +232,16 @@ describe("artefacts", () => {
           last_name: "",
         },
       }),
-      expected: [{ github_login: "ada" }],
+      expected: [{ user_uuid: "uuid-1" }],
+    },
+    {
+      name: "stored user uuid",
+      reviewer: makeReviewer({
+        github_login: "stale-login",
+        user_uuid: "uuid-stable",
+        user: null,
+      }),
+      expected: [{ user_uuid: "uuid-stable" }],
     },
     {
       name: "user uuid fallback",

@@ -3,9 +3,9 @@ import { useValues } from 'kea'
 
 import { LemonTag, Tooltip } from '@posthog/lemon-ui'
 
-import { EXPERIMENT_VARIANT_MULTIPLE } from 'scenes/experiments/constants'
 import { getVariantColor } from 'scenes/experiments/utils'
 
+import { EXPERIMENT_VARIANT_MULTIPLE } from 'products/experiments/frontend/constants'
 import { legacyExperimentLogic } from 'products/experiments/frontend/legacy'
 
 /**

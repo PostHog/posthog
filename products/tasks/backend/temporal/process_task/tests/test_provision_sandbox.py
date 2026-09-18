@@ -8,7 +8,7 @@ from django.test import override_settings
 
 from products.tasks.backend.constants import TASK_SIGNALS_CLONING_BLOBLESS_FEATURE_FLAG
 from products.tasks.backend.exceptions import SandboxNetworkPolicyError
-from products.tasks.backend.logic.services.sandbox import ExecutionResult, SandboxConfig
+from products.tasks.backend.logic.services.sandbox import ExecutionResult, SandboxConfig, needs_full_history
 from products.tasks.backend.models import Task
 from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import TaskProcessingContext
 from products.tasks.backend.temporal.process_task.activities.provision_sandbox import (
@@ -114,7 +114,10 @@ def test_build_sandbox_tags_drops_none_values():
     [
         (Task.OriginProduct.SIGNAL_REPORT, True, True),
         (Task.OriginProduct.SIGNAL_REPORT, False, False),
+        (Task.OriginProduct.SIGNALS_SCOUT, True, True),
+        (Task.OriginProduct.SIGNALS_SCOUT, False, False),
         (Task.OriginProduct.ERROR_TRACKING, True, False),
+        (Task.OriginProduct.USER_CREATED, True, False),
     ],
 )
 def test_blobless_clone_only_applies_to_enabled_signal_tasks(mocker, origin_product, flag_result, expected):
@@ -122,7 +125,7 @@ def test_blobless_clone_only_applies_to_enabled_signal_tasks(mocker, origin_prod
 
     assert _is_blobless_signals_clone_enabled(_context(origin_product=origin_product)) is expected
 
-    if origin_product == Task.OriginProduct.SIGNAL_REPORT:
+    if needs_full_history(origin_product):
         feature_enabled.assert_called_once_with(
             TASK_SIGNALS_CLONING_BLOBLESS_FEATURE_FLAG,
             distinct_id="distinct-id",
@@ -318,12 +321,12 @@ def test_build_environment_variables_injects_ai_gateway_pair(_api, _jwt, _git):
     "state, expected_resume_run_id, expected_idle",
     [
         ({}, None, None),
-        ({"handoff_resumed": True}, "run-456", None),
-        ({"handoff_resumed": True, "handoff_resume_idle": True}, "run-456", "1"),
-        ({"resume_from_run_id": "run-000", "handoff_resume_idle": True}, "run-000", None),
+        ({"same_run_resume": True}, "run-456", None),
+        ({"same_run_resume": True, "same_run_resume_idle": True}, "run-456", "1"),
+        ({"resume_from_run_id": "run-000", "same_run_resume_idle": True}, "run-000", None),
     ],
 )
-def test_build_environment_variables_marks_only_an_idle_handoff_as_idle(
+def test_build_environment_variables_marks_only_an_idle_same_run_resume_as_idle(
     _api, _jwt, _git, state, expected_resume_run_id, expected_idle
 ):
     env = _build_environment_variables(_context(state=state), MagicMock(), "", "access-token")

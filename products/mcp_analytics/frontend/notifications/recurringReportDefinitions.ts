@@ -13,6 +13,8 @@ export interface MCPRecurringReport {
      * $mcp_* properties explicitly so it queries the right ones rather than guessing.
      */
     prompt: string
+    /** What a delivery covers, in the reader's terms, one short line each. */
+    covers: string[]
 }
 
 export const MCP_RECURRING_REPORTS: MCPRecurringReport[] = [
@@ -22,9 +24,8 @@ export const MCP_RECURRING_REPORTS: MCPRecurringReport[] = [
         lead: 'Their goals in their own words, grouped and ranked, with the ones that keep failing called out.',
         frequency: 'weekly',
         title: 'MCP intent roundup',
-        // Reads $mcp_intent on tool calls rather than $mcp_missing_capability: that event has never
-        // been emitted by any project, while $mcp_intent is set on ~88% of calls. "Couldn't do it"
-        // is inferred from the error flag on the same call, which is a signal that actually exists.
+        // This report infers an unmet intent from the error flag on a tool call. Explicit
+        // $mcp_missing_capability reports stay in the Missing capabilities tab.
         prompt: [
             'Summarize what AI agents were trying to do with our MCP server this week,',
             'using the $mcp_intent property on $mcp_tool_call events.',
@@ -35,6 +36,12 @@ export const MCP_RECURRING_REPORTS: MCPRecurringReport[] = [
             'Call out intents that are new compared with previous weeks, and finish with the single',
             'change to our tools that would help the most agents.',
         ].join(' '),
+        covers: [
+            "Agent goals grouped and ranked by how often they came up, quoted in the agents' own words",
+            'The share of each goal that ended in a failed tool call',
+            'Goals that are new compared with previous weeks',
+            'One change to your tools that would help the most agents',
+        ],
     },
     {
         key: 'tool-health',
@@ -52,6 +59,12 @@ export const MCP_RECURRING_REPORTS: MCPRecurringReport[] = [
             'Highlight tools whose error rate or latency is clearly worse than the weeks before,',
             'and skip sections where nothing notable happened.',
         ].join(' '),
+        covers: [
+            'Total calls and calls per tool',
+            'Error rate, the most common error types and example messages',
+            'p95 latency per tool',
+            'Tools whose errors or latency got clearly worse than the weeks before',
+        ],
     },
 ]
 
