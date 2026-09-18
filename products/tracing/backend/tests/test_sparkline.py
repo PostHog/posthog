@@ -133,3 +133,12 @@ class TestTraceSpansSparkline(_TraceSpansTestBase):
 
         self.assertEqual(sum(r["count"] for r in self._sparkline(service_names=["multirootsvc"])), 2)
         self.assertEqual(sum(r["count"] for r in self._sparkline(service_names=["multirootsvc"], root_spans=True)), 1)
+
+    def test_inverted_date_range_is_a_bad_request(self):
+        # The bucket spine used to pass a negative count to ClickHouse numbers(), which 500s.
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/tracing/spans/sparkline/",
+            {"query": {"dateRange": {"date_from": DATE_TO, "date_to": DATE_FROM}}},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 400, response.content)

@@ -17,9 +17,13 @@ previously turned a typo'd window into stale data with no error.
 """
 
 import re
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 from dateutil import parser as dateutil_parser
 from rest_framework import serializers
+
+from posthog.utils import relative_date_parse
 
 # Friendly tracing window: an integer with a single short unit, e.g. "-30m", "90s", "-2w".
 # Case-insensitive; the leading minus is optional because windows are always in the past.
@@ -73,12 +77,34 @@ def normalize_tracing_window(value: str | None) -> str | None:
     )
 
 
-def normalize_tracing_date_range(raw: object, *, default_date_from: str = "-1h") -> dict:
+def _reject_inverted_range(date_from: str, date_to: str, timezone_info: ZoneInfo) -> None:
+    """Reject a window that ends before it starts.
+
+    An inverted window gives the sparkline a negative bucket count, which it passes to
+    ClickHouse ``numbers()``. That argument is a UInt64, so the query fails with a 500.
+    """
+    now = datetime.now(tz=timezone_info)
+    start = relative_date_parse(date_from, timezone_info, now=now)
+    end = relative_date_parse(date_to, timezone_info, now=now)
+    if start > end:
+        raise serializers.ValidationError(
+            f"Invalid date range: date_from {date_from!r} is after date_to {date_to!r}. "
+            "Set date_from to a time before date_to."
+        )
+
+
+def normalize_tracing_date_range(
+    raw: object, *, default_date_from: str = "-1h", timezone_info: ZoneInfo | None = None
+) -> dict:
     """Normalize a raw ``dateRange`` dict from request input.
 
     Falls back to ``{"date_from": default_date_from}`` when the input is missing or not
     a dict. ``date_from`` is normalized (defaulting when absent); ``date_to`` is
-    normalized when present and left out otherwise (meaning "now" downstream).
+    normalized when present and left out otherwise (meaning "now" downstream). Raises
+    ``rest_framework.serializers.ValidationError`` for a window that ends before it starts.
+
+    ``timezone_info`` is the team timezone, used to resolve the two bounds for that
+    comparison. It defaults to UTC.
     """
     if not isinstance(raw, dict) or not raw:
         return {"date_from": default_date_from}
@@ -90,4 +116,5 @@ def normalize_tracing_date_range(raw: object, *, default_date_from: str = "-1h")
         normalized.pop("date_to", None)
     else:
         normalized["date_to"] = date_to
+        _reject_inverted_range(normalized["date_from"], date_to, timezone_info or ZoneInfo("UTC"))
     return normalized
