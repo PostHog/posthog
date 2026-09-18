@@ -36,6 +36,11 @@ class _WithSqlstate(Exception):
         ),
         (OperationalError("connection failed: FATAL: password authentication failed for user"), False),
         (OperationalError("no such database"), False),
+        (OperationalError("[Errno 24] Too many open files"), True),
+        (OperationalError("[Errno 23] Too many open files in system"), True),
+        # An unresolvable host renders an errno the same way, and stays a persistent
+        # misconfiguration that must keep reaching error tracking.
+        (OperationalError("[Errno -2] Name or service not known"), False),
     ],
 )
 def test_is_transient_db_error_by_message(error: BaseException, expected: bool) -> None:

@@ -1,3 +1,5 @@
+import errno
+
 from django.db import InterfaceError, InternalError, OperationalError
 
 # Substrings identifying transient Postgres failures. pgbouncer kills queries that wait too long
@@ -50,6 +52,20 @@ _TRANSIENT_SQLSTATE_PREFIXES = ("57P",)
 _TRANSIENT_SQLSTATES = ("25006",)
 
 
+# EMFILE (this worker process's descriptor table is full) or ENFILE (the host's), as an `OSError`
+# renders them. A descriptor frees as soon as another connection in this worker closes, so the
+# activity's own retry resolves it. Matched on the rendered errno because no `errno` attribute
+# survives: psycopg re-raises the `OSError` as `OperationalError(str(error))` (see
+# `psycopg/_conninfo_attempts.py`), and Django wraps that message again.
+_FD_EXHAUSTION_MARKERS = (f"[Errno {errno.EMFILE}]", f"[Errno {errno.ENFILE}]")
+
+
+def is_out_of_file_descriptors_error(error: BaseException) -> bool:
+    """Whether `error` reports that this worker process, or its host, ran out of file descriptors."""
+    message = str(error)
+    return any(marker in message for marker in _FD_EXHAUSTION_MARKERS)
+
+
 def is_transient_db_error(error: BaseException) -> bool:
     if not isinstance(error, OperationalError | InterfaceError | InternalError):
         return False
@@ -57,6 +73,8 @@ def is_transient_db_error(error: BaseException) -> bool:
     if isinstance(sqlstate, str) and (
         sqlstate.startswith(_TRANSIENT_SQLSTATE_PREFIXES) or sqlstate in _TRANSIENT_SQLSTATES
     ):
+        return True
+    if is_out_of_file_descriptors_error(error):
         return True
     message = str(error)
     return any(marker in message for marker in _TRANSIENT_DB_ERROR_MARKERS)
