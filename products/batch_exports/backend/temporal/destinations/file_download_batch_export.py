@@ -183,20 +183,20 @@ FileDownloadIds = list[uuid.UUID]
 @activity.defn
 async def generate_file_downloads(inputs: GenerateFileDownloadsInputs) -> FileDownloadIds:
     """Generate file downloads for given keys."""
-    existing = [
-        file_download
-        async for file_download in BatchExportFileDownload.objects.filter(
-            team_id=inputs.team_id, key__in=inputs.keys
-        ).all()
-    ]
-    file_downloads = [file_download.id for file_download in existing]
-    keys = set(inputs.keys) - {file_download.key for file_download in existing}
-
-    if not keys:
-        # There is nothing to do, maybe we completed everything in a previous attempt.
-        return file_downloads
-
     async with Heartbeater():
+        existing = [
+            file_download
+            async for file_download in BatchExportFileDownload.objects.filter(
+                team_id=inputs.team_id, key__in=inputs.keys
+            ).all()
+        ]
+        file_downloads = [file_download.id for file_download in existing]
+        keys = set(inputs.keys) - {file_download.key for file_download in existing}
+
+        if not keys:
+            # There is nothing to do, maybe we completed everything in a previous attempt.
+            return file_downloads
+
         credentials = await _get_temporary_credentials_to_head_object(
             inputs.s3_bucket.name,
             f"batch-exports/{inputs.batch_export_id}/{inputs.batch_export_run_id}",
@@ -247,55 +247,103 @@ async def export_to_file_download_bucket_with_temporary_credentials(inputs: Expo
     After obtaining the credentials, we simply run the same function as an S3 batch
     export targeting our own file download bucket.
     """
-    prefix = FILE_DOWNLOAD_PREFIX.format(
-        batch_export_id=inputs.batch_export.batch_export_id, batch_export_run_id=inputs.batch_export.run_id
-    )
-    file_name_prefix = None
-    if inputs.batch_export.on_demand and (
-        inputs.batch_export.data_interval_start is None or inputs.batch_export.data_interval_end is None
-    ):
-        run_id = inputs.batch_export.run_id
-        if run_id is None:
-            raise MissingRequiredInputsError("An on-demand file download requires a run_id")
-        prefix = FILE_DOWNLOAD_UNBOUNDED_PREFIX.format(
-            batch_export_id=inputs.batch_export.batch_export_id, batch_export_run_id=run_id
-        )
-        run = await BatchExportRun.objects.aget(id=run_id, batch_export_on_demand__team_id=inputs.batch_export.team_id)
-        file_name_prefix = f"export-{run.created_at.astimezone(dt.UTC):%Y-%m-%dT%H-%M-%SZ}"
-
-    refresh_credentials = functools.partial(
-        _get_temporary_credentials_for_multipart_upload,
-        inputs.s3_bucket.name,
-        f"batch-exports/{inputs.batch_export.batch_export_id}/{inputs.batch_export.run_id}",
-        role_arn=inputs.aws_role_arn,
-    )
-
-    s3_insert_inputs = S3InsertInputs(
-        bucket_name=inputs.s3_bucket.name,
-        region=inputs.s3_bucket.region,
-        prefix=prefix,
-        compression=inputs.compression,
-        file_format=inputs.file_format,
-        max_file_size_mb=inputs.max_file_size_mb,
-        data_interval_start=inputs.batch_export.data_interval_start,
-        data_interval_end=inputs.batch_export.data_interval_end,
-        exclude_events=inputs.batch_export.exclude_events,
-        include_events=inputs.batch_export.include_events,
-        team_id=inputs.batch_export.team_id,
-        run_id=inputs.batch_export.run_id,
-        stage_folder=inputs.batch_export.stage_folder,
-        batch_export_model=inputs.batch_export.batch_export_model,
-        batch_export_id=inputs.batch_export.batch_export_id,
-        destination_default_fields=inputs.batch_export.destination_default_fields,
-        # These files live in a PostHog bucket, expire on a lifecycle rule, and are reached through
-        # a key stored on `BatchExportFileDownload`. No customer pipeline matches on their names, so
-        # there is nothing to grandfather and they always use the standard extension.
-        legacy_parquet_extension=False,
-        on_demand=inputs.batch_export.on_demand,
-    )
-    # Minting the first credentials calls AWS STS, and this activity heartbeats every 10 seconds,
-    # so the call runs under the heartbeater rather than ahead of it.
     async with Heartbeater():
+        prefix = FILE_DOWNLOAD_PREFIX.format(
+            batch_export_id=inputs.batch_export.batch_export_id, batch_export_run_id=inputs.batch_export.run_id
+        )
+        file_name_prefix = None
+        if inputs.batch_export.on_demand and (
+            inputs.batch_export.data_interval_start is None or inputs.batch_export.data_interval_end is None
+        ):
+            run_id = inputs.batch_export.run_id
+            if run_id is None:
+                raise MissingRequiredInputsError("An on-demand file download requires a run_id")
+            prefix = FILE_DOWNLOAD_UNBOUNDED_PREFIX.format(
+                batch_export_id=inputs.batch_export.batch_export_id, batch_export_run_id=run_id
+            )
+            run = await BatchExportRun.objects.aget(
+                id=run_id, batch_export_on_demand__team_id=inputs.batch_export.team_id
+            )
+            file_name_prefix = f"export-{run.created_at.astimezone(dt.UTC):%Y-%m-%dT%H-%M-%SZ}"
+
+        refresh_credentials = functools.partial(
+            _get_temporary_credentials_for_multipart_upload,
+            inputs.s3_bucket.name,
+            f"batch-exports/{inputs.batch_export.batch_export_id}/{inputs.batch_export.run_id}",
+            role_arn=inputs.aws_role_arn,
+        )
+
+        s3_insert_inputs = S3InsertInputs(
+            bucket_name=inputs.s3_bucket.name,
+            region=inputs.s3_bucket.region,
+            prefix=prefix,
+            compression=inputs.compression,
+            file_format=inputs.file_format,
+            max_file_size_mb=inputs.max_file_size_mb,
+            data_interval_start=inputs.batch_export.data_interval_start,
+            data_interval_end=inputs.batch_export.data_interval_end,
+            exclude_events=inputs.batch_export.exclude_events,
+            include_events=inputs.batch_export.include_events,
+            team_id=inputs.batch_export.team_id,
+            run_id=inputs.batch_export.run_id,
+            stage_folder=inputs.batch_export.stage_folder,
+            batch_export_model=inputs.batch_export.batch_export_model,
+            batch_export_id=inputs.batch_export.batch_export_id,
+            destination_default_fields=inputs.batch_export.destination_default_fields,
+            # These files live in a PostHog bucket, expire on a lifecycle rule, and are reached through
+            # a key stored on `BatchExportFileDownload`. No customer pipeline matches on their names, so
+            # there is nothing to grandfather and they always use the standard extension.
+            legacy_parquet_extension=False,
+            on_demand=inputs.batch_export.on_demand,
+        )
+        # Minting the first credentials calls AWS STS, and this activity heartbeats every 10 seconds,
+        # so the call runs under the heartbeater rather than ahead of it.
+        prefix = FILE_DOWNLOAD_PREFIX.format(
+            batch_export_id=inputs.batch_export.batch_export_id, batch_export_run_id=inputs.batch_export.run_id
+        )
+        file_name_prefix = None
+        if inputs.batch_export.on_demand and (
+            inputs.batch_export.data_interval_start is None or inputs.batch_export.data_interval_end is None
+        ):
+            run_id = inputs.batch_export.run_id
+            if run_id is None:
+                raise MissingRequiredInputsError("An on-demand file download requires a run_id")
+            prefix = FILE_DOWNLOAD_UNBOUNDED_PREFIX.format(
+                batch_export_id=inputs.batch_export.batch_export_id, batch_export_run_id=run_id
+            )
+            run = await BatchExportRun.objects.aget(
+                id=run_id, batch_export_on_demand__team_id=inputs.batch_export.team_id
+            )
+            file_name_prefix = f"export-{run.created_at.astimezone(dt.UTC):%Y-%m-%dT%H-%M-%SZ}"
+
+        refresh_credentials = functools.partial(
+            _get_temporary_credentials_for_multipart_upload,
+            inputs.s3_bucket.name,
+            f"batch-exports/{inputs.batch_export.batch_export_id}/{inputs.batch_export.run_id}",
+            role_arn=inputs.aws_role_arn,
+        )
+
+        s3_insert_inputs = S3InsertInputs(
+            bucket_name=inputs.s3_bucket.name,
+            region=inputs.s3_bucket.region,
+            prefix=prefix,
+            compression=inputs.compression,
+            file_format=inputs.file_format,
+            max_file_size_mb=inputs.max_file_size_mb,
+            data_interval_start=inputs.batch_export.data_interval_start,
+            data_interval_end=inputs.batch_export.data_interval_end,
+            exclude_events=inputs.batch_export.exclude_events,
+            include_events=inputs.batch_export.include_events,
+            team_id=inputs.batch_export.team_id,
+            run_id=inputs.batch_export.run_id,
+            stage_folder=inputs.batch_export.stage_folder,
+            batch_export_model=inputs.batch_export.batch_export_model,
+            batch_export_id=inputs.batch_export.batch_export_id,
+            destination_default_fields=inputs.batch_export.destination_default_fields,
+            on_demand=inputs.batch_export.on_demand,
+        )
+        # Minting the first credentials calls AWS STS, and this activity heartbeats every 10 seconds,
+        # so the call runs under the heartbeater rather than ahead of it.
         resolved_credentials = ResolvedS3Credentials(
             credentials=await refresh_credentials(),
             refresh_using=refresh_credentials,
