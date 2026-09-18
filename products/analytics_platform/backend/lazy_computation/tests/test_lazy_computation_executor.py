@@ -2350,6 +2350,8 @@ class TestComputationExecutorExecute(BaseTest):
 
         assert result.ready is True
         assert fresh_job.id in result.job_ids
+        # Coverage pre-existed, so a quorum-skipping caller may read it in-request.
+        assert result.freshly_built is False
 
     def test_returned_jobs_cover_range_when_overlap_filter_evicts_broad_job(self):
         query_info, query_hash = self._make_query_info()
@@ -3529,6 +3531,8 @@ class TestInsertSettingsAppliedToInserts(BaseTest):
         assert len(insert_calls) == 1  # one missing range -> one INSERT
         assert insert_calls[0].kwargs["settings"] == expected_settings
         assert insert_calls[0].kwargs["settings"]["insert_quorum"] == expected_quorum
+        # The coverage landed in this call, so quorum-skipping callers must not read it yet.
+        assert result.freshly_built is True
 
     def test_ast_insert_path_passes_insert_settings_to_clickhouse(self):
         job = PreaggregationJob.objects.create(

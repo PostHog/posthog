@@ -595,6 +595,13 @@ class LazyComputationResult:
     # executor's serve-stale grace instead of recomputing inline. The data is complete
     # but up to (TTL + grace) old; the caller decides whether to surface that.
     stale: bool = False
+    # True when part of the coverage landed during this call (built inline, or waited on
+    # another executor's build). Callers that skipped the replica quorum
+    # (read_after_write=False) must not read these jobs in the same request: the parts
+    # may not have replicated to the read replica yet, and a wrong result read now would
+    # be cached. Serving live once and letting the next request use the jobs is the
+    # intended reaction.
+    freshly_built: bool = False
 
 
 def compute_query_hash(query_info: LazyComputationQuery) -> str:
@@ -1431,7 +1438,11 @@ class LazyComputationExecutor:
         final_jobs = find_existing_jobs(team, query_hash, start, end)
         final_fresh = self._filter_by_freshness(final_jobs)
         final_ready = filter_overlapping_jobs([j for j in final_fresh if j.status == PreaggregationJob.Status.READY])
-        result = LazyComputationResult(ready=True, job_ids=[j.id for j in final_ready])
+        result = LazyComputationResult(
+            ready=True,
+            job_ids=[j.id for j in final_ready],
+            freshly_built=jobs_created > 0 or bool(waited_job_ids),
+        )
         _log_execution("success", result)
         return result
 
