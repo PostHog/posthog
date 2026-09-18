@@ -591,7 +591,11 @@ export default function ReportDetailScreen() {
         )}
 
         {/* Activity log */}
-        <ReportActivity reportId={report.id} artefacts={artefacts} />
+        <ReportActivity
+          reportId={report.id}
+          artefacts={artefacts}
+          collapsedNoteCount={report.collapsed_note_count}
+        />
 
         {/* Usefulness feedback */}
         <ReportFeedbackFooter report={report} />
