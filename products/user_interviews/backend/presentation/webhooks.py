@@ -4,19 +4,20 @@ Two surfaces live here, both keyed on a SharingConfiguration access token:
 
 * ``start_call`` — called by the public interview page when the recipient clicks
   Start. Creates one Vapi web call server-side and returns only its join payload.
-* ``vapi_webhook`` — called by Vapi at end-of-call. Persists a UserInterview row
-  attributed to the topic creator. Signature-verified; idempotent on ``call.id``.
+* ``vapi_webhook`` — the endpoint Vapi calls during and after a call. Verification and
+  fan-out are the ingress vapi incarnation's, and the consumer it dispatches to lives in
+  ``backend/webhook_consumers.py``.
 """
 
-import re
-import hmac
 import json
+import math
 import string
 import hashlib
 from typing import Any
 
 from django.conf import settings
-from django.db import transaction
+from django.http import HttpRequest, HttpResponse
+from django.views.decorators.csrf import csrf_exempt
 
 import requests
 import structlog
@@ -29,12 +30,14 @@ from rest_framework.throttling import SimpleRateThrottle
 
 from posthog.constants import AvailableFeature
 from posthog.egress.vapi import vapi_request
+from posthog.ingress.vapi.provider import build_vapi_provider
+from posthog.ingress.views import build_webhook_view
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.team import Team
 from posthog.rate_limit import IPThrottle
 from posthog.storage.llm_prompt_cache import get_prompt_by_name_from_cache
 
-from ..facade.api import derive_auto_classifications, is_shared_interviewee_context, valid_distinct_id, valid_session_id
+from ..facade.api import is_shared_interviewee_context, valid_distinct_id, valid_session_id
 from ..logic import (
     RESPONDENT_KEY_MAX_CHARS,
     RESPONDENT_NAME_MAX_CHARS,
@@ -42,8 +45,6 @@ from ..logic import (
     resolve_share,
     shared_interviewee_identifier,
 )
-from ..models import UserInterview, UserInterviewClassification
-from ..vapi_events import capture_user_interview_event, collapse_abandoned_partials, emit_interview_embeddings
 
 logger = structlog.get_logger(__name__)
 
@@ -145,11 +146,6 @@ class InterviewStartCallRespondentThrottle(_RateLimitMetricsMixin):
         else:
             ident = self.get_ident(request)
         return self.cache_format % {"scope": self.scope, "ident": ident}
-
-
-# Vapi's HMAC-SHA256 hex digest is exactly 64 lowercase hex chars; reject other shapes
-# pre-HMAC so casual probes can't drive log/CPU load.
-_VAPI_SIGNATURE_RE = re.compile(r"^[0-9a-f]{64}$")
 
 
 def _public_sharing_disabled_for_org(sharing_config: SharingConfiguration) -> bool:
@@ -419,219 +415,22 @@ def start_call(request: Request, access_token: str) -> Response:
     return Response({"web_call": web_call})
 
 
-@api_view(["POST"])
-@authentication_classes([])
-@permission_classes([AllowAny])
-@throttle_classes([VapiWebhookIPThrottle])
-def vapi_webhook(request: Request) -> Response:
-    """Receive a Vapi ``end-of-call-report`` and persist it as a UserInterview.
+# Built once per process: the provider holds a secret getter, and reads the secret per request.
+_vapi_ingress_view = build_webhook_view(build_vapi_provider())
 
-    Fail-closed: if ``VAPI_WEBHOOK_SECRET`` is not configured we refuse to accept any
-    request — treating an unconfigured deployment as inert rather than insecure.
-    With the secret set, the request body is HMAC-SHA256 verified.
 
-    Idempotent: Vapi retries on 5xx and transient errors, so we de-duplicate by
-    ``call.id`` (stored in ``call_metadata.id``). A repeat delivery returns the
-    existing interview's id instead of creating a second row.
+@csrf_exempt
+def vapi_webhook(request: HttpRequest) -> HttpResponse:
+    """The ingress Vapi endpoint, behind the per-IP cap this endpoint has always carried.
+
+    ingress has no throttle lane, and the endpoint is public and unauthenticated, so the cap
+    stays in front of the view rather than being dropped on the way in.
     """
-    if not settings.VAPI_WEBHOOK_SECRET:
-        logger.warning("user_interviews_vapi_webhook_secret_missing")
-        return Response(
-            {"error": "Vapi webhook secret is not configured on this PostHog instance."},
-            status=status.HTTP_503_SERVICE_UNAVAILABLE,
-        )
-    provided = request.headers.get("X-Vapi-Signature")
-    # Pre-HMAC shape gate: Vapi's HMAC-SHA256 hex digest is exactly 64 lowercase hex chars.
-    # Anything else can't possibly be a valid signature, so reject before we compute the
-    # HMAC over the body — saves CPU and stops casual probes from filling diagnostic logs.
-    if not provided or not _VAPI_SIGNATURE_RE.match(provided):
-        return Response({"error": "missing or malformed signature"}, status=status.HTTP_401_UNAUTHORIZED)
-    expected = hmac.new(settings.VAPI_WEBHOOK_SECRET.encode(), request.body, hashlib.sha256).hexdigest()
-    logger.info(
-        "user_interviews_vapi_webhook_received",
-        header_keys=sorted(request.headers.keys()),
-        has_provided_signature=bool(provided),
-        body_bytes=len(request.body),
-    )
-    if not (provided and expected and hmac.compare_digest(provided, expected)):
-        # TODO: REMOVE — temporary diagnostic dump of the raw body and the
-        # provided signature so we can locally reproduce Vapi's HMAC and find
-        # the byte-level mismatch that's causing 100% signature_failed. Safe
-        # only because user_interviews is not yet shipped to real users.
-        logger.warning(
-            "user_interviews_vapi_webhook_signature_failed",
-            has_provided_signature=bool(provided),
-            expected_prefix=expected[:8] if expected else None,
-            provided_prefix=provided[:8] if provided else None,
-            provided_length=len(provided) if provided else 0,
-            body_bytes=len(request.body),
-            provided_signature=provided,
-            raw_body=request.body.decode("utf-8", errors="replace"),
-        )
-        return Response({"error": "invalid signature"}, status=status.HTTP_401_UNAUTHORIZED)
-
-    payload = request.data if isinstance(request.data, dict) else {}
-    message: dict[str, Any] = payload.get("message", {})
-    message_type = message.get("type")
-    call: dict[str, Any] = message.get("call", {}) or {}
-    # Vapi can surface our `assistant_overrides.metadata` (set in `start_call`) in two
-    # places on the Call object: `call.metadata` for some message types, and nested under
-    # `call.assistantOverrides.metadata` on others. Empirically end-of-call-report comes
-    # through with the nested form, so try both.
-    overrides_metadata: dict[str, Any] = (call.get("assistantOverrides") or {}).get("metadata") or {}
-    top_metadata: dict[str, Any] = call.get("metadata") or {}
-    access_token = (
-        top_metadata.get("sharing_access_token")
-        or top_metadata.get("access_token")
-        or overrides_metadata.get("sharing_access_token")
-        or overrides_metadata.get("access_token")
-    )
-    # Shared-link respondent fields (set in start_call's metadata, echoed back by Vapi). Merge with
-    # top-level precedence, mirroring the access_token resolution above.
-    merged_metadata: dict[str, Any] = {**overrides_metadata, **top_metadata}
-    call_id = call.get("id")
-
-    if message_type == "status-update":
-        # Lifecycle ping. We only act on `in-progress` (call started) — the `ended` status
-        # is followed by a separate `end-of-call-report` with the full transcript, so we
-        # capture the ended event from that branch where we already have the interview row.
-        call_status = message.get("status")
-        if call_status == "in-progress" and access_token:
-            sharing_config = resolve_share(access_token)
-            if sharing_config is not None and sharing_config.interviewee_context is not None:
-                capture_user_interview_event(
-                    "user_interview_conversation_started",
-                    sharing_config=sharing_config,
-                    call_id=call_id,
-                    session_id=valid_session_id(merged_metadata.get("session_id")),
-                )
-        logger.info(
-            "user_interviews_vapi_webhook_status_update",
-            call_status=call_status,
-            call_id=call_id,
-        )
-        return Response({"status": "ok"})
-
-    if message_type != "end-of-call-report":
-        # Other event types (transcripts mid-call, speech-update, etc.) shouldn't reach us —
-        # start_call's `serverMessages` override scopes Vapi to status-update + end-of-call-report.
-        # Anything else here means the assistant config drifted; log it so we notice.
-        logger.info(
-            "user_interviews_vapi_webhook_ignored_message_type",
-            message_type=message_type,
-        )
-        return Response({"status": "ignored"})
-
-    if not access_token:
-        logger.warning(
-            "user_interviews_vapi_webhook_missing_access_token",
-            call_id=call_id,
-        )
-        return Response(
-            {"error": "missing sharing_access_token in call.metadata"},
-            status=status.HTTP_400_BAD_REQUEST,
-        )
-
-    sharing_config = resolve_share(access_token)
-    if sharing_config is None:
-        logger.warning(
-            "user_interviews_vapi_webhook_unknown_access_token",
-            call_id=call_id,
-        )
-        return Response({"error": "unknown access_token"}, status=status.HTTP_404_NOT_FOUND)
-
-    interviewee_context = sharing_config.interviewee_context
-    if interviewee_context is None:
-        logger.warning(
-            "user_interviews_vapi_webhook_wrong_share_type",
-            team_id=sharing_config.team_id,
-            call_id=call_id,
-        )
-        return Response(
-            {"error": "access_token does not belong to a user interview share"},
-            status=status.HTTP_400_BAD_REQUEST,
-        )
-
-    if call_id:
-        existing = UserInterview.objects.filter(team=sharing_config.team, call_metadata__id=call_id).first()
-        if existing is not None:
-            logger.info(
-                "user_interviews_vapi_webhook_duplicate",
-                team_id=sharing_config.team_id,
-                interview_id=str(existing.id),
-                call_id=call_id,
-            )
-            return Response({"status": "duplicate", "interview_id": str(existing.id)}, status=status.HTTP_200_OK)
-
-    recording_url = (message.get("recording") or {}).get("url", "") or message.get("recordingUrl", "") or ""
-    transcript = message.get("transcript", "") or ""
-    classifications = derive_auto_classifications(transcript)
-    topic = interviewee_context.topic
-
-    if is_shared_interviewee_context(interviewee_context.interviewee_identifier):
-        respondent_name = clean_field(merged_metadata.get("respondent_name"), RESPONDENT_NAME_MAX_CHARS)
-        respondent_key = clean_field(merged_metadata.get("respondent_key"), RESPONDENT_KEY_MAX_CHARS)
-        # Recompute the identifier from respondent_key rather than trusting the echoed metadata, so it
-        # is always a namespaced shared marker and can never be steered onto a targeted invitee.
-        interviewee_identifier = shared_interviewee_identifier(respondent_key)
-        interviewee_emails = []
-        # Best-effort, untrusted person linkage. Re-validated here (defense in depth) and stored in its
-        # own column — never as the interviewee_identifier, so it can't forge attribution.
-        distinct_id = valid_distinct_id(merged_metadata.get("distinct_id"))
-        # session_id isn't persisted — it rides on the lifecycle event below. Re-validated here
-        # (defense in depth) so only a well-formed UUIDv7 reaches the event.
-        session_id = valid_session_id(merged_metadata.get("session_id"))
-    else:
-        interviewee_identifier = interviewee_context.interviewee_identifier
-        interviewee_emails = [interviewee_identifier] if "@" in interviewee_identifier else []
-        respondent_name = respondent_key = ""
-        distinct_id = ""
-        session_id = ""
-
-    with transaction.atomic():
-        interview = UserInterview.objects.create(
-            team=sharing_config.team,
-            topic=topic,
-            interviewee_identifier=interviewee_identifier,
-            interviewee_emails=interviewee_emails,
-            respondent_name=respondent_name,
-            respondent_key=respondent_key,
-            distinct_id=distinct_id,
-            transcript=transcript,
-            summary=message.get("summary", "") or "",
-            recording_url=recording_url,
-            call_metadata=call,
-            created_by=topic.created_by,
-            classifications=classifications,
-        )
-        # Collapse the abandoned partial an accidental refresh leaves behind: when a shared-link
-        # respondent comes back (same respondent_key) and finishes, drop their earlier abandoned
-        # rows so the topic shows one response per respondent instead of a junk trail.
-        if respondent_key and UserInterviewClassification.ABANDONED not in classifications:
-            collapse_abandoned_partials(
-                team=sharing_config.team,
-                topic=topic,
-                respondent_key=respondent_key,
-                keep_pk=interview.pk,
-            )
-        transaction.on_commit(lambda: emit_interview_embeddings(interview, topic))
-
-    capture_user_interview_event(
-        "user_interview_conversation_ended",
-        sharing_config=sharing_config,
-        call_id=call_id,
-        session_id=session_id,
-        extra_properties={
-            "interview_id": str(interview.id),
-            "had_transcript": bool(interview.transcript),
-            "had_summary": bool(interview.summary),
-        },
-    )
-
-    logger.info(
-        "user_interviews_vapi_webhook_stored",
-        team_id=sharing_config.team_id,
-        topic_id=str(topic.id),
-        interview_id=str(interview.id),
-    )
-    return Response({"status": "created", "interview_id": str(interview.id)}, status=status.HTTP_201_CREATED)
+    throttle = VapiWebhookIPThrottle()
+    if not throttle.allow_request(Request(request), None):
+        throttled = HttpResponse(status=status.HTTP_429_TOO_MANY_REQUESTS)
+        wait = throttle.wait()
+        if wait:
+            throttled["Retry-After"] = str(math.ceil(wait))
+        return throttled
+    return _vapi_ingress_view(request)

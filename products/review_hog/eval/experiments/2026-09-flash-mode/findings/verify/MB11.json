@@ -1,0 +1,27 @@
+{
+    "letter": "MB",
+    "id": "MB11",
+    "cluster": 9,
+    "is_real": false,
+    "severity": null,
+    "votes": [
+        {
+            "is_real": false,
+            "severity": null,
+            "evidence": "/tmp/frozen-75215/products/stamphog/backend/tasks/tasks.py:1125-1128,1154-1159 intentionally fetches the current GitHub head before deduplication: an unchanged TaskRun PR URL can refer to new commits whose synchronize delivery was lost. Its same-head check at 1202-1221 suppresses another review/sandbox, while tests/test_tasks.py:974-1020 explicitly verifies both a completed-head no-op and a missed-webhook new-head review. Caller tracing narrows the claimed volume: products/review_hog/backend/receivers.py:82-105 ignores creation, state/status-only declared saves, failed/cancelled runs, and non-implementation tasks; lines 126-138 also require a PR URL and reviewer opt-in. The tasks PATCH path tracks actual submitted fields and saves only those at products/tasks/backend/facade/api.py:2038-2058,2074-2075. The GitHub output writer is idempotent and does not save an already-present field at products/tasks/backend/webhooks.py:276-292.",
+            "refutation": "I tried to find a caller that writes output on every streamed event or repeated webhook, making the pre-dedupe fetch a demonstrated load defect. Ordinary state/status PATCHes are excluded by update_fields, and repeated PR webhook writes return without saving. Explicit repeated output writes can indeed produce one additional current-head fetch each, but the claim supplies no reachable high-frequency producer, exhausted quota, or other concrete user-facing failure. The fetch has a tested correctness/recovery purpose and same-head work is already bounded to a fetch plus database checks. A short-lived coalescing key is an optional optimization, not an established defect on this source."
+        },
+        {
+            "is_real": false,
+            "severity": null,
+            "evidence": "products/review_hog/backend/receivers.py:82-105 filters out creation, declared saves without output, failed/cancelled runs, and nonimplementation tasks; :126 additionally requires an opted-in reviewer and PR URL. products/stamphog/backend/tasks/tasks.py:1140-1153 rejects unconfigured repositories before fetching GitHub. Eligible refires intentionally fetch the current mutable head (:1125-1128,1155-1159), then :1202-1221 prevents a second review for a handled head while allowing a stranded queued run to restart. test_tasks.py:974-1020 covers handled-head no-op, failed/queued recovery, and review of a new head missed by the webhook.",
+            "refutation": "I looked for an accidental high-frequency trigger or duplicated sandbox creation rather than assuming all TaskRun writes are output saves. The receiver explicitly filters status/state-only persistence, with a test at test_inbox_trigger.py:179-191. The remaining one-fetch cost is intentional because unchanged PR URLs can point to new commits and refires repair missed synchronize events. A short coalescing window plus durable reconciliation might optimize this cost, but the finding identifies no actual save storm, request volume, rate-limit incident, or loop proving a shipping performance defect. Its proposal is optional workload-dependent optimization; the current guarded behavior and correctness tests do not establish the reported severity."
+        },
+        {
+            "is_real": false,
+            "severity": null,
+            "evidence": "The repeated fetch exists at products/stamphog/backend/tasks/tasks.py:1155-1159, but it resolves the current GitHub head before the recovery-aware deduplication at :1202-1221. A handled head is a no-op, a stranded QUEUED run is restarted, and failed/changed-head cases can receive a new review; tests/test_tasks.py:974-1001 covers those distinct cases. The hot TaskRun status/state paths are filtered out by products/review_hog/backend/receivers.py:85-89, and the ordinary workflow status writer explicitly omits output at products/tasks/backend/temporal/process_task/activities/update_task_run_status.py:69. The receiver further restricts dispatch to non-internal signal implementations and opted-in assigned reviewers at receivers.py:98-126. No concrete high-frequency eligible output producer or resulting rate-limit/worker failure is demonstrated.",
+            "refutation": "I first checked whether the alleged many jobs arise from normal frequent TaskRun saves and whether repeated URLs imply redundant work. Status/state-only saves do not publish, and an unchanged URL cannot establish an unchanged head: a later output save is deliberately a backstop for a missed synchronize or failed review. Same-head attempts avoid the expensive sandbox work after one freshness fetch. A short coalescer plus reconciliation could be a reasonable optimization, but the finding provides only potential pressure, not a production workload or correctness/performance failure showing that this bounded recovery check is defective. I therefore reject the issue as speculative load optimization rather than a shipping regression."
+        }
+    ]
+}

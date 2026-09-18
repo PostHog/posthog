@@ -112,6 +112,7 @@ export enum NodeKind {
     LogAttributesQuery = 'LogAttributesQuery',
     LogValuesQuery = 'LogValuesQuery',
     MetricsQuery = 'MetricsQuery',
+    MetricsHistogramQuery = 'MetricsHistogramQuery',
     TraceSpansQuery = 'TraceSpansQuery',
     TraceSpansAggregationQuery = 'TraceSpansAggregationQuery',
     TraceSpansTreeQuery = 'TraceSpansTreeQuery',
@@ -169,6 +170,7 @@ export enum NodeKind {
     ExperimentTrendsQuery = 'ExperimentTrendsQuery',
     ExperimentFunnelsQuery = 'ExperimentFunnelsQuery',
     ExperimentDataWarehouseNode = 'ExperimentDataWarehouseNode',
+    ExperimentExposureNode = 'ExperimentExposureNode',
 
     // Database metadata
     DatabaseSchemaQuery = 'DatabaseSchemaQuery',
@@ -264,6 +266,7 @@ export type AnyDataNode =
     | LogAttributesQuery
     | LogValuesQuery
     | MetricsQuery
+    | MetricsHistogramQuery
     | TraceSpansQuery
     | TraceSpansAggregationQuery
     | TraceSpansTreeQuery
@@ -388,6 +391,7 @@ export type QuerySchema =
 
     // Metrics
     | MetricsQuery
+    | MetricsHistogramQuery
 
     // Tracing
     | TraceSpansQuery
@@ -1947,7 +1951,10 @@ export interface TrendsQuery extends InsightsQueryBase<TrendsQueryResponse> {
      * @default day
      */
     interval?: IntervalType
-    /** Events and actions to include */
+    /**
+     * Events and actions to include
+     * @maxItems 200
+     */
     series: TrendsQuerySeriesNode[]
     /** Properties specific to the trends insight */
     trendsFilter?: TrendsFilter
@@ -2261,6 +2268,8 @@ export type PathsFilter = {
     minEdgeWeight?: PathsFilterLegacy['min_edge_weight']
     maxEdgeWeight?: PathsFilterLegacy['max_edge_weight']
     showFullUrls?: boolean
+    /** Remove the query string from page view URLs, so pages that differ only in query parameters become one path item */
+    stripQueryString?: boolean
     /** Relevant only within actors query */
     pathStartKey?: string
     /** Relevant only within actors query */
@@ -2550,7 +2559,10 @@ export interface StickinessQuery extends Omit<
      * How many intervals comprise a period. Only used for cohorts, otherwise default 1.
      */
     intervalCount?: positive_integer
-    /** Events and actions to include */
+    /**
+     * Events and actions to include
+     * @maxItems 200
+     */
     series: StickinessQuerySeriesNode[]
     /** Properties specific to the stickiness insight */
     stickinessFilter?: StickinessFilter
@@ -4754,6 +4766,33 @@ export interface MetricsQueryResponse extends AnalyticsQueryResponseBase {
 }
 export type CachedMetricsQueryResponse = CachedQueryResponse<MetricsQueryResponse>
 
+/** Histogram bucket counts per time bucket, for a latency-over-time heatmap. A separate node
+ * from `MetricsQuery` because the response is a grid, not series — a display type must not
+ * change what the runner reads (the cache key excludes display). */
+export interface MetricsHistogramQuery extends DataNode<MetricsHistogramQueryResponse> {
+    kind: NodeKind.MetricsHistogramQuery
+    metricName: string
+    filters?: MetricsQueryFilter[]
+    /** Defaults to the last 24 hours when omitted; dashboard date filters override it */
+    dateRange?: DateRange
+    /** Bucket size; auto-picked from the range when omitted */
+    interval?: string
+    /** UCUM unit for the y-axis bounds, e.g. "s", "ms". Presentation only. */
+    unit?: string
+}
+
+export interface MetricsHistogramQueryResponse extends AnalyticsQueryResponseBase {
+    /** The grid lives in `times`/`bounds`/`counts`; the base `results` array is unused and the
+     * runner returns it as null. */
+    /** Bucket start per column (x axis), ISO 8601, ascending. */
+    times: string[]
+    /** Upper bound per row (y axis), ascending. */
+    bounds: number[]
+    /** Observation count per cell: counts[row][column], row = bound, column = time. */
+    counts: number[][]
+}
+export type CachedMetricsHistogramQueryResponse = CachedQueryResponse<MetricsHistogramQueryResponse>
+
 /** How a metrics result is charted. `stat` is a single headline value plus sparkline, not a time series. */
 export type MetricsDisplayType = 'line' | 'area' | 'bar' | 'stat' | 'gauge' | 'bargauge' | 'table' | 'heatmap'
 
@@ -5705,6 +5744,27 @@ export type ExperimentFunnelMetricStepUnion = EventsNode | ActionsNode | Experim
 
 export type ExperimentFunnelMetricStep = ExperimentFunnelMetricStepUnion
 
+/** Sentinel start source for retention metrics. It carries no event of its own:
+ *  at query time it resolves to the experiment's exposure, so one shared metric
+ *  anchors correctly on any experiment regardless of that experiment's exposure event. */
+export interface ExperimentExposureNode extends Node {
+    kind: NodeKind.ExperimentExposureNode
+}
+
+export const isExperimentExposureNode = (node: { kind: NodeKind }): node is ExperimentExposureNode =>
+    node.kind === NodeKind.ExperimentExposureNode
+
+/**
+ * @discriminator kind
+ */
+export type ExperimentRetentionStartUnion =
+    | EventsNode
+    | ActionsNode
+    | ExperimentDataWarehouseNode
+    | ExperimentExposureNode
+
+export type ExperimentRetentionStart = ExperimentRetentionStartUnion
+
 export type ExperimentMeanMetric = ExperimentMetricBaseProperties &
     ExperimentMetricOutlierHandling & {
         metric_type: ExperimentMetricType.MEAN
@@ -5746,8 +5806,9 @@ export const isExperimentRatioMetric = (metric: ExperimentMetric): metric is Exp
 
 export type ExperimentRetentionMetric = ExperimentMetricBaseProperties & {
     metric_type: ExperimentMetricType.RETENTION
-    // Event that defines the start of the retention window
-    start_event: ExperimentMetricSource
+    // Event that defines the start of the retention window. An ExperimentExposureNode
+    // start resolves to the experiment's own exposure event at query time.
+    start_event: ExperimentRetentionStart
     // Event that defines the completion of the retention window
     completion_event: ExperimentMetricSource
 
@@ -5757,7 +5818,8 @@ export type ExperimentRetentionMetric = ExperimentMetricBaseProperties & {
     retention_window_end: integer
     retention_window_unit: FunnelConversionWindowTimeUnit
 
-    // How to handle the start of the retention window
+    // How to handle the start of the retention window. Ignored for an
+    // ExperimentExposureNode start, which always anchors on the first exposure.
     start_handling: 'first_seen' | 'last_seen'
 }
 

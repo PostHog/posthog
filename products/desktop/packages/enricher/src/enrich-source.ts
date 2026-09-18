@@ -6,6 +6,7 @@ import type { LocalWrapper, ParseContext } from "./types.js";
 interface EnrichSourceApiConfig {
   apiKey: string;
   host: string;
+  publicHost?: string;
   projectId: number;
   /** Timeout in ms for each PostHog API request (default: 5000). */
   timeoutMs?: number;
@@ -152,6 +153,7 @@ export async function enrichSource({
     const enriched = await parsed.enrichFromApi({
       apiKey: apiConfig.apiKey,
       host: apiConfig.host,
+      publicHost: apiConfig.publicHost,
       projectId: apiConfig.projectId,
       timeoutMs: apiConfig.timeoutMs ?? DEFAULT_TIMEOUT_MS,
     });
