@@ -69,7 +69,7 @@ func recoverSingleSelect(query string) string {
 	var recovered strings.Builder
 	recovered.WriteString("SELECT * ")
 	for _, token := range tokens[from:end] {
-		recovered.WriteString(token.text)
+		recovered.WriteString(token.raw)
 		recovered.WriteByte(' ')
 	}
 	return recovered.String()
