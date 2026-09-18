@@ -46,6 +46,38 @@ h1 {
     letter-spacing: -0.7px;
 }
 
+.title-row,
+.server-status {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+
+.title-row {
+    flex-wrap: wrap;
+}
+
+.server-status {
+    margin-top: 5px;
+    font-size: 12px;
+    color: #706c65;
+}
+
+.server-status-dot {
+    width: 8px;
+    height: 8px;
+    background: #9a968d;
+    border-radius: 50%;
+}
+
+.server-status.connected .server-status-dot {
+    background: #267442;
+}
+
+.server-status.disconnected .server-status-dot {
+    background: #ae3329;
+}
+
 h2 {
     margin: 0;
     font-size: 16px;
