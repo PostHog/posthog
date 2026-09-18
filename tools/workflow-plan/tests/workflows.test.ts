@@ -1,4 +1,4 @@
-// These tests check the workflows under .github/workflows, not the planner. A failure here means a
+// These tests check the workflow files, not the planner. A failure here means a
 // job condition in a workflow file changed what runs; the planner itself is covered by plan.test.ts.
 import { readdirSync } from 'node:fs'
 import path from 'node:path'
@@ -70,7 +70,7 @@ type ExpectationBuilder = (
 
 const suite = (file: string, selectors: Stubs = {}): ExpectationBuilder => {
     const filters = allFiltersChanged(workflow(file))
-    const scripted = SCRIPT_STUBS[`.github/workflows/${file}`]
+    const scripted = SCRIPT_STUBS[path.posix.join('.github/workflows', file)]
     return (overrides, rest) => ({
         file,
         scenario: {
@@ -84,6 +84,7 @@ const suite = (file: string, selectors: Stubs = {}): ExpectationBuilder => {
 }
 const backend = suite('ci-backend.yml', backendSelectors)
 const frontend = suite('ci-frontend.yml', frontendSelectors)
+const depotBackend = suite('../../.depot/workflows/ci-backend.yml', backendSelectors)
 const deltalite = suite('build-deltalite.yml')
 const PINNED_WORKFLOWS = ['ci-backend.yml', 'ci-frontend.yml']
 
@@ -226,6 +227,12 @@ const EXPECTATIONS: Expectation[] = [
                 'cancel-backend-on-openapi-check-failure',
             ],
         }
+    ),
+    // The Depot copy runs the coverage report that the handed-off row above skips.
+    depotBackend({ name: 'ready PR handed off' }, { runs: ['django_tests', 'backend-coverage-report'] }),
+    depotBackend(
+        { name: 'ready PR kept on GitHub Actions', jobOutputs: { 'wait-for-handoff': { handed_off: 'false' } } },
+        { skipped: ['changes', 'django_tests', 'backend-coverage-report'] }
     ),
     backend(
         { name: 'merge queue', github: mergeQueue() },
