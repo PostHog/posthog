@@ -3,8 +3,7 @@ import { ActivityTab, AnyPropertyFilter } from '~/types'
 
 import { AttachedContextItem } from 'products/posthog_ai/frontend/api/types'
 
-// A chip and the hidden instruction it stands for share a dismiss group, so closing the chip also
-// detaches the instruction.
+// Closing the chip must also detach the instruction it stands for, so they share a dismiss group.
 const EXPLORE_DISMISS_GROUP = 'activity-explore-query'
 const LIVE_DISMISS_GROUP = 'activity-live-filters'
 
@@ -15,9 +14,8 @@ export const CONTEXT_VALUE_MAX_CHARS = 3_500
 
 const ELIDED_MARKER = '[elided for size]'
 
-// The strings below are our own build-time constants, which is what makes them safe to attach as
-// trusted `instructions` items. Which tab is open travels on the untrusted item's `type` instead,
-// so no value read off the page reaches trusted context.
+// These are our own build-time constants, which is what makes them safe as trusted `instructions`.
+// Which tab is open travels on the untrusted item's `type`, so no page value reaches trusted context.
 const EXPLORE_CONTEXT_ITEM: AttachedContextItem = {
     type: 'instructions',
     hidden: true,
@@ -46,9 +44,8 @@ const LIVE_CONTEXT_ITEM: AttachedContextItem = {
         'the events table with the execute-sql tool, applying the same filters over a recent time range.',
 }
 
-// `select`, `where`, `properties`, `fixedProperties` and `eventProperties` all grow with what the
-// user builds, so no single field can be trusted to stay small. Eliding the heaviest first, only as
-// far as the budget needs, keeps the rest. Blind truncation would leave the JSON unparseable.
+// Any of `select`, `where`, `properties`, `fixedProperties` and `eventProperties` can grow without
+// bound, so the heaviest goes first and only as far as the budget needs. Truncation would break the JSON.
 function serializeBounded(payload: Record<string, unknown>): string {
     const serialized = JSON.stringify(payload)
     if (serialized.length <= CONTEXT_VALUE_MAX_CHARS) {
@@ -72,8 +69,7 @@ function serializeBounded(payload: Record<string, unknown>): string {
     return JSON.stringify({ kind: payload.kind ?? null, elided: ELIDED_MARKER })
 }
 
-// The `DataTableNode` wrapper holds display chrome (column configurator toggles, url syncing) that
-// costs tokens on every message and tells the agent nothing, so only its source travels.
+// The `DataTableNode` wrapper is display chrome that costs tokens and tells the agent nothing.
 function serializeExploreQuery(query: Node | DataTableNode): string {
     const source = 'source' in query && query.source ? query.source : query
     return serializeBounded({ ...source })
