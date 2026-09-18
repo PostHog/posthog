@@ -331,16 +331,28 @@ def get_dependent_saved_queries(saved_query: "DataWarehouseSavedQuery") -> list[
     from any of this saved query's nodes (i.e., they reference this view in their query).
     """
     nodes = Node.objects.filter(team=saved_query.team, saved_query=saved_query)
-    deps = (
+    # Dedupe by saved-query identity, not by Node row: the same saved query can have a
+    # node in more than one DAG (the uniqueness constraint is per team+dag+saved_query),
+    # so distinct Node rows can carry the same downstream saved query twice. Order the
+    # nodes explicitly so the returned order is deterministic, and keep the first-seen
+    # saved query for each id.
+    dependent_nodes = (
         Node.objects.filter(
             team=saved_query.team,
             incoming_edges__source__in=nodes,
             saved_query__isnull=False,
         )
         .select_related("saved_query")
-        .distinct()
+        .order_by("created_at", "id")
     )
-    return [d.saved_query for d in deps if d.saved_query and not d.saved_query.deleted]
+    seen: set[int] = set()
+    dependents: list[DataWarehouseSavedQuery] = []
+    for node in dependent_nodes:
+        dependent = node.saved_query
+        if dependent is not None and not dependent.deleted and dependent.id not in seen:
+            seen.add(dependent.id)
+            dependents.append(dependent)
+    return dependents
 
 
 def delete_node_from_dag(saved_query: "DataWarehouseSavedQuery") -> None:
