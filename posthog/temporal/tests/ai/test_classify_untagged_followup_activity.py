@@ -3,6 +3,8 @@ from unittest.mock import patch
 from django.apps import apps
 from django.test import TestCase
 
+from parameterized import parameterized
+
 from posthog.models.integration import Integration
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
@@ -92,6 +94,36 @@ class TestClassifyUntaggedFollowupActivity(TestCase):
             ),
         ):
             assert self._call("thanks team!") is False
+
+    @parameterized.expand(
+        [
+            ("another_app", {"user": {"is_bot": True}}, None, False),
+            ("a_teammate", {"user": {"is_bot": False}}, None, True),
+            ("our_own_bot", {"user": {"is_bot": True}}, "U0MENTIONED", True),
+            ("an_unresolvable_id", None, None, True),
+        ]
+    )
+    def test_a_reply_that_tags_a_bot_other_than_ours_never_reaches_the_classifier(
+        self, _name, user_info, our_bot_user_id, expect_classified
+    ):
+        with (
+            patch("products.slack_app.backend.services.slack_messages.cached_collect_thread_messages", return_value=[]),
+            patch(
+                "posthog.temporal.ai.slack_app.activities.classifiers.get_cached_bot_user_id",
+                return_value=our_bot_user_id,
+            ),
+            patch(
+                "posthog.temporal.ai.slack_app.activities.classifiers.get_slack_user_info",
+                side_effect=RuntimeError("slack hiccup") if user_info is None else None,
+                return_value=user_info,
+            ),
+            patch(
+                "posthog.temporal.ai.slack_app.activities.classifiers.classify_message_is_agent_directed",
+                return_value=True,
+            ) as mock_classify,
+        ):
+            assert self._call("<@U0MENTIONED> take another look at the export filter") is expect_classified
+        assert mock_classify.called is expect_classified
 
     def test_history_fetch_failure_classifies_on_empty_history(self):
         """A Slack hiccup on ``conversations_replies`` falls back to classifying
