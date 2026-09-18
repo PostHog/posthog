@@ -360,13 +360,13 @@ class PrecomputeDebugViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         scope = PreaggregationJob.objects.filter(team_id=self.team.pk)
         if query_hash:
             scope = scope.filter(query_hash=query_hash)
+        # Count in-flight jobs before the update, not after: a job that flips
+        # PENDING -> READY between the two queries would otherwise miss both and
+        # leave the operator with stale data and no hint to invalidate again.
+        pending_count = scope.filter(status=PreaggregationJob.Status.PENDING).count()
         updated_count = scope.filter(status=PreaggregationJob.Status.READY).update(
             status=PreaggregationJob.Status.STALE
         )
-        # In-flight jobs are not touched, and the executor will still save them
-        # READY when they finish; report them so the operator knows a second
-        # invalidation may be needed after they settle.
-        pending_count = scope.filter(status=PreaggregationJob.Status.PENDING).count()
 
         payload = {"updated_count": updated_count, "pending_count": pending_count, "query_hash": query_hash}
         return Response(PrecomputeInvalidateResponseSerializer(payload).data)
