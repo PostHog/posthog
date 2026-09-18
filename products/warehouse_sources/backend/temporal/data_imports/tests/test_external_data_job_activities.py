@@ -5,6 +5,7 @@ from posthog.test.base import BaseTest
 from unittest import mock
 
 from django.test import SimpleTestCase
+from django.utils import timezone
 
 from parameterized import parameterized
 from temporalio.exceptions import ApplicationError, CancelledError
@@ -370,3 +371,65 @@ def test_transient_failure_replaces_the_raw_driver_text_without_disabling_the_sc
 
     mock_update_should_sync.assert_not_called()
     assert mock_update_job_status.call_args.kwargs["latest_error"] == expected_message
+
+
+# transaction=True for the same reason as the tests above: the activity reaches the schema row
+# through database_sync_to_async_pool, whose thread cannot see a test transaction.
+@parameterized.expand(
+    [
+        # PostHog stopped the schema after a run it could not retry. The customer set the missing
+        # key and synced by hand; that run is the proof the cause is gone, so the schedule returns.
+        ("posthog_stopped_it", False, True, True),
+        # The user turned syncing off. A run they triggered by hand must not turn it back on.
+        ("user_stopped_it", False, False, False),
+        ("already_syncing", True, False, True),
+    ]
+)
+@pytest.mark.django_db(transaction=True)
+def test_successful_run_resumes_only_a_schema_posthog_disabled(
+    _name: str, should_sync: bool, auto_disabled: bool, expect_syncing: bool
+) -> None:
+    org = Organization.objects.create(name="org")
+    team = Team.objects.create(organization=org, name="team")
+    source = ExternalDataSource.objects.create(team=team, source_type=ExternalDataSourceType.POSTGRES.value)
+    schema = ExternalDataSchema.objects.create(
+        team=team,
+        source=source,
+        name="table",
+        should_sync=should_sync,
+        auto_disabled_at=timezone.now() if auto_disabled else None,
+    )
+    job = ExternalDataJob.objects.create(
+        team=team, pipeline=source, schema=schema, status=ExternalDataJob.Status.RUNNING, rows_synced=0
+    )
+
+    env = ActivityEnvironment()
+    inputs = UpdateExternalDataJobStatusInputs(
+        team_id=team.id,
+        job_id=str(job.id),
+        schema_id=str(schema.id),
+        source_id=str(source.id),
+        status=ExternalDataJob.Status.COMPLETED,
+        internal_error=None,
+        latest_error=None,
+    )
+
+    with (
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.external_data_job.get_rows", return_value=0
+        ),
+        mock.patch("products.warehouse_sources.backend.temporal.data_imports.external_data_job.finish_row_tracking"),
+        mock.patch("products.warehouse_sources.backend.temporal.data_imports.external_data_job.areport_usage"),
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.external_data_job.update_external_job_status"
+        ),
+        # update_should_sync imports these function-locally, so patch them where they're defined.
+        mock.patch("products.data_warehouse.backend.facade.api.external_data_workflow_exists", return_value=True),
+        mock.patch("products.data_warehouse.backend.facade.api.unpause_external_data_schedule") as mock_unpause,
+    ):
+        asyncio.run(env.run(update_external_data_job_model, inputs))
+
+    schema.refresh_from_db()
+    assert schema.should_sync is expect_syncing
+    assert schema.auto_disabled_at is None
+    assert mock_unpause.called is (expect_syncing and not should_sync)

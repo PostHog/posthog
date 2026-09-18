@@ -623,6 +623,41 @@ async def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInpu
     # set and the schedule stays paused — a human looks at it before resuming.
     if inputs.status == ExternalDataJob.Status.COMPLETED:
         await _maybe_unpause_schedule_after_admin_run(inputs.schema_id, logger)
+        await _maybe_resume_auto_disabled_schema(inputs.schema_id, inputs.team_id, logger)
+
+
+async def _maybe_resume_auto_disabled_schema(schema_id: str, team_id: int, logger) -> None:
+    """Put a schema PostHog stopped itself back on its schedule once a run succeeds.
+
+    Auto-disable turns syncing off and records the reason. The customer fixes the cause — sets the
+    primary key, switches the sync method — and syncs by hand, which clears the error and with it
+    the only thing on screen that said anything was wrong. The schedule is still off, so the table
+    goes stale silently. A run that completed is the proof the cause is gone. `auto_disabled_at` is
+    what tells this apart from a schema the user turned off, which stays off.
+    """
+
+    def _resume() -> bool:
+        state = (
+            ExternalDataSchema.objects.exclude(deleted=True)
+            .filter(id=schema_id, team_id=team_id)
+            .values_list("should_sync", "auto_disabled_at")
+            .first()
+        )
+        if state is None or state[0] or state[1] is None:
+            return False
+        update_should_sync(schema_id=schema_id, team_id=team_id, should_sync=True)
+        return True
+
+    try:
+        resumed = await database_sync_to_async_pool(_resume)()
+    except Exception:
+        # The status write is already committed, so a schedule left paused is the state we started
+        # from, and the next successful run retries this.
+        logger.exception(f"Failed to resume auto-disabled schema {schema_id} after a successful run")
+        return
+
+    if resumed:
+        logger.info(f"Resumed syncing for auto-disabled schema {schema_id} after a successful run")
 
 
 async def _maybe_unpause_schedule_after_admin_run(schema_id: str, logger) -> None:

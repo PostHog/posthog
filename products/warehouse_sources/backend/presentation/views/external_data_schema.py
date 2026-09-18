@@ -751,6 +751,21 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         # "changed" iff its top-level value differs.
         original_sync_type_config = dict(instance.sync_type_config or {})
 
+        # `incremental_sync_blocked` is read off `latest_error`, so the blocked banner and the row
+        # tooltip keep telling the customer to set a key they have just set — and the Enabled toggle
+        # keeps bouncing them back to these settings — until some later run rewrites the error.
+        # Retire the message here instead. Only an actual change counts: a full-payload PATCH that
+        # echoes the stored key back must not clear a block nobody resolved. Read before the
+        # branches below, which rewrite the key in place on the instance's own config.
+        if instance.incremental_sync_blocked and (
+            ("sync_type" in data and data.get("sync_type") != instance.sync_type)
+            or (
+                "primary_key_columns" in data
+                and data.get("primary_key_columns") != original_sync_type_config.get("primary_key_columns")
+            )
+        ):
+            validated_data["latest_error"] = None
+
         # Refuse cdc_table_mode transitions that would kick a re-snapshot when the team is over its
         # monthly sync billing limit. Checked here (pre-save) so we don't end up with the new mode
         # persisted but no resnapshot triggered. Mirrors the gate in `resync` / `reload`.
