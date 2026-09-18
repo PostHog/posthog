@@ -2647,6 +2647,28 @@ describe('dashboardLogic', () => {
             expect(logic.values.dashboard).not.toBeNull()
         })
 
+        it('finishes an initial journey when the stream reports a terminal failure', async () => {
+            await expectLogic(logic).toFinishAllListeners()
+            const journey = {
+                attemptId: 'synthetic-terminal-stream',
+                firstUseful: jest.fn(),
+                finish: jest.fn(),
+                dispose: jest.fn(),
+            }
+            mockStartCustomerJourney.mockReturnValue(journey)
+            jest.spyOn(api.dashboards, 'streamTiles').mockImplementation(
+                async (_id, _params, _onMessage, _onComplete, onError) => {
+                    onError(new Error('Synthetic terminal stream failure'), true)
+                    return jest.fn()
+                }
+            )
+            await expectLogic(logic, () => {
+                logic.actions.loadDashboardStreaming({ action: DashboardLoadAction.InitialLoad })
+            }).toFinishAllListeners()
+            expect(journey.finish).toHaveBeenCalledTimes(1)
+            expect(journey.finish).toHaveBeenCalledWith('failed', expect.objectContaining({ error_type: 'load_error' }))
+        })
+
         it('keeps an initial journey open across a transient stream error and seals only on completion', async () => {
             const journey = {
                 attemptId: 'stream-attempt',

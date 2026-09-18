@@ -213,6 +213,26 @@ describe('dataNodeLogic', () => {
             expect(capture.mock.calls.at(-1)?.[1].outcome).toBe('observation_stopped')
         })
 
+        it('keeps shared observation alive until the last surface unmounts', async () => {
+            mockedQuery.mockResolvedValue(response)
+            mount({ queryJourney: { startRequest, requireObservedSurface: true } })
+            const firstOwner = Symbol()
+            const secondOwner = Symbol()
+            logic.actions.observeQueryJourney(firstOwner)
+            logic.actions.observeQueryJourney(secondOwner)
+            logic.actions.loadData()
+            await expectLogic(logic).toFinishAllListeners()
+            logic.actions.stopObservingQueryJourney(secondOwner)
+            expect(capture).toHaveBeenCalledTimes(1)
+            const receipt = logic.values.queryJourneyReceipt!
+            logic.actions.acknowledgeQueryJourney(receipt.generation, receipt.response)
+            expect(capture.mock.calls.at(-1)?.[1].outcome).toBe('usable')
+            logic.actions.stopObservingQueryJourney(firstOwner)
+            logic.actions.loadData()
+            await expectLogic(logic).toFinishAllListeners()
+            expect(startRequest).toHaveBeenCalledTimes(1)
+        })
+
         it.each([{ doNotLoad: true }, { cachedResults: { results: [] } }])(
             'skips guarded cache loads %j',
             async (guards) => {
