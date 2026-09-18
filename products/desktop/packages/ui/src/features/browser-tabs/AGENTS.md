@@ -323,14 +323,14 @@ The feature lives in `features/tab-tiling/`; this section keeps the model and th
 - Groups, the focused tile per group (`activeByGroup`) and the split names are **view state** in `tileLayoutStore` (zustand `persist` to localStorage). Every group has a name: `Split N` until someone renames it. The tree transforms are unit-tested in `tileTree.test.ts`.
 
 ### Rendering (`TileLayout.tsx`)
-- Every tile renders its tab through `TileTabContent`, and stays mounted whichever tile is focused. A task tab mounts `TaskDetail`, a canvas tab mounts `WebsiteDashboard`, and any other tab mounts its page in its own TanStack router over a memory history seeded at the tab's href (`TileRouter`). The root route renders only its outlet inside a tile (`useInBackgroundTile`), and a navigation inside a tile writes the new href back onto the tab.
+- Every tile renders its tab through `TileTabContent`, and stays mounted whichever tile is focused. A task tab mounts `TaskDetail`, a canvas tab mounts `WebsiteDashboard`, and any other tab mounts its page in its own TanStack router over a memory history seeded at the tab's href (`TileRouter`). The root route renders only its outlet inside a tile (`useInTile`), and a navigation inside a tile writes the new href back onto the tab.
 - **Focusing a tile is not a navigation.** The route, the history and the side nav stay where they are; `useFocusTab` records the tile in `activeByGroup`, and `useActiveTabId` resolves the focused member of the route's group. A tab switch into another group still navigates.
 - A plain navigation made while a split is on screen lands in the focused tile, not in the tab that owns the route (`navigationOwner` in `BrowserTabStrip`).
 - Each tile has a `ChromeBar` header: the tab's grip, icon and title, an X that removes the tile from the split, and on a task its `TaskHeaderActions`. The header is plain until dragged; only the drag ghost takes the pill styling.
-- `useSetHeaderContent` writes nothing from inside a tile, so the pane-wide header never names one tile's page above several tiles.
+- `useSetHeaderContent` writes nothing from inside a tile, so the pane-wide header never names one tile's page above several tiles. `TaskDetail` keeps its hotkeys only in the focused tile (`useInUnfocusedTile`).
 
 ### Moving tiles
-- The tile header is a `@dnd-kit/react` draggable (`tile-tab`). Dropping it on another tile's edge moves it there. Dropping it on the strip pulls it out as its own tab; while the ghost is over the strip, the tab previews as a pill in the slot it would take (`tabReorderStore.overStrip`).
+- The tile header is a `@dnd-kit/react` draggable (`tile-tab`). Dropping it on another tile's edge moves it there. Dropping it on the strip pulls it out as its own tab; while the ghost is over the strip, the tab previews as a pill in the slot it would take (`tabReorderStore.previewOrder` while `dragSource` is `tile`).
 - Session and canvas rows in the sidebar are native HTML5 drags (they already drop onto Command Center). `TileDropZones` accept them too: the drop opens the task or canvas as a background tab and tiles it beside the target (`tileDrop.ts`).
 - The dragged tile shows no zones on itself, and a full group disables its zones.
 

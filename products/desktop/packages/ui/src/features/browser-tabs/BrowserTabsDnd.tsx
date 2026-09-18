@@ -2,16 +2,13 @@ import { type DragDropEvents, DragDropProvider } from "@dnd-kit/react";
 import { browserTabsStore } from "@posthog/core/browser-tabs/browserTabsStore";
 import { useService } from "@posthog/di/react";
 import { primaryWindow, setTabOrder } from "@posthog/shared";
-import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import { isTileDropData } from "@posthog/ui/features/tab-tiling/TileDropZones";
+import {
+  tileBeside,
+  untileTracked,
+} from "@posthog/ui/features/tab-tiling/tileActions";
 import { isTileTabDragData } from "@posthog/ui/features/tab-tiling/tileDrag";
 import { useTileLayoutStore } from "@posthog/ui/features/tab-tiling/tileLayoutStore";
-import {
-  groupForTab,
-  type TileEdge,
-  tabIdsIn,
-} from "@posthog/ui/features/tab-tiling/tileTree";
-import { track } from "@posthog/ui/shell/analytics";
 import { type ReactNode, useRef } from "react";
 import {
   BROWSER_TABS_CLIENT,
@@ -23,7 +20,7 @@ import {
   storedOrderIds,
 } from "./displayOrder";
 import { usePinnedTabsStore } from "./pinnedTabsStore";
-import { isStripDropData } from "./stripDrop";
+import { isBrowserTabDragData, stripTarget } from "./stripDrop";
 import { exceedsDetachDistance } from "./tabDetach";
 import { useTabReorderStore } from "./tabReorderStore";
 import { applyLocalTransform, persistWrite, readMirror } from "./tabsSync";
@@ -31,30 +28,6 @@ import { useGoToTab } from "./useGoToTab";
 
 function sameOrder(a: string[], b: string[]): boolean {
   return a.length === b.length && a.every((id, i) => id === b[i]);
-}
-
-function resetDragState(): void {
-  const store = useTabReorderStore.getState();
-  store.setPreviewOrder(null);
-  store.setDraggingTabId(null);
-  store.setDragSource(null);
-  store.setDetached(false);
-  store.setOverStrip(false);
-}
-
-function tileBeside(
-  tabId: string,
-  targetTabId: string,
-  edge: TileEdge,
-  source: "strip" | "tile",
-): void {
-  useTileLayoutStore.getState().tileTab(tabId, targetTabId, edge);
-  const group = groupForTab(useTileLayoutStore.getState().groups, targetTabId);
-  track(ANALYTICS_EVENTS.BROWSER_TAB_TILED, {
-    edge,
-    source,
-    tile_count: group ? tabIdsIn(group.root).length : 0,
-  });
 }
 
 /**
@@ -78,25 +51,33 @@ export function BrowserTabsDndProvider({ children }: { children: ReactNode }) {
   const initialOrder = useRef<string[] | null>(null);
   const dragStart = useRef<{ x: number; y: number } | null>(null);
 
+  const currentOrder = () => {
+    const snapshot = browserTabsStore.getState().snapshot;
+    const win = primaryWindow(snapshot);
+    return win ? storedOrderIds(snapshot, win.id) : null;
+  };
+
   const onDragStart: DragDropEvents["dragstart"] = (event) => {
     const data = event.operation.source?.data;
     const store = useTabReorderStore.getState();
     if (isTileTabDragData(data)) {
-      store.setDraggingTabId(data.tabId);
-      store.setDragSource("tile");
-      store.setDetached(true);
+      store.beginDrag({
+        draggingTabId: data.tabId,
+        dragSource: "tile",
+        detached: true,
+      });
       return;
     }
-    if (data?.type !== "browser-tab") return;
-    const snapshot = browserTabsStore.getState().snapshot;
-    const win = primaryWindow(snapshot);
-    if (!win) return;
-    const order = storedOrderIds(snapshot, win.id);
+    if (!isBrowserTabDragData(data)) return;
+    const order = currentOrder();
+    if (!order) return;
     initialOrder.current = order;
     dragStart.current = event.operation.position.current;
-    store.setPreviewOrder(order);
-    store.setDraggingTabId(data.tabId);
-    store.setDragSource("strip");
+    store.beginDrag({
+      draggingTabId: data.tabId,
+      dragSource: "strip",
+      previewOrder: order,
+    });
   };
 
   const onDragMove: DragDropEvents["dragmove"] = (event) => {
@@ -119,20 +100,13 @@ export function BrowserTabsDndProvider({ children }: { children: ReactNode }) {
   };
 
   const dropTileOnStrip = (tabId: string, previewed: string[] | null) => {
-    const before = groupForTab(useTileLayoutStore.getState().groups, tabId);
-    const remaining = before ? tabIdsIn(before.root).length - 1 : 0;
-    useTileLayoutStore.getState().untileTab(tabId);
-    const snapshot = browserTabsStore.getState().snapshot;
-    const win = primaryWindow(snapshot);
-    if (previewed && win) {
-      const order = storedOrderIds(snapshot, win.id);
-      if (!sameOrder(previewed, order)) persistOrder(previewed);
+    untileTracked(tabId);
+    const order = currentOrder();
+    if (previewed && order && !sameOrder(previewed, order)) {
+      persistOrder(previewed);
     }
     const tab = readMirror().tabs.find((t) => t.id === tabId);
     if (tab) goToTab(tab);
-    track(ANALYTICS_EVENTS.BROWSER_TAB_UNTILED, {
-      tile_count: remaining > 1 ? remaining : 0,
-    });
   };
 
   const dropTile = (
@@ -146,32 +120,24 @@ export function BrowserTabsDndProvider({ children }: { children: ReactNode }) {
       }
       return;
     }
-    const pill = target as { type?: unknown } | undefined;
-    if (isStripDropData(target) || pill?.type === "browser-tab") {
-      dropTileOnStrip(tabId, previewed);
-    }
+    if (stripTarget(target)) dropTileOnStrip(tabId, previewed);
   };
 
   const previewTileOverStrip = (tabId: string, target: unknown) => {
     const store = useTabReorderStore.getState();
-    const pill = target as { type?: unknown; tabId?: unknown } | undefined;
-    const pillId = pill?.type === "browser-tab" ? pill.tabId : undefined;
-    const onStrip = typeof pillId === "string" || isStripDropData(target);
-    store.setOverStrip(onStrip);
-    if (!onStrip) {
+    const strip = stripTarget(target);
+    if (!strip) {
       if (store.previewOrder) store.setPreviewOrder(null);
       return;
     }
-    const snapshot = browserTabsStore.getState().snapshot;
-    const win = primaryWindow(snapshot);
-    if (!win) return;
-    const cur = store.previewOrder ?? storedOrderIds(snapshot, win.id);
-    if (typeof pillId !== "string" || pillId === tabId) {
+    const cur = store.previewOrder ?? currentOrder();
+    if (!cur) return;
+    if (!strip.pillId || strip.pillId === tabId) {
       if (!store.previewOrder) store.setPreviewOrder(cur);
       return;
     }
     const pinnedTabIds = usePinnedTabsStore.getState().pinnedTabIds;
-    const next = reorderWithinGroup(cur, pinnedTabIds, tabId, pillId);
+    const next = reorderWithinGroup(cur, pinnedTabIds, tabId, strip.pillId);
     if (!sameOrder(next, cur) || !store.previewOrder) {
       store.setPreviewOrder(next);
     }
@@ -184,21 +150,17 @@ export function BrowserTabsDndProvider({ children }: { children: ReactNode }) {
       previewTileOverStrip(src.tabId, tgt);
       return;
     }
+    const store = useTabReorderStore.getState();
     if (
-      useTabReorderStore.getState().detached ||
-      src?.type !== "browser-tab" ||
-      tgt?.type !== "browser-tab" ||
-      !src.tabId ||
-      !tgt.tabId ||
+      store.detached ||
+      !isBrowserTabDragData(src) ||
+      !isBrowserTabDragData(tgt) ||
       src.tabId === tgt.tabId
     ) {
       return;
     }
-    const store = useTabReorderStore.getState();
-    const snapshot = browserTabsStore.getState().snapshot;
-    const win = primaryWindow(snapshot);
-    if (!win) return;
-    const cur = store.previewOrder ?? storedOrderIds(snapshot, win.id);
+    const cur = store.previewOrder ?? currentOrder();
+    if (!cur) return;
     const pinnedTabIds = usePinnedTabsStore.getState().pinnedTabIds;
     // Reorder within the dragged tab's pin group only; cross-group drags are
     // rejected (pinned pills can't land among unpinned tabs, or vice versa).
@@ -220,13 +182,13 @@ export function BrowserTabsDndProvider({ children }: { children: ReactNode }) {
     // Defer clearing the preview + persisting a frame so @dnd-kit finishes its
     // DOM cleanup first (same gotcha as the panels feature).
     requestAnimationFrame(() => {
-      resetDragState();
+      useTabReorderStore.getState().endDrag();
       if (event.canceled) return;
       if (isTileTabDragData(src)) {
         dropTile(src.tabId, tgt, order);
         return;
       }
-      if (src?.type !== "browser-tab") return;
+      if (!isBrowserTabDragData(src)) return;
       if (isTileDropData(tgt)) {
         tileBeside(src.tabId, tgt.tabId, tgt.edge, "strip");
         return;

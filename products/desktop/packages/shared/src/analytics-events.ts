@@ -351,15 +351,7 @@ export interface BrowserTabTiledProperties {
   tile_count: number;
 }
 
-export interface BrowserTabUntiledProperties {
-  tile_count: number;
-}
-
-export interface BrowserTabTileFocusedProperties {
-  tile_count: number;
-}
-
-export interface BrowserTabSplitRenamedProperties {
+export interface BrowserTabTileCountProperties {
   tile_count: number;
 }
 
@@ -1850,9 +1842,9 @@ export type EventPropertyMap = {
   [ANALYTICS_EVENTS.TASK_LIST_GROUPING_CHANGED]: TaskListGroupingChangedProperties;
   [ANALYTICS_EVENTS.TASK_LIST_APPEARANCE_CHANGED]: TaskListAppearanceChangedProperties;
   [ANALYTICS_EVENTS.BROWSER_TAB_TILED]: BrowserTabTiledProperties;
-  [ANALYTICS_EVENTS.BROWSER_TAB_UNTILED]: BrowserTabUntiledProperties;
-  [ANALYTICS_EVENTS.BROWSER_TAB_TILE_FOCUSED]: BrowserTabTileFocusedProperties;
-  [ANALYTICS_EVENTS.BROWSER_TAB_SPLIT_RENAMED]: BrowserTabSplitRenamedProperties;
+  [ANALYTICS_EVENTS.BROWSER_TAB_UNTILED]: BrowserTabTileCountProperties;
+  [ANALYTICS_EVENTS.BROWSER_TAB_TILE_FOCUSED]: BrowserTabTileCountProperties;
+  [ANALYTICS_EVENTS.BROWSER_TAB_SPLIT_RENAMED]: BrowserTabTileCountProperties;
 
   // Permission events
   [ANALYTICS_EVENTS.PERMISSION_RESPONDED]: PermissionRespondedProperties;

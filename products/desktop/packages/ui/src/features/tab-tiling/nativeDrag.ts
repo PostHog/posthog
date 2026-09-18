@@ -1,19 +1,8 @@
 import { CANVAS_DRAG_TYPE } from "@posthog/ui/features/canvas/canvasDrag";
 import { TASK_DRAG_TYPE } from "@posthog/ui/features/sidebar/taskDrag";
-import { useEffect } from "react";
-import { create } from "zustand";
+import { useEffect, useState } from "react";
 
 export type NativeDragKind = "task" | "canvas";
-
-interface NativeDragStore {
-  kind: NativeDragKind | null;
-  setKind: (kind: NativeDragKind | null) => void;
-}
-
-export const useNativeDragStore = create<NativeDragStore>((set) => ({
-  kind: null,
-  setKind: (kind) => set((state) => (state.kind === kind ? state : { kind })),
-}));
 
 export function nativeDragKindOf(
   dataTransfer: Pick<DataTransfer, "types"> | null,
@@ -25,9 +14,9 @@ export function nativeDragKindOf(
   return null;
 }
 
-export function useNativeDragWatcher(): void {
+export function useNativeDragKind(): NativeDragKind | null {
+  const [kind, setKind] = useState<NativeDragKind | null>(null);
   useEffect(() => {
-    const setKind = useNativeDragStore.getState().setKind;
     const onEnter = (event: DragEvent) =>
       setKind(nativeDragKindOf(event.dataTransfer));
     const onLeaveWindow = (event: DragEvent) => {
@@ -45,4 +34,5 @@ export function useNativeDragWatcher(): void {
       window.removeEventListener("dragend", clear);
     };
   }, []);
+  return kind;
 }

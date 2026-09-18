@@ -1,21 +1,12 @@
-import { DEFAULT_TAB_HREF } from "@posthog/shared";
+import { DEFAULT_TAB_HREF, type TabIdentity } from "@posthog/shared";
 import { channelSectionFor } from "@posthog/ui/features/canvas/channelSections";
 import { useChannelReportsEnabled } from "@posthog/ui/features/feature-flags/useChannelReportsEnabled";
 import { useNavigate, useRouter } from "@tanstack/react-router";
 import { useCallback } from "react";
-import { usePendingTabFocusStore } from "./pendingTabFocusStore";
 import { isTabAppView } from "./tabAppViews";
 import { pushTabHistoryEntry } from "./tabHistory";
 
-export type TabRef = {
-  id: string;
-  href: string | null;
-  dashboardId: string | null;
-  taskId: string | null;
-  channelId: string | null;
-  channelSection: string | null;
-  appView: string | null;
-};
+export type TabRef = { id: string; href: string | null } & TabIdentity;
 
 export function useGoToTab(): (tab: TabRef) => void {
   const navigate = useNavigate();
@@ -23,7 +14,6 @@ export function useGoToTab(): (tab: TabRef) => void {
   const channelReportsEnabled = useChannelReportsEnabled();
   return useCallback(
     (tab: TabRef) => {
-      usePendingTabFocusStore.getState().setPending(tab.id);
       const state = (prev: object) => ({ ...prev, tabId: tab.id });
       if (tab.href) {
         pushTabHistoryEntry(router.history, tab.href, tab.id);

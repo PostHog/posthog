@@ -1,4 +1,4 @@
-import { BackgroundTileProvider } from "@posthog/ui/features/tab-tiling/backgroundTile";
+import { TileProvider } from "@posthog/ui/features/tab-tiling/tileContext";
 import { useHeaderStore } from "@posthog/ui/shell/headerStore";
 import { renderHook } from "@testing-library/react";
 import type { ReactNode } from "react";
@@ -21,7 +21,7 @@ describe("useSetHeaderContent", () => {
   it("leaves the active page's header alone from inside a background tile", () => {
     useHeaderStore.setState({ content: "Active page" });
     const wrapper = ({ children }: { children: ReactNode }) => (
-      <BackgroundTileProvider value={true}>{children}</BackgroundTileProvider>
+      <TileProvider value={{ focused: false }}>{children}</TileProvider>
     );
     const { unmount } = renderHook(
       () => useSetHeaderContent("Background page"),

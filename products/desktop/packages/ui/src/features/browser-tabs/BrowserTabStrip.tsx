@@ -47,6 +47,7 @@ import { usePanelLayoutStore } from "@posthog/ui/features/panels/panelLayoutStor
 import { getLeafPanel } from "@posthog/ui/features/panels/panelStoreHelpers";
 import { useTileLayoutStore } from "@posthog/ui/features/tab-tiling/tileLayoutStore";
 import {
+  focusedTabIn,
   groupForTab,
   lastActiveIn,
   tabIdsIn,
@@ -142,8 +143,7 @@ function navigationOwner(
   const isSwitch = settledTabId !== null && settledTabId !== windowActive.id;
   if (isSwitch || windowActive.href === href) return windowActive.id;
   const { groups, activeByGroup } = useTileLayoutStore.getState();
-  const group = groupForTab(groups, windowActive.id);
-  return group ? lastActiveIn(group, activeByGroup) : windowActive.id;
+  return focusedTabIn(groups, activeByGroup, windowActive.id);
 }
 
 function BrowserTabStripImpl() {
@@ -205,7 +205,6 @@ function BrowserTabStripImpl() {
   // With channel reports on, a restored inbox tab lands on the spaces index
   // (the inbox is gone as a destination).
   const goToTab = useGoToTab();
-  const focusTab = useFocusTab();
 
   // The active channel sub-section (artifacts/history/context) is the
   // route segment after the channelId. Null when on the channel home or a
@@ -233,7 +232,7 @@ function BrowserTabStripImpl() {
   const activeByGroup = useTileLayoutStore((s) => s.activeByGroup);
   const groupNames = useTileLayoutStore((s) => s.names);
   const stripPreviewTabId = useTabReorderStore((s) =>
-    s.overStrip && s.dragSource === "tile" ? s.draggingTabId : null,
+    s.dragSource === "tile" && s.previewOrder ? s.draggingTabId : null,
   );
   const separateGroup = useTileLayoutStore((s) => s.separate);
   const renameGroup = useTileLayoutStore((s) => s.renameGroup);
@@ -247,6 +246,7 @@ function BrowserTabStripImpl() {
   const win = primaryWindow(snapshot);
   const windowId = win?.id;
   const activeTabId = useActiveTabId();
+  const focusTab = useFocusTab(activeTabId);
 
   const feeds = useProjectTaskFeeds();
   const feedName = useMemo(() => {
@@ -680,11 +680,7 @@ function BrowserTabStripImpl() {
           id: anchor.id,
           pinned: false,
           split: {
-            members: members.map((m) => ({
-              id: m.id,
-              label: m.label,
-              icon: m.icon,
-            })),
+            members,
             activeId: face.id,
             name: groupNames[group.id],
           },
@@ -733,8 +729,7 @@ function BrowserTabStripImpl() {
   const handleSelect = useCallback(
     (tabId: string) => {
       if (!windowId) return;
-      const group = groupForTab(tileGroups, tabId);
-      const targetId = group ? lastActiveIn(group, activeByGroup) : tabId;
+      const targetId = focusedTabIn(tileGroups, activeByGroup, tabId);
       const target = readMirror().tabs.find(
         (tab) => tab.windowId === windowId && tab.id === targetId,
       );

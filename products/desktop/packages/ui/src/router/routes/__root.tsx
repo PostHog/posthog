@@ -61,8 +61,8 @@ import {
 import { useSidebarStore } from "@posthog/ui/features/sidebar/sidebarStore";
 import { useSidebarData } from "@posthog/ui/features/sidebar/useSidebarData";
 import { useVisualTaskOrder } from "@posthog/ui/features/sidebar/useVisualTaskOrder";
-import { useInBackgroundTile } from "@posthog/ui/features/tab-tiling/backgroundTile";
 import { TileLayout } from "@posthog/ui/features/tab-tiling/TileLayout";
+import { useInTile } from "@posthog/ui/features/tab-tiling/tileContext";
 import { ExistingWorktreeDialog } from "@posthog/ui/features/task-detail/components/ExistingWorktreeDialog";
 import { RemoteBranchCheckoutDialog } from "@posthog/ui/features/task-detail/components/RemoteBranchCheckoutDialog";
 import { useTasks } from "@posthog/ui/features/tasks/useTasks";
@@ -114,7 +114,7 @@ export const Route = createRootRoute({
 });
 
 function RootRoute() {
-  return useInBackgroundTile() ? <Outlet /> : <RootLayout />;
+  return useInTile() ? <Outlet /> : <RootLayout />;
 }
 
 function RootLayout() {

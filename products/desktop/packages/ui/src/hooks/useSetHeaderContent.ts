@@ -1,4 +1,4 @@
-import { useInBackgroundTile } from "@posthog/ui/features/tab-tiling/backgroundTile";
+import { useInTile } from "@posthog/ui/features/tab-tiling/tileContext";
 import { useHeaderStore } from "@posthog/ui/shell/headerStore";
 import { type ReactNode, useLayoutEffect } from "react";
 
@@ -9,7 +9,7 @@ import { type ReactNode, useLayoutEffect } from "react";
  */
 export function useSetHeaderContent(content: ReactNode, enabled = true) {
   const setContent = useHeaderStore((state) => state.setContent);
-  const inBackgroundTile = useInBackgroundTile();
+  const inBackgroundTile = useInTile();
 
   useLayoutEffect(() => {
     if (!enabled || inBackgroundTile) return;

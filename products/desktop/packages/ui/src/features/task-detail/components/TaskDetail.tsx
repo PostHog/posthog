@@ -23,7 +23,7 @@ import { useReviewInRightPanel } from "../../navigation/useReviewInRightPanel";
 import { PanelLayout } from "../../panels/components/PanelLayout";
 import { MIN_CHAT_WIDTH } from "../../sessions/constants";
 import { useCwd } from "../../sidebar/useCwd";
-import { useInBackgroundTile } from "../../tab-tiling/backgroundTile";
+import { useInUnfocusedTile } from "../../tab-tiling/tileContext";
 import { useRenameTask } from "../../tasks/useTaskMutations";
 import { useWorkspace } from "../../workspace/useWorkspace";
 import { useWorkspaceEvents } from "../../workspace/useWorkspaceEvents";
@@ -61,7 +61,7 @@ export function TaskDetail({
 
   const openFilePicker = useFileSearchStore((state) => state.openPicker);
 
-  const inBackgroundTile = useInBackgroundTile();
+  const inBackgroundTile = useInUnfocusedTile();
 
   const { enableScope, disableScope } = useHotkeysContext();
   const { requestArchive, dialog: archiveDialog } = useTaskArchive(task, {

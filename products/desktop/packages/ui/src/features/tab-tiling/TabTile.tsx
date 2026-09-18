@@ -4,7 +4,7 @@ import { Button, cn, Text } from "@posthog/quill";
 import type { BrowserTab } from "@posthog/shared";
 import {
   isTabAppView,
-  TAB_APP_VIEW_META,
+  resolveTabAppViewDisplay,
 } from "@posthog/ui/features/browser-tabs/tabAppViews";
 import { ActivityDetailCloseButton } from "@posthog/ui/features/canvas/components/ActivityDetailCloseButton";
 import { useActivitySelection } from "@posthog/ui/features/canvas/stores/activityDetailStore";
@@ -12,29 +12,20 @@ import { TaskHeaderActions } from "@posthog/ui/features/task-detail/components/T
 import { useTasks } from "@posthog/ui/features/tasks/useTasks";
 import { ChromeBar } from "@posthog/ui/primitives/ChromeBar";
 import type { ReactNode } from "react";
-import { BackgroundTileProvider } from "./backgroundTile";
 import { TileDropZones } from "./TileDropZones";
 import { TileTabContent } from "./TileTabContent";
+import { TileProvider } from "./tileContext";
 import { TILE_TAB_DRAG_TYPE, type TileTabDragData } from "./tileDrag";
 
-function tileLabel(tab: BrowserTab): string {
-  if (tab.viewState?.title) return tab.viewState.title;
-  if (tab.appView && isTabAppView(tab.appView)) {
-    return TAB_APP_VIEW_META[tab.appView].label;
-  }
-  return "New tab";
-}
-
-function tileIcon(tab: BrowserTab): ReactNode {
-  if (tab.appView && isTabAppView(tab.appView)) {
-    return TAB_APP_VIEW_META[tab.appView].icon;
-  }
-  return null;
-}
-
-function useTileDrag(tabId: string) {
-  const data: TileTabDragData = { type: TILE_TAB_DRAG_TYPE, tabId };
-  return useDraggable({ id: `tile-tab-${tabId}`, data, feedback: "clone" });
+function tileDisplay(tab: BrowserTab): { label: string; icon: ReactNode } {
+  const appView =
+    tab.appView && isTabAppView(tab.appView)
+      ? resolveTabAppViewDisplay(tab.appView, null)
+      : null;
+  return {
+    label: tab.viewState?.title ?? appView?.label ?? "New tab",
+    icon: appView?.icon ?? null,
+  };
 }
 
 function TilePill({
@@ -46,9 +37,13 @@ function TilePill({
   isActive: boolean;
   onActivate: (tab: BrowserTab) => void;
 }) {
-  const label = tileLabel(tab);
-  const icon = tileIcon(tab);
-  const { ref } = useTileDrag(tab.id);
+  const { label, icon } = tileDisplay(tab);
+  const data: TileTabDragData = { type: TILE_TAB_DRAG_TYPE, tabId: tab.id };
+  const { ref } = useDraggable({
+    id: `tile-tab-${tab.id}`,
+    data,
+    feedback: "clone",
+  });
   return (
     <button
       ref={ref}
@@ -75,48 +70,46 @@ function TilePill({
   );
 }
 
-function ActiveTileHeader({
+function TileHeader({
   tab,
+  isActive,
   onActivate,
   onUntile,
 }: {
   tab: BrowserTab;
+  isActive: boolean;
   onActivate: (tab: BrowserTab) => void;
   onUntile: (tab: BrowserTab) => void;
 }) {
   const activitySelection = useActivitySelection();
   const { data: tasks } = useTasks();
-  const task = tab.taskId ? tasks?.find((t) => t.id === tab.taskId) : undefined;
+  const task =
+    isActive && tab.taskId
+      ? tasks?.find((t) => t.id === tab.taskId)
+      : undefined;
   return (
     <ChromeBar
       inset="control"
-      className="bg-background"
-      actions={<RemoveButton tab={tab} onUntile={onUntile} />}
+      className={isActive ? "bg-background" : "bg-muted"}
+      actions={
+        <>
+          {task && <TaskHeaderActions task={task} />}
+          {isActive && activitySelection?.kind === "task" && (
+            <ActivityDetailCloseButton />
+          )}
+          <Button
+            size="icon-sm"
+            aria-label="Remove from split"
+            className="shrink-0"
+            onClick={() => onUntile(tab)}
+          >
+            <XIcon size={12} />
+          </Button>
+        </>
+      }
     >
-      <TilePill tab={tab} isActive onActivate={onActivate} />
-      <div className="min-w-0 flex-1" />
-      {task && <TaskHeaderActions task={task} />}
-      {activitySelection?.kind === "task" && <ActivityDetailCloseButton />}
+      <TilePill tab={tab} isActive={isActive} onActivate={onActivate} />
     </ChromeBar>
-  );
-}
-
-function RemoveButton({
-  tab,
-  onUntile,
-}: {
-  tab: BrowserTab;
-  onUntile: (tab: BrowserTab) => void;
-}) {
-  return (
-    <Button
-      size="icon-sm"
-      aria-label="Remove from split"
-      className="shrink-0"
-      onClick={() => onUntile(tab)}
-    >
-      <XIcon size={12} />
-    </Button>
   );
 }
 
@@ -146,26 +139,16 @@ export function TabTile({
       data-tile={tab.id}
       data-active={isActive || undefined}
     >
-      {isActive ? (
-        <ActiveTileHeader
-          tab={tab}
-          onActivate={onActivate}
-          onUntile={onUntile}
-        />
-      ) : (
-        <ChromeBar
-          inset="control"
-          className="bg-muted"
-          actions={<RemoveButton tab={tab} onUntile={onUntile} />}
-        >
-          <TilePill tab={tab} isActive={false} onActivate={onActivate} />
-          <div className="min-w-0 flex-1" />
-        </ChromeBar>
-      )}
+      <TileHeader
+        tab={tab}
+        isActive={isActive}
+        onActivate={onActivate}
+        onUntile={onUntile}
+      />
       <div className="relative min-h-0 flex-1 overflow-hidden">
-        <BackgroundTileProvider value={true}>
+        <TileProvider value={{ focused: isActive }}>
           <TileTabContent tab={tab} onActivate={onActivate} />
-        </BackgroundTileProvider>
+        </TileProvider>
       </div>
       {dropTarget && <TileDropZones tabId={tab.id} disabled={groupFull} />}
     </div>

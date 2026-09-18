@@ -1,23 +1,23 @@
 import { cn } from "@posthog/quill";
 import type { BrowserTab } from "@posthog/shared";
-import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import { usePinnedTabsStore } from "@posthog/ui/features/browser-tabs/pinnedTabsStore";
 import { useTabReorderStore } from "@posthog/ui/features/browser-tabs/tabReorderStore";
 import { useActiveTabId } from "@posthog/ui/features/browser-tabs/useActiveTabId";
 import { useTabsSnapshot } from "@posthog/ui/features/browser-tabs/useBrowserTabs";
 import { useGoToTab } from "@posthog/ui/features/browser-tabs/useGoToTab";
-import { track } from "@posthog/ui/shell/analytics";
 import {
   Fragment,
   type ReactNode,
   useCallback,
   useEffect,
   useMemo,
+  useRef,
 } from "react";
 import { Panel, PanelGroup, PanelResizeHandle } from "react-resizable-panels";
-import { useNativeDragStore, useNativeDragWatcher } from "./nativeDrag";
+import { useNativeDragKind } from "./nativeDrag";
 import { TabTile } from "./TabTile";
 import { TileDropZones } from "./TileDropZones";
+import { untileTracked } from "./tileActions";
 import { useTileLayoutStore } from "./tileLayoutStore";
 import {
   groupForTab,
@@ -44,6 +44,7 @@ interface TileTreeProps {
 function TileTree(props: TileTreeProps) {
   const { node, tabsById, activeTabId } = props;
   const setSplitSizes = useTileLayoutStore((s) => s.setSplitSizes);
+  const liveSizes = useRef<number[] | null>(null);
   if (node.type === "tab") {
     const tab = tabsById.get(node.tabId);
     if (!tab) return null;
@@ -65,12 +66,19 @@ function TileTree(props: TileTreeProps) {
   return (
     <PanelGroup
       direction={node.direction}
-      onLayout={(sizes) => setSplitSizes(node.id, sizes)}
+      onLayout={(sizes) => {
+        liveSizes.current = sizes;
+      }}
     >
       {node.children.map((child, index) => (
         <Fragment key={nodeId(child)}>
           {index > 0 && (
             <PanelResizeHandle
+              onDragging={(dragging) => {
+                if (!dragging && liveSizes.current) {
+                  setSplitSizes(node.id, liveSizes.current);
+                }
+              }}
               className={cn(
                 "relative z-10 bg-border transition-colors hover:bg-accent-8 data-[resize-handle-active]:bg-accent-8",
                 node.direction === "horizontal" ? "w-px" : "h-px",
@@ -93,11 +101,9 @@ function TileTree(props: TileTreeProps) {
 
 export function TileLayout({ children }: { children: ReactNode }) {
   const goToTab = useGoToTab();
-  const focusTab = useFocusTab();
   const snapshot = useTabsSnapshot();
   const groups = useTileLayoutStore((s) => s.groups);
   const prune = useTileLayoutStore((s) => s.prune);
-  const untile = useTileLayoutStore((s) => s.untileTab);
   const noteActive = useTileLayoutStore((s) => s.noteActive);
   const pinnedTabIds = usePinnedTabsStore((s) => s.pinnedTabIds);
   const rawDraggingTabId = useTabReorderStore((s) =>
@@ -113,8 +119,8 @@ export function TileLayout({ children }: { children: ReactNode }) {
     return loose ? rawDraggingTabId : null;
   }, [rawDraggingTabId, dragSource, groups, pinnedTabIds]);
   const activeTabId = useActiveTabId();
-  useNativeDragWatcher();
-  const nativeDragActive = useNativeDragStore((s) => s.kind !== null);
+  const focusTab = useFocusTab(activeTabId);
+  const nativeDragActive = useNativeDragKind() !== null;
 
   useEffect(() => {
     if (snapshot.windows.length === 0) return;
@@ -132,20 +138,13 @@ export function TileLayout({ children }: { children: ReactNode }) {
       const remaining = group
         ? tabIdsIn(group.root).filter((id) => id !== tab.id)
         : [];
-      untile(tab.id);
+      untileTracked(tab.id);
       if (tab.id === activeTabId && remaining.length > 1) {
         const next = tabsById.get(remaining[0]);
         if (next) goToTab(next);
       }
-      const rest = groupForTab(
-        useTileLayoutStore.getState().groups,
-        remaining[0],
-      );
-      track(ANALYTICS_EVENTS.BROWSER_TAB_UNTILED, {
-        tile_count: rest ? tabIdsIn(rest.root).length : 0,
-      });
     },
-    [groups, untile, activeTabId, tabsById, goToTab],
+    [groups, activeTabId, tabsById, goToTab],
   );
 
   const group = activeTabId ? groupForTab(groups, activeTabId) : null;

@@ -135,6 +135,15 @@ export function lastActiveIn(
   return remembered && ids.includes(remembered) ? remembered : ids[0];
 }
 
+export function focusedTabIn(
+  groups: readonly TileGroup[],
+  activeByGroup: Readonly<Record<string, string>>,
+  tabId: string,
+): string {
+  const group = groupForTab(groups, tabId);
+  return group ? lastActiveIn(group, activeByGroup) : tabId;
+}
+
 export function pruneActiveByGroup(
   groups: readonly TileGroup[],
   activeByGroup: Readonly<Record<string, string>>,

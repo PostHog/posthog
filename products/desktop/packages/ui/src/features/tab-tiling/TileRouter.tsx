@@ -1,8 +1,5 @@
-import { type BrowserTab, setTabTarget } from "@posthog/shared";
-import {
-  applyLocalTransform,
-  persistTabTarget,
-} from "@posthog/ui/features/browser-tabs/tabsSync";
+import type { BrowserTab } from "@posthog/shared";
+import { writeBackgroundTabTarget } from "@posthog/ui/features/browser-tabs/imperativeTabNavigation";
 import {
   createMemoryHistory,
   createRouter,
@@ -10,21 +7,6 @@ import {
   useRouter,
 } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
-
-function recordTabHref(tab: BrowserTab, href: string): void {
-  const target = {
-    tabId: tab.id,
-    href,
-    viewState: tab.viewState ?? null,
-    dashboardId: tab.dashboardId,
-    taskId: tab.taskId,
-    channelId: tab.channelId,
-    channelSection: tab.channelSection,
-    appView: tab.appView,
-  };
-  applyLocalTransform((s) => setTabTarget(s, { ...target, now: Date.now }));
-  persistTabTarget(target);
-}
 
 export function TileRouter({ tab, href }: { tab: BrowserTab; href: string }) {
   const outer = useRouter();
@@ -38,7 +20,15 @@ export function TileRouter({ tab, href }: { tab: BrowserTab; href: string }) {
 
   useEffect(() => {
     return inner.subscribe("onResolved", ({ toLocation }) => {
-      if (toLocation.href !== tab.href) recordTabHref(tab, toLocation.href);
+      if (toLocation.href === tab.href) return;
+      writeBackgroundTabTarget(tab, {
+        href: toLocation.href,
+        dashboardId: tab.dashboardId,
+        taskId: tab.taskId,
+        channelId: tab.channelId,
+        channelSection: tab.channelSection,
+        appView: tab.appView,
+      });
     });
   }, [inner, tab]);
 

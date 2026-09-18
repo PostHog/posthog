@@ -69,72 +69,59 @@ function pruneNames(
 
 export const useTileLayoutStore = create<TileLayoutStore>()(
   persist(
-    (set) => ({
-      groups: [],
-      activeByGroup: {},
-      names: {},
-      nextSplitNumber: 1,
-      renameGroup: (groupId, name) =>
-        set((state) => {
-          const trimmed = name.trim();
-          if (trimmed) return { names: { ...state.names, [groupId]: trimmed } };
-          return {
-            names: {
-              ...state.names,
-              [groupId]: `Split ${state.nextSplitNumber}`,
-            },
-            nextSplitNumber: state.nextSplitNumber + 1,
-          };
-        }),
-      tileTab: (tabId, targetTabId, edge) =>
-        set((state) =>
-          withGroups(
-            state,
+    (set, get) => {
+      const update = (
+        next: (state: TileLayoutStore) => Partial<TileLayoutStore>,
+      ) => {
+        const state = get();
+        const partial = next(state);
+        if (partial !== state) set(partial);
+      };
+      const updateGroups = (next: (state: TileLayoutStore) => TileGroup[]) =>
+        update((state) => withGroups(state, next(state)));
+      return {
+        groups: [],
+        activeByGroup: {},
+        names: {},
+        nextSplitNumber: 1,
+        renameGroup: (groupId, name) =>
+          update((state) => {
+            const trimmed = name.trim();
+            if (trimmed) {
+              return { names: { ...state.names, [groupId]: trimmed } };
+            }
+            return {
+              names: {
+                ...state.names,
+                [groupId]: `Split ${state.nextSplitNumber}`,
+              },
+              nextSplitNumber: state.nextSplitNumber + 1,
+            };
+          }),
+        tileTab: (tabId, targetTabId, edge) =>
+          updateGroups((state) =>
             tileTab(state.groups, tabId, targetTabId, edge, () =>
               crypto.randomUUID(),
             ),
           ),
-        ),
-      untileTab: (tabId) =>
-        set((state) => withGroups(state, untileTab(state.groups, tabId))),
-      separate: (groupId) =>
-        set((state) =>
-          withGroups(
-            state,
-            state.groups.filter((g) => g.id !== groupId),
-          ),
-        ),
-      noteActive: (tabId) =>
-        set((state) => {
-          const group = groupForTab(state.groups, tabId);
-          if (!group || state.activeByGroup[group.id] === tabId) return state;
-          return {
-            activeByGroup: { ...state.activeByGroup, [group.id]: tabId },
-          };
-        }),
-      setSplitSizes: (splitId, sizes) =>
-        set((state) =>
-          withGroups(state, setSplitSizes(state.groups, splitId, sizes)),
-        ),
-      prune: (liveTabIds) =>
-        set((state) =>
-          withGroups(state, pruneGroups(state.groups, liveTabIds)),
-        ),
-    }),
-    {
-      name: STORAGE_KEY,
-      merge: (persisted, current) => {
-        const merged = {
-          ...current,
-          ...(persisted as Partial<TileLayoutStore>),
-        };
-        const named = nameNewGroups(
-          merged.groups,
-          merged.names ?? {},
-          merged.nextSplitNumber ?? 1,
-        );
-        return { ...merged, names: named.names, nextSplitNumber: named.next };
-      },
+        untileTab: (tabId) =>
+          updateGroups((state) => untileTab(state.groups, tabId)),
+        separate: (groupId) =>
+          updateGroups((state) => state.groups.filter((g) => g.id !== groupId)),
+        noteActive: (tabId) =>
+          update((state) => {
+            const group = groupForTab(state.groups, tabId);
+            if (!group || state.activeByGroup[group.id] === tabId) return state;
+            return {
+              activeByGroup: { ...state.activeByGroup, [group.id]: tabId },
+            };
+          }),
+        setSplitSizes: (splitId, sizes) =>
+          updateGroups((state) => setSplitSizes(state.groups, splitId, sizes)),
+        prune: (liveTabIds) =>
+          updateGroups((state) => pruneGroups(state.groups, liveTabIds)),
+      };
     },
+    { name: STORAGE_KEY },
   ),
 );

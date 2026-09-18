@@ -2,29 +2,33 @@ import { create } from "zustand";
 
 export type TabDragSource = "strip" | "tile";
 
-interface TabReorderStore {
+interface TabDrag {
   previewOrder: string[] | null;
   draggingTabId: string | null;
   dragSource: TabDragSource | null;
   detached: boolean;
-  overStrip: boolean;
-  setPreviewOrder: (order: string[] | null) => void;
-  setDraggingTabId: (tabId: string | null) => void;
-  setDragSource: (source: TabDragSource | null) => void;
-  setDetached: (detached: boolean) => void;
-  setOverStrip: (overStrip: boolean) => void;
 }
 
-export const useTabReorderStore = create<TabReorderStore>((set) => ({
+interface TabReorderStore extends TabDrag {
+  beginDrag: (
+    drag: Omit<TabDrag, "previewOrder" | "detached"> & Partial<TabDrag>,
+  ) => void;
+  endDrag: () => void;
+  setPreviewOrder: (order: string[] | null) => void;
+  setDetached: (detached: boolean) => void;
+}
+
+const idle: TabDrag = {
   previewOrder: null,
   draggingTabId: null,
   dragSource: null,
   detached: false,
-  overStrip: false,
+};
+
+export const useTabReorderStore = create<TabReorderStore>((set) => ({
+  ...idle,
+  beginDrag: (drag) => set({ ...idle, ...drag }),
+  endDrag: () => set(idle),
   setPreviewOrder: (previewOrder) => set({ previewOrder }),
-  setOverStrip: (overStrip) =>
-    set((state) => (state.overStrip === overStrip ? state : { overStrip })),
-  setDraggingTabId: (draggingTabId) => set({ draggingTabId }),
-  setDragSource: (dragSource) => set({ dragSource }),
   setDetached: (detached) => set({ detached }),
 }));

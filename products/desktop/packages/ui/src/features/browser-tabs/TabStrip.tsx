@@ -48,11 +48,7 @@ export interface SplitView {
   name?: string;
 }
 
-export interface SplitMember {
-  id: string;
-  label: string;
-  icon?: ReactNode;
-}
+type SplitMember = Pick<TabView, "id" | "label" | "icon">;
 
 /** Which bulk-close actions would close at least one (unpinned) tab. */
 interface Closable {

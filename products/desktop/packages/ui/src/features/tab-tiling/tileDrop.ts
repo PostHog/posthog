@@ -1,16 +1,10 @@
-import {
-  openTab as openTabLocal,
-  primaryWindow,
-  setWindowActiveTab,
-} from "@posthog/shared";
-import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import type { BrowserTabsClient } from "@posthog/ui/features/browser-tabs/browserTabsClient";
-import type { BrowserTabDestination } from "@posthog/ui/features/browser-tabs/imperativeTabNavigation";
 import {
-  applyLocalTransform,
-  persistWrite,
-  readMirror,
-} from "@posthog/ui/features/browser-tabs/tabsSync";
+  type BrowserTabDestination,
+  findTabForDestination,
+  openInNewBrowserTabSync,
+} from "@posthog/ui/features/browser-tabs/imperativeTabNavigation";
+import { readMirror } from "@posthog/ui/features/browser-tabs/tabsSync";
 import { readCanvasDragDetail } from "@posthog/ui/features/canvas/canvasDrag";
 import { useCurrentChannelStore } from "@posthog/ui/features/canvas/stores/currentChannelStore";
 import {
@@ -18,7 +12,7 @@ import {
   readTaskDragData,
 } from "@posthog/ui/features/sidebar/taskDrag";
 import { getCachedTask } from "@posthog/ui/features/tasks/queries";
-import { track } from "@posthog/ui/shell/analytics";
+import { tileBeside } from "./tileActions";
 import { useTileLayoutStore } from "./tileLayoutStore";
 import {
   groupForTab,
@@ -84,51 +78,6 @@ export function destinationsFromDrop(
   return destination ? [destination] : [];
 }
 
-function existingTabFor(destination: BrowserTabDestination): string | null {
-  const tab = readMirror().tabs.find(
-    (t) =>
-      (destination.taskId && t.taskId === destination.taskId) ||
-      (destination.dashboardId && t.dashboardId === destination.dashboardId),
-  );
-  return tab?.id ?? null;
-}
-
-function openBackgroundTab(
-  client: BrowserTabsClient,
-  destination: BrowserTabDestination,
-): string | null {
-  const win = primaryWindow(readMirror());
-  if (!win) return null;
-  const activeTabId = win.activeTabId;
-  const tabId = crypto.randomUUID();
-  const input = {
-    windowId: win.id,
-    href: destination.href,
-    viewState: destination.title ? { title: destination.title } : null,
-    dashboardId: destination.dashboardId ?? null,
-    taskId: destination.taskId ?? null,
-    channelId: destination.channelId ?? null,
-    channelSection: destination.channelSection ?? null,
-    appView: destination.appView ?? null,
-  };
-  applyLocalTransform((snapshot) => {
-    const opened = openTabLocal(snapshot, {
-      ...input,
-      makeId: () => tabId,
-      now: Date.now,
-    }).snapshot;
-    return activeTabId
-      ? setWindowActiveTab(opened, win.id, activeTabId)
-      : opened;
-  });
-  void persistWrite(async () => {
-    const opened = await client.openTab({ ...input, tabId });
-    if (!activeTabId) return opened;
-    return client.setActiveTab({ windowId: win.id, tabId: activeTabId });
-  });
-  return tabId;
-}
-
 export function dropIntoTile(
   client: BrowserTabsClient,
   dataTransfer: Pick<DataTransfer, "getData">,
@@ -143,14 +92,9 @@ export function dropIntoTile(
     );
     if (target && tabIdsIn(target.root).length >= MAX_TILES_PER_GROUP) break;
     const tabId =
-      existingTabFor(destination) ?? openBackgroundTab(client, destination);
+      findTabForDestination(destination)?.id ??
+      openInNewBrowserTabSync(client, destination, { focus: false });
     if (!tabId || tabId === targetTabId) continue;
-    useTileLayoutStore.getState().tileTab(tabId, targetTabId, edge);
-    const group = groupForTab(useTileLayoutStore.getState().groups, tabId);
-    track(ANALYTICS_EVENTS.BROWSER_TAB_TILED, {
-      edge,
-      source: "sidebar",
-      tile_count: group ? tabIdsIn(group.root).length : 0,
-    });
+    tileBeside(tabId, targetTabId, edge, "sidebar");
   }
 }
