@@ -2002,7 +2002,7 @@ SQL
   }
 
   table "metric_series4" {
-    order_by     = ["team_id", "metric_name", "series_fingerprint"]
+    order_by     = ["team_id", "metric_name", "series_fingerprint", "time_bucket"]
     partition_by = "toDate(original_expiry_timestamp)"
     ttl          = "original_expiry_timestamp"
     settings = {
@@ -2050,6 +2050,10 @@ SQL
     column "timestamp" {
       type = "DateTime64(6)"
     }
+    column "time_bucket" {
+      type         = "DateTime"
+      materialized = "toStartOfHour(timestamp)"
+    }
     column "original_expiry_timestamp" {
       type = "DateTime64(6)"
     }
@@ -2078,9 +2082,10 @@ SQL
       type        = "minmax"
       granularity = 1
     }
-    engine "replicated_merge_tree" {
-      zoo_path     = "/clickhouse/tables/noshard/posthog.metric_series4"
-      replica_name = "{replica}-{shard}"
+    engine "replicated_replacing_merge_tree" {
+      zoo_path       = "/clickhouse/tables/noshard/posthog.metric_series4"
+      replica_name   = "{replica}-{shard}"
+      version_column = "timestamp"
     }
   }
 

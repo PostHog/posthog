@@ -1,11 +1,6 @@
 from django.conf import settings
 
-from posthog.clickhouse.table_engines import (
-    AggregatingMergeTree,
-    MergeTreeEngine,
-    ReplacingMergeTree,
-    ReplicationScheme,
-)
+from posthog.clickhouse.table_engines import AggregatingMergeTree, ReplacingMergeTree, ReplicationScheme
 
 from .metrics2 import METRICS2_INPUT_TABLE_NAME
 
@@ -68,6 +63,7 @@ CREATE TABLE IF NOT EXISTS {_db()}.{METRIC_SERIES4_TABLE_NAME}
     `resource_fingerprint` UInt64 MATERIALIZED cityHash64(resource_attributes),
     `attributes` Map(LowCardinality(String), String),
     `timestamp` DateTime64(6),
+    `time_bucket` DateTime MATERIALIZED toStartOfHour(timestamp),
     `original_expiry_timestamp` DateTime64(6),
     INDEX idx_service_set service_name TYPE set(1000) GRANULARITY 1,
     INDEX idx_resource_fingerprint resource_fingerprint TYPE bloom_filter(0.01) GRANULARITY 1,
@@ -75,9 +71,9 @@ CREATE TABLE IF NOT EXISTS {_db()}.{METRIC_SERIES4_TABLE_NAME}
     INDEX idx_attr_values mapValues(attributes) TYPE bloom_filter(0.01) GRANULARITY 1,
     INDEX idx_timestamp_minmax timestamp TYPE minmax GRANULARITY 1
 )
-ENGINE = {MergeTreeEngine(METRIC_SERIES4_TABLE_NAME, replication_scheme=ReplicationScheme.REPLICATED)}
+ENGINE = {ReplacingMergeTree(METRIC_SERIES4_TABLE_NAME, replication_scheme=ReplicationScheme.REPLICATED, ver="timestamp")}
 PARTITION BY toDate(original_expiry_timestamp)
-ORDER BY (team_id, metric_name, series_fingerprint)
+ORDER BY (team_id, metric_name, series_fingerprint, time_bucket)
 TTL original_expiry_timestamp
 SETTINGS index_granularity = 8192
 """

@@ -421,13 +421,14 @@ CREATE TABLE posthog.metric_series4 (
   resource_fingerprint UInt64 MATERIALIZED cityHash64(resource_attributes),
   attributes Map(LowCardinality(String), String),
   timestamp DateTime64(6),
+  time_bucket DateTime MATERIALIZED toStartOfHour(timestamp),
   original_expiry_timestamp DateTime64(6),
   INDEX idx_service_set service_name TYPE set(1000) GRANULARITY 1,
   INDEX idx_resource_fingerprint resource_fingerprint TYPE bloom_filter(0.01) GRANULARITY 1,
   INDEX idx_attr_keys mapKeys(attributes) TYPE bloom_filter(0.01) GRANULARITY 1,
   INDEX idx_attr_values mapValues(attributes) TYPE bloom_filter(0.01) GRANULARITY 1,
   INDEX idx_timestamp_minmax timestamp TYPE minmax GRANULARITY 1
-) ENGINE = ReplicatedMergeTree('/clickhouse/tables/noshard/posthog.metric_series4', '{replica}-{shard}') ORDER BY (team_id, metric_name, series_fingerprint) PARTITION BY toDate(original_expiry_timestamp) TTL original_expiry_timestamp SETTINGS index_granularity = 8192;
+) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/noshard/posthog.metric_series4', '{replica}-{shard}', timestamp) ORDER BY (team_id, metric_name, series_fingerprint, time_bucket) PARTITION BY toDate(original_expiry_timestamp) TTL original_expiry_timestamp SETTINGS index_granularity = 8192;
 CREATE TABLE posthog.metric_series_distributed (
   team_id Int32,
   metric_name LowCardinality(String),
