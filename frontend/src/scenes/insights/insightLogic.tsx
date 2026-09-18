@@ -282,6 +282,9 @@ export interface insightLogicActions {
             variablesOverride: Record<string, HogQLVariable> | null | undefined
         }
     }
+    onKeepSuggestedInsight: () => {
+        value: true
+    }
     onReapplySuggestedInsight: () => {
         value: true
     }
@@ -628,6 +631,7 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
         handleInsightSuggested: (suggestedInsight: Node | null) => ({ suggestedInsight }),
         onRejectSuggestedInsight: true,
         onReapplySuggestedInsight: true,
+        onKeepSuggestedInsight: true,
         setPreviousQuery: (previousQuery: Node | null) => ({ previousQuery }),
         setSuggestedQuery: (suggestedQuery: Node | null) => ({ suggestedQuery }),
         reloadSavedInsights: true,
@@ -926,10 +930,13 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                 setInsightMetadataFailure: () => false,
             },
         ],
+        // The editor notice and the thread's revert control read these two, so clearing both
+        // is what takes the suggestion out of review.
         previousQuery: [
             null as Node | null,
             {
                 setPreviousQuery: (_, { previousQuery }) => previousQuery,
+                onKeepSuggestedInsight: () => null,
                 saveInsight: () => null,
             },
         ],
@@ -937,6 +944,7 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
             null as Node | null,
             {
                 setSuggestedQuery: (_, { suggestedQuery }) => suggestedQuery,
+                onKeepSuggestedInsight: () => null,
                 saveInsight: () => null,
             },
         ],
