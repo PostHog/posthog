@@ -1321,13 +1321,12 @@ class TestPromptBuilder(BaseTest):
         assert "signals-scout-inbox-validation" in prompt
         section = prompt[prompt.index("Follow up on your own past work") :]
         assert resurface_tool in section.split("# ")[0]
-        # Same fail-closed rule for the durable half of the loop: a report check hangs on a report,
-        # which only a report-channel scout holds. Naming it to a signal-channel run would point it
-        # at a report it never has.
-        if allowed_tools:
-            assert "inbox-report-checks-create" in section.split("# ")[0]
+        # Same fail-closed rule for the durable half of the loop: the check endpoints refuse a run
+        # whose skill does not list `edit_report`, so only such a scout is pointed at them.
+        if "edit_report" in allowed_tools:
+            assert "scout-report-check-create" in section.split("# ")[0]
         else:
-            assert "inbox-report-checks" not in prompt
+            assert "scout-report-check" not in prompt
 
 
 # Orchestration tests run as plain pytest functions because the async runner uses
