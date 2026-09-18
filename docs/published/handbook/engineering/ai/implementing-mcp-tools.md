@@ -112,6 +112,8 @@ Exercise `learn -s`, a qualified skill read, and a product call, and check that 
 The skills-first gate response directs agents to search, load an exact qualified name with `learn posthog:<skill>` or `learn project:<skill>`, then retry the original call.
 Searching alone does not open the gate, and `skill-get` and `skill-list` cannot satisfy it.
 Unknown learning topics and empty search queries return recovery instructions; a failed `learn` does not open the gate.
+The skill manifest includes file-reading syntax: separate the qualified skill name and path with a space, as in `learn posthog:<skill> references/<file>.md`.
+Joining them with `/` or using `--file` returns an error explaining the supported syntax.
 If no skill applies, the existing `call --no-skills ...` acknowledgement remains available.
 The `plugin` and `posthog-code` consumers remain excluded regardless of the flag.
 Monitor archive validation errors, catalog size, MCP memory, and task failures before expanding the release condition.

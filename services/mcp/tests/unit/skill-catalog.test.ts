@@ -92,11 +92,15 @@ describe('SkillCatalog and exec learn', () => {
     it('returns the rendered skill with a manifest and supports scoped reads', async () => {
         const catalog = makeCatalog()
         const learn = new ExecLearnCatalog([], { posthog: catalog })
-        const result = catalog.read('retention-analysis')
+        const result = await learn.execute('posthog:retention-analysis')
 
         expect(result).toContain('Files:')
         expect(result).toContain('- SKILL.md (8 lines,')
         expect(result).toContain('- references/functions.md (3 lines,')
+        expect(result).toContain('Read a file with `learn posthog:retention-analysis <path>`.')
+        expect(await learn.execute('posthog:retention-analysis references/functions.md')).toContain(
+            '# Available functions'
+        )
         expect(result).toContain('# Retention analysis')
         expect(result).not.toContain('name: retention-analysis')
         expect(catalog.searchFile('retention-analysis', 'references/functions.md', 'dateDiff')).toContain(
