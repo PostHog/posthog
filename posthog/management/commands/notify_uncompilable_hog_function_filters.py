@@ -2,11 +2,11 @@ import logging
 from argparse import ArgumentParser
 from typing import Any
 
-from django.core.management.base import BaseCommand
+from django.core.management.base import BaseCommand, CommandError
 
 from posthog.tasks.email import send_hog_function_filters_uncompilable
 
-from products.cdp.backend.models.hog_functions.hog_function import HogFunction
+from products.cdp.backend.models.hog_functions.hog_function import HogFunction, HogFunctionType
 
 logger = logging.getLogger(__name__)
 
@@ -42,12 +42,22 @@ class Command(BaseCommand):
         # `bytecode` is set to null alongside every bytecode_error, so the error alone identifies
         # the state. Matching on the message would miss the compile failures that are not about
         # cohorts.
-        queryset = HogFunction.objects.filter(deleted=False, enabled=True).exclude(filters__bytecode_error__isnull=True)
+        # Destinations only. Transformations, source webhooks and internal destinations compile
+        # bytecode too and can carry the same error, but the email names a destination and links to
+        # the destinations page, and an internal destination is ours rather than the customer's.
+        queryset = HogFunction.objects.filter(deleted=False, enabled=True, type=HogFunctionType.DESTINATION).exclude(
+            filters__bytecode_error__isnull=True
+        )
         if options["team_id"]:
             queryset = queryset.filter(team_id=options["team_id"])
         queryset = queryset.select_related("team", "created_by").order_by("team_id", "id")
-        if options["limit"]:
-            queryset = queryset[: options["limit"]]
+        limit = options["limit"]
+        if limit is not None:
+            # `if limit:` would read 0 as "no limit" and hand the whole fleet to --apply, and a
+            # negative value raises inside the slice.
+            if limit < 1:
+                raise CommandError("--limit must be 1 or more")
+            queryset = queryset[:limit]
 
         count = 0
         by_team: dict[int, int] = {}

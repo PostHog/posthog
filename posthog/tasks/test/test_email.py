@@ -1134,6 +1134,26 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         assert "creator@posthog.com" in recipients
         assert self.user.email in recipients
 
+    def test_send_hog_function_filters_uncompilable_skips_a_creator_who_left(self, MockEmailMessage: MagicMock) -> None:
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        creator = self._create_user("gone@posthog.com")
+        hog_function = HogFunction.objects.create(
+            team=self.team, name="Broken destination", enabled=True, created_by=creator
+        )
+        HogFunction.objects.filter(id=hog_function.id).update(
+            filters={"bytecode": None, "bytecode_error": "Cohort membership can't be evaluated"}
+        )
+        # The email names the project and quotes the error, so it must not follow a stale created_by.
+        OrganizationMembership.objects.filter(user=creator, organization=self.organization).delete()
+
+        send_hog_function_filters_uncompilable(str(hog_function.id))
+
+        recipients = {entry["recipient"] for entry in mocked_email_messages[0].to}
+        assert "gone@posthog.com" not in recipients
+        assert self.user.email in recipients
+
     def test_send_hog_function_filters_uncompilable_sends_nothing_without_an_error(
         self, MockEmailMessage: MagicMock
     ) -> None:

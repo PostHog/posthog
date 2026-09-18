@@ -1,4 +1,5 @@
 import uuid
+import hashlib
 import datetime
 from enum import Enum
 from typing import Any, Literal, Optional, cast
@@ -779,20 +780,30 @@ def send_hog_function_filters_uncompilable(hog_function_id: str) -> None:
         return
 
     recipients = {membership.user for membership in _get_project_admins_to_notify_of_email_sending_suspension(team)}
-    # The creator may have left the organization, in which case the admins are the whole audience.
-    if (
-        hog_function.created_by
-        and OrganizationMembership.objects.filter(
-            organization_id=team.organization_id, user=hog_function.created_by
-        ).exists()
-    ):
-        recipients.add(hog_function.created_by)
+    # The creator may have left the organization, or kept organization membership while losing
+    # access to this project. The email names the project and quotes the compilation error, so the
+    # creator is included by effective access to this team, not by organization membership.
+    creator = hog_function.created_by
+    if creator:
+        creator_membership = OrganizationMembership.objects.filter(
+            organization_id=team.organization_id, user=creator
+        ).first()
+        if creator_membership:
+            effective_level = (
+                UserPermissions(creator)
+                .team(team)
+                .effective_membership_level_for_parent_membership(creator_membership.organization, creator_membership)
+            )
+            if effective_level is not None:
+                recipients.add(creator)
     if not recipients:
         return
 
     # Keyed on the error as well as the function: a second, different breakage is worth a second
-    # email, while a re-run of the command over the same breakage is not.
-    campaign_key: str = f"hog_function_filters_uncompilable_{hog_function_id}_{hash(bytecode_error)}"
+    # email, while a re-run of the command over the same breakage is not. sha256 rather than
+    # hash(), which is seeded per process and would give the same error a new key after a restart.
+    error_digest = hashlib.sha256(bytecode_error.encode("utf-8")).hexdigest()[:16]
+    campaign_key: str = f"hog_function_filters_uncompilable_{hog_function_id}_{error_digest}"
     message = EmailMessage(
         campaign_key=campaign_key,
         subject=f"[Action required] Destination '{hog_function.name}' in project '{team}' is not delivering events",
