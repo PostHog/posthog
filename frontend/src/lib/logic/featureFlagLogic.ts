@@ -34,7 +34,7 @@ function notifyFlagIfNeeded(flag: string, flagState: string | boolean | undefine
     }
 }
 
-function getPersistedFeatureFlags(appContext: AppContext | undefined = getAppContext()): FeatureFlagsSet {
+export function getPersistedFeatureFlags(appContext: AppContext | undefined = getAppContext()): FeatureFlagsSet {
     const persistedFeatureFlags = appContext?.persisted_feature_flags || []
     // The server sends a list of enabled flag keys (each maps to `true`). Storybook can
     // instead supply a record so a story can pin a multivariate variant (e.g. an

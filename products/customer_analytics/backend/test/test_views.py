@@ -7,6 +7,7 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
 from django.apps import apps
+from django.test import override_settings
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -2475,9 +2476,12 @@ class TestCustomPropertySourceViewSet(APIBaseTest):
         return created.json()["id"]
 
     @patch("posthoganalytics.feature_enabled", return_value=False)
+    @override_settings(WAREHOUSE_PERSON_PROPERTIES_ENABLED_SELF_HOSTED=False)
     def test_person_source_actions_are_flag_gated(self, _flag):
         # Regression: sync/backfill must 400 when WAREHOUSE_PERSON_PROPERTIES is off. The gate lives in
         # the facade; a viewset refactor that dropped it would ship an ungated (billable) trigger.
+        # Both the Cloud rollout flag (mocked False above) and its self-hosted kill-switch equivalent
+        # are turned off here so this holds regardless of which code path the test runs under.
         source_id = self._create_person_source()
         for action in ("sync", "backfill"):
             response = self.client.post(f"{self.endpoint}{source_id}/{action}/")

@@ -10,6 +10,19 @@ from posthog.settings.utils import get_from_env, get_list, get_set, str_to_bool
 # NOTE: This only affects the frontend, the same FFs will still be considered disabled on the backend
 PERSISTED_FEATURE_FLAGS = get_list(os.getenv("PERSISTED_FEATURE_FLAGS", ""))
 
+# Non-cloud deployments do not participate in Cloud rollout evaluation, so features enabled by a
+# server-side non-cloud bypass must also be present in the frontend's persisted baseline.
+NON_CLOUD_PERSISTED_FEATURE_FLAGS = ("warehouse-person-properties",)
+
+# Self-hosted instances can't reach Cloud's staged-rollout flag service, so
+# `person_properties_flag_enabled` (products/customer_analytics/backend/logic/person_property_projection.py)
+# skips it there and enables warehouse-backed person/group properties directly. This is the
+# self-hosted equivalent of that Cloud flag: an operator kill switch, checked via env var instead
+# of a network call, in case the feature needs to be turned off on a given self-hosted instance.
+WAREHOUSE_PERSON_PROPERTIES_ENABLED_SELF_HOSTED: bool = get_from_env(
+    "WAREHOUSE_PERSON_PROPERTIES_ENABLED_SELF_HOSTED", True, type_cast=str_to_bool
+)
+
 # Encryption keys for remote-config feature flag payloads, kept separate from
 # Temporal's keys (posthog/settings/temporal.py) so the two rotate independently.
 # An ordered list: the first key encrypts new payloads, every key can decrypt. That
