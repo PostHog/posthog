@@ -223,3 +223,76 @@ def test_can_patch_redshift_batch_export_swapping_copy_integration(
     batch_export = get_batch_export_ok(client, team.pk, batch_export["id"])
     assert batch_export["destination"]["config"]["copy_inputs"]["bucket_credentials"] == other_integration.pk
     assert batch_export["destination"]["config"]["copy_inputs"]["authorization"] == other_integration.pk
+
+
+def create_insert_batch_export(client: HttpClient, team, user, integration_pk: int) -> dict:
+    destination_data = {
+        "type": "Redshift",
+        "config": {
+            "database": "my-db",
+            "host": "localhost",
+            "schema": "public",
+            "table_name": "my_events",
+            "mode": "INSERT",
+        },
+        "integration": integration_pk,
+    }
+    batch_export_data = {
+        "name": "my-production-redshift-destination",
+        "destination": destination_data,
+        "interval": "hour",
+    }
+    client.force_login(user)
+    return create_batch_export_ok(client, team.pk, batch_export_data)
+
+
+@pytest.mark.parametrize("field, value", [("user", "rotated"), ("password", "rotated")])
+def test_updating_connection_backed_redshift_export_rejects_inline_credentials(
+    client: HttpClient, temporal, organization, team, user, aws_redshift_integration, field, value
+):
+    """A connection-backed export reads its credentials from the connection, so a request that sends
+    them inline must fail instead of storing a value the export never uses.
+    """
+    batch_export = create_insert_batch_export(client, team, user, aws_redshift_integration.pk)
+
+    response = patch_batch_export(
+        client,
+        team.pk,
+        batch_export["id"],
+        {
+            "destination": {
+                "type": "Redshift",
+                "config": {field: value},
+                "integration": aws_redshift_integration.pk,
+            }
+        },
+    )
+
+    assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+    assert f"'{field}'" in response.json()["detail"]
+
+    batch_export = get_batch_export_ok(client, team.pk, batch_export["id"])
+    assert field not in batch_export["destination"]["config"]
+
+
+def test_updating_connection_backed_redshift_export_allows_its_own_host(
+    client: HttpClient, temporal, organization, team, user, aws_redshift_integration
+):
+    """An AWS Redshift connection stores no host, so the export keeps its endpoint in `config`."""
+    batch_export = create_insert_batch_export(client, team, user, aws_redshift_integration.pk)
+
+    response = patch_batch_export(
+        client,
+        team.pk,
+        batch_export["id"],
+        {
+            "destination": {
+                "type": "Redshift",
+                "config": {"host": "8.8.8.8"},
+                "integration": aws_redshift_integration.pk,
+            }
+        },
+    )
+
+    assert response.status_code == status.HTTP_200_OK, response.json()
+    assert response.json()["destination"]["config"]["host"] == "8.8.8.8"
