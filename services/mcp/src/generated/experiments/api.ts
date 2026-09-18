@@ -8,6 +8,13 @@
  */
 import * as zod from 'zod'
 
+/**
+ * Mixin for ViewSets to handle approval-gate exceptions raised from decorated serializers.
+ *
+ * Intercepts ApprovalRequired (409) and PolicyConflict (400) raised by the @approval_gate
+ * decorator on serializer methods and converts them into the same responses the viewset path
+ * produces (see decorators._result_to_response), so both paths share one contract.
+ */
 export const ExperimentHoldoutsListParams = () => zod.object({
     project_id: zod
         .string()
@@ -21,6 +28,13 @@ export const ExperimentHoldoutsListQueryParams = () => zod.object({
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })
 
+/**
+ * Mixin for ViewSets to handle approval-gate exceptions raised from decorated serializers.
+ *
+ * Intercepts ApprovalRequired (409) and PolicyConflict (400) raised by the @approval_gate
+ * decorator on serializer methods and converts them into the same responses the viewset path
+ * produces (see decorators._result_to_response), so both paths share one contract.
+ */
 export const ExperimentHoldoutsCreateParams = () => zod.object({
     project_id: zod
         .string()
@@ -305,6 +319,13 @@ export const ExperimentHoldoutsCreateBody = () => zod
     })
     .describe('A holdout group — a stable slice of users excluded from experiment exposure.')
 
+/**
+ * Mixin for ViewSets to handle approval-gate exceptions raised from decorated serializers.
+ *
+ * Intercepts ApprovalRequired (409) and PolicyConflict (400) raised by the @approval_gate
+ * decorator on serializer methods and converts them into the same responses the viewset path
+ * produces (see decorators._result_to_response), so both paths share one contract.
+ */
 export const ExperimentHoldoutsRetrieveParams = () => zod.object({
     id: zod.number().describe('A unique integer value identifying this experiment holdout.'),
     project_id: zod
@@ -314,6 +335,13 @@ export const ExperimentHoldoutsRetrieveParams = () => zod.object({
         ),
 })
 
+/**
+ * Mixin for ViewSets to handle approval-gate exceptions raised from decorated serializers.
+ *
+ * Intercepts ApprovalRequired (409) and PolicyConflict (400) raised by the @approval_gate
+ * decorator on serializer methods and converts them into the same responses the viewset path
+ * produces (see decorators._result_to_response), so both paths share one contract.
+ */
 export const ExperimentHoldoutsPartialUpdateParams = () => zod.object({
     id: zod.number().describe('A unique integer value identifying this experiment holdout.'),
     project_id: zod
@@ -600,6 +628,13 @@ export const ExperimentHoldoutsPartialUpdateBody = () => zod
     })
     .describe('A holdout group — a stable slice of users excluded from experiment exposure.')
 
+/**
+ * Mixin for ViewSets to handle approval-gate exceptions raised from decorated serializers.
+ *
+ * Intercepts ApprovalRequired (409) and PolicyConflict (400) raised by the @approval_gate
+ * decorator on serializer methods and converts them into the same responses the viewset path
+ * produces (see decorators._result_to_response), so both paths share one contract.
+ */
 export const ExperimentHoldoutsDestroyParams = () => zod.object({
     id: zod.number().describe('A unique integer value identifying this experiment holdout.'),
     project_id: zod
