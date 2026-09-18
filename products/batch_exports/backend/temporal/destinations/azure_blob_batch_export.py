@@ -33,6 +33,7 @@ from products.batch_exports.backend.temporal.batch_exports import (
 )
 from products.batch_exports.backend.temporal.destinations.constants import (
     AZURE_BLOB_SUPPORTED_COMPRESSIONS as SUPPORTED_COMPRESSIONS,
+    FILE_FORMAT_EXTENSIONS,
 )
 from products.batch_exports.backend.temporal.destinations.utils import EXTERNAL_LOGGER, get_manifest_key, get_object_key
 from products.batch_exports.backend.temporal.pipeline.consumer import Consumer, run_consumer_from_stage
@@ -56,19 +57,6 @@ NON_RETRYABLE_ERROR_TYPES = (
     "UnsupportedCompressionError",
     "UnsupportedFileFormatError",
 )
-
-FILE_FORMAT_EXTENSIONS = {
-    "Parquet": "parquet",
-    "JSONLines": "jsonl",
-}
-
-COMPRESSION_EXTENSIONS = {
-    "gzip": "gz",
-    "brotli": "br",
-    "zstd": "zst",
-    "lz4": "lz4",
-    "snappy": "sz",
-}
 
 LOGGER = get_write_only_logger(__name__)
 
@@ -115,7 +103,7 @@ def _is_authorization_failure_response_error(err: HttpResponseError) -> bool:
     return getattr(err, "error_code", None) == StorageErrorCode.AUTHORIZATION_FAILURE
 
 
-@dataclasses.dataclass(kw_only=True)
+@dataclasses.dataclass(frozen=False, kw_only=True)
 class AzureBlobInsertInputs(BatchExportInsertInputs):
     container_name: str
     integration_id: int
@@ -123,6 +111,9 @@ class AzureBlobInsertInputs(BatchExportInsertInputs):
     compression: str | None = None
     file_format: str = "JSONLines"
     max_file_size_mb: int | None = None
+    # Defaults to the legacy naming: an activity input recorded before this field existed has no
+    # value for it, so the missing field uses this default and the export keeps its existing names.
+    legacy_parquet_extension: bool = True
 
 
 async def _get_azure_blob_integration(integration_id: int, team_id: int) -> AzureBlobIntegration:
@@ -155,6 +146,7 @@ class AzureBlobConsumer(Consumer):
         compression: str | None = None,
         max_file_size_mb: int | None = None,
         max_concurrency: int = 5,
+        legacy_parquet_extension: bool = True,
     ):
         super().__init__(model=batch_export_model.name if batch_export_model else "events")
 
@@ -167,6 +159,7 @@ class AzureBlobConsumer(Consumer):
         self.compression = compression
         self.max_file_size_mb = max_file_size_mb
         self.max_concurrency = max_concurrency
+        self.legacy_parquet_extension = legacy_parquet_extension
 
         self.current_buffer = bytearray()
         self.current_file_index = 0
@@ -212,6 +205,7 @@ class AzureBlobConsumer(Consumer):
             compression=inputs.compression,
             max_file_size_mb=inputs.max_file_size_mb,
             max_concurrency=max_concurrency,
+            legacy_parquet_extension=inputs.legacy_parquet_extension,
         )
 
     async def consume_chunk(self, data: bytes):
@@ -239,8 +233,9 @@ class AzureBlobConsumer(Consumer):
             data_interval_start=self.data_interval_start,
             data_interval_end=self.data_interval_end,
             batch_export_model=self.batch_export_model,
-            file_extension=FILE_FORMAT_EXTENSIONS[self.file_format],
-            compression_extension=COMPRESSION_EXTENSIONS[self.compression] if self.compression is not None else None,
+            file_format=self.file_format,
+            compression=self.compression,
+            legacy_parquet_extension=self.legacy_parquet_extension,
             file_number=self.current_file_index,
             include_file_number=bool(self.max_file_size_mb),
         )
@@ -313,8 +308,9 @@ async def insert_into_azure_blob_activity_from_stage(inputs: AzureBlobInsertInpu
         data_interval_start=inputs.data_interval_start,
         data_interval_end=inputs.data_interval_end,
         batch_export_model=inputs.batch_export_model,
-        file_extension=FILE_FORMAT_EXTENSIONS[inputs.file_format],
-        compression_extension=COMPRESSION_EXTENSIONS[inputs.compression] if inputs.compression is not None else None,
+        file_format=inputs.file_format,
+        compression=inputs.compression,
+        legacy_parquet_extension=inputs.legacy_parquet_extension,
         include_file_number=bool(inputs.max_file_size_mb),
     )
 
@@ -434,6 +430,7 @@ class AzureBlobBatchExportWorkflow(PostHogWorkflow):
             include_events=inputs.include_events,
             file_format=inputs.file_format,
             max_file_size_mb=inputs.max_file_size_mb,
+            legacy_parquet_extension=inputs.legacy_parquet_extension,
             run_id=run_id,
             backfill_details=inputs.backfill_details,
             is_backfill=is_backfill,
