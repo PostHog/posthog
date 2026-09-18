@@ -85,7 +85,11 @@ Use `mkdir` and `mv` inside `/posthog/files` to create folders and move or renam
 These commands update the real project tree, preserve object IDs, and work without fetching object contents.
 Keep the `.md` or `.json` extension when renaming files. Folder moves include their contents.
 Moves to an existing destination are rejected rather than replacing another object.
-Use `ph notebook-create` and `ph notebook-delete` to create or delete notebooks; creating ordinary files and removing folders through the mount are unsupported.
+Use `rm` for files, `rmdir` for empty folders, and `rm -r` for folder trees under `/posthog/files`.
+Removing the last file reference deletes its PostHog object through the same permission checks as the project tree.
+Folder removal checks for remaining contents on the server, including contents absent from the terminal's snapshot.
+Files open for writing must be closed before removal. `/posthog/api` remains read-only.
+Use `ph notebook-create` to create notebooks; creating ordinary files through the mount is unsupported.
 
 ```sh
 mkdir -p /posthog/files/Research/Archive

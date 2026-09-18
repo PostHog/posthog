@@ -63,6 +63,9 @@ export class NinePServer {
     }
 
     private async open(fid: Fid, flags: number): Promise<void> {
+        if (fid.node.removed) {
+            throw new FilesystemError(2)
+        }
         if (fid.node.children) {
             if (flags & 3) {
                 throw new FilesystemError(21)
@@ -168,6 +171,25 @@ export class NinePServer {
         await node.rename(parent, name)
     }
 
+    private async remove(node: TerminalNode, directory: boolean): Promise<void> {
+        if (node.removed) {
+            throw new FilesystemError(2)
+        }
+        if (!!node.children !== directory) {
+            throw new FilesystemError(directory ? 20 : 21)
+        }
+        if (!node.remove) {
+            throw new FilesystemError(30)
+        }
+        if (node.children?.size) {
+            throw new FilesystemError(39)
+        }
+        if (this.writers.has(node.id)) {
+            throw new FilesystemError(16)
+        }
+        await node.remove()
+    }
+
     private async request(type: number, reader: NinePReader): Promise<NinePWriter> {
         const result = new NinePWriter()
         switch (type) {
@@ -224,6 +246,36 @@ export class NinePServer {
                     throw new FilesystemError(30)
                 }
                 return qid(result, await parent.mkdir(name))
+            }
+            case 76: {
+                const parent = this.fid(reader.number(4)).node
+                const name = reader.string()
+                const flags = reader.number(4)
+                if (flags & ~0x200 || name === '.' || name === '..') {
+                    throw new FilesystemError(22)
+                }
+                if (!parent.children) {
+                    throw new FilesystemError(20)
+                }
+                const node = parent.children.get(name)
+                if (!node) {
+                    throw new FilesystemError(2)
+                }
+                await this.remove(node, !!(flags & 0x200))
+                return result
+            }
+            case 122: {
+                const id = reader.number(4)
+                const fid = this.fid(id)
+                try {
+                    await this.remove(fid.node, !!fid.node.children)
+                } finally {
+                    if (fid.writing) {
+                        this.writers.delete(fid.node.id)
+                    }
+                    this.fids.delete(id)
+                }
+                return result
             }
             case 20: {
                 const node = this.fid(reader.number(4)).node

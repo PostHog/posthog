@@ -103622,6 +103622,13 @@ export namespace Schemas {
     search?: string;
     };
 
+    export type FileSystemDestroyParams = {
+    /**
+     * Delete folder contents too. Set false to reject nonempty folders without deleting their contents.
+     */
+    recursive?: boolean;
+    };
+
     export type FileSystemShortcutListParams = {
     /**
      * Number of results to return per page.

@@ -13,6 +13,8 @@ export interface TerminalNode {
     writable: boolean
     mkdir?: (name: string) => Promise<TerminalNode>
     rename?: (parent: TerminalNode, name: string) => Promise<void>
+    remove?: () => Promise<void>
+    removed?: boolean
 }
 
 export class FilesystemError extends Error {

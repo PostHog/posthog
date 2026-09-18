@@ -137,6 +137,24 @@ const meta: Meta<typeof TerminalScene> = {
                 },
             },
             delete: {
+                '/api/projects/:projectId/file_system/:id/': ({ params }) => {
+                    const id = String(params.id)
+                    const folder = folders.get(id)
+                    if (folder !== undefined) {
+                        if ([...folders.values(), ...paths.values()].some((path) => path.startsWith(`${folder}/`))) {
+                            return [409, { detail: 'Folder is not empty.' }]
+                        }
+                        folders.delete(id)
+                        return [204]
+                    }
+                    const notebook = [...notebooks.values()].find((item) => item.id === id)
+                    if (!notebook) {
+                        return [404, { detail: 'Not found' }]
+                    }
+                    notebooks.delete(notebook.short_id)
+                    paths.delete(id)
+                    return [204]
+                },
                 '/api/projects/:projectId/notebooks/:shortId/': ({ params }) => {
                     notebooks.delete(String(params.shortId))
                     return [204, null]

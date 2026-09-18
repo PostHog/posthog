@@ -1,6 +1,6 @@
 import apiMutator from 'lib/api-orval-mutator'
 
-import { fileSystemCreate, fileSystemList } from '~/generated/core/api'
+import { fileSystemCreate, fileSystemDestroy, fileSystemList } from '~/generated/core/api'
 import type { FileSystemApi } from '~/generated/core/api.schemas'
 
 import { notebooksList, notebooksPartialUpdate, notebooksRetrieve } from 'products/notebooks/frontend/generated/api'
@@ -14,6 +14,7 @@ jest.mock('~/generated/core/api', () => ({
     ...jest.requireActual('~/generated/core/api'),
     fileSystemList: jest.fn(),
     fileSystemCreate: jest.fn(),
+    fileSystemDestroy: jest.fn(),
 }))
 jest.mock('lib/api-orval-mutator', () => ({ __esModule: true, default: jest.fn() }))
 jest.mock('products/notebooks/frontend/generated/api', () => ({
@@ -114,6 +115,42 @@ describe('PostHog filesystem projection', () => {
         expect(renamed.id).toBeGreaterThan(oldId)
         expect(fs.resolveReference('Renamed.md', '/posthog/files', 'notebook')).toBe('note-1')
         expect(() => fs.resolveReference('Research/Notes.md', '/posthog/files', 'notebook')).toThrow('No project file')
+        expect(notebooksRetrieve).not.toHaveBeenCalled()
+    })
+
+    it('removes project references and empty folders only after the API succeeds, without loading bodies', async () => {
+        jest.mocked(fileSystemList).mockResolvedValue({
+            count: 3,
+            results: [
+                entry('folder', 'Research', 'folder'),
+                entry('note-1', 'Research/Notes'),
+                { ...entry('alias', 'Copy'), ref: 'note-1' },
+            ],
+        })
+        const fs = new PosthogFilesystem('42', new AbortController().signal)
+        await fs.load()
+        const files = fs.root.children!.get('files')!
+        const folder = files.children!.get('Research')!
+        const note = folder.children!.get('Notes.md')!
+        await expect(folder.remove!()).rejects.toMatchObject({ errno: 39 })
+        expect(fileSystemDestroy).not.toHaveBeenCalled()
+        jest.mocked(fileSystemDestroy).mockRejectedValueOnce({ status: 403 })
+        await expect(note.remove!()).rejects.toMatchObject({ errno: 13 })
+        expect(fs.resolveReference('Research/Notes.md', '/posthog/files')).toBe('note-1')
+        jest.mocked(fileSystemDestroy).mockResolvedValue(undefined)
+        await note.remove!()
+        expect(fileSystemDestroy).toHaveBeenLastCalledWith('42', 'note-1', { recursive: false }, expect.anything())
+        expect(folder.children!.size).toBe(0)
+        expect(() => fs.resolveReference('Research/Notes.md', '/posthog/files')).toThrow('No project file')
+        expect(fs.resolveReference('/posthog/api/notebook/note-1.json', '/')).toBe('note-1')
+        await files.children!.get('Copy.md')!.remove!()
+        expect(() => fs.resolveReference('/posthog/api/notebook/note-1.json', '/')).toThrow('No project file')
+        jest.mocked(fileSystemDestroy).mockRejectedValueOnce({ status: 409 })
+        await expect(folder.remove!()).rejects.toMatchObject({ errno: 39 })
+        expect(files.children!.get('Research')).toBe(folder)
+        await folder.remove!()
+        expect(files.children!.has('Research')).toBe(false)
+        expect(fileSystemDestroy).toHaveBeenLastCalledWith('42', 'folder', { recursive: false }, expect.anything())
         expect(notebooksRetrieve).not.toHaveBeenCalled()
     })
 

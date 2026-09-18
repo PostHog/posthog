@@ -1,6 +1,12 @@
 import apiMutator from 'lib/api-orval-mutator'
 
-import { fileSystemCreate, fileSystemList, fileSystemRetrieve, getFileSystemMoveCreateUrl } from '~/generated/core/api'
+import {
+    fileSystemCreate,
+    fileSystemDestroy,
+    fileSystemList,
+    fileSystemRetrieve,
+    getFileSystemMoveCreateUrl,
+} from '~/generated/core/api'
 import type { FileSystemApi } from '~/generated/core/api.schemas'
 import { joinPath, splitPath } from '~/layout/panel-layout/ProjectTree/utils'
 
@@ -97,7 +103,9 @@ someone else's changes. Check the browser's save error banner and /posthog/recov
 Use mkdir to create project folders and mv to move or rename files and folders
 inside /posthog/files. Keep .md or .json extensions when renaming files.
 Moves preserve object IDs and folder contents. Existing destinations cannot be
-replaced. Use ph notebook-create and ph notebook-delete to create or delete notebooks.
+replaced. Use rm to remove files, rmdir for empty folders, and rm -r for folder trees.
+Removing the last file reference deletes the PostHog object, using your permissions.
+Files open for writing must be closed before removal. Use ph notebook-create to create notebooks.
 Work in /tmp for programs that save by renaming a temporary file,
 then use cat /tmp/edited.md > '/posthog/files/path/to/notebook.md'.
 
@@ -190,6 +198,7 @@ export class PosthogFilesystem extends TerminalFilesystem {
         }
         if (node !== this.files) {
             node.rename = (parent, name) => this.move(node, parent, name)
+            node.remove = () => this.remove(node)
         }
     }
 
@@ -208,6 +217,45 @@ export class PosthogFilesystem extends TerminalFilesystem {
             parts.unshift(parent.name)
         }
         return `/posthog/${parts.join('/')}`
+    }
+
+    private async remove(node: TerminalNode): Promise<void> {
+        const source = this.projectNodes.get(node)
+        if (!source || node.removed) {
+            throw new FilesystemError(116)
+        }
+        if (node.children?.size) {
+            throw new FilesystemError(39)
+        }
+        if (source.entry) {
+            try {
+                await fileSystemDestroy(this.projectId, source.entry.id, { recursive: false }, { signal: this.signal })
+            } catch (error) {
+                const status = error && typeof error === 'object' && 'status' in error ? error.status : undefined
+                throw new FilesystemError(status === 409 ? 39 : status === 403 ? 13 : status === 404 ? 2 : 5)
+            }
+        }
+        this.references.delete(this.mountedPath(node))
+        this.projectNodes.delete(node)
+        node.parent!.children!.delete(node.name)
+        node.removed = true
+        const entry = source.entry
+        if (
+            entry &&
+            !node.children &&
+            ![...this.projectNodes.values()].some(
+                ({ entry: other }) => other && other.type === entry.type && other.ref === entry.ref
+            )
+        ) {
+            const type = this.api.children!.get(terminalFilename(entry.type ?? 'unknown'))
+            const name = `${terminalFilename(entry.ref ?? entry.id)}.json`
+            const apiNode = type?.children?.get(name)
+            if (apiNode) {
+                apiNode.removed = true
+                this.references.delete(this.mountedPath(apiNode))
+                type!.children!.delete(name)
+            }
+        }
     }
 
     private async move(node: TerminalNode, parent: TerminalNode, name: string): Promise<void> {
@@ -384,6 +432,7 @@ export class PosthogFilesystem extends TerminalFilesystem {
             )
             this.projectNodes.set(file, { parts: splitPath(entry.path), entry, extension })
             file.rename = (parent, name) => this.move(file, parent, name)
+            file.remove = () => this.remove(file)
             this.references.set(`/posthog/files/${[...parts.map(terminalFilename), name].join('/')}`, entry)
             const type = this.directory(terminalFilename(entry.type ?? 'unknown'), this.api)
             const apiName = `${terminalFilename(entry.ref ?? entry.id)}.json`

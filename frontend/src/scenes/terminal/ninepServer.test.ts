@@ -80,6 +80,54 @@ describe('PostHog 9P filesystem', () => {
         expect(decoder.decode(fresh.body.data(fresh.body.number(4)))).toBe(saved)
     })
 
+    it.each([76, 122])(
+        'unlinks through message %i without reopening deleted files or losing active edits',
+        async (type) => {
+            const note = filesystem.root.children!.get('note.md')!
+            note.remove = jest.fn(async () => {
+                filesystem.root.children!.delete(note.name)
+                note.removed = true
+            })
+            const remove = (): Promise<{ type: number; body: NinePReader }> =>
+                request(
+                    type,
+                    type === 76
+                        ? new NinePWriter().number(1, 4).string('note.md').number(0, 4)
+                        : new NinePWriter().number(3, 4)
+                )
+            await open(1)
+            await write('Edit')
+            await walk('note.md', 3)
+            expect((await remove()).body.number(4)).toBe(16)
+            expect(note.remove).not.toHaveBeenCalled()
+            await request(120, new NinePWriter().number(2, 4))
+            expect(saved).toContain('Edit')
+            await walk('note.md', 2)
+            await open(0)
+            await walk('note.md', 3)
+            await walk('note.md', 4)
+            expect((await remove()).type).toBe(type + 1)
+            const read = await request(116, new NinePWriter().number(2, 4).number(0, 8).number(1024, 4))
+            expect(decoder.decode(read.body.data(read.body.number(4)))).toBe(saved)
+            expect(await open(0, 4)).toBe(7)
+            expect(filesystem.root.children!.has('note.md')).toBe(false)
+        }
+    )
+
+    it('rejects nonempty folders, mismatched removal flags, and read-only mount entries', async () => {
+        const folder = filesystem.directory('folder', filesystem.root)
+        folder.remove = jest.fn(async () => {})
+        filesystem.text('child', folder, '')
+        const remove = (name: string, flags: number): Promise<{ type: number; body: NinePReader }> =>
+            request(76, new NinePWriter().number(1, 4).string(name).number(flags, 4))
+        expect((await remove('folder', 0x200)).body.number(4)).toBe(39)
+        expect((await remove('folder', 0)).body.number(4)).toBe(21)
+        expect((await remove('note.md', 0x200)).body.number(4)).toBe(20)
+        expect((await remove('view.json', 0)).body.number(4)).toBe(30)
+        expect((await remove('missing', 0)).body.number(4)).toBe(2)
+        expect(folder.remove).not.toHaveBeenCalled()
+    })
+
     it.each([50, 120])('commits complete, truncated content on message %i', async (operation) => {
         expect(await open(513)).toBe(13)
         await write('short')
