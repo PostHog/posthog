@@ -462,7 +462,10 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
             "target_project_ids": [self.team_2.id],
         }
 
-        response = self.client.post(url, data)
+        # The evaluation contexts requirement sits behind FLAG_EVALUATION_TAGS, so without this
+        # the contexts case would pass whether or not the copy is exempt.
+        with patch("posthoganalytics.feature_enabled", return_value=True):
+            response = self.client.post(url, data)
 
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["failed"] == []
