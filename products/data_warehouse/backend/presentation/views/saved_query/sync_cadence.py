@@ -289,7 +289,7 @@ class SyncFrequencyField(serializers.ChoiceField):
 
     Reads resolve the cadence via `resolve_sync_frequency` (node target first, then the model's
     `sync_frequency_interval`); writes are validated against the choices and consumed by the
-    serializer's `update()`. Declaring it as a real (non read-only) field is what lets the
+    serializer's `create()` and `update()`. Declaring it as a real (non read-only) field is what lets the
     cadence flow into the generated PATCH body and MCP tool schema.
     """
 
@@ -301,7 +301,7 @@ class SyncFrequencyField(serializers.ChoiceField):
 
     def to_internal_value(self, data: Any) -> str:
         # Clamp deprecated sub-15min cadences up to the floor before validating against choices.
-        if data in DEPRECATED_FAST_SYNC_FREQUENCIES:
+        if isinstance(data, str) and data in DEPRECATED_FAST_SYNC_FREQUENCIES:
             data = "15min"
         return super().to_internal_value(data)
 

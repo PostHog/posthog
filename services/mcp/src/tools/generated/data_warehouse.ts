@@ -436,9 +436,6 @@ const viewUnmaterialize = (): ToolBase<
     handler: async (context: Context, params: z.infer<ReturnType<typeof ViewUnmaterializeSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
-        if (params.deleted !== undefined) {
-            body['deleted'] = params.deleted
-        }
         if (params.name !== undefined) {
             body['name'] = params.name
         }

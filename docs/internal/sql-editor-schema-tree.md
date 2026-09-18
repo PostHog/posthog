@@ -33,3 +33,24 @@ Warehouse series, warehouse property menus, and the data quality check editor ex
 After that request, catalog reloads also restore complete fields for consumers of the shared store.
 Schema mutations refresh previously hydrated or pending tables, as well as expanded nodes.
 Saved-query lists expose metadata only; refreshing them preserves the query and columns already fetched for an open editor tab.
+
+## Saved-query writes
+
+The saved-query API accepts `sync_frequency` on create and update.
+Create applies the cadence after creating the DAG node, in the same transaction, so a refused cadence leaves no saved query behind.
+An omitted cadence leaves the target unchanged on update; explicit `null` and `"never"` both clear it.
+Invalid cadence values return 400.
+
+`edited_history_id` protects query updates from concurrent edits and is ignored on create.
+`soft_update` skips column inference and external table discovery on create and update, and skips the revision conflict check on update.
+Query validation and revision updates still run.
+
+`deleted` is read-only.
+Use DELETE to remove a saved query so DAG cleanup, join cleanup, materialization cleanup, and name release run together.
+Create does not upsert deleted rows.
+A deleted row whose name was not released still reserves that name and needs separate cleanup.
+
+`dag_id` must identify a non-managed DAG in the same project; invalid or foreign IDs return 400.
+A DAG-only update moves the existing node and preserves its cadence and job history.
+Moves are refused when the view has dependents, belongs to a managed DAG, or has nodes in multiple DAGs.
+Explicit `null` selects the default DAG.

@@ -212,7 +212,7 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
     def create(self, request, *args, **kwargs):
         # Check for UPSERT logic
         saved_query = DataWarehouseSavedQuery.objects.filter(
-            team_id=self.team_id, name=request.data.get("name")
+            team_id=self.team_id, name=request.data.get("name"), deleted=False
         ).first()
         if saved_query:
             # The UPSERT branch updates an existing row without going through get_object(),
