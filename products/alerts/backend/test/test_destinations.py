@@ -18,6 +18,7 @@ from products.alerts.backend.facade.contracts import (
     AlertDestinationValidationError,
     DestinationType,
     EventKindSpec,
+    IncidentAction,
 )
 from products.alerts.backend.facade.destinations import serialize_deliveries
 from products.alerts.backend.logic.destination_configs import DESTINATION_SPECS, build_alert_destination_config
@@ -50,6 +51,12 @@ _DESTINATION_DATA: dict[DestinationType, AlertDestinationData] = {
     DestinationType.DISCORD: {"type": DestinationType.DISCORD, "webhook_url": "https://discord.example.com/hook"},
     DestinationType.WEBHOOK: {"type": DestinationType.WEBHOOK, "webhook_url": "https://example.com/hook"},
     DestinationType.TEAMS: {"type": DestinationType.TEAMS, "webhook_url": "https://teams.example.com/hook"},
+    DestinationType.PAGERDUTY: {
+        "type": DestinationType.PAGERDUTY,
+        "pagerduty_routing_key": "0123456789abcdef0123456789abcdef",
+        "pagerduty_severity": "critical",
+        "pagerduty_region": "us",
+    },
 }
 
 
@@ -61,15 +68,20 @@ def webhook_inputs(url: str) -> dict[str, Any]:
     return {"url": {"value": url}}
 
 
+def pagerduty_inputs(routing_key: str, *, severity: str = "critical") -> dict[str, Any]:
+    return {"routing_key": {"value": routing_key}, "severity": {"value": severity}, "region": {"value": "us"}}
+
+
 _READABLE_INPUTS_BY_TEMPLATE: dict[str, dict[str, Any]] = {
     "template-slack": slack_inputs("C-ENG"),
     "template-webhook": webhook_inputs("https://example.com/hook"),
     "template-microsoft-teams": {"webhookUrl": {"value": "https://teams.example.com/hook"}},
+    "template-pagerduty": pagerduty_inputs("0123456789abcdef0123456789abcdef"),
 }
 
 
-def _schema_declaring_every_input(inputs: dict[str, Any]) -> list[dict[str, Any]]:
-    return [{"key": key, "type": "string"} for key in inputs]
+def _schema_declaring_every_input(inputs: dict[str, Any], secret_keys: set[str]) -> list[dict[str, Any]]:
+    return [{"key": key, "type": "string", "secret": key in secret_keys} for key in inputs]
 
 
 class AlertDestinationTestCase(APIBaseTest):
@@ -82,6 +94,7 @@ class AlertDestinationTestCase(APIBaseTest):
         inputs: dict[str, Any] | None = None,
         team: Team | None = None,
         name: str = "Test destination",
+        secret_keys: set[str] | None = None,
     ) -> HogFunction:
         resolved_inputs = _READABLE_INPUTS_BY_TEMPLATE.get(template_id, {}) if inputs is None else inputs
         return HogFunction.objects.create(
@@ -90,7 +103,7 @@ class AlertDestinationTestCase(APIBaseTest):
             type="destination",
             template_id=template_id,
             enabled=True,
-            inputs_schema=_schema_declaring_every_input(resolved_inputs),
+            inputs_schema=_schema_declaring_every_input(resolved_inputs, secret_keys or set()),
             inputs=resolved_inputs,
             hog="return event",
             filters={
@@ -106,10 +119,16 @@ class AlertDestinationTestCase(APIBaseTest):
         alert_id: str,
         inputs: dict[str, Any] | None = None,
         team: Team | None = None,
+        secret_keys: set[str] | None = None,
     ) -> list[HogFunction]:
         return [
             self._make_hog_function(
-                template_id=template_id, alert_id=alert_id, event_id=event_id, inputs=inputs, team=team
+                template_id=template_id,
+                alert_id=alert_id,
+                event_id=event_id,
+                inputs=inputs,
+                team=team,
+                secret_keys=secret_keys,
             )
             for event_id in ALLOWED_EVENT_IDS
         ]
@@ -137,6 +156,7 @@ def _config_for(destination_type: DestinationType, event_id: str) -> AlertDestin
             primary_action_url="https://example.com/alert",
             primary_action_label="View alert",
             webhook_body={"event": event_id},
+            incident_action=IncidentAction.TRIGGER,
         ),
         alert_id="alert-1",
         alert_name="Signups",
@@ -283,6 +303,19 @@ class TestRaiseIfAlertAlreadyHasTheseDestinationConfigs(AlertDestinationTestCase
         self._make_group(template_id="template-microsoft-teams", alert_id="alert-1", inputs=webhook_url)
 
         self._raise_if_exists(configs=[("template-discord", webhook_url)])
+
+    def test_compares_against_a_secret_input_stored_in_the_encrypted_column(self) -> None:
+        stored = self._make_group(
+            template_id="template-pagerduty",
+            alert_id="alert-1",
+            inputs=pagerduty_inputs("a" * 32),
+            secret_keys={"routing_key"},
+        )
+        assert "routing_key" not in (stored[0].inputs or {})
+
+        self._raise_if_exists(configs=[("template-pagerduty", pagerduty_inputs("b" * 32))])
+        with self.assertRaisesRegex(AlertDestinationValidationError, "already configured for this alert"):
+            self._raise_if_exists(configs=[("template-pagerduty", pagerduty_inputs("a" * 32))])
 
 
 class TestSoftDeleteAlertDestinations(AlertDestinationTestCase):

@@ -16,6 +16,10 @@ import {
     SlackChannelType,
 } from '~/types'
 
+import {
+    AlertPagerDutyRegion,
+    AlertPagerDutySeverity,
+} from 'products/alerts/frontend/components/AlertNotificationDestinationEditor'
 import { LogsAlertConfigurationApi } from 'products/logs/frontend/generated/api.schemas'
 
 export type LogsAlertEventKind = 'firing' | 'resolved' | 'broken' | 'errored'
@@ -100,10 +104,16 @@ export const SNOOZE_DURATIONS = [
 export const LOGS_ALERT_NOTIFICATION_TYPE_SLACK = 'slack' as const
 export const LOGS_ALERT_NOTIFICATION_TYPE_WEBHOOK = 'webhook' as const
 export const LOGS_ALERT_NOTIFICATION_TYPE_TEAMS = 'teams' as const
+export const LOGS_ALERT_NOTIFICATION_TYPE_PAGERDUTY = 'pagerduty' as const
 export type LogsAlertNotificationType =
     | typeof LOGS_ALERT_NOTIFICATION_TYPE_SLACK
     | typeof LOGS_ALERT_NOTIFICATION_TYPE_WEBHOOK
     | typeof LOGS_ALERT_NOTIFICATION_TYPE_TEAMS
+    | typeof LOGS_ALERT_NOTIFICATION_TYPE_PAGERDUTY
+
+// Mirrors the backend check, so a mistyped key is caught before the alert is saved instead
+// of failing in the background after it.
+export const PAGERDUTY_ROUTING_KEY_PATTERN = /^[A-Za-z0-9]{32}$/
 
 export type PendingLogsAlertNotification =
     | {
@@ -119,6 +129,12 @@ export type PendingLogsAlertNotification =
     | {
           type: typeof LOGS_ALERT_NOTIFICATION_TYPE_TEAMS
           webhookUrl: string
+      }
+    | {
+          type: typeof LOGS_ALERT_NOTIFICATION_TYPE_PAGERDUTY
+          routingKey: string
+          severity: AlertPagerDutySeverity
+          region: AlertPagerDutyRegion
       }
 
 // Filter used to list every HogFunction tied to a given alert, regardless of which
@@ -221,6 +237,14 @@ export function groupLogsAlertDestinations(
             type = LOGS_ALERT_NOTIFICATION_TYPE_WEBHOOK
             key = `webhook:${webhookUrl ?? hf.id}`
             label = webhookUrl ? `Webhook ${webhookUrl}` : 'Webhook'
+        } else if (templateId === 'template-pagerduty') {
+            // The integration key is a secret input, so the API never returns it. The name's
+            // destination segment carries the key's tail and is what tells two PagerDuty
+            // destinations apart.
+            const destinationSegment = hf.name?.split(' → ').pop()
+            type = LOGS_ALERT_NOTIFICATION_TYPE_PAGERDUTY
+            key = `pagerduty:${destinationSegment ?? hf.id}`
+            label = destinationSegment ?? 'PagerDuty'
         } else {
             type = LOGS_ALERT_NOTIFICATION_TYPE_WEBHOOK
             key = `unknown:${hf.id}`

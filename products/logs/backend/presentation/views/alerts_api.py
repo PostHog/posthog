@@ -33,11 +33,14 @@ from products.alerts.backend.facade.contracts import (
     AlertDestinationData,
     AlertDestinationValidationError,
     DestinationType,
+    PagerDutyRegion,
+    PagerDutySeverity,
 )
 from products.alerts.backend.facade.destinations import (
     build_alert_destination_config,
     configured_destination_template_ids,
     create_alert_destination_hog_functions,
+    destination_handles_event_kind,
     destination_template_id,
     list_alert_destination_groups,
     redact_destination_data,
@@ -183,6 +186,20 @@ class LogsAlertDestinationConfigSerializer(LogsAlertDestinationResponseSerialize
     webhook_url = serializers.CharField(
         required=False,
         help_text="Webhook endpoint reduced to scheme and host. The path, query and userinfo carry the secret.",
+    )
+    pagerduty_routing_key = serializers.CharField(
+        required=False,
+        help_text="PagerDuty integration key reduced to its last four characters.",
+    )
+    pagerduty_severity = serializers.ChoiceField(
+        choices=[choice.value for choice in PagerDutySeverity],
+        required=False,
+        help_text="Severity of the PagerDuty incident.",
+    )
+    pagerduty_region = serializers.ChoiceField(
+        choices=[choice.value for choice in PagerDutyRegion],
+        required=False,
+        help_text="PagerDuty service region the events go to.",
     )
 
 
@@ -788,6 +805,23 @@ class LogsAlertCreateDestinationSerializer(serializers.Serializer):
         required=False,
         help_text="HTTPS endpoint to post to. Required for webhook and teams.",
     )
+    pagerduty_routing_key = serializers.CharField(
+        required=False,
+        trim_whitespace=True,
+        help_text="Integration key of a PagerDuty Events API v2 integration. Required when type=pagerduty.",
+    )
+    pagerduty_severity = serializers.ChoiceField(
+        choices=[choice.value for choice in PagerDutySeverity],
+        required=False,
+        default=PagerDutySeverity.CRITICAL.value,
+        help_text="Severity PagerDuty records on the incident. Used when type=pagerduty.",
+    )
+    pagerduty_region = serializers.ChoiceField(
+        choices=[choice.value for choice in PagerDutyRegion],
+        required=False,
+        default=PagerDutyRegion.US.value,
+        help_text="PagerDuty service region of the account. Used when type=pagerduty.",
+    )
 
     def validate(self, attrs: dict) -> dict:
         data = cast(AlertDestinationData, attrs)
@@ -1000,13 +1034,20 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     @extend_schema(
         request=LogsAlertCreateDestinationSerializer,
         responses={201: LogsAlertDestinationResponseSerializer},
-        description="Create a notification destination for this alert. One HogFunction is created per alert event kind (firing, resolved, ...) atomically.",
+        description=(
+            "Create a notification destination for this alert. One HogFunction is created per alert event kind "
+            "(firing, resolved, ...) atomically. A PagerDuty destination only gets the firing and resolved kinds: "
+            "firing triggers an incident and resolved resolves it."
+        ),
     )
     @action(detail=True, methods=["POST"], url_path="destinations", required_scopes=["logs:write"])
     def create_destination(self, request: Request, *args: object, **kwargs: object) -> Response:
         serializer = LogsAlertCreateDestinationSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = cast(AlertDestinationData, serializer.validated_data)
+        event_kinds = [
+            kind for kind in EVENT_KINDS if destination_handles_event_kind(data["type"], EVENT_KIND_CONFIG[kind])
+        ]
 
         with transaction.atomic():
             alert = self._get_locked_alert()
@@ -1018,7 +1059,7 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     data=data,
                     slack_context_elements=LOGS_ALERT_SLACK_CONTEXT_ELEMENTS,
                 )
-                for kind in EVENT_KINDS
+                for kind in event_kinds
             ]
             try:
                 hog_function_ids = create_alert_destination_hog_functions(
@@ -1034,7 +1075,7 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         report_user_action(
             request.user,
             "logs alert destination created",
-            {"alert_id": str(alert.id), "type": data["type"], "event_kinds": list(EVENT_KINDS)},
+            {"alert_id": str(alert.id), "type": data["type"], "event_kinds": event_kinds},
             request=request,
         )
         response = LogsAlertDestinationResponseSerializer({"hog_function_ids": list(hog_function_ids)})

@@ -89,7 +89,7 @@ const LogsAlertsDestinationsCreateSchema = () => {
         .extend(LogsAlertsDestinationsCreateBody.shape)
         .extend({
             type: LogsAlertsDestinationsCreateBody.shape['type'].describe(
-                'Destination type. Use slack, webhook, or teams. Slack requires slack_workspace_id and slack_channel_id. Webhook and teams require webhook_url.'
+                'Destination type. Use slack, webhook, teams, or pagerduty. Slack requires slack_workspace_id and slack_channel_id. Webhook and teams require webhook_url. PagerDuty requires pagerduty_routing_key.'
             ),
             slack_workspace_id: LogsAlertsDestinationsCreateBody.shape['slack_workspace_id'].describe(
                 'Slack workspace integration ID. Required when type is slack.'
@@ -102,6 +102,15 @@ const LogsAlertsDestinationsCreateSchema = () => {
             ),
             webhook_url: LogsAlertsDestinationsCreateBody.shape['webhook_url'].describe(
                 'Required when type is webhook or teams.'
+            ),
+            pagerduty_routing_key: LogsAlertsDestinationsCreateBody.shape['pagerduty_routing_key'].describe(
+                'The 32-character integration key of an Events API v2 integration on the PagerDuty service. Required when type is pagerduty.'
+            ),
+            pagerduty_severity: LogsAlertsDestinationsCreateBody.shape['pagerduty_severity'].describe(
+                'Incident severity for PagerDuty. One of critical, error, warning, info. Defaults to critical.'
+            ),
+            pagerduty_region: LogsAlertsDestinationsCreateBody.shape['pagerduty_region'].describe(
+                'PagerDuty service region, us or eu. Defaults to us.'
             ),
         })
 }
@@ -129,6 +138,15 @@ const logsAlertsDestinationsCreate = (): ToolBase<
         }
         if (params.webhook_url !== undefined) {
             body['webhook_url'] = params.webhook_url
+        }
+        if (params.pagerduty_routing_key !== undefined) {
+            body['pagerduty_routing_key'] = params.pagerduty_routing_key
+        }
+        if (params.pagerduty_severity !== undefined) {
+            body['pagerduty_severity'] = params.pagerduty_severity
+        }
+        if (params.pagerduty_region !== undefined) {
+            body['pagerduty_region'] = params.pagerduty_region
         }
         const result = await context.api.request<Schemas.LogsAlertDestinationResponse>({
             method: 'POST',
