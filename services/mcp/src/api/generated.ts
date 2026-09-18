@@ -101,6 +101,32 @@ export namespace Schemas {
       PlannerUpdated: 'planner_updated',
     } as const;
 
+    export interface AIReplyPlaybook {
+      /** Repo default instructions, plus the PostHog overlay when docs_source is posthog. */
+      readonly inherited_instructions: string;
+      /**
+         * Team addendum on top of the inherited playbook. Null means the team inherits the default instructions.
+         * @nullable
+         */
+      readonly custom_instructions: string | null;
+      /** True when a non-empty custom addendum is saved for this team. */
+      readonly is_customized: boolean;
+      /** Version of the generic default playbook layer currently in the repo. */
+      readonly default_version: number;
+      /**
+         * Version of the PostHog overlay when docs_source is posthog; null otherwise.
+         * @nullable
+         */
+      readonly posthog_overlay_version: number | null;
+      /**
+         * Documentation source for this team. 'posthog' enables PostHog docs-search and the PostHog overlay.
+         * @nullable
+         */
+      readonly docs_source: string | null;
+      /** Maximum character length for ai_reply_custom_instructions. */
+      readonly max_chars: number;
+    }
+
     export interface AIReportChart {
       /** Id of the rendered PNG export backing this chart. */
       export_asset_id: number;
@@ -5644,6 +5670,15 @@ export namespace Schemas {
       version?: number | null;
     }
 
+    export type ExperimentExposureNodeResponse = { [key: string]: unknown } | null;
+
+    export interface ExperimentExposureNode {
+      kind?: 'ExperimentExposureNode';
+      response?: ExperimentExposureNodeResponse;
+      /** version of the node, used for schema migrations */
+      version?: number | null;
+    }
+
     export type StartHandling = typeof StartHandling[keyof typeof StartHandling];
 
 
@@ -5670,7 +5705,7 @@ export namespace Schemas {
       retention_window_start: number;
       retention_window_unit: FunnelConversionWindowTimeUnit;
       sharedMetricId?: number | null;
-      start_event: EventsNode | ActionsNode | ExperimentDataWarehouseNode;
+      start_event: EventsNode | ActionsNode | ExperimentDataWarehouseNode | ExperimentExposureNode;
       start_handling: StartHandling;
       uuid?: string | null;
       /** version of the node, used for schema migrations */
@@ -33001,17 +33036,27 @@ export namespace Schemas {
     } as const;
 
     /**
-     * `inventory.emit_eligibility` — whether scout findings can reach the inbox for this team.
+     * `inventory.emit_eligibility` — whether the calling scout's findings and reports can reach the inbox.
      */
     export interface EmitEligibility {
       /** Whether the organization has approved AI data processing (an org-level gate on all scout emits). */
       ai_processing_approved: boolean;
       /** Whether the `signals_scout` signal source is enabled for this team. */
       source_enabled: boolean;
-      /** True only when both team/org-level gates pass, so scout findings (signal and report channels alike) actually reach the inbox. When False, every emit is silently dropped — quick-close instead of doing throwaway investigation. Does not account for a scout's own dry-run `emit` toggle, which is per-config, not team-wide. */
+      /**
+         * Whether the calling scout's own config can write, as opposed to running in dry-run (`emit=false`), where it investigates but everything it writes is discarded. Null when the read is not from a scout run, so no single scout's config applies.
+         * @nullable
+         */
+      scout_emit_enabled: boolean | null;
+      /** True only when every gate passes, so this scout's findings and reports (both channels) actually reach the inbox. When False, every write is dropped or refused — quick-close instead of doing throwaway investigation. Read this one value: it accounts for the calling scout's own dry-run posture as well as the team-wide gates, and it is the same gate `emit-report` and `edit-report` apply at write time. */
       can_emit: boolean;
       /**
-         * One-line next step to unblock emits when `can_emit` is False; null when emits can flow.
+         * Which gate blocks the write: `scout_emit_disabled`, `scout_config_missing`, `ai_processing_not_approved`, or `source_disabled`. Null when `can_emit` is True. Matches the `skipped_reason` `emit-report` returns for the same block.
+         * @nullable
+         */
+      blocking_reason: string | null;
+      /**
+         * One-line next step to unblock writes when `can_emit` is False; null when writes can flow.
          * @nullable
          */
       remediation: string | null;
@@ -34058,6 +34103,20 @@ export namespace Schemas {
       config: ErrorTrackingAlertSlackConfig;
       /** Unique identifier of the destination. */
       readonly id: string;
+      /**
+         * When a notification last reached this destination.
+         * @nullable
+         */
+      readonly last_delivered_at: string | null;
+      /**
+         * When delivery to this destination last failed.
+         * @nullable
+         */
+      readonly last_failure_at: string | null;
+      /** Message of the most recent delivery failure. */
+      readonly last_error: string;
+      /** Delivery failures since the last successful delivery. */
+      readonly consecutive_failures: number;
     }
 
     export interface ErrorTrackingAlert {
@@ -34106,9 +34165,9 @@ export namespace Schemas {
       /** Property filters a transition must match to open a notification thread. Same shape as hog function filters; the bytecode is compiled on save. */
       filters?: ErrorTrackingAlertFilters;
       /**
-         * Minimum seconds between thread-opening notifications per issue. 0 disables the throttle.
+         * Minimum seconds between thread-opening notifications per issue, at most 30 days. 0 disables the throttle.
          * @minimum 0
-         * @maximum 2147483647
+         * @maximum 2592000
          */
       throttle_seconds?: number;
       /** Delivery targets notifications fan out to. */
@@ -34126,9 +34185,9 @@ export namespace Schemas {
       /** Property filters a transition must match to open a notification thread. Same shape as hog function filters; the bytecode is compiled on save. */
       filters?: ErrorTrackingAlertFilters;
       /**
-         * Minimum seconds between thread-opening notifications per issue. 0 disables the throttle.
+         * Minimum seconds between thread-opening notifications per issue, at most 30 days. 0 disables the throttle.
          * @minimum 0
-         * @maximum 2147483647
+         * @maximum 2592000
          */
       throttle_seconds?: number;
       /** Delivery targets notifications fan out to. */
@@ -51012,6 +51071,8 @@ export namespace Schemas {
       readonly heading_path: string;
       /** The chunk's text content. */
       readonly content: string;
+      /** True when this chunk comes from a generated source learned from a past support ticket. */
+      readonly is_generated: boolean;
     }
 
     /**
@@ -52258,6 +52319,121 @@ export namespace Schemas {
       TeamRetention: 'team_retention',
       ByteBudget: 'byte_budget',
     } as const;
+
+    /**
+     * * `sync_failed` - Sync Failed
+     * * `unresolved` - Unresolved
+     */
+    export type LineageIssueKindEnum = typeof LineageIssueKindEnum[keyof typeof LineageIssueKindEnum];
+
+
+    export const LineageIssueKindEnum = {
+      SyncFailed: 'sync_failed',
+      Unresolved: 'unresolved',
+    } as const;
+
+    export interface LineageIssue {
+      /** sync_failed when the last attempt to rebuild this node's edges ended in an error. unresolved when the rebuild finished but some of the names this node reads matched no node in the DAG.
+       *
+       * * `sync_failed` - Sync Failed
+       * * `unresolved` - Unresolved */
+      kind: LineageIssueKindEnum;
+      /** The error for sync_failed, or the comma-separated names that did not resolve for unresolved. */
+      detail: string;
+      /**
+         * When the issue was recorded.
+         * @nullable
+         */
+      at: string | null;
+    }
+
+    /**
+     * * `table` - Table
+     * * `view` - View
+     * * `matview` - Mat View
+     * * `endpoint` - Endpoint
+     * * `metric` - Metric
+     */
+    export type NodeTypeEnum = typeof NodeTypeEnum[keyof typeof NodeTypeEnum];
+
+
+    export const NodeTypeEnum = {
+      Table: 'table',
+      View: 'view',
+      Matview: 'matview',
+      Endpoint: 'endpoint',
+      Metric: 'metric',
+    } as const;
+
+    export interface NodeSuspension {
+      /** When the node was suspended. */
+      at: string;
+      /** Error from the materialization that tripped suspension. */
+      reason: string;
+      /** Materialization job that tripped suspension. */
+      job_id: string;
+    }
+
+    export interface NodeEndpoint {
+      /** Name of the endpoint this node's materialization backs. */
+      name: string;
+      /** Endpoint version this node's materialization backs. */
+      version: number;
+    }
+
+    /**
+     * Engines this node is suspended for after repeated materialization failures. Suspended engines are skipped by scheduled DAG runs until the node is resumed.
+     */
+    export type NodeSuspended = {[key: string]: NodeSuspension};
+
+    export interface Node {
+      readonly id: string;
+      /** @maxLength 2048 */
+      name: string;
+      type?: NodeTypeEnum;
+      dag: string;
+      readonly dag_name: string;
+      /** @maxLength 1024 */
+      description?: string;
+      /** @nullable */
+      readonly saved_query_id: string | null;
+      /** @nullable */
+      readonly metric_id: string | null;
+      readonly lineage_issue: LineageIssue | null;
+      readonly created_at: string;
+      /** @nullable */
+      readonly updated_at: string | null;
+      readonly upstream_count: number;
+      readonly downstream_count: number;
+      /** @nullable */
+      readonly last_run_at: string | null;
+      /**
+         * Skipped runs are written straight to the job table and never reach the stored status,
+       * so a blocked model would keep reporting the success before it.
+         * @nullable
+         */
+      readonly last_run_status: string | null;
+      /**
+         * Error of the run that last_run_status describes, so the two never disagree.
+         * @nullable
+         */
+      readonly last_run_error: string | null;
+      /** @nullable */
+      readonly user_tag: string | null;
+      /** @nullable */
+      readonly sync_interval: string | null;
+      /** Engines this node is suspended for after repeated materialization failures. Suspended engines are skipped by scheduled DAG runs until the node is resumed. */
+      readonly suspended: NodeSuspended;
+      /** The endpoint version this node's materialization backs, or null for nodes that are not endpoints. */
+      readonly endpoint: NodeEndpoint | null;
+    }
+
+    export interface LineageResponse {
+      /** Every node reachable from the requested one, plus the node itself. */
+      nodes: Node[];
+      /** Every edge between two of those nodes. */
+      edges: Edge[];
+    }
 
     export interface LinearIssueSignalExtra {
       url: string;
@@ -56360,82 +56536,6 @@ export namespace Schemas {
       rejected_signal_ids: string[];
       /** PR-specificity gate result that caused a rejection, when present. */
       specificity_rejection?: SpecificityMetadata | null;
-    }
-
-    export interface NodeSuspension {
-      /** When the node was suspended. */
-      at: string;
-      /** Error from the materialization that tripped suspension. */
-      reason: string;
-      /** Materialization job that tripped suspension. */
-      job_id: string;
-    }
-
-    /**
-     * Engines this node is suspended for after repeated materialization failures. Suspended engines are skipped by scheduled DAG runs until the node is resumed.
-     */
-    export type NodeSuspended = {[key: string]: NodeSuspension};
-
-    /**
-     * * `table` - Table
-     * * `view` - View
-     * * `matview` - Mat View
-     * * `endpoint` - Endpoint
-     */
-    export type NodeTypeEnum = typeof NodeTypeEnum[keyof typeof NodeTypeEnum];
-
-
-    export const NodeTypeEnum = {
-      Table: 'table',
-      View: 'view',
-      Matview: 'matview',
-      Endpoint: 'endpoint',
-    } as const;
-
-    export interface NodeEndpoint {
-      /** Name of the endpoint this node's materialization backs. */
-      name: string;
-      /** Endpoint version this node's materialization backs. */
-      version: number;
-    }
-
-    export interface Node {
-      readonly id: string;
-      /** @maxLength 2048 */
-      name: string;
-      type?: NodeTypeEnum;
-      dag: string;
-      readonly dag_name: string;
-      /** @maxLength 1024 */
-      description?: string;
-      /** @nullable */
-      readonly saved_query_id: string | null;
-      readonly created_at: string;
-      /** @nullable */
-      readonly updated_at: string | null;
-      readonly upstream_count: number;
-      readonly downstream_count: number;
-      /** @nullable */
-      readonly last_run_at: string | null;
-      /**
-         * Skipped runs are written straight to the job table and never reach the stored status,
-       * so a blocked model would keep reporting the success before it.
-         * @nullable
-         */
-      readonly last_run_status: string | null;
-      /**
-         * Error of the run that last_run_status describes, so the two never disagree.
-         * @nullable
-         */
-      readonly last_run_error: string | null;
-      /** @nullable */
-      readonly user_tag: string | null;
-      /** @nullable */
-      readonly sync_interval: string | null;
-      /** Engines this node is suspended for after repeated materialization failures. Suspended engines are skipped by scheduled DAG runs until the node is resumed. */
-      readonly suspended: NodeSuspended;
-      /** The endpoint version this node's materialization backs, or null for nodes that are not endpoints. */
-      readonly endpoint: NodeEndpoint | null;
     }
 
     export interface NodeResume {
@@ -67564,9 +67664,9 @@ export namespace Schemas {
       /** Property filters a transition must match to open a notification thread. Omit to keep the current filters. */
       filters?: ErrorTrackingAlertFilters;
       /**
-         * Minimum seconds between thread-opening notifications per issue. Omit to keep the current value.
+         * Minimum seconds between thread-opening notifications per issue, at most 30 days. Omit to keep the current value.
          * @minimum 0
-         * @maximum 2147483647
+         * @maximum 2592000
          */
       throttle_seconds?: number;
       /** Delivery targets notifications fan out to. When provided, replaces all current destinations. */
@@ -70075,6 +70175,9 @@ export namespace Schemas {
       description?: string;
       /** @nullable */
       readonly saved_query_id?: string | null;
+      /** @nullable */
+      readonly metric_id?: string | null;
+      readonly lineage_issue?: LineageIssue | null;
       readonly created_at?: string;
       /** @nullable */
       readonly updated_at?: string | null;
@@ -101536,6 +101639,10 @@ export namespace Schemas {
 
     export type DataModelingNodesLineageRetrieveParams = {
     /**
+     * Data catalog metric to build lineage for, resolved to its node. Alternative to node_id.
+     */
+    metric_id?: string;
+    /**
      * Node to build lineage for.
      */
     node_id?: string;
@@ -108144,6 +108251,11 @@ export namespace Schemas {
      * When true, skip the cache and rebuild the profile from authoritative sources before responding. Use after seeding events, importing data, or any other change the caller knows just landed but hasn't surfaced through natural cache expiry yet. Honored only for the internal scout token — public read callers get the cached profile regardless. Concurrent forced rebuilds are serialized by the team-keyed advisory lock — at most one extra `build_inventory` per simultaneous request.
      */
     force_refresh?: boolean;
+    /**
+     * The run whose scout's write posture `emit_eligibility` should answer for. A scout sandbox never needs this: its token is bound to the task that dispatched the run, and that binding is what the endpoint reads, so it wins over any value passed here. Pass it to inspect one scout's effective eligibility from outside a run — a run id from another project is ignored.
+     * @nullable
+     */
+    run_id?: string | null;
     /**
      * When true, respond with the cache metadata and the `summary` envelope only, and omit `payload` entirely. Use it when you need the emit gate and the inbox counts but not the full inventory. The full profile runs to tens of kilobytes, which a client can truncate. Costs nothing extra: the profile is read or built the same way either way.
      */
