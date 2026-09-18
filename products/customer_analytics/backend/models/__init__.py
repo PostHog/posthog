@@ -12,7 +12,7 @@ from .custom_property_definition import (
     DisplayType,
     TargetType,
 )
-from .custom_property_source import CustomPropertySource
+from .custom_property_source import CustomPropertySource, MatchMode
 from .custom_property_sync_run import CustomPropertySyncRun, SyncStatus, SyncTrigger
 from .custom_property_value import CustomPropertyValue
 from .customer_journey import CustomerJourney
@@ -52,6 +52,7 @@ __all__ = [
     "AnnouncementDelivery",
     "CustomPropertyDefinition",
     "CustomPropertySource",
+    "MatchMode",
     "CustomPropertySyncRun",
     "CustomPropertyValue",
     "CustomerJourney",
