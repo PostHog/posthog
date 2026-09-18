@@ -1,7 +1,7 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 
 import { IconCopy } from '@posthog/icons'
-import { LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
@@ -197,6 +197,7 @@ function QuestionLoadingSkeleton({ question }: { question: SurveyQuestion }): JS
 
 export function SurveyQuestionVisualization({ question, questionIndex, demoData }: Props): JSX.Element | null {
     const { enrichedConsolidatedSurveyResults, isAnyResultsLoading, resultsRequeryInProgress } = useValues(surveyLogic)
+    const { loadConsolidatedSurveyResults } = useActions(surveyLogic)
 
     if (demoData) {
         return (
@@ -245,15 +246,30 @@ export function SurveyQuestionVisualization({ question, questionIndex, demoData 
     const processedData: QuestionProcessedResponses | undefined =
         enrichedConsolidatedSurveyResults?.responsesByQuestion[question.id]
     const isRefreshingResults = resultsRequeryInProgress || isAnyResultsLoading
+    const hasFailed = enrichedConsolidatedSurveyResults?.failedQuestionIds.includes(question.id) ?? false
 
     if (!processedData) {
         return (
             <div className="flex flex-col gap-2">
                 <QuestionTitle question={question} questionIndex={questionIndex} />
 
-                <div className="flex flex-col gap-4">
-                    <QuestionLoadingSkeleton question={question} />
-                </div>
+                {hasFailed && !isRefreshingResults ? (
+                    <LemonBanner
+                        type="error"
+                        action={{
+                            children: 'Try again',
+                            onClick: () => loadConsolidatedSurveyResults(),
+                            'data-attr': 'survey-question-results-retry',
+                        }}
+                    >
+                        Couldn't load the responses for this question. Try again, and if it keeps failing contact
+                        support.
+                    </LemonBanner>
+                ) : (
+                    <div className="flex flex-col gap-4">
+                        <QuestionLoadingSkeleton question={question} />
+                    </div>
+                )}
             </div>
         )
     }
