@@ -11,7 +11,6 @@ _CASE_INSENSITIVE_OPTS.case_sensitive = False
 COST_PER_UNIT = 8
 MAX_MEMORY = 64 * 1024 * 1024  # 64 MB
 MAX_REGEX_PATTERN_LENGTH = 16 * 1024
-MAX_REGEX_INPUT_LENGTH = 1024 * 1024
 
 
 def _temporal_seconds(value: Any) -> float | None:
@@ -73,12 +72,10 @@ def _format_regex_error(error: Exception) -> str:
     return str(error)
 
 
-def _validate_regex_inputs(string: str, pattern: str) -> None:
-    # The VM checks its time budget between opcodes, so each matching call must also bound its inputs.
+def _validate_regex_pattern(pattern: str) -> None:
+    # Pattern compilation runs inside one opcode, before the VM can check its time budget again.
     if len(pattern) > MAX_REGEX_PATTERN_LENGTH:
         raise HogVMException(f"Pattern exceeds {MAX_REGEX_PATTERN_LENGTH} characters. Use a shorter pattern.")
-    if len(string) > MAX_REGEX_INPUT_LENGTH:
-        raise HogVMException(f"Matching input exceeds {MAX_REGEX_INPUT_LENGTH} characters. Use a shorter input.")
 
 
 def _compile_regex(pattern: str, case_insensitive: bool = False) -> Any:
@@ -97,7 +94,7 @@ def regex_match(string: Any, pattern: Any, case_insensitive: bool = False) -> bo
 
     string = _require_string(string, "input", "match")
     pattern = _require_string(pattern, "pattern", "match")
-    _validate_regex_inputs(string, pattern)
+    _validate_regex_pattern(pattern)
     return _compile_regex(pattern, case_insensitive).search(string) is not None
 
 
@@ -108,7 +105,7 @@ def regex_extract(string: Any, pattern: Any) -> str:
         return ""
     haystack = str(string)
     pattern = str(pattern)
-    _validate_regex_inputs(haystack, pattern)
+    _validate_regex_pattern(pattern)
     try:
         compiled = _compile_regex(pattern)
     except HogVMException:
@@ -127,7 +124,7 @@ def regex_extract(string: Any, pattern: Any) -> str:
 def like(string: Any, pattern: Any, case_insensitive: bool = False) -> bool:
     string = _require_string(string, "input", "like")
     pattern = _require_string(pattern, "pattern", "like")
-    _validate_regex_inputs(string, pattern)
+    _validate_regex_pattern(pattern)
     pattern = re2.escape(pattern).replace("%", ".*").replace("_", ".")
     re_pattern = re2.compile(pattern, options=_CASE_INSENSITIVE_OPTS) if case_insensitive else re2.compile(pattern)
     return re_pattern.search(string) is not None

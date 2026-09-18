@@ -69,7 +69,7 @@ class TestMaterializedLikePatternLimit(SimpleTestCase):
             right=ast.Constant(value=pattern),
         )
 
-        result = clickhouse_property_resolution(comparison, context)
+        result: ast.Expr = clickhouse_property_resolution(comparison, context)
 
         if oversized:
             assert isinstance(result, ast.CompareOperation)

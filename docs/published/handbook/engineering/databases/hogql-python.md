@@ -50,8 +50,9 @@ Few things to note:
 ## Pattern matching during query preparation
 
 Expressions inside HogQL placeholders execute in the Python HogVM.
-Its regex and LIKE functions and operators accept patterns up to 16,384 characters and input strings up to 1,048,576 characters.
-Larger values raise a `HogVMException`; shorten the pattern or input before matching.
+Its regex and LIKE functions and operators accept patterns up to 16,384 characters.
+Larger patterns raise a `HogVMException`; shorten the pattern before matching.
+Subject strings have no separate matching limit and use the VM's existing 64 MiB stack memory budget, so matching can process multi-megabyte response bodies.
 These limits also apply to `extractRegex`, which still returns an empty string for invalid regex syntax.
 Regex matching uses RE2 syntax, so backreferences and lookaround are unsupported.
 
