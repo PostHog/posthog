@@ -311,8 +311,16 @@ class NotebookNodeRun(TeamScopedRootMixin, UUIDModel):
     # The whole-notebook run that dispatched this cell, or null for a single-cell run. SET_NULL
     # rather than CASCADE: a run record is bookkeeping, and deleting one must not take the
     # results it produced with it.
+    # db_index=False here, with a partial index in Meta instead: the default full index would be
+    # built inside the AddField's ACCESS EXCLUSIVE lock, and it would index the null rows that
+    # every single-cell run leaves behind on the table that grows fastest.
     notebook_run = models.ForeignKey(
-        "notebooks.NotebookRun", on_delete=models.SET_NULL, null=True, blank=True, related_name="node_runs"
+        "notebooks.NotebookRun",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        db_index=False,
+        related_name="node_runs",
     )
     # How the run executed: hogql pushed to ClickHouse (pages re-query by `code`); python and
     # duckdb ran in the sandbox kernel (pages slice the on-sandbox result frame by `result_id`).
@@ -344,6 +352,14 @@ class NotebookNodeRun(TeamScopedRootMixin, UUIDModel):
         db_table = "posthog_notebooknoderun"
         indexes = [
             models.Index(fields=["team", "notebook", "node_id"]),
+            # Partial, because only a whole-notebook run's cells carry this column: the status
+            # read joins by it, and SET_NULL updates by it when a run record is deleted. A single
+            # cell run leaves it null and is never looked up this way, so those rows stay out.
+            models.Index(
+                fields=["notebook_run"],
+                name="notebook_node_run_by_run_idx",
+                condition=models.Q(notebook_run__isnull=False),
+            ),
         ]
 
 

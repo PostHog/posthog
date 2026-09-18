@@ -76,6 +76,7 @@ class Migration(migrations.Migration):
             name="notebook_run",
             field=models.ForeignKey(
                 blank=True,
+                db_index=False,
                 null=True,
                 on_delete=django.db.models.deletion.SET_NULL,
                 related_name="node_runs",
