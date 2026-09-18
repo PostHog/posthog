@@ -31,7 +31,7 @@ import {
 import type { PrActionType } from "@posthog/shared";
 import { Spinner } from "@posthog/ui/primitives/Spinner";
 import { ChevronDown } from "lucide-react";
-import type { ReactNode } from "react";
+import type { ReactElement, ReactNode } from "react";
 import { toast } from "../../../primitives/toast";
 import { useLocalRepoPath } from "../../workspace/useLocalRepoPath";
 import { getPrActionIcon, getPrVisualIcon } from "../prIcon";
@@ -297,7 +297,7 @@ export function PrBadgeControl({
   onGitSelect,
   onPrSelect,
   onOtherPrSelect,
-}: PrBadgeControlProps) {
+}: PrBadgeControlProps): ReactElement {
   const config = getPrVisualConfig(prState, merged, draft);
   const tone = prBadgeToneProps(config);
   const lifecycleItems = config.actions;
