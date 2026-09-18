@@ -23,7 +23,7 @@ Read the measured arm from [`luna-medium-mcp-1.usage.md`](luna-medium-mcp-1.usag
 | 4      | 12           | 16         | 12          | 9                |
 
 - **review units** = every (perspective|blind-spot × chunk) sandbox review that ran = the model-held-constant cost proxy.
-- cache-aware spend: no `$ai_generation` events in the window (likely emitted to a cloud project, or not yet ingested).
+- **Captured gateway model cost:** $0.60319142 across 190 requests, from the [audited usage ledger](luna-medium-mcp-1.usage.md). The dump's separate ClickHouse lookup returned no `$ai_generation` events.
 
 ## Stage timing (wall-clock)
 
@@ -37,7 +37,7 @@ Read the measured arm from [`luna-medium-mcp-1.usage.md`](luna-medium-mcp-1.usag
 | dedup (incl. combine/clean) | 44s      |
 | validation                  | 3m 32s   |
 
-- **Review stage total (selection → last finder unit, wave + blind-spot):** 6m 55s — the reviewer-model speed comparison number.
+- **Review stage total (review wave + blind-spot, excluding selection):** 6m 55s — the reviewer-model speed comparison number.
 - Derived from artefact `created_at` (persisted on completion); only meaningful for fresh, non-resumed runs.
 
 ## Chunking
