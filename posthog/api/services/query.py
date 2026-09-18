@@ -79,6 +79,10 @@ class _DatabaseSchemaCatalog:
     database: Database
 
 
+def _is_alias_capable_catalog_revision(revision: object) -> bool:
+    return isinstance(revision, str) and revision.startswith(_WAREHOUSE_ALIAS_CATALOG_REVISION_PREFIX)
+
+
 def _language_service_eligible(query: HogQLAutocomplete | HogQLMetadata) -> bool:
     common = (
         query.language.value == "hogQL"
@@ -113,8 +117,7 @@ def _language_service_call(
         return None
 
     if result is not None:
-        catalog_revision = result.body.get("catalogRevision")
-        if isinstance(catalog_revision, str) and catalog_revision.startswith(_WAREHOUSE_ALIAS_CATALOG_REVISION_PREFIX):
+        if _is_alias_capable_catalog_revision(result.body.get("catalogRevision")):
             return result
 
     try:
@@ -132,8 +135,8 @@ def _language_service_call(
             ),
         )
         result = call()
-        if result.body.get("catalogRevision") != revision:
-            raise LanguageServiceError("language service did not return the published catalog revision")
+        if not _is_alias_capable_catalog_revision(result.body.get("catalogRevision")):
+            raise LanguageServiceError("language service did not return an alias-capable catalog revision")
         return result
     except LanguageServiceError:
         return None
