@@ -2,7 +2,6 @@ import type { UrlPolicyDecline } from '@posthog/replay-anonymizer'
 
 import { parseJSON } from '~/common/utils/json-parse'
 import { parseImageRef } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-scrub/content-ref'
-import type { MlDataKey } from '~/ingestion/pipelines/sessionreplay/ml-mirror/keys/crypto'
 import { identityDigest } from '~/ingestion/pipelines/sessionreplay/ml-mirror/keys/schema'
 
 import { ImageFetchBlockReason, isImageFetchBlockReason } from './block-reason'
@@ -31,7 +30,8 @@ export type StoredRepublishReason =
 export type RepublishReason = StoredRepublishReason
 
 export interface FetchCandidate {
-    dataKey?: MlDataKey
+    /** Raw UUIDv7 session ID of the v2 session that collected the URL; a v1 record carries none. */
+    sessionId?: string
     originalRef: string
     currentUrl: string
     host: string
@@ -52,6 +52,7 @@ export interface FrontierRecord {
     jobs: Array<
         Pick<
             FetchCandidate,
+            | 'sessionId'
             | 'originalRef'
             | 'currentUrl'
             | 'remainingHops'
@@ -218,6 +219,7 @@ function parseJob(job: unknown, kafkaKey: string): ParsedJob {
         return { kind: 'rejected', reason: 'bad_url' }
     }
     const {
+        sessionId,
         originalRef,
         currentUrl,
         remainingHops,
@@ -230,6 +232,7 @@ function parseJob(job: unknown, kafkaKey: string): ParsedJob {
         lowOriginDiversityDeferred,
     } = job
     if (
+        (sessionId !== undefined && typeof sessionId !== 'string') ||
         typeof originalRef !== 'string' ||
         typeof currentUrl !== 'string' ||
         !isNonNegativeSafeInteger(remainingHops) ||
@@ -264,6 +267,7 @@ function parseJob(job: unknown, kafkaKey: string): ParsedJob {
     return {
         kind: 'candidate',
         candidate: {
+            ...(sessionId ? { sessionId } : {}),
             originalRef,
             currentUrl,
             host: canonical.host,
@@ -284,6 +288,7 @@ export function serializeFrontierRecord(candidates: FetchCandidate[]): Buffer {
     const record: FrontierRecord = {
         v: 2,
         jobs: candidates.map((candidate) => ({
+            ...(candidate.sessionId ? { sessionId: candidate.sessionId } : {}),
             originalRef: candidate.originalRef,
             currentUrl: candidate.currentUrl,
             remainingHops: candidate.remainingHops,
@@ -299,7 +304,7 @@ export function serializeFrontierRecord(candidates: FetchCandidate[]): Buffer {
 }
 
 export function fetchCandidateHistoryKey(candidate: FetchCandidate): string {
-    return candidate.dataKey?.identity.sessionId
-        ? `${candidate.originalRef}:session:${identityDigest(candidate.dataKey.identity.sessionId)}`
+    return candidate.sessionId
+        ? `${candidate.originalRef}:session:${identityDigest(candidate.sessionId)}`
         : candidate.originalRef
 }

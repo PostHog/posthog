@@ -4,11 +4,14 @@ import warnings
 import subprocess
 from collections.abc import Callable
 from functools import partial
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from urllib.parse import quote_plus
 
 import pytest
 from posthog.test.base import PostHogTestCase, run_clickhouse_statement_in_parallel
+
+from _pytest.junitxml import ET, bin_xml_escape, mangle_test_address
 
 if TYPE_CHECKING:
     from _pytest.terminal import TerminalReporter
@@ -544,10 +547,9 @@ class _JUnitTimingsPlugin:
     module-scoped fixture setup time is excluded from `<testcase time>` and
     instead lives in this pre-first-call gap.
 
-    Also records pytest-rerunfailures retries as a `<testcase>` property: pytest's
-    junitxml appends children only for passed/failed/skipped reports, so a rerun
-    report leaves no trace and a flaky fail-then-pass serializes as a clean
-    `<testcase/>` — invisible to flaky-test telemetry.
+    Also records pytest-rerunfailures retries as a `<testcase>` property.
+    Pytest's JUnit output omits intermediate rerun reports, so a separate
+    JUnit file preserves their failures for Trunk.
     """
 
     _PROPERTY_SETUP = "posthog.setup_seconds"
@@ -558,6 +560,7 @@ class _JUnitTimingsPlugin:
         self._session_start: float | None = None
         self._collection_finish: float | None = None
         self._first_test_call_start: float | None = None
+        self._retry_reports: list[pytest.TestReport] = []
 
     def pytest_sessionstart(self, session: pytest.Session) -> None:
         self._session_start = time.monotonic()
@@ -579,6 +582,8 @@ class _JUnitTimingsPlugin:
     @pytest.hookimpl(tryfirst=True)
     def pytest_runtest_logreport(self, report: pytest.TestReport) -> None:
         reruns = getattr(report, "rerun", 0) or 0  # attempt index, set by pytest-rerunfailures
+        if str(report.outcome) == "rerun":
+            self._retry_reports.append(report)
         # str() widens TestReport.outcome's Literal: "rerun" is assigned by pytest-rerunfailures.
         if not reruns or report.when != "teardown" or str(report.outcome) == "rerun":
             return
@@ -621,6 +626,50 @@ class _JUnitTimingsPlugin:
             xml.add_global_property(self._PROPERTY_SETUP, f"{self._first_test_call_start - self._session_start:.6f}")
         if self._collection_finish is not None:
             xml.add_global_property(self._PROPERTY_COLLECTION, f"{self._collection_finish - self._session_start:.6f}")
+        self._write_retry_junit(xml)
+
+    def _write_retry_junit(self, xml: Any) -> None:
+        source_path = Path(xml.logfile)
+        retry_path = source_path.with_name(f"{source_path.stem}-retry-failures.xml")
+        if not self._retry_reports:
+            retry_path.unlink(missing_ok=True)
+            return
+
+        failures = sum(report.when == "call" for report in self._retry_reports)
+        suite = ET.Element(
+            "testsuite",
+            name=xml.suite_name,
+            tests=str(len(self._retry_reports)),
+            failures=str(failures),
+            errors=str(len(self._retry_reports) - failures),
+            skipped="0",
+            time=f"{sum(report.duration for report in self._retry_reports):.3f}",
+            timestamp=xml.suite_start.as_utc().astimezone().isoformat(),
+        )
+        for report in self._retry_reports:
+            names = mangle_test_address(report.nodeid)
+            classnames = names[:-1]
+            if xml.prefix:
+                classnames.insert(0, xml.prefix)
+            attrs = {
+                "classname": ".".join(classnames),
+                "name": bin_xml_escape(names[-1]),
+                "file": report.location[0],
+                "time": f"{report.duration:.3f}",
+                "attempt_number": str(getattr(report, "rerun", 0) + 1),
+            }
+            if report.location[1] is not None:
+                attrs["line"] = str(report.location[1])
+            testcase = ET.SubElement(suite, "testcase", attrs)
+            reprcrash = getattr(report.longrepr, "reprcrash", None)
+            message = getattr(reprcrash, "message", None) or report.longreprtext or "pytest retry failed"
+            tag = "failure" if report.when == "call" else "error"
+            ET.SubElement(testcase, tag, message=bin_xml_escape(message)).text = bin_xml_escape(report.longreprtext)
+
+        root = ET.Element("testsuites")
+        root.append(suite)
+        retry_path.parent.mkdir(parents=True, exist_ok=True)
+        ET.ElementTree(root).write(retry_path, encoding="utf-8", xml_declaration=True)
 
 
 def pytest_configure(config):

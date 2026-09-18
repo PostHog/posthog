@@ -1,9 +1,11 @@
-import { KMSClient } from '@aws-sdk/client-kms'
+import { createDecipheriv } from 'node:crypto'
 
 import { parseJSON } from '~/common/utils/json-parse'
 
-import { MlDataKey, MlKeyEncryption, decryptEnvelope, encryptEnvelope } from './crypto'
-import { TrainingEncryptionVector } from './test-vectors'
+import { MlDataKey, TAG_BYTES, canonicalJson, encryptEnvelope, openSessionKey, sealSessionKey } from './crypto'
+import vector from './encryption-vector.json'
+import { TrainingEncryptionVector, decryptEnvelope } from './envelope-testing'
+import { wrappingContext } from './schema'
 import { validateImageOwner } from './transport'
 
 const key: MlDataKey = {
@@ -17,10 +19,6 @@ const key: MlDataKey = {
 }
 
 describe('ML payload encryption', () => {
-    beforeAll(async () => {
-        await new MlKeyEncryption({ send: jest.fn() } as unknown as KMSClient, 'test-key').start()
-    })
-
     it.each(['rrweb', 'metadata', 'image-source', 'image-frontier', 'image-shard', 'image-index', 'score'])(
         'binds %s payloads to their purpose and owner',
         (kind) => {
@@ -58,7 +56,7 @@ describe('ML payload encryption', () => {
         expect(() => validateImageOwner(ref.replace('2026-09', '2026-10'), sessionKey)).toThrow('ownership mismatch')
     })
 
-    it('decrypts the shared Python encryption vector', () => {
+    it('decrypts the shared encryption vector', () => {
         expect(
             decryptEnvelope(
                 {
@@ -81,5 +79,51 @@ describe('ML payload encryption', () => {
                 'imageurl:v2:7:2026-09:aaaaaaaaaaaaaaaaaaaaaa'
             ).length
         ).toBeLessThan(40 * 1024 * 1024 + 64 * 1024)
+    })
+})
+
+describe('sealing a session key under its team month key', () => {
+    const teamMonthKey = Buffer.alloc(32, 9)
+    const identity = { teamId: 7, sessionId: '01994569-4380-7000-8000-000000000007' }
+    const sessionKey = Buffer.alloc(32, 4)
+
+    it('opens what it seals', () => {
+        const sealed = sealSessionKey(teamMonthKey, identity, sessionKey)
+        expect(openSessionKey(teamMonthKey, identity, sealed)).toEqual(sessionKey)
+    })
+
+    it('uses a fresh nonce for each seal', () => {
+        const first = sealSessionKey(teamMonthKey, identity, sessionKey)
+        const second = sealSessionKey(teamMonthKey, identity, sessionKey)
+        expect(first.nonce).not.toEqual(second.nonce)
+        expect(first.sealed).not.toEqual(second.sealed)
+    })
+
+    it.each([
+        ['another team month key', Buffer.alloc(32, 8), identity],
+        ['another session', teamMonthKey, { teamId: 7, sessionId: '01994569-4380-7000-8000-000000000008' }],
+        ['another team', teamMonthKey, { teamId: 8, sessionId: identity.sessionId }],
+    ])('refuses to open under %s', (_label, key, other) => {
+        const sealed = sealSessionKey(teamMonthKey, identity, sessionKey)
+        expect(() => openSessionKey(key, other, sealed)).toThrow()
+    })
+
+    it('opens the pinned seal, so a reader in another language can check its own bytes', () => {
+        const opened = openSessionKey(Buffer.from(vector.seal.teamMonthKey, 'base64'), vector.seal.identity, {
+            sealed: Buffer.from(vector.seal.sealedKey, 'base64'),
+            nonce: Buffer.from(vector.seal.nonce, 'base64'),
+        })
+        expect(opened.toString('base64')).toBe(vector.seal.sessionKey)
+    })
+
+    it('does not seal with the stored key itself, which still seals image data', () => {
+        const sealed = sealSessionKey(teamMonthKey, identity, sessionKey)
+        const asStoredKey = createDecipheriv('aes-256-gcm', teamMonthKey, sealed.nonce, { authTagLength: TAG_BYTES })
+        asStoredKey.setAAD(Buffer.from(canonicalJson(wrappingContext(identity))))
+        asStoredKey.setAuthTag(sealed.sealed.subarray(sealed.sealed.length - TAG_BYTES))
+        expect(() => {
+            asStoredKey.update(sealed.sealed.subarray(0, sealed.sealed.length - TAG_BYTES))
+            asStoredKey.final()
+        }).toThrow()
     })
 })

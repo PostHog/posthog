@@ -112,6 +112,7 @@ export enum NodeKind {
     LogAttributesQuery = 'LogAttributesQuery',
     LogValuesQuery = 'LogValuesQuery',
     MetricsQuery = 'MetricsQuery',
+    MetricsHistogramQuery = 'MetricsHistogramQuery',
     TraceSpansQuery = 'TraceSpansQuery',
     TraceSpansAggregationQuery = 'TraceSpansAggregationQuery',
     TraceSpansTreeQuery = 'TraceSpansTreeQuery',
@@ -169,6 +170,7 @@ export enum NodeKind {
     ExperimentTrendsQuery = 'ExperimentTrendsQuery',
     ExperimentFunnelsQuery = 'ExperimentFunnelsQuery',
     ExperimentDataWarehouseNode = 'ExperimentDataWarehouseNode',
+    ExperimentExposureNode = 'ExperimentExposureNode',
 
     // Database metadata
     DatabaseSchemaQuery = 'DatabaseSchemaQuery',
@@ -264,6 +266,7 @@ export type AnyDataNode =
     | LogAttributesQuery
     | LogValuesQuery
     | MetricsQuery
+    | MetricsHistogramQuery
     | TraceSpansQuery
     | TraceSpansAggregationQuery
     | TraceSpansTreeQuery
@@ -388,6 +391,7 @@ export type QuerySchema =
 
     // Metrics
     | MetricsQuery
+    | MetricsHistogramQuery
 
     // Tracing
     | TraceSpansQuery
@@ -488,6 +492,8 @@ export interface QueryLogTags {
     productKey?: string
     /** Name of the query, preferably unique. For example web_analytics_vitals */
     name?: string
+    /** Short id of the saved Web analytics filter preset this query was run under, if any. */
+    presetId?: string
 }
 
 /** @internal - no need to emit to schema.json. */
@@ -526,6 +532,8 @@ export interface HogQLQueryModifiers {
     useMaterializedViews?: boolean
     customChannelTypeRules?: CustomChannelRule[]
     customBotDefinitions?: CustomBotRule[]
+    /** Do not treat a missing user agent as automation on cookieless events. Positive bot signals and custom project rules still apply. Resolved server-side; not intended to be set by clients. */
+    cookielessTrafficIsRegular?: boolean | null
     useWebAnalyticsPreAggregatedTables?: boolean
     /** Serve filters on the stored session-entry attribution properties (`$channel_type`, `$entry_utm_*`, `$entry_referring_domain`) by recomputing the value from the session's first pageview. Resolved server-side; not intended to be set by clients. */
     webAnalyticsFirstPageviewFilters?: boolean
@@ -1712,6 +1720,8 @@ export type TrendsFormulaNode = {
 export interface ChartStyle {
     /** Line interpolation: straight segments or a smoothed curve through the points. */
     curve?: 'linear' | 'smooth'
+    /** How series are told apart: one color per series, or one color at stepped opacities. */
+    seriesColorMode?: 'palette' | 'opacity'
 }
 
 export type TrendsFilter = {
@@ -1941,7 +1951,10 @@ export interface TrendsQuery extends InsightsQueryBase<TrendsQueryResponse> {
      * @default day
      */
     interval?: IntervalType
-    /** Events and actions to include */
+    /**
+     * Events and actions to include
+     * @maxItems 200
+     */
     series: TrendsQuerySeriesNode[]
     /** Properties specific to the trends insight */
     trendsFilter?: TrendsFilter
@@ -2179,6 +2192,8 @@ export type RetentionFilter = {
     display?: ChartDisplayType
     dashboardDisplay?: RetentionDashboardDisplayType
     showTrendLines?: boolean
+    /** Draw the mean across cohorts as one line on the retention graph. */
+    showMeanLine?: boolean
     /** The selected interval to display across all cohorts (null = show all intervals for each cohort) */
     selectedInterval?: integer | null
     goalLines?: GoalLine[]
@@ -2253,6 +2268,8 @@ export type PathsFilter = {
     minEdgeWeight?: PathsFilterLegacy['min_edge_weight']
     maxEdgeWeight?: PathsFilterLegacy['max_edge_weight']
     showFullUrls?: boolean
+    /** Remove the query string from page view URLs, so pages that differ only in query parameters become one path item */
+    stripQueryString?: boolean
     /** Relevant only within actors query */
     pathStartKey?: string
     /** Relevant only within actors query */
@@ -2542,7 +2559,10 @@ export interface StickinessQuery extends Omit<
      * How many intervals comprise a period. Only used for cohorts, otherwise default 1.
      */
     intervalCount?: positive_integer
-    /** Events and actions to include */
+    /**
+     * Events and actions to include
+     * @maxItems 200
+     */
     series: StickinessQuerySeriesNode[]
     /** Properties specific to the stickiness insight */
     stickinessFilter?: StickinessFilter
@@ -3933,6 +3953,7 @@ export enum WebStatsBreakdown {
     FirstPageviewUTMContent = 'FirstPageviewUTMContent',
     FirstPageviewUTMSourceMediumCampaign = 'FirstPageviewUTMSourceMediumCampaign',
     Browser = 'Browser',
+    InAppBrowser = 'InAppBrowser',
     OS = 'OS',
     Viewport = 'Viewport',
     DeviceType = 'DeviceType',
@@ -4744,6 +4765,33 @@ export interface MetricsQueryResponse extends AnalyticsQueryResponseBase {
     results: MetricsQuerySeries[]
 }
 export type CachedMetricsQueryResponse = CachedQueryResponse<MetricsQueryResponse>
+
+/** Histogram bucket counts per time bucket, for a latency-over-time heatmap. A separate node
+ * from `MetricsQuery` because the response is a grid, not series — a display type must not
+ * change what the runner reads (the cache key excludes display). */
+export interface MetricsHistogramQuery extends DataNode<MetricsHistogramQueryResponse> {
+    kind: NodeKind.MetricsHistogramQuery
+    metricName: string
+    filters?: MetricsQueryFilter[]
+    /** Defaults to the last 24 hours when omitted; dashboard date filters override it */
+    dateRange?: DateRange
+    /** Bucket size; auto-picked from the range when omitted */
+    interval?: string
+    /** UCUM unit for the y-axis bounds, e.g. "s", "ms". Presentation only. */
+    unit?: string
+}
+
+export interface MetricsHistogramQueryResponse extends AnalyticsQueryResponseBase {
+    /** The grid lives in `times`/`bounds`/`counts`; the base `results` array is unused and the
+     * runner returns it as null. */
+    /** Bucket start per column (x axis), ISO 8601, ascending. */
+    times: string[]
+    /** Upper bound per row (y axis), ascending. */
+    bounds: number[]
+    /** Observation count per cell: counts[row][column], row = bound, column = time. */
+    counts: number[][]
+}
+export type CachedMetricsHistogramQueryResponse = CachedQueryResponse<MetricsHistogramQueryResponse>
 
 /** How a metrics result is charted. `stat` is a single headline value plus sparkline, not a time series. */
 export type MetricsDisplayType = 'line' | 'area' | 'bar' | 'stat' | 'gauge' | 'bargauge' | 'table' | 'heatmap'
@@ -5695,6 +5743,27 @@ export type ExperimentFunnelMetricStepUnion = EventsNode | ActionsNode | Experim
 
 export type ExperimentFunnelMetricStep = ExperimentFunnelMetricStepUnion
 
+/** Sentinel start source for retention metrics. It carries no event of its own:
+ *  at query time it resolves to the experiment's exposure, so one shared metric
+ *  anchors correctly on any experiment regardless of that experiment's exposure event. */
+export interface ExperimentExposureNode extends Node {
+    kind: NodeKind.ExperimentExposureNode
+}
+
+export const isExperimentExposureNode = (node: { kind: NodeKind }): node is ExperimentExposureNode =>
+    node.kind === NodeKind.ExperimentExposureNode
+
+/**
+ * @discriminator kind
+ */
+export type ExperimentRetentionStartUnion =
+    | EventsNode
+    | ActionsNode
+    | ExperimentDataWarehouseNode
+    | ExperimentExposureNode
+
+export type ExperimentRetentionStart = ExperimentRetentionStartUnion
+
 export type ExperimentMeanMetric = ExperimentMetricBaseProperties &
     ExperimentMetricOutlierHandling & {
         metric_type: ExperimentMetricType.MEAN
@@ -5736,8 +5805,9 @@ export const isExperimentRatioMetric = (metric: ExperimentMetric): metric is Exp
 
 export type ExperimentRetentionMetric = ExperimentMetricBaseProperties & {
     metric_type: ExperimentMetricType.RETENTION
-    // Event that defines the start of the retention window
-    start_event: ExperimentMetricSource
+    // Event that defines the start of the retention window. An ExperimentExposureNode
+    // start resolves to the experiment's own exposure event at query time.
+    start_event: ExperimentRetentionStart
     // Event that defines the completion of the retention window
     completion_event: ExperimentMetricSource
 
@@ -5747,7 +5817,8 @@ export type ExperimentRetentionMetric = ExperimentMetricBaseProperties & {
     retention_window_end: integer
     retention_window_unit: FunnelConversionWindowTimeUnit
 
-    // How to handle the start of the retention window
+    // How to handle the start of the retention window. Ignored for an
+    // ExperimentExposureNode start, which always anchors on the first exposure.
     start_handling: 'first_seen' | 'last_seen'
 }
 
@@ -7751,6 +7822,10 @@ export interface MarketingAnalyticsRetentionQuery extends Omit<
     'orderBy' | 'compareFilter' | 'interval' | 'conversionGoal' | 'doPathCleaning' | 'sampling' | 'samplingFactor'
 > {
     kind: NodeKind.MarketingAnalyticsRetentionQuery
+    /** Return session-based 7/30-day metrics instead of the cohort matrix. Defaults to false. */
+    summary?: boolean
+    /** Include the previous acquisition period in summary mode. Defaults to false. */
+    comparePreviousPeriod?: boolean
     /** Cohort dimension, read off each person's first session. Defaults to channel. */
     breakdownBy?: MarketingAnalyticsAttributionBreakdown
     /** Period for both the cohort rows and the return columns. Defaults to week. */
@@ -7797,8 +7872,24 @@ export interface MarketingAnalyticsRetentionRow {
     values: MarketingAnalyticsRetentionCell[]
 }
 
+export interface MarketingAnalyticsRetentionSummaryRow {
+    breakdownValue: string
+    previous: boolean
+    acquired: integer
+    eligible7d: integer
+    returned7d: integer
+    eligible30d: integer
+    returned30d: integer
+    /** Median elapsed days to a second session within 30 days, among observed returners. */
+    medianReturnDays: number | null
+    /** People with an observed second session within 30 days, including incomplete windows. */
+    returners: integer
+}
+
 export interface MarketingAnalyticsRetentionQueryResponse extends AnalyticsQueryResponseBase {
     results: MarketingAnalyticsRetentionRow[]
+    /** Only populated in summary mode. Rates use the corresponding eligible population. */
+    summary?: MarketingAnalyticsRetentionSummaryRow[]
     /** Column count. Every row's values array has this length. */
     intervalCount: integer
     interval: MarketingAnalyticsRetentionInterval

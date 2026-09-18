@@ -1,0 +1,27 @@
+{
+    "letter": "XB",
+    "id": "XB21",
+    "cluster": 9,
+    "is_real": false,
+    "severity": null,
+    "votes": [
+        {
+            "is_real": false,
+            "severity": null,
+            "evidence": "/tmp/frozen-75215/products/stamphog/backend/tasks/tasks.py:1125-1128,1155-1159 deliberately fetches the current head before dedupe so an unchanged PR URL can recover a missed synchronize event. Same-head handled runs then exit without another review at 1202-1221, with both completed-head no-op and missed-webhook new-head behavior covered in tests/test_tasks.py:974-1001. Caller volume is narrower than assumed: review_hog/receivers.py:85-105 rejects state/status-only saves and nonqualifying tasks; current task PATCH saves only actually submitted fields at tasks/facade/api.py:2038-2058,2074-2075. Duplicate webhook PR-field writes return without saving at tasks/webhooks.py:283-292.",
+            "refutation": "I first traced real writers for a high-frequency repeated-output producer or an expensive duplicate review. Ordinary long-running state/status updates do not trigger this path and webhook backfills are idempotent. Explicit repeated output submissions can indeed add one Celery job and head fetch each, but the claim demonstrates no exhausted quota, saturated workers, or duplicated sandbox review. The fetch is a tested recovery check, because task_run_id/pr_url cannot prove head identity. A short coalescing lease is a possible optimization, but speculative pressure from repeated requests is not a code-proven shipping defect."
+        },
+        {
+            "is_real": false,
+            "severity": null,
+            "evidence": "/tmp/frozen-75215/products/stamphog/backend/tasks/tasks.py:1121-1128,1155-1159 deliberately fetches the current GitHub head so a repeated output save can recover a missed synchronize event; a stored completed run cannot establish that the remote head is unchanged. Lines1202-1221 prevent a second live/completed review at the fetched head, restarting only stranded queued work. The claim establishes one bounded refresh per eligible output save, but supplies no reachable high-frequency producer or demonstrated capacity/rate-limit defect beyond that intended refresh behavior.",
+            "refutation": "I checked whether all hot TaskRun writes cause redundant reviews and whether dedupe misses completed runs. /tmp/frozen-75215/products/review_hog/backend/receivers.py:82-105 excludes creation, non-output writes, failed/cancelled runs, missing targets and noneligible tasks. /tmp/frozen-75215/products/review_hog/backend/tests/test_inbox_trigger.py:179-191 asserts status-only writes do not trigger. /tmp/frozen-75215/products/stamphog/backend/tests/test_tasks.py:974-1020 explicitly verifies completed-head no-op, queued restart and missed-webhook new-head recovery. Rate-limit errors are delayed and retried at tasks.py:1160-1162. A short lease could optimize bursts, but no code-proved shipping performance failure remains after these guards; adding coalescing is speculative optimization under this rubric."
+        },
+        {
+            "is_real": false,
+            "severity": null,
+            "evidence": "The source deliberately performs a fresh GitHub head check before deduplication so a repeated target save can recover a lost synchronize or stranded QUEUED workflow (products/stamphog/backend/tasks/tasks.py:1124-1128,1155-1159,1202-1221). Same-head live/delivered reviews are deduplicated, so repeated jobs do not imply duplicate sandboxes. The receiver rejects saves whose update_fields omit output at review_hog/backend/receivers.py:85-89; the frequent status writer uses exactly such fields at tasks/backend/temporal/process_task/activities/update_task_run_status.py:69. GitHub's PR-output recorder is idempotent and does not save an already-present value (tasks/backend/webhooks.py:276-292).",
+            "refutation": "I traced the ordinary long-running task writers to look for a real burst of qualifying output saves. Status/state persistence is filtered, and repeated webhook target recording is idempotent. Explicit repeated output writes still cost another small job and one fresh PR fetch, but that is intentional freshness/recovery behavior. The finding supplies no actual production rate, hot output producer, or overload/rate-limit failure establishing a defect. A short lease may be an optional optimization, but its possible savings alone do not prove user-facing breakage, so this remains speculative coalescing."
+        }
+    ]
+}

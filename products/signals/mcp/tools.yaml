@@ -57,8 +57,11 @@ tools:
         title: Delete an artefact
         description: >
             Delete an artefact by its id when it is no longer correct or relevant. Deleting the latest row of a status
-            type (e.g. priority_judgment) reverts the report's canonical status to the previous version. `task_run`
-            artefacts are an append-only work log and cannot be deleted.
+            type (e.g. priority_judgment) reverts the report's canonical status to the previous version. `task_run`,
+            `work_claim`, `work_release`, and `pull_request` artefacts are an append-only work log and cannot be
+            deleted, and neither can the types PostHog's own pipeline writes: `video_segment`, `title_change`,
+            `summary_change`, `code_review`, `check_result`, `implementation_decision`, `implementation_replacement`,
+            and `implementation_handover`. Deleting one of those returns 400 and names the type.
     inbox-report-artefacts-list:
         operation: signals_report_artefacts_list
         enabled: true
@@ -109,6 +112,38 @@ tools:
             Replace the `content` of an existing artefact, addressed by its id, when new information supersedes it. The
             new content is validated against the artefact type's schema. Editing the latest row of a status type changes
             the report's canonical status; to re-assess while keeping history, append a new artefact instead.
+    inbox-report-checks-list:
+        operation: signals_report_checks_list
+        enabled: true
+        scopes:
+            - task:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: List a report's checks
+        description: >
+            List the follow-up checks on one report, newest first. Each row carries the expectation and why it was
+            written, its schedule (`next_run_at`, `run_interval_minutes`, `runs_remaining`, `expires_at`), its `status`
+            (`pending`, `active`, `passed`, `failed`, `errored`, `expired`, or `cancelled`) and its `last_outcome`. A
+            `pending` check waits for its report to resolve before its clock starts. Checks are written by scout runs
+            and by the research pipeline, so this surface reads them and does not create them. `query` and
+            `baseline_value` read as null when you cannot read the data they describe.
+    inbox-report-checks-retrieve:
+        operation: signals_report_checks_retrieve
+        enabled: true
+        scopes:
+            - task:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        enrich_url: '{params.report_id}'
+        title: Get a single check
+        description: >
+            Get one check on a report by its id, with its full config, schedule, status, and last outcome. The verdicts
+            themselves are `check_result` artefacts on the report, so read those through the artefact list.
     inbox-reports-bulk-set-state:
         operation: signals_reports_bulk_state_create
         enabled: true
@@ -415,6 +450,26 @@ tools:
             Replace an existing signal source config by ID (full update — `source_product` and `source_type` are
             required; `enabled` and `config` are optional and keep their current values if omitted). Prefer
             `inbox-source-configs-partial-update` when you only need to flip `enabled` or tweak `config`.
+    scout-check-record-result:
+        operation: signals_scout_record_check_result
+        enabled: true
+        scopes:
+            - signal_scout_internal:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Record the verdict on a report check
+        description: >
+            Close the follow-up check your run was dispatched to answer, and only that check. A report check says what
+            had to stay true after the report was acted on; your run note carries its `check_id` and what to establish.
+            Pass the `run_id`, the `check_id`, an `outcome` of `passed` (it still holds), `failed` (it does not), or
+            `errored` (you could not settle it either way), and an `explanation` a person reading the report will
+            understand. The verdict lands on the report as a `check_result` entry in the inbox. Record what you
+            established rather than what closes the loop: `failed` retires the check, `passed` re-arms a recurring one,
+            and `errored` retries it. Nothing else closes a check, so a run that investigates and never calls this
+            leaves the report with an unanswered follow-up. The call is refused for a check dispatched to another scout,
+            one no run is waiting on, and one the coordinator measures itself.
     scout-config-create:
         operation: signals_scout_config_create
         enabled: true
@@ -471,12 +526,14 @@ tools:
         list: true
         title: List scout configs
         description: >
-            List the per-scout configs for this project. Each scout has one row with its schedule (rolling
-            `run_interval_minutes`, or a project-local cron `run_cron_schedule` when set), `enabled` flag, and `emit`
-            (dry-run) posture, and output destinations. A freshly authored scout appears once its config is registered:
-            immediately via `scout-config-create` (one skill) or `scout-config-sync` (the whole fleet), or on the
-            coordinator's next tick. Use this to see which scouts run, how often, whether they emit findings to the
-            inbox, and where those findings are delivered. Pair with `scout-config-update` to tune them.
+            List the per-scout configs for this project. Each scout has one row with the `display_name` people read, the
+            `skill_name` that is its permanent identity, its schedule (rolling `run_interval_minutes`, or a
+            project-local cron `run_cron_schedule` when set), `enabled` flag, and `emit` (dry-run) posture, and output
+            destinations. A freshly authored scout appears once its config is registered: immediately via
+            `scout-config-create` (one skill) or `scout-config-sync` (the whole fleet), or on the coordinator's next
+            tick. Use this to see which scouts run, how often, whether they emit findings to the inbox, and where those
+            findings are delivered. Pass `search` to narrow the list to the scouts matching a substring of either name.
+            Pair with `scout-config-update` to tune them.
     scout-config-sync:
         operation: signals_scout_config_sync
         enabled: true
@@ -526,13 +583,16 @@ tools:
             idempotent: true
         title: Create a scout
         description: >
-            Create a custom scout skill and its runnable config in one atomic call. Any valid skill name works and the
+            Create a custom scout skill and its runnable config in one atomic call. Give it a `display_name`, the label
+            people read, kept exactly as written, and the server generates the scout's permanent skill name from it,
+            adding a numeric suffix when that name is taken, so two scouts may share a label without sharing an
+            identity. Pass `name` instead to choose that identifier yourself; any valid skill name works and the
             `signals-scout-` prefix is optional. Pass the complete markdown prompt in `body`; include project-specific
             event or signal names, thresholds, investigation steps, and report criteria there. The server always grants
             the report-channel tools. Optional `files` bundle reference material, while `config` controls the rolling or
             cron schedule, enabled and dry-run posture, and typed output destinations such as Slack (a channel to post
             into, or users to DM directly). Repeating the same definition is safe and applies any supplied config
-            fields. Reusing the name for a different definition returns a conflict.
+            fields. Reusing an explicit `name` for a different definition returns a conflict.
         exclude_params:
             - suggestion_id
     scout-edit-report:
@@ -570,7 +630,12 @@ tools:
             cached fallback. An affected-users metric uses one series with `math: dau`. Consumers derive a `BoldNumber`
             query for each metric's whole-window `aggregated_value` and an `ActionsBar` query for its longitudinal
             buckets; never sum affected-user buckets. NOT idempotent - a retried `append_note` appends a second note.
-            Opt-in: only available to scouts that list `edit_report` in their skill's `allowed_tools`.
+            Set `supersedes_implementation` alongside a rewrite when the fix itself changed. Verified automated
+            predecessor PRs close only after the replacement completes with verified open PRs. More evidence for the
+            same fix belongs in `append_note`. Free-form notes always stay in the work log. Set `corroboration_only`
+            only for confirmations with no new information; the first four stay as entries and later confirmations raise
+            the corroboration count. Opt-in: only available to scouts that list `edit_report` in their skill's
+            `allowed_tools`.
     scout-emit-report:
         operation: signals_scout_emit_report
         enabled: true
@@ -619,6 +684,29 @@ tools:
             `Signal.source_id = run:<id>:finding:<id>` for traceability, but this is NOT idempotent — a second call with
             the same `finding_id` emits a second signal, so emit each finding exactly once and never retry an emit.
             Findings should carry `tags` — see the `tags` param for the slug and taxonomy convention.
+    scout-lighthouse-audit:
+        operation: signals_scout_lighthouse_audit
+        enabled: true
+        scopes:
+            - signal_scout_internal:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Run a Lighthouse audit for a run
+        description: >
+            Load one page in a real browser and get back what makes it slow: the lab metrics (LCP, FCP, CLS, TBT), the
+            element the browser chose as the Largest Contentful Paint, where the LCP time went phase by phase, and the
+            ranked savings estimates. Use it to name the cause behind a field finding — `$web_vitals` events say a route
+            is slow and for how many people, but never which element was late or why. Pass the `run_id`, a `url`, and
+            optionally `form_factor` (`desktop` or `mobile`, matching whichever field data you are explaining).
+            Restricted to an allowlist of public PostHog pages: the browser signs in to nothing, so a page behind a
+            login would measure the login screen and report its numbers as the page's, and a url that redirects off the
+            allowlist is rejected for the same reason. One throttled cold load is not a p75 over real users — cite it as
+            the explanation for a field finding, never as the evidence that a problem exists. Capped at 5 audits per
+            run. A rejected call (bad host, not https, audits not enabled here) costs nothing, but once the page loads
+            the slot is spent whatever the result — so pick the page before calling. Every error message ends with how
+            many audits the run has left, which tells a rejection apart from an exhausted budget.
     scout-members-list:
         operation: signals_scout_members_list
         enabled: true
@@ -767,6 +855,64 @@ tools:
             whole call with nothing written — fix and resubmit the batch. Each accepted record lands in the project's
             event stream as a `$scout_structured_output` event, queryable like any event. Idempotent — event ids are
             deterministic, so retrying a call that failed with a delivery error (503) cannot double-count.
+    scout-report-check-cancel:
+        operation: signals_scout_report_check_cancel
+        enabled: true
+        scopes:
+            - signal_scout_report:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Cancel a follow-up check
+        description: >
+            Stop a check that is no longer worth running — the claim it re-measures has changed, or a better check
+            replaces it. Results it already recorded stay on the report. A check that already finished cannot be
+            cancelled, and the call says so.
+    scout-report-check-create:
+        operation: signals_scout_report_check_create
+        enabled: true
+        scopes:
+            - signal_scout_report:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Write a follow-up check on a report
+        description: >
+            Schedule a re-measurement of a report's claim, so "did the fix hold?" becomes a stored fact instead of
+            something a future run has to remember to look for. Write one when this run surfaces something whose fix
+            would show up in data later. Pass the `run_id` of your own in-progress run and the `report_id` of the report
+            the check belongs to. Use `metric_threshold` when a bounded query and a baseline exist: pass a `config` with
+            a `metric_id` naming one of the report's own metrics (or your own bounded Trends `query`), a `comparison`
+            (`lte` / `gte` / `between`) saying what the value must satisfy, and the `baseline_value` you measured now. A
+            `query` you supply must keep `dateRange.date_from` relative (`-13d`) and `date_to` empty, so each run
+            measures the days before it rather than the days before the check was written — absolute dates are refused.
+            The query must produce exactly one output series: use one event or action series, or combine up to ten of
+            them with exactly one formula. Use no breakdown and no compare mode. A `trendsFilter.display` of `Metric`
+            turns compare mode on, so `metricShowChange` is switched off for you unless `metricSummary` is `latest`,
+            which keeps compare mode off already. Use `agent` for a claim no single number settles: pass `instructions`
+            saying what a later run must establish and `probe_hints` naming the issue ids, services, or queries to look
+            at; it runs on the scout you name in `skill_name`, or on the fleet's follow-up scout when you name none.
+            `next_run_at` is when to first look, so allow deploy and soak time. The verdict lands on the report as a
+            `check_result` entry people read in the inbox. Check `scout-report-check-list` first: a report holds at most
+            five open checks, and a second check for the same claim is noise.
+    scout-report-check-list:
+        operation: signals_scout_report_checks_list
+        enabled: true
+        scopes:
+            - signal_scout_report:write
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: List a report's follow-up checks
+        description: >
+            Every follow-up check on one report, newest first, with its kind, status, next run and last verdict. Pass
+            the `run_id` of your own in-progress run and the `report_id` of the report to read; both are required. Read
+            this before writing a check: a report already carrying one for the same claim needs no second, and a report
+            holds at most five open checks at a time. A `pending` check is waiting for the report to resolve before its
+            clock starts; every status other than `pending` and `active` is terminal.
     scout-run-now:
         operation: signals_scout_config_run
         enabled: true
@@ -959,17 +1105,8 @@ tools:
     signals-report-artefacts-diff:
         operation: signals_report_artefacts_diff
         enabled: false
-    signals-report-checks-create:
-        operation: signals_report_checks_create
-        enabled: false
     signals-report-checks-destroy:
         operation: signals_report_checks_destroy
-        enabled: false
-    signals-report-checks-list:
-        operation: signals_report_checks_list
-        enabled: false
-    signals-report-checks-retrieve:
-        operation: signals_report_checks_retrieve
         enabled: false
     signals-report-pr-checks:
         operation: signals_report_pr_checks

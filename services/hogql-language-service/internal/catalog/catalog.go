@@ -81,12 +81,7 @@ func Prepare(value *Catalog) *PreparedCatalog {
 		}
 		tableType := intern(types, table.Type)
 		preparedTable := PreparedTable{Name: name, Type: tableType, Fields: newIndex(fieldEntries[fieldStart:])}
-		foldedName := foldName(name)
-		if _, exists := prepared.tablesByName[foldedName]; exists {
-			prepared.valid = false
-			continue
-		}
-		prepared.tablesByName[foldedName] = len(prepared.tableValues)
+		prepared.tablesByName[name] = len(prepared.tableValues)
 		prepared.tableValues = append(prepared.tableValues, preparedTable)
 		tableEntries = append(tableEntries, newEntry(name, tableType))
 	}
@@ -105,7 +100,7 @@ func Prepare(value *Catalog) *PreparedCatalog {
 }
 
 func (c *PreparedCatalog) Table(name string) (*PreparedTable, bool) {
-	index, ok := c.tablesByName[foldName(name)]
+	index, ok := c.tablesByName[name]
 	if !ok {
 		return nil, false
 	}
@@ -200,7 +195,7 @@ func (c *PreparedCatalog) estimateSize() int64 {
 	var size int64
 	for _, entry := range c.tables.entries {
 		size += entrySize(entry) + 64
-		table := &c.tableValues[c.tablesByName[foldName(entry.Name)]]
+		table := &c.tableValues[c.tablesByName[entry.Name]]
 		for _, field := range table.Fields.entries {
 			size += entrySize(field)
 		}

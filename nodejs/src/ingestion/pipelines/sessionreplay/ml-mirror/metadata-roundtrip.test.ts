@@ -14,10 +14,11 @@ import { MlBlockMetadataOutput } from '~/ingestion/pipelines/sessionreplay/share
 
 import { BlockMetadataBatcher, OffsetStore } from './block-metadata-batcher'
 import { BlockMetadataParquetStore } from './block-metadata-parquet-store'
-import { MlDataKey, decryptEnvelope } from './keys/crypto'
+import { MlDataKey } from './keys/crypto'
+import { decryptEnvelope } from './keys/envelope-testing'
 import { MlKeyReader } from './keys/reader'
 import { sessionKeyId, tableKeyString } from './keys/schema'
-import { MlKafkaEncryption } from './keys/transport'
+import { MlKafkaTransport } from './keys/transport'
 import { MlBlockMetadataSink } from './ml-block-metadata-sink'
 import { PSEUDONYM_SESSION, PSEUDONYM_TEAM, pseudonymize } from './pseudonymize'
 
@@ -117,7 +118,7 @@ describe('ML metadata producer → sink round-trip', () => {
             offsetStore,
             { flushIntervalMs: 60_000, maxRows: 1_000 },
             0,
-            new MlKafkaEncryption(reader)
+            new MlKafkaTransport(reader)
         )
 
         const messages = produced.map(

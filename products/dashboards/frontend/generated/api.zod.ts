@@ -469,6 +469,19 @@ export const DashboardsUpdateBody = /* @__PURE__ */ zod
 export const dashboardsPartialUpdateBodyNameMax = 400
 
 export const dashboardsPartialUpdateBodyBreakdownColorsItemColorTokenRegExp = new RegExp('^preset-[1-9][0-9]\*$')
+export const dashboardsPartialUpdateBodyTilesItemLayoutsOneSmOneXMin = 0
+export const dashboardsPartialUpdateBodyTilesItemLayoutsOneSmOneXMax = 11
+
+export const dashboardsPartialUpdateBodyTilesItemLayoutsOneSmOneYMin = 0
+
+export const dashboardsPartialUpdateBodyTilesItemLayoutsOneSmOneWMax = 12
+
+export const dashboardsPartialUpdateBodyTilesItemLayoutsOneXsOneXMin = 0
+export const dashboardsPartialUpdateBodyTilesItemLayoutsOneXsOneXMax = 11
+
+export const dashboardsPartialUpdateBodyTilesItemLayoutsOneXsOneYMin = 0
+
+export const dashboardsPartialUpdateBodyTilesItemLayoutsOneXsOneWMax = 12
 
 export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOneLimitDefault = 25
 export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOneLimitMax = 50
@@ -636,6 +649,56 @@ export const DashboardsPartialUpdateBody = /* @__PURE__ */ zod
             .array(
                 zod.object({
                     id: zod.number().optional().describe('Dashboard tile ID to update.'),
+                    layouts: zod
+                        .object({
+                            sm: zod
+                                .object({
+                                    x: zod
+                                        .number()
+                                        .min(dashboardsPartialUpdateBodyTilesItemLayoutsOneSmOneXMin)
+                                        .max(dashboardsPartialUpdateBodyTilesItemLayoutsOneSmOneXMax)
+                                        .describe('Column position in the dashboard grid (0-indexed).'),
+                                    y: zod
+                                        .number()
+                                        .min(dashboardsPartialUpdateBodyTilesItemLayoutsOneSmOneYMin)
+                                        .describe('Row position in the dashboard grid (0-indexed).'),
+                                    w: zod
+                                        .number()
+                                        .min(1)
+                                        .max(dashboardsPartialUpdateBodyTilesItemLayoutsOneSmOneWMax)
+                                        .describe('Width in grid columns. The desktop grid is 12 columns wide.'),
+                                    h: zod.number().min(1).describe('Height in grid rows.'),
+                                })
+                                .describe(
+                                    "Layout for the standard (desktop) breakpoint. The grid is 12 columns wide. A write replaces the tile's whole layout and the dashboard reads desktop placement from this box, so send it whenever you send layouts."
+                                ),
+                            xs: zod
+                                .object({
+                                    x: zod
+                                        .number()
+                                        .min(dashboardsPartialUpdateBodyTilesItemLayoutsOneXsOneXMin)
+                                        .max(dashboardsPartialUpdateBodyTilesItemLayoutsOneXsOneXMax)
+                                        .describe('Column position in the dashboard grid (0-indexed).'),
+                                    y: zod
+                                        .number()
+                                        .min(dashboardsPartialUpdateBodyTilesItemLayoutsOneXsOneYMin)
+                                        .describe('Row position in the dashboard grid (0-indexed).'),
+                                    w: zod
+                                        .number()
+                                        .min(1)
+                                        .max(dashboardsPartialUpdateBodyTilesItemLayoutsOneXsOneWMax)
+                                        .describe('Width in grid columns. The desktop grid is 12 columns wide.'),
+                                    h: zod.number().min(1).describe('Height in grid rows.'),
+                                })
+                                .optional()
+                                .describe(
+                                    'Layout for the small (mobile) breakpoint, on a 1-column grid. The dashboard derives this layout from the sm order and heights, so a stored xs box does not change what renders.'
+                                ),
+                        })
+                        .optional()
+                        .describe(
+                            "Grid position and size per breakpoint. Works for every tile type, including insight tiles. A write replaces the tile's whole layout, so send a complete sm box rather than the one value you want to change. Boxes are stored as sent and overlaps are not resolved, so send sm boxes that do not overlap, and include every tile you move in the same request."
+                        ),
                     widget: zod
                         .object({
                             id: zod
@@ -1342,7 +1405,9 @@ export const DashboardsPartialUpdateBody = /* @__PURE__ */ zod
                 })
             )
             .optional()
-            .describe('Dashboard tiles to update. Widget tiles accept nested widget.config patches.'),
+            .describe(
+                'Dashboard tiles to update, each identified by its tile id. Any tile type accepts `layouts` to set its grid position and size. Widget tiles also accept nested widget.config patches.'
+            ),
         use_template: zod
             .string()
             .optional()
@@ -1461,11 +1526,13 @@ export const DashboardsReorderTilesCreateBody = /* @__PURE__ */ zod.object({
         .min(1)
         .describe('Array of tile IDs in the desired display order (top to bottom, left to right).'),
     layout: zod
-        .enum(['preserve', 'two_column', 'full_width'])
-        .describe('\* `preserve` - preserve\n\* `two_column` - two_column\n\* `full_width` - full_width')
+        .enum(['preserve', 'two_column', 'three_column', 'full_width'])
+        .describe(
+            '\* `preserve` - preserve\n\* `two_column` - two_column\n\* `three_column` - three_column\n\* `full_width` - full_width'
+        )
         .default(dashboardsReorderTilesCreateBodyLayoutDefault)
         .describe(
-            "How to size tiles when reordering. 'preserve' (default) keeps each tile's existing width and height and only repacks positions in the new order. 'two_column' forces a 6-wide × 5-tall grid (two tiles per row). 'full_width' forces each tile to span the full 12-column row at height 5.\n\n\* `preserve` - preserve\n\* `two_column` - two_column\n\* `full_width` - full_width"
+            "How to size tiles when reordering. 'preserve' (default) keeps each tile's existing width and height and only repacks positions in the new order. Use the other modes only when every tile should use the same size: 'two_column' makes every tile 6-wide × 5-tall, 'three_column' makes every tile 4-wide × 5-tall, and 'full_width' makes every tile 12-wide × 5-tall.\n\n\* `preserve` - preserve\n\* `two_column` - two_column\n\* `three_column` - three_column\n\* `full_width` - full_width"
         ),
 })
 
@@ -1642,7 +1709,9 @@ export const DashboardsWidgetsBatchCreateBody = /* @__PURE__ */ zod
                                         h: zod.number().optional().describe('Height in grid rows.'),
                                     })
                                     .optional()
-                                    .describe('Layout for the small (mobile) breakpoint. The grid is 1 column wide.'),
+                                    .describe(
+                                        'Layout for the small (mobile) breakpoint, on a 1-column grid. The dashboard derives this layout from the sm order and heights, so a stored xs box does not change what renders.'
+                                    ),
                             })
                             .optional()
                             .describe('Optional react-grid-layout positions keyed by breakpoint (sm, xs).'),
@@ -1893,7 +1962,9 @@ export const DashboardsWidgetsBatchCreateBody = /* @__PURE__ */ zod
                                         h: zod.number().optional().describe('Height in grid rows.'),
                                     })
                                     .optional()
-                                    .describe('Layout for the small (mobile) breakpoint. The grid is 1 column wide.'),
+                                    .describe(
+                                        'Layout for the small (mobile) breakpoint, on a 1-column grid. The dashboard derives this layout from the sm order and heights, so a stored xs box does not change what renders.'
+                                    ),
                             })
                             .optional()
                             .describe('Optional react-grid-layout positions keyed by breakpoint (sm, xs).'),
@@ -2066,7 +2137,9 @@ export const DashboardsWidgetsBatchCreateBody = /* @__PURE__ */ zod
                                         h: zod.number().optional().describe('Height in grid rows.'),
                                     })
                                     .optional()
-                                    .describe('Layout for the small (mobile) breakpoint. The grid is 1 column wide.'),
+                                    .describe(
+                                        'Layout for the small (mobile) breakpoint, on a 1-column grid. The dashboard derives this layout from the sm order and heights, so a stored xs box does not change what renders.'
+                                    ),
                             })
                             .optional()
                             .describe('Optional react-grid-layout positions keyed by breakpoint (sm, xs).'),
@@ -2244,7 +2317,9 @@ export const DashboardsWidgetsBatchCreateBody = /* @__PURE__ */ zod
                                         h: zod.number().optional().describe('Height in grid rows.'),
                                     })
                                     .optional()
-                                    .describe('Layout for the small (mobile) breakpoint. The grid is 1 column wide.'),
+                                    .describe(
+                                        'Layout for the small (mobile) breakpoint, on a 1-column grid. The dashboard derives this layout from the sm order and heights, so a stored xs box does not change what renders.'
+                                    ),
                             })
                             .optional()
                             .describe('Optional react-grid-layout positions keyed by breakpoint (sm, xs).'),
@@ -2331,7 +2406,9 @@ export const DashboardsWidgetsBatchCreateBody = /* @__PURE__ */ zod
                                         h: zod.number().optional().describe('Height in grid rows.'),
                                     })
                                     .optional()
-                                    .describe('Layout for the small (mobile) breakpoint. The grid is 1 column wide.'),
+                                    .describe(
+                                        'Layout for the small (mobile) breakpoint, on a 1-column grid. The dashboard derives this layout from the sm order and heights, so a stored xs box does not change what renders.'
+                                    ),
                             })
                             .optional()
                             .describe('Optional react-grid-layout positions keyed by breakpoint (sm, xs).'),
@@ -2400,7 +2477,9 @@ export const DashboardsWidgetsBatchCreateBody = /* @__PURE__ */ zod
                                         h: zod.number().optional().describe('Height in grid rows.'),
                                     })
                                     .optional()
-                                    .describe('Layout for the small (mobile) breakpoint. The grid is 1 column wide.'),
+                                    .describe(
+                                        'Layout for the small (mobile) breakpoint, on a 1-column grid. The dashboard derives this layout from the sm order and heights, so a stored xs box does not change what renders.'
+                                    ),
                             })
                             .optional()
                             .describe('Optional react-grid-layout positions keyed by breakpoint (sm, xs).'),
@@ -2499,7 +2578,9 @@ export const DashboardsWidgetsBatchCreateBody = /* @__PURE__ */ zod
                                         h: zod.number().optional().describe('Height in grid rows.'),
                                     })
                                     .optional()
-                                    .describe('Layout for the small (mobile) breakpoint. The grid is 1 column wide.'),
+                                    .describe(
+                                        'Layout for the small (mobile) breakpoint, on a 1-column grid. The dashboard derives this layout from the sm order and heights, so a stored xs box does not change what renders.'
+                                    ),
                             })
                             .optional()
                             .describe('Optional react-grid-layout positions keyed by breakpoint (sm, xs).'),
@@ -2617,7 +2698,9 @@ export const DashboardsWidgetsBatchCreateBody = /* @__PURE__ */ zod
                                         h: zod.number().optional().describe('Height in grid rows.'),
                                     })
                                     .optional()
-                                    .describe('Layout for the small (mobile) breakpoint. The grid is 1 column wide.'),
+                                    .describe(
+                                        'Layout for the small (mobile) breakpoint, on a 1-column grid. The dashboard derives this layout from the sm order and heights, so a stored xs box does not change what renders.'
+                                    ),
                             })
                             .optional()
                             .describe('Optional react-grid-layout positions keyed by breakpoint (sm, xs).'),

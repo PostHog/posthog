@@ -916,6 +916,21 @@ class TestRenderEditModal:
         assert option_values
         assert all(v.startswith("gpt-") for v in option_values)
 
+    def test_model_options_carry_the_cost_of_a_priced_model(self):
+        view = render_edit_modal(current=AIPreferences(runtime_adapter="claude"))
+        model_block = _find_block(view, MODAL_BLOCK_MODEL)
+        assert model_block
+        options = {o["value"]: o for o in model_block["element"]["options"]}
+        assert "Claude Sonnet 5" in options["claude-opus-5"]["description"]["text"]
+        assert "2.5×" in options["claude-opus-5"]["description"]["text"]
+
+    def test_model_option_omits_the_cost_line_when_the_catalog_prices_nothing(self):
+        view = render_edit_modal(current=AIPreferences(runtime_adapter="codex"))
+        model_block = _find_block(view, MODAL_BLOCK_MODEL)
+        assert model_block
+        options = {o["value"]: o for o in model_block["element"]["options"]}
+        assert "description" not in options["gpt-5"]
+
     def test_effort_block_renders_only_when_supported_efforts_provided(self):
         view = render_edit_modal(
             current=AIPreferences(runtime_adapter="claude", model="claude-opus-4-7"),
@@ -943,6 +958,9 @@ class TestRenderEditModal:
         assert runtime_block["element"]["initial_option"]["value"] == "claude"
         assert model_block["element"]["initial_option"]["value"] == "claude-opus-4-7"
         assert effort_block["element"]["initial_option"]["value"] == "high"
+        # Slack rejects the whole view when an initial option is not one of the offered
+        # options, down to the cost line under the name.
+        assert model_block["element"]["initial_option"] in model_block["element"]["options"]
 
     def test_dispatch_action_set_on_runtime_and_model(self):
         view = render_edit_modal(current=AIPreferences(runtime_adapter="claude"))
@@ -1541,3 +1559,44 @@ class TestNoProjectAccessCard:
 
     def test_normal_tab_is_untouched_when_a_project_is_reachable(self):
         assert "No project to show yet" not in _all_text(self._view(has_project_access=True))
+
+
+class TestUnidentifiedViewerProjectList:
+    """What the tab lists for a Slack user it cannot map to a PostHog account.
+
+    The regression to catch is the list widening again. A Slack workspace can connect
+    several organizations, so returning every candidate publishes the project and
+    organization names of orgs the viewer is not a member of to anyone in the workspace.
+    """
+
+    @pytest.fixture(autouse=True)
+    def setup(self, db):
+        from posthog.models.integration import Integration
+        from posthog.models.organization import Organization
+        from posthog.models.team.team import Team
+
+        self.own_org = Organization.objects.create(name="Acme")
+        self.other_org = Organization.objects.create(name="Umbrella")
+        self.rendered_for = Integration.objects.create(
+            team=Team.objects.create(organization=self.own_org, name="Acme prod"),
+            kind="slack",
+            integration_id="T_WS",
+            sensitive_config={"access_token": "xoxb"},
+        )
+        self.other_org_install = Integration.objects.create(
+            team=Team.objects.create(organization=self.other_org, name="Umbrella prod"),
+            kind="slack",
+            integration_id="T_WS",
+            sensitive_config={"access_token": "xoxb"},
+        )
+
+    def test_shows_only_the_project_the_tab_renders_for(self):
+        from products.slack_app.backend.services.slack_app_home import _filter_accessible_integrations
+
+        # No SlackUserProfileCache row and no OAuth link, so the viewer is unidentifiable.
+        accessible = _filter_accessible_integrations(
+            self.rendered_for, "U_STRANGER", [self.rendered_for, self.other_org_install]
+        )
+
+        assert [i.id for i in accessible] == [self.rendered_for.id]
+        assert self.other_org_install.id not in {i.id for i in accessible}

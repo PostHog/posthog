@@ -1,7 +1,8 @@
 import { useState } from 'react'
 
-import { LemonTag, LemonTabs, Tooltip } from '@posthog/lemon-ui'
+import { LemonTabs } from '@posthog/lemon-ui'
 
+import { ActivityClientTag } from 'lib/components/ActivityLog/ActivityClientTag'
 import { AGENT_INTENT_TOOLTIP } from 'lib/components/ActivityLog/AgentAttribution'
 import { HumanizedActivityLogItem, humanizeActivity, humanizeScope } from 'lib/components/ActivityLog/humanizeActivity'
 import { parseAgentAttribution } from 'lib/components/ActivityLog/parseAgentAttribution'
@@ -11,6 +12,7 @@ import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { Link } from 'lib/lemon-ui/Link'
 import { PaginationManual } from 'lib/lemon-ui/PaginationControl'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { urls } from 'scenes/urls'
 
 export interface AuditLogTableProps {
@@ -51,13 +53,7 @@ const baseColumns: LemonTableColumns<HumanizedActivityLogItem> = [
                     type={logItem.isSystem ? 'system' : 'person'}
                     size="md"
                 />
-                {logItem.unprocessed?.client === 'mcp' && (
-                    <Tooltip title="This action was performed via the MCP (Model Context Protocol) integration">
-                        <LemonTag type="muted" size="small">
-                            mcp
-                        </LemonTag>
-                    </Tooltip>
-                )}
+                {logItem.unprocessed?.client && <ActivityClientTag client={logItem.unprocessed.client} />}
             </div>
         ),
         width: '20%',
@@ -210,7 +206,7 @@ function ExpandedRowContent({ logItem }: { logItem: HumanizedActivityLogItem }):
                             <div className="text-[13px] text-default">{agent.intent}</div>
                         </div>
                     )}
-                    {agent && (
+                    {agent?.taskId && (
                         <div>
                             <div className="text-[11px] font-medium text-muted-alt uppercase tracking-wider mb-1">
                                 Agent task

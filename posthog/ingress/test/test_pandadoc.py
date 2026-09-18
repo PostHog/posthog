@@ -39,7 +39,7 @@ class TestPandaDocProvider(SimpleTestCase):
             headers={} if header is None else {"X-PandaDoc-Signature": header},
         )
 
-        self.assertEqual(build_pandadoc_provider().verify(request), expected)
+        self.assertEqual(build_pandadoc_provider().verify(request).outcome, expected)
 
     def test_a_disabled_deployment_rejects_a_correctly_signed_body(self) -> None:
         request = RequestFactory().post(
@@ -51,10 +51,10 @@ class TestPandaDocProvider(SimpleTestCase):
 
         provider = build_pandadoc_provider(enabled=lambda: False)
 
-        self.assertEqual(provider.verify(request), VerificationOutcome.INVALID)
+        self.assertEqual(provider.verify(request).outcome, VerificationOutcome.INVALID)
 
     def test_a_missing_secret_is_not_configured_rather_than_a_bad_signature(self) -> None:
         request = RequestFactory().post("/webhooks/pandadoc/", data=BODY, content_type="application/json")
 
         with override_settings(PANDADOC_WEBHOOK_SECRET=""):
-            self.assertEqual(build_pandadoc_provider().verify(request), VerificationOutcome.NOT_CONFIGURED)
+            self.assertEqual(build_pandadoc_provider().verify(request).outcome, VerificationOutcome.NOT_CONFIGURED)

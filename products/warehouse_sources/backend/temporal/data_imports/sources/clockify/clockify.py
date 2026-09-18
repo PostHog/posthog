@@ -1,10 +1,14 @@
 import dataclasses
+from collections.abc import Callable
 from datetime import UTC, date, datetime
-from typing import Any, Optional
+from typing import Any, Optional, cast
 
-from requests import Response
+from requests import Request, Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.clockify.settings import CLOCKIFY_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.clockify.settings import (
+    CLOCKIFY_ENDPOINTS,
+    ClockifyEndpointConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
     RESTAPIConfig,
@@ -14,7 +18,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     rename_parent_fields,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+    BasePaginator,
     PageNumberPaginator,
+    ParamLocation,
+    SinglePagePaginator,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.resource import Resource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
@@ -30,9 +37,19 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
 # resolves to the user's region, so a single base URL works for every key.
 CLOCKIFY_BASE_URL = "https://api.clockify.me/api/v1"
 
-# Single-level fan-out endpoints: one GET per workspace. Two-level ones (tasks, time_entries)
-# chain a second parent (projects/users) and are handled explicitly below.
-_WORKSPACE_CHILD_ENDPOINTS = ("users", "clients", "projects", "tags")
+# Single-level fan-out endpoints: one request per workspace. Two-level ones (tasks,
+# time_entries, invoice_payments) chain a second parent and are handled explicitly below.
+_WORKSPACE_CHILD_ENDPOINTS = (
+    "users",
+    "clients",
+    "projects",
+    "tags",
+    "custom_fields",
+    "expenses",
+    "expense_categories",
+    "invoices",
+    "time_off_requests",
+)
 
 
 class ClockifyPageNumberPaginator(PageNumberPaginator):
@@ -43,14 +60,33 @@ class ClockifyPageNumberPaginator(PageNumberPaginator):
     extra empty-page request the plain ``PageNumberPaginator`` would pay.
     """
 
-    def __init__(self, page_size: int) -> None:
-        super().__init__(base_page=1, page_param="page")
+    def __init__(self, page_size: int, param_location: ParamLocation = "query") -> None:
+        super().__init__(base_page=1, page_param="page", param_location=param_location)
         self._page_size = page_size
 
     def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
         super().update_state(response, data)
         if self._has_next_page and data is not None and len(data) < self._page_size:
             self._has_next_page = False
+
+
+class ClockifyTimeOffPaginator(ClockifyPageNumberPaginator):
+    """Paging for the time-off listing, whose filters and page fields travel in a POST body.
+
+    A fan-out child request gets no static ``json`` body from the framework, so the whole payload is
+    written here. ``statuses`` has to name every state explicitly — Clockify returns only pending
+    requests when the filter is left off.
+    """
+
+    def __init__(self, page_size: int) -> None:
+        super().__init__(page_size, param_location="json")
+
+    def init_request(self, request: Request) -> None:
+        if request.json is None:
+            request.json = {}
+        request.json["pageSize"] = self._page_size
+        request.json["statuses"] = ["ALL"]
+        super().init_request(request)
 
 
 @dataclasses.dataclass
@@ -126,6 +162,7 @@ def _flatten_time_entry(item: dict[str, Any]) -> dict[str, Any]:
 _rename_workspace = rename_parent_fields("workspaces", {"id": "workspace_id"})
 _rename_task_parents = rename_parent_fields("projects", {"workspace_id": "workspace_id", "id": "project_id"})
 _rename_time_entry_parents = rename_parent_fields("users", {"workspace_id": "workspace_id", "id": "user_id"})
+_rename_invoice_parents = rename_parent_fields("invoices", {"workspace_id": "workspace_id", "id": "invoice_id"})
 
 
 def _time_entry_map(row: dict[str, Any]) -> dict[str, Any]:
@@ -149,76 +186,75 @@ def _incremental_config(
     }
 
 
+def _endpoint_spec(config: ClockifyEndpointConfig, resolve_params: dict[str, Any]) -> Endpoint:
+    params: dict[str, Any] = dict(resolve_params)
+    paginator: BasePaginator
+    if config.method == "POST":
+        paginator = ClockifyTimeOffPaginator(config.page_size)
+    elif config.paginated:
+        params["page-size"] = config.page_size
+        paginator = ClockifyPageNumberPaginator(config.page_size)
+    else:
+        paginator = SinglePagePaginator()
+
+    endpoint: Endpoint = {
+        "path": config.path,
+        "params": params,
+        "paginator": paginator,
+        "data_selector_required": config.data_selector_required,
+    }
+    if config.method != "GET":
+        endpoint["method"] = config.method
+    if config.data_selector is not None:
+        endpoint["data_selector"] = config.data_selector
+    return endpoint
+
+
 def _workspaces_resource() -> EndpointResource:
-    config = CLOCKIFY_ENDPOINTS["workspaces"]
     return {
         "name": "workspaces",
-        "endpoint": {
-            "path": config.path,
-            "params": {"page-size": config.page_size},
-            "paginator": ClockifyPageNumberPaginator(config.page_size),
-            "data_selector_required": True,
-        },
+        "endpoint": _endpoint_spec(CLOCKIFY_ENDPOINTS["workspaces"], {}),
     }
 
 
 def _workspace_child_resource(endpoint: str) -> EndpointResource:
-    config = CLOCKIFY_ENDPOINTS[endpoint]
     return {
         "name": endpoint,
         "include_from_parent": ["id"],
-        "endpoint": {
-            "path": config.path,
-            "params": {
-                "workspace_id": {"type": "resolve", "resource": "workspaces", "field": "id"},
-                "page-size": config.page_size,
-            },
-            "paginator": ClockifyPageNumberPaginator(config.page_size),
-            "data_selector_required": True,
-        },
+        "endpoint": _endpoint_spec(
+            CLOCKIFY_ENDPOINTS[endpoint],
+            {"workspace_id": {"type": "resolve", "resource": "workspaces", "field": "id"}},
+        ),
         "data_map": _rename_workspace,
     }
 
 
-def _tasks_resource() -> EndpointResource:
-    config = CLOCKIFY_ENDPOINTS["tasks"]
+def _chained_resource(endpoint: str, data_map: Callable[[dict[str, Any]], dict[str, Any]]) -> EndpointResource:
+    """A resource fanning out over a workspace child, so the path carries two resolved ids."""
+    config = CLOCKIFY_ENDPOINTS[endpoint]
+    parent = config.fan_out_parent
+    placeholder = config.parent_id_placeholder
+    if parent is None or placeholder is None:
+        raise ValueError(f"Clockify endpoint {endpoint} declares no fan-out parent to resolve its path against")
     return {
-        "name": "tasks",
+        "name": endpoint,
         "include_from_parent": ["workspace_id", "id"],
-        "endpoint": {
-            "path": config.path,
-            "params": {
-                "workspace_id": {"type": "resolve", "resource": "projects", "field": "workspace_id"},
-                "project_id": {"type": "resolve", "resource": "projects", "field": "id"},
-                "page-size": config.page_size,
+        "endpoint": _endpoint_spec(
+            config,
+            {
+                "workspace_id": {"type": "resolve", "resource": parent, "field": "workspace_id"},
+                placeholder: {"type": "resolve", "resource": parent, "field": "id"},
             },
-            "paginator": ClockifyPageNumberPaginator(config.page_size),
-            "data_selector_required": True,
-        },
-        "data_map": _rename_task_parents,
+        ),
+        "data_map": data_map,
     }
 
 
 def _time_entries_resource(incremental: IncrementalConfig | None) -> EndpointResource:
-    config = CLOCKIFY_ENDPOINTS["time_entries"]
-    endpoint: Endpoint = {
-        "path": config.path,
-        "params": {
-            "workspace_id": {"type": "resolve", "resource": "users", "field": "workspace_id"},
-            "user_id": {"type": "resolve", "resource": "users", "field": "id"},
-            "page-size": config.page_size,
-        },
-        "paginator": ClockifyPageNumberPaginator(config.page_size),
-        "data_selector_required": True,
-    }
+    resource = _chained_resource("time_entries", _time_entry_map)
     if incremental is not None:
-        endpoint["incremental"] = incremental
-    return {
-        "name": "time_entries",
-        "include_from_parent": ["workspace_id", "id"],
-        "endpoint": endpoint,
-        "data_map": _time_entry_map,
-    }
+        cast(Endpoint, resource["endpoint"])["incremental"] = incremental
+    return resource
 
 
 def _resources_for(endpoint: str, incremental: IncrementalConfig | None) -> list[str | EndpointResource]:
@@ -227,9 +263,19 @@ def _resources_for(endpoint: str, incremental: IncrementalConfig | None) -> list
     if endpoint in _WORKSPACE_CHILD_ENDPOINTS:
         return [_workspaces_resource(), _workspace_child_resource(endpoint)]
     if endpoint == "tasks":
-        return [_workspaces_resource(), _workspace_child_resource("projects"), _tasks_resource()]
+        return [
+            _workspaces_resource(),
+            _workspace_child_resource("projects"),
+            _chained_resource("tasks", _rename_task_parents),
+        ]
     if endpoint == "time_entries":
         return [_workspaces_resource(), _workspace_child_resource("users"), _time_entries_resource(incremental)]
+    if endpoint == "invoice_payments":
+        return [
+            _workspaces_resource(),
+            _workspace_child_resource("invoices"),
+            _chained_resource("invoice_payments", _rename_invoice_parents),
+        ]
     raise ValueError(f"Unknown Clockify endpoint: {endpoint}")
 
 

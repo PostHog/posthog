@@ -7,18 +7,21 @@ const AGENT_TRIGGER_JOB_TYPE = 'agent'
 export interface AgentAttribution {
     /** Self-reported by the agent, never verified. */
     intent: string | null
-    /** Bound to the agent's token by the server, so a row without it is not an agent write. */
-    taskId: string
+    /** Bound to the agent's token by the server. Intent alone cannot verify a task. */
+    taskId: string | null
 }
 
 export function parseAgentAttribution(logItem: HumanizedActivityLogItem): AgentAttribution | null {
     const trigger = logItem.unprocessed?.detail?.trigger
-    if (trigger?.job_type !== AGENT_TRIGGER_JOB_TYPE || !trigger.job_id) {
+    if (trigger?.job_type !== AGENT_TRIGGER_JOB_TYPE) {
         return null
     }
 
-    return {
-        intent: typeof trigger.payload?.intent === 'string' ? trigger.payload.intent : null,
-        taskId: trigger.job_id,
+    const intent = typeof trigger.payload?.intent === 'string' ? trigger.payload.intent : null
+    const taskId = trigger.job_id || null
+    if (!intent && !taskId) {
+        return null
     }
+
+    return { intent, taskId }
 }
