@@ -9,8 +9,8 @@ feature: conversations
 url_prefix: /support/tickets
 ui_apps: {}
 tools:
-    conversations-ai-reply-playbook-list:
-        operation: conversations_ai_reply_playbook_list
+    conversations-ai-reply-playbook-retrieve:
+        operation: conversations_ai_reply_playbook_retrieve
         enabled: false
     conversations-tickets-ai-feedback-create:
         operation: conversations_tickets_ai_feedback_create
