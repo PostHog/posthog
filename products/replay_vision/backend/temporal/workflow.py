@@ -377,7 +377,7 @@ class ApplyScannerWorkflow(PostHogWorkflow):
                     scanner_result=ScannerResult(
                         model_output=call_output.model_output,
                         signals_count=signals_count,
-                        signal_problem_types=list(dict.fromkeys(s.problem_type for s in call_output.signals)),
+                        signal_problem_types=[s.problem_type for s in call_output.signals],
                         verification=call_output.verification,
                     ),
                 ),

@@ -28,15 +28,6 @@ const PROBLEM_TYPE_LABELS: Record<string, string> = {
 const problemTypeLabel = (problemType: string): string =>
     PROBLEM_TYPE_LABELS[problemType] ?? problemType.replace(/_/g, ' ')
 
-// "bug" / "bug and crash" / "bug, crash, and design flaw".
-const joinWithAnd = (items: string[]): string => {
-    if (items.length <= 1) {
-        return items[0] ?? ''
-    }
-    const head = items.slice(0, -1).join(', ')
-    return `${head}${items.length > 2 ? ',' : ''} and ${items[items.length - 1]}`
-}
-
 export function watchReasonCopy(reason: WatchFeedReasonApi): string {
     // The scan wrote this sentence while watching the session, so it beats anything derived from the
     // reason kind. Absent on observations scanned before notability shipped, which fall through below.
@@ -45,19 +36,35 @@ export function watchReasonCopy(reason: WatchFeedReasonApi): string {
     }
     switch (reason.kind) {
         case 'signal_emitted': {
-            const count = reason.signals_count ?? 0
-            const types = (reason.problem_types ?? []).map(problemTypeLabel)
-            if (types.length === 0) {
-                return count > 1
-                    ? `The scanner raised ${count} signals from this session.`
+            const total = reason.signals_count ?? 0
+            const problemTypes = reason.problem_types ?? []
+            if (problemTypes.length === 0) {
+                return total > 1
+                    ? `The scanner raised ${total} signals from this session.`
                     : 'The scanner raised a signal from this session.'
             }
-            if (types.length === 1) {
-                return count > 1
-                    ? `The scanner raised ${count} ${types[0]} signals from this session.`
-                    : `The scanner raised a ${types[0]} signal from this session.`
+            // Count each problem type, keeping the order the scan first raised them.
+            const order: string[] = []
+            const countByType = new Map<string, number>()
+            for (const problemType of problemTypes) {
+                if (!countByType.has(problemType)) {
+                    order.push(problemType)
+                }
+                countByType.set(problemType, (countByType.get(problemType) ?? 0) + 1)
             }
-            return `The scanner raised ${joinWithAnd(types)} signals from this session.`
+            if (order.length === 1) {
+                const label = problemTypeLabel(order[0])
+                return total > 1
+                    ? `The scanner raised ${total} ${label} signals from this session.`
+                    : `The scanner raised a ${label} signal from this session.`
+            }
+            const breakdown = order
+                .map((problemType) => {
+                    const n = countByType.get(problemType) ?? 0
+                    return `${n} ${problemTypeLabel(problemType)} signal${n === 1 ? '' : 's'}`
+                })
+                .join(', ')
+            return `The scanner raised ${total} signals from this session: ${breakdown}.`
         }
         case 'unusual_verdict':
             return reason.verdict

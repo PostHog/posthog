@@ -1491,8 +1491,8 @@ class WatchFeedReasonSerializer(serializers.Serializer):
         child=serializers.CharField(),
         required=False,
         help_text=(
-            "Distinct issue types of the emitted signals (`bug`, `crash`, `design_flaw`, `ux_friction`), in "
-            "first-seen order, for `signal_emitted`. Absent on signals scanned before this field shipped."
+            "Issue type of each emitted signal (`bug`, `crash`, `design_flaw`, `ux_friction`), one entry per "
+            "signal in the order raised, for `signal_emitted`. Absent on signals scanned before this shipped."
         ),
     )
     verdict = serializers.CharField(

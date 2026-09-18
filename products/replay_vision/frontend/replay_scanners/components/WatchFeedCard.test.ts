@@ -16,17 +16,30 @@ describe('WatchFeedCard helpers', () => {
             },
             {
                 name: 'names and counts one repeated problem type',
-                reason: { kind: 'signal_emitted', signals_count: 3, problem_types: ['bug'] } as WatchFeedReasonApi,
+                reason: {
+                    kind: 'signal_emitted',
+                    signals_count: 3,
+                    problem_types: ['bug', 'bug', 'bug'],
+                } as WatchFeedReasonApi,
                 expected: 'The scanner raised 3 bug signals from this session.',
             },
             {
-                name: 'joins multiple problem types with a friendly label',
+                name: 'breaks mixed problem types down by count',
                 reason: {
                     kind: 'signal_emitted',
                     signals_count: 2,
                     problem_types: ['bug', 'ux_friction'],
                 } as WatchFeedReasonApi,
-                expected: 'The scanner raised bug and UX friction signals from this session.',
+                expected: 'The scanner raised 2 signals from this session: 1 bug signal, 1 UX friction signal.',
+            },
+            {
+                name: 'pluralizes and orders each type in a mixed breakdown',
+                reason: {
+                    kind: 'signal_emitted',
+                    signals_count: 3,
+                    problem_types: ['bug', 'bug', 'ux_friction'],
+                } as WatchFeedReasonApi,
+                expected: 'The scanner raised 3 signals from this session: 2 bug signals, 1 UX friction signal.',
             },
             {
                 name: 'rounds the score and window average',
