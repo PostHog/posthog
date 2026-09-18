@@ -128,6 +128,7 @@ class TestRefreshSandboxMcp:
             slack_reply_context=False,
             task_id="task-1",
             origin_product="support_reply",
+            exclude_tools=[],
         )
         mock_user_configs.assert_called_once_with(
             token="fresh-token",
@@ -259,6 +260,7 @@ class TestRefreshSandboxMcp:
             slack_reply_context=False,
             task_id="task-1",
             origin_product="user_created",
+            exclude_tools=[],
         )
 
     def test_transition_refresh_failure_reports_unsafe(
