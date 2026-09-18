@@ -26,7 +26,7 @@ from products.data_modeling.backend.models.data_modeling_job import (
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.data_modeling.backend.models.edge import Edge
 from products.data_modeling.backend.models.node import Node, NodeType
-from products.data_modeling.backend.test.helpers import saved_query_node, table_node
+from products.data_modeling.backend.test.helpers import metric_node, saved_query_node, table_node
 
 DAILY = timedelta(days=1)
 HOURLY = timedelta(hours=1)
@@ -193,6 +193,7 @@ class TestTierRunReport(BaseTest):
         table_node(self.team, self.dag, "source_table", {})
         self._node("targeted", DAILY)
         stray = self._node("no_target", None)
+        metric_node(self.team, self.dag, "weekly_active_accounts")
 
         (tier,) = build_tier_runs(self.dag)
 
