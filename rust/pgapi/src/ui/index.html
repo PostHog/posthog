@@ -54,6 +54,8 @@
   .u-select { background: rgba(122, 162, 247, .18); }
   .u-hz .u-cursor-x { border-right: 1px dashed var(--muted); }
   .u-cursor-pt { border-width: 0 !important; }
+  .marker { position: absolute; top: 0; bottom: 0; width: 0; border-left: 1px dashed var(--c); pointer-events: none; }
+  .marker i { position: absolute; top: -1px; left: -4px; width: 8px; height: 8px; background: var(--c); border-radius: 0 0 4px 4px; pointer-events: auto; cursor: help; }
   .kv td:first-child { color: var(--muted); width: 180px; }
   .pill { display: inline-block; padding: 1px 7px; border-radius: 10px; font-size: 11px; background: var(--panel2); border: 1px solid var(--border); }
   .tag { display: inline-block; font-family: var(--mono); font-size: 11px; color: var(--accent); background: rgba(122, 162, 247, .1); border: 1px solid rgba(122, 162, 247, .3); border-radius: 4px; padding: 0 5px; margin: 0 4px 2px 0; max-width: 260px; overflow: hidden; text-overflow: ellipsis; vertical-align: middle; white-space: nowrap; }
@@ -189,20 +191,41 @@
   // stacked: every series is drawn as an area on top of the ones before it, so missing is always 0.
   // Every chart on a page shares one cursor, and dragging across any of them sets the range.
   const charts = [];
+  // Markers for the events in range are fetched once per page and drawn on every chart on it. The
+  // routine kinds (pg_stat_statements evictions, cancelled statements, lock waits) would smother the rest, so they are left out.
+  let markerEvents = Promise.resolve([]);
+  const MARKER_EXCLUDE = 'pgss_dealloc,log_cancel,log_lock%';
+  const markerColor = k => k.startsWith('settings') ? '#e0af68' : k.startsWith('schema') || k.startsWith('extensions') ? '#7aa2f7' : k.startsWith('log_') ? '#f7768e' : '#8b93a1';
+  function loadMarkers() {
+    markerEvents = api(`/servers/${state.server}/events`, { ...rangeQuery(), exclude: MARKER_EXCLUDE, limit: 500 }).catch(() => []);
+  }
+  function drawMarkers(u, events) {
+    for (const m of u.over.querySelectorAll('.marker')) m.remove();
+    const { min, max } = u.scales.x;
+    for (const e of events) {
+      const x = +new Date(e.at) / 1000;
+      if (x < min || x > max) continue;
+      const title = `${e.kind}: ${e.subject}${e.datname ? ` (${e.datname})` : ''}\n${fmt.ts(e.at)}`;
+      u.over.append(el('div', { class: 'marker', style: `left:${u.valToPos(x, 'x')}px; --c:${markerColor(e.kind)}` }, el('i', { title })));
+    }
+  }
   const AXIS = { stroke: '#8b93a1', font: '11px -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, sans-serif', grid: { stroke: '#2c313a', width: 1 }, ticks: { stroke: '#2c313a', width: 1 } };
   function chart(series, { yfmt = v => fmt.dec(v, 1), stacked = false, missing = 0, height = 170 } = {}) {
+    if (stacked) series = [...series.filter(s => !s.line), ...series.filter(s => s.line)];
     if (typeof uPlot === 'undefined') return el('div', { class: 'empty' }, 'Charts need cdn.jsdelivr.net, which this browser could not load. The tables below still work.');
     if (!series.some(s => s.points.some(p => p[1] != null))) return el('div', { class: 'empty' }, 'no data points');
     const sec = t => Math.floor(+t / 1000);
     const xs = padGaps([...new Set(series.flatMap(s => s.points.map(p => sec(p[0]))))].sort((a, b) => a - b));
     const at = new Map(xs.map((x, i) => [x, i]));
-    const raw = series.map(s => { const col = Array(xs.length).fill(stacked ? 0 : missing); for (const [t, v] of s.points) if (v != null) col[at.get(sec(t))] = v; return col; });
+    const raw = series.map(s => { const col = Array(xs.length).fill(s.line ? null : stacked ? 0 : missing); for (const [t, v] of s.points) if (v != null) col[at.get(sec(t))] = v; return col; });
     // Band [upper, lower] clips the upper series' fill to its own layer; the lowest visible series fills down to zero on its own.
-    // Hidden series are left out of the running total, so toggling one in the legend restacks the rest.
+    // Hidden series are left out of the running total, so toggling one in the legend restacks the rest. Line series
+    // stay unstacked and sit after the stacked ones, so the band indexes stay contiguous.
     const stack = show => {
       const acc = Array(xs.length).fill(0);
-      const data = raw.map((col, i) => show(i) ? col.map((v, j) => (acc[j] += v)) : col);
-      const vis = raw.map((_, i) => i).filter(show);
+      const inStack = i => !series[i].line && show(i);
+      const data = raw.map((col, i) => inStack(i) ? col.map((v, j) => (acc[j] += v)) : col);
+      const vis = raw.map((_, i) => i).filter(inStack);
       return { data, bands: vis.slice(1).map((si, k) => ({ series: [si + 1, vis[k] + 1] })) };
     };
     let { data, bands } = stacked ? stack(() => true) : { data: raw, bands: [] };
@@ -215,9 +238,9 @@
       axes: [{ ...AXIS }, { ...AXIS, size: 60, values: (u, vals) => vals.map(yfmt) }],
       series: [
         { value: (u, v) => v == null ? '' : fmt.ts(new Date(v * 1000)) },
-        ...series.map(s => ({ label: s.name, stroke: s.color, width: 1.5, points: { show: false }, fill: stacked ? s.color + '59' : null, spanGaps: false, value: (u, v, si, di) => di == null || raw[si - 1][di] == null ? '–' : yfmt(raw[si - 1][di]) })),
+        ...series.map(s => ({ label: s.name, stroke: s.color, width: 1.5, points: { show: false }, dash: s.line ? [4, 4] : null, fill: stacked && !s.line ? s.color + '59' : null, spanGaps: !!s.line, value: (u, v, si, di) => di == null || raw[si - 1][di] == null ? '–' : yfmt(raw[si - 1][di]) })),
       ],
-      hooks: { setSeries: stacked ? [restack] : [], setSelect: [u => {
+      hooks: { setSeries: stacked ? [restack] : [], draw: [u => markerEvents.then(ev => drawMarkers(u, ev))], setSelect: [u => {
         if (u.select.width < 4) return;
         const from = u.posToVal(u.select.left, 'x'), to = u.posToVal(u.select.left + u.select.width, 'x');
         u.setSelect({ width: 0, height: 0 }, false);
@@ -260,7 +283,14 @@
   const dbSelect = (onchange) => { const dbs = sv().databases || []; const cur = state.params.datname || dbs[0] || ''; const s = el('select', { onchange: e => onchange(e.target.value) }, dbs.map(d => el('option', { value: d, selected: d === cur ? '' : null }, d))); return [s, cur]; };
 
   pages.overview = async () => {
-    const d = await api(`/servers/${state.server}/overview`, { ...rangeQuery() });
+    const bucket = bucketFor();
+    const [d, load] = await Promise.all([api(`/servers/${state.server}/overview`, { ...rangeQuery() }), api(`/servers/${state.server}/load`, { ...rangeQuery(), bucket })]);
+    const byType = {};
+    for (const r of load.series) (byType[r.wait_event_type] ||= []).push([new Date(r.bucket), r.avg_active_sessions]);
+    const loadSeries = Object.entries(byType).sort(([a], [b]) => (a === 'CPU') - (b === 'CPU') || a.localeCompare(b)).reverse()
+      .map(([k, pts], i) => ({ name: k, color: k === 'CPU' ? COLORS[1] : COLORS[(i + 2) % COLORS.length], points: pts }));
+    const ncpu = load.host.reduce((a, h) => a + (h.ncpu || 0), 0);
+    if (ncpu && load.series.length) { const ts = load.series.map(r => new Date(r.bucket)); loadSeries.push({ name: 'vCPUs', color: '#8b93a1', line: true, points: [[new Date(Math.min(...ts)), ncpu], [new Date(Math.max(...ts)), ncpu]] }); }
     const conns = d.connections.reduce((a, c) => { a[c.state] = (a[c.state] || 0) + c.backends; return a; }, {});
     const dbs = d.databases;
     const sum = k => dbs.reduce((a, r) => a + (r[k] || 0), 0);
@@ -272,6 +302,7 @@
         tile('commits', fmt.num(sum('xact_commit'))), tile('rollbacks', fmt.num(sum('xact_rollback'))), tile('cache hit', hit == null ? '–' : hit.toFixed(2) + '%', hit != null && hit < 95 ? 'warn' : ''),
         tile('deadlocks', fmt.num(sum('deadlocks')), sum('deadlocks') ? 'err' : ''), tile('temp bytes', fmt.bytes(sum('temp_bytes'))), tile('max xid age', fmt.num(Math.max(0, ...dbs.map(r => r.xid_age || 0)))),
       ),
+      el('div', { style: 'margin-top:12px' }, panel(`Database load (average active sessions per ${BUCKET_LABEL[bucket] || bucket}, by wait type)`, chart(loadSeries, { stacked: true, yfmt: v => fmt.dec(v, 2) }))),
       el('div', { class: 'grid two', style: 'margin-top:12px' },
         panel('Top queries by total time', table(d.top_queries, [
           { key: 'query', label: 'query', render: r => el('a', { href: hashFor('query', { queryid: r.queryid, datname: r.datname }) }, queryLabel(r)) },
@@ -585,6 +616,7 @@
     const fn = pages[state.page];
     if (!fn) { main.replaceChildren(el('div', { class: 'error-box' }, `unknown page ${state.page}`)); return; }
     destroyCharts();
+    loadMarkers();
     main.replaceChildren(el('div', { class: 'muted' }, 'loading…'));
     try { const out = await fn(); main.replaceChildren(...[out].flat(Infinity).filter(Boolean)); }
     catch (e) { main.replaceChildren(el('div', { class: 'error-box' }, String(e.message || e))); }

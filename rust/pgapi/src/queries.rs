@@ -198,6 +198,15 @@ async fn tag_cols_of(db: &Db, table: &str, alias: &str) -> String {
 
 /// `route=/api/x,service=web` (or `key:value`) into pairs; keys are lower-cased and
 /// values are percent-decoded, so a value holding a comma travels as `%2C`.
+pub fn split_list(csv: Option<&str>) -> Vec<String> {
+    csv.unwrap_or("")
+        .split(',')
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_owned)
+        .collect()
+}
+
 pub fn parse_tag_filter(s: &str) -> Result<Vec<(String, String)>> {
     let mut out = Vec::new();
     for part in s.split(',').map(str::trim).filter(|p| !p.is_empty()) {
@@ -571,6 +580,28 @@ pub async fn wait_events(db: &Db, server: &str, from: Ts, to: Ts, bucket: &str) 
     Ok(json!({ "sampled": sampled, "measured_aurora": measured }))
 }
 
+/// Average active sessions per bucket, split by wait event type and summed over instances,
+/// with the host core count as the line load is compared against.
+pub async fn db_load(db: &Db, server: &str, from: Ts, to: Ts, bucket: &str) -> Result<Value> {
+    // Sample rows are split by database, user and query, so the average must divide the
+    // summed backends by the number of samples, not the number of rows.
+    let sql = format!(
+        "WITH samples AS (
+            SELECT {b} AS bucket, instance, count(DISTINCT collected_at) AS n
+            FROM ts_activity_samples WHERE server_id = $1 AND collected_at >= $2 AND collected_at < $3 GROUP BY 1, 2),
+         active AS (
+            SELECT {b} AS bucket, instance, coalesce(wait_event_type, 'CPU') AS wait_event_type, sum(backends) AS backends
+            FROM ts_activity_samples WHERE server_id = $1 AND collected_at >= $2 AND collected_at < $3 AND state = 'active' GROUP BY 1, 2, 3)
+         SELECT a.bucket, a.wait_event_type, round(sum(a.backends::float8 / s.n)::numeric, 2)::float8 AS avg_active_sessions
+         FROM active a JOIN samples s USING (bucket, instance) GROUP BY 1, 2 ORDER BY 1, 2",
+        b = bucket_expr("collected_at", bucket_interval(bucket))
+    );
+    let series = opt(db, &sql, &[&server, &from, &to]).await?;
+    let host = opt(db, "SELECT instance, round(sum(user_jiffies + nice_jiffies + system_jiffies + iowait_jiffies + idle_jiffies) / nullif(sum(interval_seconds), 0) / 100.0)::bigint AS ncpu
+         FROM ts_system_cpu WHERE server_id = $1 AND collected_at >= $2 AND collected_at < $3 AND interval_seconds > 0 GROUP BY 1", &[&server, &from, &to]).await?;
+    Ok(json!({ "bucket": bucket_interval(bucket), "series": series, "host": host }))
+}
+
 pub async fn current_activity(db: &Db, server: &str) -> Result<Value> {
     let sessions = opt(db, "SELECT * FROM ts_activity_sessions WHERE server_id = $1 AND collected_at = (SELECT max(collected_at) FROM ts_activity_sessions WHERE server_id = $1 AND collected_at > now() - interval '5 minutes') ORDER BY query_age_s DESC NULLS LAST", &[&server]).await?;
     let locks = opt(db, "SELECT * FROM ts_lock_waits WHERE server_id = $1 AND collected_at = (SELECT max(collected_at) FROM ts_lock_waits WHERE server_id = $1 AND collected_at > now() - interval '5 minutes') ORDER BY waiting_s DESC", &[&server]).await?;
@@ -650,10 +681,13 @@ pub async fn events(
     from: Ts,
     to: Ts,
     kind: Option<&str>,
+    exclude: &[String],
     limit: i64,
 ) -> Result<Value> {
-    Ok(json!(opt(db, "SELECT id, at, instance, datname, kind, subject, before, after FROM events WHERE server_id = $1 AND at >= $2 AND at < $3 AND ($4::text IS NULL OR kind LIKE $4)
-         ORDER BY at DESC LIMIT $5", &[&server, &from, &to, &kind, &limit]).await?))
+    // Excluded kinds are dropped before the limit, so frequent routine kinds cannot crowd out the rest.
+    Ok(json!(opt(db, "SELECT id, at, instance, datname, kind, subject, before, after FROM events
+         WHERE server_id = $1 AND at >= $2 AND at < $3 AND ($4::text IS NULL OR kind LIKE $4) AND NOT (kind LIKE ANY($5::text[]))
+         ORDER BY at DESC LIMIT $6", &[&server, &from, &to, &kind, &exclude, &limit]).await?))
 }
 
 pub async fn settings(db: &Db, server: &str, non_default_only: bool) -> Result<Value> {

@@ -299,6 +299,7 @@ impl PgMcp {
             f,
             t,
             a.kind.as_deref(),
+            &[],
             a.limit.unwrap_or(100).clamp(1, 1000),
         )
         .await

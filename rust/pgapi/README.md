@@ -12,6 +12,7 @@ PGAPI_DEV_MODE=1 PGAPI_DEV_USER=you@posthog.com \
 curl localhost:3400/api/v1/servers
 curl "localhost:3400/api/v1/servers/<id>/queries?since=1h&order=total_exec_time"
 curl "localhost:3400/api/v1/servers/<id>/tags?since=1h&key=operation"        # load per code path (query tags)
+curl "localhost:3400/api/v1/servers/<id>/load?since=1h&bucket=1m"            # active sessions by wait type, per bucket
 ```
 
 MCP client config (Claude Code / Desktop): `{"type": "http", "url": "http://localhost:3400/mcp"}`.
