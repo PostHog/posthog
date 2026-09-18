@@ -28,6 +28,7 @@ from posthog.clickhouse.workload import Workload
 from posthog.dataclasses import frozen
 from posthog.models.team import Team
 
+from products.engineering_analytics.backend.logic.queries._workflow_filters import DECISIVE_FAILURE_CONCLUSIONS_SQL
 from products.engineering_analytics.backend.logic.sources import (
     GitHubTables,
     TrunkQuarantineSource,
@@ -40,6 +41,7 @@ from products.engineering_analytics.backend.logic.views import (
     issue_events,
     job_costs,
     pull_requests,
+    reviews,
     team_members,
     trunk_merge_queue,
     trunk_quarantined_tests,
@@ -194,7 +196,7 @@ class CuratedGitHubSource:
 
         ``created_floor`` adds the raw-string scan floor inside the builder — callers must register
         {job_created_floor} (see run_started_floor_constant). A windowed caller needs it: the builder's
-        ``is_rerun_copy`` window blocks an outer ``created_at_raw`` predicate from pruning the scan."""
+        ``is_rerun_copy`` duplicate scan reads no ``created_at_raw``, so only the floor bounds it."""
         if not self._tables.workflow_jobs:
             return None
         return f"({workflow_jobs.build_query(self._tables.workflow_jobs, created_floor=created_floor)})"
@@ -239,12 +241,29 @@ class CuratedGitHubSource:
             return None
         return f"({team_members.build_query(self._tables.team_members)})"
 
-    def issue_events_source(self) -> str | None:
+    def issue_events_source(self, *, created_floor: bool = False) -> str | None:
         """Curated PR draft/ready transitions ``SELECT`` subquery, or None when the optional
-        issue-events table isn't synced."""
+        issue-events table isn't synced. ``created_floor`` adds the raw-string scan floor — callers
+        must register {event_created_floor} (see run_started_floor_constant)."""
         if not self._tables.issue_events:
             return None
-        return f"({issue_events.build_query(self._tables.issue_events)})"
+        return f"({issue_events.build_query(self._tables.issue_events, created_floor=created_floor)})"
+
+    def team_review_requests_source(self, *, created_floor: bool = False) -> str | None:
+        """Curated team review requests ``SELECT`` subquery, or None when the issue events hold none.
+        ``created_floor`` adds the raw-string scan floor; callers must then register {event_created_floor}
+        (see run_started_floor_constant)."""
+        if not (self._tables.issue_events and self._tables.issue_events_team_requests):
+            return None
+        query = issue_events.build_team_review_requests_query(self._tables.issue_events, created_floor=created_floor)
+        return f"({query})"
+
+    def reviews_source(self) -> str | None:
+        """Curated submitted-reviews ``SELECT`` subquery, or None when the optional reviews table
+        isn't synced."""
+        if not self._tables.reviews:
+            return None
+        return f"({reviews.build_query(self._tables.reviews)})"
 
     def deploy_sources(self) -> "DeploySources | None":
         """The curated deploy ``SELECT`` subqueries, or None when the optional deploy pair isn't
@@ -316,8 +335,8 @@ class CuratedGitHubSource:
         ``created_floor`` adds the raw-string scan floor inside the jobs builder — callers must
         register {job_created_floor} (see run_windowed_job_created_floor_constant, the right slack for
         the run-windowed predicates every cost query uses). Every windowed caller wants it: the cost
-        source's window predicates read the RUN's columns and so can never prune the jobs scan, which
-        the ``is_rerun_copy`` window would otherwise sort in full on every call.
+        source's window predicates read the RUN's columns and so can never prune the jobs scan, and
+        the ``is_rerun_copy`` duplicate scan would otherwise aggregate the full history on every call.
         """
         if not self._tables.workflow_jobs:
             return None
@@ -364,13 +383,18 @@ class CuratedGitHubSource:
                     head_sha,
                     count() AS runs,
                     countIf(s = 'completed' AND c = 'success') AS passing,
-                    countIf(s = 'completed' AND c IN ('failure', 'timed_out')) AS failing,
+                    countIf(s = 'completed' AND c IN ({DECISIVE_FAILURE_CONCLUSIONS_SQL})) AS failing,
                     -- s IS NULL: run_started_at parses to NULL on a bad/missing timestamp, and argMax
                     -- over an all-NULL group returns NULL — count those as pending, not vanished.
                     countIf(s IS NULL OR s != 'completed') AS pending,
+                    -- Completes the partition, so an all-cancelled PR is not read as passing.
+                    countIf(
+                        s = 'completed'
+                        AND ifNull(c, '') NOT IN ('success', {DECISIVE_FAILURE_CONCLUSIONS_SQL})
+                    ) AS inconclusive,
                     -- The names behind `failing`, sorted for a stable order — the UI shows what is
                     -- failing under the CI tag instead of a bare count.
-                    arraySort(groupArrayIf(workflow_name, s = 'completed' AND c IN ('failure', 'timed_out'))) AS failing_workflows
+                    arraySort(groupArrayIf(workflow_name, s = 'completed' AND c IN ({DECISIVE_FAILURE_CONCLUSIONS_SQL}))) AS failing_workflows
                 FROM (
                     SELECT
                         head_sha,

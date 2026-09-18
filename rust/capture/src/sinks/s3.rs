@@ -17,7 +17,7 @@ use tracing::instrument;
 use tracing::log::{debug, error, info};
 
 use crate::api::CaptureError;
-use crate::sinks::Event;
+use crate::outputs::PublishEvents;
 
 const FLUSH_INTERVAL: Duration = Duration::from_secs(1);
 const HEALTH_INTERVAL: Duration = Duration::from_secs(10);
@@ -274,20 +274,9 @@ impl Inner {
 }
 
 #[async_trait]
-impl Event for S3Sink {
+impl PublishEvents for S3Sink {
     #[instrument(skip_all)]
-    async fn send(&self, event: ProcessedEvent) -> Result<(), CaptureError> {
-        let mut buffer = self.inner.buffer.lock().await;
-        buffer.add_event(event)?;
-        let mut rx = buffer.tx.subscribe();
-        drop(buffer);
-        rx.recv()
-            .await
-            .map_err(|_| CaptureError::NonRetryableSinkError)?
-    }
-
-    #[instrument(skip_all)]
-    async fn send_batch(&self, events: Vec<ProcessedEvent>) -> Result<(), CaptureError> {
+    async fn publish_events(&self, events: Vec<ProcessedEvent>) -> Result<(), CaptureError> {
         let mut buffer = self.inner.buffer.lock().await;
         for event in events {
             buffer.add_event(event)?;
@@ -376,13 +365,15 @@ mod tests {
 
         // Test single event
         let event = create_test_event();
-        sink.send(event.clone())
+        sink.publish_events(vec![event.clone()])
             .await
-            .expect("Failed to send event");
+            .expect("Failed to publish event");
 
         // Test batch
         let batch = vec![event.clone(), event.clone()];
-        sink.send_batch(batch).await.expect("Failed to send batch");
+        sink.publish_events(batch)
+            .await
+            .expect("Failed to publish batch");
     }
 
     #[tokio::test]
@@ -399,6 +390,8 @@ mod tests {
             metadata: create_test_event().metadata,
         };
 
-        sink.send(event).await.expect("Failed to send large event");
+        sink.publish_events(vec![event])
+            .await
+            .expect("Failed to publish large event");
     }
 }

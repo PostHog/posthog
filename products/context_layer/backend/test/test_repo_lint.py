@@ -1,6 +1,8 @@
+import os
 import uuid
 import shutil
 import tempfile
+import subprocess
 from collections.abc import Callable
 from pathlib import Path
 
@@ -170,3 +172,125 @@ class TestRepoLint(SimpleTestCase):
     def test_violations_are_reported(self, _name: str, violate: Callable[[Path], None]) -> None:
         violate(self.root)
         assert lint_repo(self.root) != []
+
+
+class TestWikiPublish(SimpleTestCase):
+    def _git(self, *args: str) -> str:
+        return subprocess.run(
+            ["git", *args], cwd=self.root, env=self.env, check=True, capture_output=True, text=True
+        ).stdout.strip()
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.workspace = Path(tempfile.mkdtemp(prefix="context-layer-publish-"))
+        self.addCleanup(shutil.rmtree, self.workspace, ignore_errors=True)
+        self.root = self.workspace / "wiki"
+        self.root.mkdir()
+        write_default_structure(self.root)
+        self.bin_dir = self.workspace / "bin"
+        self.bin_dir.mkdir()
+        (self.bin_dir / "curl").write_text(
+            """#!/bin/sh
+for arg do
+    printf '<%s>\\n' "$arg"
+    case "$arg" in
+        bundle=@*) cp "${arg#bundle=@}" "$PUBLISH_BUNDLE_PATH" ;;
+    esac
+done
+exit "${PUBLISH_HTTP_EXIT:-0}"
+"""
+        )
+        (self.bin_dir / "curl").chmod(0o755)
+        (self.bin_dir / "date").write_text("#!/bin/sh\nprintf '2026-09-16\\n'\n")
+        (self.bin_dir / "date").chmod(0o755)
+        self.summary_file = self.workspace / "dream summary.md"
+        self.summary_file.write_text("Reviewed recent activity\nRemoved an expired priority")
+        self.bundle = self.workspace / "received.bundle"
+        self.env = {
+            **os.environ,
+            "PATH": f"{self.bin_dir}:{os.environ['PATH']}",
+            "GIT_CONFIG_GLOBAL": "/dev/null",
+            "GIT_CONFIG_NOSYSTEM": "1",
+            "POSTHOG_API_URL": "https://example.com",
+            "POSTHOG_PERSONAL_API_KEY": "test-key",
+            "POSTHOG_CONTEXT_LAYER_COMMITS_PATH": "/commits/",
+            "PUBLISH_BUNDLE_PATH": str(self.bundle),
+        }
+        self._git("init", "--initial-branch=main")
+        self._git("config", "user.name", "Wiki test")
+        self._git("config", "user.email", "wiki@example.com")
+        self._git("add", "--all")
+        self._git("commit", "-m", "Seed wiki")
+        self._git("update-ref", "refs/remotes/origin/main", "HEAD")
+        self._git("remote", "add", "origin", str(self.workspace / "context.bundle"))
+
+    def _publish(self, *args: str) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            [self.root / "scripts" / "publish", *args, self.summary_file],
+            cwd=self.root,
+            env=self.env,
+            capture_output=True,
+            text=True,
+        )
+
+    @parameterized.expand([("unstaged",), ("staged",), ("committed",), ("existing_branch",)])
+    def test_publish_sends_wiki_edits_and_summary_contents_as_text(self, change_state: str) -> None:
+        if change_state == "existing_branch":
+            self._git("branch", "dream/2026-09-16")
+        (self.root / "areas").mkdir()
+        page = self.root / "areas" / "analytics.md"
+        page.write_text("---\nsummary: Analytics\nstatus: active\nsources: test\n---\n# Analytics\n")
+        if change_state in ("staged", "committed"):
+            self._git("add", "--all")
+        if change_state == "committed":
+            self._git("checkout", "-b", "dream/2026-09-01")
+            self._git("commit", "-m", "Add analytics context")
+        self._git("config", "commit.gpgsign", "true")
+        self._git("config", "gpg.program", "/nonexistent/gpg")
+
+        result = self._publish("--dream")
+
+        assert result.returncode == 0, result.stderr
+        assert "<--form-string>\n<summary=Reviewed recent activity\nRemoved an expired priority>" in result.stdout
+        assert "publish: landed" in result.stdout
+        assert self._git("status", "--porcelain") == ""
+        assert self._git("branch", "--show-current") == "dream/2026-09-16"
+        self._git("bundle", "verify", str(self.bundle))
+        self._git("fetch", str(self.bundle), self._git("branch", "--show-current"))
+        assert self._git("show", "FETCH_HEAD:areas/analytics.md") == page.read_text().strip()
+
+    def test_publish_reports_no_changes_without_uploading(self) -> None:
+        result = self._publish("--dream")
+
+        assert result.returncode == 0, result.stderr
+        assert "publish: no changes" in result.stdout
+        assert not self.bundle.exists()
+
+    def test_publish_does_not_hide_bundle_errors(self) -> None:
+        self._git("update-ref", "-d", "refs/remotes/origin/main")
+
+        result = self._publish("--dream")
+
+        assert result.returncode != 0
+        assert "publish: landed" not in result.stdout
+        assert not self.bundle.exists()
+
+    def test_publish_does_not_report_a_rejected_upload_as_landed(self) -> None:
+        self._git("checkout", "-b", "dream/2026-09-01")
+        self._git("commit", "--allow-empty", "-m", "Review wiki")
+        self.env["PUBLISH_HTTP_EXIT"] = "22"
+
+        result = self._publish("--dream")
+
+        assert result.returncode != 0
+        assert "publish: landed" not in result.stdout
+
+    def test_publish_refuses_invalid_content_before_committing(self) -> None:
+        (self.root / "notes.md").write_text("# Unscoped notes")
+        original_head = self._git("rev-parse", "HEAD")
+
+        result = self._publish("--dream")
+
+        assert result.returncode != 0
+        assert self._git("rev-parse", "HEAD") == original_head
+        assert not self.bundle.exists()

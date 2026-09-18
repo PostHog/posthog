@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json as json_module
+from dataclasses import replace
 
 import structlog
 from pydantic import BaseModel, Field, model_validator
@@ -13,6 +14,7 @@ from products.conversations.backend.temporal.ai_reply.constants import MAX_SOURC
 from products.conversations.backend.temporal.ai_reply.llms import (
     anthropic_text,
     create_message,
+    llm_attempts,
     strip_json_fence,
     tracing_kwargs,
 )
@@ -81,7 +83,7 @@ class ReplyReviewResult(BaseModel):
 async def support_review_reply_activity(input: ReviewReplyInput) -> ReviewReplyOutput:
     """Screen the final reply for data exfiltration / PII leakage before persisting."""
     async with Heartbeater():
-        return await _review_reply(input)
+        return replace(await _review_reply(input), llm_attempts=llm_attempts())
 
 
 async def _review_reply(input: ReviewReplyInput) -> ReviewReplyOutput:

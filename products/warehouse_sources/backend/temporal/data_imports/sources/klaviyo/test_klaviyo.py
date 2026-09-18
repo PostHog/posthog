@@ -3,7 +3,7 @@ from datetime import UTC, date, datetime
 from typing import Any
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from unittest.mock import MagicMock, patch
 
 import requests
@@ -19,6 +19,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.klaviyo.co
     KLAVIYO_API_VERSION_2026_07_15,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.klaviyo.klaviyo import (
+    KlaviyoConversionMetricError,
     KlaviyoResumeConfig,
     _build_filter,
     _build_initial_params,
@@ -28,8 +29,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.klaviyo.kl
     klaviyo_source,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.klaviyo.settings import (
+    FORM_REPORT_STATISTICS,
     KLAVIYO_ENDPOINTS,
+    SERIES_REPORT_TIMEFRAME_WEEKS,
+    VALUES_REPORT_TIMEFRAME_KEY,
     KlaviyoEndpointConfig,
+    KlaviyoValuesReportConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.klaviyo.source import KlaviyoSource
 
@@ -113,7 +118,7 @@ class TestBuildInitialParams:
         assert "+00:00" not in params["filter"]
         assert params["filter"].endswith("Z)")
 
-    @freeze_time("2026-06-15T12:00:00Z")
+    @time_machine.travel("2026-06-15T12:00:00Z", tick=False)
     def test_future_cursor_is_clamped_to_now(self) -> None:
         # A future-dated cursor would otherwise build greater-than(datetime,<future>),
         # which Klaviyo rejects with a 400 and wedges every subsequent sync.
@@ -126,7 +131,7 @@ class TestBuildInitialParams:
         )
         assert params["filter"] == "greater-than(datetime,2026-06-15T12:00:00.000Z)"
 
-    @freeze_time("2026-06-15T12:00:00Z")
+    @time_machine.travel("2026-06-15T12:00:00Z", tick=False)
     def test_past_cursor_is_not_modified(self) -> None:
         config = KLAVIYO_ENDPOINTS["events"]
         params = _build_initial_params(
@@ -161,7 +166,7 @@ class TestBuildInitialParams:
         )
         assert "filter" not in params
 
-    @freeze_time("2026-06-15T12:00:00Z")
+    @time_machine.travel("2026-06-15T12:00:00Z", tick=False)
     def test_lookback_applies_after_future_clamp(self) -> None:
         # Clamping after the lookback would erase the overlap window for a future-dated cursor.
         config = KLAVIYO_ENDPOINTS["list_profiles"]
@@ -175,28 +180,28 @@ class TestBuildInitialParams:
 
 
 class TestClampFutureValueToNow:
-    @freeze_time("2026-06-15T12:00:00Z")
+    @time_machine.travel("2026-06-15T12:00:00Z", tick=False)
     def test_future_datetime_is_clamped(self) -> None:
         assert _clamp_future_value_to_now(datetime(2027, 2, 5, 21, 46, 42, tzinfo=UTC)) == datetime(
             2026, 6, 15, 12, 0, 0, tzinfo=UTC
         )
 
-    @freeze_time("2026-06-15T12:00:00Z")
+    @time_machine.travel("2026-06-15T12:00:00Z", tick=False)
     def test_naive_future_datetime_is_clamped(self) -> None:
         assert _clamp_future_value_to_now(datetime(2027, 2, 5, 21, 46, 42)) == datetime(
             2026, 6, 15, 12, 0, 0, tzinfo=UTC
         )
 
-    @freeze_time("2026-06-15T12:00:00Z")
+    @time_machine.travel("2026-06-15T12:00:00Z", tick=False)
     def test_past_datetime_is_unchanged(self) -> None:
         value = datetime(2026, 3, 4, 2, 58, 14, tzinfo=UTC)
         assert _clamp_future_value_to_now(value) == value
 
-    @freeze_time("2026-06-15T12:00:00Z")
+    @time_machine.travel("2026-06-15T12:00:00Z", tick=False)
     def test_future_date_is_clamped(self) -> None:
         assert _clamp_future_value_to_now(date(2027, 2, 5)) == date(2026, 6, 15)
 
-    @freeze_time("2026-06-15T12:00:00Z")
+    @time_machine.travel("2026-06-15T12:00:00Z", tick=False)
     def test_past_date_is_unchanged(self) -> None:
         assert _clamp_future_value_to_now(date(2026, 3, 4)) == date(2026, 3, 4)
 
@@ -237,6 +242,26 @@ class TestNonRetryableErrors:
     def test_transient_errors_remain_retryable(self, _name: str, other_error: str) -> None:
         non_retryable_errors = KlaviyoSource().get_non_retryable_errors()
         assert not any(key in other_error for key in non_retryable_errors)
+
+    @parameterized.expand(
+        [
+            # The conversion-metric messages KlaviyoConversionMetricError raises are deterministic, so
+            # they must classify as non-retryable. The message wording and the source-side substring
+            # live in two files; this locks them together so a reword can't silently make the failure
+            # retry into the same result.
+            (
+                "no_metric",
+                "Klaviyo needs a conversion metric to sync campaign_values_reports, but the account has none.",
+            ),
+            (
+                "ineligible_metric",
+                "Klaviyo rejected conversion metric M_X for flow_values_reports: it isn't eligible for values reporting.",
+            ),
+        ]
+    )
+    def test_conversion_metric_errors_are_non_retryable(self, _name: str, observed_error: str) -> None:
+        non_retryable_errors = KlaviyoSource().get_non_retryable_errors()
+        assert error_message_matches(observed_error, non_retryable_errors.keys())
 
     @parameterized.expand(
         [
@@ -967,10 +992,45 @@ class TestValuesReports:
 
         assert rows[0]["conversion_metric_id"] == "M_FIRST"
 
-    def test_ineligible_conversion_metric_skips_the_report_instead_of_failing_the_sync(self, monkeypatch: Any) -> None:
+    def test_prefers_a_value_tracking_metric_over_the_accounts_first_metric(self, monkeypatch: Any) -> None:
+        # Blindly taking the first metric picked an engagement metric that Klaviyo rejects for values
+        # reporting. Resolution must prefer a value-tracking metric by name even when it is not first.
+        def fake_fetch(
+            session: Any, url: str, headers: dict[str, str], logger: Any, json_body: dict | None = None
+        ) -> dict:
+            if json_body is not None:
+                return {
+                    "data": {
+                        "attributes": {"results": [{"groupings": {"campaign_id": "C1"}, "statistics": {"opens": 1}}]}
+                    },
+                    "links": {},
+                }
+            return {
+                "data": [
+                    {"id": "M_ENGAGEMENT", "attributes": {"name": "Viewed Product"}},
+                    {"id": "M_ORDERED", "attributes": {"name": "Ordered Product"}},
+                ],
+                "links": {},
+            }
+
+        monkeypatch.setattr(klaviyo, "_fetch_page", fake_fetch)
+        rows = [
+            row
+            for table in get_rows(
+                api_key="pk_test",
+                endpoint="campaign_values_reports",
+                logger=MagicMock(),
+                resumable_source_manager=_FakeResumableManager(),  # type: ignore[arg-type]
+            )
+            for row in table.to_pylist()
+        ]
+
+        assert rows[0]["conversion_metric_id"] == "M_ORDERED"
+
+    def test_ineligible_conversion_metric_fails_the_sync_instead_of_finishing_empty(self, monkeypatch: Any) -> None:
         # Klaviyo rejects some metrics (e.g. system metrics) as conversion metrics for values
-        # reports; the same metric would be re-resolved on every retry, so this can never self-heal
-        # and must not fail the whole sync.
+        # reports. Returning empty here finalized the run green with zero rows, so the broken table
+        # looked healthy forever; the run must fail visibly with an actionable message instead.
         response = _response_with_status(400)
         response._content = (
             b'{"errors":[{"status":400,"code":"invalid","title":"Invalid input.",'
@@ -986,7 +1046,7 @@ class TestValuesReports:
             return {"data": [{"id": "M_FIRST", "attributes": {"name": "Viewed Product"}}], "links": {}}
 
         monkeypatch.setattr(klaviyo, "_fetch_page", fake_fetch)
-        assert (
+        with pytest.raises(KlaviyoConversionMetricError, match="isn't eligible for values reporting"):
             list(
                 get_rows(
                     api_key="pk_test",
@@ -995,12 +1055,10 @@ class TestValuesReports:
                     resumable_source_manager=_FakeResumableManager(),  # type: ignore[arg-type]
                 )
             )
-            == []
-        )
 
     def test_unrelated_http_error_still_propagates(self, monkeypatch: Any) -> None:
-        # Only the specific ineligible-conversion-metric 400 should be swallowed; any other HTTP
-        # failure (e.g. a transient 500) must still fail the sync loudly rather than go silent.
+        # Only the ineligible-conversion-metric 400 becomes a KlaviyoConversionMetricError; any other
+        # HTTP failure (e.g. a transient 500) must propagate unchanged so it keeps its own handling.
         response = _response_with_status(500)
         response._content = b'{"errors":[{"status":500,"title":"Internal Server Error"}]}'
 
@@ -1022,9 +1080,9 @@ class TestValuesReports:
                 )
             )
 
-    def test_account_with_no_metrics_yields_nothing_instead_of_posting_an_invalid_report(
-        self, monkeypatch: Any
-    ) -> None:
+    def test_account_with_no_metrics_fails_instead_of_posting_an_invalid_report(self, monkeypatch: Any) -> None:
+        # No conversion metric means no valid report to post. Failing loudly keeps the run from
+        # finalizing green with zero rows against a table the user believes is syncing.
         def fake_fetch(
             session: Any, url: str, headers: dict[str, str], logger: Any, json_body: dict | None = None
         ) -> dict:
@@ -1032,7 +1090,7 @@ class TestValuesReports:
             return {"data": [], "links": {}}
 
         monkeypatch.setattr(klaviyo, "_fetch_page", fake_fetch)
-        assert (
+        with pytest.raises(KlaviyoConversionMetricError, match="needs a conversion metric"):
             list(
                 get_rows(
                     api_key="pk_test",
@@ -1041,8 +1099,230 @@ class TestValuesReports:
                     resumable_source_manager=_FakeResumableManager(),  # type: ignore[arg-type]
                 )
             )
-            == []
-        )
+
+
+class TestReportVariants:
+    # Monday 03:30 UTC, which is still Sunday evening in the account's timezone. A window computed in
+    # UTC would open a week later and end seven hours ahead of the account's clock.
+    @time_machine.travel("2026-09-14T03:30:00Z", tick=False)
+    def test_series_report_carries_interval_and_expands_each_bucket_into_a_row(self, monkeypatch: Any) -> None:
+        # Series reports return each statistic as an array aligned to a top-level date_times list;
+        # keeping the arrays nested would leave the table unqueryable and collapse the weekly rows.
+        # Klaviyo also 400s a series report missing the interval, so the body must carry it.
+        captured: dict[str, Any] = {}
+
+        def fake_fetch(
+            session: Any, url: str, headers: dict[str, str], logger: Any, json_body: dict | None = None
+        ) -> dict:
+            if json_body is not None:
+                captured["body"] = json_body
+                return {
+                    "data": {
+                        "attributes": {
+                            "results": [
+                                {
+                                    "groupings": {
+                                        "flow_id": "F1",
+                                        "flow_message_id": "FM1",
+                                        "send_channel": "email",
+                                    },
+                                    "statistics": {"opens": [1, 2]},
+                                }
+                            ],
+                            "date_times": ["2026-01-05T00:00:00+00:00", "2026-01-12T00:00:00+00:00"],
+                        }
+                    },
+                    "links": {},
+                }
+            if url.endswith("/accounts"):
+                return {"data": [{"id": "A1", "attributes": {"timezone": "America/Los_Angeles"}}]}
+            return {"data": [{"id": "M_ORDER", "attributes": {"name": "Placed Order"}}], "links": {}}
+
+        monkeypatch.setattr(klaviyo, "_fetch_page", fake_fetch)
+        rows = [
+            row
+            for table in get_rows(
+                api_key="pk_test",
+                endpoint="flow_series_reports",
+                logger=MagicMock(),
+                resumable_source_manager=_FakeResumableManager(),  # type: ignore[arg-type]
+            )
+            for row in table.to_pylist()
+        ]
+
+        attributes = captured["body"]["data"]["attributes"]
+        assert attributes["interval"] == "weekly"
+        # Klaviyo rejects a weekly series report whose window is over 52 weeks, and rejects any
+        # timeframe key it does not publish, so the window goes as a custom start/end pair. Klaviyo
+        # ignores the offset on the pair and reads it in the account's timezone, so the pair must be
+        # computed there: 51 weeks that open on a Monday and end at the account's current time.
+        assert attributes["timeframe"] == {"start": "2025-09-22T00:00:00-07:00", "end": "2026-09-13T20:30:00-07:00"}
+        assert rows == [
+            {
+                "flow_id": "F1",
+                "flow_message_id": "FM1",
+                "send_channel": "email",
+                "date_time": "2026-01-05T00:00:00+00:00",
+                "opens": 1,
+                "timeframe_key": f"last_{SERIES_REPORT_TIMEFRAME_WEEKS}_weeks",
+                "conversion_metric_id": "M_ORDER",
+            },
+            {
+                "flow_id": "F1",
+                "flow_message_id": "FM1",
+                "send_channel": "email",
+                "date_time": "2026-01-12T00:00:00+00:00",
+                "opens": 2,
+                "timeframe_key": f"last_{SERIES_REPORT_TIMEFRAME_WEEKS}_weeks",
+                "conversion_metric_id": "M_ORDER",
+            },
+        ]
+
+    @parameterized.expand(
+        [
+            ("form_values_reports", "form-values-report", "/form-values-reports", ["form_id"]),
+            ("segment_values_reports", "segment-values-report", "/segment-values-reports", None),
+        ]
+    )
+    def test_form_and_segment_reports_omit_the_conversion_metric_and_its_lookup(
+        self, endpoint: str, report_type: str, path: str, expected_group_by: list[str] | None
+    ) -> None:
+        # Form and segment reports don't accept a conversion_metric_id; sending one (or the group_by
+        # segment reports also reject) 400s the request, and resolving one would cost a needless
+        # /metrics walk on every sync.
+        captured: dict[str, Any] = {}
+        fetched_urls: list[str] = []
+
+        def fake_fetch(
+            session: Any, url: str, headers: dict[str, str], logger: Any, json_body: dict | None = None
+        ) -> dict:
+            fetched_urls.append(url)
+            if json_body is not None:
+                captured["body"] = json_body
+                return {"data": {"attributes": {"results": []}}, "links": {}}
+            return {"data": [], "links": {}}
+
+        with patch.object(klaviyo, "_fetch_page", fake_fetch):
+            list(
+                get_rows(
+                    api_key="pk_test",
+                    endpoint=endpoint,
+                    logger=MagicMock(),
+                    resumable_source_manager=_FakeResumableManager(),  # type: ignore[arg-type]
+                )
+            )
+
+        attributes = captured["body"]["data"]["attributes"]
+        assert captured["body"]["data"]["type"] == report_type
+        assert "conversion_metric_id" not in attributes
+        assert fetched_urls[0] == f"https://a.klaviyo.com/api{path}"
+        assert all("/metrics" not in url for url in fetched_urls)
+        if expected_group_by is None:
+            assert "group_by" not in attributes
+        else:
+            assert attributes["group_by"] == expected_group_by
+
+    def test_form_values_report_lists_every_form_and_zero_fills_the_quiet_ones(self) -> None:
+        fetched_urls: list[str] = []
+
+        def fake_fetch(
+            session: Any, url: str, headers: dict[str, str], logger: Any, json_body: dict | None = None
+        ) -> dict:
+            fetched_urls.append(url)
+            if json_body is not None:
+                return {
+                    "data": {
+                        "attributes": {
+                            "results": [
+                                {
+                                    "groupings": {"form_id": "FORM_ACTIVE"},
+                                    "statistics": {"viewed_form": 40, "submits": 4, "submit_rate": 0.1},
+                                }
+                            ]
+                        }
+                    },
+                    "links": {},
+                }
+            assert url.startswith("https://a.klaviyo.com/api/forms?")
+            return {"data": [{"id": "FORM_ACTIVE"}, {"id": "FORM_QUIET"}], "links": {}}
+
+        with patch.object(klaviyo, "_fetch_page", fake_fetch):
+            rows = [
+                row
+                for table in get_rows(
+                    api_key="pk_test",
+                    endpoint="form_values_reports",
+                    logger=MagicMock(),
+                    resumable_source_manager=_FakeResumableManager(),  # type: ignore[arg-type]
+                )
+                for row in table.to_pylist()
+            ]
+
+        by_form = {row["form_id"]: row for row in rows}
+        assert set(by_form) == {"FORM_ACTIVE", "FORM_QUIET"}
+        assert (by_form["FORM_ACTIVE"]["viewed_form"], by_form["FORM_ACTIVE"]["submits"]) == (40, 4)
+        assert by_form["FORM_ACTIVE"]["submit_rate"] == 0.1
+        quiet = by_form["FORM_QUIET"]
+        assert quiet["timeframe_key"] == VALUES_REPORT_TIMEFRAME_KEY
+        assert quiet["submit_rate"] is None
+        assert all(quiet[statistic] == 0 for statistic in FORM_REPORT_STATISTICS if statistic != "submit_rate")
+        assert len(fetched_urls) == 2
+
+    def test_a_report_without_a_list_all_ids_path_stays_empty(self) -> None:
+        fetched_urls: list[str] = []
+
+        def fake_fetch(
+            session: Any, url: str, headers: dict[str, str], logger: Any, json_body: dict | None = None
+        ) -> dict:
+            fetched_urls.append(url)
+            return {"data": {"attributes": {"results": []}}, "links": {}}
+
+        with patch.object(klaviyo, "_fetch_page", fake_fetch):
+            tables = list(
+                get_rows(
+                    api_key="pk_test",
+                    endpoint="segment_values_reports",
+                    logger=MagicMock(),
+                    resumable_source_manager=_FakeResumableManager(),  # type: ignore[arg-type]
+                )
+            )
+
+        assert tables == []
+        assert fetched_urls == ["https://a.klaviyo.com/api/segment-values-reports"]
+
+    @parameterized.expand(
+        [
+            ("flow_series_reports",),
+            ("form_series_reports",),
+            ("segment_series_reports",),
+        ]
+    )
+    def test_series_reports_key_on_the_time_bucket(self, endpoint: str) -> None:
+        # Without date_time in the primary key, the ~51 weekly rows per grouping collapse to one on
+        # merge, silently discarding the whole time series. Without date_time as a cursor the table
+        # syncs full refresh, so every sync rebuilds it from Klaviyo's rolling window and drops the
+        # weeks that have since left it, which no later sync can fetch again.
+        config = KLAVIYO_ENDPOINTS[endpoint]
+        assert "date_time" in config.primary_keys
+        assert [f["field"] for f in config.incremental_fields] == ["date_time"]
+        assert config.default_incremental_field == "date_time"
+        # Klaviyo caps a weekly series report at 52 weeks, which rules out last_365_days, and
+        # rejects any key outside its published set, which rules out inventing a 52-week one. Both
+        # rejections are 400s that fail the whole sync, so the window must go as a custom pair.
+        assert config.values_report is not None
+        assert config.values_report.timeframe_key is None
+        assert config.values_report.timeframe_weeks == SERIES_REPORT_TIMEFRAME_WEEKS
+
+    def test_a_timeframe_key_klaviyo_does_not_publish_is_refused(self) -> None:
+        # An unpublished key reads like a real one but 400s every request the endpoint makes, so
+        # the config has to refuse it here rather than at sync time.
+        with pytest.raises(ValueError):
+            KlaviyoValuesReportConfig(
+                report_type="flow-series-report",
+                statistics=["opens"],
+                group_by=["flow_id"],
+                timeframe_key="last_52_weeks",
+            )
 
 
 class TestEndpointRequestParams:
@@ -1141,9 +1421,20 @@ class TestNewSchemas:
         schemas = {s.name: s for s in KlaviyoSource().get_schemas(MagicMock(), team_id=1)}
         assert schemas[endpoint].should_sync_default is expected_default
 
-    @parameterized.expand([("segment_profiles",), ("flow_actions",), ("flow_messages",)])
-    def test_lookback_endpoints_are_merge_only(self, endpoint: str) -> None:
-        # Append mode would materialize the intentional lookback re-pulls as duplicate rows.
+    @parameterized.expand(
+        [
+            ("segment_profiles",),
+            ("flow_actions",),
+            ("flow_messages",),
+            ("campaign_values_reports",),
+            ("flow_series_reports",),
+            ("form_series_reports",),
+            ("segment_series_reports",),
+        ]
+    )
+    def test_endpoints_that_re_pull_a_window_are_merge_only(self, endpoint: str) -> None:
+        # Append mode would materialize the intentional re-pulls as duplicate rows. A lookback
+        # endpoint re-pulls a window of rows each run, and a report re-posts its whole window.
         schemas = {s.name: s for s in KlaviyoSource().get_schemas(MagicMock(), team_id=1)}
         assert schemas[endpoint].supports_append is False
 

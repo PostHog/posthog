@@ -80,6 +80,10 @@
                                     "enum": ["Parquet", "JSONLines"],
                                     "type": "string"
                                 },
+                                "legacy_parquet_extension": {
+                                    "description": "Whether Parquet files keep the compression codec in their extension, for example '.parquet.zst' rather than '.parquet'. Parquet records its codec inside the file, so new exports leave it out. An export that already wrote Parquet files before this setting existed keeps it, so that pipelines matching on the old names do not break. Has no effect on JSON Lines, which always carries the codec in its extension.",
+                                    "type": "boolean"
+                                },
                                 "max_file_size_mb": {
                                     "anyOf": [
                                         {
@@ -240,6 +244,10 @@
                                     ],
                                     "description": "KMS key ID to use when encryption is 'aws:kms'."
                                 },
+                                "legacy_parquet_extension": {
+                                    "description": "Whether Parquet files keep the compression codec in their extension, for example '.parquet.zst' rather than '.parquet'. Parquet records its codec inside the file, so new exports leave it out. An export that already wrote Parquet files before this setting existed keeps it, so that pipelines matching on the old names do not break. Has no effect on JSON Lines, which always carries the codec in its extension.",
+                                    "type": "boolean"
+                                },
                                 "max_file_size_mb": {
                                     "anyOf": [
                                         {
@@ -264,7 +272,7 @@
                             "type": "object"
                         },
                         "integration_id": {
-                            "description": "ID of an aws-s3-kind Integration providing AWS credentials. Required when creating a batch export. Use the integrations-list MCP tool to find one.",
+                            "description": "ID of an aws-s3-kind Integration providing AWS credentials. Use the integrations-list MCP tool to find one.",
                             "type": "number"
                         },
                         "type": {
@@ -304,6 +312,10 @@
                                     "enum": ["Parquet", "JSONLines"],
                                     "type": "string"
                                 },
+                                "legacy_parquet_extension": {
+                                    "description": "Whether Parquet files keep the compression codec in their extension, for example '.parquet.zst' rather than '.parquet'. Parquet records its codec inside the file, so new exports leave it out. An export that already wrote Parquet files before this setting existed keeps it, so that pipelines matching on the old names do not break. Has no effect on JSON Lines, which always carries the codec in its extension.",
+                                    "type": "boolean"
+                                },
                                 "max_file_size_mb": {
                                     "anyOf": [
                                         {
@@ -333,7 +345,7 @@
                             "type": "object"
                         },
                         "integration_id": {
-                            "description": "ID of an s3-compatible-kind Integration providing credentials and the provider endpoint URL. Required when creating a batch export. Use the integrations-list MCP tool to find one.",
+                            "description": "ID of an s3-compatible-kind Integration providing credentials and the provider endpoint URL. Use the integrations-list MCP tool to find one.",
                             "type": "number"
                         },
                         "type": {
@@ -348,7 +360,7 @@
                     "description": "Request shape for creating or updating a Snowflake batch-export destination.",
                     "properties": {
                         "config": {
-                            "description": "Typed configuration for a Snowflake batch-export destination.\n\nAccount, user, authentication type and credentials may live in a linked Integration (when one is\nprovided) or inline in this config (legacy). Mirrors the non-credential fields of\n`SnowflakeBatchExportInputs` in `products/batch_exports/backend/service.py`.",
+                            "description": "Typed configuration for a Snowflake batch-export destination.\n\nAccount, user, authentication type and credentials live in the linked Integration, never here.\nMirrors the non-credential fields of `SnowflakeBatchExportInputs` in\n`products/batch_exports/backend/service.py`.",
                             "properties": {
                                 "database": {
                                     "description": "Snowflake database to write to.",
@@ -383,7 +395,7 @@
                             "type": "object"
                         },
                         "integration_id": {
-                            "description": "ID of a snowflake-kind Integration providing the account, user and credentials. Preferred over inline credentials. Use the integrations-list MCP tool to find one.",
+                            "description": "ID of a snowflake-kind Integration providing the account, user and credentials. Use the integrations-list MCP tool to find one.",
                             "type": "number"
                         },
                         "type": {
@@ -391,7 +403,7 @@
                             "type": "string"
                         }
                     },
-                    "required": ["type", "config"],
+                    "required": ["type", "integration_id", "config"],
                     "type": "object"
                 },
                 {
@@ -511,7 +523,7 @@
                             "type": "object"
                         },
                         "integration_id": {
-                            "description": "ID of an aws-redshift-kind Integration providing connection credentials. Preferred over inline credentials. Use the integrations-list MCP tool to find one.",
+                            "description": "ID of an aws-redshift-kind Integration providing connection credentials. Use the integrations-list MCP tool to find one.",
                             "type": "number"
                         },
                         "type": {
@@ -519,7 +531,7 @@
                             "type": "string"
                         }
                     },
-                    "required": ["type", "config"],
+                    "required": ["type", "integration_id", "config"],
                     "type": "object"
                 }
             ],

@@ -1,5 +1,11 @@
 import { buildActivitySummary } from './activitySummary'
 import { buildChecklist, EarlyStats } from './earlyDataChecklist'
+import {
+    DEFAULT_MCP_ACTIVITY_QUERY,
+    MCP_ACTIVITY_COLUMNS,
+    MCP_ACTIVITY_MAX_ROWS,
+    MCP_ACTIVITY_PAGE_SIZE,
+} from './mcpActivityQuery'
 
 const stats = (overrides: Partial<EarlyStats>): EarlyStats => ({
     totalCalls: 0,
@@ -13,26 +19,76 @@ const stats = (overrides: Partial<EarlyStats>): EarlyStats => ({
 })
 
 describe('early data derivations', () => {
+    it('starts the expandable MCP activity feed at 100 rows with room to load more', () => {
+        expect(DEFAULT_MCP_ACTIVITY_QUERY).toMatchObject({
+            embedded: false,
+            expandable: true,
+            showCount: true,
+            showDateRange: true,
+            showPropertyFilter: expect.any(Array),
+            source: {
+                events: ['$mcp_tool_call'],
+                limit: 100,
+                orderBy: ['timestamp DESC'],
+            },
+        })
+        expect(MCP_ACTIVITY_PAGE_SIZE).toBe(100)
+        expect(MCP_ACTIVITY_MAX_ROWS).toBeGreaterThan(MCP_ACTIVITY_PAGE_SIZE)
+        expect(MCP_ACTIVITY_COLUMNS).toContain('*')
+        expect(MCP_ACTIVITY_COLUMNS.find((column) => column.endsWith('-- Tool'))).toContain('$mcp_exec_tool_call_name')
+    })
+
     it.each([
         // First calls get the celebratory copy, not a stats sentence.
-        [{ totalCalls: 1, distinctClients: 1, errorCalls: 0, topTool: null }, /first tool call arrived/],
-        [{ totalCalls: 4, distinctClients: 1, errorCalls: 1, topTool: 'search' }, /first 4 tool calls arrived/],
+        [
+            { lifetimeCalls: 1, totalCalls: 1, distinctClients: 1, errorCalls: 0, topTool: null },
+            /first tool call arrived/,
+        ],
+        [
+            { lifetimeCalls: 4, totalCalls: 4, distinctClients: 1, errorCalls: 1, topTool: 'search' },
+            /first 4 tool calls arrived/,
+        ],
+        [
+            { lifetimeCalls: 25_000_000, totalCalls: 0, distinctClients: 0, errorCalls: 0, topTool: null },
+            /^No tool calls in the last 30 days$/,
+        ],
+        [
+            { lifetimeCalls: null, totalCalls: 0, distinctClients: 0, errorCalls: 0, topTool: null },
+            /^No tool calls in the last 30 days$/,
+        ],
+        [
+            { lifetimeCalls: null, totalCalls: 4, distinctClients: 1, errorCalls: 0, topTool: null },
+            /^4 tool calls in the last 30 days from 1 client$/,
+        ],
+        [
+            { lifetimeCalls: 3, totalCalls: 4, distinctClients: 1, errorCalls: 0, topTool: null },
+            /^Your first 4 tool calls arrived/,
+        ],
         // The full sentence composes favorite + failures with correct punctuation.
         [
-            { totalCalls: 42, distinctClients: 3, errorCalls: 4, topTool: 'search_docs' },
-            /^42 tool calls from 3 clients so far — search_docs is the favorite, 4 failures worth a look$/,
+            { lifetimeCalls: 25_000_000, totalCalls: 42, distinctClients: 3, errorCalls: 4, topTool: 'search_docs' },
+            /^42 tool calls in the last 30 days from 3 clients\. search_docs is the favorite\. 4 failures worth a look$/,
         ],
         // Big client and failure counts get thousands separators, unlike the abbreviated call count.
         [
-            { totalCalls: 21_700_000, distinctClients: 1051, errorCalls: 533_638, topTool: 'execute-sql' },
-            /^21\.7M tool calls from 1,051 clients so far — execute-sql is the favorite, 533,638 failures worth a look$/,
+            {
+                lifetimeCalls: 25_000_000,
+                totalCalls: 21_700_000,
+                distinctClients: 1051,
+                errorCalls: 533_638,
+                topTool: 'execute-sql',
+            },
+            /^21\.7M tool calls in the last 30 days from 1,051 clients\. execute-sql is the favorite\. 533,638 failures worth a look$/,
         ],
         // Failures read grammatically even without a favorite tool.
         [
-            { totalCalls: 42, distinctClients: 0, errorCalls: 1, topTool: null },
-            /^42 tool calls so far — 1 failure worth a look$/,
+            { lifetimeCalls: 42, totalCalls: 42, distinctClients: 0, errorCalls: 1, topTool: null },
+            /^42 tool calls in the last 30 days\. 1 failure worth a look$/,
         ],
-        [{ totalCalls: 42, distinctClients: 1, errorCalls: 0, topTool: null }, /^42 tool calls from 1 client so far$/],
+        [
+            { lifetimeCalls: 42, totalCalls: 42, distinctClients: 1, errorCalls: 0, topTool: null },
+            /^42 tool calls in the last 30 days from 1 client$/,
+        ],
     ])('summarizes %j', (input, expected) => {
         expect(buildActivitySummary(input)).toMatch(expected)
     })
@@ -52,10 +108,15 @@ describe('early data derivations', () => {
         expect(checklist.find((i) => i.key === 'sessions')?.status).toBe(sessionsStatus)
     })
 
-    it('flips unmet-demand reporting to ok once any report exists', () => {
-        expect(buildChecklist(stats({})).find((i) => i.key === 'missing-capability')?.status).toBe('pending')
-        expect(
-            buildChecklist(stats({ missingCapabilityReports: 2 })).find((i) => i.key === 'missing-capability')?.status
-        ).toBe('ok')
+    it.each([
+        [0, 'pending', undefined],
+        [2, 'ok', '/mcp-analytics/missing-capabilities'],
+    ])('grades %i missing-capability reports as %s and links to %s', (reports, status, appLinkTo) => {
+        const item = buildChecklist(stats({ missingCapabilityReports: reports })).find(
+            (i) => i.key === 'missing-capability'
+        )
+
+        expect(item?.status).toBe(status)
+        expect(item?.appLink?.to).toBe(appLinkTo)
     })
 })

@@ -19,6 +19,7 @@ export const manifest: ProductManifest = {
             activityScope: 'DataWarehouse',
             description: "Manage your organization's shared data warehouse.",
             iconType: 'data_warehouse',
+            docsHref: 'https://posthog.com/docs/data-warehouse',
         },
         Models: {
             name: 'Models',
@@ -38,6 +39,7 @@ export const manifest: ProductManifest = {
             layout: 'app-raw-no-header',
             hideProjectNotice: true,
             description: 'Write and execute SQL queries against your data warehouse',
+            docsHref: 'https://posthog.com/docs/sql',
         },
         Sources: {
             import: () => import('./frontend/scenes/SourcesScene/SourcesScene'),
@@ -72,7 +74,6 @@ export const manifest: ProductManifest = {
     routes: {
         '/data-ops': ['DataOps', 'dataOps'],
         '/models': ['Models', 'models'],
-        '/models/dags': ['Models', 'models'],
         '/models/:id': ['NodeDetail', 'nodeDetail'],
         '/models/:id/:tab': ['NodeDetail', 'nodeDetail'],
         '/data-management/sources': ['Sources', 'sources'],
@@ -104,18 +105,15 @@ export const manifest: ProductManifest = {
         '/data-warehouse/sources/:id/:tab': ({ id, tab }) => urls.dataWarehouseSource(id, tab as SourceSceneTab),
     },
     urls: {
-        dataOps: (tab?: string, dagId?: string): string => {
+        dataOps: (tab?: string): string => {
             const params = new URLSearchParams()
             if (tab) {
                 params.set('tab', tab)
             }
-            if (dagId) {
-                params.set('dag', dagId)
-            }
             const query = params.toString()
             return query ? `/data-ops?${query}` : '/data-ops'
         },
-        models: (tab?: ModelsSceneTab): string => `/models${tab ? `/${tab}` : ''}`,
+        models: (tab?: ModelsSceneTab): string => (tab && tab !== 'overview' ? `/models?tab=${tab}` : '/models'),
         nodeDetail: (id: string, tab?: NodeDetailSceneTab): string => `/models/${id}${tab ? `/${tab}` : ''}`,
         sources: (): string => '/data-management/sources',
         dataWarehouseSource: (id: string, tab?: SourceSceneTab): string =>

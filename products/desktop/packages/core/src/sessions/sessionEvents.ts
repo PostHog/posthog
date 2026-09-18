@@ -134,10 +134,7 @@ function promoteImportedUserPrompt(
 /**
  * Create a user message event for display.
  */
-export function createUserPromptEvent(
-  prompt: ContentBlock[],
-  ts: number,
-): AcpMessage {
+function createUserPromptEvent(prompt: ContentBlock[], ts: number): AcpMessage {
   return {
     type: "acp_message",
     ts,
@@ -152,7 +149,7 @@ export function createUserPromptEvent(
   };
 }
 
-export function createUserMessageEvent(text: string, ts: number): AcpMessage {
+function createUserMessageEvent(text: string, ts: number): AcpMessage {
   return createUserPromptEvent([{ type: "text", text }], ts);
 }
 
@@ -462,7 +459,7 @@ export function normalizePromptToBlocks(
   );
 }
 
-export { isFatalSessionError, isRateLimitError } from "@posthog/shared";
+export { isFatalSessionError } from "@posthog/shared";
 
 /**
  * Whether a list of events already contains a `session/prompt` request.
@@ -507,18 +504,19 @@ export function isSteerPromptParams(params: unknown): boolean {
  * echoes. Pinned bubbles are left alone: the initial prompt is deduped against
  * its echo by the merge layer, which upgrades it with the server's timestamp.
  */
-export function selectEchoedOptimisticItemIds(
-  optimisticItems: OptimisticItem[],
+function countPromptEchoes(
   events: AcpMessage[],
   firstUnseenEntryIndex: number,
-): string[] {
+  taskRunId?: string,
+): Map<string, number> {
   const echoCounts = new Map<string, number>();
   for (const event of events) {
     const msg = event.message;
     if (!isJsonRpcRequest(msg) || msg.method !== "session/prompt") continue;
-    const entryIndex = getStoredLogEventPosition(event)?.entryIndex;
-    if (entryIndex === undefined || entryIndex < firstUnseenEntryIndex)
+    const position = getStoredLogEventPosition(event);
+    if (position === undefined || position.entryIndex < firstUnseenEntryIndex)
       continue;
+    if (taskRunId !== undefined && position.taskRunId !== taskRunId) continue;
     const blocks = (msg.params as { prompt?: ContentBlock[] } | undefined)
       ?.prompt;
     if (!blocks?.length) continue;
@@ -527,6 +525,13 @@ export function selectEchoedOptimisticItemIds(
     }).text.trim();
     echoCounts.set(text, (echoCounts.get(text) ?? 0) + 1);
   }
+  return echoCounts;
+}
+
+function selectItemsMatchingEchoes(
+  optimisticItems: OptimisticItem[],
+  echoCounts: Map<string, number>,
+): string[] {
   if (echoCounts.size === 0) return [];
 
   const echoed: string[] = [];
@@ -539,6 +544,40 @@ export function selectEchoedOptimisticItemIds(
     echoed.push(item.id);
   }
   return echoed;
+}
+
+export function selectEchoedOptimisticItemIds(
+  optimisticItems: OptimisticItem[],
+  events: AcpMessage[],
+  firstUnseenEntryIndex: number,
+): string[] {
+  return selectItemsMatchingEchoes(
+    optimisticItems,
+    countPromptEchoes(events, firstUnseenEntryIndex),
+  );
+}
+
+export function selectEchoedOptimisticItemIdsAfterRebuild(
+  optimisticItems: OptimisticItem[],
+  events: AcpMessage[],
+  committedEvents: AcpMessage[],
+  rebuiltWindow: { taskRunId: string; firstEntryIndex: number },
+): string[] {
+  const { taskRunId, firstEntryIndex } = rebuiltWindow;
+  const echoCounts = countPromptEchoes(events, firstEntryIndex, taskRunId);
+  for (const [text, committed] of countPromptEchoes(
+    committedEvents,
+    firstEntryIndex,
+    taskRunId,
+  )) {
+    const remaining = (echoCounts.get(text) ?? 0) - committed;
+    if (remaining > 0) {
+      echoCounts.set(text, remaining);
+    } else {
+      echoCounts.delete(text);
+    }
+  }
+  return selectItemsMatchingEchoes(optimisticItems, echoCounts);
 }
 
 export function selectUnseededPendingFollowups(

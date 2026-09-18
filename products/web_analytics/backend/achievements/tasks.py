@@ -9,11 +9,15 @@ from django.utils import timezone
 import structlog
 import posthoganalytics
 from celery import shared_task
+from redis.exceptions import RedisError
 
+from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
+from posthog.errors import CH_TRANSIENT_ERRORS
 from posthog.exceptions_capture import capture_exception
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.scoping_audit import skip_team_scope_audit
+from posthog.utils import safe_cache_delete
 
 from products.notifications.backend.facade.api import (
     NotificationData,
@@ -46,6 +50,7 @@ SWEEP_ACTIVE_WINDOW_DAYS = 7
 # tracks (streak, loyalty, first-party interaction counters) recompute on every trigger so they stay
 # same-day fresh.
 EXPENSIVE_EVALUATOR_KEYS = {"cumulative_pageviews", "conversions"}
+RETRYABLE_ACHIEVEMENT_ERRORS = (ConcurrencyLimitExceeded, RedisError, *CH_TRANSIENT_ERRORS)
 
 
 def team_local_today(team: Team) -> date:
@@ -90,15 +95,21 @@ def enqueue_recompute_web_analytics_achievements_debounced(team_id: int, user_id
     scope = str(user_id) if user_id is not None else "team"
     debounce_key = f"wa_achievements_recompute:{team_id}:{scope}:{today.isoformat()}"
     try:
-        was_added = cache.add(debounce_key, "1", timeout=RECOMPUTE_DEBOUNCE_TTL_SECONDS)
+        claimed = cache.add(debounce_key, "1", timeout=RECOMPUTE_DEBOUNCE_TTL_SECONDS)
     except Exception as e:
         logger.warning("wa_achievements_debounce_cache_failure", team_id=team_id, exc_info=True)
         capture_exception(e)
-        was_added = True
-    if was_added:
+        claimed = False
+    else:
+        if not claimed:
+            return False
+    try:
         recompute_web_analytics_achievements.delay(team_id, user_id=user_id)
-        return True
-    return False
+    except Exception:
+        if claimed:
+            safe_cache_delete(debounce_key)
+        raise
+    return True
 
 
 def recompute_web_analytics_achievements_sync(
@@ -126,7 +137,14 @@ def recompute_web_analytics_achievements_sync(
         _recompute_track(ctx, track)
 
 
-@shared_task(ignore_result=True)
+@shared_task(
+    ignore_result=True,
+    autoretry_for=RETRYABLE_ACHIEVEMENT_ERRORS,
+    retry_backoff=30,
+    retry_backoff_max=5 * 60,
+    retry_jitter=True,
+    max_retries=24,
+)
 @skip_team_scope_audit
 def recompute_web_analytics_achievements(team_id: int, user_id: int | None = None) -> None:
     recompute_web_analytics_achievements_sync(team_id, user_id=user_id)
@@ -188,6 +206,8 @@ def _recompute_track(ctx: EvalContext, track: TrackDefinition) -> None:
     evaluator = EVALUATORS[track.evaluator_key]
     try:
         new_value = evaluator(ctx)
+    except RETRYABLE_ACHIEVEMENT_ERRORS:
+        raise
     except Exception as e:
         logger.warning("wa_achievements_eval_failed", track=str(track.key), team_id=ctx.team.id, exc_info=True)
         capture_exception(e)

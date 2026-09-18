@@ -6,7 +6,7 @@ rules:
           - '/hono/analytics.ts'
           - '/lib/posthog/analytics.ts'
           - '/tools/generated/mcp_analytics.ts'
-      owners: team-mcp-analytics
+      owners: mcp-analytics
     - match:
           - '/generated/ai_observability/'
           - '/tools/aiObservability/'

@@ -1,0 +1,248 @@
+"""CDP internal events for user-driven issue lifecycle transitions.
+
+Ingestion-driven transitions (created, reopened, spiking) are emitted by cymbal's
+notifications worker (rust/cymbal/src/modes/notifications). These helpers cover the
+transitions that happen in Django so destinations subscribed to issue lifecycle
+events see the full picture.
+"""
+
+import json
+import uuid
+import dataclasses
+from typing import Any, Optional
+
+from django.db import transaction
+
+import structlog
+
+from posthog.cdp.internal_events import InternalEventEvent, InternalEventPerson, produce_internal_event
+from posthog.models.user import User
+
+from products.error_tracking.backend.models import (
+    ErrorTrackingAlert,
+    ErrorTrackingIssue,
+    ErrorTrackingIssueAssignment,
+    ErrorTrackingIssueFingerprintV2,
+)
+from products.error_tracking.backend.temporal.alerts.types import AlertDeliveryWorkflowInputs
+
+logger = structlog.get_logger(__name__)
+
+ISSUE_RESOLVED_EVENT = "$error_tracking_issue_resolved"
+ISSUE_SUPPRESSED_EVENT = "$error_tracking_issue_suppressed"
+ISSUE_ASSIGNED_EVENT = "$error_tracking_issue_assigned"
+ISSUE_UNASSIGNED_EVENT = "$error_tracking_issue_unassigned"
+ISSUE_MERGED_EVENT = "$error_tracking_issue_merged"
+ISSUE_SPLIT_EVENT = "$error_tracking_issue_split"
+# Cymbal emits this same event when an ingested exception reopens an issue; manual
+# reopens reuse it so reopened alerts cover both paths.
+ISSUE_REOPENED_EVENT = "$error_tracking_issue_reopened"
+
+STATUS_CHANGE_EVENTS: dict[str, str] = {
+    ErrorTrackingIssue.Status.ACTIVE: ISSUE_REOPENED_EVENT,
+    ErrorTrackingIssue.Status.RESOLVED: ISSUE_RESOLVED_EVENT,
+    ErrorTrackingIssue.Status.SUPPRESSED: ISSUE_SUPPRESSED_EVENT,
+}
+
+
+def status_label(status: str) -> str:
+    # Cymbal emits display-cased status values ("Active", "Resolved") on the
+    # ingestion-driven events; keep the same shape here so filters match both.
+    try:
+        return str(ErrorTrackingIssue.Status(status).label)
+    except ValueError:
+        return status
+
+
+def assignee_property(assignee: dict[str, Any]) -> str:
+    # Wire-compatible with cymbal's `Assignee` serialization on created/reopened events
+    # (compact serde JSON, adjacently tagged, numeric user ids and string role ids), so
+    # exact-match filters on the assignee property behave the same across all events.
+    assignee_id = int(assignee["id"]) if assignee["type"] == "user" else str(assignee["id"])
+    return json.dumps({"type": assignee["type"], "id": assignee_id}, separators=(",", ":"))
+
+
+def _current_assignee_property(issue: ErrorTrackingIssue) -> Optional[str]:
+    assignment = ErrorTrackingIssueAssignment.objects.filter(issue_id=issue.id).only("user_id", "role_id").first()
+    if assignment is None:
+        return None
+    if assignment.user_id:
+        return assignee_property({"type": "user", "id": assignment.user_id})
+    if assignment.role_id:
+        return assignee_property({"type": "role", "id": assignment.role_id})
+    return None
+
+
+def _issue_fingerprint_for_links(issue: ErrorTrackingIssue) -> Optional[str]:
+    # Existing Error Tracking destination templates expect `fingerprint`. Manual
+    # transitions have no triggering exception, so include one currently attached
+    # fingerprint for compatibility. Fingerprint routes follow current ownership
+    # after merges/splits; `distinct_id` identifies the issue that emitted the
+    # event. The ordering only keeps the pick deterministic.
+    return (
+        ErrorTrackingIssueFingerprintV2.objects.filter(team_id=issue.team_id, issue_id=issue.id)
+        .order_by("first_seen", "id")
+        .values_list("fingerprint", flat=True)
+        .first()
+    )
+
+
+# One Celery task per this many transitions: a bulk status change over thousands of
+# issues fans out into bounded tasks instead of one oversized payload.
+ALERT_DISPATCH_BATCH_SIZE = 200
+
+
+@dataclasses.dataclass(frozen=True)
+class PendingLifecycleEvent:
+    """A transition snapshotted inside the mutation, emitted once it commits."""
+
+    team_id: int
+    internal_event: InternalEventEvent
+    person: Optional[InternalEventPerson]
+    alert_inputs: AlertDeliveryWorkflowInputs
+
+
+def prepare_issue_lifecycle_event(
+    *,
+    event: str,
+    issue: ErrorTrackingIssue,
+    user: Optional[User],
+    status: Optional[str] = None,
+    extra_properties: Optional[dict[str, Any]] = None,
+) -> PendingLifecycleEvent:
+    # Snapshot everything now: the issue row may be mutated again (or deleted, for
+    # merge sources) before the surrounding transaction commits.
+    team_id = issue.team_id
+    # `exception_timestamp` stays absent on manual transitions so the issue scene
+    # falls back to the issue's latest exception instead of an empty window around
+    # the mutation.
+    fingerprint = _issue_fingerprint_for_links(issue)
+    current_assignee = _current_assignee_property(issue)
+    issue_id = str(issue.id)
+    # The notification id names both the internal event and the alert delivery
+    # workflow, so redelivered starts and retries stay idempotent per transition.
+    notification_id = str(uuid.uuid4())
+    # Same issue-property set the ingestion-driven producer emits (see
+    # produce_issue_lifecycle_internal_event), so destination property filters
+    # match both paths.
+    properties: dict[str, Any] = {
+        "name": issue.name,
+        "description": issue.description,
+        "issue_description": issue.description,
+        "first_seen": issue.created_at.isoformat(),
+        "severity": issue.severity,
+        "status": status_label(status if status is not None else issue.status),
+        **({"fingerprint": fingerprint} if fingerprint is not None else {}),
+        **({"assignee": current_assignee} if current_assignee is not None else {}),
+        **(extra_properties or {}),
+    }
+    internal_event = InternalEventEvent(event=event, distinct_id=issue_id, properties=properties, uuid=notification_id)
+
+    person = None
+    actor_email: Optional[str] = None
+    if user is not None:
+        # Deliberately a minimal actor subset: person reaches customer-configured
+        # destinations verbatim (the default webhook body sends `{person}`), so no
+        # full user serializer here.
+        person = InternalEventPerson(
+            id=str(user.id),
+            properties={
+                "id": str(user.id),
+                "distinct_id": user.distinct_id,
+                "email": user.email,
+                "first_name": user.first_name,
+            },
+        )
+        actor_email = user.email
+
+    status_property = properties.get("status")
+    assignee_property_value = properties.get("assignee")
+    # Notifications only need counts; the id lists stay on the internal event.
+    delivery_extra: dict[str, str] = {}
+    for id_list_key, count_key in (("merged_issue_ids", "merged_count"), ("split_issue_ids", "split_count")):
+        id_list = properties.get(id_list_key)
+        if isinstance(id_list, list):
+            delivery_extra[count_key] = str(len(id_list))
+    alert_inputs = AlertDeliveryWorkflowInputs.build(
+        notification_id=notification_id,
+        team_id=team_id,
+        issue_id=issue_id,
+        event=event,
+        issue_name=issue.name,
+        issue_description=issue.description,
+        status=status_property if isinstance(status_property, str) else None,
+        assignee=assignee_property_value if isinstance(assignee_property_value, str) else None,
+        actor_email=actor_email,
+        extra=delivery_extra or None,
+    )
+    return PendingLifecycleEvent(
+        team_id=team_id, internal_event=internal_event, person=person, alert_inputs=alert_inputs
+    )
+
+
+def produce_issue_lifecycle_events_on_commit(events: list[PendingLifecycleEvent]) -> None:
+    """Publish the internal events and queue alert dispatch once the transaction commits.
+
+    One call per transaction: a bulk mutation hands over every transition at once so
+    alert dispatch leaves as a handful of Celery tasks instead of one synchronous
+    Temporal start per issue on the web worker.
+    """
+    if not events:
+        return
+    team_ids = {event.team_id for event in events}
+    if len(team_ids) != 1:
+        raise ValueError("Lifecycle events are emitted per team")
+    team_id = events[0].team_id
+
+    def _produce() -> None:
+        for pending in events:
+            try:
+                produce_internal_event(team_id=team_id, event=pending.internal_event, person=pending.person)
+            except Exception:
+                # Already logged by produce_internal_event; alert emission must never
+                # fail the mutation that triggered it.
+                pass
+        # Teams without an enabled alert (nearly all of them) pay one EXISTS query and
+        # queue nothing; the flag is evaluated once, inside the task.
+        if not ErrorTrackingAlert.objects.for_team(team_id).filter(enabled=True).exists():
+            return
+        # The task module imports the Temporal package aggregator, which loads every
+        # worker-only workflow module; keep it off the web import path.
+        from products.error_tracking.backend.tasks.tasks import (  # noqa: PLC0415
+            dispatch_error_tracking_alert_deliveries,
+        )
+
+        for start in range(0, len(events), ALERT_DISPATCH_BATCH_SIZE):
+            chunk = events[start : start + ALERT_DISPATCH_BATCH_SIZE]
+            try:
+                dispatch_error_tracking_alert_deliveries.delay(
+                    team_id=team_id,
+                    notifications=[dataclasses.asdict(pending.alert_inputs) for pending in chunk],
+                )
+            except Exception:
+                # The mutation has committed; a broker outage must not turn it into an error.
+                logger.exception(
+                    "error_tracking_alert_dispatch_enqueue_failed",
+                    team_id=team_id,
+                    notification_ids=[pending.alert_inputs.notification_id for pending in chunk],
+                )
+
+    # robust: a failure here must not stop the mutation's other post-commit hooks.
+    transaction.on_commit(_produce, robust=True)
+
+
+def produce_issue_lifecycle_event_on_commit(
+    *,
+    event: str,
+    issue: ErrorTrackingIssue,
+    user: Optional[User],
+    status: Optional[str] = None,
+    extra_properties: Optional[dict[str, Any]] = None,
+) -> None:
+    produce_issue_lifecycle_events_on_commit(
+        [
+            prepare_issue_lifecycle_event(
+                event=event, issue=issue, user=user, status=status, extra_properties=extra_properties
+            )
+        ]
+    )

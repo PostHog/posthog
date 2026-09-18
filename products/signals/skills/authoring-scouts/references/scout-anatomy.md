@@ -14,9 +14,11 @@ Keep the body lean and push depth into references — every line of the body is 
 
 ## Naming
 
-The skill name **must** match `signals-scout-<scope>` — the harness discovers scouts by globbing `signals-scout-*`.
-`<scope>` is lowercase kebab-case naming the surface or question the scout watches: `signals-scout-error-tracking`, `signals-scout-checkout-funnel`, `signals-scout-mcp-feedback`.
-A skill named anything else is just a normal skill and never runs as a scout.
+Any valid skill name works: lowercase letters, numbers, and hyphens.
+The `SignalScoutConfig` row is what makes a skill a scout.
+Name it in lowercase kebab-case after the surface or question the scout watches: `error-tracking`, `checkout-funnel`, `mcp-feedback`.
+The canonical fleet keeps the `signals-scout-` prefix, and a per-team scout can use it too.
+The prefix only controls whether the coordinator auto-registers a config for a skill that has none, so a scout named anything else comes in through `scout-create`, which writes the skill and its config in one call.
 
 ## Frontmatter
 

@@ -113,7 +113,6 @@ export interface customerProfileLogicValues {
     changed: boolean
     content: JSONContent[]
     defaultContent: JSONContent[]
-    isProfileConfigEnabled: boolean | string | undefined
     profileLocalContent: JSONContent[] | null
     scopedAddAttrFunction: ({ attrs, node, children }: AddAttrsToNodeProps) => JSONContent
     scopedSidebarContent: JSONContent[]
@@ -233,7 +232,6 @@ export interface customerProfileLogicMeta {
             storedContent: JSONContent[] | null,
             defaultContent: JSONContent[]
         ) => boolean
-        isProfileConfigEnabled: (featureFlags: FeatureFlagsSet) => boolean | string | undefined
         scopedSidebarContent: (arg: any) => JSONContent[]
         scopedAddAttrFunction: (arg: any) => ({ attrs, node, children }: AddAttrsToNodeProps) => JSONContent
         defaultContent: (
@@ -258,8 +256,7 @@ export interface customerProfileLogicMeta {
         content: (
             defaultContent: JSONContent[],
             storedContent: JSONContent[] | null,
-            profileLocalContent: JSONContent[] | null,
-            isProfileConfigEnabled: boolean | string | undefined
+            profileLocalContent: JSONContent[] | null
         ) => JSONContent[]
     }
 }
@@ -343,11 +340,6 @@ export const customerProfileLogic = kea<customerProfileLogicType>([
 
                 return hasChanged
             },
-        ],
-        isProfileConfigEnabled: [
-            (s) => [s.featureFlags],
-            (featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet) =>
-                featureFlags[FEATURE_FLAGS.CUSTOMER_PROFILE_CONFIG_BUTTON],
         ],
         scopedSidebarContent: [
             () => [(_, props) => props.scope],
@@ -447,21 +439,17 @@ export const customerProfileLogic = kea<customerProfileLogicType>([
             },
         ],
         content: [
-            (s) => [s.defaultContent, s.storedContent, s.profileLocalContent, s.isProfileConfigEnabled],
+            (s) => [s.defaultContent, s.storedContent, s.profileLocalContent],
             (
                 defaultContent: JSONContent[],
                 storedContent: JSONContent[] | null,
-                profileLocalContent: JSONContent[] | null,
-                isProfileConfigEnabled: boolean | string | undefined
+                profileLocalContent: JSONContent[] | null
             ): JSONContent[] => {
-                // Return default content if flag is disabled
-                if (isProfileConfigEnabled) {
-                    if (profileLocalContent !== null) {
-                        return profileLocalContent
-                    }
-                    if (storedContent !== null) {
-                        return storedContent
-                    }
+                if (profileLocalContent !== null) {
+                    return profileLocalContent
+                }
+                if (storedContent !== null) {
+                    return storedContent
                 }
                 return defaultContent
             },

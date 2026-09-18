@@ -15,6 +15,7 @@ import {
   withTimeout,
 } from "@posthog/shared";
 import { inject, injectable, postConstruct, preDestroy } from "inversify";
+import { z } from "zod";
 import {
   AUTH_CONNECTIVITY,
   AUTH_OAUTH_FLOW_SERVICE,
@@ -142,6 +143,32 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
   }
   getState(): AuthState {
     return { ...this.state };
+  }
+  async getAccountKey(): Promise<string | null> {
+    const generation = this.sessionGeneration;
+    const { apiHost } = await this.getValidAccessToken();
+    if (generation !== this.sessionGeneration) return null;
+    const session = this.session;
+    if (session?.accountKey && !this.tokenOverride) {
+      return JSON.stringify([apiHost, session.accountKey]);
+    }
+    const response = await this.authenticatedFetch(
+      fetch,
+      `${apiHost}/api/users/@me/`,
+      {
+        redirect: "error",
+        signal: AbortSignal.timeout(10_000),
+      },
+    );
+    if ([408, 429, 500, 502, 503, 504].includes(response.status)) {
+      throw new Error("Cannot check your account. Try again.");
+    }
+    if (!response.ok) return null;
+    const user = z
+      .object({ uuid: z.string() })
+      .safeParse(await response.json());
+    if (generation !== this.sessionGeneration) return null;
+    return user.success ? JSON.stringify([apiHost, user.data.uuid]) : null;
   }
   async login(region: CloudRegion): Promise<AuthState> {
     this.sessionGeneration += 1;
@@ -1487,6 +1514,13 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
   private async resolveStoredSession(): Promise<StoredSessionInput | null> {
     const stored = this.authSession.getCurrent();
     if (!stored) return null;
+    // A stale scope version means the stored refresh token was granted under
+    // permissions the app no longer requests. Refusing it here, at the one
+    // place every session-refresh path resolves the stored token, stops a
+    // caller that skips the explicit reauth checks (doInitialize,
+    // attemptSessionRecovery) from resurrecting the old-scope session behind
+    // the reauth prompt's back.
+    if (stored.scopeVersion < OAUTH_SCOPE_VERSION) return null;
 
     const refreshToken = await this.cipher.decrypt(
       stored.refreshTokenEncrypted,

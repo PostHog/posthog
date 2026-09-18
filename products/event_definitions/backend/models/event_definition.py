@@ -22,7 +22,7 @@ class EventDefinition(UUIDTModel):
         related_name="event_definitions",
         related_query_name="team",
     )
-    project = models.ForeignKey("posthog.Project", on_delete=models.CASCADE, null=True)
+    project = models.ForeignKey("posthog.Project", on_delete=models.CASCADE, null=True, related_name="+")
     name = models.CharField(max_length=400)
     created_at = models.DateTimeField(default=timezone.now, null=True)
     last_seen_at = models.DateTimeField(default=None, null=True)
@@ -42,7 +42,6 @@ class EventDefinition(UUIDTModel):
     )
 
     # DB column kept as `promoted_property` to avoid a Postgres column rename.
-    # Safe because the feature is flag-gated (`promoted-event-properties-edit`) and minimally used.
     primary_property = models.CharField(max_length=400, null=True, blank=True, db_column="promoted_property")
 
     class Meta:

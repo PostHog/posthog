@@ -43,10 +43,10 @@ export const BlankEnumApi = {
  * * `NoOp` - Noop
  * * `FileDownload` - File Download
  */
-export type BatchExportDestinationTypeEnumApi =
-    (typeof BatchExportDestinationTypeEnumApi)[keyof typeof BatchExportDestinationTypeEnumApi]
+export type BatchExportDestinationDestinationEnumApi =
+    (typeof BatchExportDestinationDestinationEnumApi)[keyof typeof BatchExportDestinationDestinationEnumApi]
 
-export const BatchExportDestinationTypeEnumApi = {
+export const BatchExportDestinationDestinationEnumApi = {
     S3: 'S3',
     AwsS3: 'AwsS3',
     S3Compatible: 'S3Compatible',
@@ -155,6 +155,8 @@ export interface AzureBlobDestinationConfigApi {
      * @nullable
      */
     max_file_size_mb?: number | null
+    /** Whether Parquet files keep the compression codec in their extension, for example '.parquet.zst' rather than '.parquet'. Parquet records its codec inside the file, so new exports leave it out. An export that already wrote Parquet files before this setting existed keeps it, so that pipelines matching on the old names do not break. Has no effect on JSON Lines, which always carries the codec in its extension. */
+    legacy_parquet_extension?: boolean
     type: AzureBlobDestinationConfigApiType
 }
 
@@ -246,6 +248,8 @@ export interface AwsS3DestinationConfigApi {
      * @nullable
      */
     max_file_size_mb?: number | null
+    /** Whether Parquet files keep the compression codec in their extension, for example '.parquet.zst' rather than '.parquet'. Parquet records its codec inside the file, so new exports leave it out. An export that already wrote Parquet files before this setting existed keeps it, so that pipelines matching on the old names do not break. Has no effect on JSON Lines, which always carries the codec in its extension. */
+    legacy_parquet_extension?: boolean
     /**
      * Optional S3 server-side encryption algorithm (e.g. 'AES256' or 'aws:kms').
      * @nullable
@@ -299,6 +303,8 @@ export interface S3CompatibleDestinationConfigApi {
      * @nullable
      */
     max_file_size_mb?: number | null
+    /** Whether Parquet files keep the compression codec in their extension, for example '.parquet.zst' rather than '.parquet'. Parquet records its codec inside the file, so new exports leave it out. An export that already wrote Parquet files before this setting existed keeps it, so that pipelines matching on the old names do not break. Has no effect on JSON Lines, which always carries the codec in its extension. */
+    legacy_parquet_extension?: boolean
     /** Use virtual-hosted-style addressing rather than path-style. */
     use_virtual_style_addressing?: boolean
     type: S3CompatibleDestinationConfigApiType
@@ -314,9 +320,9 @@ export const SnowflakeDestinationConfigApiType = {
 /**
  * Typed configuration for a Snowflake batch-export destination.
  *
- * Account, user, authentication type and credentials may live in a linked Integration (when one is
- * provided) or inline in this config (legacy). Mirrors the non-credential fields of
- * `SnowflakeBatchExportInputs` in `products/batch_exports/backend/service.py`.
+ * Account, user, authentication type and credentials live in the linked Integration, never here.
+ * Mirrors the non-credential fields of `SnowflakeBatchExportInputs` in
+ * `products/batch_exports/backend/service.py`.
  */
 export interface SnowflakeDestinationConfigApi {
     /** Snowflake database to write to. */
@@ -468,7 +474,7 @@ export interface BatchExportDestinationApi {
      * * `HTTP` - Http
      * * `NoOp` - Noop
      * * `FileDownload` - File Download */
-    type: BatchExportDestinationTypeEnumApi
+    type: BatchExportDestinationDestinationEnumApi
     /** Destination-specific configuration. Fields depend on `type`. Credentials for integration-backed destinations (Databricks, AzureBlob, BigQuery, Postgres, AwsS3, S3Compatible, Snowflake, Redshift) are NOT stored here — they live in the linked Integration. Secret fields are stripped from responses. */
     config: BatchExportDestinationConfigApi
     /**
@@ -477,7 +483,7 @@ export interface BatchExportDestinationApi {
      */
     integration?: number | null
     /**
-     * ID of a team-scoped Integration providing credentials. Required when creating Databricks, AzureBlob, BigQuery, Postgres, AwsS3, and S3Compatible destinations; optional for Snowflake and Redshift (inline credentials remain supported); unused for other types.
+     * ID of a team-scoped Integration providing credentials, for destinations that authenticate through one. Required for all of them.
      * @nullable
      */
     integration_id?: number | null
@@ -1374,7 +1380,7 @@ export const AwsS3DestinationRequestApiType = {
  */
 export interface AwsS3DestinationRequestApi {
     type: AwsS3DestinationRequestApiType
-    /** ID of an aws-s3-kind Integration providing AWS credentials. Required when creating a batch export. Use the integrations-list MCP tool to find one. */
+    /** ID of an aws-s3-kind Integration providing AWS credentials. Use the integrations-list MCP tool to find one. */
     integration_id: number
     config: AwsS3DestinationConfigApi
 }
@@ -1391,7 +1397,7 @@ export const S3CompatibleDestinationRequestApiType = {
  */
 export interface S3CompatibleDestinationRequestApi {
     type: S3CompatibleDestinationRequestApiType
-    /** ID of an s3-compatible-kind Integration providing credentials and the provider endpoint URL. Required when creating a batch export. Use the integrations-list MCP tool to find one. */
+    /** ID of an s3-compatible-kind Integration providing credentials and the provider endpoint URL. Use the integrations-list MCP tool to find one. */
     integration_id: number
     config: S3CompatibleDestinationConfigApi
 }
@@ -1408,8 +1414,8 @@ export const SnowflakeDestinationRequestApiType = {
  */
 export interface SnowflakeDestinationRequestApi {
     type: SnowflakeDestinationRequestApiType
-    /** ID of a snowflake-kind Integration providing the account, user and credentials. Preferred over inline credentials. Use the integrations-list MCP tool to find one. */
-    integration_id?: number
+    /** ID of a snowflake-kind Integration providing the account, user and credentials. Use the integrations-list MCP tool to find one. */
+    integration_id: number
     config: SnowflakeDestinationConfigApi
 }
 
@@ -1425,8 +1431,8 @@ export const RedshiftDestinationRequestApiType = {
  */
 export interface RedshiftDestinationRequestApi {
     type: RedshiftDestinationRequestApiType
-    /** ID of an aws-redshift-kind Integration providing connection credentials. Preferred over inline credentials. Use the integrations-list MCP tool to find one. */
-    integration_id?: number
+    /** ID of an aws-redshift-kind Integration providing connection credentials. Use the integrations-list MCP tool to find one. */
+    integration_id: number
     config: RedshiftDestinationConfigApi
 }
 
@@ -1703,7 +1709,7 @@ export interface FileDownloadDestinationFileConfigApi {
      * * `snappy` - snappy */
     compression?: CompressionEnumApi | null
     /**
-     * Split download into multiple files of at most this size in MB
+     * Split the download into files of about this size in MiB. A file can go a little over. Set it to null or 0 to write a single file of any size.
      * @minimum 0
      * @nullable
      */
@@ -1822,6 +1828,11 @@ export const RetrieveCompletedOutputApiStatus = {
 export interface RetrieveCompletedOutputApi {
     status: RetrieveCompletedOutputApiStatus
     files: string[]
+    /**
+     * Number of rows this run exported.
+     * @nullable
+     */
+    records_completed: number | null
 }
 
 export type RetrieveFailedOutputApiStatus =
@@ -1881,6 +1892,39 @@ export interface FileDownloadBatchExportOnDemandApi {
 }
 
 /**
+ * * `hogql` - hogql
+ */
+export type FileDownloadHogQLModelEnumApi =
+    (typeof FileDownloadHogQLModelEnumApi)[keyof typeof FileDownloadHogQLModelEnumApi]
+
+export const FileDownloadHogQLModelEnumApi = {
+    Hogql: 'hogql',
+} as const
+
+/**
+ * Request shape for counting the rows a file download batch export would produce.
+ */
+export interface FileDownloadCountRowsRequestApi {
+    /** Model to count rows for. Only 'hogql' is supported.
+     *
+     * * `hogql` - hogql */
+    model: FileDownloadHogQLModelEnumApi
+    /** HogQL SELECT query whose results are exported. This model is in closed beta and is enabled per team; when it is not enabled, the request fails with a permission error that names HogQL batch exports. Contact PostHog support to request access. Placeholders are not currently supported, and every column in the SELECT clause must be a field or have an alias. It is recommended to limit the query with a WHERE clause, for example bounding timestamp on the events table, both to avoid exporting more rows than expected and because user queries run under stricter resource limits than the other models. */
+    hogql_query: string
+}
+
+/**
+ * Typed output for view set `count_rows`.
+ */
+export interface FileDownloadCountRowsResponseApi {
+    /**
+     * Number of rows the query returns now. A HogQL batch export runs its query as of the time the export starts, so a run started now would export this many rows.
+     * @minimum 0
+     */
+    count: number
+}
+
+/**
  * * `events` - events
  */
 export type FileDownloadEventsRequestModelEnumApi =
@@ -1908,16 +1952,6 @@ export type FileDownloadSessionsRequestModelEnumApi =
 
 export const FileDownloadSessionsRequestModelEnumApi = {
     Sessions: 'sessions',
-} as const
-
-/**
- * * `hogql` - hogql
- */
-export type FileDownloadHogQLRequestModelEnumApi =
-    (typeof FileDownloadHogQLRequestModelEnumApi)[keyof typeof FileDownloadHogQLRequestModelEnumApi]
-
-export const FileDownloadHogQLRequestModelEnumApi = {
-    Hogql: 'hogql',
 } as const
 
 /**

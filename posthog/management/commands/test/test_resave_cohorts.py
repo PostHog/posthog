@@ -14,6 +14,7 @@ from django.test import override_settings
 from parameterized import parameterized
 
 from posthog.models.team.team import Team
+from posthog.test.db_context_capturing import capture_db_queries
 
 from products.cohorts.backend.models.cohort import Cohort
 
@@ -193,6 +194,27 @@ class TestResaveCohortsCommandSingleTeam(BaseTest):
             "lifecycle": False,
             "cohorts": False,
         }
+
+    def test_command_does_not_hydrate_team_onto_each_cohort(self):
+        # `_load_team_cohorts` retains every cohort in memory, so hydrating the team row onto each
+        # cohort would pull the deprecated taxonomy columns (which TOAST out to megabytes per team)
+        # back once per cohort. The command already holds the team object, so the cohort SELECT must
+        # not JOIN and hydrate `posthog_team`. A query-count guard would miss a re-added
+        # `select_related("team")`, so assert the SQL directly, as `test_list_cohorts_does_not_hydrate_team`
+        # does.
+        team: Team = self.team
+        for i in range(3):
+            Cohort.objects.create(team=team, name=f"c{i}", filters=_make_person_only_filters())
+
+        with capture_db_queries() as context:
+            call_command("resave_cohorts", team_id=[team.id])
+
+        cohort_selects = [q["sql"] for q in context.captured_queries if 'FROM "posthog_cohort"' in q["sql"]]
+        assert cohort_selects, "expected the command to SELECT from posthog_cohort"
+        # `event_names` is a deprecated taxonomy column that TOASTs out to megabytes; its presence
+        # would mean the team row is hydrated onto each cohort row.
+        for sql in cohort_selects:
+            assert 'posthog_team"."event_names"' not in sql
 
 
 class TestResaveCohortsCommandWithDependencies(BaseTest):

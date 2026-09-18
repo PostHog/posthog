@@ -20,7 +20,7 @@ import { useState } from "react";
 // dashboards-grid dialog and the sidebar "+" dropdown). Picking a template
 // creates + opens the canvas, then calls `onPicked` (e.g. to close the
 // surrounding dialog). Renders nothing until templates load.
-export function CanvasTemplateList({
+function CanvasTemplateList({
   channelId,
   surface,
   onPicked,
@@ -62,7 +62,7 @@ export function CanvasTemplateList({
 // Controlled template picker: lists canvas templates; choosing one creates +
 // opens the canvas. Carries no trigger of its own so callers (the dashboards
 // grid button, the sidebar "+" dropdown) can open it from wherever.
-export function NewCanvasDialog({
+function NewCanvasDialog({
   channelId,
   surface,
   open,

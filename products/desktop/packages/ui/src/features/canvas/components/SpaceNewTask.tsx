@@ -17,7 +17,6 @@ import { ResizableSidebar } from "@posthog/ui/primitives/ResizableSidebar";
 import { toast } from "@posthog/ui/primitives/toast";
 import { useAppView } from "@posthog/ui/router/useAppView";
 import { track } from "@posthog/ui/shell/analytics";
-import { Flex } from "@radix-ui/themes";
 import { useNavigate, useRouterState } from "@tanstack/react-router";
 import { useCallback, useMemo, useState } from "react";
 
@@ -42,14 +41,14 @@ export function SpaceNewTask({ channelId }: { channelId: string }) {
   const wiki = useChannelWikiContext(channelId, contextLayerEnabled);
 
   // Surface the channel breadcrumb in the shared header, same as the other
-  // channel scenes ("# channel / New task").
+  // channel scenes ("# channel / New session").
   useSetHeaderContent(
     useMemo(
       () => (
         <ChannelBreadcrumb
           channelName={channelName ?? (spacesLayout ? "Space" : "Channel")}
           channelId={channelId}
-          leafLabel="New task"
+          leafLabel="New session"
         />
       ),
       [channelName, channelId, spacesLayout],
@@ -127,8 +126,10 @@ export function SpaceNewTask({ channelId }: { channelId: string }) {
     [navigate],
   );
 
+  if (!tabId) return null;
+
   return (
-    <Flex className="h-full min-w-0 flex-1">
+    <div className="flex h-full min-w-0 flex-1">
       <div className="min-w-0 flex-1">
         <TaskInput
           key={taskInputSessionId}
@@ -198,6 +199,6 @@ export function SpaceNewTask({ channelId }: { channelId: string }) {
           />
         ) : null}
       </ResizableSidebar>
-    </Flex>
+    </div>
   );
 }

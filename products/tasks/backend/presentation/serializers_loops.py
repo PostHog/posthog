@@ -23,6 +23,7 @@ from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.models.integration import Integration
 
 from products.tasks.backend.facade import loops as loops_facade
+from products.tasks.backend.facade.api import TaskRunStatus
 from products.tasks.backend.facade.run_config import (
     PUBLIC_REASONING_EFFORTS,
     RuntimeAdapter,
@@ -30,6 +31,7 @@ from products.tasks.backend.facade.run_config import (
     get_model_access_error,
     get_models_for_runtime_adapter,
     get_reasoning_effort_error,
+    runtime_adapter_serves_model,
 )
 from products.tasks.backend.presentation.serializers import (
     TASK_RUN_SKILL_BUNDLE_FORMAT_CHOICES,
@@ -544,7 +546,7 @@ class LoopWriteSerializer(serializers.Serializer):
         model = attrs.get("model")
         if runtime_adapter is not None and model:
             allowed_models = get_models_for_runtime_adapter(runtime_adapter)
-            if allowed_models and model not in allowed_models:
+            if allowed_models and not runtime_adapter_serves_model(runtime_adapter, model):
                 raise serializers.ValidationError(
                     {"model": f"'{model}' is not a supported model for runtime_adapter '{runtime_adapter}'."}
                 )
@@ -732,6 +734,11 @@ class LoopRunPageSerializer(serializers.Serializer):
 
 
 class LoopRunsQuerySerializer(serializers.Serializer):
+    status = serializers.ChoiceField(
+        choices=TaskRunStatus.choices,
+        required=False,
+        help_text="Only return runs with this status. Use failed to read errors even when canvas state is unavailable.",
+    )
     cursor = serializers.CharField(
         required=False, help_text="Opaque pagination cursor from a previous response's `next_cursor`."
     )

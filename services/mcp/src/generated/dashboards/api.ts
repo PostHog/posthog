@@ -8,7 +8,7 @@
  */
 import * as zod from 'zod'
 
-export const DashboardTemplatesListParams = /* @__PURE__ */ zod.object({
+export const DashboardTemplatesListParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -16,7 +16,7 @@ export const DashboardTemplatesListParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const DashboardTemplatesListQueryParams = /* @__PURE__ */ zod.object({
+export const DashboardTemplatesListQueryParams = () => zod.object({
     is_featured: zod
         .boolean()
         .optional()
@@ -45,7 +45,7 @@ export const DashboardTemplatesListQueryParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const DashboardTemplatesRetrieveParams = /* @__PURE__ */ zod.object({
+export const DashboardTemplatesRetrieveParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this dashboard template.'),
     project_id: zod
         .string()
@@ -54,7 +54,7 @@ export const DashboardTemplatesRetrieveParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const DashboardsListParams = /* @__PURE__ */ zod.object({
+export const DashboardsListParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -62,7 +62,8 @@ export const DashboardsListParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const DashboardsListQueryParams = /* @__PURE__ */ zod.object({
+export const DashboardsListQueryParams = () => zod.object({
+    exclude_generated: zod.boolean().optional().describe('Optional. Exclude dashboards that PostHog generated.'),
     folder: zod
         .string()
         .optional()
@@ -72,6 +73,7 @@ export const DashboardsListQueryParams = /* @__PURE__ */ zod.object({
     format: zod.enum(['json', 'txt']).optional(),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
+    pinned: zod.boolean().optional().describe('Optional. Return only pinned dashboards.'),
     search: zod
         .string()
         .optional()
@@ -80,7 +82,7 @@ export const DashboardsListQueryParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const DashboardsCreateParams = /* @__PURE__ */ zod.object({
+export const DashboardsCreateParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -88,7 +90,7 @@ export const DashboardsCreateParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const DashboardsCreateQueryParams = /* @__PURE__ */ zod.object({
+export const DashboardsCreateQueryParams = () => zod.object({
     format: zod.enum(['json', 'txt']).optional(),
     include_dashboards: zod
         .boolean()
@@ -100,14 +102,54 @@ export const DashboardsCreateQueryParams = /* @__PURE__ */ zod.object({
 
 export const dashboardsCreateBodyNameMax = 400
 
+export const dashboardsCreateBodyBreakdownColorsItemColorTokenRegExp = new RegExp('^preset-[1-9][0-9]\*$')
 export const dashboardsCreateBodyDeleteInsightsDefault = false
 
-export const DashboardsCreateBody = /* @__PURE__ */ zod
+export const DashboardsCreateBody = () => zod
     .object({
         name: zod.string().max(dashboardsCreateBodyNameMax).nullish(),
         description: zod.string().optional(),
         pinned: zod.boolean().optional(),
-        breakdown_colors: zod.unknown().optional().describe('Custom color mapping for breakdown values.'),
+        breakdown_colors: zod
+            .array(
+                zod.object({
+                    breakdownValue: zod
+                        .string()
+                        .describe('The breakdown value this color applies to, as it appears in the chart legend.'),
+                    colorToken: zod
+                        .string()
+                        .regex(dashboardsCreateBodyBreakdownColorsItemColorTokenRegExp)
+                        .nullable()
+                        .describe(
+                            'Palette slot to color the value with, as `preset-1` upwards. Not a CSS color: a hex value is rejected. Null leaves the value on its default color.'
+                        ),
+                    breakdownType: zod
+                        .string()
+                        .nullish()
+                        .describe(
+                            'Breakdown type the value came from, such as `event`, `person`, `session`, or `cohort`.'
+                        ),
+                    breakdownProperty: zod
+                        .string()
+                        .nullish()
+                        .describe(
+                            'Breakdown property the color is scoped to, so the color applies only to tiles that break down by that property. Omit to apply it under every property.'
+                        ),
+                    source: zod
+                        .union([
+                            zod.enum(['auto', 'manual']).describe('\* `auto` - auto\n\* `manual` - manual'),
+                            zod.null(),
+                        ])
+                        .optional()
+                        .describe(
+                            '`manual` for a color a person picked, `auto` for one the dashboard assigned.\n\n\* `auto` - auto\n\* `manual` - manual'
+                        ),
+                })
+            )
+            .nullish()
+            .describe(
+                "Colors pinned to specific breakdown values across the dashboard's tiles. A list of entries, not an object keyed by breakdown value. Send an empty list to clear them."
+            ),
         data_color_theme_id: zod.number().nullish().describe('ID of the color theme used for chart visualizations.'),
         tags: zod.array(zod.unknown()).optional(),
         restriction_level: zod
@@ -148,7 +190,7 @@ export const DashboardsCreateBody = /* @__PURE__ */ zod
     })
     .describe('Serializer mixin that handles tags for objects.')
 
-export const DashboardsRetrieveParams = /* @__PURE__ */ zod.object({
+export const DashboardsRetrieveParams = () => zod.object({
     id: zod.number().describe('A unique integer value identifying this dashboard.'),
     project_id: zod
         .string()
@@ -157,7 +199,7 @@ export const DashboardsRetrieveParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const DashboardsRetrieveQueryParams = /* @__PURE__ */ zod.object({
+export const DashboardsRetrieveQueryParams = () => zod.object({
     filters_override: zod
         .string()
         .optional()
@@ -179,7 +221,7 @@ export const DashboardsRetrieveQueryParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const DashboardsPartialUpdateParams = /* @__PURE__ */ zod.object({
+export const DashboardsPartialUpdateParams = () => zod.object({
     id: zod.number().describe('A unique integer value identifying this dashboard.'),
     project_id: zod
         .string()
@@ -188,7 +230,7 @@ export const DashboardsPartialUpdateParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const DashboardsPartialUpdateQueryParams = /* @__PURE__ */ zod.object({
+export const DashboardsPartialUpdateQueryParams = () => zod.object({
     format: zod.enum(['json', 'txt']).optional(),
     include_dashboards: zod
         .boolean()
@@ -199,6 +241,21 @@ export const DashboardsPartialUpdateQueryParams = /* @__PURE__ */ zod.object({
 })
 
 export const dashboardsPartialUpdateBodyNameMax = 400
+
+export const dashboardsPartialUpdateBodyBreakdownColorsItemColorTokenRegExp = new RegExp('^preset-[1-9][0-9]\*$')
+export const dashboardsPartialUpdateBodyTilesItemLayoutsOneSmOneXMin = 0
+export const dashboardsPartialUpdateBodyTilesItemLayoutsOneSmOneXMax = 11
+
+export const dashboardsPartialUpdateBodyTilesItemLayoutsOneSmOneYMin = 0
+
+export const dashboardsPartialUpdateBodyTilesItemLayoutsOneSmOneWMax = 12
+
+export const dashboardsPartialUpdateBodyTilesItemLayoutsOneXsOneXMin = 0
+export const dashboardsPartialUpdateBodyTilesItemLayoutsOneXsOneXMax = 11
+
+export const dashboardsPartialUpdateBodyTilesItemLayoutsOneXsOneYMin = 0
+
+export const dashboardsPartialUpdateBodyTilesItemLayoutsOneXsOneWMax = 12
 
 export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOneLimitDefault = 25
 export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOneLimitMax = 50
@@ -256,7 +313,7 @@ export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneEightSavedVie
 
 export const dashboardsPartialUpdateBodyTilesItemWidgetOneNameMax = 400
 
-export const DashboardsPartialUpdateBody = /* @__PURE__ */ zod
+export const DashboardsPartialUpdateBody = () => zod
     .object({
         name: zod.string().max(dashboardsPartialUpdateBodyNameMax).nullish(),
         description: zod.string().optional(),
@@ -289,10 +346,57 @@ export const DashboardsPartialUpdateBody = /* @__PURE__ */ zod
             .describe(
                 'Dashboard-level filters (date range and properties) applied across all tiles as the source of truth.'
             ),
-        breakdown_colors: zod.unknown().optional().describe('Custom color mapping for breakdown values.'),
+        breakdown_colors: zod
+            .array(
+                zod.object({
+                    breakdownValue: zod
+                        .string()
+                        .describe('The breakdown value this color applies to, as it appears in the chart legend.'),
+                    colorToken: zod
+                        .string()
+                        .regex(dashboardsPartialUpdateBodyBreakdownColorsItemColorTokenRegExp)
+                        .nullable()
+                        .describe(
+                            'Palette slot to color the value with, as `preset-1` upwards. Not a CSS color: a hex value is rejected. Null leaves the value on its default color.'
+                        ),
+                    breakdownType: zod
+                        .string()
+                        .nullish()
+                        .describe(
+                            'Breakdown type the value came from, such as `event`, `person`, `session`, or `cohort`.'
+                        ),
+                    breakdownProperty: zod
+                        .string()
+                        .nullish()
+                        .describe(
+                            'Breakdown property the color is scoped to, so the color applies only to tiles that break down by that property. Omit to apply it under every property.'
+                        ),
+                    source: zod
+                        .union([
+                            zod.enum(['auto', 'manual']).describe('\* `auto` - auto\n\* `manual` - manual'),
+                            zod.null(),
+                        ])
+                        .optional()
+                        .describe(
+                            '`manual` for a color a person picked, `auto` for one the dashboard assigned.\n\n\* `auto` - auto\n\* `manual` - manual'
+                        ),
+                })
+            )
+            .nullish()
+            .describe(
+                "Colors pinned to specific breakdown values across the dashboard's tiles. A list of entries, not an object keyed by breakdown value. Send an empty list to clear them."
+            ),
         data_color_theme_id: zod.number().nullish().describe('ID of the color theme used for chart visualizations.'),
         tags: zod.array(zod.string()).optional(),
-        restriction_level: zod.union([zod.literal(21), zod.literal(37)]).optional(),
+        restriction_level: zod
+            .union([zod.literal(21), zod.literal(37)])
+            .describe(
+                '\* `21` - Everyone in the project can edit\n\* `37` - Only those invited to this dashboard can edit'
+            )
+            .optional()
+            .describe(
+                'Who can edit this dashboard.\n\n\* `21` - Everyone in the project can edit\n\* `37` - Only those invited to this dashboard can edit'
+            ),
         quick_filter_ids: zod
             .array(zod.string())
             .nullish()
@@ -317,6 +421,56 @@ export const DashboardsPartialUpdateBody = /* @__PURE__ */ zod
             .array(
                 zod.object({
                     id: zod.number().optional().describe('Dashboard tile ID to update.'),
+                    layouts: zod
+                        .object({
+                            sm: zod
+                                .object({
+                                    x: zod
+                                        .number()
+                                        .min(dashboardsPartialUpdateBodyTilesItemLayoutsOneSmOneXMin)
+                                        .max(dashboardsPartialUpdateBodyTilesItemLayoutsOneSmOneXMax)
+                                        .describe('Column position in the dashboard grid (0-indexed).'),
+                                    y: zod
+                                        .number()
+                                        .min(dashboardsPartialUpdateBodyTilesItemLayoutsOneSmOneYMin)
+                                        .describe('Row position in the dashboard grid (0-indexed).'),
+                                    w: zod
+                                        .number()
+                                        .min(1)
+                                        .max(dashboardsPartialUpdateBodyTilesItemLayoutsOneSmOneWMax)
+                                        .describe('Width in grid columns. The desktop grid is 12 columns wide.'),
+                                    h: zod.number().min(1).describe('Height in grid rows.'),
+                                })
+                                .describe(
+                                    "Layout for the standard (desktop) breakpoint. The grid is 12 columns wide. A write replaces the tile's whole layout and the dashboard reads desktop placement from this box, so send it whenever you send layouts."
+                                ),
+                            xs: zod
+                                .object({
+                                    x: zod
+                                        .number()
+                                        .min(dashboardsPartialUpdateBodyTilesItemLayoutsOneXsOneXMin)
+                                        .max(dashboardsPartialUpdateBodyTilesItemLayoutsOneXsOneXMax)
+                                        .describe('Column position in the dashboard grid (0-indexed).'),
+                                    y: zod
+                                        .number()
+                                        .min(dashboardsPartialUpdateBodyTilesItemLayoutsOneXsOneYMin)
+                                        .describe('Row position in the dashboard grid (0-indexed).'),
+                                    w: zod
+                                        .number()
+                                        .min(1)
+                                        .max(dashboardsPartialUpdateBodyTilesItemLayoutsOneXsOneWMax)
+                                        .describe('Width in grid columns. The desktop grid is 12 columns wide.'),
+                                    h: zod.number().min(1).describe('Height in grid rows.'),
+                                })
+                                .optional()
+                                .describe(
+                                    'Layout for the small (mobile) breakpoint, on a 1-column grid. The dashboard derives this layout from the sm order and heights, so a stored xs box does not change what renders.'
+                                ),
+                        })
+                        .optional()
+                        .describe(
+                            "Grid position and size per breakpoint. Works for every tile type, including insight tiles. A write replaces the tile's whole layout, so send a complete sm box rather than the one value you want to change. Boxes are stored as sent and overlaps are not resolved, so send sm boxes that do not overlap, and include every tile you move in the same request."
+                        ),
                     widget: zod
                         .object({
                             id: zod
@@ -1023,7 +1177,9 @@ export const DashboardsPartialUpdateBody = /* @__PURE__ */ zod
                 })
             )
             .optional()
-            .describe('Dashboard tiles to update. Widget tiles accept nested widget.config patches.'),
+            .describe(
+                'Dashboard tiles to update, each identified by its tile id. Any tile type accepts `layouts` to set its grid position and size. Widget tiles also accept nested widget.config patches.'
+            ),
         use_template: zod
             .string()
             .optional()
@@ -1041,7 +1197,7 @@ export const DashboardsPartialUpdateBody = /* @__PURE__ */ zod
 /**
  * Hard delete of this model is not allowed. Use a patch API call to set "deleted" to true
  */
-export const DashboardsDestroyParams = /* @__PURE__ */ zod.object({
+export const DashboardsDestroyParams = () => zod.object({
     id: zod.number().describe('A unique integer value identifying this dashboard.'),
     project_id: zod
         .string()
@@ -1050,14 +1206,14 @@ export const DashboardsDestroyParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const DashboardsDestroyQueryParams = /* @__PURE__ */ zod.object({
+export const DashboardsDestroyQueryParams = () => zod.object({
     format: zod.enum(['json', 'txt']).optional(),
 })
 
 /**
  * Copy an existing dashboard tile to another dashboard (insight, text card, or widget tile).
  */
-export const DashboardsCopyTileCreateParams = /* @__PURE__ */ zod.object({
+export const DashboardsCopyTileCreateParams = () => zod.object({
     id: zod.number().describe('A unique integer value identifying this dashboard.'),
     project_id: zod
         .string()
@@ -1066,11 +1222,11 @@ export const DashboardsCopyTileCreateParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const DashboardsCopyTileCreateQueryParams = /* @__PURE__ */ zod.object({
+export const DashboardsCopyTileCreateQueryParams = () => zod.object({
     format: zod.enum(['json', 'txt']).optional(),
 })
 
-export const DashboardsCopyTileCreateBody = /* @__PURE__ */ zod.object({
+export const DashboardsCopyTileCreateBody = () => zod.object({
     fromDashboardId: zod.number().describe('Dashboard id the tile currently belongs to.'),
     tileId: zod.number().describe('Dashboard tile id to copy.'),
 })
@@ -1081,7 +1237,7 @@ export const DashboardsCopyTileCreateBody = /* @__PURE__ */ zod.object({
  * Text tiles render as markdown blocks on the dashboard — useful as section headings, dividers,
  * or annotations between insight tiles to give the dashboard structure.
  */
-export const DashboardsCreateTextTileCreateParams = /* @__PURE__ */ zod.object({
+export const DashboardsCreateTextTileCreateParams = () => zod.object({
     id: zod.number().describe('A unique integer value identifying this dashboard.'),
     project_id: zod
         .string()
@@ -1090,21 +1246,29 @@ export const DashboardsCreateTextTileCreateParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const DashboardsCreateTextTileCreateQueryParams = /* @__PURE__ */ zod.object({
+export const DashboardsCreateTextTileCreateQueryParams = () => zod.object({
     format: zod.enum(['json', 'txt']).optional(),
 })
 
+export const dashboardsCreateTextTileCreateBodyTypeDefault = `text`
 export const dashboardsCreateTextTileCreateBodyBodyMax = 4000
 
 export const dashboardsCreateTextTileCreateBodyColorMax = 400
 
-export const DashboardsCreateTextTileCreateBody = /* @__PURE__ */ zod.object({
+export const DashboardsCreateTextTileCreateBody = () => zod.object({
+    type: zod
+        .enum(['text', 'image'])
+        .describe('\* `text` - text\n\* `image` - image')
+        .default(dashboardsCreateTextTileCreateBodyTypeDefault)
+        .describe(
+            'Tile type. Use image for a body with exactly one Markdown image. Defaults to text.\n\n\* `text` - text\n\* `image` - image'
+        ),
     body: zod
         .string()
         .min(1)
         .max(dashboardsCreateTextTileCreateBodyBodyMax)
         .describe(
-            'Markdown body for the text tile. Supports headings, lists, and inline formatting. Useful as a dashboard section heading, divider, or annotation between insights. Max 4000 characters.'
+            'Markdown body for the dashboard tile. Text tiles support headings, lists, and inline formatting. Image tiles require exactly one Markdown image. Max 4000 characters.'
         ),
     layouts: zod
         .object({
@@ -1145,7 +1309,7 @@ export const DashboardsCreateTextTileCreateBody = /* @__PURE__ */ zod.object({
  * object is preserved — only the dashboard tile is hidden. To delete the entire dashboard,
  * use the dashboard delete endpoint instead.
  */
-export const DashboardsDeleteTileParams = /* @__PURE__ */ zod.object({
+export const DashboardsDeleteTileParams = () => zod.object({
     id: zod.number().describe('A unique integer value identifying this dashboard.'),
     project_id: zod
         .string()
@@ -1154,15 +1318,15 @@ export const DashboardsDeleteTileParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const DashboardsDeleteTileQueryParams = /* @__PURE__ */ zod.object({
+export const DashboardsDeleteTileQueryParams = () => zod.object({
     format: zod.enum(['json', 'txt']).optional(),
 })
 
-export const DashboardsDeleteTileBody = /* @__PURE__ */ zod.object({
+export const DashboardsDeleteTileBody = () => zod.object({
     tile_id: zod.number().describe('ID of the dashboard tile to delete. Use dashboard-get to look up tile IDs.'),
 })
 
-export const DashboardsMoveTilePartialUpdateParams = /* @__PURE__ */ zod.object({
+export const DashboardsMoveTilePartialUpdateParams = () => zod.object({
     id: zod.number().describe('A unique integer value identifying this dashboard.'),
     project_id: zod
         .string()
@@ -1171,11 +1335,11 @@ export const DashboardsMoveTilePartialUpdateParams = /* @__PURE__ */ zod.object(
         ),
 })
 
-export const DashboardsMoveTilePartialUpdateQueryParams = /* @__PURE__ */ zod.object({
+export const DashboardsMoveTilePartialUpdateQueryParams = () => zod.object({
     format: zod.enum(['json', 'txt']).optional(),
 })
 
-export const DashboardsMoveTilePartialUpdateBody = /* @__PURE__ */ zod.object({
+export const DashboardsMoveTilePartialUpdateBody = () => zod.object({
     to_dashboard: zod.number().optional().describe('Destination dashboard ID.'),
     tile: zod
         .object({
@@ -1185,7 +1349,7 @@ export const DashboardsMoveTilePartialUpdateBody = /* @__PURE__ */ zod.object({
         .describe('Tile to move, identified by its dashboard tile ID.'),
 })
 
-export const DashboardsReorderTilesCreateParams = /* @__PURE__ */ zod.object({
+export const DashboardsReorderTilesCreateParams = () => zod.object({
     id: zod.number().describe('A unique integer value identifying this dashboard.'),
     project_id: zod
         .string()
@@ -1194,30 +1358,32 @@ export const DashboardsReorderTilesCreateParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const DashboardsReorderTilesCreateQueryParams = /* @__PURE__ */ zod.object({
+export const DashboardsReorderTilesCreateQueryParams = () => zod.object({
     format: zod.enum(['json', 'txt']).optional(),
 })
 
 export const dashboardsReorderTilesCreateBodyLayoutDefault = `preserve`
 
-export const DashboardsReorderTilesCreateBody = /* @__PURE__ */ zod.object({
+export const DashboardsReorderTilesCreateBody = () => zod.object({
     tile_order: zod
         .array(zod.number())
         .min(1)
         .describe('Array of tile IDs in the desired display order (top to bottom, left to right).'),
     layout: zod
-        .enum(['preserve', 'two_column', 'full_width'])
-        .describe('\* `preserve` - preserve\n\* `two_column` - two_column\n\* `full_width` - full_width')
+        .enum(['preserve', 'two_column', 'three_column', 'full_width'])
+        .describe(
+            '\* `preserve` - preserve\n\* `two_column` - two_column\n\* `three_column` - three_column\n\* `full_width` - full_width'
+        )
         .default(dashboardsReorderTilesCreateBodyLayoutDefault)
         .describe(
-            "How to size tiles when reordering. 'preserve' (default) keeps each tile's existing width and height and only repacks positions in the new order. 'two_column' forces a 6-wide × 5-tall grid (two tiles per row). 'full_width' forces each tile to span the full 12-column row at height 5.\n\n\* `preserve` - preserve\n\* `two_column` - two_column\n\* `full_width` - full_width"
+            "How to size tiles when reordering. 'preserve' (default) keeps each tile's existing width and height and only repacks positions in the new order. Use the other modes only when every tile should use the same size: 'two_column' makes every tile 6-wide × 5-tall, 'three_column' makes every tile 4-wide × 5-tall, and 'full_width' makes every tile 12-wide × 5-tall.\n\n\* `preserve` - preserve\n\* `two_column` - two_column\n\* `three_column` - three_column\n\* `full_width` - full_width"
         ),
 })
 
 /**
  * Run all insights on a dashboard and return their results.
  */
-export const DashboardsRunInsightsRetrieveParams = /* @__PURE__ */ zod.object({
+export const DashboardsRunInsightsRetrieveParams = () => zod.object({
     id: zod.number().describe('A unique integer value identifying this dashboard.'),
     project_id: zod
         .string()
@@ -1226,7 +1392,7 @@ export const DashboardsRunInsightsRetrieveParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const DashboardsRunInsightsRetrieveQueryParams = /* @__PURE__ */ zod.object({
+export const DashboardsRunInsightsRetrieveQueryParams = () => zod.object({
     filters_override: zod
         .string()
         .optional()
@@ -1254,7 +1420,7 @@ export const DashboardsRunInsightsRetrieveQueryParams = /* @__PURE__ */ zod.obje
         ),
 })
 
-export const DashboardsRunWidgetsRetrieveParams = /* @__PURE__ */ zod.object({
+export const DashboardsRunWidgetsRetrieveParams = () => zod.object({
     id: zod.number().describe('A unique integer value identifying this dashboard.'),
     project_id: zod
         .string()
@@ -1263,7 +1429,7 @@ export const DashboardsRunWidgetsRetrieveParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const DashboardsRunWidgetsRetrieveQueryParams = /* @__PURE__ */ zod.object({
+export const DashboardsRunWidgetsRetrieveQueryParams = () => zod.object({
     format: zod.enum(['json', 'txt']).optional(),
     tile_ids: zod.string().describe('Comma-separated dashboard tile IDs to run widgets for.'),
 })
@@ -1271,7 +1437,7 @@ export const DashboardsRunWidgetsRetrieveQueryParams = /* @__PURE__ */ zod.objec
 /**
  * Update the markdown body, layout, or color of an existing text tile on a dashboard.
  */
-export const DashboardsUpdateTextTileCreateParams = /* @__PURE__ */ zod.object({
+export const DashboardsUpdateTextTileCreateParams = () => zod.object({
     id: zod.number().describe('A unique integer value identifying this dashboard.'),
     project_id: zod
         .string()
@@ -1280,7 +1446,7 @@ export const DashboardsUpdateTextTileCreateParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const DashboardsUpdateTextTileCreateQueryParams = /* @__PURE__ */ zod.object({
+export const DashboardsUpdateTextTileCreateQueryParams = () => zod.object({
     format: zod.enum(['json', 'txt']).optional(),
 })
 
@@ -1288,7 +1454,7 @@ export const dashboardsUpdateTextTileCreateBodyBodyMax = 4000
 
 export const dashboardsUpdateTextTileCreateBodyColorMax = 400
 
-export const DashboardsUpdateTextTileCreateBody = /* @__PURE__ */ zod.object({
+export const DashboardsUpdateTextTileCreateBody = () => zod.object({
     tile_id: zod.number().describe('ID of the dashboard tile to update. Use dashboard-get to look up tile IDs.'),
     body: zod
         .string()
@@ -1329,7 +1495,7 @@ export const DashboardsUpdateTextTileCreateBody = /* @__PURE__ */ zod.object({
 /**
  * Add multiple widget tiles to a dashboard in one atomic request.
  */
-export const DashboardsWidgetsBatchCreateParams = /* @__PURE__ */ zod.object({
+export const DashboardsWidgetsBatchCreateParams = () => zod.object({
     id: zod.number().describe('A unique integer value identifying this dashboard.'),
     project_id: zod
         .string()
@@ -1338,7 +1504,7 @@ export const DashboardsWidgetsBatchCreateParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const DashboardsWidgetsBatchCreateQueryParams = /* @__PURE__ */ zod.object({
+export const DashboardsWidgetsBatchCreateQueryParams = () => zod.object({
     format: zod.enum(['json', 'txt']).optional(),
 })
 
@@ -1413,7 +1579,7 @@ export const dashboardsWidgetsBatchCreateBodyWidgetsItemEightConfigOneSavedViewI
 
 export const dashboardsWidgetsBatchCreateBodyWidgetsMax = 10
 
-export const DashboardsWidgetsBatchCreateBody = /* @__PURE__ */ zod
+export const DashboardsWidgetsBatchCreateBody = () => zod
     .object({
         widgets: zod
             .array(
@@ -1467,7 +1633,9 @@ export const DashboardsWidgetsBatchCreateBody = /* @__PURE__ */ zod
                                         h: zod.number().optional().describe('Height in grid rows.'),
                                     })
                                     .optional()
-                                    .describe('Layout for the small (mobile) breakpoint. The grid is 1 column wide.'),
+                                    .describe(
+                                        'Layout for the small (mobile) breakpoint, on a 1-column grid. The dashboard derives this layout from the sm order and heights, so a stored xs box does not change what renders.'
+                                    ),
                             })
                             .optional()
                             .describe('Optional react-grid-layout positions keyed by breakpoint (sm, xs).'),
@@ -1718,7 +1886,9 @@ export const DashboardsWidgetsBatchCreateBody = /* @__PURE__ */ zod
                                         h: zod.number().optional().describe('Height in grid rows.'),
                                     })
                                     .optional()
-                                    .describe('Layout for the small (mobile) breakpoint. The grid is 1 column wide.'),
+                                    .describe(
+                                        'Layout for the small (mobile) breakpoint, on a 1-column grid. The dashboard derives this layout from the sm order and heights, so a stored xs box does not change what renders.'
+                                    ),
                             })
                             .optional()
                             .describe('Optional react-grid-layout positions keyed by breakpoint (sm, xs).'),
@@ -1891,7 +2061,9 @@ export const DashboardsWidgetsBatchCreateBody = /* @__PURE__ */ zod
                                         h: zod.number().optional().describe('Height in grid rows.'),
                                     })
                                     .optional()
-                                    .describe('Layout for the small (mobile) breakpoint. The grid is 1 column wide.'),
+                                    .describe(
+                                        'Layout for the small (mobile) breakpoint, on a 1-column grid. The dashboard derives this layout from the sm order and heights, so a stored xs box does not change what renders.'
+                                    ),
                             })
                             .optional()
                             .describe('Optional react-grid-layout positions keyed by breakpoint (sm, xs).'),
@@ -2069,7 +2241,9 @@ export const DashboardsWidgetsBatchCreateBody = /* @__PURE__ */ zod
                                         h: zod.number().optional().describe('Height in grid rows.'),
                                     })
                                     .optional()
-                                    .describe('Layout for the small (mobile) breakpoint. The grid is 1 column wide.'),
+                                    .describe(
+                                        'Layout for the small (mobile) breakpoint, on a 1-column grid. The dashboard derives this layout from the sm order and heights, so a stored xs box does not change what renders.'
+                                    ),
                             })
                             .optional()
                             .describe('Optional react-grid-layout positions keyed by breakpoint (sm, xs).'),
@@ -2156,7 +2330,9 @@ export const DashboardsWidgetsBatchCreateBody = /* @__PURE__ */ zod
                                         h: zod.number().optional().describe('Height in grid rows.'),
                                     })
                                     .optional()
-                                    .describe('Layout for the small (mobile) breakpoint. The grid is 1 column wide.'),
+                                    .describe(
+                                        'Layout for the small (mobile) breakpoint, on a 1-column grid. The dashboard derives this layout from the sm order and heights, so a stored xs box does not change what renders.'
+                                    ),
                             })
                             .optional()
                             .describe('Optional react-grid-layout positions keyed by breakpoint (sm, xs).'),
@@ -2225,7 +2401,9 @@ export const DashboardsWidgetsBatchCreateBody = /* @__PURE__ */ zod
                                         h: zod.number().optional().describe('Height in grid rows.'),
                                     })
                                     .optional()
-                                    .describe('Layout for the small (mobile) breakpoint. The grid is 1 column wide.'),
+                                    .describe(
+                                        'Layout for the small (mobile) breakpoint, on a 1-column grid. The dashboard derives this layout from the sm order and heights, so a stored xs box does not change what renders.'
+                                    ),
                             })
                             .optional()
                             .describe('Optional react-grid-layout positions keyed by breakpoint (sm, xs).'),
@@ -2324,7 +2502,9 @@ export const DashboardsWidgetsBatchCreateBody = /* @__PURE__ */ zod
                                         h: zod.number().optional().describe('Height in grid rows.'),
                                     })
                                     .optional()
-                                    .describe('Layout for the small (mobile) breakpoint. The grid is 1 column wide.'),
+                                    .describe(
+                                        'Layout for the small (mobile) breakpoint, on a 1-column grid. The dashboard derives this layout from the sm order and heights, so a stored xs box does not change what renders.'
+                                    ),
                             })
                             .optional()
                             .describe('Optional react-grid-layout positions keyed by breakpoint (sm, xs).'),
@@ -2442,7 +2622,9 @@ export const DashboardsWidgetsBatchCreateBody = /* @__PURE__ */ zod
                                         h: zod.number().optional().describe('Height in grid rows.'),
                                     })
                                     .optional()
-                                    .describe('Layout for the small (mobile) breakpoint. The grid is 1 column wide.'),
+                                    .describe(
+                                        'Layout for the small (mobile) breakpoint, on a 1-column grid. The dashboard derives this layout from the sm order and heights, so a stored xs box does not change what renders.'
+                                    ),
                             })
                             .optional()
                             .describe('Optional react-grid-layout positions keyed by breakpoint (sm, xs).'),
@@ -2528,7 +2710,7 @@ export const DashboardsWidgetsBatchCreateBody = /* @__PURE__ */ zod
  * that. All updates succeed or fail together. To add new widgets, use the widgets/batch POST endpoint; to
  * remove one, use delete_tile.
  */
-export const DashboardsUpdateWidgetsBatchParams = /* @__PURE__ */ zod.object({
+export const DashboardsUpdateWidgetsBatchParams = () => zod.object({
     id: zod.number().describe('A unique integer value identifying this dashboard.'),
     project_id: zod
         .string()
@@ -2537,7 +2719,7 @@ export const DashboardsUpdateWidgetsBatchParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const DashboardsUpdateWidgetsBatchQueryParams = /* @__PURE__ */ zod.object({
+export const DashboardsUpdateWidgetsBatchQueryParams = () => zod.object({
     format: zod.enum(['json', 'txt']).optional(),
 })
 
@@ -2612,7 +2794,7 @@ export const dashboardsUpdateWidgetsBatchBodyWidgetsItemEightConfigOneSavedViewI
 
 export const dashboardsUpdateWidgetsBatchBodyWidgetsMax = 10
 
-export const DashboardsUpdateWidgetsBatchBody = /* @__PURE__ */ zod
+export const DashboardsUpdateWidgetsBatchBody = () => zod
     .object({
         widgets: zod
             .array(
@@ -3394,7 +3576,7 @@ export const DashboardsUpdateWidgetsBatchBody = /* @__PURE__ */ zod
 /**
  * List registered dashboard widget types and per-type config_schema documentation for agents.
  */
-export const DashboardsWidgetCatalogRetrieveParams = /* @__PURE__ */ zod.object({
+export const DashboardsWidgetCatalogRetrieveParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -3402,6 +3584,6 @@ export const DashboardsWidgetCatalogRetrieveParams = /* @__PURE__ */ zod.object(
         ),
 })
 
-export const DashboardsWidgetCatalogRetrieveQueryParams = /* @__PURE__ */ zod.object({
+export const DashboardsWidgetCatalogRetrieveQueryParams = () => zod.object({
     format: zod.enum(['json', 'txt']).optional(),
 })

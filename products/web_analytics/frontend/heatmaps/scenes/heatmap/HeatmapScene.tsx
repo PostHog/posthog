@@ -1,12 +1,12 @@
-import { BindLogic, useActions, useValues } from 'kea'
-import { useEffect, useRef } from 'react'
+import { BindLogic, useActions, useAsyncActions, useValues } from 'kea'
+import { useRef } from 'react'
+import useResizeObserver from 'use-resize-observer'
 
 import * as directorPng from '@posthog/brand/hoggies/png/director'
 import { IconBrowser, IconDownload } from '@posthog/icons'
-import { LemonTag, Spinner } from '@posthog/lemon-ui'
+import { Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { pngHoggie } from 'lib/brand/hoggies'
-import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { appEditorUrl } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { HeatmapCanvas } from 'lib/components/heatmaps/HeatmapCanvas'
 import { MAX_HEATMAP_HEIGHT } from 'lib/components/heatmaps/heatmapDataLogic'
@@ -18,12 +18,12 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { FilterPanel } from '../../components/FilterPanel'
 import { HeatmapHeader } from '../../components/HeatmapHeader'
+import { HeatmapRecordingFallback } from '../../components/HeatmapRecordingFallback'
 import { heatmapLogic } from './heatmapLogic'
 
 const HedgehogDirector = pngHoggie(directorPng)
@@ -41,8 +41,6 @@ export function HeatmapScene({ id }: { id: string }): JSX.Element {
     const {
         name,
         loading,
-        type,
-        source,
         displayUrl,
         widthOverride,
         heightOverride,
@@ -54,42 +52,62 @@ export function HeatmapScene({ id }: { id: string }): JSX.Element {
         effectiveWidth,
         scalePercent,
         isHeightCapped,
-        userAccessLevel,
         lockedWidth,
+        hasUnsavedChanges,
+        saving,
+        saveDisabledReason,
+        editDisabledReason,
+        previewType,
+        previewVersion,
+        previewError,
+        previewUnavailable,
+        regenerateDisabledReason,
+        switchToScreenshotDisabledReason,
+        displayUrlIsPattern,
     } = useValues(logic)
     const {
         setName,
-        changeCaptureMethod,
-        updateHeatmap,
         onIframeLoad,
         setScreenshotLoaded,
         setScreenshotError,
         exportHeatmap,
         setContainerWidth,
+        discardChanges,
+        regenerateScreenshot,
+        switchToScreenshot,
     } = useActions(logic)
+    const { updateHeatmap } = useAsyncActions(logic)
 
     const toolbarAccessDisabledReason = getAccessControlDisabledReason(
         AccessControlResourceType.Toolbar,
         AccessControlLevel.Viewer
     )
 
-    const measureRef = useRef<HTMLDivElement | null>(null)
-    useEffect(() => {
-        const measure = (): void => {
-            if (measureRef.current) {
-                const w = measureRef.current.getBoundingClientRect().width
-                setContainerWidth(typeof w === 'number' ? w : null)
-            }
+    const { ref: measureRef } = useResizeObserver<HTMLDivElement>({
+        onResize: ({ width }) => setContainerWidth(width ?? null),
+    })
+    const exportRef = useRef<HTMLButtonElement | null>(null)
+    const focusExport = (): void => exportRef.current?.focus({ preventScroll: true })
+    const saveAndRefocus = async (): Promise<void> => {
+        await updateHeatmap()
+        if (!logic.values.hasUnsavedChanges) {
+            focusExport()
         }
-        measure()
-        const onResize = (): void => {
-            measure()
-        }
-        window.addEventListener('resize', onResize)
-        return () => {
-            window.removeEventListener('resize', onResize)
-        }
-    }, [setContainerWidth, widthOverride])
+    }
+    const previewRecovery =
+        previewType === 'screenshot'
+            ? {
+                  title: "Screenshot couldn't load",
+                  label: 'Retry screenshot',
+                  onClick: regenerateScreenshot,
+                  disabledReason: regenerateDisabledReason,
+              }
+            : {
+                  title: "This page couldn't load in the preview",
+                  label: 'Switch to screenshot',
+                  onClick: switchToScreenshot,
+                  disabledReason: switchToScreenshotDisabledReason,
+              }
 
     if (loading) {
         return (
@@ -108,7 +126,7 @@ export function HeatmapScene({ id }: { id: string }): JSX.Element {
                         type: 'heatmap',
                     }}
                     description={null}
-                    canEdit
+                    canEdit={!editDisabledReason}
                     onNameChange={setName}
                     forceBackTo={{
                         name: 'Heatmaps',
@@ -117,16 +135,45 @@ export function HeatmapScene({ id }: { id: string }): JSX.Element {
                     }}
                     actions={
                         <>
-                            <AccessControlAction
-                                resourceType={AccessControlResourceType.Heatmap}
-                                minAccessLevel={AccessControlLevel.Editor}
-                                userAccessLevel={userAccessLevel ?? undefined}
-                            >
-                                <LemonButton type="primary" onClick={updateHeatmap} size="small">
-                                    Save
-                                </LemonButton>
-                            </AccessControlAction>
+                            {(hasUnsavedChanges || saving) && !editDisabledReason && (
+                                <>
+                                    <LemonButton
+                                        type="secondary"
+                                        onClick={() => {
+                                            discardChanges()
+                                            focusExport()
+                                        }}
+                                        disabledReason={saving ? 'Saving changes' : null}
+                                        size="small"
+                                        data-attr="heatmap-discard-changes"
+                                    >
+                                        Discard changes
+                                    </LemonButton>
+                                    <LemonButton
+                                        type="primary"
+                                        onClick={() => void saveAndRefocus()}
+                                        loading={saving}
+                                        disabledReason={saveDisabledReason}
+                                        size="small"
+                                        data-attr="heatmap-save"
+                                    >
+                                        {saving ? 'Saving…' : 'Save'}
+                                    </LemonButton>
+                                </>
+                            )}
                             <LemonButton
+                                type="tertiary"
+                                size="small"
+                                to={displayUrl ? appEditorUrl(displayUrl, { userIntent: 'heatmaps' }) : undefined}
+                                targetBlank
+                                data-attr="heatmaps-open-in-toolbar"
+                                disabledReason={!displayUrl ? 'Select a URL first' : toolbarAccessDisabledReason}
+                                tooltip="Explore heatmaps on your website, including pages that require a login"
+                            >
+                                Open in toolbar
+                            </LemonButton>
+                            <LemonButton
+                                ref={exportRef}
                                 onClick={exportHeatmap}
                                 data-attr="export-heatmap"
                                 type="secondary"
@@ -135,7 +182,10 @@ export function HeatmapScene({ id }: { id: string }): JSX.Element {
                                 tooltip="Export heatmap as PNG"
                                 tooltipPlacement="bottom"
                                 disabledReason={
-                                    type === 'screenshot' && !screenshotUrl ? 'Screenshot is not ready' : undefined
+                                    previewType === 'screenshot' &&
+                                    (!screenshotUrl || !screenshotLoaded || generatingScreenshot)
+                                        ? 'Screenshot is not ready'
+                                        : undefined
                                 }
                             >
                                 Export
@@ -143,34 +193,8 @@ export function HeatmapScene({ id }: { id: string }): JSX.Element {
                         </>
                     }
                 />
-                <LemonBanner
-                    type="info"
-                    dismissKey={`heatmap-type-info:${id}:${type ?? 'unknown'}`}
-                    className="mb-2"
-                    action={{
-                        size: 'small',
-                        type: 'secondary',
-                        children: 'Open in toolbar',
-                        to: displayUrl
-                            ? appEditorUrl(displayUrl, {
-                                  userIntent: 'heatmaps',
-                              })
-                            : undefined,
-                        targetBlank: true,
-                        'data-attr': 'heatmaps-open-in-toolbar',
-                        disabledReason: !displayUrl ? 'Select a URL first' : toolbarAccessDisabledReason,
-                    }}
-                >
-                    You can also open your website using the toolbar and verify results there (useful for auth-protected
-                    pages).
-                </LemonBanner>
                 <HeatmapHeader />
-                <FilterPanel
-                    captureMethod={type}
-                    onCaptureMethodChange={source === 'toolbar' ? undefined : changeCaptureMethod}
-                    lockedWidth={lockedWidth ?? undefined}
-                />
-                <SceneDivider />
+                <FilterPanel lockedWidth={lockedWidth ?? undefined} previewUnavailable={previewUnavailable} />
                 {isHeightCapped && (
                     <LemonBanner type="info" className="mb-2">
                         This heatmap is capped at {MAX_HEATMAP_HEIGHT.toLocaleString()}px tall to keep rendering fast,
@@ -182,19 +206,45 @@ export function HeatmapScene({ id }: { id: string }): JSX.Element {
                         className="border mx-auto bg-surface-primary rounded-lg"
                         style={{ width: effectiveWidth ?? '100%' }}
                     >
-                        <div className="p-2 border-b text-muted-foreground gap-x-2 flex items-center">
-                            <IconBrowser /> {displayUrl}
+                        <div className="p-2 border-b text-muted-foreground gap-2 flex flex-wrap items-center">
+                            <IconBrowser />{' '}
+                            <span className="min-w-0 flex-1 truncate" title={displayUrl ?? undefined}>
+                                {displayUrl}
+                            </span>
                             {typeof widthOverride === 'number' && containerWidth && widthOverride > containerWidth ? (
-                                <LemonTag className="ml-auto" type="highlight">
-                                    Scaled to {scalePercent}% ({widthOverride}px →{' '}
-                                    {Math.round(effectiveWidth as number)} px)
-                                </LemonTag>
+                                <Tooltip
+                                    title={`Scaled from ${widthOverride}px to ${Math.round(effectiveWidth as number)}px to fit the preview`}
+                                >
+                                    <span className="text-xs text-muted">{scalePercent}%</span>
+                                </Tooltip>
                             ) : null}
                         </div>
-                        {type === 'screenshot' ? (
+                        {previewError ? (
+                            <div
+                                className="min-h-80 flex flex-col items-center justify-center gap-3 p-6 text-center"
+                                data-attr="heatmap-preview-error"
+                            >
+                                <IconBrowser className="text-3xl text-muted" />
+                                <h3 className="mb-0">{previewRecovery.title}</h3>
+                                <p className="text-muted max-w-lg mb-0">{previewError}</p>
+                                <LemonButton
+                                    type="primary"
+                                    onClick={previewRecovery.onClick}
+                                    loading={generatingScreenshot || saving}
+                                    disabledReason={previewRecovery.disabledReason}
+                                    data-attr="heatmap-preview-recovery"
+                                >
+                                    {previewRecovery.label}
+                                </LemonButton>
+                                {displayUrl && !displayUrlIsPattern && <HeatmapRecordingFallback url={displayUrl} />}
+                            </div>
+                        ) : previewType === 'screenshot' ? (
                             <div className="relative flex w-full justify-center flex-1" style={{ width: '100%' }}>
                                 {generatingScreenshot ? (
-                                    <div className="flex-1 flex items-center justify-center min-h-96">
+                                    <div
+                                        className="flex-1 flex items-center justify-center min-h-96"
+                                        data-attr="heatmap-generating-screenshot"
+                                    >
                                         <style>{`@keyframes hog-wobble{from{transform:rotate(0deg)}to{transform:rotate(5deg)}}`}</style>
                                         <div className="text-sm text-center font-semibold">
                                             <HedgehogDirector
@@ -204,7 +254,7 @@ export function HeatmapScene({ id }: { id: string }): JSX.Element {
                                                     transformOrigin: '50% 50%',
                                                 }}
                                             />
-                                            Taking screenshots of your page...
+                                            Generating screenshot…
                                             <div className="text-muted text-xs mt-2">
                                                 This usually takes a few minutes
                                             </div>
@@ -255,6 +305,7 @@ export function HeatmapScene({ id }: { id: string }): JSX.Element {
                                     context="in-app"
                                 />
                                 <iframe
+                                    key={previewVersion}
                                     id="heatmap-iframe"
                                     title="Heatmap browser"
                                     className="bg-white rounded-b-lg"

@@ -213,6 +213,12 @@ export function ChartCell({
                                 stroke={colors.BAR_MIDDLE_POINT}
                                 strokeWidth={2}
                                 shapeRendering="crispEdges"
+                                style={{
+                                    cursor: isClickable ? 'pointer' : 'default',
+                                }}
+                                onClick={onTimeseriesClick}
+                                onMouseEnter={isClickable ? () => setIsHovered(true) : undefined}
+                                onMouseLeave={isClickable ? () => setIsHovered(false) : undefined}
                             />
                         </>
                     )}

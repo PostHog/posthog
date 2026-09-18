@@ -6,7 +6,7 @@ import { LemonTagType, PaginationManual } from '@posthog/lemon-ui'
 
 import api, { CountedPaginatedResponse } from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { parseNumericArrayFilter, toParams } from 'lib/utils/url'
+import { parseNumericArrayFilter, parseTagsFilter, toParams } from 'lib/utils/url'
 import { getFlagVariants } from 'scenes/experiments/utils'
 import { FLAGS_PER_PAGE, type FeatureFlagsResult, featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
 import { projectLogic } from 'scenes/projectLogic'
@@ -41,6 +41,8 @@ export interface ExperimentsFilters {
     archived?: boolean
     page?: number
     order?: string
+    tags?: string[]
+    excluded_tags?: string[]
 }
 
 export interface FeatureFlagModalFilters {
@@ -59,6 +61,8 @@ const DEFAULT_FILTERS: ExperimentsFilters = {
     archived: false,
     page: 1,
     order: undefined,
+    tags: undefined,
+    excluded_tags: undefined,
 }
 
 const DEFAULT_MODAL_FILTERS: FeatureFlagModalFilters = {
@@ -174,12 +178,14 @@ export interface experimentsLogicValues {
     paramsFromFilters: {
         archived?: boolean | undefined
         created_by_id?: number[] | undefined
+        excluded_tags?: string[] | undefined
         limit: number
         offset: number
         order?: string | undefined
         page?: number | undefined
         search?: string | undefined
         status?: ExperimentStatus | 'all' | undefined
+        tags?: string[] | undefined
     }
     sidePanelContext: SidePanelSceneContext
     tab: ExperimentsTabs
@@ -398,9 +404,6 @@ export interface experimentsLogicActions {
         }
         payload?: void
     }
-    openFeatureFlagModal: () => {
-        value: true
-    }
     resetFeatureFlagModalFilters: () => {
         value: true
     }
@@ -484,12 +487,14 @@ export interface experimentsLogicMeta {
         paramsFromFilters: (filters: ExperimentsFilters) => {
             archived?: boolean | undefined
             created_by_id?: number[] | undefined
+            excluded_tags?: string[] | undefined
             limit: number
             offset: number
             order?: string | undefined
             page?: number | undefined
             search?: string | undefined
             status?: ExperimentStatus | 'all' | undefined
+            tags?: string[] | undefined
         }
         featureFlagModalParamsFromFilters: (
             featureFlagModalFilters: FeatureFlagModalFilters,
@@ -541,7 +546,6 @@ export const experimentsLogic = kea<experimentsLogicType>([
             replace,
         }),
         resetFeatureFlagModalFilters: true,
-        openFeatureFlagModal: true,
     }),
     reducers({
         filters: [
@@ -595,9 +599,6 @@ export const experimentsLogic = kea<experimentsLogicType>([
             actions.loadFeatureFlagModalFeatureFlags()
         },
         resetFeatureFlagModalFilters: () => {
-            actions.loadFeatureFlagModalFeatureFlags()
-        },
-        openFeatureFlagModal: () => {
             actions.loadFeatureFlagModalFeatureFlags()
         },
         loadCurrentTeamSuccess: () => {
@@ -873,7 +874,7 @@ export const experimentsLogic = kea<experimentsLogicType>([
     afterMount(({ actions, values }) => {
         actions.loadExperimentsStats()
         // Sync modal page with URL on mount. Eligible flags themselves are loaded lazily when the
-        // "link existing flag" modal opens (openFeatureFlagModal listener), not on every list mount.
+        // "link existing flag" modal sets or resets its filters, not on every list mount.
         const urlPage = values.featureFlagModalPageFromURL
         if (urlPage !== 1) {
             actions.setFeatureFlagModalFilters({ page: urlPage })
@@ -890,7 +891,7 @@ export const experimentsLogic = kea<experimentsLogicType>([
                   },
               ]
             | void => {
-            const searchParams: Record<string, string | number | boolean | number[]> = {
+            const searchParams: Record<string, string | number | boolean | number[] | string[]> = {
                 ...values.filters,
             }
 
@@ -917,7 +918,7 @@ export const experimentsLogic = kea<experimentsLogicType>([
                   },
               ]
             | void => {
-            const searchParams: Record<string, string | number | boolean | number[]> = {
+            const searchParams: Record<string, string | number | boolean | number[] | string[]> = {
                 ...values.filters,
             }
 
@@ -953,11 +954,13 @@ export const experimentsLogic = kea<experimentsLogicType>([
                 actions.setExperimentsTab(tabInURL)
             }
 
-            const { page, search, status, created_by_id, order, archived } = searchParams
+            const { page, search, status, created_by_id, order, archived, tags, excluded_tags } = searchParams
             const pageFiltersFromUrl: Partial<ExperimentsFilters> = {
                 search,
                 created_by_id: parseNumericArrayFilter(created_by_id),
                 order,
+                tags: parseTagsFilter(tags),
+                excluded_tags: parseTagsFilter(excluded_tags),
             }
 
             pageFiltersFromUrl.status = normalizeExperimentFilterStatus(status)

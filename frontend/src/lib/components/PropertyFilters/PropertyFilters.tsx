@@ -63,6 +63,8 @@ export interface PropertyFiltersProps {
     excludedOperators?: ExcludedOperators
     selectingKeyOnly?: SelectingKeyOnly
     hideBehavioralCohorts?: boolean
+    /** Mark each cohort row with what feature flags can do with it. See `TaxonomicFilterProps`. */
+    showCohortFlagTargeting?: boolean
     addFilterDocLink?: string
     operatorAllowlist?: OperatorValueSelectProps['operatorAllowlist']
     hogQLGlobals?: Record<string, any>
@@ -73,6 +75,7 @@ export interface PropertyFiltersProps {
      */
     triggerVariant?: 'button' | 'input'
     staticValueOptions?: PropertyFilterInternalProps['staticValueOptions']
+    renderOperatorValueSelect?: PropertyFilterInternalProps['renderOperatorValueSelect']
     /** Override inferred property definitions for contexts where one event key is polymorphic. */
     propertyDefinitionsOverride?: PropertyDefinition[]
     /** Keep the selected key fixed while leaving its operator and value editable. */
@@ -119,11 +122,13 @@ export function PropertyFilters({
     excludedOperators,
     selectingKeyOnly,
     hideBehavioralCohorts,
+    showCohortFlagTargeting,
     addFilterDocLink,
     operatorAllowlist,
     hogQLGlobals,
     triggerVariant = 'button',
     staticValueOptions,
+    renderOperatorValueSelect,
     propertyDefinitionsOverride,
     propertyKeyEditable,
     singleLine,
@@ -230,6 +235,7 @@ export function PropertyFilters({
                                                 excludedOperators={excludedOperators}
                                                 selectingKeyOnly={selectingKeyOnly}
                                                 hideBehavioralCohorts={hideBehavioralCohorts}
+                                                showCohortFlagTargeting={showCohortFlagTargeting}
                                                 size={buttonSize}
                                                 addFilterDocLink={addFilterDocLink}
                                                 editable={editable}
@@ -237,6 +243,7 @@ export function PropertyFilters({
                                                 hogQLGlobals={hogQLGlobals}
                                                 triggerVariant={triggerVariant}
                                                 staticValueOptions={staticValueOptions}
+                                                renderOperatorValueSelect={renderOperatorValueSelect}
                                                 propertyDefinitionsOverride={propertyDefinitionsOverride}
                                                 propertyKeyEditable={propertyKeyEditable}
                                                 singleLine={singleLine}

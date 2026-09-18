@@ -57,12 +57,14 @@ describe("useResolvedWorkspaceMode", () => {
     );
 
     expect(result.current.workspaceMode).toBe("local");
+    expect(result.current.isResolved).toBe(false);
 
     cloudState.enabled = true;
     cloudState.flagsLoaded = true;
     rerender(SETTLED);
 
     expect(result.current.workspaceMode).toBe("cloud");
+    expect(result.current.isResolved).toBe(true);
   });
 
   it.each([
@@ -90,6 +92,30 @@ describe("useResolvedWorkspaceMode", () => {
     );
 
     expect(result.current.workspaceMode).toBe("local");
+  });
+
+  it("returns to the previous local mode when GitHub is removed", () => {
+    cloudState.enabled = true;
+    cloudState.flagsLoaded = true;
+    settingsState.lastUsedLocalWorkspaceMode = "worktree";
+
+    const { result, rerender } = renderHook(
+      (props: Parameters<typeof useResolvedWorkspaceMode>[0]) =>
+        useResolvedWorkspaceMode(props),
+      { initialProps: SETTLED },
+    );
+
+    expect(result.current.workspaceMode).toBe("cloud");
+
+    rerender({
+      hasGithubIntegration: false,
+      isLoadingIntegrations: false,
+    });
+
+    expect(result.current.workspaceMode).toBe("worktree");
+    expect(settingsState.setLastUsedWorkspaceMode).toHaveBeenCalledWith(
+      "worktree",
+    );
   });
 
   it("ignores a cached integration until the live query settles", () => {
@@ -159,10 +185,13 @@ describe("useResolvedWorkspaceMode", () => {
       useResolvedWorkspaceMode(SETTLED),
     );
 
+    expect(result.current.isResolved).toBe(false);
+
     settingsState._hasHydrated = true;
     rerender();
 
     expect(result.current.workspaceMode).toBe("local");
+    expect(result.current.isResolved).toBe(true);
   });
 
   it("pins cloud on a cloud-only host", () => {
@@ -172,5 +201,6 @@ describe("useResolvedWorkspaceMode", () => {
     const { result } = renderHook(() => useResolvedWorkspaceMode(SETTLED));
 
     expect(result.current.workspaceMode).toBe("cloud");
+    expect(result.current.isResolved).toBe(true);
   });
 });

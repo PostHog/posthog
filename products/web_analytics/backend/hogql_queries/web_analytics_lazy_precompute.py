@@ -30,6 +30,8 @@ from products.access_control.backend.facade.api import team_has_property_access_
 from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import (
     LAZY_TTL_SECONDS,  # noqa: F401 — re-exported; several runners import it from this module
     is_precompute_enabled_for_team,
+    is_team_above_volume_floor,
+    set_lazy_precompute_ineligible_reason,
 )
 
 logger = structlog.get_logger(__name__)
@@ -128,6 +130,18 @@ class PerQueryOptedOut(LazyPrecomputeIneligible):
     pass
 
 
+class BelowVolumeFloor(LazyPrecomputeIneligible):
+    """The team's 7-day event volume is under the precompute floor — its live
+    path is sub-second and always fresh, so the query stays live.
+
+    Deliberately duplicated from `web_lazy_precompute_common.BelowVolumeFloor`:
+    the two modules keep parallel `LazyPrecomputeIneligible` hierarchies, so each
+    gate must raise its own module's class to be caught by its own `except`.
+    Keep the two in sync. Both share the name, so logs/metrics keyed on
+    `type(exc).__name__` collapse to one label regardless of which gate fired.
+    """
+
+
 class NonIntegerTimezone(LazyPrecomputeIneligible):
     pass
 
@@ -216,6 +230,7 @@ def can_use_lazy_precompute(
     except LazyPrecomputeIneligible as exc:
         reason = type(exc).__name__
         WEB_ANALYTICS_LAZY_PRECOMPUTE_REJECTED.labels(family=log_prefix, reason=reason).inc()
+        set_lazy_precompute_ineligible_reason(reason)
         logger.info(
             f"{log_prefix}_lazy_precompute_rejected",
             team_id=runner.team.pk,
@@ -223,6 +238,7 @@ def can_use_lazy_precompute(
             detail=str(exc) or None,
         )
         return False
+    set_lazy_precompute_ineligible_reason(None)
     logger.info(
         f"{log_prefix}_lazy_precompute_eligible",
         team_id=runner.team.pk,
@@ -255,6 +271,13 @@ def check_common_eligible(runner: LazyPrecomputeRunner, *, require_integer_timez
 
     if query.useWebAnalyticsPrecompute is False:
         raise PerQueryOptedOut()
+
+    # Below-floor teams serve live (sub-second, always fresh). Checked here too,
+    # not only in `check_common_eligibility`: overview, stats, and trends reach
+    # the gate through this function, so without it the floor never covers the
+    # primary dashboard tiles. Deliberately checked for background warming too.
+    if not is_team_above_volume_floor(runner.team.pk):
+        raise BelowVolumeFloor()
 
     # Half-hour-offset timezones (IST +5:30, Newfoundland -3:30, Nepal +5:45, etc.)
     # can't be served by UTC hourly buckets without sub-hour precision. Skip them

@@ -45,7 +45,7 @@ export type ReportStatusFilter =
   | "running"
   | "archived";
 
-export function matchesReportStatusFilter(
+function matchesReportStatusFilter(
   report: SignalReport,
   filter: ReportStatusFilter,
 ): boolean {

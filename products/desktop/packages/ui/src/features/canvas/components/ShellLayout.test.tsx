@@ -6,11 +6,6 @@ import { describe, expect, it, vi } from "vitest";
 vi.mock("@posthog/ui/features/canvas/hooks/useChannelsLayout", () => ({
   useChannelsLayout: () => false,
 }));
-vi.mock("@posthog/host-router/react", () => ({
-  useHostTRPC: () => ({
-    dashboards: { saveContext: { mutationKey: () => ["save-context"] } },
-  }),
-}));
 vi.mock("@posthog/ui/shell/analytics", () => ({ track: vi.fn() }));
 vi.mock("@posthog/ui/features/canvas/hooks/useSelectedCanvasId", () => ({
   useSelectedCanvasId: () => useSelectedCanvasId(),
@@ -35,18 +30,24 @@ const {
 vi.mock("@tanstack/react-router", () => ({
   Outlet: () => null,
   useNavigate: () => vi.fn(),
-  useParams,
+  useSearch: () => ({}),
+  useParams: (opts?: {
+    select?: (p: Record<string, string | undefined>) => unknown;
+  }) => {
+    const params = useParams();
+    return opts?.select ? opts.select(params) : params;
+  },
   useRouterState: ({
     select,
   }: {
     select: (s: {
-      location: { pathname: string };
+      location: { pathname: string; href: string };
       matches: { routeId: string }[];
     }) => unknown;
   }) => {
     const pathname = usePathname();
     return select({
-      location: { pathname },
+      location: { pathname, href: pathname },
       matches: [{ routeId: "/spaces/$channelId/tasks/$taskId" }],
     });
   },

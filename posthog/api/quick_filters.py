@@ -167,7 +167,8 @@ class QuickFilterViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         context = self.request.query_params.get("context")
         if context:
             queryset = queryset.filter(context_memberships__context=context).distinct()
-        return queryset.order_by("-created_at")
+        # created_at is not unique, so it cannot page reliably on its own
+        return queryset.order_by("-created_at", "-id")
 
     def perform_destroy(self, instance):
         with transaction.atomic():

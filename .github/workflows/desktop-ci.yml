@@ -11,7 +11,11 @@ name: Desktop CI
 # any PR that requires them stuck waiting for status.
 
 on:
+    # ready_for_review is included because the children skip their expensive jobs on a
+    # draft. Without it, marking a desktop pull request ready would dispatch nothing and
+    # the author would wait for an unrelated push to get that coverage back.
     pull_request:
+        types: [opened, synchronize, reopened, ready_for_review]
     # Required so the `Desktop * Pass` checks report on merge queue entries —
     # without it the queue would wait for them until timeout. The children skip
     # all real jobs on merge_group (the suite already ran in full on the PR) and
@@ -66,7 +70,7 @@ jobs:
                 github.event.pull_request.head.repo.full_name == github.repository &&
                 startsWith(github.head_ref, 'trunk-merge/')
             )
-        runs-on: ubuntu-latest
+        runs-on: depot-ubuntu-24.04
         timeout-minutes: 5
         steps:
             - name: Checkout gate scripts
@@ -94,8 +98,8 @@ jobs:
     tests-pass:
         name: Desktop Tests Pass
         needs: [build, quality, typecheck, test, backend-coupling]
-        if: always()
-        runs-on: ubuntu-latest
+        if: ${{ !cancelled() }}
+        runs-on: depot-ubuntu-24.04
         timeout-minutes: 5
         steps:
             - name: Check results

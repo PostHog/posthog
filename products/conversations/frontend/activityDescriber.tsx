@@ -1,17 +1,17 @@
 import {
     ActivityChange,
     ActivityLogItem,
+    ActivityLogUserName,
     ChangeMapping,
     Description,
     HumanizedChange,
     defaultDescriber,
-    userNameForLogItem,
 } from 'lib/components/ActivityLog/humanizeActivity'
 import { TZLabel } from 'lib/components/TZLabel'
 import { Link } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
 
-import { WorkflowActivityLink } from './WorkflowActivityLink'
+import { WorkflowActivityLink } from './components/WorkflowActivityLink/WorkflowActivityLink'
 
 const nameOrLinkToTicket = (
     ticketNumber: string | undefined,
@@ -166,7 +166,7 @@ export function ticketActivityDescriber(logItem: ActivityLogItem, asNotification
         trigger?.job_type === 'hog_flow' && trigger.job_id ? (
             <WorkflowActivityLink id={trigger.job_id} />
         ) : (
-            <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong>
+            <ActivityLogUserName logItem={logItem} />
         )
     const ticketNumber = logItem.detail.name?.replace(/^Ticket #/, '')
     const ticketLink = nameOrLinkToTicket(ticketNumber, logItem.detail.name)

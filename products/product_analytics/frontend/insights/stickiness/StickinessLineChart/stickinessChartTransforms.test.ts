@@ -7,7 +7,6 @@ import type { SeriesDatum } from 'scenes/insights/InsightTooltip/insightTooltipU
 import { ChartDisplayType } from '~/types'
 
 import {
-    buildStickinessLabels,
     buildStickinessLineTimeSeriesConfig,
     buildStickinessMainSeries,
     buildStickinessSeries,
@@ -147,11 +146,16 @@ describe('stickinessChartTransforms', () => {
             expect(series.map((s) => s.key)).toEqual(['a', 'b'])
         })
 
-        it('assigns yAxisIds [left, y1, y2] across three results when showMultipleYAxes is true', () => {
-            const results = [makeResult({ id: 'a' }), makeResult({ id: 'b' }), makeResult({ id: 'c' })]
+        it('groups y-axes by the magnitude of the percent-converted values when showMultipleYAxes is true', () => {
+            // Same raw data, but b's much larger count makes its percentages ~2 orders smaller.
+            const results = [
+                makeResult({ id: 'a', count: 100 }),
+                makeResult({ id: 'b', count: 10000 }),
+                makeResult({ id: 'c', count: 100 }),
+            ]
             const series = buildStickinessSeries(results, { getColor: () => RED, showMultipleYAxes: true })
 
-            expect(series.map((s) => s.yAxisId)).toEqual([DEFAULT_Y_AXIS_ID, 'y1', 'y2'])
+            expect(series.map((s) => s.yAxisId)).toEqual([DEFAULT_Y_AXIS_ID, 'y1', DEFAULT_Y_AXIS_ID])
         })
 
         it('transforms each result independently using its own count', () => {
@@ -162,26 +166,6 @@ describe('stickinessChartTransforms', () => {
             const series = buildStickinessSeries(results, { getColor: () => RED })
             expect(series[0].data).toEqual([50, 25, 12.5, 12.5])
             expect(series[1].data).toEqual([20, 40, 20, 20])
-        })
-    })
-
-    describe('buildStickinessLabels', () => {
-        it.each([
-            ['day', 3, ['Day 0', 'Day 1', 'Day 2']],
-            ['week', 2, ['Week 0', 'Week 1']],
-            ['hour', 2, ['Hour 0', 'Hour 1']],
-            ['month', 2, ['Month 0', 'Month 1']],
-        ] as const)('emits "%s"-prefixed labels by index', (interval, count, expected) => {
-            expect(buildStickinessLabels(count, interval)).toEqual(expected)
-        })
-
-        it('defaults to "Day" when interval is null/undefined', () => {
-            expect(buildStickinessLabels(2, null)).toEqual(['Day 0', 'Day 1'])
-            expect(buildStickinessLabels(2, undefined)).toEqual(['Day 0', 'Day 1'])
-        })
-
-        it('returns empty array when count is 0', () => {
-            expect(buildStickinessLabels(0, 'day')).toEqual([])
         })
     })
 
@@ -238,7 +222,7 @@ describe('stickinessChartTransforms', () => {
             expect(yAxis.scale).toBe('log')
         })
 
-        it('omits an xAxis date config — labels are pre-formatted interval counts', () => {
+        it('omits an xAxis date config, since labels come from the API per bucket', () => {
             const config = buildStickinessLineTimeSeriesConfig({})
             expect(config.xAxis).toBeUndefined()
         })

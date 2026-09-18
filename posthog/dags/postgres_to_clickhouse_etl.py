@@ -173,7 +173,6 @@ _ORG_COLS = [
     "plugins_access_level",
     "for_internal_metrics",
     "default_experiment_stats_method",
-    "is_hipaa",
     "customer_id",
     "available_product_features",
     "usage",
@@ -193,7 +192,6 @@ _ORG_BOOL_FIELDS = [
     "members_can_use_personal_api_keys",
     "allow_publicly_shared_resources",
     "for_internal_metrics",
-    "is_hipaa",
     "never_drop_data",
     "setup_section_2_completed",
     "is_platform",
@@ -230,7 +228,6 @@ def _organization_ddl() -> str:
             plugins_access_level Int16,
             for_internal_metrics UInt8,
             default_experiment_stats_method Nullable(String),
-            is_hipaa Nullable(UInt8),
             customer_id Nullable(String),
             available_product_features Nullable(String),  -- JSON stored as String
             usage Nullable(String),  -- JSON stored as String
@@ -316,6 +313,7 @@ _TEAM_COLS = [
     "modifiers",
     "correlation_config",
     "session_recording_retention_period_days",
+    "event_retention_months",
     "plugins_opt_in",
     "opt_out_capture",
     "event_names",
@@ -462,6 +460,7 @@ def _team_ddl() -> str:
             modifiers Nullable(String),  -- JSON stored as String
             correlation_config Nullable(String),  -- JSON stored as String
             session_recording_retention_period_days Nullable(Int32),
+            event_retention_months UInt16 DEFAULT 84,
             plugins_opt_in UInt8,
             opt_out_capture UInt8,
             event_names String,  -- JSON stored as String
