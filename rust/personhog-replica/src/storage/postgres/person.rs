@@ -925,7 +925,7 @@ impl PersonLookup for PostgresStorage {
             r#"
             SELECT distinct_id as "distinct_id!", COALESCE(version, 0)::bigint as "version!"
             FROM posthog_persondistinctid
-            WHERE team_id = $1 AND person_id = $2 AND distinct_id = ANY($3)
+            WHERE team_id = $1 AND person_id = $2 AND distinct_id = ANY($3) AND is_deleted = false
             FOR UPDATE
             "#,
             team_id as i32,
@@ -967,9 +967,11 @@ impl PersonLookup for PostgresStorage {
             .map(|did| pdi_version_by_did[did.as_str()] + SPLIT_VERSION_OFFSET)
             .collect();
 
-        // Find persons that already exist for these UUIDs (idempotent re-split).
-        // No ON CONFLICT — the partitioned table has a unique index, not a
-        // unique constraint, so ON CONFLICT inference doesn't work.
+        // Find persons that already exist for these UUIDs: an idempotent
+        // re-split, or a tombstone left by a merge or delete of the person
+        // that once owned the distinct id. No ON CONFLICT — the partitioned
+        // table has a unique index, not a unique constraint, so ON CONFLICT
+        // inference doesn't work.
         let existing_persons = sqlx::query!(
             r#"
             SELECT id::bigint as "id!", uuid as "uuid!", created_at as "created_at!"
@@ -987,6 +989,7 @@ impl PersonLookup for PostgresStorage {
             .into_iter()
             .map(|r| (r.uuid, (r.id, r.created_at)))
             .collect();
+        let mut version_by_uuid: HashMap<Uuid, i64> = HashMap::new();
 
         let existing_uuids: HashSet<Uuid> = person_by_uuid.keys().copied().collect();
 
@@ -1012,23 +1015,37 @@ impl PersonLookup for PostgresStorage {
             .await?;
             for r in inserted {
                 person_by_uuid.insert(r.uuid, (r.id, r.created_at));
+                version_by_uuid.insert(r.uuid, new_person_version);
             }
         }
 
         let uuids_to_update: Vec<Uuid> = existing_uuids.into_iter().collect();
 
         if !uuids_to_update.is_empty() {
-            sqlx::query!(
+            // A tombstoned row comes back to life here, one above its own
+            // version so it outranks its ClickHouse tombstone; the split
+            // offset applies when that is higher. A live row never moves
+            // down, or ClickHouse would ignore the next update from ingestion.
+            let updated = sqlx::query!(
                 r#"
-                UPDATE posthog_person SET version = $3
+                UPDATE posthog_person
+                SET is_deleted = false,
+                    version = GREATEST(
+                        COALESCE(version, 0) + CASE WHEN is_deleted THEN 1 ELSE 0 END,
+                        $3
+                    )
                 WHERE team_id = $1 AND uuid = ANY($2)
+                RETURNING uuid as "uuid!", version as "version!"
                 "#,
                 team_id as i32,
                 &uuids_to_update,
                 new_person_version
             )
-            .execute(&mut *tx)
+            .fetch_all(&mut *tx)
             .await?;
+            for r in updated {
+                version_by_uuid.insert(r.uuid, r.version);
+            }
         }
 
         let new_person_rows: Vec<(i64, DateTime<Utc>)> = new_uuids
@@ -1077,7 +1094,10 @@ impl PersonLookup for PostgresStorage {
                     SplitResult {
                         distinct_id,
                         new_person_uuid,
-                        new_person_version,
+                        new_person_version: version_by_uuid
+                            .get(&new_person_uuid)
+                            .copied()
+                            .unwrap_or(new_person_version),
                         pdi_version,
                         new_person_created_at,
                     }
