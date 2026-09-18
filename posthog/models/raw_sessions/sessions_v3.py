@@ -163,7 +163,7 @@ CREATE TABLE IF NOT EXISTS {table_name}
 
     -- Flags - store every seen 'key=value' pair per flag. A flat array instead of a
     -- groupUniqArrayMap state because per-key sub-aggregators made merges ~8-37x more expensive.
-    flag_key_values SimpleAggregateFunction(groupUniqArrayArray(2000), Array(String)),
+    flag_key_values SimpleAggregateFunction(groupUniqArrayArray(10000), Array(String)),
     flag_keys SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
 
     -- Event names - store unique event names seen in this session
@@ -737,7 +737,7 @@ SELECT
     max(has_autocapture) as has_autocapture,
 
     -- flags
-    groupUniqArrayArray(2000)(flag_key_values) as flag_key_values,
+    groupUniqArrayArray(10000)(flag_key_values) as flag_key_values,
     groupUniqArrayArray(flag_keys) as flag_keys,
 
     -- event names

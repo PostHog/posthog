@@ -83,7 +83,7 @@ ADD COLUMN IF NOT EXISTS urls SimpleAggregateFunction(groupUniqArrayArray(2000),
 
 ADD_FLAG_KEY_VALUES = """
 ALTER TABLE {table_name}
-ADD COLUMN IF NOT EXISTS flag_key_values SimpleAggregateFunction(groupUniqArrayArray(2000), Array(String)) AFTER has_autocapture
+ADD COLUMN IF NOT EXISTS flag_key_values SimpleAggregateFunction(groupUniqArrayArray(10000), Array(String)) AFTER has_autocapture
 """
 
 

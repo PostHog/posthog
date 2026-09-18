@@ -1002,7 +1002,7 @@ database "posthog" {
       type = "SimpleAggregateFunction(max, Bool)"
     }
     column "flag_key_values" {
-      type = "SimpleAggregateFunction(groupUniqArrayArray(2000), Array(String))"
+      type = "SimpleAggregateFunction(groupUniqArrayArray(10000), Array(String))"
     }
     column "flag_values" {
       type = "AggregateFunction(groupUniqArrayMap, Map(String, String))"

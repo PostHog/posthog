@@ -6205,7 +6205,7 @@
   
       -- Flags - store every seen 'key=value' pair per flag. A flat array instead of a
       -- groupUniqArrayMap state because per-key sub-aggregators made merges ~8-37x more expensive.
-      flag_key_values SimpleAggregateFunction(groupUniqArrayArray(2000), Array(String)),
+      flag_key_values SimpleAggregateFunction(groupUniqArrayArray(10000), Array(String)),
       flag_keys SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
   
       -- Event names - store unique event names seen in this session
@@ -8350,7 +8350,7 @@
   
       -- Flags - store every seen 'key=value' pair per flag. A flat array instead of a
       -- groupUniqArrayMap state because per-key sub-aggregators made merges ~8-37x more expensive.
-      flag_key_values SimpleAggregateFunction(groupUniqArrayArray(2000), Array(String)),
+      flag_key_values SimpleAggregateFunction(groupUniqArrayArray(10000), Array(String)),
       flag_keys SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
   
       -- Event names - store unique event names seen in this session
@@ -10470,7 +10470,7 @@
   
       -- Flags - store every seen 'key=value' pair per flag. A flat array instead of a
       -- groupUniqArrayMap state because per-key sub-aggregators made merges ~8-37x more expensive.
-      flag_key_values SimpleAggregateFunction(groupUniqArrayArray(2000), Array(String)),
+      flag_key_values SimpleAggregateFunction(groupUniqArrayArray(10000), Array(String)),
       flag_keys SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
   
       -- Event names - store unique event names seen in this session
@@ -13667,7 +13667,7 @@
   
       -- Flags - store every seen 'key=value' pair per flag. A flat array instead of a
       -- groupUniqArrayMap state because per-key sub-aggregators made merges ~8-37x more expensive.
-      flag_key_values SimpleAggregateFunction(groupUniqArrayArray(2000), Array(String)),
+      flag_key_values SimpleAggregateFunction(groupUniqArrayArray(10000), Array(String)),
       flag_keys SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
   
       -- Event names - store unique event names seen in this session
