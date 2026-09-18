@@ -14,7 +14,9 @@ Checks and suites are polymorphic: a catalog-only member can read a teammate's m
 
 Restricted callers must have access to both the stored and proposed definitions before PUT or PATCH can save anything, including presentation-only edits. Authorization is repeated if a concurrent edit changes the definition accepted by the transaction. An edit makes three attempts. After three attempts it writes nothing and returns HTTP 400 with the code `concurrent_edit`. An unavailable reference fails closed. An authorized caller can still disable a stale check without revalidating its assertion.
 
-A check that reads more than its own subject executes as a user. A manual run executes as the user who started it, and an automated run executes as the user who last wrote the definition. If neither user is available, the run records an error and executes no SQL.
+A check that reads more than its own subject executes as a user, and so does every check on a PostHog table, because property restrictions and warehouse joins on those tables resolve per user. A manual run executes as the user who started it, and an automated run executes as the user who last wrote the definition. If neither user is available, the run records an error and executes no SQL.
+
+A check on a PostHog table names a column the registry lists for that table. A dotted name reaches into a JSON column only, so `properties.$browser` is accepted and `person.properties.email` or a warehouse join is refused at authoring time. The same rule applies to the `to_column` of a relationships check that points at a PostHog table.
 
 ## Token scopes
 
