@@ -1,5 +1,7 @@
 from unittest.mock import MagicMock, patch
 
+from django.conf import settings
+
 from parameterized import parameterized
 
 from posthog.constants import AvailableFeature
@@ -226,10 +228,10 @@ class TestCommentSlackDm(CommentActivityTestCase):
         self._record_activity(comment, [self.author.id])
 
         assert self._dm_channels() == ["U-author"]
-        assert (
-            f"/code/task/{self.task.id}?comment={comment.id}&scope=desktop_canvas&item={canvas.id}"
-            in self._dm_heading()
-        )
+        heading = self._dm_heading()
+        assert f"<{settings.SITE_URL}/code/canvas/{canvas_channel.id}/{canvas.id}|Launch canvas>" in heading
+        assert self.task.title not in heading
+        assert str(self.task.id) not in heading
 
     def test_dm_links_to_the_desktop_task_bridge_anchored_on_the_comment(self):
         comment = self._comment()

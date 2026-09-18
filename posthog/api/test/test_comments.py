@@ -627,6 +627,16 @@ class TestComments(APIBaseTest, QueryMatchingTest):
         )
         assert [row["id"] for row in listed.json()["results"]] == [created.json()["id"]]
 
+        regenerated_by = task_model.objects.create(
+            team=self.team, title="Regenerate the canvas", created_by=author, channel=author_personal
+        )
+        canvas.generation_task_id = regenerated_by.id
+        canvas.save(update_fields=["generation_task_id"])
+        relisted = self.client.get(
+            f"/api/projects/{self.team.id}/comments?scope=desktop_canvas&item_id={canvas.id}&task_id={regenerated_by.id}"
+        )
+        assert [row["id"] for row in relisted.json()["results"]] == [created.json()["id"]]
+
     @mock.patch("posthog.api.comments.send_mention_notifications")
     @mock.patch("posthog.api.comments.produce_discussion_mention_events")
     def test_private_canvas_comments_follow_space_membership(

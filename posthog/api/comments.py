@@ -948,7 +948,9 @@ class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelV
                     item_id=item_id,
                 ):
                     return queryset.none()
-                if scope != "task":
+                # A canvas thread belongs to the canvas, which `item_id` already selects. Its `taskId`
+                # only records which task generated the version the comment was written on.
+                if scope == "task_artifact":
                     queryset = queryset.filter(item_context__taskId=str(task_id))
         elif self.action in ("list", "count"):
             # Product-owned scopes require their own object-level access checks and must

@@ -117,6 +117,21 @@ class TestCommentActivity(CommentActivityTestCase):
             assert row.channel_id == canvas.channel_id
             assert row.channel_name == channel.name
 
+    def test_canvas_comment_resolves_its_owner_when_the_caller_passes_none(self):
+        canvas = Canvas.objects.create(
+            team=self.team,
+            channel=self.channel,
+            name="Launch canvas",
+            created_by=self.author,
+            generation_task_id=self.task.id,
+        )
+        comment = self._comment(scope="desktop_canvas", item_id=str(canvas.id))
+
+        self._record_activity(comment)
+
+        row = TaskCommentActivity.objects.get(team=self.team, user=self.author, comment=comment)
+        assert row.kind == TaskCommentActivity.Kind.OWNED_ITEM_COMMENT
+
     def test_feed_renders_the_comment_author_and_text(self):
         comment = self._comment()
         self._record_activity(comment, [self.author.id])

@@ -15,11 +15,13 @@ from urllib.parse import urlencode
 from uuid import UUID
 
 from django.conf import settings
+from django.core.exceptions import ValidationError
 
 import structlog
 
 from posthog.comment.access import task_comment_target_is_accessible
 from posthog.comment.formatting import escape_slack_mrkdwn, rich_content_to_slack_payload
+from posthog.dataclasses import frozen
 from posthog.helpers.slack_identity import resolve_slack_user
 from posthog.models.comment import Comment
 from posthog.models.integration import Integration, SlackIntegration
@@ -29,6 +31,7 @@ from posthog.models.user import NOTIFICATION_DEFAULTS, User
 from posthog.models.user_integration import UserIntegration
 from posthog.user_permissions import UserPermissions
 
+from products.canvas.backend.models import Canvas
 from products.slack_app.backend.feature_flags import is_slack_app_oauth_enabled
 from products.slack_app.backend.services.slack_user_info import lookup_slack_user_id_by_email
 from products.tasks.backend.models import Task, TaskCommentActivity
@@ -47,7 +50,6 @@ _MAX_MENTION_LOOKUPS_PER_SLACK_WORKSPACE = 20
 _ACCENT = "good"
 
 _LOCATIONS: Mapping[str, str] = {
-    "desktop_canvas": "On a canvas",
     "task_artifact": "On an artifact",
 }
 
@@ -94,6 +96,9 @@ def send_comment_slack_dms(*, team_id: int, comment_id: UUID, task_id: UUID, rec
     task = Task.objects.filter(team_id=team_id, id=task_id).only("id", "team_id", "title").first()
     if task is None:
         return _skip(comment_id, "task_missing")
+    link = _link_target(comment=comment, task=task)
+    if link is None:
+        return _skip(comment_id, "canvas_missing")
 
     team = Team.objects.filter(id=team_id).only("id", "organization_id").first()
     if team is None:
@@ -179,7 +184,7 @@ def send_comment_slack_dms(*, team_id: int, comment_id: UUID, task_id: UUID, rec
             heading, blocks = _message(
                 kind=kind,
                 comment=comment,
-                task=task,
+                link=link,
                 organization_id=team.organization_id,
                 slack_user_id_by_email=_mention_resolver(
                     organization_id=team.organization_id,
@@ -366,21 +371,50 @@ def _bridge_url(*, comment: Comment, task: Task) -> str:
     return f"{settings.SITE_URL}/code/task/{task.id}?{urlencode(params)}"
 
 
+@frozen
+class _LinkTarget:
+    title: str
+    url: str
+
+
+def _link_target(*, comment: Comment, task: Task) -> _LinkTarget | None:
+    """The item the heading names and links to.
+
+    A canvas comment links to the canvas, not to the task that generated it. Canvas access follows
+    the space the canvas lives in, so a recipient can see the canvas without seeing the task. A task
+    link would then name a task they cannot open and leak its title.
+    """
+    if comment.scope != "desktop_canvas":
+        return _LinkTarget(title=task.title or "a task", url=_bridge_url(comment=comment, task=task))
+    try:
+        canvas = (
+            Canvas.objects.for_team(comment.team_id)
+            .filter(id=comment.item_id, deleted=False)
+            .only("id", "channel_id", "name")
+            .first()
+        )
+    except (ValueError, ValidationError):
+        return None
+    if canvas is None:
+        return None
+    return _LinkTarget(
+        title=canvas.name or "a canvas", url=f"{settings.SITE_URL}/code/canvas/{canvas.channel_id}/{canvas.id}"
+    )
+
+
 def _message(
     *,
     kind: str,
     comment: Comment,
-    task: Task,
+    link: _LinkTarget,
     organization_id: str | UUID | None,
     slack_user_id_by_email: Callable[[str], str | None] | None = None,
 ) -> tuple[str, list[dict]]:
-    url = _bridge_url(comment=comment, task=task)
-    title = task.title or "a task"
     author = _author_name(comment)
     template = _HEADINGS.get(kind, _HEADINGS[TaskCommentActivity.Kind.MENTION])
     # A pipe in the title would end the link label early, so it can't survive into the label.
-    label = escape_slack_mrkdwn(title).replace("|", "-")
-    heading = template.format(author=f"*{escape_slack_mrkdwn(author)}*", link=f"<{url}|{label}>")
+    label = escape_slack_mrkdwn(link.title).replace("|", "-")
+    heading = template.format(author=f"*{escape_slack_mrkdwn(author)}*", link=f"<{link.url}|{label}>")
 
     body, _ = rich_content_to_slack_payload(
         comment.rich_content,
@@ -393,7 +427,7 @@ def _message(
     blocks: list[dict] = []
     if body:
         blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": body}})
-    # Three canvases in one task otherwise produce three identical headings.
+    # Several artifacts in one task otherwise produce identical headings.
     location = _LOCATIONS.get(comment.scope)
     if location:
         blocks.append({"type": "context", "elements": [{"type": "mrkdwn", "text": location}]})

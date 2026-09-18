@@ -9722,7 +9722,9 @@ def _activity_task_details(
     if isinstance(row, TaskCommentActivity) and row.comment.scope == "desktop_canvas" and row.comment.item_id:
         canvas = canvases_by_id.get(row.comment.item_id)
         if canvas is not None:
-            return _ActivityTaskDetails(title=canvas.name, channel_id=canvas.channel_id, channel_name=canvas.channel.name)
+            return _ActivityTaskDetails(
+                title=canvas.name, channel_id=canvas.channel_id, channel_name=canvas.channel.name
+            )
     return _ActivityTaskDetails(
         title=row.task.title,
         channel_id=row.task.channel_id,

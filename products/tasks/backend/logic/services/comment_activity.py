@@ -122,6 +122,10 @@ def project_comment_activity(
                     )
                 except (ValueError, DjangoValidationError):
                     pass
+            if owner_id is None and comment.scope == "desktop_canvas" and comment.item_id:
+                from products.canvas.backend.comment_access import canvas_owner_id
+
+                owner_id = canvas_owner_id(team_id=team_id, canvas_id=comment.item_id)
             if comment.scope != "desktop_canvas":
                 owner_id = owner_id or task.created_by_id
             if owner_id:
