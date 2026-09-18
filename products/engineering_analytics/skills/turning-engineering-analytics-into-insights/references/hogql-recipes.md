@@ -200,7 +200,9 @@ ORDER BY week, estimated_cost_usd DESC
 ```
 
 Grain is one row per job attempt, so `sum` is correct across retries.
-`estimated_cost_usd` is NULL (skipped by `sum`) for non-billable jobs (github-hosted, non-Linux, unclassifiable labels) and for jobs still running; disambiguate a NULL via `provider` (non-billable) vs `completed_at` (unsettled).
+`estimated_cost_usd` is NULL (skipped by `sum`) for three reasons: a non-billable job (github-hosted, non-Linux, unclassifiable labels), a job still running, or a re-run copy that never executed (GitHub re-lists an already-passed job under a later `run_attempt`, so Depot billed nothing).
+Disambiguate a NULL by `provider` (non-billable tier), `completed_at` (unsettled), or `is_rerun_copy` (never executed).
+Test `is_rerun_copy` first: a copy keeps the earlier attempt's timestamps, so it reads as settled on a billable provider, and only the flag explains it.
 Add `WHERE pr_number = <n>` for one PR's cost — it matches `engineering-analytics-pr-cost`, since the tool reads the same rendered cost SELECT.
 With several connected sources, filter `repo_owner` / `repo_name`.
 
