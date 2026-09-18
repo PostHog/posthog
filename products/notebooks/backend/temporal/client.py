@@ -1,4 +1,8 @@
-"""Fire-and-forget starters for notebook Temporal workflows, callable from sync DRF views."""
+"""Fire-and-forget starters for notebook Temporal workflows, callable from sync DRF views.
+
+The whole-notebook run's starter lives beside its workflow instead, because this module
+sits under the dispatch code that workflow calls and importing it here would close a cycle.
+"""
 
 from datetime import timedelta
 

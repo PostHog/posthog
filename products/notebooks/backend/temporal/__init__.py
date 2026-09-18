@@ -3,6 +3,14 @@ from products.notebooks.backend.temporal.frame_materialize import (
     mark_frame_materialize_failed_activity,
     materialize_frame_activity,
 )
+from products.notebooks.backend.temporal.notebook_run import (
+    NotebookRunWorkflow,
+    check_notebook_cell_activity,
+    dispatch_notebook_cell_activity,
+    finish_notebook_run_activity,
+    read_notebook_run_status_activity,
+    stop_notebook_cell_activity,
+)
 from products.notebooks.backend.temporal.sql_v2 import (
     NotebookSQLV2RunWorkflow,
     dispatch_sql_v2_run_activity,
@@ -17,12 +25,18 @@ from products.notebooks.backend.temporal.widget_generation import (
 )
 
 WORKFLOWS = [
+    NotebookRunWorkflow,
     NotebookSQLV2RunWorkflow,
     NotebookFrameMaterializeWorkflow,
     NotebookWidgetGenerationWorkflow,
 ]
 
 ACTIVITIES = [
+    check_notebook_cell_activity,
+    dispatch_notebook_cell_activity,
+    finish_notebook_run_activity,
+    read_notebook_run_status_activity,
+    stop_notebook_cell_activity,
     dispatch_sql_v2_run_activity,
     expire_sql_v2_run_activity,
     mark_sql_v2_run_failed_activity,
