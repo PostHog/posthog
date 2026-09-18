@@ -52,7 +52,7 @@ import { getProjectEventExistence } from 'lib/utils/getAppContext'
 import { addProductIntentForCrossSell } from 'lib/utils/product-intents'
 import { TestAccountFilter } from 'scenes/insights/filters/TestAccountFilter'
 import { MaxTool } from 'scenes/max/MaxTool'
-import { RecordingEventMatchScopeSwitch } from 'scenes/session-recordings/filters/RecordingEventMatchScopeSwitch'
+import { RecordingEventMatchScopeSelect } from 'scenes/session-recordings/filters/RecordingEventMatchScopeSelect'
 import { TimestampFormatToLabel, hasPageFilter } from 'scenes/session-recordings/utils'
 import { urls } from 'scenes/urls'
 
@@ -905,8 +905,7 @@ export const ReplayFiltersTab = ({
                     suffix={['filter', 'filters']}
                     size="small"
                 />
-                <div className="flex flex-wrap items-center justify-end gap-2">
-                    <RecordingEventMatchScopeSwitch filters={filters} setFilters={setFilters} />
+                <div>
                     {compactActions ? (
                         resetButton
                     ) : (
@@ -921,6 +920,9 @@ export const ReplayFiltersTab = ({
                         />
                     )}
                 </div>
+            </div>
+            <div className="flex items-center pb-2 px-2">
+                <RecordingEventMatchScopeSelect filters={filters} setFilters={setFilters} />
             </div>
 
             <UniversalFilters
