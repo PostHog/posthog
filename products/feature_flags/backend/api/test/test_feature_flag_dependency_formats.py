@@ -16,6 +16,7 @@ from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.team.team import Team
 
 from products.feature_flags.backend.api.feature_flag import FeatureFlagSerializer
+from products.feature_flags.backend.dependency_formats import DEPENDENCY_BATCH_SIZE
 from products.feature_flags.backend.facade.api import create_flag, set_flag_active, update_flag
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
@@ -79,7 +80,8 @@ class TestFeatureFlagDependencyFormats(APIBaseTest):
         assert response.json()["code"] == "unsupported_dependency_config_version"
         assert response.json()["attr"] == "filters"
         assert response.json()["detail"] == (
-            "A flag dependency uses an unsupported configuration format. Remove this dependency to continue."
+            f"Flag dependency with ID {target.id} uses an unsupported configuration format. "
+            "Remove this dependency to continue."
         )
         report.assert_not_called()
         assert ActivityLog.objects.filter(team_id=self.team.id).count() == history_count
@@ -123,6 +125,10 @@ class TestFeatureFlagDependencyFormats(APIBaseTest):
         )
         assert response.status_code == 400
         assert response.json()["code"] == "unsupported_dependency_config_version"
+        assert response.json()["detail"] == (
+            f"Flag dependency with ID {target.id} uses an unsupported configuration format. "
+            "Remove this dependency to continue."
+        )
 
     @parameterized.expand([("group", False, False), ("mixed", True, False), ("malformed", False, True)])
     @override_settings(FEATURE_FLAG_FILTERS_ENFORCED_RULES=set())
@@ -150,6 +156,10 @@ class TestFeatureFlagDependencyFormats(APIBaseTest):
             )
         assert response.status_code == 400, response.json()
         assert response.json()["code"] == "unsupported_dependency_config_version"
+        assert response.json()["detail"] == (
+            f"Flag dependency with ID {target.id} uses an unsupported configuration format. "
+            "Remove this dependency to continue."
+        )
 
     @parameterized.expand(
         [
@@ -173,28 +183,42 @@ class TestFeatureFlagDependencyFormats(APIBaseTest):
         assert source.version == (7 if expected == 400 else 8)
         assert source.filters == ({"groups": []} if _name == "remove" else before)
 
-    @parameterized.expand([("patch", False), ("empty", False), ("action", False), ("restore", False), ("action", True)])
-    def test_enabling_or_restoring_checks_stored_reachable_formats(self, mode: str, transitive: bool) -> None:
+    @parameterized.expand(
+        [
+            ("enable_patch", "patch", False),
+            ("enable_empty_filters", "empty", False),
+            ("enable_action", "action", False),
+            ("restore_active", "restore", False),
+            ("enable_action_transitive", "action", True),
+        ]
+    )
+    def test_enabling_or_restoring_checks_stored_reachable_formats(
+        self, _name: str, mode: str, transitive: bool
+    ) -> None:
         target = self.make_flag("target", filters={"version": 2})
-        if transitive:
-            target = self.make_flag("middle", filters=dependency_filters(target))
+        dependency = self.make_flag("middle", filters=dependency_filters(target)) if transitive else target
         source = self.make_flag(
-            "source", filters=dependency_filters(target), active=mode == "restore", deleted=mode == "restore", version=7
+            "source",
+            filters=dependency_filters(dependency),
+            active=mode == "restore",
+            deleted=mode == "restore",
+            version=7,
         )
         url = f"/api/projects/{self.team.id}/feature_flags/{source.id}/"
-        response = (
-            self.client.post(f"{url}enable/", {}, format="json")
-            if mode == "action"
-            else self.client.patch(
-                url,
-                {"deleted": False}
-                if mode == "restore"
-                else {"active": True, **({"filters": {}} if mode == "empty" else {})},
-                format="json",
-            )
-        )
+        if mode == "action":
+            response = self.client.post(f"{url}enable/", {}, format="json")
+        elif mode == "restore":
+            response = self.client.patch(url, {"deleted": False}, format="json")
+        elif mode == "empty":
+            response = self.client.patch(url, {"active": True, "filters": {}}, format="json")
+        else:
+            response = self.client.patch(url, {"active": True}, format="json")
         assert response.status_code == 400, response.json()
         assert response.json()["code"] == "unsupported_dependency_config_version"
+        assert response.json()["detail"] == (
+            f"Flag dependency with ID {target.id} uses an unsupported configuration format. "
+            "Remove this dependency to continue."
+        )
         source.refresh_from_db()
         assert source.version == 7
 
@@ -281,7 +305,24 @@ class TestFeatureFlagDependencyFormats(APIBaseTest):
         assert source.active
         assert source.filters["groups"] == []
 
-    @parameterized.expand([("person", False, 2, 8), ("group", True, 2, 2), ("wide_group", True, 101, 3)])
+    def test_restoring_disabled_flag_does_not_require_graph_repair(self) -> None:
+        target = self.make_flag("target", filters={"version": 2})
+        filters = dependency_filters(target)
+        source = self.make_flag("source", filters=filters, active=False, deleted=True)
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{source.id}/",
+            {"deleted": False},
+            format="json",
+        )
+        assert response.status_code == 200, response.json()
+        source.refresh_from_db()
+        assert not source.deleted
+        assert not source.active
+        assert source.filters == filters
+
+    @parameterized.expand(
+        [("person", False, 2, 8), ("group", True, 2, 2), ("wide_group", True, DEPENDENCY_BATCH_SIZE + 1, 3)]
+    )
     @override_settings(FEATURE_FLAG_FILTERS_ENFORCED_RULES=set())
     def test_diamond_preserves_dependency_query_bound(
         self, _name: str, group_only: bool, width: int, query_limit: int

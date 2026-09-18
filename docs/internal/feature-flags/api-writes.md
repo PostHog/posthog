@@ -17,14 +17,15 @@ The existing validation rollout controls normalization and unknown-key preservat
 
 Dependency targets must also use v1 configurations.
 The dependency validator resolves IDs within the existing project scope, rejects disabled targets, and checks `filters.version` before accepting an edge.
-The cycle walk checks each loaded target before reading its v1 properties, including reachable targets without `groups`.
-A rejected format returns `unsupported_dependency_config_version` at `filters`, without including the target's configuration.
+During the cycle walk, reference resolution checks each target's format before reading its v1 properties, including reachable targets without `groups`.
+A rejected format returns `unsupported_dependency_config_version` at `filters`, identifying the target by ID without including its configuration.
 The check adds no database queries to the existing person-condition dependency walk.
 
 Group-only conditions and writes that re-enable a flag or restore an active deleted flag also check reachable target formats, independently of structural-validation rollout settings.
 This supplementary traversal fetches pending targets in batches of at most 100 IDs and visits each ID once, without scanning the whole project.
 This check does not enable group dependencies: their existing aggregation validation still applies.
 Metadata-only and empty-filter updates retain their existing no-op targeting semantics unless they make stored targeting usable again.
+Restoring a deleted flag that stays disabled does not require repairing its dependencies.
 Disabling, archival, and deletion retain their existing dependent-flag protections.
 
 | Source configuration | Target configuration                      | Write behavior                                      |

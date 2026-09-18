@@ -8,14 +8,24 @@ from posthog.utils import safe_int
 from products.feature_flags.backend.facade.config import ConfigFormatError, detect_config_format
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
+DEPENDENCY_BATCH_SIZE = 100
 
-def require_v1_dependency(filters: Mapping[str, JsonValue] | None) -> None:
+
+class DependencyConfigFormatError(ConfigFormatError):
+    def __init__(self, error: ConfigFormatError, *, flag_id: int) -> None:
+        super().__init__(error.config_format)
+        self.flag_id = flag_id
+
+
+def require_v1_config(filters: Mapping[str, JsonValue] | None) -> None:
     config_format = detect_config_format(filters)
     if config_format.kind != "v1":
         raise ConfigFormatError(config_format)
 
 
 def _dependency_ids(filters: Mapping[str, JsonValue]) -> Iterator[int]:
+    # Unlike facade.references.flag_dependency_properties, this walk skips malformed
+    # stored groups and properties so format checks do not change their validation policy.
     groups = filters.get("groups")
     if not isinstance(groups, list):
         return
@@ -33,21 +43,25 @@ def _dependency_ids(filters: Mapping[str, JsonValue]) -> Iterator[int]:
 
 
 def validate_dependency_formats(filters: Mapping[str, JsonValue], *, project_id: int) -> None:
-    """Check formats where a write does not run the full dependency validator.
+    """Check formats for group-only conditions and writes that enable or restore a flag without filters.
 
-    Missing references and malformed v1 properties retain the caller's existing policy.
+    Skip dependency IDs with no matching row in the project and properties that are not
+    v1 flag references. The calling write path decides how to handle those cases.
     Resolve IDs in project scope before inspecting any target configuration.
     """
-    require_v1_dependency(filters)
+    require_v1_config(filters)
     pending = set(_dependency_ids(filters))
     visited: set[int] = set()
     while pending:
-        batch = set(islice(pending, 100))
+        batch = set(islice(pending, DEPENDENCY_BATCH_SIZE))
         pending.difference_update(batch)
         visited.update(batch)
-        for target_filters in FeatureFlag.objects.filter(id__in=batch, team__project_id=project_id).values_list(
-            "filters", flat=True
-        ):
-            require_v1_dependency(target_filters)
+        for target_id, target_filters in FeatureFlag.objects.filter(
+            id__in=batch, team__project_id=project_id
+        ).values_list("id", "filters"):
+            try:
+                require_v1_config(target_filters)
+            except ConfigFormatError as exc:
+                raise DependencyConfigFormatError(exc, flag_id=target_id) from exc
             pending.update(_dependency_ids(target_filters or {}))
         pending.difference_update(visited)
