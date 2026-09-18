@@ -13,7 +13,7 @@ export const getClaudeCodeSteps = (ctx: OnboardingComponentsContext): StepDefini
                 <>
                     <Markdown>
                         {dedent`
-                            [Claude Code](https://docs.anthropic.com/en/docs/claude-code/overview) is Anthropic's agentic coding tool that runs in your terminal. The [PostHog plugin](https://github.com/PostHog/ai-plugin) captures every Claude Code session as structured AI Observability events: generations, tool executions, and traces.
+                            [Claude Code](https://docs.anthropic.com/en/docs/claude-code/overview) is Anthropic's agentic coding tool that runs in your terminal. The [PostHog plugin](https://github.com/PostHog/ai-plugin) captures every Claude Code session as structured AI Observability events: generations, tool executions, and traces. You can install the full plugin, or the capture hook on its own.
 
                             This is useful for:
 
@@ -45,8 +45,58 @@ export const getClaudeCodeSteps = (ctx: OnboardingComponentsContext): StepDefini
                     />
                     <Markdown>
                         This adds a `SessionEnd` hook that parses your session logs and sends events to PostHog when
-                        each session finishes.
+                        each session finishes. The plugin also loads PostHog skills, slash commands, and the PostHog MCP
+                        server into every session.
                     </Markdown>
+                    <Markdown>
+                        {dedent`
+                            ### Install the capture hook on its own
+
+                            To capture sessions without the skills, slash commands, and MCP server, run the \`SessionEnd\` hook from a checkout of the plugin repository and skip \`claude plugin install\`. The hook uses the Python standard library only, so there is nothing else to install.
+
+                            Clone the repository:
+                        `}
+                    </Markdown>
+                    <CodeBlock
+                        language="bash"
+                        code={dedent`
+                            git clone --depth 1 https://github.com/PostHog/ai-plugin.git ~/.posthog-ai-plugin
+                        `}
+                    />
+                    <Markdown>
+                        Register the hook in `~/.claude/settings.json` for all projects, or in `.claude/settings.json`
+                        for one project:
+                    </Markdown>
+                    <CodeBlock
+                        language="json"
+                        code={dedent`
+                            {
+                              "hooks": {
+                                "SessionEnd": [
+                                  {
+                                    "hooks": [
+                                      {
+                                        "type": "command",
+                                        "command": "python3 \"$HOME/.posthog-ai-plugin/hooks/session-end-llma.py\"",
+                                        "timeout": 30
+                                      }
+                                    ]
+                                  }
+                                ]
+                              }
+                            }
+                        `}
+                    />
+                    <Markdown>
+                        Both routes send the same `$ai_generation`, `$ai_span`, and `$ai_trace` events, and they read
+                        the same environment variables. To update the hook, run `git -C ~/.posthog-ai-plugin pull`.
+                    </Markdown>
+                    <Blockquote>
+                        <Markdown>
+                            **Note:** Pick one route. If you register the hook by hand while the plugin is installed,
+                            Claude Code runs both hooks and PostHog receives each session twice.
+                        </Markdown>
+                    </Blockquote>
                 </>
             ),
         },
@@ -111,16 +161,19 @@ export const getClaudeCodeSteps = (ctx: OnboardingComponentsContext): StepDefini
                         `}
                     />
                     <Markdown>
-                        When the session ends, the plugin parses the session log file and sends events to PostHog. No
+                        When the session ends, the hook parses the session log file and sends events to PostHog. No
                         changes to your workflow are needed.
                     </Markdown>
-                    <Markdown>You can check the status of the last send from within Claude Code:</Markdown>
+                    <Markdown>
+                        With the plugin installed, check the status of the last send from within Claude Code:
+                    </Markdown>
                     <CodeBlock
                         language="text"
                         code={dedent`
                             /posthog:llma-cc-status
                         `}
                     />
+                    <Markdown>The hook writes the same status to `~/.claude/posthog-llma-status.json`.</Markdown>
                 </>
             ),
         },
@@ -154,7 +207,7 @@ export const getClaudeCodeSteps = (ctx: OnboardingComponentsContext): StepDefini
 
                             ### Ingest past sessions
 
-                            To send data from Claude Code sessions that happened before you installed the plugin, use the ingestion command below.
+                            To send data from Claude Code sessions that happened before you set up capture, use the ingestion command below.
                         `}
                     </Markdown>
                     <CodeBlock
@@ -164,10 +217,20 @@ export const getClaudeCodeSteps = (ctx: OnboardingComponentsContext): StepDefini
                         `}
                     />
                     <Markdown>
+                        Without the plugin, run the same ingestion from your checkout. Add `--list` to see recent
+                        sessions first:
+                    </Markdown>
+                    <CodeBlock
+                        language="bash"
+                        code={dedent`
+                            python3 ~/.posthog-ai-plugin/scripts/llma_cc_ingest.py
+                        `}
+                    />
+                    <Markdown>
                         {dedent`
                             ### What gets captured
 
-                            The plugin captures three types of events:
+                            Both routes capture three types of events:
 
                             - **\`$ai_generation\`:** Each LLM call, including model, provider, token usage (input, output, cache read, and cache creation), stop reason, and input and output messages in [OpenAI chat format](https://posthog.com/docs/ai-observability/generations).
                             - **\`$ai_span\`:** Each tool execution (Bash, Read, Write, Edit, Grep, Glob, MCP tools, and others), including tool name, input parameters, output result, duration, and error information. [Learn more about spans](https://posthog.com/docs/ai-observability/spans).
