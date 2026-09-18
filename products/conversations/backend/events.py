@@ -7,7 +7,7 @@ Events are sent to the customer's PostHog project via their team's API token.
 """
 
 from datetime import datetime
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 from django.utils import timezone
 
@@ -30,6 +30,10 @@ from products.access_control.backend.models.role import Role
 from products.conversations.backend.cache import get_cached_resolved_groups, set_cached_resolved_groups
 from products.conversations.backend.models import Ticket, TicketAssignment
 from products.conversations.backend.models.constants import Channel, OrganizationIdSource
+
+if TYPE_CHECKING:
+    # Type-only: the temporal package imports this module, so a runtime import would cycle.
+    from products.conversations.backend.temporal.ticket_patterns.schemas import DetectedCluster
 
 logger = structlog.get_logger(__name__)
 
@@ -648,4 +652,30 @@ def capture_message_received(ticket: Ticket, message_id: str, message_content: s
         timestamp=None,
         properties=properties,
         process_person_profile=process_person,
+    )
+
+
+def capture_ticket_pattern_detected(team: Team, cluster: "DetectedCluster", lookback_minutes: int) -> None:
+    """Several customers reported the same problem inside the detection window.
+
+    This event is the whole output of spike detection: nothing is stored, so what the team does
+    about it is whatever workflow they point at this event.
+    """
+    capture_internal(
+        token=team.api_token,
+        event_name="$conversation_ticket_pattern_detected",
+        event_source=EVENT_SOURCE,
+        # A spike belongs to the project, not to a person, so there is nobody to profile.
+        distinct_id=f"conversations_ticket_patterns_{team.id}",
+        timestamp=None,
+        properties={
+            "topic": cluster.topic,
+            "summary": cluster.summary,
+            "ticket_count": len(cluster.ticket_ids),
+            "requester_count": cluster.requester_count,
+            "ticket_ids": cluster.ticket_ids,
+            "ticket_urls": [f"{SITE_URL}/project/{team.id}/support/tickets/{t}" for t in cluster.ticket_ids],
+            "window_minutes": lookback_minutes,
+        },
+        process_person_profile=False,
     )

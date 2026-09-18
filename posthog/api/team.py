@@ -1885,6 +1885,24 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
                 value["ai_reply_modes"] = cleaned_modes
             else:
                 raise serializers.ValidationError({"ai_reply_modes": "Must be an object or null."})
+        # Ticket spike detection thresholds. Reject rather than clamp, so a typo in the window
+        # length is visible instead of silently becoming a different setting.
+        for threshold_key, low, high in (
+            ("ticket_patterns_lookback_minutes", 30, 1440),
+            ("ticket_patterns_min_tickets", 2, 50),
+            ("ticket_patterns_min_requesters", 2, 50),
+        ):
+            if threshold_key not in value:
+                continue
+            threshold = value.get(threshold_key)
+            # Null stays in the payload so the settings merge writes it and the threshold falls
+            # back to its default. Popping it would make an explicit reset a silent no-op.
+            if threshold is None:
+                continue
+            if not isinstance(threshold, int) or isinstance(threshold, bool) or not low <= threshold <= high:
+                raise serializers.ValidationError({threshold_key: f"Must be a whole number from {low} to {high}."})
+        if "ticket_patterns_enabled" in value and not isinstance(value["ticket_patterns_enabled"], bool):
+            raise serializers.ValidationError({"ticket_patterns_enabled": "Must be true or false."})
         return value
 
     def validate_receive_org_level_activity_logs(self, value: bool | None) -> bool | None:

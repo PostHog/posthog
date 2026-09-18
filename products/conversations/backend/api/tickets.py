@@ -99,6 +99,9 @@ if TYPE_CHECKING:
 
 logger = structlog.get_logger(__name__)
 
+# Matches the distinct_ids/emails caps above: a query string is not a bulk API.
+MAX_TICKET_IDS_FILTER = 100
+
 
 class UserTicketAssignee(TypedDict):
     id: int
@@ -695,6 +698,19 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
         channel_detail = self.request.query_params.get("channel_detail")
         if channel_detail and channel_detail in [d.value for d in ChannelDetail]:
             queryset = queryset.filter(channel_detail=channel_detail)
+
+        # Narrow to an explicit set of tickets, e.g. the ones behind a detected spike. A malformed
+        # UUID would make the whole query raise, so only parseable ones are kept.
+        ids_param = self.request.query_params.get("ids")
+        if ids_param:
+            wanted = []
+            for raw in ids_param.split(",")[:MAX_TICKET_IDS_FILTER]:
+                try:
+                    wanted.append(uuid.UUID(raw.strip()))
+                except ValueError:
+                    continue
+            # An `ids` param that parses to nothing must return nothing, not the whole inbox.
+            queryset = queryset.filter(id__in=wanted)
 
         # Related-ticket matching: a ticket belongs to the same customer if it shares one of the
         # person's merged distinct_ids OR the same email address. Email widens the match to tickets

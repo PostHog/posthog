@@ -2026,7 +2026,8 @@ class TestTicketEmailFallbackPersonLookup(ClickhouseTestMixin, APIBaseTest):
 
 @patch.object(transaction, "on_commit", side_effect=immediate_on_commit)
 class TestTicketEmailFilter(APIBaseTest):
-    """Tests the `emails` query param used by the previous-tickets panel to match related tickets."""
+    """Tests the `emails` and `ids` query params: the previous-tickets panel matches related
+    tickets by email, and a detected spike narrows the list to its own tickets."""
 
     def _create_ticket(self, distinct_id, email_from=None):
         return Ticket.objects.create_with_number(
@@ -2039,6 +2040,27 @@ class TestTicketEmailFilter(APIBaseTest):
 
     def _numbers(self, response):
         return {r["ticket_number"] for r in response.json()["results"]}
+
+    def test_filter_by_ids_returns_only_those_tickets(self, mock_on_commit):
+        wanted = self._create_ticket(distinct_id="did-1")
+        also_wanted = self._create_ticket(distinct_id="did-2")
+        self._create_ticket(distinct_id="did-3")
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/conversations/tickets/?ids={wanted.id},{also_wanted.id}"
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert self._numbers(response) == {wanted.ticket_number, also_wanted.ticket_number}
+
+    @parameterized.expand([("not_a_uuid", "banana"), ("empty", ",,")])
+    def test_unparseable_ids_return_nothing_rather_than_the_whole_inbox(self, _name, ids_param, mock_on_commit):
+        self._create_ticket(distinct_id="did-1")
+
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/?ids={ids_param}")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert self._numbers(response) == set()
 
     def test_filter_by_email_matches_email_from_case_insensitively(self, mock_on_commit):
         match = self._create_ticket(distinct_id="did-1", email_from="Alice@Example.com")

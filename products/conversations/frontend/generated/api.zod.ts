@@ -10,6 +10,17 @@
 import * as zod from 'zod'
 
 /**
+ * Spikes reported for this project in the last day.
+ *
+ * Reads a short-lived cache written when detection reports, not a table. The durable record is
+ * the `$conversation_ticket_pattern_detected` event, so an empty list means "nothing recent or
+ * nothing cached", never "this never happened".
+ */
+export const ConversationsTicketPatternsDismissCreateBody = /* @__PURE__ */ zod.object({
+    key: zod.string().describe('Identity of the spike to dismiss, as `topic:detected_at` from the list response.'),
+})
+
+/**
  * Handle ticket updates including assignee changes.
  */
 export const ConversationsTicketsUpdateBody = /* @__PURE__ */ zod

@@ -1,0 +1,135 @@
+{
+    "id": "019d4a7c-3b21-0000-9f04-6e2b8c15d730",
+    "name": "Support spike alert",
+    "description": "Post to Slack when several customers report the same problem within a short window.",
+    "version": 1,
+    "created_at": "2026-09-17T00:00:00Z",
+    "created_by": null,
+    "updated_at": "2026-09-17T00:00:00Z",
+    "trigger": {
+        "type": "event",
+        "filters": {
+            "source": "events",
+            "events": [
+                {
+                    "id": "$conversation_ticket_pattern_detected",
+                    "name": "Ticket spike detected",
+                    "type": "events"
+                }
+            ],
+            "bytecode": ["_H", 1, 32, "$conversation_ticket_pattern_detected", 32, "event", 1, 1, 11]
+        }
+    },
+    "trigger_masking": null,
+    "conversion": {
+        "filters": [],
+        "bytecode": [],
+        "window_minutes": null
+    },
+    "exit_condition": "exit_only_at_end",
+    "edges": [
+        {
+            "to": "action_function_spike_slack",
+            "from": "trigger_node",
+            "type": "continue"
+        },
+        {
+            "to": "exit_node",
+            "from": "action_function_spike_slack",
+            "type": "continue"
+        }
+    ],
+    "actions": [
+        {
+            "id": "trigger_node",
+            "name": "Ticket spike is detected",
+            "description": "Several customers reported the same problem within a short window.",
+            "on_error": null,
+            "created_at": 0,
+            "updated_at": 0,
+            "filters": null,
+            "type": "trigger",
+            "config": {
+                "type": "event",
+                "filters": {
+                    "source": "events",
+                    "events": [
+                        {
+                            "id": "$conversation_ticket_pattern_detected",
+                            "name": "Ticket spike detected",
+                            "type": "events"
+                        }
+                    ],
+                    "bytecode": ["_H", 1, 32, "$conversation_ticket_pattern_detected", 32, "event", 1, 1, 11]
+                }
+            },
+            "output_variable": null
+        },
+        {
+            "id": "action_function_spike_slack",
+            "name": "Message in Slack channel",
+            "description": "Connect the right Slack channel and notify your support team.",
+            "on_error": null,
+            "created_at": 0,
+            "updated_at": 0,
+            "filters": null,
+            "type": "function",
+            "config": {
+                "inputs": {
+                    "slack_workspace": {
+                        "templating": "hog"
+                    },
+                    "channel": {
+                        "templating": "hog"
+                    },
+                    "icon_emoji": {
+                        "value": ":hedgehog:",
+                        "templating": "hog"
+                    },
+                    "username": {
+                        "value": "PostHog",
+                        "templating": "hog"
+                    },
+                    "blocks": {
+                        "value": [
+                            {
+                                "type": "section",
+                                "text": {
+                                    "type": "mrkdwn",
+                                    "text": "\ud83d\udea8 *Ticket spike: {event.properties.topic}*\n\n{event.properties.summary}\n\n*Tickets:* {event.properties.ticket_count} from {event.properties.requester_count} customers in the last {event.properties.window_minutes} minutes."
+                                }
+                            }
+                        ],
+                        "templating": "hog"
+                    },
+                    "text": {
+                        "value": "Ticket spike: {event.properties.topic} ({event.properties.requester_count} customers)",
+                        "templating": "hog"
+                    }
+                },
+                "template_id": "template-slack"
+            },
+            "output_variable": null
+        },
+        {
+            "id": "exit_node",
+            "name": "Exit",
+            "description": "The alert was sent without errors.",
+            "on_error": null,
+            "created_at": 0,
+            "updated_at": 0,
+            "filters": null,
+            "type": "exit",
+            "config": {
+                "reason": "Default exit"
+            },
+            "output_variable": null
+        }
+    ],
+    "abort_action": null,
+    "variables": [],
+    "billable_action_types": ["function"],
+    "image_url": "https://res.cloudinary.com/dmukukwp6/image/upload/Template_cover_9_cc52152691.jpg",
+    "tags": ["slack", "support ticket", "support"],
+    "scope": "global"
+}

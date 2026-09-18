@@ -4046,6 +4046,10 @@
             "description": "Fires when a new support conversation ticket is created.",
             "label": "Conversation ticket created"
         },
+        "$conversation_ticket_pattern_detected": {
+            "description": "Fires when several customers report the same problem on support tickets within a short window.",
+            "label": "Conversation ticket pattern detected"
+        },
         "$conversation_ticket_priority_changed": {
             "description": "Fires when the priority of a support conversation ticket changes.",
             "label": "Conversation ticket priority changed"
