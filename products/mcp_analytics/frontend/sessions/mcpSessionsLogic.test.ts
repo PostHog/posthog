@@ -81,18 +81,31 @@ describe('mcpSessionsLogic', () => {
     })
 
     // The global kea-loaders handler used to toast on top of this logic's own listener, so one
-    // failed generation raised two stacked toasts and the message dropped the server's reason.
-    it('raises one toast carrying the server reason when generation is rejected', async () => {
-        generateIntentMock.mockRejectedValueOnce({
+    // failed generation raised two stacked toasts. The 503 case guards the message choice: that
+    // detail names one fixed cause, which is wrong for a timed-out or empty LLM response.
+    it.each([
+        {
+            name: 'the server reason for a request that can never succeed',
+            sessionId: 'too-long',
             status: 400,
             detail: 'session_id must be at most 200 characters.',
-        })
+            expected: 'session_id must be at most 200 characters.',
+        },
+        {
+            name: 'the retry hint when generation fails server-side',
+            sessionId: 'session-a',
+            status: 503,
+            detail: 'Intent generation is unavailable (LLM not configured).',
+            expected: 'Could not generate the session intent. Please try again.',
+        },
+    ])('raises one toast carrying $name', async ({ sessionId, status, detail, expected }) => {
+        generateIntentMock.mockRejectedValueOnce({ status, detail })
 
         await expectLogic(logic, () => {
-            logic.actions.generateIntent('too-long')
+            logic.actions.generateIntent(sessionId)
         }).toDispatchActions(['generateIntentFailure'])
 
         expect(errorToastMock).toHaveBeenCalledTimes(1)
-        expect(errorToastMock).toHaveBeenCalledWith('session_id must be at most 200 characters.')
+        expect(errorToastMock).toHaveBeenCalledWith(expected)
     })
 })
