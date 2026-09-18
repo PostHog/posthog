@@ -119,6 +119,19 @@ WORKFLOW_DISPATCH_DEAD_TOTAL = Counter(
 WORKFLOW_DISPATCH_MISSING_INTENT_TOTAL = Counter(
     "posthog_tasks_workflow_dispatch_missing_intent_total", "Queued cloud task runs without dispatch intent"
 )
+SCHEDULED_TASK_RUN_MATERIALIZATION_TOTAL = Counter(
+    "posthog_tasks_scheduled_task_run_materialization_total",
+    "Scheduled task runs processed by the due-run materializer",
+    labelnames=["outcome"],
+)
+SCHEDULED_TASK_RUN_DUE = Gauge(
+    "posthog_tasks_scheduled_task_run_due",
+    "Scheduled task runs whose requested start time has passed",
+)
+SCHEDULED_TASK_RUN_OLDEST_DUE_AGE_SECONDS = Gauge(
+    "posthog_tasks_scheduled_task_run_oldest_due_age_seconds",
+    "Age of the oldest due scheduled task run",
+)
 
 AGENT_OTEL_TELEMETRY_STAMPED_TOTAL = Counter(
     "posthog_tasks_agent_otel_telemetry_stamped_total",
@@ -357,6 +370,12 @@ TASK_RUN_WIZARD_UNBOUND_TOTAL = Counter(
     "posthog_tasks_wizard_run_unbound_total",
     "Wizard cloud runs that reached a terminal status without an output.pr_url binding",
     labelnames=["status"],
+)
+
+TURN_COMPLETED_SUPPRESSED_TOTAL = Counter(
+    "posthog_tasks_turn_completed_suppressed_total",
+    "Interactive turn completion notifications and activity updates suppressed by ingest",
+    labelnames=["reason"],
 )
 
 PUSH_DISPATCHER_FAILURES_TOTAL = Counter(

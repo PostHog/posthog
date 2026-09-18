@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf16"
 
 	"github.com/PostHog/posthog/services/hogql-language-service/internal/catalog"
 	"github.com/PostHog/posthog/services/hogql-language-service/internal/querylimits"
@@ -19,7 +20,10 @@ func testCatalog() *catalog.PreparedCatalog {
 	return catalog.Prepare(&catalog.Catalog{Tables: map[string]catalog.Table{
 		"events": {Name: "events", Type: "posthog", Fields: map[string]catalog.Field{
 			"uuid": {Name: "uuid", Type: "string"}, "event": {Name: "event", Type: "string"},
-			"properties": {Name: "properties", Type: "json"},
+			"properties": {Name: "properties", Type: "json"}, "timestamp": {Name: "timestamp", Type: "datetime"},
+		}},
+		"Events": {Name: "Events", Type: "data_warehouse", Fields: map[string]catalog.Field{
+			"custom_field": {Name: "custom_field", Type: "string"}, "properties": {Name: "properties", Type: "json"},
 		}},
 		"persons": {Name: "persons", Type: "posthog", Fields: map[string]catalog.Field{
 			"id": {Name: "id", Type: "string"}, "properties": {Name: "properties", Type: "json"},
@@ -33,8 +37,8 @@ func testCatalog() *catalog.PreparedCatalog {
 			"synced_id": {Name: "synced_id", Type: "string"},
 		}},
 	}, Properties: map[string][]catalog.Property{
-		"event":   {{Name: "$geo_city", ValueType: "String"}, {Name: "$geo_country", ValueType: "String"}, {Name: "$Geo_Region", ValueType: "String"}},
-		"person":  {{Name: "$geo_city", ValueType: "String"}},
+		"event":   {{Name: "$browser", ValueType: "String"}, {Name: "$geo_city", ValueType: "String"}, {Name: "$geo_country", ValueType: "String"}, {Name: "$Geo_Region", ValueType: "String"}},
+		"person":  {{Name: "$geo_city", ValueType: "String"}, {Name: "email", ValueType: "String"}},
 		"session": {{Name: "$entry_current_url", ValueType: "String"}},
 		"group:0": {{Name: "industry", ValueType: "String"}},
 	}})
@@ -111,9 +115,10 @@ func TestCompletesTablesAfterFrom(t *testing.T) {
 		{"cte join", "WITH recent AS (SELECT event FROM events) SELECT * FROM events JOIN rec| ON 1 = 1", map[string]string{"recent": "CTE"}},
 		{"cte comma", "WITH recent AS (SELECT event FROM events) SELECT * FROM events, rec|", map[string]string{"recent": "CTE"}},
 		{"catalog and cte", "WITH order_summary AS (SELECT event FROM events) SELECT * FROM ord|", map[string]string{"orders": "data_warehouse", "order_summary": "CTE"}},
-		{"catalog shadow", "WITH Orders AS (SELECT event FROM events) SELECT * FROM ord|", map[string]string{"Orders": "CTE"}},
+		{"case-variant catalog tables", "SELECT * FROM EV|", map[string]string{"Events": "data_warehouse", "events": "posthog"}},
+		{"case-variant catalog and CTE", "WITH Orders AS (SELECT event FROM events) SELECT * FROM ord|", map[string]string{"Orders": "CTE", "orders": "data_warehouse"}},
 		{"unicode prefix", "WITH `Σ` AS (SELECT event FROM events) SELECT * FROM ς|", map[string]string{"Σ": "CTE"}},
-		{"inner shadow", "WITH recent AS (SELECT event FROM events) SELECT * FROM (WITH Recent AS (SELECT uuid FROM events) SELECT * FROM rec|) AS s", map[string]string{"Recent": "CTE"}},
+		{"case-variant nested CTEs", "WITH recent AS (SELECT event FROM events) SELECT * FROM (WITH Recent AS (SELECT uuid FROM events) SELECT * FROM rec|) AS s", map[string]string{"Recent": "CTE", "recent": "CTE"}},
 		{"outer visible", "WITH recent AS (SELECT event FROM events) SELECT * FROM (SELECT * FROM rec|) AS s", map[string]string{"recent": "CTE"}},
 		{"previous cte", "WITH recent AS (SELECT event FROM events), recent_next AS (SELECT * FROM rec|) SELECT * FROM recent_next", map[string]string{"recent": "CTE"}},
 		{"no self or later cte", "WITH recent AS (SELECT * FROM rec|), recent_next AS (SELECT event FROM events) SELECT * FROM recent", nil},
@@ -189,6 +194,9 @@ func TestCompletesFieldsForAlias(t *testing.T) {
 		{"case-sensitive select alias precedence", "SELECT e.properties AS UUID FROM events AS e JOIN events AS other ON 1 = 1 ORDER BY uu|", []Suggestion{
 			{Label: "UUID", Detail: "json"}, {Label: "uuid", Detail: "string from e", InsertText: "e.uuid"}, {Label: "uuid", Detail: "string from other", InsertText: "other.uuid"},
 		}},
+		{"case-variant relation aliases", "SELECT prop| FROM events AS e JOIN persons AS E ON 1 = 1", []Suggestion{
+			{Label: "properties", Detail: "json from E", InsertText: "E.properties"}, {Label: "properties", Detail: "json from e", InsertText: "e.properties"},
+		}},
 		{"qualified join stays unqualified", "SELECT e.uu| FROM events AS e JOIN events AS other ON 1 = 1", []Suggestion{{Label: "uuid", Detail: "string"}}},
 		{"nested alias shadow", "SELECT * FROM events AS e WHERE uuid IN (SELECT uu| FROM events AS e)", []Suggestion{{Label: "uuid", Detail: "string"}}},
 		{"cte scope isolation", "WITH t AS (SELECT uu| FROM events AS e) SELECT * FROM t JOIN events AS other ON 1 = 1", []Suggestion{{Label: "uuid", Detail: "string"}}},
@@ -249,12 +257,156 @@ func TestCompletesFieldsForAlias(t *testing.T) {
 	}
 }
 
+func TestRecoversCTEBindingsForIncompleteOuterClause(t *testing.T) {
+	for _, test := range []struct {
+		name, source, label, detail string
+		encoding                    PositionEncoding
+	}{
+		{name: "cursor in select", source: "WITH recent AS (SELECT uuid, properties FROM events) SELECT recent.pro| FROM recent WHERE (", label: "properties", detail: "json"},
+		{name: "cursor in predicate", source: "WITH recent AS (SELECT uuid, properties FROM events) SELECT uuid FROM recent WHERE (recent.pro|", label: "properties", detail: "json"},
+		{name: "chain alias and renamed field", source: "WITH base AS (SELECT uuid, timestamp FROM events), recent AS (SELECT uuid, timestamp AS happened_at FROM base) SELECT r.hap| FROM recent AS r WHERE (", label: "happened_at", detail: "datetime"},
+		{name: "wildcard", source: "WITH recent AS (SELECT * FROM events) SELECT recent.uu| FROM recent WHERE uuid =", label: "uuid", detail: "string"},
+		{name: "unqualified chain field", source: "WITH base AS (SELECT uuid FROM events), recent AS (SELECT uuid FROM base) SELECT uu| FROM recent WHERE (", label: "uuid", detail: "string"},
+		{name: "quoted exact case", source: "WITH `Recent` AS (SELECT uuid AS `EventID` FROM events) SELECT R.Eve| FROM `Recent` AS R WHERE (", label: "EventID", detail: "string"},
+		{name: "prewhere", source: "WITH recent AS (SELECT uuid FROM events) SELECT recent.uu| FROM recent PREWHERE (", label: "uuid", detail: "string"},
+		{name: "group by", source: "WITH recent AS (SELECT uuid FROM events) SELECT recent.uu| FROM recent GROUP BY (", label: "uuid", detail: "string"},
+		{name: "having", source: "WITH recent AS (SELECT uuid FROM events) SELECT recent.uu| FROM recent HAVING (", label: "uuid", detail: "string"},
+		{name: "order by", source: "WITH recent AS (SELECT uuid FROM events) SELECT recent.uu| FROM recent ORDER BY (", label: "uuid", detail: "string"},
+		{name: "limit", source: "WITH recent AS (SELECT uuid FROM events) SELECT recent.uu| FROM recent LIMIT (", label: "uuid", detail: "string"},
+		{name: "comments and keyword strings", source: "WITH recent AS (SELECT uuid FROM events WHERE event = 'FROM WHERE'), /* SELECT FROM */ next AS (SELECT uuid FROM recent) SELECT next.uu| FROM next WHERE (", label: "uuid", detail: "string"},
+		{name: "unicode utf8", source: "WITH `Σ` AS (SELECT uuid FROM events) SELECT '😀', `Σ`.uu| FROM `Σ` WHERE (", label: "uuid", detail: "string", encoding: PositionEncodingUTF8},
+		{name: "unicode utf16", source: "WITH `Σ` AS (SELECT uuid FROM events) SELECT '😀', `Σ`.uu| FROM `Σ` WHERE (", label: "uuid", detail: "string", encoding: PositionEncodingUTF16},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			bytePosition := strings.IndexByte(test.source, '|')
+			query := strings.Replace(test.source, "|", "", 1)
+			position := bytePosition
+			if test.encoding == "" {
+				test.encoding = PositionEncodingUTF8
+			}
+			if test.encoding == PositionEncodingUTF16 {
+				position = len(utf16.Encode([]rune(query[:bytePosition])))
+			}
+			result, err := Complete(testCatalog(), query, position, test.encoding, "")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if result.ParseError == "" {
+				t.Fatal("expected the original incomplete query to retain its parse error")
+			}
+			suggestion, ok := findSuggestion(result.Suggestions, test.label)
+			if !ok || suggestion.Detail != test.detail {
+				t.Fatalf("result = %#v", result)
+			}
+		})
+	}
+}
+
+func TestIncompleteOuterQueryRemainsInvalidForValidation(t *testing.T) {
+	for _, suffix := range []string{"(", "/* unfinished"} {
+		t.Run(suffix, func(t *testing.T) {
+			incomplete := "WITH recent AS (SELECT uuid FROM events) SELECT recent.uuid FROM recent WHERE " + suffix
+			checked := validation.Validate(testCatalog(), incomplete)
+			if checked.Valid || len(checked.Diagnostics) != 1 || checked.Diagnostics[0].Code != "syntax_error" {
+				t.Fatalf("validation accepted the incomplete source: %#v", checked)
+			}
+		})
+	}
+}
+
+func TestIncompleteOuterRecoveryKeepsSelectAliasVisibility(t *testing.T) {
+	for _, test := range []struct {
+		name, source, expected, excluded string
+	}{
+		{name: "where sees prior alias", source: "WITH recent AS (SELECT uuid FROM events) SELECT uuid AS event_id FROM recent WHERE (eve|", expected: "event_id"},
+		{name: "earlier select item does not see later alias", source: "WITH recent AS (SELECT uuid FROM events) SELECT eve|, uuid AS event_id FROM recent WHERE (", excluded: "event_id"},
+		{name: "from does not see select alias", source: "WITH recent AS (SELECT uuid FROM events) SELECT uuid AS event_id FROM eve| WHERE (", excluded: "event_id"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			position := strings.IndexByte(test.source, '|')
+			query := strings.Replace(test.source, "|", "", 1)
+			result, err := Complete(testCatalog(), query, position, PositionEncodingUTF8, "")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if test.expected != "" {
+				if _, ok := findSuggestion(result.Suggestions, test.expected); !ok {
+					t.Fatalf("result = %#v", result)
+				}
+			}
+			if test.excluded != "" {
+				if _, ok := findSuggestion(result.Suggestions, test.excluded); ok {
+					t.Fatalf("result leaked %q: %#v", test.excluded, result)
+				}
+			}
+		})
+	}
+}
+
+func TestRecoversPropertyOriginsForIncompleteOuterClause(t *testing.T) {
+	for _, test := range []struct {
+		name, source, expected, excluded string
+	}{
+		{name: "event property", source: "WITH unused AS (SELECT properties AS props FROM persons), recent AS (SELECT properties AS props FROM events) SELECT recent.props.$geo_c| FROM recent WHERE uuid =", expected: "$geo_country", excluded: "email"},
+		{name: "person property", source: "WITH unused AS (SELECT properties AS props FROM events), recent AS (SELECT properties AS props FROM persons) SELECT recent.props.$geo_c| FROM recent WHERE id =", expected: "$geo_city", excluded: "$geo_country"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			position := strings.IndexByte(test.source, '|')
+			query := strings.Replace(test.source, "|", "", 1)
+			result, err := Complete(testCatalog(), query, position, PositionEncodingUTF8, "")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, ok := findSuggestion(result.Suggestions, test.expected); result.ParseError == "" || !ok {
+				t.Fatalf("result = %#v", result)
+			}
+			if _, ok := findSuggestion(result.Suggestions, test.excluded); ok {
+				t.Fatalf("result leaked %q: %#v", test.excluded, result)
+			}
+		})
+	}
+}
+
+func TestDoesNotRecoverUnsupportedIncompleteCTEScopes(t *testing.T) {
+	for _, test := range []struct {
+		name, source, excluded string
+	}{
+		{name: "damaged cte", source: "WITH recent AS (SELECT uuid FROM events WHERE ( SELECT recent.uu| FROM recent WHERE (", excluded: "uuid"},
+		{name: "missing cte close", source: "WITH recent AS (SELECT uuid FROM events SELECT recent.uu| FROM recent WHERE (", excluded: "uuid"},
+		{name: "cursor in cte", source: "WITH recent AS (SELECT uu| FROM events) SELECT * FROM recent WHERE (", excluded: "uuid"},
+		{name: "nested outer select", source: "WITH recent AS (SELECT uuid FROM events) SELECT * FROM (SELECT recent.uu| FROM recent) AS nested WHERE (", excluded: "uuid"},
+		{name: "incomplete join source", source: "WITH recent AS (SELECT uuid FROM events) SELECT recent.uu| FROM recent JOIN WHERE (", excluded: "uuid"},
+		{name: "incomplete join condition", source: "WITH recent AS (SELECT uuid FROM events) SELECT recent.uu| FROM recent JOIN events ON ( WHERE (", excluded: "uuid"},
+		{name: "set operation", source: "WITH recent AS (SELECT uuid FROM events) SELECT recent.uu| FROM recent UNION SELECT uuid FROM events WHERE (", excluded: "uuid"},
+		{name: "multiple statements", source: "WITH recent AS (SELECT uuid FROM events) SELECT recent.uu| FROM recent; SELECT * FROM events WHERE (", excluded: "uuid"},
+		{name: "scalar with alias", source: "WITH 1 AS recent SELECT events.uu| FROM events WHERE (", excluded: "uuid"},
+		{name: "unterminated comment after cursor", source: "WITH recent AS (SELECT uuid FROM events) SELECT recent.uu| FROM recent WHERE /* unfinished", excluded: "uuid"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			position := strings.IndexByte(test.source, '|')
+			query := strings.Replace(test.source, "|", "", 1)
+			result, err := Complete(testCatalog(), query, position, PositionEncodingUTF8, "")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if result.ParseError == "" {
+				t.Fatalf("incomplete query lost its parse error: %#v", result)
+			}
+			if _, ok := findSuggestion(result.Suggestions, test.excluded); ok {
+				t.Fatalf("result recovered unsupported scope: %#v", result)
+			}
+		})
+	}
+}
+
 func TestCompletesScopedProjections(t *testing.T) {
 	for _, test := range []struct {
 		name, query string
 		fields      map[string]string
 	}{
 		{"cte", "WITH t AS (SELECT order_id, amount AS total FROM orders) SELECT t.| FROM t", map[string]string{"order_id": "string", "total": "float"}},
+		{"closed comment after cursor", "WITH t AS (SELECT uuid FROM events) SELECT t.uu| FROM t /* finished */", map[string]string{"uuid": "string"}},
+		{"line comment at eof after cursor", "WITH t AS (SELECT uuid FROM events) SELECT t.uu| FROM t -- finished", map[string]string{"uuid": "string"}},
 		{"before from", "WITH t AS (SELECT amount AS total FROM orders) SELECT t.|", map[string]string{"total": "float"}},
 		{"unqualified", "WITH t AS (SELECT amount AS total FROM orders) SELECT tot| FROM t", map[string]string{"total": "float"}},
 		{"chained", "WITH a AS (SELECT amount AS total FROM orders), b AS (SELECT * FROM a) SELECT b.| FROM b", map[string]string{"total": "float"}},
@@ -278,6 +430,12 @@ func TestCompletesScopedProjections(t *testing.T) {
 		{"renamed properties are unrelated", "WITH t AS (SELECT properties AS attrs FROM events) SELECT properties.$geo_ci| FROM events JOIN t ON 1 = 1", map[string]string{"$geo_city": "String"}},
 		{"derived properties are ambiguous", "WITH t AS (SELECT properties FROM events) SELECT properties.$geo_ci| FROM events JOIN t ON 1 = 1", nil},
 		{"qualified physical properties remain available", "WITH t AS (SELECT properties FROM events) SELECT e.properties.$geo_ci| FROM events AS e JOIN t ON 1 = 1", map[string]string{"$geo_city": "String"}},
+		{"lowercase alias keeps event properties", "SELECT e.properties.$geo_co| FROM events AS e JOIN persons AS E ON 1 = 1", map[string]string{"$geo_country": "String"}},
+		{"uppercase alias keeps person properties", "SELECT E.properties.$geo| FROM events AS e JOIN persons AS E ON 1 = 1", map[string]string{"$geo_city": "String"}},
+		{"wrong-case alias does not recover event properties", "SELECT E.properties.$geo| FROM events AS e", nil},
+		{"exact custom table does not inherit event properties", "SELECT Events.properties.$geo| FROM Events", nil},
+		{"nested virtual owner requires exact qualifier", "SELECT e.person.properties.$geo_ci| FROM events AS e", map[string]string{"$geo_city": "String"}},
+		{"nested virtual owner rejects wrong-case qualifier", "SELECT E.person.properties.$geo| FROM events AS e", nil},
 		{"cte property provenance", "WITH recent AS (SELECT properties FROM events) SELECT recent.properties.$geo_co| FROM recent", map[string]string{"$geo_country": "String"}},
 		{"unqualified cte property provenance", "WITH recent AS (SELECT properties FROM events) SELECT properties.$geo_co| FROM recent", map[string]string{"$geo_country": "String"}},
 		{"subquery property provenance", "SELECT recent.properties.$geo_co| FROM (SELECT properties FROM events) AS recent", map[string]string{"$geo_country": "String"}},
@@ -291,6 +449,10 @@ func TestCompletesScopedProjections(t *testing.T) {
 		{"property alias before duplicate", "SELECT properties AS props, props.$geo_co|, uuid AS props FROM events", map[string]string{"$geo_country": "String"}},
 		{"property alias after duplicate", "SELECT properties AS props, uuid AS props, props.$geo| FROM events", nil},
 		{"cte name does not determine provenance", "WITH events AS (SELECT properties FROM persons) SELECT events.properties.$geo| FROM events", map[string]string{"$geo_city": "String"}},
+		{"case-variant CTE property provenance", "WITH t AS (SELECT properties FROM events), T AS (SELECT properties FROM persons) SELECT T.properties.$geo| FROM t JOIN T ON 1 = 1", map[string]string{"$geo_city": "String"}},
+		{"lowercase case-variant CTE property provenance", "WITH t AS (SELECT properties FROM events), T AS (SELECT properties FROM persons) SELECT t.properties.$geo_co| FROM t JOIN T ON 1 = 1", map[string]string{"$geo_country": "String"}},
+		{"wrong-case CTE has no fields", "WITH t AS (SELECT properties FROM events) SELECT T.| FROM T", nil},
+		{"case-variant table fields stay isolated", "SELECT Events.| FROM Events", map[string]string{"custom_field": "string", "properties": "json"}},
 		{"ambiguous joined properties", "WITH t AS (SELECT properties FROM events JOIN persons ON 1 = 1) SELECT t.properties.$geo| FROM t", nil},
 		{"self join properties are ambiguous", "WITH t AS (SELECT properties FROM events AS e JOIN events AS other ON 1 = 1) SELECT t.properties.$geo| FROM t", nil},
 		{"unaliased self join properties are ambiguous", "WITH t AS (SELECT properties FROM events JOIN events ON 1 = 1) SELECT t.properties.$geo| FROM t", nil},
@@ -334,6 +496,7 @@ func TestCompletesScopedProjections(t *testing.T) {
 		{"alias virtual property shadow", "SELECT uuid AS session FROM events ORDER BY session.properties.$entry|", nil},
 		{"qualified properties bypass alias", "SELECT uuid AS properties FROM events ORDER BY events.properties.$geo_ci|", map[string]string{"$geo_city": "String"}},
 		{"no recovered select aliases", "SELECT amount AS total FROM orders WHERE tot| >", nil},
+		{"recovery preserves relation case", "SELECT Mixed.cus| FROM Events AS Mixed WHERE custom_field =", map[string]string{"custom_field": "string"}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			position := strings.IndexByte(test.query, '|')
@@ -341,6 +504,9 @@ func TestCompletesScopedProjections(t *testing.T) {
 			result, err := Complete(testCatalog(), query, position, PositionEncodingUTF8, "")
 			if err != nil {
 				t.Fatal(err)
+			}
+			if test.name == "recovery preserves relation case" && !strings.HasPrefix(result.ParseError, "parse incomplete SQL:") {
+				t.Fatalf("parse error = %q, want recovered incomplete SQL error", result.ParseError)
 			}
 			fields := map[string]string{}
 			for _, suggestion := range result.Suggestions {
@@ -403,6 +569,12 @@ func TestDerivedLookupWork(t *testing.T) {
 				}
 			} else if known, ok := findSuggestion(result.Suggestions, "known"); err != nil || !ok || known.Detail != "float" {
 				t.Fatalf("result = %#v, err = %v", result, err)
+			}
+			if test.limit {
+				result, err = Complete(testCatalog(), query+" WHERE (", position, PositionEncodingUTF8, "")
+				if !errors.Is(err, querylimits.ErrFieldLookupTooLarge) || len(result.Suggestions) != 0 {
+					t.Fatalf("incomplete result = %#v, err = %v", result, err)
+				}
 			}
 		})
 	}
@@ -506,9 +678,11 @@ func TestProjectionPaginationAndLimits(t *testing.T) {
 	}
 	for _, projection := range []string{"c14.", ""} {
 		prefix := "WITH " + strings.Join(ctes, ", ") + " SELECT " + projection
-		_, err := Complete(testCatalog(), prefix+" FROM c14", len(prefix), PositionEncodingUTF8, "")
-		if !errors.Is(err, querylimits.ErrCTEProjectionTooLarge) {
-			t.Fatalf("projection %q: err = %v", projection, err)
+		for _, suffix := range []string{" FROM c14", " FROM c14 WHERE ("} {
+			_, err := Complete(testCatalog(), prefix+suffix, len(prefix), PositionEncodingUTF8, "")
+			if !errors.Is(err, querylimits.ErrCTEProjectionTooLarge) {
+				t.Fatalf("projection %q, suffix %q: err = %v", projection, suffix, err)
+			}
 		}
 	}
 }
@@ -641,13 +815,13 @@ func TestCompletionPaginationSkipsUnsupportedIdentifiers(t *testing.T) {
 	}
 }
 
-func TestCompletesFieldsForMixedCaseTableReference(t *testing.T) {
+func TestDoesNotCompleteFieldsForWrongCaseTableReference(t *testing.T) {
 	query := "SELECT Orders. FROM Orders"
 	result, err := Complete(testCatalog(), query, len("SELECT Orders."), PositionEncodingUTF8, "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !hasSuggestion(result.Suggestions, "order_id") {
+	if len(result.Suggestions) != 0 {
 		t.Fatalf("suggestions = %#v; parse error = %q", result.Suggestions, result.ParseError)
 	}
 }

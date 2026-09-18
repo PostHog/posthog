@@ -85,6 +85,15 @@ _HOST_HAS_PORT_ERROR = (
     "in the port field instead."
 )
 
+# Railway's DATABASE_URL points at the service's private-network host, so it is the value customers
+# paste most often. The name only resolves inside Railway's own network, and the DNS failure that
+# follows asks them to check a spelling that is already correct, so name the public host instead.
+_RAILWAY_INTERNAL_HOST_SUFFIX = ".railway.internal"
+_RAILWAY_INTERNAL_HOST_ERROR = (
+    "Railway's .railway.internal host only resolves inside Railway's private network. Use the "
+    "public TCP proxy host and port Railway shows for your database instead."
+)
+
 # ENETUNREACH / EHOSTUNREACH at connect time: the host resolved to a public address PostHog can't
 # route to. The common cause is a host that only accepts IPv6 (PostHog egresses over IPv4) — for
 # example a Supabase direct-connection host — or a firewall dropping PostHog's IPs. Deterministic
@@ -879,10 +888,26 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
             # contact the provider), so every retry re-hits the same refusal. Match the stable
             # camelCase reason code, which carries no host or account detail.
             "planLimitReached": (
-                "Your database provider has restricted the account because a plan limit was reached "
-                '("planLimitReached"), so PostHog can\'t connect. This usually comes from a database '
-                "proxy such as Prisma. Upgrade the plan or contact your provider to lift the "
-                "restriction, then re-enable the sync."
+                "Your database provider has restricted the account because a plan limit was reached, "
+                "so PostHog can't connect. This usually comes from a database proxy such as Prisma. "
+                "Upgrade the plan or contact your provider to lift the restriction, then re-enable "
+                "the sync."
+            ),
+            # The billing sibling of the code above, from the same restriction sentence: the proxy
+            # refuses the connection because an invoice is unpaid. Only the customer's billing
+            # settles it, so every retry re-hits the refusal. Match the stable camelCase reason code.
+            "unpaidPlanInvoice": (
+                "Your database provider has restricted the account over an unpaid invoice, so PostHog "
+                "can't connect. Settle it with your provider, then re-enable the sync."
+            ),
+            # Any other restriction reason from that same sentence. The reason codes are the
+            # provider's own and open-ended, so without this catch-all the next one burns a job on
+            # every schedule and stores the raw refusal — which libpq prefixes with the customer's
+            # host and port. Placed after the two specific codes, whose guidance is more actionable,
+            # because finalization takes the first matching entry.
+            "Your account has restrictions": (
+                "Your database provider has restricted the account, so PostHog can't connect. Contact "
+                "your provider to lift the restriction, then re-enable the sync."
             ),
             # The provider has put the cluster into read-only mode, so it rejects our read (the
             # server-side cursor runs its SELECT inside a read/write transaction). PlanetScale's
@@ -1486,6 +1511,11 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
         host_value = config.host.strip()
         if host_value.count(":") == 1 and not host_value.startswith("["):
             return False, _HOST_HAS_PORT_ERROR
+
+        # A bastion inside the customer's Railway project can reach the private host, so only reject
+        # it for a direct connection.
+        if not self.ssh_tunnel_enabled(config) and host_value.lower().endswith(_RAILWAY_INTERNAL_HOST_SUFFIX):
+            return False, _RAILWAY_INTERNAL_HOST_ERROR
 
         valid_host, host_errors = self.is_database_host_valid(
             config.host, team_id, using_ssh_tunnel=self.ssh_tunnel_enabled(config)
