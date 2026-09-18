@@ -2,6 +2,7 @@ import { CSSProperties, ComponentType, HTMLProps } from 'react'
 
 import { ExpandableConfig } from 'lib/lemon-ui/LemonTable'
 
+import type { QueryJourneyDescriptor } from '~/queries/nodes/DataNode/queryJourney'
 import { QueryFeature } from '~/queries/nodes/DataTable/queryFeatures'
 import {
     CurrencyCode,
@@ -18,6 +19,7 @@ import { DataTableRow } from './nodes/DataTable/dataTableLogic'
 
 /** Pass custom metadata to queries. Used for e.g. custom columns in the DataTable. */
 export interface QueryContext<Q extends QuerySchema = QuerySchema> {
+    queryJourney?: QueryJourneyDescriptor
     /** Column templates for the DataTable */
     columns?: Record<string, QueryContextColumn>
     tableLayout?: 'auto' | 'fixed'

@@ -78,6 +78,33 @@ export function shouldRenderInsightCardViz({
     return isPageVisible || !queryVizDefinitelyRendersToCanvas(query)
 }
 
+export function useActualVisibilityChange(
+    entry: IntersectionObserverEntry | undefined,
+    inView: boolean,
+    onChange: ((visible: boolean) => void) | undefined
+): void {
+    const onChangeRef = useRef(onChange)
+    const hasObservedRef = useRef(false)
+    onChangeRef.current = onChange
+
+    useLayoutEffect(() => {
+        if (!entry) {
+            return
+        }
+        hasObservedRef.current = true
+        onChangeRef.current?.(inView)
+    }, [entry, inView])
+
+    useLayoutEffect(
+        () => () => {
+            if (hasObservedRef.current) {
+                onChangeRef.current?.(false)
+            }
+        },
+        []
+    )
+}
+
 const LazyEditAlertModal = lazyWithRetry(() =>
     import('products/alerts/frontend/views/EditAlertModal').then(({ EditAlertModal }) => ({ default: EditAlertModal }))
 )
@@ -280,7 +307,11 @@ function InsightCardInternal(
     ref: React.Ref<HTMLDivElement>
 ): JSX.Element | null {
     const { ref: inViewRef, inView } = useInView({ rootMargin: '500px' })
-    const { ref: actualVisibilityRef, inView: actuallyInView } = useInView({
+    const {
+        ref: actualVisibilityRef,
+        inView: actuallyInView,
+        entry: actualVisibilityEntry,
+    } = useInView({
         rootMargin: '0px',
         skip: !onActualVisibilityChange,
     })
@@ -303,13 +334,7 @@ function InsightCardInternal(
 
     const mergedRefs = useMergeRefs([ref, inViewRef, actualVisibilityRef])
 
-    useLayoutEffect(() => {
-        if (!onActualVisibilityChange) {
-            return
-        }
-        onActualVisibilityChange(actuallyInView)
-        return () => onActualVisibilityChange(false)
-    }, [actuallyInView, onActualVisibilityChange])
+    useActualVisibilityChange(actualVisibilityEntry, actuallyInView, onActualVisibilityChange)
 
     const { theme } = useValues(themeLogic)
 

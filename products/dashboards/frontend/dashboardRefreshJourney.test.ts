@@ -152,6 +152,22 @@ describe('DashboardRefreshJourneyController', () => {
         }
     })
 
+    it('keeps automatic whole-dashboard refreshes in a distinct trigger cohort', () => {
+        startCustomerJourney.mockReturnValue(handle())
+        const controller = new DashboardRefreshJourneyController()
+        controller.setTileVisibility({ tileId: 1, insightShortId: 'one', insightType: 'TRENDS' }, true)
+
+        controller.start(99, 'automatic-id', [{ tileId: 1, insightShortId: 'one' }], 'automatic_refresh')
+
+        expect(startCustomerJourney).toHaveBeenCalledWith(
+            expect.objectContaining({
+                journey_name: 'dashboard_refresh',
+                trigger: 'automatic_refresh',
+                attempt_id: 'automatic-id',
+            })
+        )
+    })
+
     it('caps tile rows by numeric ID rather than completion order while retaining the full denominator', () => {
         let time = 100
         const nowSpy = jest.spyOn(performance, 'now').mockImplementation(() => time)
@@ -286,6 +302,212 @@ describe('DashboardRefreshJourneyController', () => {
                         state: 'pending',
                     },
                 ],
+            })
+        )
+    })
+
+    it('freezes the initial visible set only after the complete manifest has a real observation for every insight', () => {
+        const journey = handle()
+        startCustomerJourney.mockReturnValue(journey)
+        const controller = new DashboardRefreshJourneyController()
+        const manifest = [
+            { tileId: 1, insightShortId: 'unique' },
+            { tileId: 2, insightShortId: 'duplicate' },
+            { tileId: 3, insightShortId: 'duplicate' },
+            { tileId: 4, insightShortId: 'unsupported' },
+            { tileId: 5, insightShortId: 'offscreen' },
+        ]
+
+        controller.beginInitialLoad(99, 'attempt-1')
+        expect(controller.planInitialLoad('attempt-1', manifest, [], { 1: [] })).toBeNull()
+        expect(
+            controller.setTileVisibility({ tileId: 1, insightShortId: 'unique', insightType: 'RETENTION' }, true)
+        ).toBeNull()
+        controller.setTileVisibility({ tileId: 2, insightShortId: 'duplicate', insightType: 'TRENDS' }, true)
+        controller.setTileVisibility({ tileId: 3, insightShortId: 'duplicate', insightType: 'TRENDS' }, true)
+        controller.setTileVisibility({ tileId: 4, insightShortId: 'unsupported', insightType: null }, true)
+
+        const activation = controller.setTileVisibility(
+            { tileId: 5, insightShortId: 'offscreen', insightType: 'PATHS' },
+            false
+        )
+
+        expect(activation).toMatchObject({
+            attemptId: 'attempt-1',
+            requiredTiles: {
+                1: { insightShortId: 'unique', insightType: 'RETENTION' },
+            },
+        })
+        expect(activation?.renderReadiness).toEqual([
+            expect.objectContaining({ tileId: 1, expectedResult: expect.any(Array) }),
+        ])
+        expect(startCustomerJourney).toHaveBeenCalledWith({
+            journey_name: 'dashboard_open',
+            resource_type: 'dashboard',
+            resource_id: 99,
+            trigger: 'initial_load',
+            readiness_contract_version: 1,
+            readiness_scope: 'visible_product_analytics_tiles',
+            attempt_id: 'attempt-1',
+        })
+
+        expect(
+            controller.setTileVisibility({ tileId: 5, insightShortId: 'offscreen', insightType: 'PATHS' }, true)
+        ).toBeNull()
+        expect(controller.dataReady('attempt-1', 5, [{ count: 5 }])).toBeNull()
+    })
+
+    it('selects fresh cached and stale replacement references across the initial viewport gate', () => {
+        const journey = handle()
+        startCustomerJourney.mockReturnValue(journey)
+        const controller = new DashboardRefreshJourneyController()
+        const freshEmpty: unknown[] = []
+        const staleCached = [{ count: 1 }]
+        const replacement = [{ count: 2 }]
+
+        controller.beginInitialLoad(99, 'attempt-1')
+        controller.setTileVisibility({ tileId: 1, insightShortId: 'fresh', insightType: 'RETENTION' }, true)
+        controller.planInitialLoad(
+            'attempt-1',
+            [
+                { tileId: 1, insightShortId: 'fresh' },
+                { tileId: 2, insightShortId: 'stale' },
+            ],
+            [2],
+            { 1: freshEmpty, 2: staleCached }
+        )
+
+        expect(controller.dataReady('attempt-1', 2, replacement)).toBeNull()
+        const activation = controller.setTileVisibility(
+            { tileId: 2, insightShortId: 'stale', insightType: 'TRENDS' },
+            true
+        )
+
+        expect(activation?.renderReadiness).toEqual([
+            expect.objectContaining({ tileId: 1, expectedResult: freshEmpty }),
+            expect.objectContaining({ tileId: 2, expectedResult: replacement }),
+        ])
+        expect(activation?.renderReadiness).not.toEqual(
+            expect.arrayContaining([expect.objectContaining({ tileId: 2, expectedResult: staleCached })])
+        )
+
+        controller.renderCommitted('attempt-1', 1)
+        expect(journey.finish).not.toHaveBeenCalled()
+        controller.renderCommitted('attempt-1', 2)
+        expect(journey.finish).toHaveBeenCalledWith(
+            'usable',
+            expect.objectContaining({ total_count: 2, ready_count: 2 })
+        )
+    })
+
+    it('reports an observed initial dashboard with no supported visible tiles as observation stopped', () => {
+        const journey = handle()
+        startCustomerJourney.mockReturnValue(journey)
+        const controller = new DashboardRefreshJourneyController()
+
+        controller.beginInitialLoad(99, 'attempt-1')
+        controller.planInitialLoad(
+            'attempt-1',
+            [
+                { tileId: 1, insightShortId: 'unsupported' },
+                { tileId: 2, insightShortId: 'offscreen' },
+            ],
+            [],
+            {}
+        )
+        controller.setTileVisibility({ tileId: 1, insightShortId: 'unsupported', insightType: null }, true)
+        expect(
+            controller.setTileVisibility({ tileId: 2, insightShortId: 'offscreen', insightType: 'PATHS' }, false)
+        ).toBeNull()
+
+        expect(journey.finish).toHaveBeenCalledWith('observation_stopped', {
+            total_count: 0,
+            ready_count: 0,
+            failed_count: 0,
+            pending_count: 0,
+            excluded_count: 1,
+            insight_type_summary: {},
+            tile_results: [],
+            tile_results_truncated: false,
+            end_reason: 'observation_stopped',
+        })
+    })
+
+    it('finishes initial load failures without a fabricated denominator before sealing and preserves it after sealing', () => {
+        const beforeSeal = handle()
+        const afterSeal = { ...handle(), attemptId: 'attempt-2' }
+        startCustomerJourney.mockReturnValueOnce(beforeSeal).mockReturnValueOnce(afterSeal)
+        const controller = new DashboardRefreshJourneyController()
+
+        controller.beginInitialLoad(99, 'attempt-1')
+        controller.failLoad('attempt-1', 'load_error')
+        expect(beforeSeal.finish).toHaveBeenCalledWith('failed', { error_type: 'load_error' })
+
+        controller.beginInitialLoad(99, 'attempt-2')
+        controller.setTileVisibility({ tileId: 1, insightShortId: 'one', insightType: 'FUNNELS' }, true)
+        controller.planInitialLoad('attempt-2', [{ tileId: 1, insightShortId: 'one' }], [1], {})
+        controller.failLoad('attempt-2', 'load_error')
+        expect(afterSeal.finish).toHaveBeenCalledWith(
+            'failed',
+            expect.objectContaining({ total_count: 1, ready_count: 0, pending_count: 1, error_type: 'load_error' })
+        )
+    })
+
+    it('reuses real observations from still-mounted cards for a replacement initial generation', () => {
+        const first = handle()
+        const second = { ...handle(), attemptId: 'attempt-2' }
+        startCustomerJourney.mockReturnValueOnce(first).mockReturnValueOnce(second)
+        const controller = new DashboardRefreshJourneyController()
+        const manifest = [{ tileId: 1, insightShortId: 'one' }]
+
+        controller.setTileVisibility({ tileId: 1, insightShortId: 'one', insightType: 'TRENDS' }, true)
+        controller.beginInitialLoad(99, 'attempt-1')
+        expect(controller.planInitialLoad('attempt-1', manifest, [], { 1: [] })).not.toBeNull()
+
+        controller.beginInitialLoad(99, 'attempt-2')
+        expect(controller.planInitialLoad('attempt-2', manifest, [], { 1: [] })).toMatchObject({
+            attemptId: 'attempt-2',
+            requiredTiles: { 1: { insightShortId: 'one', insightType: 'TRENDS' } },
+        })
+        expect(first.finish).toHaveBeenCalledWith(
+            'superseded',
+            expect.objectContaining({ total_count: 1, pending_count: 1, end_reason: 'superseded' })
+        )
+    })
+
+    it('reports initial-load exit without invented counts before sealing and with the frozen partial summary after', () => {
+        const beforeSeal = handle()
+        const afterSeal = { ...handle(), attemptId: 'attempt-2' }
+        startCustomerJourney.mockReturnValueOnce(beforeSeal).mockReturnValueOnce(afterSeal)
+        const controller = new DashboardRefreshJourneyController()
+
+        controller.beginInitialLoad(99, 'attempt-1')
+        controller.dispose('observation_stopped')
+        expect(beforeSeal.finish).toHaveBeenCalledWith('exited', { end_reason: 'exited' })
+
+        controller.beginInitialLoad(99, 'attempt-2')
+        controller.setTileVisibility({ tileId: 1, insightShortId: 'one', insightType: 'TRENDS' }, true)
+        controller.setTileVisibility({ tileId: 2, insightShortId: 'two', insightType: 'PATHS' }, true)
+        controller.planInitialLoad(
+            'attempt-2',
+            [
+                { tileId: 1, insightShortId: 'one' },
+                { tileId: 2, insightShortId: 'two' },
+            ],
+            [],
+            { 1: [], 2: [] }
+        )
+        controller.renderCommitted('attempt-2', 1)
+        controller.dispose('observation_stopped')
+
+        expect(afterSeal.finish).toHaveBeenCalledWith(
+            'exited',
+            expect.objectContaining({
+                total_count: 2,
+                ready_count: 1,
+                failed_count: 0,
+                pending_count: 1,
+                end_reason: 'exited',
             })
         )
     })

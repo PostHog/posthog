@@ -2,7 +2,7 @@ import './DataGrid.scss'
 import 'react-data-grid/lib/styles.css'
 
 import clsx from 'clsx'
-import { BindLogic, useActions, useValues } from 'kea'
+import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
 import { useCallback, useMemo, useRef, useState } from 'react'
 import DataGrid, {
     CellClickArgs,
@@ -47,6 +47,8 @@ import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { tryJsonParse } from 'lib/utils/json'
 import { InsightErrorState, StatelessInsightLoadingState } from 'scenes/insights/EmptyStates'
 import { insightLogic } from 'scenes/insights/insightLogic'
+import { sceneLogic } from 'scenes/sceneLogic'
+import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
@@ -54,6 +56,8 @@ import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { ElapsedTime } from '~/queries/nodes/DataNode/ElapsedTime'
 import { LoadPreviewText } from '~/queries/nodes/DataNode/LoadNext'
 import { QueryExecutionDetails } from '~/queries/nodes/DataNode/QueryExecutionDetails'
+import { QueryJourneyCommit } from '~/queries/nodes/DataNode/QueryJourneyCommit'
+import { QueryJourneySurface } from '~/queries/nodes/DataNode/QueryJourneySurface'
 import { DataTableRow } from '~/queries/nodes/DataTable/dataTableLogic'
 import { PieChart } from '~/queries/nodes/DataVisualization/Components/Charts/PieChart'
 import { SqlBoxPlot } from '~/queries/nodes/DataVisualization/Components/Charts/SqlBoxPlot'
@@ -593,6 +597,7 @@ function OutputActions({
 }
 
 interface OutputPaneProps {
+    nativeQueryJourney?: boolean
     tabId: string
     showToolbar?: boolean
     biMode?: boolean
@@ -619,8 +624,24 @@ export function extractGridCellValue(columnKey: string, row: Record<string, any>
     return String(value)
 }
 
-export function OutputPane({ tabId, showToolbar = true, biMode = false, onShareTab }: OutputPaneProps): JSX.Element {
+export function OutputPane({
+    tabId,
+    showToolbar = true,
+    biMode = false,
+    onShareTab,
+    nativeQueryJourney = true,
+}: OutputPaneProps): JSX.Element {
     const { activeTab } = useValues(outputPaneLogic)
+    const { activeSceneId, activeSceneComponentParams } = useValues(sceneLogic)
+    const { queryJourney } = useValues(sqlEditorLogic)
+    const observesQueryJourney =
+        nativeQueryJourney &&
+        !!queryJourney &&
+        !biMode &&
+        activeSceneId === Scene.SQLEditor &&
+        (activeSceneComponentParams.tabId ?? 'default') === tabId &&
+        (activeTab === OutputTab.Results || activeTab === OutputTab.Both)
+    const journeyLogic = useMountedLogic(dataNodeLogic)
     const { setActiveTab } = useActions(outputPaneLogic)
 
     const { sourceQuery, exportContext, insightLoading, hasQueryInput, isEmbeddedMode, metadata, metadataLoading } =
@@ -831,6 +852,7 @@ export function OutputPane({ tabId, showToolbar = true, biMode = false, onShareT
         />
     )
     const sharedContentProps = {
+        journeyLogic: observesQueryJourney ? journeyLogic : undefined,
         responseError,
         responseLoading,
         response,
@@ -946,6 +968,7 @@ export function OutputPane({ tabId, showToolbar = true, biMode = false, onShareT
 
     return (
         <div className="OutputPane flex flex-col w-full flex-1 min-h-0 bg-white dark:bg-black">
+            {observesQueryJourney && <QueryJourneySurface key={tabId} logic={journeyLogic} />}
             <QueryIndexUsageBar predicates={metadata?.index_usage ?? []} refreshing={metadataLoading} />
             {outputContent}
             <div className="flex justify-between px-2 border-t">
@@ -1210,6 +1233,7 @@ const EmptyResultsState = (): JSX.Element => {
 }
 
 const Content = ({
+    journeyLogic,
     activeTab,
     responseError,
     responseLoading,
@@ -1394,6 +1418,20 @@ const Content = ({
             <div className="flex flex-col flex-1 min-h-0 w-full overflow-hidden">
                 <QueryWarningsBanner warnings={response?.warnings} />
                 <EditorQueryScanBanner />
+                {journeyLogic && (
+                    <QueryJourneyCommit
+                        logic={journeyLogic}
+                        response={response}
+                        ready={
+                            Array.isArray(response.results) &&
+                            !responseLoading &&
+                            !insightLoading &&
+                            !queryCancelled &&
+                            !responseError &&
+                            !response.error
+                        }
+                    />
+                )}
                 {rows.length === 0 ? (
                     <EmptyResultsState />
                 ) : (

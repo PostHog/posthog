@@ -338,6 +338,7 @@ describe('dashboardLogic', () => {
         const gatedLogic = dashboardLogic({ id: 5 })
         gatedLogic.mount()
         await expectLogic(gatedLogic).toFinishAllListeners()
+        mockStartCustomerJourney.mockClear()
         const context = appContext.getAppContext()!
         const contextSpy = jest.spyOn(appContext, 'getAppContext').mockReturnValue({
             ...context,
@@ -370,6 +371,80 @@ describe('dashboardLogic', () => {
         } finally {
             contextSpy.mockRestore()
             flagSpy.mockRestore()
+        }
+    })
+
+    it('starts a supplied dashboard open before installing data and finishes fresh cached tiles on matching commits', async () => {
+        const resultByTileId: Record<number, unknown> = {}
+        const suppliedDashboard = dashboardResult(
+            5,
+            dashboards[5].tiles.map((tile) => {
+                if (!tile.insight) {
+                    return tile
+                }
+                const result: unknown[] = []
+                resultByTileId[tile.id] = result
+                return {
+                    ...tile,
+                    insight: {
+                        ...tile.insight,
+                        result,
+                        cache_target_age: dayjs().add(1, 'hour').toISOString(),
+                    },
+                }
+            })
+        )
+        const journey = {
+            attemptId: '',
+            firstUseful: jest.fn(),
+            finish: jest.fn(),
+            dispose: jest.fn(),
+        }
+        let startedBeforeDashboardWasInstalled = false
+        const getInsightWithRetrySpy = jest.spyOn(dashboardUtils, 'getInsightWithRetry')
+
+        logic = dashboardLogic({ id: 5, dashboard: suppliedDashboard })
+        mockStartCustomerJourney.mockImplementation((options: { attempt_id: string }) => {
+            journey.attemptId = options.attempt_id
+            startedBeforeDashboardWasInstalled = logic.values.dashboard === null
+            return journey
+        })
+        logic.mount()
+
+        try {
+            await expectLogic(logic).toFinishAllListeners()
+            expect(startedBeforeDashboardWasInstalled).toBe(true)
+            expect(mockStartCustomerJourney).toHaveBeenCalledWith(
+                expect.objectContaining({ journey_name: 'dashboard_open', trigger: 'initial_load' })
+            )
+            expect(getInsightWithRetrySpy).not.toHaveBeenCalled()
+
+            for (const tile of logic.values.insightTiles) {
+                logic.actions.setDashboardTileJourneyVisibility(
+                    {
+                        tileId: tile.id,
+                        insightShortId: tile.insight!.short_id,
+                        insightType: tile.insight!.short_id === '172' ? 'RETENTION' : 'TRENDS',
+                    },
+                    true
+                )
+            }
+
+            for (const tile of logic.values.insightTiles) {
+                expect(logic.values.dashboardJourneyRenderReadiness[tile.id]?.expectedResult).toBe(
+                    resultByTileId[tile.id]
+                )
+                logic.actions.dashboardJourneyTileRenderCommitted(journey.attemptId, tile.id)
+            }
+
+            expect(journey.finish).toHaveBeenCalledTimes(1)
+            expect(journey.finish).toHaveBeenCalledWith(
+                'usable',
+                expect.objectContaining({ total_count: 2, ready_count: 2, pending_count: 0 })
+            )
+        } finally {
+            logic.unmount()
+            getInsightWithRetrySpy.mockRestore()
         }
     })
 
@@ -2368,27 +2443,36 @@ describe('dashboardLogic', () => {
             await expectLogic(logic).toFinishAllListeners()
 
             await expectLogic(logic, () => {
-                logic.actions.tileStreamingFailure({ message: 'Query failed with code 404 upstream' })
+                logic.actions.tileStreamingFailure(
+                    { message: 'Query failed with code 404 upstream' },
+                    logic.values.dashboardLoadData.loadId
+                )
             }).toFinishAllListeners()
             expect(logic.values.error404).toBe(false)
             expect(logic.values.dashboardFailedToLoad).toBe(false)
             expect(lemonToastErrorSpy).toHaveBeenCalled()
 
             await expectLogic(logic, () => {
-                logic.actions.tileStreamingFailure({ message: 'gone', status: 404 })
+                logic.actions.tileStreamingFailure(
+                    { message: 'gone', status: 404 },
+                    logic.values.dashboardLoadData.loadId
+                )
             }).toFinishAllListeners()
             expect(logic.values.error404).toBe(true)
         })
 
         it('makes a definitive 404 authoritative over an earlier stream failure and stale dashboard', async () => {
-            logic.actions.tileStreamingFailure({ message: 'network dropped mid-connect' })
+            logic.actions.tileStreamingFailure(
+                { message: 'network dropped mid-connect' },
+                logic.values.dashboardLoadData.loadId
+            )
             expect(logic.values.dashboardFailedToLoad).toBe(true)
 
-            logic.actions.loadDashboardMetadataSuccess(dashboardResult(5, []))
+            logic.actions.loadDashboardMetadataSuccess(dashboardResult(5, []), logic.values.dashboardLoadData.loadId)
             expect(logic.values.dashboard).not.toBeNull()
 
             logic.actions.setDashboardStreamFailed()
-            logic.actions.tileStreamingFailure({ message: 'gone', status: 404 })
+            logic.actions.tileStreamingFailure({ message: 'gone', status: 404 }, logic.values.dashboardLoadData.loadId)
 
             expect(logic.values.error404).toBe(true)
             expect(logic.values.dashboardFailedToLoad).toBe(false)
@@ -2423,7 +2507,10 @@ describe('dashboardLogic', () => {
             await expectLogic(logic).toFinishAllListeners()
 
             await expectLogic(logic, () => {
-                logic.actions.tileStreamingFailure({ message: 'gone', status: 404 })
+                logic.actions.tileStreamingFailure(
+                    { message: 'gone', status: 404 },
+                    logic.values.dashboardLoadData.loadId
+                )
             }).toFinishAllListeners()
             expect(logic.values.error404).toBe(true)
 
@@ -2432,21 +2519,24 @@ describe('dashboardLogic', () => {
             }).toFinishAllListeners()
             expect(logic.values.error404).toBe(false)
 
-            logic.actions.tileStreamingFailure({ message: 'gone', status: 404 })
+            logic.actions.tileStreamingFailure({ message: 'gone', status: 404 }, logic.values.dashboardLoadData.loadId)
             expect(logic.values.error404).toBe(true)
 
-            logic.actions.loadDashboardMetadataSuccess(dashboardResult(5, []))
+            logic.actions.loadDashboardMetadataSuccess(dashboardResult(5, []), logic.values.dashboardLoadData.loadId)
             expect(logic.values.error404).toBe(false)
         })
 
         it('clears access denied when a streaming retry starts or delivers metadata', async () => {
             await expectLogic(logic).toFinishAllListeners()
 
-            logic.actions.tileStreamingFailure({
-                message: 'forbidden',
-                status: 403,
-                code: 'permission_denied',
-            })
+            logic.actions.tileStreamingFailure(
+                {
+                    message: 'forbidden',
+                    status: 403,
+                    code: 'permission_denied',
+                },
+                logic.values.dashboardLoadData.loadId
+            )
             expect(logic.values.accessDeniedToDashboard).toBe(true)
 
             await expectLogic(logic, () => {
@@ -2454,14 +2544,17 @@ describe('dashboardLogic', () => {
             }).toFinishAllListeners()
             expect(logic.values.accessDeniedToDashboard).toBe(false)
 
-            logic.actions.tileStreamingFailure({
-                message: 'forbidden',
-                status: 403,
-                code: 'permission_denied',
-            })
+            logic.actions.tileStreamingFailure(
+                {
+                    message: 'forbidden',
+                    status: 403,
+                    code: 'permission_denied',
+                },
+                logic.values.dashboardLoadData.loadId
+            )
             expect(logic.values.accessDeniedToDashboard).toBe(true)
 
-            logic.actions.loadDashboardMetadataSuccess(dashboardResult(5, []))
+            logic.actions.loadDashboardMetadataSuccess(dashboardResult(5, []), logic.values.dashboardLoadData.loadId)
             expect(logic.values.accessDeniedToDashboard).toBe(false)
         })
 
@@ -2469,17 +2562,23 @@ describe('dashboardLogic', () => {
             await expectLogic(logic).toFinishAllListeners()
 
             await expectLogic(logic, () => {
-                logic.actions.tileStreamingFailure({
-                    message: 'forbidden',
-                    status: 403,
-                    code: 'permission_denied',
-                })
+                logic.actions.tileStreamingFailure(
+                    {
+                        message: 'forbidden',
+                        status: 403,
+                        code: 'permission_denied',
+                    },
+                    logic.values.dashboardLoadData.loadId
+                )
             }).toFinishAllListeners()
             expect(logic.values.accessDeniedToDashboard).toBe(true)
             expect(logic.values.error404).toBe(false)
 
             await expectLogic(logic, () => {
-                logic.actions.tileStreamingFailure({ message: 'HTTP 500: something broke', status: 500 })
+                logic.actions.tileStreamingFailure(
+                    { message: 'HTTP 500: something broke', status: 500 },
+                    logic.values.dashboardLoadData.loadId
+                )
             }).toFinishAllListeners()
             expect(lemonToastErrorSpy).toHaveBeenCalledWith(expect.stringContaining('something broke'))
             expect(logic.values.dashboardFailedToLoad).toBe(true)
@@ -2489,7 +2588,10 @@ describe('dashboardLogic', () => {
             expect(logic.values.dashboard).toBeNull()
 
             await expectLogic(logic, () => {
-                logic.actions.tileStreamingFailure({ message: 'network dropped mid-connect' })
+                logic.actions.tileStreamingFailure(
+                    { message: 'network dropped mid-connect' },
+                    logic.values.dashboardLoadData.loadId
+                )
             }).toDispatchActions(['setDashboardStreamFailed'])
 
             expect(logic.values.dashboardFailedToLoad).toBe(true)
@@ -2501,16 +2603,144 @@ describe('dashboardLogic', () => {
         // over a fully loaded dashboard.
         it('clears the failed state when a stream retry delivers metadata', async () => {
             await expectLogic(logic, () => {
-                logic.actions.tileStreamingFailure({ message: 'network dropped mid-connect' })
+                logic.actions.tileStreamingFailure(
+                    { message: 'network dropped mid-connect' },
+                    logic.values.dashboardLoadData.loadId
+                )
             }).toDispatchActions(['setDashboardStreamFailed'])
             expect(logic.values.dashboardFailedToLoad).toBe(true)
 
             await expectLogic(logic, () => {
-                logic.actions.loadDashboardMetadataSuccess(dashboardResult(5, []))
+                logic.actions.loadDashboardMetadataSuccess(
+                    dashboardResult(5, []),
+                    logic.values.dashboardLoadData.loadId
+                )
             }).toFinishAllListeners()
 
             expect(logic.values.dashboardFailedToLoad).toBe(false)
             expect(logic.values.dashboard).not.toBeNull()
+        })
+
+        it('keeps an initial journey open across a transient stream error and seals only on completion', async () => {
+            const journey = {
+                attemptId: 'stream-attempt',
+                firstUseful: jest.fn(),
+                finish: jest.fn(),
+                dispose: jest.fn(),
+            }
+            mockStartCustomerJourney.mockReturnValue(journey)
+
+            logic.actions.loadingDashboardItemsStarted(DashboardLoadAction.InitialLoad, journey.attemptId)
+            await expectLogic(logic, () => {
+                logic.actions.tileStreamingFailure(new Error('transient stream interruption'), journey.attemptId)
+            }).toFinishAllListeners()
+            expect(journey.finish).not.toHaveBeenCalled()
+
+            logic.actions.loadDashboardMetadataSuccess(dashboardResult(5, []), journey.attemptId)
+            await expectLogic(logic, () => {
+                logic.actions.tileStreamingComplete(journey.attemptId)
+            }).toFinishAllListeners()
+
+            expect(journey.finish).toHaveBeenCalledTimes(1)
+            expect(journey.finish).toHaveBeenCalledWith(
+                'observation_stopped',
+                expect.objectContaining({ total_count: 0, end_reason: 'observation_stopped' })
+            )
+        })
+
+        it('seals a nonempty streamed manifest only after completion and accepts the visible exact result', async () => {
+            const visibleResult = [{ count: 7 }]
+            const offscreenResult = [{ count: 9 }]
+            const visibleInsight = {
+                ...dashboards[5].tiles[0].insight!,
+                result: visibleResult,
+                cache_target_age: dayjs().add(1, 'hour').toISOString(),
+            }
+            const offscreenInsight = {
+                ...dashboards[5].tiles[1].insight!,
+                result: offscreenResult,
+                cache_target_age: dayjs().add(1, 'hour').toISOString(),
+            }
+            const visibleTile = { ...tileFromInsight(visibleInsight, 531), order: 0 }
+            const offscreenTile = { ...tileFromInsight(offscreenInsight, 532), order: 1 }
+            const journey = {
+                attemptId: '',
+                firstUseful: jest.fn(),
+                finish: jest.fn(),
+                dispose: jest.fn(),
+            }
+            mockStartCustomerJourney.mockImplementation((options: { attempt_id: string }) => {
+                journey.attemptId = options.attempt_id
+                return journey
+            })
+            let onMessage!: (data: any) => void
+            let onComplete!: () => void
+            const disposeStream = jest.fn()
+            const streamTilesSpy = jest
+                .spyOn(api.dashboards, 'streamTiles')
+                .mockImplementation(async (_id, _params, messageCallback, completeCallback) => {
+                    onMessage = messageCallback
+                    onComplete = completeCallback
+                    return disposeStream
+                })
+            const getInsightWithRetrySpy = jest.spyOn(dashboardUtils, 'getInsightWithRetry')
+
+            try {
+                await expectLogic(logic, () => {
+                    logic.actions.loadDashboardStreaming({ action: DashboardLoadAction.InitialLoad })
+                }).toFinishAllListeners()
+
+                onMessage({ type: 'metadata', dashboard: dashboardResult(5, []) })
+                onMessage({ type: 'tile', tile: visibleTile, order: 0 })
+                onMessage({ type: 'tile', tile: offscreenTile, order: 1 })
+                logic.actions.setDashboardTileJourneyVisibility(
+                    {
+                        tileId: visibleTile.id,
+                        insightShortId: visibleInsight.short_id,
+                        insightType: 'RETENTION',
+                    },
+                    true
+                )
+                logic.actions.setDashboardTileJourneyVisibility(
+                    {
+                        tileId: offscreenTile.id,
+                        insightShortId: offscreenInsight.short_id,
+                        insightType: 'TRENDS',
+                    },
+                    false
+                )
+
+                expect(logic.values.dashboardTileInventoryComplete).toBe(false)
+                expect(logic.values.dashboardJourneyRenderReadiness).toEqual({})
+                expect(journey.finish).not.toHaveBeenCalled()
+
+                onComplete()
+                await expectLogic(logic).toFinishAllListeners()
+
+                expect(logic.values.dashboardTileInventoryComplete).toBe(true)
+                expect(getInsightWithRetrySpy).not.toHaveBeenCalled()
+                expect(logic.values.dashboardJourneyRenderReadiness).toEqual({
+                    [visibleTile.id]: expect.objectContaining({
+                        attemptId: journey.attemptId,
+                        tileId: visibleTile.id,
+                        expectedResult: visibleResult,
+                    }),
+                })
+                logic.actions.dashboardJourneyTileRenderCommitted('older-stream-attempt', visibleTile.id)
+                expect(journey.finish).not.toHaveBeenCalled()
+
+                logic.actions.dashboardJourneyTileRenderCommitted(journey.attemptId, visibleTile.id)
+                expect(journey.firstUseful).toHaveBeenCalledTimes(1)
+                expect(journey.finish).toHaveBeenCalledTimes(1)
+                expect(journey.finish).toHaveBeenCalledWith(
+                    'usable',
+                    expect.objectContaining({ total_count: 1, ready_count: 1, pending_count: 0 })
+                )
+            } finally {
+                logic.unmount()
+                streamTilesSpy.mockRestore()
+                getInsightWithRetrySpy.mockRestore()
+            }
         })
     })
 
@@ -2569,8 +2799,143 @@ describe('dashboardLogic', () => {
                         textTiles: truth((textTiles) => textTiles.length === 1),
                         dashboardFailedToLoad: false,
                     })
+                expect(mockStartCustomerJourney).toHaveBeenCalledWith(
+                    expect.objectContaining({
+                        journey_name: 'dashboard_open',
+                        trigger: 'initial_load',
+                        attempt_id: logic.values.dashboardLoadData.loadId,
+                    })
+                )
             })
         })
+
+        it.each(['success', 'failure'] as const)(
+            'ignores an older regular load %s after a replacement load starts',
+            async (oldOutcome) => {
+                type DeferredResponse = {
+                    promise: Promise<Response>
+                    resolve: (value: Response) => void
+                    reject: (error: Error) => void
+                }
+                const deferred = (): DeferredResponse => {
+                    let resolve!: DeferredResponse['resolve']
+                    let reject!: DeferredResponse['reject']
+                    const promise = new Promise<Response>((res, rej) => {
+                        resolve = res
+                        reject = rej
+                    })
+                    return { promise, resolve, reject }
+                }
+                const response = (dashboard: DashboardType<QueryBasedInsightModel>): Response =>
+                    new Response(JSON.stringify(dashboard), {
+                        status: 200,
+                        headers: { 'content-type': 'application/json' },
+                    })
+                const oldRequest = deferred()
+                const replacementRequest = deferred()
+                const getResponseSpy = jest
+                    .spyOn(api, 'getResponse')
+                    .mockImplementationOnce(() => oldRequest.promise)
+                    .mockImplementationOnce(() => replacementRequest.promise)
+                const initialGetResponseCallCount = getResponseSpy.mock.calls.length
+                const journeys = new Map<
+                    string,
+                    { attemptId: string; firstUseful: jest.Mock; finish: jest.Mock; dispose: jest.Mock }
+                >()
+                mockStartCustomerJourney.mockImplementation((options: { attempt_id: string }) => {
+                    const journey = {
+                        attemptId: options.attempt_id,
+                        firstUseful: jest.fn(),
+                        finish: jest.fn(),
+                        dispose: jest.fn(),
+                    }
+                    journeys.set(options.attempt_id, journey)
+                    return journey
+                })
+                const poll = async (condition: () => boolean, message: string): Promise<void> => {
+                    const deadline = Date.now() + 5000
+                    while (!condition() && Date.now() < deadline) {
+                        await new Promise((resolve) => setTimeout(resolve, 0))
+                    }
+                    if (!condition()) {
+                        throw new Error(message)
+                    }
+                }
+                const oldResult = [{ count: -1 }]
+                const replacementResult = [{ count: 42 }]
+                const oldTile = {
+                    ...dashboards[5].tiles[0],
+                    insight: {
+                        ...dashboards[5].tiles[0].insight!,
+                        result: oldResult,
+                        cache_target_age: dayjs().add(1, 'hour').toISOString(),
+                    },
+                }
+                const replacementTile = {
+                    ...oldTile,
+                    insight: { ...oldTile.insight, result: replacementResult },
+                }
+                const oldDashboard = dashboardResult(5, [oldTile])
+                const replacementDashboard = dashboardResult(5, [replacementTile])
+
+                journeys.clear()
+                const dashboardBeforeRequests = logic.values.dashboard
+                try {
+                    logic.actions.loadDashboard({ action: DashboardLoadAction.InitialLoad })
+                    await poll(
+                        () => getResponseSpy.mock.calls.length === initialGetResponseCallCount + 1,
+                        'initial dashboard request did not start'
+                    )
+                    const oldLoadId = logic.values.dashboardLoadData.loadId
+                    logic.actions.loadDashboard({ action: DashboardLoadAction.InitialLoad })
+                    await poll(
+                        () => getResponseSpy.mock.calls.length === initialGetResponseCallCount + 2,
+                        'replacement dashboard request did not start'
+                    )
+                    const replacementLoadId = logic.values.dashboardLoadData.loadId
+                    expect(replacementLoadId).not.toBe(oldLoadId)
+
+                    logic.actions.setDashboardTileJourneyVisibility(
+                        {
+                            tileId: replacementTile.id,
+                            insightShortId: replacementTile.insight.short_id,
+                            insightType: 'RETENTION',
+                        },
+                        true
+                    )
+
+                    if (oldOutcome === 'success') {
+                        oldRequest.resolve(response(oldDashboard))
+                    } else {
+                        oldRequest.reject(new Error('old dashboard request failed'))
+                    }
+                    await new Promise((resolve) => setTimeout(resolve, 0))
+                    await new Promise((resolve) => setTimeout(resolve, 0))
+
+                    expect(logic.values.dashboard).toBe(dashboardBeforeRequests)
+                    expect(logic.values.dashboardJourneyRenderReadiness).toEqual({})
+                    expect(journeys.get(replacementLoadId)?.finish).not.toHaveBeenCalled()
+
+                    replacementRequest.resolve(response(replacementDashboard))
+                    await poll(
+                        () => !!logic.values.dashboardJourneyRenderReadiness[replacementTile.id],
+                        'replacement dashboard did not install its own result readiness'
+                    )
+                    expect(logic.values.dashboard?.tiles[0].insight?.result).toEqual(replacementResult)
+                    expect(logic.values.dashboardJourneyRenderReadiness[replacementTile.id]?.expectedResult).toBe(
+                        logic.values.dashboard?.tiles[0].insight?.result
+                    )
+                    expect(logic.values.dashboardJourneyRenderReadiness[replacementTile.id]?.attemptId).toBe(
+                        replacementLoadId
+                    )
+                } finally {
+                    oldRequest.resolve(response(oldDashboard))
+                    replacementRequest.resolve(response(replacementDashboard))
+                    getResponseSpy.mockRestore()
+                }
+            },
+            15_000
+        )
 
         describe('last refreshed display', () => {
             it.each([
@@ -2668,8 +3033,9 @@ describe('dashboardLogic', () => {
 
         describe('insight refresh', () => {
             it('does not start journey telemetry from a partial streaming tile inventory', async () => {
+                mockStartCustomerJourney.mockClear()
                 const partialDashboard = dashboardResult(5, [logic.values.insightTiles[0]])
-                logic.actions.loadDashboardMetadataSuccess(partialDashboard)
+                logic.actions.loadDashboardMetadataSuccess(partialDashboard, logic.values.dashboardLoadData.loadId)
                 expect(logic.values.dashboardTileInventoryComplete).toBe(false)
 
                 const visibleTile = partialDashboard.tiles[0]
@@ -2690,6 +3056,7 @@ describe('dashboardLogic', () => {
             })
 
             it('does not start journey telemetry when every visible insight is duplicated in the full dashboard', async () => {
+                mockStartCustomerJourney.mockClear()
                 const duplicatedInsight = logic.values.insightTiles[0].insight!
                 const duplicatedDashboard = dashboardResult(5, [
                     tileFromInsight(duplicatedInsight, 501),
@@ -2712,6 +3079,108 @@ describe('dashboardLogic', () => {
                 }).toFinishAllListeners()
 
                 expect(mockStartCustomerJourney).not.toHaveBeenCalled()
+            })
+
+            it('preserves visible initial-load readiness when an observed-offscreen tile fails after sealing', async () => {
+                const visibleInsight = {
+                    ...logic.values.insightTiles[0].insight!,
+                    cache_target_age: dayjs().subtract(1, 'hour').toISOString(),
+                }
+                const offscreenInsight = {
+                    ...logic.values.insightTiles[1].insight!,
+                    cache_target_age: dayjs().subtract(1, 'hour').toISOString(),
+                }
+                const visibleTile = { ...tileFromInsight(visibleInsight, 521), order: 0 }
+                const offscreenTile = { ...tileFromInsight(offscreenInsight, 522), order: 1 }
+                dashboardsModel.actions.updateDashboardSuccess(dashboardResult(5, [visibleTile, offscreenTile]))
+
+                const journey = {
+                    attemptId: 'initial-visible-attempt',
+                    firstUseful: jest.fn(),
+                    finish: jest.fn(),
+                    dispose: jest.fn(),
+                }
+                mockStartCustomerJourney.mockReturnValue(journey)
+                logic.actions.loadingDashboardItemsStarted(DashboardLoadAction.InitialLoad, journey.attemptId)
+                logic.actions.setDashboardTileJourneyVisibility(
+                    {
+                        tileId: visibleTile.id,
+                        insightShortId: visibleInsight.short_id,
+                        insightType: 'RETENTION',
+                    },
+                    true
+                )
+                logic.actions.setDashboardTileJourneyVisibility(
+                    {
+                        tileId: offscreenTile.id,
+                        insightShortId: offscreenInsight.short_id,
+                        insightType: 'TRENDS',
+                    },
+                    false
+                )
+
+                let resolveVisible!: (value: QueryBasedInsightModel) => void
+                let rejectOffscreen!: (error: Error) => void
+                const visibleRequest = new Promise<QueryBasedInsightModel>((resolve) => {
+                    resolveVisible = resolve
+                })
+                const offscreenRequest = new Promise<QueryBasedInsightModel>((_resolve, reject) => {
+                    rejectOffscreen = reject
+                })
+                const getInsightWithRetrySpy = jest
+                    .spyOn(dashboardUtils, 'getInsightWithRetry')
+                    .mockImplementationOnce(() => visibleRequest)
+                    .mockImplementationOnce(() => offscreenRequest)
+                const poll = async (condition: () => boolean, message: string): Promise<void> => {
+                    for (let index = 0; index < 100 && !condition(); index++) {
+                        await new Promise((resolve) => setTimeout(resolve, 0))
+                    }
+                    if (!condition()) {
+                        throw new Error(message)
+                    }
+                }
+
+                try {
+                    const refreshDone = expectLogic(logic, () => {
+                        logic.actions.refreshDashboardItems({
+                            action: DashboardLoadAction.InitialLoad,
+                            forceRefresh: false,
+                            journeyAttemptId: journey.attemptId,
+                        })
+                    }).toFinishAllListeners()
+                    await poll(
+                        () => getInsightWithRetrySpy.mock.calls.length === 2,
+                        'initial tile requests did not start'
+                    )
+
+                    const visibleResult: unknown[] = []
+                    resolveVisible({ ...visibleInsight, result: visibleResult })
+                    await poll(
+                        () =>
+                            logic.values.dashboardJourneyRenderReadiness[visibleTile.id]?.expectedResult ===
+                            visibleResult,
+                        'visible tile did not become render-ready'
+                    )
+
+                    rejectOffscreen(new Error('offscreen query failed'))
+                    await refreshDone
+
+                    expect(logic.values.dashboardJourneyRenderReadiness[visibleTile.id]?.expectedResult).toBe(
+                        visibleResult
+                    )
+                    expect(journey.finish).not.toHaveBeenCalled()
+
+                    logic.actions.dashboardJourneyTileRenderCommitted(journey.attemptId, visibleTile.id)
+                    expect(journey.finish).toHaveBeenCalledTimes(1)
+                    expect(journey.finish).toHaveBeenCalledWith(
+                        'usable',
+                        expect.objectContaining({ total_count: 1, ready_count: 1, pending_count: 0 })
+                    )
+                } finally {
+                    resolveVisible({ ...visibleInsight, result: [] })
+                    rejectOffscreen(new Error('cleanup'))
+                    getInsightWithRetrySpy.mockRestore()
+                }
             })
 
             it.each(['success', 'query_error'] as const)(
@@ -3333,6 +3802,106 @@ describe('dashboardLogic', () => {
                             total: 1,
                         },
                     })
+            })
+
+            it('instruments immediate and interval auto-refreshes without changing gate-off requests', async () => {
+                jest.useFakeTimers()
+                const journeys: Array<{
+                    attemptId: string
+                    firstUseful: jest.Mock
+                    finish: jest.Mock
+                    dispose: jest.Mock
+                }> = []
+                mockStartCustomerJourney.mockClear()
+                mockStartCustomerJourney.mockImplementation((options: { attempt_id: string }) => {
+                    const journey = {
+                        attemptId: options.attempt_id,
+                        firstUseful: jest.fn(),
+                        finish: jest.fn(),
+                        dispose: jest.fn(),
+                    }
+                    journeys.push(journey)
+                    return journey
+                })
+                for (const [index, tile] of logic.values.insightTiles.entries()) {
+                    logic.actions.setDashboardTileJourneyVisibility(
+                        {
+                            tileId: tile.id,
+                            insightShortId: tile.insight!.short_id,
+                            insightType: index === 0 ? 'RETENTION' : 'TRENDS',
+                        },
+                        true
+                    )
+                }
+                let responseIndex = 0
+                const getInsightWithRetrySpy = jest
+                    .spyOn(dashboardUtils, 'getInsightWithRetry')
+                    .mockImplementation(async (_teamId, insight) => ({
+                        ...insight,
+                        result: [{ responseIndex: ++responseIndex }],
+                    }))
+                const flushUntil = async (condition: () => boolean, message: string): Promise<void> => {
+                    for (let index = 0; index < 100 && !condition(); index++) {
+                        await Promise.resolve()
+                    }
+                    if (!condition()) {
+                        throw new Error(message)
+                    }
+                }
+                const commitCurrentJourney = (journey: (typeof journeys)[number]): void => {
+                    for (const tile of logic.values.insightTiles) {
+                        expect(logic.values.dashboardJourneyRenderReadiness[tile.id]?.attemptId).toBe(journey.attemptId)
+                        logic.actions.dashboardJourneyTileRenderCommitted(journey.attemptId, tile.id)
+                    }
+                    expect(journey.finish).toHaveBeenCalledTimes(1)
+                }
+
+                try {
+                    logic.actions.updateDashboardLastRefresh(dayjs().subtract(1, 'hour'))
+                    logic.actions.setAutoRefresh(true, 60)
+                    await flushUntil(
+                        () => getInsightWithRetrySpy.mock.calls.length === 2 && journeys.length === 1,
+                        'immediate automatic refresh did not run'
+                    )
+                    await flushUntil(
+                        () => Object.keys(logic.values.dashboardJourneyRenderReadiness).length === 2,
+                        'immediate automatic refresh did not expose render readiness'
+                    )
+                    expect(mockStartCustomerJourney).toHaveBeenLastCalledWith(
+                        expect.objectContaining({ journey_name: 'dashboard_refresh', trigger: 'automatic_refresh' })
+                    )
+                    commitCurrentJourney(journeys[0])
+
+                    jest.advanceTimersByTime(60_000)
+                    await flushUntil(
+                        () => getInsightWithRetrySpy.mock.calls.length === 4 && journeys.length === 2,
+                        'interval automatic refresh did not run'
+                    )
+                    await flushUntil(
+                        () =>
+                            Object.values(logic.values.dashboardJourneyRenderReadiness).length === 2 &&
+                            Object.values(logic.values.dashboardJourneyRenderReadiness).every(
+                                (readiness) => readiness.attemptId === journeys[1].attemptId
+                            ),
+                        'interval automatic refresh did not own its result readiness'
+                    )
+                    commitCurrentJourney(journeys[1])
+
+                    mockStartCustomerJourney.mockReturnValue(null)
+                    jest.advanceTimersByTime(60_000)
+                    await flushUntil(
+                        () => getInsightWithRetrySpy.mock.calls.length === 6,
+                        'gate-off interval refresh changed the request behavior'
+                    )
+                    expect(responseIndex).toBe(6)
+                    for (const call of getInsightWithRetrySpy.mock.calls) {
+                        expect(call[4]).toBe('force_blocking')
+                    }
+                } finally {
+                    logic.actions.setPageVisibility(false)
+                    getInsightWithRetrySpy.mockRestore()
+                    jest.useRealTimers()
+                }
             })
         })
 

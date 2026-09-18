@@ -200,14 +200,16 @@ export function SQLEditor({
         return () => disposable.dispose()
     }, [editor])
 
+    const nativeQueryJourney = mode === SQLEditorMode.FullScene && !onRunQuery && !hostProduct && showOutputPanel
     const logic = sqlEditorLogic({
         tabId: tabId || '',
+        nativeQueryJourney,
         mode,
         monaco,
         editor,
     })
 
-    const { sourceQuery, dataLogicKey } = useValues(logic)
+    const { sourceQuery, dataLogicKey, queryJourney } = useValues(logic)
     const { setSourceQuery } = useActions(logic)
     const sourceQueryRef = useRef(sourceQuery)
     sourceQueryRef.current = sourceQuery
@@ -232,6 +234,7 @@ export function SQLEditor({
         dataNodeCollectionId: dataLogicKey,
         variablesOverride: undefined,
         autoLoad: false,
+        queryJourney,
         onError: (error) => {
             const mountedLogic = sqlEditorLogic.findMounted({
                 tabId: tabId || '',
@@ -268,11 +271,15 @@ export function SQLEditor({
                     <BindLogic logic={variablesLogic} props={variablesLogicProps}>
                         <BindLogic logic={variableModalLogic} props={{ key: dataVisualizationLogicProps.key }}>
                             <BindLogic logic={outputPaneLogic} props={{ tabId }}>
-                                <BindLogic logic={sqlEditorLogic} props={{ tabId, mode, monaco, editor }}>
+                                <BindLogic
+                                    logic={sqlEditorLogic}
+                                    props={{ tabId, mode, monaco, editor, nativeQueryJourney }}
+                                >
                                     {showQueryPanel ? <VariablesQuerySync /> : null}
                                     {panel === SQLEditorPanel.Output ? (
                                         <div className="flex h-full min-h-0 flex-col overflow-hidden">
                                             <OutputPane
+                                                nativeQueryJourney={nativeQueryJourney}
                                                 tabId={tabId || ''}
                                                 showToolbar={showOutputToolbar}
                                                 onShareTab={onShareTab}
@@ -298,6 +305,7 @@ export function SQLEditor({
                                                     >
                                                         <ViewLoadingOverlay />
                                                         <QueryWindow
+                                                            nativeQueryJourney={nativeQueryJourney}
                                                             mode={mode}
                                                             tabId={tabId || ''}
                                                             showDatabaseTree={showDatabaseTreePanel}

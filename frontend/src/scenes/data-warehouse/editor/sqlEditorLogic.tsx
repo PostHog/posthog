@@ -61,6 +61,7 @@ import { userLogic } from 'scenes/userLogic'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { insightsModel } from '~/models/insightsModel'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
+import { QueryJourneyDescriptor } from '~/queries/nodes/DataNode/queryJourney'
 import { dataVisualizationLogic } from '~/queries/nodes/DataVisualization/dataVisualizationLogic'
 import { performQuery, queryExportContext } from '~/queries/query'
 import {
@@ -98,6 +99,7 @@ import {
     dataCatalogMetricsPartialUpdate,
     dataCatalogMetricsRetrieve,
 } from 'products/data_catalog/frontend/generated/api'
+import { createSqlQueryJourney } from 'products/data_warehouse/frontend/sqlQueryJourney'
 import { validateEndpointName } from 'products/endpoints/frontend/common'
 
 import type { ExternalDataSourceConnectionOptionApi } from '../../../../../products/warehouse_sources/frontend/generated/api.schemas'
@@ -136,6 +138,7 @@ import {
 import { ViewEmptyState } from './ViewLoadingState'
 
 export interface SqlEditorLogicProps {
+    nativeQueryJourney?: boolean
     tabId: string
     mode?: SQLEditorMode
     monaco?: Monaco | null
@@ -598,6 +601,7 @@ export interface sqlEditorLogicValues {
     metricUpdating: boolean
     originalQueryInput: string | null | undefined
     queryInput: string | null
+    queryJourney: QueryJourneyDescriptor | undefined
     rejectText: string
     selectedConnectionId: string | undefined
     selectedConnectionSupportsHogQL: boolean
@@ -1153,6 +1157,7 @@ export interface sqlEditorLogicMeta {
         filtersPlaceholderBindings: (queryInput: string | null) => string[] | null
         hasQueryInput: (queryInput: string | null) => boolean
         isEmbeddedMode: (arg: SQLEditorMode | undefined) => boolean
+        queryJourney: (tabId: string, mode: any, nativeQueryJourney: any) => QueryJourneyDescriptor | undefined
         dataLogicKey: (tabId: string) => string
         isDraft: (activeTab: QueryTab | null) => boolean
         currentDraft: (activeTab: QueryTab | null) => DataWarehouseSavedQueryDraft | null | undefined
@@ -1198,7 +1203,7 @@ function schemaLoadOptions(force = false): { force: boolean; shallow: boolean } 
 
 export const sqlEditorLogic = kea<sqlEditorLogicType>([
     path(['data-warehouse', 'editor', 'sqlEditorLogic']),
-    props({ mode: SQLEditorMode.FullScene } as SqlEditorLogicProps),
+    props({ mode: SQLEditorMode.FullScene, nativeQueryJourney: true } as SqlEditorLogicProps),
     key((props) => props.tabId),
     connect((props: SqlEditorLogicProps) => ({
         values: [
@@ -2125,12 +2130,14 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     cache.umountDataNode = dataNodeLogic({
                         key: values.dataLogicKey,
                         query: executedSource,
+                        queryJourney: values.queryJourney,
                     }).mount()
                 }
 
                 dataNodeLogic({
                     key: values.dataLogicKey,
                     query: executedSource,
+                    queryJourney: values.queryJourney,
                 }).actions.loadData(!switchTab ? 'force_async' : 'async', undefined, executedSource)
 
                 // Mark the first query task as complete when the query is run
@@ -3284,6 +3291,19 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
         isEmbeddedMode: [
             () => [(_, p: SqlEditorLogicProps) => p.mode],
             (mode: SQLEditorMode | undefined) => isEmbeddedSQLEditorMode(mode ?? SQLEditorMode.FullScene),
+        ],
+        queryJourney: [
+            () => [
+                (_, p: SqlEditorLogicProps) => p.tabId,
+                (_, p: SqlEditorLogicProps) => p.mode,
+                (_, p: SqlEditorLogicProps) => p.nativeQueryJourney,
+            ],
+            (
+                tabId: string,
+                mode: SQLEditorMode | undefined,
+                nativeQueryJourney: boolean | undefined
+            ): QueryJourneyDescriptor | undefined =>
+                nativeQueryJourney === false ? undefined : createSqlQueryJourney(tabId, mode),
         ],
         dataLogicKey: [(_, p) => [p.tabId], (tabId: string) => `data-warehouse-editor-data-node-${tabId}`],
         isDraft: [(s) => [s.activeTab], (activeTab: QueryTab | null) => (activeTab ? !!activeTab.draft?.id : false)],

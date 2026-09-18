@@ -10,12 +10,23 @@ export type CustomerJourneyOutcome =
 export type CustomerJourneyEndReason = 'cancelled' | 'superseded' | 'exited' | 'observation_stopped'
 
 export interface CustomerJourneyOptions {
-    journey_name: 'dashboard_refresh' | 'experiment_refresh' | 'replay_open'
-    resource_type: 'dashboard' | 'experiment' | 'session_recording'
+    journey_name:
+        | 'dashboard_open'
+        | 'dashboard_refresh'
+        | 'experiment_refresh'
+        | 'replay_open'
+        | 'person_search'
+        | 'sql_run'
+    resource_type: 'dashboard' | 'experiment' | 'session_recording' | 'persons' | 'sql_editor'
     resource_id: string | number
-    trigger: 'initial_load' | 'manual_refresh' | 'navigation' | 'retry'
+    trigger: 'initial_load' | 'manual_refresh' | 'automatic_refresh' | 'navigation' | 'retry' | 'query_execution'
     readiness_contract_version: number
-    readiness_scope: 'visible_product_analytics_tiles' | 'modern_experiment_results' | 'player_mount_to_first_frame'
+    readiness_scope:
+        | 'visible_product_analytics_tiles'
+        | 'modern_experiment_results'
+        | 'player_mount_to_first_frame'
+        | 'persons_list_query_to_table_commit'
+        | 'sql_query_to_results_commit'
     attempt_id?: string
     workload_class?: 'unknown'
 }
