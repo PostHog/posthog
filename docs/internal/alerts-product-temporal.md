@@ -202,7 +202,39 @@ Evaluation and delivery workflow logging are unchanged.
 
 ## Metrics
 
-The shared worker exposes these SDK histograms with `task_queue` labels:
+All three alerts workers already enable the Temporal SDK's Prometheus exporter through `posthog/temporal/common/worker.py`.
+It exposes `/metrics` on `--metrics-port`; metrics do not depend on the tracing plugin or the activity logging interceptor.
+Keep the native SDK instruments rather than emitting duplicate application metrics.
+Collection does not require changes to concurrency, pollers, cache size, or resource limits.
+
+### Worker tuning metrics
+
+The Python SDK uses Temporal Core, which supplies these metrics automatically as the relevant work occurs:
+
+| Resource | SDK metrics                                                                                              | What to observe                                                                                       |
+| -------- | -------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| Compute  | `temporal_worker_task_slots_available`, `temporal_worker_task_slots_used`                                | Free and occupied execution slots, separated by `worker_type` (`WorkflowWorker` or `ActivityWorker`). |
+| Compute  | `temporal_workflow_task_execution_latency`                                                               | Workflow Task execution time, not the duration of an entire Workflow Execution.                       |
+| Memory   | `temporal_sticky_cache_size`                                                                             | Number of cached Workflow Executions.                                                                 |
+| Memory   | `temporal_sticky_cache_hit`, `temporal_sticky_cache_miss`, `temporal_sticky_cache_total_forced_eviction` | Cache reuse, misses, and forced evictions.                                                            |
+| IO       | `temporal_num_pollers`                                                                                   | Current pollers, separated by `poller_type`.                                                          |
+| IO       | `temporal_request_latency`, `temporal_long_request_latency`                                              | RPC latency by `operation`; long polls must be considered separately from ordinary requests.          |
+| Failures | `temporal_request_failure`, `temporal_long_request_failure`                                              | Failed ordinary and long-running RPCs.                                                                |
+
+Worker metrics generally include `task_queue`; client RPC metrics use `namespace` and `operation` instead.
+Use scrape target or pod labels to identify the alerts deployment for metrics without a `task_queue` label.
+Keep per-pod visibility when checking saturation: an aggregate can hide a worker with no available slots.
+
+`temporal_workflow_active_thread_count` is Java-only and is not available from these Python workers.
+Container CPU and memory metrics, such as `container_cpu_usage_seconds_total` and `container_memory_usage_bytes`, come from Kubernetes monitoring, not this exporter.
+Task Queue backlog and sync-match statistics are service-side signals; enabling SDK metrics does not collect them.
+Use Temporal's Task Queue statistics, including the `DescribeTaskQueue` API, to investigate backlog separately.
+
+See Temporal's [worker tuning reference](https://docs.temporal.io/develop/worker-tuning-reference#metrics-reference-by-resource-type) and [SDK metrics reference](https://docs.temporal.io/references/sdk-metrics).
+
+### Activity timing
+
+The shared worker also exposes these SDK histograms with `task_queue` labels:
 
 - `temporal_activity_schedule_to_start_latency`: time from the current attempt's scheduling to its start. Earlier attempts and retry backoff are excluded.
 - `temporal_activity_execution_latency`: worker-side execution time for an attempt, including interceptor overhead. This is not an end-to-end evaluation or delivery duration.
@@ -215,6 +247,17 @@ Do not add workflow or run IDs as metric labels.
 A worker killed before completion cannot emit a finish log or execution sample.
 Activities that never start produce no worker-side timing sample.
 Missing finish events are not evidence of success.
+
+### Verify collection before tuning
+
+1. Fetch `/metrics` from each worker's configured metrics port and check for the native `temporal_` series.
+2. Run an orchestration tick and verify workflow and activity timing samples for the queues that processed it.
+3. Check the monitoring backend for a healthy scrape target and fresh slot, cache, and poller samples from each deployment.
+4. Confirm CPU and memory samples exist for the same pods before using SDK metrics to choose resource settings.
+
+Counters and histograms can remain absent until their triggering event occurs, especially failures and cache evictions.
+An absent failure series is not proof that scraping works; check target health and other fresh worker series.
+An accessible worker endpoint proves emission, but not that the monitoring backend has collected or retained its samples.
 
 ## Tracing and deployment verification
 
