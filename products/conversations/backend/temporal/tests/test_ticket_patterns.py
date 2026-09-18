@@ -277,6 +277,34 @@ class TestLoadCandidates(BaseTest):
         assert [c.ticket_id for c in candidates] == ([str(ticket.id)] if expected else [])
         assert (str(ticket.id) in requesters) is expected
 
+    def test_a_customer_opener_with_no_privacy_flag_still_counts(self):
+        # A bare exclude() reads a missing key as SQL NULL and drops the row, which is why the
+        # product keeps one shared predicate for this. Older rows carry no key.
+        ticket = self._ticket_with_opener(
+            subject="Cannot log in",
+            author_type="customer",
+            distinct_id="someone@example.com",
+        )
+        Comment.objects.filter(item_id=str(ticket.id)).update(item_context={"author_type": "customer"})
+
+        candidates, _ = _load_candidates(self.team.id, _settings())
+
+        assert [c.ticket_id for c in candidates] == [str(ticket.id)]
+
+    def test_a_deleted_message_is_not_sent_to_the_model(self):
+        # Ticket messages are soft-deletable through the generic comments API, and deleted text
+        # must not reach an LLM payload.
+        ticket = self._ticket_with_opener(
+            subject="Cannot log in",
+            author_type="customer",
+            distinct_id="someone@example.com",
+        )
+        Comment.objects.filter(item_id=str(ticket.id)).update(deleted=True)
+
+        candidates, _ = _load_candidates(self.team.id, _settings())
+
+        assert candidates == []
+
     def test_a_team_reply_does_not_stand_in_for_a_missing_customer_opener(self):
         # last_message_text holds whatever was said last, so a reply on a team-started ticket
         # used to put that ticket back into the candidate set.

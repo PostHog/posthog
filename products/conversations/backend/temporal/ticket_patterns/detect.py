@@ -21,6 +21,7 @@ with workflow.unsafe.imports_passed_through():
     from products.conversations.backend.events import capture_ticket_pattern_detected
     from products.conversations.backend.models import Ticket
     from products.conversations.backend.models.constants import Status
+    from products.conversations.backend.services.messages import _public_ticket_message_context
     from products.conversations.backend.temporal.ai_reply.llms import (
         anthropic_text,
         create_message,
@@ -105,7 +106,8 @@ def _load_candidates(team_id: int, settings: DetectionSettings) -> tuple[list[Ti
     # team's own campaign back to them as a customer spike. Only a customer-authored opener counts.
     # The test is an allowlist because the team side is spelled several ways ("support", "human",
     # "AI"), and an unlabelled message is not worth a false alert. Private notes are our own words
-    # too; grouping on them would cluster our triage habits.
+    # too, so the shared predicate excludes them. Reuse it rather than write the test here: a
+    # comment with no is_private key reads as SQL NULL, which a bare exclude() drops.
     first_messages: dict[str, str] = {}
     for item_id, content in (
         Comment.objects.filter(
@@ -113,8 +115,9 @@ def _load_candidates(team_id: int, settings: DetectionSettings) -> tuple[list[Ti
             scope="conversations_ticket",
             item_id__in=[str(t.id) for t in tickets],
             item_context__author_type="customer",
+            deleted=False,
         )
-        .exclude(item_context__is_private=True)
+        .filter(_public_ticket_message_context())
         .order_by("created_at")
         .values_list("item_id", "content")
     ):
