@@ -1,5 +1,8 @@
 from posthog.test.base import APIBaseTest
 
+from django.utils import timezone
+
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models import EventDefinition, EventSchema, Project, SchemaPropertyGroup, SchemaPropertyGroupProperty
@@ -322,3 +325,26 @@ class TestEventSchemaAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "does not exist" in str(response.json())
+
+    @parameterized.expand([("unfiltered", False), ("filtered_by_event_definition", True)])
+    def test_list_pages_are_stable_when_created_at_ties(self, _name: str, filter_by_event_definition: bool):
+        event_def = EventDefinition.objects.create(team=self.team, project=self.project, name="test_event")
+        schema_ids = []
+        for index in range(5):
+            property_group = SchemaPropertyGroup.objects.create(
+                team=self.team, project=self.project, name=f"Group {index}"
+            )
+            schema = EventSchema.objects.create(event_definition=event_def, property_group=property_group)
+            schema_ids.append(str(schema.id))
+        EventSchema.objects.filter(pk__in=schema_ids).update(created_at=timezone.now())
+
+        paged_ids: list[str] = []
+        for offset in (0, 2, 4):
+            params = {"limit": "2", "offset": str(offset)}
+            if filter_by_event_definition:
+                params["event_definition"] = str(event_def.id)
+            response = self.client.get(f"/api/projects/{self.project.id}/event_schemas/", params)
+            assert response.status_code == status.HTTP_200_OK
+            paged_ids.extend(row["id"] for row in response.json()["results"])
+
+        assert paged_ids == list(reversed(schema_ids))
