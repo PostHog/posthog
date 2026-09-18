@@ -5,8 +5,6 @@ on:
         paths:
             - common/hogql_parser/**
             - .github/workflows/build-hogql-parser.yml
-    # Publishing is manual and only from master. A pull request builds wheels as a check
-    # and cannot reach the publish job.
     workflow_dispatch:
 
 permissions:
@@ -62,7 +60,7 @@ jobs:
                     if [[ "$http_code" == '404' ]]; then
                       parser_release_needed='true'
                       # Version was bumped, so mark any reminder from an earlier push resolved.
-                      if [[ "$GITHUB_EVENT_NAME" == 'pull_request' ]] && [ -f .github/scripts/post-reminder-section.mjs ]; then
+                      if [ -f .github/scripts/post-reminder-section.mjs ]; then
                         GITHUB_TOKEN="$GH_TOKEN" node .github/scripts/post-reminder-section.mjs hogql-parser-py --clear "version bumped to $local"
                       fi
                     elif [[ "$http_code" == '200' ]]; then

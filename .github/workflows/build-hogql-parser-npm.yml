@@ -5,8 +5,6 @@ on:
         paths:
             - common/hogql_parser/**
             - .github/workflows/build-hogql-parser-npm.yml
-    # Publishing is manual and only from master. A pull request builds the WASM package as a
-    # check and cannot reach the publish job.
     workflow_dispatch:
 
 permissions:
