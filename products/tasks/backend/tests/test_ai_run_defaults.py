@@ -22,7 +22,7 @@ from products.tasks.backend.logic.services.ai_run_defaults import (
     update_user_ai_run_preferences,
     validate_ai_run_preferences,
 )
-from products.tasks.backend.models import Task, TeamTasksConfig, UserTasksConfig
+from products.tasks.backend.models import Task, TaskRun, TeamTasksConfig, UserTasksConfig
 from products.tasks.backend.presentation.serializers import TaskRunCreateRequestSerializer
 
 FACADE = "products.tasks.backend.facade.api"
@@ -91,8 +91,9 @@ class TestResolveAIRunDefaults(APIBaseTest):
             "off",
         )
 
-    def test_a_stored_effort_pi_cannot_use_is_dropped(self):
-        self._set_user({**PI_PREFS_WITH_PI_ONLY_EFFORT, "reasoning_effort": "ultracode"})
+    @parameterized.expand([("a_depth_pi_cannot_run", "ultracode"), ("not_a_depth_at_all", "deep")])
+    def test_a_stored_effort_pi_cannot_use_is_dropped(self, _name: str, reasoning_effort: str):
+        self._set_user({**PI_PREFS_WITH_PI_ONLY_EFFORT, "reasoning_effort": reasoning_effort})
         with pi_harness_enabled():
             resolved = resolve_ai_run_defaults(self.team.id, self.user.id)
         assert (resolved.model, resolved.reasoning_effort) == ("gpt-5.6-terra", None)
@@ -213,6 +214,7 @@ class TestValidateAIRunPreferences:
             ("pi_with_an_adapter", "pi", "codex", "gpt-5.6-terra", None),
             ("pi_without_a_model", "pi", None, None, "high"),
             ("pi_with_a_value_that_is_not_a_depth", "pi", None, "gpt-5.6-terra", "deep"),
+            ("pi_with_a_depth_it_cannot_run", "pi", None, "gpt-5.6-terra", "ultracode"),
             ("acp_with_a_value_that_is_not_a_depth", None, "codex", "gpt-5.6-terra", "deep"),
             ("acp_with_a_model_and_no_adapter", None, None, "gpt-5.6-terra", None),
         ]
@@ -435,6 +437,45 @@ class TestRunTaskWarmMatchingUnderDefaults(APIBaseTest):
         warm_run.refresh_from_db()
         assert "await_user_message" not in warm_run.state
 
+    def test_default_carrying_warm_run_is_activated_by_a_continue_from_an_import_run(self):
+        update_team_ai_run_preferences(self.team.id, **TEAM_TRIPLE)
+        task = Task.objects.create(
+            team=self.team,
+            title="",
+            description="",
+            origin_product=Task.OriginProduct.POSTHOG_AI,
+            created_by=self.user,
+        )
+        import_run = task.create_run(mode="interactive", extra_state={"imported_from": "conversation"})
+        import_run.status = TaskRun.Status.COMPLETED
+        import_run.save(update_fields=["status"])
+        warm_run = task.create_run(
+            mode="interactive",
+            extra_state={
+                "await_user_message": True,
+                "resume_from_run_id": str(import_run.id),
+                "initial_permission_mode": "default",
+            },
+        )
+        assert warm_run.state["model"] == "claude-opus-4-8"
+
+        with patch(f"{FACADE}.signal_task_run_user_message", return_value=True):
+            result = facade.run_task(
+                task.id,
+                self.team.id,
+                self.user.id,
+                validated_data={
+                    "mode": "interactive",
+                    "resume_from_run_id": str(import_run.id),
+                    "pending_user_message": "go",
+                },
+            )
+
+        assert result is not None and result.error is None
+        assert task.runs.count() == 2
+        warm_run.refresh_from_db()
+        assert "await_user_message" not in warm_run.state
+
 
 class TestTasksConfigAPI(APIBaseTest):
     def setUp(self) -> None:
@@ -465,9 +506,8 @@ class TestTasksConfigAPI(APIBaseTest):
             ),
             ("pi_with_an_adapter", {"runtime": "pi", "runtime_adapter": "codex", "model": "gpt-5.6-terra"}),
             ("pi_without_a_model", {"runtime": "pi", "reasoning_effort": "high"}),
-            ("pi_with_an_acp_only_depth", {"runtime": "pi", "model": "gpt-5.6-terra", "reasoning_effort": "ultracode"}),
             (
-                "acp_with_a_pi_only_depth",
+                "a_depth_the_paired_model_does_not_offer",
                 {"runtime_adapter": "codex", "model": "gpt-5.6-terra", "reasoning_effort": "off"},
             ),
         ]

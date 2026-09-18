@@ -77,6 +77,7 @@ type Story = StoryObj<typeof meta>
 
 export const ReplacementLifecycle: Story = {}
 export const RevisionLimit: Story = {
+    parameters: { mockDate: '2026-09-17T10:00:00Z' },
     args: {
         artefacts: [
             {

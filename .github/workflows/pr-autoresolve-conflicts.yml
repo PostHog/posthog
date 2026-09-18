@@ -54,7 +54,7 @@ env:
 jobs:
     detect:
         name: Detect conflicting PRs
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         timeout-minutes: 10 # bulk-fetches PR heads + merge-tree sweep of the open-PR pool
         permissions:
             contents: read
@@ -162,7 +162,7 @@ jobs:
         name: Resolve #${{ matrix.pr.number }}
         needs: detect
         if: needs.detect.outputs.count != '0'
-        runs-on: ubuntu-latest # bump to depot-ubuntu-latest-4 only if the heavy path OOMs
+        runs-on: ubuntu-24.04 # bump to depot-ubuntu-24.04-4 only if the heavy path OOMs
         timeout-minutes: 35 # heavy path adds ~10-15 min of backend bring-up
         # NO write token — runs PR-controlled code and the agent.
         permissions:
@@ -443,7 +443,7 @@ jobs:
         name: Finalize #${{ matrix.pr.number }}
         needs: [detect, resolve]
         if: needs.detect.outputs.count != '0'
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         timeout-minutes: 5
         permissions:
             contents: read # writes happen via the App token, not GITHUB_TOKEN
