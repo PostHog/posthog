@@ -56,6 +56,7 @@ from products.tasks.backend.facade.run_config import (
     WARMABLE_ORIGIN_PRODUCTS,
     LLMProvider,
     PrAuthorshipMode,
+    ReasoningEffort,
     RunSource,
     RuntimeAdapter,
     TaskArtifactAdapter,
@@ -68,12 +69,7 @@ from products.tasks.backend.facade.run_config import (
 
 logger = logging.getLogger(__name__)
 
-PI_THINKING_LEVEL_CHOICES = ("off", "minimal", "low", "medium", "high", "xhigh", "max")
-TASK_RUN_REASONING_EFFORT_CHOICES = [
-    "off",
-    "minimal",
-    *(effort.value for effort in PUBLIC_REASONING_EFFORTS),
-]
+TASK_RUN_REASONING_EFFORT_CHOICES = [effort.value for effort in ReasoningEffort]
 
 
 def _is_pi_task_run_request(context: dict[str, Any]) -> bool:
@@ -3036,6 +3032,20 @@ class ConnectionTokenResponseSerializer(serializers.Serializer):
     token = serializers.CharField(help_text="JWT token for authenticating with the sandbox")
 
 
+class StreamReadTokenQuerySerializer(serializers.Serializer):
+    """Query parameters for requesting a task run stream read token"""
+
+    resync = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text=(
+            "Set to true when the client can rebuild the run from its durable log after the agent-proxy "
+            "reports a trimmed stream cursor. Without it, runs that keep only a short live tail in Redis "
+            "are read from the Django endpoint, which replays the durable backlog itself."
+        ),
+    )
+
+
 class StreamReadTokenResponseSerializer(serializers.Serializer):
     """Response containing a JWT token (and resolved base URL) for reading a task run's live event stream"""
 
@@ -3545,9 +3555,8 @@ class TaskRunBootstrapCreateRequestSerializer(
                 if attrs.get(field) is not None:
                     errors[field] = "This field cannot be used with a Pi task."
 
-            reasoning_effort = attrs.get("reasoning_effort")
-            if reasoning_effort is not None and reasoning_effort not in PI_THINKING_LEVEL_CHOICES:
-                errors["reasoning_effort"] = "This thinking level is not supported by Pi."
+            if attrs.get("reasoning_effort") == ReasoningEffort.ULTRACODE:
+                errors["reasoning_effort"] = "This reasoning effort cannot be used with a Pi task."
 
             if errors:
                 raise serializers.ValidationError(errors)
@@ -4623,16 +4632,27 @@ class AgentProxyCallbackResponseSerializer(serializers.Serializer):
 
 
 class TasksAIRunPreferencesSerializer(serializers.Serializer):
-    """The default AI run triple stored at team or user level.
+    """The default AI run selection stored at team or user level.
 
     Write payload for the tasks config endpoints and the `ai_run_preferences` block of
-    their responses. `runtime_adapter` and `model` must be set together; send all three
-    as null to clear a stored preference.
+    their responses. What a complete selection is depends on the harness: an ACP default
+    sets `runtime_adapter` and `model` together, a Pi default sets `model` alone. Send
+    every field as null to clear a stored preference.
     """
 
     RUNTIME_ADAPTER_CHOICES = [adapter.value for adapter in RuntimeAdapter]
-    REASONING_EFFORT_CHOICES = [effort.value for effort in PUBLIC_REASONING_EFFORTS]
+    REASONING_EFFORT_CHOICES = TASK_RUN_REASONING_EFFORT_CHOICES
 
+    runtime = serializers.ChoiceField(
+        choices=tasks_facade.TaskRuntime.choices,
+        required=False,
+        allow_null=True,
+        default=None,
+        help_text=(
+            "Harness the default runs on: 'acp' for the Claude and Codex adapters, 'pi' for the "
+            "Pi harness. Defaults to 'acp' when omitted."
+        ),
+    )
     runtime_adapter = serializers.ChoiceField(
         choices=RUNTIME_ADAPTER_CHOICES,
         required=False,
@@ -4640,7 +4660,8 @@ class TasksAIRunPreferencesSerializer(serializers.Serializer):
         default=None,
         help_text=(
             "Default agent runtime adapter for new task runs. Use 'claude' for the Claude "
-            "runtime or 'codex' for the Codex runtime. Must be set together with `model`."
+            "runtime or 'codex' for the Codex runtime. Must be set together with `model`, and "
+            "must be null when `runtime` is 'pi'."
         ),
     )
     model = serializers.CharField(
@@ -4648,26 +4669,36 @@ class TasksAIRunPreferencesSerializer(serializers.Serializer):
         allow_null=True,
         allow_blank=False,
         default=None,
-        help_text="Default LLM model identifier for new task runs. Must be set together with `runtime_adapter`.",
+        help_text=(
+            "Default LLM model identifier for new task runs. Must be set together with "
+            "`runtime_adapter` on the ACP harness, and is required on its own for a Pi default."
+        ),
     )
     reasoning_effort = serializers.ChoiceField(
         choices=REASONING_EFFORT_CHOICES,
         required=False,
         allow_null=True,
         default=None,
-        help_text="Default reasoning effort for models that expose an effort control.",
+        help_text=(
+            "Default reasoning effort for models that expose an effort control. A Pi default "
+            "stores a Pi thinking level here, which also allows 'off' and 'minimal'."
+        ),
     )
 
 
 class TasksResolvedAIRunDefaultsSerializer(serializers.Serializer):
-    """The AI run triple a new run will effectively use when the caller pins nothing,
+    """The AI run selection a new run will effectively use when the caller pins nothing,
     plus which preference level supplied it."""
 
     # Not bound to `ResolvedAIRunConfig` via DataclassSerializer: that dataclass also carries the
     # internal `explicit` resolution state this endpoint never returns, and its per-field defaults
     # would mark every field optional when the response always sends all four.
+    runtime = serializers.CharField(
+        help_text="Harness the effective default runs on: 'acp' or 'pi'. 'acp' when no preference is stored."
+    )
     runtime_adapter = serializers.CharField(
-        allow_null=True, help_text="Effective default runtime adapter, or null when no preference is stored."
+        allow_null=True,
+        help_text="Effective default runtime adapter, or null when no preference is stored or the harness is Pi.",
     )
     model = serializers.CharField(
         allow_null=True, help_text="Effective default model identifier, or null when no preference is stored."

@@ -171,6 +171,29 @@ export type sourceCatalogLogicType = MakeLogicType<
     sourceCatalogLogicMeta
 >
 
+// Fuse matches the whole search term as one pattern, so an extra word buries a term that would
+// match on its own: "csv" finds every file-storage connector, "csv files" finds nothing. Retry the
+// individual words when the whole term matches nothing, ranking an item by how many words it
+// matches, so a term that already works keeps its relevance order untouched.
+function searchCatalog(catalogFuse: Fuse, term: string): CatalogItem[] {
+    const whole = catalogFuse.search(term).map((r) => r.item)
+    // Capped: the retry costs one index lookup per word and runs on every keystroke.
+    const words = term
+        .split(/\s+/)
+        .filter((word) => word.length > 1)
+        .slice(0, 5)
+    if (whole.length > 0 || words.length < 2) {
+        return whole
+    }
+    const matchCounts = new Map<CatalogItem, number>()
+    for (const word of words) {
+        for (const { item } of catalogFuse.search(word)) {
+            matchCounts.set(item, (matchCounts.get(item) ?? 0) + 1)
+        }
+    }
+    return [...matchCounts.keys()].sort((a, b) => (matchCounts.get(b) ?? 0) - (matchCounts.get(a) ?? 0))
+}
+
 export const sourceCatalogLogic = kea<sourceCatalogLogicType>([
     path(['products', 'dataWarehouse', 'sourceCatalogLogic']),
     props({} as SourceCatalogLogicProps),
@@ -355,7 +378,7 @@ export const sourceCatalogLogic = kea<sourceCatalogLogicType>([
                 selectedCategory: SourceCategoryFilter
             ): CatalogItem[] => {
                 const trimmed = search.trim()
-                const base = trimmed ? catalogFuse.search(trimmed).map((r) => r.item) : catalogItems
+                const base = trimmed ? searchCatalog(catalogFuse, trimmed) : catalogItems
                 const filtered =
                     selectedCategory === ALL_SOURCES_CATEGORY
                         ? base
@@ -399,9 +422,9 @@ export const sourceCatalogLogic = kea<sourceCatalogLogicType>([
                 if (!trimmed || selectedCategory === ALL_SOURCES_CATEGORY) {
                     return false
                 }
-                return catalogFuse
-                    .search(trimmed)
-                    .some((r) => r.item.status !== 'coming_soon' && r.item.category !== selectedCategory)
+                return searchCatalog(catalogFuse, trimmed).some(
+                    (item) => item.status !== 'coming_soon' && item.category !== selectedCategory
+                )
             },
         ],
     }),
