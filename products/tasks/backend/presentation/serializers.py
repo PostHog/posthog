@@ -2961,10 +2961,19 @@ class ModelChoiceSerializer(DataclassSerializer):
         child=serializers.ChoiceField(choices=[effort.value for effort in PUBLIC_REASONING_EFFORTS]),
         help_text="Reasoning efforts this model accepts, in ascending order. Empty for a model with no effort control.",
     )
+    cost_multiplier = serializers.CharField(
+        allow_null=True,
+        required=False,
+        help_text=(
+            "Per-token cost against the catalogue baseline, ready to display, such as '2.5x' or "
+            "'~0.55x'. Prefixed when the input and output rates diverge enough that one number "
+            "flatters either. Null for a model the catalogue quotes no rate for."
+        ),
+    )
 
     class Meta:
         dataclass = ModelChoice
-        fields = ["runtime_adapter", "model", "display_name", "supported_efforts"]
+        fields = ["runtime_adapter", "model", "display_name", "supported_efforts", "cost_multiplier"]
 
 
 class ModelCatalogueResponseSerializer(serializers.Serializer):
@@ -4585,6 +4594,14 @@ class AgentProxyCallbackRequestSerializer(serializers.Serializer):
         help_text=(
             "Whether the agent is currently active (true) or idle (false). "
             "This is true for 'heartbeat' and 'agent_activity', and false otherwise."
+        ),
+    )
+    turn_completed = serializers.BooleanField(
+        required=False,
+        default=True,
+        help_text=(
+            "Whether 'awaiting_input' reports a completed turn. Set false for an idle sandbox resume "
+            "to mark the agent idle without sending a completion notification or updating activity."
         ),
     )
     task_id = serializers.CharField(
