@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { useEffect, useRef, useState } from 'react'
+import { Suspense, useEffect, useState } from 'react'
 
 import {
     IconArrowLeft,
@@ -16,7 +16,7 @@ import {
     IconThoughtBubble,
     IconVideoCamera,
 } from '@posthog/icons'
-import { LemonButton, LemonCard, LemonTag, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonCard, LemonTag, Link, Spinner } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -26,12 +26,8 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { cn } from 'lib/utils/css-classes'
 import { humanFriendlyDuration, humanFriendlyMilliseconds } from 'lib/utils/durations'
+import { lazyWithRetry } from 'lib/utils/retryImport'
 import { SceneExport } from 'scenes/sceneTypes'
-import { SessionRecordingPlayer } from 'scenes/session-recordings/player/SessionRecordingPlayer'
-import {
-    SessionRecordingPlayerMode,
-    sessionRecordingPlayerLogic,
-} from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
@@ -77,42 +73,18 @@ import { ObservationShareButton } from './ObservationShareButton'
 import {
     neighborFilterParams,
     observationDetailUrl,
+    observationOriginParams,
     replayObservationLogic,
     scannerReturnParams,
 } from './replayObservationLogic'
 import { replayObservationSceneLogic } from './replayObservationSceneLogic'
 
+const ObservationRecording = lazyWithRetry(() => import('./ObservationRecording'))
+
 export const scene: SceneExport = {
     component: ReplayObservationSceneComponent,
     logic: replayObservationSceneLogic,
     productKey: ProductKey.REPLAY_VISION,
-}
-
-function AutoSeekToTime({
-    playerKey,
-    sessionRecordingId,
-    ms,
-    trigger,
-}: {
-    playerKey: string
-    sessionRecordingId: string
-    ms: number
-    trigger: number
-}): null {
-    const { sessionPlayerData } = useValues(sessionRecordingPlayerLogic({ playerKey, sessionRecordingId }))
-    // `start`/`end` are fresh Dayjs objects on every snapshot batch; compare epochs so deps stay stable.
-    const startMs = sessionPlayerData?.start?.valueOf() ?? null
-    const endMs = sessionPlayerData?.end?.valueOf() ?? null
-    // Latch per-trigger so snapshot-batch arrivals don't re-seek and fight playback.
-    const seekedForTrigger = useRef<number | null>(null)
-    useEffect(() => {
-        if (seekedForTrigger.current === trigger || startMs == null || endMs == null) {
-            return
-        }
-        sessionRecordingPlayerLogic.findMounted({ playerKey, sessionRecordingId })?.actions.seekToTime(ms)
-        seekedForTrigger.current = trigger
-    }, [startMs, endMs, ms, trigger, playerKey, sessionRecordingId])
-    return null
 }
 
 // A reader opens an observation for the result, not the prompt they configured. Collapse the prompt to one
@@ -196,7 +168,8 @@ export function ReplayObservationSceneComponent(): JSX.Element {
     const observationLogic = replayObservationLogic({ id: observationId })
     useAttachedLogic(observationLogic, replayObservationSceneLogic)
 
-    const { observation, observationLoading, retrying } = useValues(observationLogic)
+    const { observation, observationLoading, retrying, previousObservationId, nextObservationId, neighborsPending } =
+        useValues(observationLogic)
     const { retryObservation } = useActions(observationLogic)
 
     if (observationLoading && !observation) {
@@ -266,9 +239,14 @@ export function ReplayObservationSceneComponent(): JSX.Element {
     // navigation (and the server-computed neighbor ids) stay within the filtered list.
     const neighborParams = neighborFilterParams(searchParams)
     const neighborsFiltered = Object.keys(neighborParams).some((key) => key !== 'order_by')
-    // Prev/next keeps the return params too, so back still lands on the list view the reader came from.
+    // Prev/next keeps the return params too, so back still lands on the list view (or the watch feed)
+    // the reader came from.
     const observationUrl = (id: string): string =>
-        observationDetailUrl(id, { ...neighborParams, ...scannerReturnParams(searchParams) })
+        observationDetailUrl(id, {
+            ...neighborParams,
+            ...scannerReturnParams(searchParams),
+            ...observationOriginParams(searchParams),
+        })
 
     const seekEmbeddedPlayer = (ms: number): void => {
         if (!recordingExpanded) {
@@ -297,13 +275,10 @@ export function ReplayObservationSceneComponent(): JSX.Element {
                             icon={<IconArrowLeft />}
                             type="secondary"
                             size="small"
-                            to={
-                                observation.previous_observation_id
-                                    ? observationUrl(observation.previous_observation_id)
-                                    : undefined
-                            }
+                            loading={neighborsPending}
+                            to={previousObservationId ? observationUrl(previousObservationId) : undefined}
                             disabledReason={
-                                observation.previous_observation_id
+                                previousObservationId || neighborsPending
                                     ? undefined
                                     : neighborsFiltered
                                       ? 'No previous observation matching your filters'
@@ -322,13 +297,10 @@ export function ReplayObservationSceneComponent(): JSX.Element {
                             sideIcon={<IconArrowRight />}
                             type="secondary"
                             size="small"
-                            to={
-                                observation.next_observation_id
-                                    ? observationUrl(observation.next_observation_id)
-                                    : undefined
-                            }
+                            loading={neighborsPending}
+                            to={nextObservationId ? observationUrl(nextObservationId) : undefined}
                             disabledReason={
-                                observation.next_observation_id
+                                nextObservationId || neighborsPending
                                     ? undefined
                                     : neighborsFiltered
                                       ? 'No next observation matching your filters'
@@ -394,23 +366,13 @@ export function ReplayObservationSceneComponent(): JSX.Element {
                 )}
                 {recordingExpanded && (
                     <div className="border-t border-border h-[calc(100vh-16rem)] min-h-[480px]">
-                        <SessionRecordingPlayer
-                            sessionRecordingId={observation.session_id}
-                            playerKey={playerKey}
-                            mode={SessionRecordingPlayerMode.Standard}
-                            autoPlay={false}
-                            noBorder
-                            noDock
-                            withSidebar
-                        />
-                        {pendingSeek && (
-                            <AutoSeekToTime
+                        <Suspense fallback={<Spinner className="m-4" />}>
+                            <ObservationRecording
                                 playerKey={playerKey}
                                 sessionRecordingId={observation.session_id}
-                                ms={pendingSeek.ms}
-                                trigger={pendingSeek.trigger}
+                                pendingSeek={pendingSeek}
                             />
-                        )}
+                        </Suspense>
                     </div>
                 )}
             </LemonCard>
@@ -672,11 +634,6 @@ export function ReplayObservationSceneComponent(): JSX.Element {
                         {scorerLabel && (
                             <LabeledRow label="Score label">
                                 <span>{scorerLabel}</span>
-                            </LabeledRow>
-                        )}
-                        {snapshot?.emits_signals && (
-                            <LabeledRow label="Signals">
-                                <span>Emitted ({observation.scanner_result?.signals_count ?? 0})</span>
                             </LabeledRow>
                         )}
                     </div>

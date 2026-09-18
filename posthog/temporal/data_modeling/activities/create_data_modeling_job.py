@@ -114,13 +114,13 @@ def _subject(names: list[str], total: int) -> str:
 def _skip_reason(*, failed: list[str], failed_total: int, suspended: list[str], suspended_total: int) -> str:
     if failed_total and suspended_total:
         subject = _subject(failed + suspended, failed_total + suspended_total)
-        return f"Skipped because {subject} are failing or paused."
+        return f"Skipped because {subject} are failing or suspended."
     if failed_total:
         verb = "is" if failed_total == 1 else "are"
         return f"Skipped because {_subject(failed, failed_total)} {verb} failing."
     if suspended_total:
         verb = "was" if suspended_total == 1 else "were"
-        return f"Skipped because {_subject(suspended, suspended_total)} {verb} paused after repeated failures."
+        return f"Skipped because {_subject(suspended, suspended_total)} {verb} suspended after repeated failures."
     return "Skipped because an upstream view failed."
 
 

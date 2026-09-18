@@ -35,6 +35,7 @@ from social_django.utils import load_backend, load_strategy
 from posthog.cloud_utils import get_cached_instance_license
 from posthog.constants import AvailableFeature
 from posthog.exceptions_capture import capture_exception
+from posthog.helpers.email_utils import EmailLookupHandler
 from posthog.models.identity_provider_config import IdentityProviderConfig, has_verified_organization_domain_q
 from posthog.models.organization import OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
@@ -49,7 +50,6 @@ saml_logger = structlog.get_logger("posthog.auth.saml")
 
 
 def _saml_log_context(email: str, organization_id: UUID | None = None) -> dict[str, Any]:
-    from posthog.models.user import User
 
     ctx: dict[str, Any] = {
         "masked_email": mask_email(email),
@@ -57,7 +57,7 @@ def _saml_log_context(email: str, organization_id: UUID | None = None) -> dict[s
     }
 
     try:
-        user = User.objects.filter(email__iexact=email).first()
+        user = EmailLookupHandler.get_user_by_email(email, is_active=None)
         if user:
             ctx["user_id"] = str(user.id)
             if organization_id:

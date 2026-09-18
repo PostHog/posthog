@@ -510,11 +510,21 @@ def _source_list_annotations() -> dict[str, object]:
 
 
 @with_team_scope(canonical=True)
-def list_for_team(team_id: int) -> list[KnowledgeSource]:
+def list_for_team(
+    team_id: int,
+    *,
+    search: str | None = None,
+    source_type: str | None = None,
+) -> list[KnowledgeSource]:
     # Annotate counts in one round-trip so the serializer doesn't N+1.
-    return list(
-        KnowledgeSource.objects.filter(team_id=team_id).annotate(**_source_list_annotations()).order_by("-created_at")
-    )
+    queryset = KnowledgeSource.objects.filter(team_id=team_id)
+    if source_type:
+        queryset = queryset.filter(source_type=source_type)
+    if search:
+        term = search.strip()
+        if term:
+            queryset = queryset.filter(Q(name__icontains=term) | Q(source_url__icontains=term))
+    return list(queryset.annotate(**_source_list_annotations()).order_by("-created_at"))
 
 
 @with_team_scope(canonical=True)
@@ -527,7 +537,7 @@ def get_for_team(source_id: UUID, team_id: int) -> KnowledgeSource | None:
 
 @with_team_scope(canonical=True)
 def get_source_text_for_team(source_id: UUID, team_id: int) -> str | None:
-    """Return concatenated document text for the edit modal."""
+    """Return concatenated document text for the source editor."""
 
     try:
         source = KnowledgeSource.objects.only("is_generated", "source_type").get(id=source_id, team_id=team_id)
@@ -2050,6 +2060,7 @@ def get_always_on_context(team_id: int) -> "list[KnowledgeSearchResult]":
             "content",
             "source__name",
             "source__source_type",
+            "source__is_generated",
             "document__title",
         )
         .order_by("source_id", "document_id", "ordinal")
@@ -2064,19 +2075,7 @@ def get_always_on_context(team_id: int) -> "list[KnowledgeSearchResult]":
         if total_chars + separator + len(c.content) > MAX_ALWAYS_ON_CONTEXT_CHARS:
             break
         total_chars += separator + len(c.content)
-        results.append(
-            KnowledgeSearchResult(
-                chunk_id=c.id,
-                source_id=c.source_id,
-                source_name=c.source.name,
-                source_type=c.source.source_type,
-                document_id=c.document_id,
-                document_title=c.document.title,
-                heading_path=c.heading_path,
-                ordinal=c.ordinal,
-                content=c.content,
-            )
-        )
+        results.append(_result_from_chunk(c))
     return results
 
 
@@ -2267,6 +2266,22 @@ class KnowledgeSearchResult:
     heading_path: str
     ordinal: int
     content: str
+    is_generated: bool = False
+
+
+def _result_from_chunk(chunk: KnowledgeChunk) -> KnowledgeSearchResult:
+    return KnowledgeSearchResult(
+        chunk_id=chunk.id,
+        source_id=chunk.source_id,
+        source_name=chunk.source.name,
+        source_type=chunk.source.source_type,
+        document_id=chunk.document_id,
+        document_title=chunk.document.title,
+        heading_path=chunk.heading_path,
+        ordinal=chunk.ordinal,
+        content=chunk.content,
+        is_generated=bool(chunk.source.is_generated),
+    )
 
 
 @with_team_scope(canonical=True)
@@ -2364,26 +2379,14 @@ def search_knowledge(
             "content",
             "source__name",
             "source__source_type",
+            "source__is_generated",
             "document__title",
         )
     )
 
     ordered = sorted(chunks, key=lambda c: (doc_rank.get(c.document_id, len(anchor_chunks)), c.ordinal))
 
-    return [
-        KnowledgeSearchResult(
-            chunk_id=c.id,
-            source_id=c.source_id,
-            source_name=c.source.name,
-            source_type=c.source.source_type,
-            document_id=c.document_id,
-            document_title=c.document.title,
-            heading_path=c.heading_path,
-            ordinal=c.ordinal,
-            content=c.content,
-        )
-        for c in ordered
-    ]
+    return [_result_from_chunk(c) for c in ordered]
 
 
 def search_knowledge_for_team(
@@ -2554,25 +2557,13 @@ def get_document_window(
             "content",
             "source__name",
             "source__source_type",
+            "source__is_generated",
             "document__title",
         )
         .order_by("ordinal")
     )
 
-    return [
-        KnowledgeSearchResult(
-            chunk_id=c.id,
-            source_id=c.source_id,
-            source_name=c.source.name,
-            source_type=c.source.source_type,
-            document_id=c.document_id,
-            document_title=c.document.title,
-            heading_path=c.heading_path,
-            ordinal=c.ordinal,
-            content=c.content,
-        )
-        for c in chunks
-    ]
+    return [_result_from_chunk(c) for c in chunks]
 
 
 @with_team_scope(canonical=True)
@@ -2603,25 +2594,12 @@ def get_chunks_by_ids(team_id: int, chunk_ids: list[UUID]) -> list[KnowledgeSear
             "content",
             "source__name",
             "source__source_type",
+            "source__is_generated",
             "document__title",
         )
     )
     by_id = {c.id: c for c in chunks}
-    return [
-        KnowledgeSearchResult(
-            chunk_id=c.id,
-            source_id=c.source_id,
-            source_name=c.source.name,
-            source_type=c.source.source_type,
-            document_id=c.document_id,
-            document_title=c.document.title,
-            heading_path=c.heading_path,
-            ordinal=c.ordinal,
-            content=c.content,
-        )
-        for chunk_id in chunk_ids
-        if (c := by_id.get(chunk_id)) is not None
-    ]
+    return [_result_from_chunk(c) for chunk_id in chunk_ids if (c := by_id.get(chunk_id)) is not None]
 
 
 # ---------------------------------------------------------------------------

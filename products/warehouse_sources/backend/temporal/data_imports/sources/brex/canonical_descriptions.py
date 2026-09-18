@@ -112,6 +112,14 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "description": "Description of the location.",
         },
     },
+    "titles": {
+        "description": "A job title defined in the Brex account. Resolves the title id carried on users.",
+        "docs_url": "https://developer.brex.com/openapi/team_api/#tag/Titles/operation/listTitles",
+        "columns": {
+            "id": "Unique identifier of the title.",
+            "name": "Name of the title.",
+        },
+    },
     "cards": {
         "description": "A Brex card issued to a user or vendor, with its spend controls. Resolves the card_id carried on card transactions.",
         "docs_url": "https://developer.brex.com/openapi/team_api/#tag/Cards/operation/listCardsByUserId",
@@ -131,6 +139,31 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "budget_id": "Identifier of the budget the card draws from.",
             "partner": "The partner that manages the card, if any.",
             "created_at": "Time at which the card was created.",
+        },
+    },
+    "fields": {
+        "description": "A custom field defined in the Brex account, selectable on expenses and transactions to categorize spend. Brex currently supports single-select dropdown fields only.",
+        "docs_url": "https://developer.brex.com/openapi/fields_api/#tag/Fields/operation/listFields",
+        "columns": {
+            "brex_id": "Internal Brex identifier of the field, and the id referenced by field values.",
+            "name": "Name of the field.",
+            "remote_id": "Identifier of the field in the external ERP or HRIS system it is synced with.",
+            "group": "Purpose of the field: ACCOUNTING, USER, ERP, or TRAVEL.",
+            "is_disabled": "Whether the field is disabled. A disabled field cannot be applied to new transactions, but records already referencing it are unaffected.",
+            "updated_at": "Time at which the field was last updated.",
+        },
+    },
+    "field_values": {
+        "description": "A selectable value of a Brex custom field. Resolves the field value ids tagged on expenses and transactions.",
+        "docs_url": "https://developer.brex.com/openapi/fields_api/#tag/Field-Values/operation/listFieldValues",
+        "columns": {
+            "brex_id": "Internal Brex identifier of the field value.",
+            "field_id": "Identifier of the parent field this value belongs to.",
+            "value": "Display name of the field value.",
+            "value_id": "Value code of the field value, usually its unique identifier in the remote system.",
+            "remote_id": "Identifier of the field value in the external ERP or HRIS system it is synced with.",
+            "is_disabled": "Whether the field value is disabled. A disabled value cannot be chosen on new transactions, but records already using it are unaffected.",
+            "updated_at": "Time at which the field value was last updated.",
         },
     },
     "vendors": {
@@ -176,6 +209,22 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "limit": "Spend limit configured for the budget, with amount and currency.",
             "spend_budget_status": "Spend status of the budget relative to its limit.",
             "period_type": "Recurrence period of the budget (e.g. MONTHLY, QUARTERLY, YEARLY, ONE_TIME).",
+        },
+    },
+    "budget_programs": {
+        "description": "A budget program in Brex: the template that groups budgets and provisions spend limits for the employees matching its filter.",
+        "docs_url": "https://developer.brex.com/openapi/budgets_api/#tag/Budget-Programs/operation/listBudgetPrograms",
+        "columns": {
+            "id": "Unique identifier of the budget program.",
+            "name": "Name of the budget program.",
+            "description": "Description of the budget program.",
+            "budget_blueprints": "Templates the program provisions spend limits from, each with its own limit, period and visibility settings.",
+            "existing_budget_ids": "Identifiers of the spend limits already provisioned by this program.",
+            "employee_filter": "Employment status and type a user must match to fall under the program.",
+            "budget_program_status": "Status of the program (BUDGET_PROGRAM_STATUS_ACTIVE, BUDGET_PROGRAM_STATUS_INACTIVE, or BUDGET_PROGRAM_STATUS_DELETED).",
+            "creator_user_id": "Identifier of the user who created the program.",
+            "created_at": "Time at which the program was created.",
+            "updated_at": "Time at which the program was last updated.",
         },
     },
     "spend_limits": {

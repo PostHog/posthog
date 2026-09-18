@@ -37,6 +37,10 @@ const config: StorybookConfig = {
   async viteFinal(config) {
     return mergeConfig(config, {
       plugins: [tailwindcss(), react()],
+      // The brand hoggie modules locate their PNGs with
+      // `new URL("./x.png", import.meta.url)`. Pre-bundling moves the module
+      // into the deps cache, where that URL 404s, so serve it from node_modules.
+      optimizeDeps: { exclude: ["@posthog/brand"] },
       resolve: {
         alias: [
           {

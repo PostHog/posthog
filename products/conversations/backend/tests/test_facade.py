@@ -1,4 +1,5 @@
 from datetime import UTC, datetime, timedelta
+from typing import Any
 from uuid import UUID, uuid4
 
 from posthog.test.base import BaseTest
@@ -223,6 +224,13 @@ class TestListAccountTickets(BaseTest):
                 "teams@example.com",
             ),
             (
+                # GitHub gives no per-comment email, so the address stays the ticket requester's.
+                "github",
+                {"author_type": "customer", "from_github": True, "github_login": "github-responder"},
+                "github-responder",
+                "starter@example.com",
+            ),
+            (
                 "email",
                 {"author_type": "customer", "email_from_name": "Email responder", "email_from": "email@example.com"},
                 "Email responder",
@@ -233,9 +241,9 @@ class TestListAccountTickets(BaseTest):
     def test_returns_channel_specific_inbound_sender(
         self,
         _name: str,
-        item_context: dict[str, str],
+        item_context: dict[str, Any],
         expected_name: str,
-        expected_email: str,
+        expected_email: str | None,
     ) -> None:
         ticket = self._create_ticket(
             team=self.team,

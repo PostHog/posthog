@@ -4,8 +4,6 @@ Flat, JSON-friendly dataclasses: workflow inputs also arrive from the management
 single JSON object, so nested dataclasses would not survive ``parse_inputs``.
 """
 
-import dataclasses
-
 from posthog.dataclasses import frozen
 
 from ..facade.contracts import RunCheckSuiteInputs as RunCheckSuiteInputs
@@ -40,7 +38,6 @@ class BatchOutcome:
     errored: int = 0
     skipped: int = 0
     failed_blocking: int = 0
-    newly_failing_check_ids: list[str] = dataclasses.field(default_factory=list)
 
 
 @frozen
@@ -48,6 +45,12 @@ class FinalizeCheckSuiteInputs:
     team_id: int
     suite_run_id: str
     outcomes: list[BatchOutcome]
+
+
+@frozen
+class NotifyFailingChecksInputs:
+    team_id: int
+    suite_run_id: str
 
 
 @frozen

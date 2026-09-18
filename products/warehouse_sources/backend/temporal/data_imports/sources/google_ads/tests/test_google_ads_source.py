@@ -28,6 +28,7 @@ from posthog.models.integration import Integration
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.integration_accounts import (
     IntegrationAccountListingError,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import UnknownResourceError
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.googleads import (
     GoogleAdsIsMccAccountConfig,
     GoogleAdsSourceConfig,
@@ -1890,6 +1891,26 @@ class TestReportTableMissingIncrementalField:
         # The windowed drain ran (no crash) and queried on the defaulted segments.date field.
         assert search.call_count >= 1
         assert "segments.date" in search.call_args_list[0].args[2]
+
+
+class TestUnknownResource:
+    def test_resource_the_worker_does_not_know_raises_a_named_error(self):
+        # The web pods and the workers deploy separately, so a newly shipped table is selectable in
+        # the schema picker about an hour before every worker can resolve it. A bare KeyError there
+        # reports as a bug and reaches the customer as raw Python; the named error is classified
+        # retryable instead.
+        table = _stats_table()
+        assert table.alias is not None
+        config = GoogleAdsSourceConfig(customer_id="1234567890", google_ads_integration_id=1)
+        with mock.patch(f"{_GOOGLE_ADS_MODULE}.get_schemas", return_value={table.alias: table}):
+            with pytest.raises(UnknownResourceError, match="a_future_report_table"):
+                google_ads_source(
+                    config,
+                    "a_future_report_table",
+                    team_id=1,
+                    resumable_source_manager=mock.Mock(),
+                    api_version="v25",
+                )
 
 
 class TestApiVersionDispatch:

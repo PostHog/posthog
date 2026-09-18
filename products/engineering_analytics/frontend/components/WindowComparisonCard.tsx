@@ -12,6 +12,7 @@ import { LemonCard, LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
 import { cn } from 'lib/utils/css-classes'
 
 import { percent } from '../lib/format'
+import { ComparisonBarRow } from './ComparisonBarRow'
 import { DeltaBadge, percentChange, pointChange, type TileBenchmark } from './MetricTile'
 
 const BENCHMARK_EDGE_CLASS: Record<TileBenchmark['band'], string> = {
@@ -21,39 +22,10 @@ const BENCHMARK_EDGE_CLASS: Record<TileBenchmark['band'], string> = {
     low: 'border-l-danger',
 }
 
-function MagnitudeBar({
-    fraction,
-    current,
-    markerFraction,
-    markerTooltip,
-}: {
-    fraction: number
-    current: boolean
-    markerFraction?: number | null
-    markerTooltip?: string
-}): JSX.Element {
-    return (
-        <div className="relative h-2.5 flex-1 rounded-sm">
-            <div
-                className={`h-full rounded-sm ${current ? 'bg-[var(--data-color-1)]' : 'bg-[var(--muted)]'}`}
-                style={{ width: `${Math.max(fraction * 100, 2)}%` }}
-            />
-            {markerFraction != null && (
-                <Tooltip title={markerTooltip}>
-                    <div
-                        className="absolute -top-0.5 h-3.5 w-0.5 -translate-x-1/2 rounded-sm bg-[var(--text-3000)]"
-                        style={{ left: `${markerFraction * 100}%` }}
-                    />
-                </Tooltip>
-            )}
-        </div>
-    )
-}
-
-function SplitBar({ rate }: { rate: number }): JSX.Element {
+function PassFailSplit({ rate }: { rate: number }): JSX.Element {
     return (
         <Tooltip title={`${percent(rate, 1)} passed, ${percent(1 - rate, 1)} failed`}>
-            <div className="flex h-2.5 flex-1 overflow-hidden rounded-sm">
+            <div className="flex h-full">
                 <div className="h-full bg-success" style={{ width: `${rate * 100}%` }} />
                 <div className="h-full flex-1 bg-danger" />
             </div>
@@ -81,21 +53,28 @@ function ComparisonRow({
     marker?: number | null
     markerLabel?: string
 }): JSX.Element {
+    if (share) {
+        return (
+            <ComparisonBarRow label={label} value={formatValue(value)} fraction={1}>
+                <PassFailSplit rate={value} />
+            </ComparisonBarRow>
+        )
+    }
     return (
-        <div className="flex items-center gap-2">
-            <span className="w-24 shrink-0 text-[11px] text-tertiary">{label}</span>
-            {share ? (
-                <SplitBar rate={value} />
-            ) : (
-                <MagnitudeBar
-                    fraction={max > 0 ? value / max : 0}
-                    current={current}
-                    markerFraction={marker != null && max > 0 ? marker / max : null}
-                    markerTooltip={marker != null && markerLabel ? `${markerLabel} ${formatValue(marker)}` : undefined}
-                />
-            )}
-            <span className="w-12 shrink-0 text-right text-xs font-medium tabular-nums">{formatValue(value)}</span>
-        </div>
+        <ComparisonBarRow
+            label={label}
+            value={formatValue(value)}
+            fraction={max > 0 ? value / max : 0}
+            muted={!current}
+            marker={
+                marker != null && max > 0
+                    ? {
+                          fraction: marker / max,
+                          tooltip: markerLabel ? `${markerLabel} ${formatValue(marker)}` : undefined,
+                      }
+                    : null
+            }
+        />
     )
 }
 

@@ -15,6 +15,7 @@ class AvailableFeature(StrEnum):
     ORGANIZATIONS_PROJECTS = "organizations_projects"
     SOCIAL_SSO = "social_sso"
     SAML = "saml"
+    OIDC = "oidc"
     SCIM = "scim"
     SSO_ENFORCEMENT = "sso_enforcement"
     ADVANCED_PERMISSIONS = "advanced_permissions"  # TODO: Remove this once access_control is propagated
@@ -55,11 +56,6 @@ class AvailableFeature(StrEnum):
     APPROVALS = "approvals"
     XAA_AUTHENTICATION = "xaa_authentication"
     POSTHOG_CODE_USAGE = "posthog_code_usage"
-
-
-LOGS_RETENTION_FEATURES_BY_DAYS: dict[int, AvailableFeature] = {
-    30: AvailableFeature.LOGS_RETENTION_30D,
-}
 
 
 TREND_FILTER_TYPE_ACTIONS = "actions"
@@ -335,10 +331,6 @@ SUBSCRIPTION_AI_PROMPT_FEATURE_FLAG_KEY = "ai-subscriptions"
 # Enable only after every subscriptions worker has deployed the gallery claim boundary. Older workers
 # share the v2 activity name and would otherwise send the legacy layout during a rolling deployment.
 SUBSCRIPTION_SLACK_GALLERY_FEATURE_FLAG_KEY = "subscription-slack-gallery"
-EXPERIMENTS_SYNC_QUERIES_FEATURE_FLAG_KEY = "experiments-sync-queries"
-EXPERIMENTS_RETENTION_METRIC_EVENTS_PREAGGREGATION_FEATURE_FLAG_KEY = (
-    "experiments-retention-metric-events-preaggregation"
-)
 GENERATED_DASHBOARD_PREFIX = "Generated Dashboard"
 
 ENRICHED_DASHBOARD_INSIGHT_IDENTIFIER = "Feature Viewed"
@@ -402,6 +394,11 @@ LOGIN_METHODS = [
         "key": "saml",
         "display": "SAML",
         "backends": ["saml", "ee.api.authentication.MultitenantSAMLAuth"],
+    },
+    {
+        "key": "oidc",
+        "display": "OIDC",
+        "backends": ["oidc", "posthog.api.oidc.MultitenantOIDCAuth"],
     },
     {
         "key": "passkey",

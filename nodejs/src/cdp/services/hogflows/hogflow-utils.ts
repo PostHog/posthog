@@ -103,6 +103,7 @@ export async function shouldSkipAction(
         fn: invocation.hogFlow,
         filters: action.filters,
         filterGlobals: invocation.filterGlobals,
+        caller: 'hogflow_skip_action',
     })
 
     return !filterResults.match
@@ -215,6 +216,10 @@ const DELAY_ACTION_TYPES: HogFlowAction['type'][] = ['delay', 'wait_until_condit
 
 export function hasDelayActions(actions: HogFlowAction[]): boolean {
     return actions.some((action) => DELAY_ACTION_TYPES.includes(action.type))
+}
+
+export function hasPushActions(actions: HogFlowAction[]): boolean {
+    return actions.some((action) => action.type === 'function_push')
 }
 
 const workflowE2eLagMsSummary = new Summary({

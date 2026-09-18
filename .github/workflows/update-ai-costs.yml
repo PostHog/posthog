@@ -177,7 +177,7 @@ jobs:
                     --base master \
                     --head chore/llma-update-ai-costs \
                     --label "automated" \
-                    --reviewer "PostHog/team-ai-gateway")
+                    --reviewer "PostHog/team-agent-infrastructure")
                   echo "Created $new_pr_url"
 
                   # If the previously open PR on this branch got auto-closed by the

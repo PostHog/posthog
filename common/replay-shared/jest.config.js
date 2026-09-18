@@ -6,7 +6,7 @@ module.exports = {
     transformIgnorePatterns: ['node_modules/(?!.*posthog-js/dist/rrweb)'],
     testEnvironment: 'node',
     // Wraps the describe/it/test globals to enforce .test_quarantine.json jest entries.
-    setupFilesAfterEnv: ['../../frontend/jest.quarantine.ts'],
+    setupFilesAfterEnv: ['../../frontend/jest.quarantine.ts', '../../.github/scripts/jest-retries.cjs'],
     clearMocks: true,
     testMatch: ['<rootDir>/src/**/*.test.ts'],
     // CI sets JEST_JUNIT_OUTPUT_DIR to collect junit for the Trunk quarantine gate.
