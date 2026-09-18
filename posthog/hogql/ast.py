@@ -497,7 +497,7 @@ class SelectQueryAliasType(Type):
         if self.select_query_type.has_child(name, context):
             return FieldType(name=name, table_type=self)
 
-        raise ResolutionError(f"Field {name} not found on query with alias {self.alias}")
+        raise QueryError(f"Field {name} not found on query with alias {self.alias}")
 
     def has_child(self, name: str, context: HogQLContext) -> bool:
         return self.select_query_type.has_child(name, context)
