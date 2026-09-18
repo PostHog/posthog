@@ -44893,6 +44893,11 @@ export namespace Schemas {
          * @nullable
          */
       source_team_id: number | null;
+      /**
+         * Name of the project in source_team_id, so the picker can say where the installation comes from. Null for an installation no project has linked yet.
+         * @nullable
+         */
+      source_team_name: string | null;
     }
 
     export interface GitHubAvailableInstallationsResponse {

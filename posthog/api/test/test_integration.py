@@ -4010,6 +4010,53 @@ class TestGitHubTeamIntegrationComplete:
         assert installations[0]["account_name"] == "acme"
         assert installations[0]["account_type"] == "Organization"
         assert installations[0]["source_team_id"] == first.pk
+        assert installations[0]["source_team_name"] == "Org Project"
+
+    @patch("posthog.models.github_integration_base.GitHubIntegrationBase.client_request")
+    def test_list_org_github_installations_never_labels_an_install_with_a_persons_login(self, mock_client_request):
+        # An install whose account metadata never arrived used to be labelled with the login of
+        # whoever connected it, so a reader saw a colleague's handle where a GitHub account belongs
+        # and read it as a stranger's account. The heal path runs first; when GitHub still can't
+        # answer, the name stays empty so the caller falls back to the installation id.
+        mock_client_request.return_value = MagicMock(status_code=503, json=lambda: {"message": "unavailable"})
+        sibling = Team.objects.create(organization=self.organization, name="Org Project")
+        Integration.objects.create(
+            team=sibling,
+            kind="github",
+            integration_id="111",
+            config={"installation_id": "111", "connecting_user_github_login": "octocat"},
+            sensitive_config={"access_token": "ghs_a"},
+        )
+
+        installations = list_org_github_installations(
+            user=self.user, organization=self.organization, exclude_team_id=self.team.pk
+        )
+
+        assert installations[0]["account_name"] is None
+        assert installations[0]["source_team_name"] == "Org Project"
+
+    @patch("posthog.models.github_integration_base.GitHubIntegrationBase.client_request")
+    def test_list_org_github_installations_heals_a_placeholder_account_name(self, mock_client_request):
+        # The picker is where a missing account name is read, so it heals the placeholder rather
+        # than showing the numeric installation id it was stored as.
+        mock_client_request.return_value = MagicMock(
+            status_code=200, json=lambda: {"account": {"login": "acme", "type": "Organization"}}
+        )
+        sibling = Team.objects.create(organization=self.organization, name="Org Project")
+        Integration.objects.create(
+            team=sibling,
+            kind="github",
+            integration_id="111",
+            config={"installation_id": "111", "account": {"name": "111", "type": None}},
+            sensitive_config={"access_token": "ghs_a"},
+        )
+
+        installations = list_org_github_installations(
+            user=self.user, organization=self.organization, exclude_team_id=self.team.pk
+        )
+
+        assert installations[0]["account_name"] == "acme"
+        assert installations[0]["account_type"] == "Organization"
 
     def _org_member_with_access_control(self) -> User:
         self.organization.available_product_features = [
@@ -4373,6 +4420,7 @@ class TestGitHubTeamIntegrationComplete:
         assert set(by_id.keys()) == {"111", "222"}
         assert by_id["111"]["source_team_id"] == sibling.team_id
         assert by_id["222"]["source_team_id"] is None
+        assert by_id["222"]["source_team_name"] is None
         assert by_id["222"]["account_name"] == "coderabbitai"
         assert by_id["222"]["account_type"] == "Organization"
 

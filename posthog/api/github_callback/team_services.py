@@ -595,6 +595,24 @@ def link_existing_team_github_integration(
     return instance
 
 
+def _sibling_installation_account(integration: Integration) -> tuple[str | None, str | None]:
+    """Account name and type to show for an installation a project in the organization already has.
+
+    The name must be the GitHub account the app is installed on, never the login of the person who
+    connected it: a reader who sees a colleague's handle where an account belongs reads it as a
+    stranger's account in their settings. When the stored name is missing or is still the numeric
+    placeholder, one throttled heal call tries to fetch the real one, and the name stays null when
+    that fails so the caller can fall back to the installation id.
+    """
+    github_integration = GitHubIntegration(integration)
+    github_integration.ensure_account_name()
+    account = (integration.config or {}).get("account") or {}
+    name = account.get("name")
+    if not name or str(name) == str(github_integration.github_installation_id):
+        return None, account.get("type")
+    return str(name), account.get("type")
+
+
 def list_org_github_installations(
     *,
     user: User,
@@ -621,7 +639,7 @@ def list_org_github_installations(
     """
     accessible_team_ids = _accessible_org_team_ids(user, organization)
     org_github = defer_repository_cache_fields(
-        Integration.objects.filter(team__organization_id=organization.id, kind="github")
+        Integration.objects.filter(team__organization_id=organization.id, kind="github").select_related("team")
     ).order_by("id")
 
     # One pass over the org's rows yields both the sibling entries and the org-wide linked set the
@@ -639,12 +657,13 @@ def list_org_github_installations(
             continue
         if installation_id in installations:
             continue
-        account = config.get("account") or {}
+        account_name, account_type = _sibling_installation_account(integration)
         installations[installation_id] = {
             "installation_id": installation_id,
-            "account_name": account.get("name") or config.get("connecting_user_github_login"),
-            "account_type": account.get("type"),
+            "account_name": account_name,
+            "account_type": account_type,
             "source_team_id": integration.team_id,
+            "source_team_name": integration.team.name,
         }
 
     personal_installations = list_user_github_app_installations(user)
@@ -661,6 +680,7 @@ def list_org_github_installations(
             "account_name": account.get("login"),
             "account_type": account.get("type"),
             "source_team_id": None,
+            "source_team_name": None,
         }
 
     return list(installations.values())

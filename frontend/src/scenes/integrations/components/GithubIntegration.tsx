@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { useEffect } from 'react'
 
 import { IconChevronDown, IconGithub } from '@posthog/icons'
 import { LemonBanner, LemonButton, Link } from '@posthog/lemon-ui'
@@ -8,7 +9,7 @@ import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { GitHubInstallRequestsBanner } from 'lib/integrations/GitHubInstallRequestsBanner'
 import { githubInstallRequestsLogic } from 'lib/integrations/githubInstallRequestsLogic'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
-import type { IntegrationConnectSurface } from 'lib/integrations/utils'
+import type { IntegrationConnectSurface, IntegrationLinkExistingCounts } from 'lib/integrations/utils'
 import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
 import { cn } from 'lib/utils/css-classes'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -44,7 +45,7 @@ export function GithubIntegration({
         useValues(integrationsLogic)
     const { linkExistingGithubInstallation, loadGithubAvailableInstallations, startPolling, stopPolling } =
         useActions(integrationsLogic)
-    const { reportIntegrationConnectClicked } = useActions(eventUsageLogic)
+    const { reportIntegrationConnectClicked, reportIntegrationLinkExistingOffered } = useActions(eventUsageLogic)
     const { hasPendingInstallRequests } = useValues(githubInstallRequestsLogic)
     const githubIntegrations = useIntegrations('github')
 
@@ -69,6 +70,17 @@ export function GithubIntegration({
     const multipleInstallations = installations.length > 1
     const installRequestInProgress = hasPendingInstallRequests
 
+    // Reported once per set of installations, so a re-render or a poll that returns the same list
+    // doesn't count the same banner again.
+    const offeredInstallationIds = canLinkExisting
+        ? installations.map((installation) => installation.installation_id).join(',')
+        : ''
+    useEffect(() => {
+        if (offeredInstallationIds && connectSurface) {
+            reportIntegrationLinkExistingOffered('github', connectSurface, countInstallations(installations))
+        }
+    }, [offeredInstallationIds, connectSurface]) // oxlint-disable-line react-hooks/exhaustive-deps
+
     // Silent without `connectSurface`, because the only card rendered without one sits on the OAuth
     // landing page, which already reports every kind's connect click for itself.
     const reportConnect = (variant?: IntegrationConnectSurface): void => {
@@ -92,14 +104,16 @@ export function GithubIntegration({
                     below. */}
                 {canLinkExisting && (
                     <LemonBanner type="info" hideIcon>
-                        <div className="flex items-center gap-3">
+                        {/* Wraps because the centered cards (onboarding, the integration landing page)
+                            are narrow enough that the sentence and the button can't share a row. */}
+                        <div className="flex flex-wrap items-center gap-3">
                             <span className="min-w-0 text-sm font-normal">
                                 {multipleInstallations ? (
-                                    <>Already installed on more than one of your GitHub accounts.</>
+                                    <>PostHog is already installed on more than one GitHub account.</>
                                 ) : (
                                     <>
-                                        Already installed on your GitHub account{' '}
-                                        <code>{accountLabel(installations[0])}</code>.
+                                        PostHog is already installed on the GitHub account{' '}
+                                        <code>{accountLabel(installations[0])}</code>, {sourceLabel(installations[0])}.
                                     </>
                                 )}
                             </span>
@@ -181,6 +195,23 @@ function accountLabel(installation: GitHubAvailableInstallationApi): string {
     return installation.account_name ?? `installation ${installation.installation_id}`
 }
 
+function countInstallations(installations: GitHubAvailableInstallationApi[]): IntegrationLinkExistingCounts {
+    return {
+        total: installations.length,
+        sibling: installations.filter((installation) => installation.source_team_id !== null).length,
+        orphan: installations.filter((installation) => installation.source_team_id === null).length,
+        unnamed: installations.filter((installation) => !installation.account_name).length,
+    }
+}
+
+// Where an entry came from decides whether an unfamiliar account reads as a teammate's work or as a
+// stranger in your settings, so every entry says its source.
+function sourceLabel(installation: GitHubAvailableInstallationApi): string {
+    return installation.source_team_name
+        ? `connected in the project ${installation.source_team_name}`
+        : 'visible through your personal GitHub connection'
+}
+
 export function GitHubInstallationLink({
     installations,
     loading,
@@ -220,7 +251,12 @@ export function GitHubInstallationLink({
         <LemonMenu
             items={installations.map((installation) => ({
                 key: installation.installation_id,
-                label: accountLabel(installation),
+                label: (
+                    <span className="flex flex-col items-start">
+                        <span>{accountLabel(installation)}</span>
+                        <span className="text-xs text-secondary">{sourceLabel(installation)}</span>
+                    </span>
+                ),
                 disabledReason: loading ? 'Connecting an account' : undefined,
                 onClick: () => onLink(installation.installation_id),
             }))}

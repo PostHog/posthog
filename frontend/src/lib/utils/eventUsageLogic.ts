@@ -4,7 +4,7 @@ import posthog from 'posthog-js'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import type { Dayjs } from 'lib/dayjs'
 import { now } from 'lib/dayjs'
-import type { IntegrationConnectSurface } from 'lib/integrations/utils'
+import type { IntegrationConnectSurface, IntegrationLinkExistingCounts } from 'lib/integrations/utils'
 import { TimeToSeeDataPayload } from 'lib/internalMetrics'
 import { preflightLogic } from 'lib/logic/preflightLogic'
 import { objectClean } from 'lib/utils/objects'
@@ -2024,6 +2024,15 @@ export interface eventUsageLogicActions {
         selfDriving: boolean | undefined
         surface: IntegrationConnectSurface
     }
+    reportIntegrationLinkExistingOffered: (
+        kind: string,
+        surface: IntegrationConnectSurface,
+        counts: IntegrationLinkExistingCounts
+    ) => {
+        kind: string
+        surface: IntegrationConnectSurface
+        counts: IntegrationLinkExistingCounts
+    }
     reportIntegrationConnectRejected: (
         kind: string,
         error: string
@@ -2615,6 +2624,11 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             surface,
             selfDriving,
         }),
+        reportIntegrationLinkExistingOffered: (
+            kind: string,
+            surface: IntegrationConnectSurface,
+            counts: IntegrationLinkExistingCounts
+        ) => ({ kind, surface, counts }),
         reportIntegrationConnectRejected: (kind: string, error: string) => ({ kind, error }),
         reportPersonalIntegrationConnectClicked: (kind: string) => ({ kind }),
         reportGroupPropertyUpdated: (
@@ -3577,6 +3591,19 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 // self-driving runs and everyone else, so it resolves this; surfaces that are
                 // self-driving by construction leave it unset rather than assert a constant.
                 self_driving: selfDriving,
+            })
+        },
+        // The banner offering an existing installation is where an unfamiliar account name is read,
+        // so it reports what it offered: without this, neither the label nor its source is recorded
+        // anywhere, and a confusing entry only shows up as a support ticket.
+        reportIntegrationLinkExistingOffered: ({ kind, surface, counts }) => {
+            posthog.capture('integration_link_existing_offered', {
+                integration_kind: kind,
+                surface,
+                installation_count: counts.total,
+                sibling_installation_count: counts.sibling,
+                orphan_installation_count: counts.orphan,
+                unnamed_installation_count: counts.unnamed,
             })
         },
         // Counts connect attempts the provider sent back without a code. `integration_connect_clicked`
