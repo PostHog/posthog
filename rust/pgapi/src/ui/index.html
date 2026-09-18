@@ -192,12 +192,12 @@
   // Every chart on a page shares one cursor, and dragging across any of them sets the range.
   const charts = [];
   // Markers for the events in range are fetched once per page and drawn on every chart on it. The
-  // routine kinds (pg_stat_statements evictions, cancelled statements) would smother the rest, so they are left out.
+  // routine kinds (pg_stat_statements evictions, cancelled statements, lock waits) would smother the rest, so they are left out.
   let markerEvents = Promise.resolve([]);
-  const MARKER_SKIP = /^(pgss_dealloc|log_cancel|log_lock)/;
+  const MARKER_EXCLUDE = 'pgss_dealloc,log_cancel,log_lock%';
   const markerColor = k => k.startsWith('settings') ? '#e0af68' : k.startsWith('schema') || k.startsWith('extensions') ? '#7aa2f7' : k.startsWith('log_') ? '#f7768e' : '#8b93a1';
   function loadMarkers() {
-    markerEvents = api(`/servers/${state.server}/events`, { ...rangeQuery(), limit: 500 }).then(rows => rows.filter(r => !MARKER_SKIP.test(r.kind))).catch(() => []);
+    markerEvents = api(`/servers/${state.server}/events`, { ...rangeQuery(), exclude: MARKER_EXCLUDE, limit: 500 }).catch(() => []);
   }
   function drawMarkers(u, events) {
     for (const m of u.over.querySelectorAll('.marker')) m.remove();

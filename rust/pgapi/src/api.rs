@@ -210,6 +210,8 @@ struct OptDbQ {
     range: Range,
     datname: Option<String>,
     kind: Option<String>,
+    /// Comma-separated `LIKE` patterns of event kinds to leave out, applied before the limit.
+    exclude: Option<String>,
     relname: Option<String>,
     #[serde(default = "d_limit")]
     limit: i64,
@@ -231,6 +233,7 @@ async fn events(State(s): S, Path(server): Path<String>, Query(p): Query<OptDbQ>
             f,
             t,
             p.kind.as_deref(),
+            &q::split_list(p.exclude.as_deref()),
             p.limit.clamp(1, 1000),
         )
         .await?,

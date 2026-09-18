@@ -198,6 +198,15 @@ async fn tag_cols_of(db: &Db, table: &str, alias: &str) -> String {
 
 /// `route=/api/x,service=web` (or `key:value`) into pairs; keys are lower-cased and
 /// values are percent-decoded, so a value holding a comma travels as `%2C`.
+pub fn split_list(csv: Option<&str>) -> Vec<String> {
+    csv.unwrap_or("")
+        .split(',')
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_owned)
+        .collect()
+}
+
 pub fn parse_tag_filter(s: &str) -> Result<Vec<(String, String)>> {
     let mut out = Vec::new();
     for part in s.split(',').map(str::trim).filter(|p| !p.is_empty()) {
@@ -672,10 +681,13 @@ pub async fn events(
     from: Ts,
     to: Ts,
     kind: Option<&str>,
+    exclude: &[String],
     limit: i64,
 ) -> Result<Value> {
-    Ok(json!(opt(db, "SELECT id, at, instance, datname, kind, subject, before, after FROM events WHERE server_id = $1 AND at >= $2 AND at < $3 AND ($4::text IS NULL OR kind LIKE $4)
-         ORDER BY at DESC LIMIT $5", &[&server, &from, &to, &kind, &limit]).await?))
+    // Excluded kinds are dropped before the limit, so frequent routine kinds cannot crowd out the rest.
+    Ok(json!(opt(db, "SELECT id, at, instance, datname, kind, subject, before, after FROM events
+         WHERE server_id = $1 AND at >= $2 AND at < $3 AND ($4::text IS NULL OR kind LIKE $4) AND NOT (kind LIKE ANY($5::text[]))
+         ORDER BY at DESC LIMIT $6", &[&server, &from, &to, &kind, &exclude, &limit]).await?))
 }
 
 pub async fn settings(db: &Db, server: &str, non_default_only: bool) -> Result<Value> {

@@ -24,6 +24,15 @@ per code path; `GET /servers/{id}/queries?tags=key=value` filters the
 `callers` seen while the query ran. The tag format and key vocabulary are in
 [`rust/pgcollector/docs/query-tags.md`](../../rust/pgcollector/docs/query-tags.md).
 
+## Charts
+
+The UI draws its charts from bucketed endpoints. `GET /servers/{id}/load?bucket=1m`
+gives average active sessions per bucket by wait event type, summed over instances,
+with the host core count; it is the Overview page's database load chart. Every ranged
+endpoint accepts `since` or absolute `from`/`to`, which is how a range dragged on a
+chart is fetched. `GET /servers/{id}/events?exclude=pgss_dealloc,log_cancel,log_lock%`
+leaves out routine kinds before the limit, so event markers show the rare kinds.
+
 ## Identity and authorization
 
 The app runs no OAuth flow. Identity is established at the edge and read from
