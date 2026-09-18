@@ -220,7 +220,7 @@ function MomentRow({ result, searchedQuery, returnParams }: ResultProps): JSX.El
 
 function TierHeading({ tier }: { tier: Tier }): JSX.Element {
     return (
-        <div className="flex items-baseline gap-2 px-3 py-1.5 rounded bg-surface-tertiary text-xs">
+        <div className="flex items-baseline gap-2 px-3 py-1.5 rounded border border-primary bg-surface-tertiary dark:bg-surface-secondary text-xs">
             <span className="font-semibold">{tier === 'top' ? 'Top matches' : 'Other matches'}</span>
             <span className="text-muted">
                 {tier === 'top' ? 'Closest to what you described.' : 'Related, but further from what you described.'}
@@ -324,37 +324,37 @@ export function SearchResults(logicProps: ObservationSearchLogicProps): JSX.Elem
                     ]}
                 />
             </div>
-            {searching || !results ? (
-                <ResultsSkeleton view={view} />
-            ) : view === 'grid' ? (
-                <div className="grid gap-3 grid-cols-1 @xl:grid-cols-2 @3xl:grid-cols-3">
-                    {pageResults.map((result) => (
-                        <MomentCard
-                            key={result.observation.id}
-                            result={result}
-                            searchedQuery={searchedQuery ?? ''}
-                            returnParams={returnParams}
-                            tier={tierOf(result)}
-                        />
-                    ))}
-                </div>
-            ) : (
-                tierGroups(pageResults, tierOf).map((group) => (
-                    <div key={group.tier ?? 'all'} className="flex flex-col gap-2">
-                        {group.tier && <TierHeading tier={group.tier} />}
-                        {group.results.map((result) => (
-                            <MomentRow
+            <div className="flex flex-col gap-3">
+                {searching || !results ? (
+                    <ResultsSkeleton view={view} />
+                ) : view === 'grid' ? (
+                    <div className="grid gap-3 grid-cols-1 @xl:grid-cols-2 @3xl:grid-cols-3">
+                        {pageResults.map((result) => (
+                            <MomentCard
                                 key={result.observation.id}
                                 result={result}
                                 searchedQuery={searchedQuery ?? ''}
                                 returnParams={returnParams}
+                                tier={tierOf(result)}
                             />
                         ))}
                     </div>
-                ))
-            )}
-            {!searching && results && (
-                <div className="mt-2">
+                ) : (
+                    tierGroups(pageResults, tierOf).map((group) => (
+                        <div key={group.tier ?? 'all'} className="flex flex-col gap-2">
+                            {group.tier && <TierHeading tier={group.tier} />}
+                            {group.results.map((result) => (
+                                <MomentRow
+                                    key={result.observation.id}
+                                    result={result}
+                                    searchedQuery={searchedQuery ?? ''}
+                                    returnParams={returnParams}
+                                />
+                            ))}
+                        </div>
+                    ))
+                )}
+                {!searching && results && (
                     <PaginationControl
                         pagination={{ controlled: true, pageSize: SEARCH_PAGE_SIZE }}
                         currentPage={page}
@@ -366,8 +366,8 @@ export function SearchResults(logicProps: ObservationSearchLogicProps): JSX.Elem
                         currentEndIndex={pageEndIndex}
                         nouns={['match', 'matches']}
                     />
-                </div>
-            )}
+                )}
+            </div>
         </div>
     )
 }
