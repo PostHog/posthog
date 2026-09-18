@@ -39,8 +39,6 @@ export default meta
 
 /* eslint-disable @typescript-eslint/no-var-requires */
 
-export const SavedTrendsInsightSidebarClosed: Story = createInsightStory(__trendsLine as any, 'view')
-
 export const SavedTrendsInsight: Story = createInsightStory(__trendsLine as any, 'view', false, { openSidePanel: true })
 
 export const SavedHogQLDataTable: Story = createInsightStory(__dataTableHogQL as any, 'view', false, {
