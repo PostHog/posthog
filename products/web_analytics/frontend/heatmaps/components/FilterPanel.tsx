@@ -23,6 +23,9 @@ import { TestAccountFilter } from 'scenes/insights/filters/TestAccountFilter'
 
 import { AnyPropertyFilter, CohortPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
 
+import { heatmapCoverageLogic } from './heatmapCoverageLogic'
+import { HeatmapEmptyState } from './HeatmapEmptyState'
+
 const cohortIdsToPropertyFilters = (ids: number[]): AnyPropertyFilter[] =>
     ids.map((id) => ({
         type: PropertyFilterType.Cohort,
@@ -39,6 +42,7 @@ const propertyFiltersToCohortIds = (filters: AnyPropertyFilter[]): number[] =>
 
 export function ViewportChooser({ lockedWidth }: { lockedWidth?: number }): JSX.Element {
     const { widthOverride } = useValues(heatmapDataLogic({ context: 'in-app' }))
+    const { widthShares } = useValues(heatmapCoverageLogic)
     const { setWindowWidthOverride } = useActions(heatmapDataLogic({ context: 'in-app' }))
 
     const options = [
@@ -95,6 +99,9 @@ export function ViewportChooser({ lockedWidth }: { lockedWidth?: number }): JSX.
                         <div className="flex items-center gap-1">
                             {icon}
                             <div className="text-xs">{value} px</div>
+                            {widthShares?.[value] !== undefined ? (
+                                <div className="text-xs text-muted">{Math.round(widthShares[value] * 100)}%</div>
+                            ) : null}
                         </div>
                     ),
                 }))}
@@ -287,12 +294,7 @@ export function FilterPanel({
                 </div>
                 <ViewportChooser lockedWidth={lockedWidth} />
             </div>
-            {heatmapEmpty && !rawHeatmapLoading && !previewUnavailable ? (
-                <p className="text-sm text-muted mt-2 mb-0">
-                    No interactions found at this screen width. Try another screen width, a different date range, or
-                    adjust your filters in Heatmap settings.
-                </p>
-            ) : null}
+            {heatmapEmpty && !rawHeatmapLoading && !previewUnavailable ? <HeatmapEmptyState /> : null}
         </div>
     )
 }
