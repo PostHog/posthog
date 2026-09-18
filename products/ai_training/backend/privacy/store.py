@@ -192,7 +192,7 @@ class AITrainingPrivacyStore:
             return False
         if now.timestamp() < complete_after:
             return False
-        # Key creation checks the team block only when it reads the batch, so a batch that read before the block can still store a key within its commit budget; the lease outlasts that budget, so one more sweep after it catches every straggler.
+        # A batch that read a month key before the shred can still seal and store session keys within its commit budget, and the lease outlasts that budget, so one more sweep after it catches every straggler. No reader can open those rows in any case, because the shred removed the month key. See products/ai_training/docs/replay-data.md.
         if request.kind == "team" and not request.cursor.get("reswept"):
             self.save_cursor(request, work=[{"op": "team", "team_id": request.team_id, "shard": -1}], reswept=True)
             return self.apply(request, deadline)
