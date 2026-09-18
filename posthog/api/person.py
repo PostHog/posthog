@@ -301,8 +301,8 @@ class PersonBulkDeleteResponseSerializer(serializers.Serializer):
         help_text="Persons whose deletion did not fully complete in this request. Each entry contains 'person_uuid' "
         "and 'step', the deletion step that failed for that person. Failures are reported here rather than as an "
         "error status, so a 202 with entries means those persons were not deleted and the request should be "
-        "retried for them. "
-        "A 'log_activity' step means the person was deleted but the activity log entry was not written. "
+        "retried for them, except entries whose step is 'log_activity': that person was deleted, but the "
+        "activity log entry was not written. "
         "Always empty when the deletion was queued (see persons_queued_for_deletion). "
         "Contact support if this persists.",
     )
