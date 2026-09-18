@@ -77,7 +77,12 @@ def deliver_task_digest(team_id: int, user_id: int, digest_date: str) -> None:
     campaign_key = task_digest_campaign_key(team_id, user_id, local_date)
     if MessagingRecord.objects.filter(campaign_key=campaign_key, sent_at__isnull=False).exists():
         return
+    digest = build_customer_task_digest(user=config.user, team=config.team, reference_time=now)
+    if digest is None or not task_digest_enabled(config):
+        return
+
     outcome = "permanent_rejection"
+    email_available = is_email_available(with_absolute_urls=True) and is_smtp_email_service_available()
     with transaction.atomic():
         record = MessagingRecord.objects.filter(campaign_key=campaign_key).first()
         if record is None:
@@ -87,28 +92,25 @@ def deliver_task_digest(team_id: int, user_id: int, digest_date: str) -> None:
             campaign_key=campaign_key, sent_at__isnull=False
         ).exists():
             return
-        digest = build_customer_task_digest(user=config.user, team=config.team, reference_time=now)
-        if digest is None or not task_digest_enabled(config):
-            return
-        if not is_email_available(with_absolute_urls=True) or not is_smtp_email_service_available():
-            outcome = "missing_configuration"
-            record.campaign_count = MAX_SEND_ATTEMPTS
-            record.save(update_fields=["campaign_count"])
+        attempt = (record.campaign_count or 0) + 1
+        record.campaign_count = MAX_SEND_ATTEMPTS
+        record.save(update_fields=["campaign_count"])
+
+    if not email_available:
+        outcome = "missing_configuration"
+    else:
+        message = build_customer_task_digest_email(digest=digest, user=config.user, campaign_key=campaign_key)
+        try:
+            message.send(send_async=False, retry=False)
+            raise_if_delivery_rejected(campaign_key, config.user.email)
+        except EmailDeliveryError:
+            pass
+        except (ConnectionError, TimeoutError, OSError):
+            MessagingRecord.objects.filter(pk=record.pk, sent_at__isnull=True).update(campaign_count=attempt)
+            outcome = "temporary_failure" if attempt < MAX_SEND_ATTEMPTS else "retries_exhausted"
         else:
-            record.campaign_count = (record.campaign_count or 0) + 1
-            record.save(update_fields=["campaign_count"])
-            message = build_customer_task_digest_email(digest=digest, user=config.user, campaign_key=campaign_key)
-            try:
-                message.send(send_async=False, retry=False)
-                raise_if_delivery_rejected(campaign_key, config.user.email)
-            except EmailDeliveryError:
-                record.campaign_count = MAX_SEND_ATTEMPTS
-                record.save(update_fields=["campaign_count"])
-            except (ConnectionError, TimeoutError, OSError):
-                # SMTP propagates only temporary failures; permanent rejections return without acceptance.
-                outcome = "temporary_failure" if record.campaign_count < MAX_SEND_ATTEMPTS else "retries_exhausted"
-            else:
-                outcome = "accepted"
+            MessagingRecord.objects.filter(pk=record.pk, sent_at__isnull=False).update(campaign_count=attempt)
+            outcome = "accepted"
     record_task_digest_delivery(
         outcome=outcome,
         delay_seconds=max(0, (timezone.now() - scheduled_at).total_seconds()) if outcome == "accepted" else None,

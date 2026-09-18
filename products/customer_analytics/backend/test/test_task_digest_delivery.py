@@ -4,9 +4,10 @@ from typing import Literal
 
 import time_machine
 from posthog.test.base import BaseTest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.core import mail
+from django.db import DatabaseError
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
@@ -83,6 +84,22 @@ class TestTaskDigestDelivery(BaseTest):
             enqueue.assert_not_called()
         assert len(mail.outbox) == 1
         assert MessagingRecord.objects.get(campaign_key=self.campaign_key).sent_at is not None
+
+    def test_ambiguous_send_failure_does_not_retry(self) -> None:
+        message = MagicMock()
+        message.send.side_effect = DatabaseError("delivery accepted before database failure")
+        with patch(
+            "products.customer_analytics.backend.logic.task_digest_delivery.build_customer_task_digest_email",
+            return_value=message,
+        ):
+            with self.assertRaises(DatabaseError):
+                deliver_task_digest(self.team.pk, self.user.pk, "2026-09-18")
+            deliver_task_digest(self.team.pk, self.user.pk, "2026-09-18")
+
+        message.send.assert_called_once_with(send_async=False, retry=False)
+        record = MessagingRecord.objects.get(campaign_key=self.campaign_key)
+        assert record.sent_at is None
+        assert record.campaign_count == MAX_SEND_ATTEMPTS
 
     @parameterized.expand(
         [
