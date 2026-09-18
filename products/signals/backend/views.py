@@ -124,6 +124,7 @@ from products.signals.backend.quota import self_driving_quota_enforcement_enable
 from products.signals.backend.repo_corrections import sanitized_repository
 from products.signals.backend.report_assignments import InvalidPullRequestUrl, ReportClaimConflict, claim_report
 from products.signals.backend.report_check_execution import resolve_check_query
+from products.signals.backend.report_check_telemetry import capture_report_check_created
 from products.signals.backend.report_checks import (
     MAX_ACTIVE_CHECKS_PER_REPORT,
     MetricThresholdConfig,
@@ -4415,6 +4416,8 @@ class SignalReportCheckViewSet(
                 created_by_id=attribution.user_id,
                 task_id=attribution.task_id,
             )
+            # Post-commit, so a check the cap or a rollback rejected is never counted as written.
+            transaction.on_commit(partial(capture_report_check_created, self.team, check))
         return Response(self.get_serializer(check).data, status=status.HTTP_201_CREATED)
 
     def destroy(self, request: Request, *args, **kwargs) -> Response:
