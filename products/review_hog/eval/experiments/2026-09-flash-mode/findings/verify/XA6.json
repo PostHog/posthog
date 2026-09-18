@@ -1,0 +1,27 @@
+{
+    "letter": "XA",
+    "id": "XA6",
+    "cluster": null,
+    "is_real": true,
+    "severity": "must_fix",
+    "votes": [
+        {
+            "is_real": true,
+            "severity": "must_fix",
+            "evidence": "/tmp/frozen-75215/products/stamphog/backend/tasks/tasks.py:1138-1146 reads enabled config before the network get_pr at 1159, and the later transaction at 1185 creates the run at 1223-1229 using that same object without reloading enabled. presentation/views.py:236-250 implements disable as serializer.save followed by an UPDATE of already-existing nonterminal ReviewRuns. A disable completing while get_pr is in flight sees no initial run to supersede; the task then inserts a new QUEUED run for the now-disabled config. temporal/activities.py:212-220 fetches its context without checking enabled, and post_verdict at 653-675,700-745 checks supersession/current head/engine gates, not current config enabled. With an unchanged acceptable PR it can post a new approval after disable completed.",
+            "refutation": "I first checked the existing disable sweep, transaction ordering, and workflow fail-closed checks. The sweep is an actual safeguard (views.py:242-250 explicitly intends to stop in-flight approvals), but it cannot update a row that is only created after it finishes. The task's transaction starts after the GitHub fetch, and _upsert_pull_request at tasks.py:319-353 only reads config attributes and updates the PR, not the config's enabled state. Consequently no shared lock/recheck serializes creation with disable, and the new row is not SUPERSEDED. This is a concrete two-operation interleaving across an existing network call, not an arbitrary malformed-input edge case."
+        },
+        {
+            "is_real": true,
+            "severity": "must_fix",
+            "evidence": "/tmp/frozen-75215/products/stamphog/backend/tasks/tasks.py:1140-1146 reads the enabled config before the external get_pr at :1159, then :1185-1229 creates the ReviewRun using that old object without rereading or locking the config. An admin PATCH can run presentation/views.py:236-250 during that fetch: save enabled=False, supersede the currently existing nonterminal runs, return. The subsequent new row was absent from that sweep. temporal/activities.py:97-109 loads the run and related config without checking enabled; post_verdict at :666-713 checks supersession and head, then :745 can post an approval. Thus a normal concurrent disable can complete before this task creates and delivers a new review.",
+            "refutation": "First checked the disable safeguards and relevant test. presentation/views.py:225-250 deliberately soft-disables configs and supersedes active runs; tests/test_api.py:149-169 verifies an already-created REVIEWING run is superseded. That protects rows present at the sweep, not a run created after the sweep from the pre-fetch config snapshot. The worker's writer pin prevents replica lag, not this interleaving, and its atomic block begins only after get_pr. The final writer-pinned status check at activities.py:700-704 still sees the new run as active. The existing guards therefore do not close the reachable race."
+        },
+        {
+            "is_real": true,
+            "severity": "must_fix",
+            "evidence": "products/stamphog/backend/tasks/tasks.py:1140-1146 reads enabled=True before the external GitHub fetch at :1159. The run-creation transaction starts only at :1185 and uses that cached config through :1223-1229 without rereading enabled. Meanwhile presentation/views.py:236-240 saves a disable and then _supersede_active_runs at :242-256 marks only already-existing active ReviewRuns. An administrator can finish both steps while the task is fetching, before its run exists. The subsequent run is therefore QUEUED rather than SUPERSEDED. temporal/activities.py:97-106 reloads the disabled config but does not enforce enabled; run_review_in_sandbox at :381-393 guards only SUPERSEDED, and post_verdict at :660-706 guards supersession/head movement before posting at :723-745. Disabling does not revoke installation credentials, so approval remains possible after the completed disable request.",
+            "refutation": "I first checked the disable path's cancellation safeguard and whether fresh config loading in activities closes the race. _supersede_active_runs does cancel existing runs, but cannot mark a run created after its query completes. The creation transaction locks/updates the PullRequest, not the earlier config eligibility read, and activities never act on the reloaded config's enabled=False. Consequently the described fetch-window interleaving bypasses cancellation without requiring malformed inputs or a database outage; this is a real approval-after-disable defect."
+        }
+    ]
+}

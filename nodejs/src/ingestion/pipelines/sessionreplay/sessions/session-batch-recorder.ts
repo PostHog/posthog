@@ -78,6 +78,7 @@ export class SessionBatchRecorder {
     // Sessions are keyed by (teamId, sessionId) across all partitions. A session is pinned to one
     // partition, so the key is unique. Not readonly: flush swaps it for a fresh map.
     private sessions = new SessionMap<SessionBatchEntry>()
+    private keyMismatchReported = new SessionMap<true>()
     private _size: number = 0
     private readonly batchId: string
     private readonly rateLimiter: SessionRateLimiter
@@ -154,12 +155,21 @@ export class SessionBatchRecorder {
                 return 0
             }
 
-            if (!existingSessionKey.encryptedKey.equals(sessionKey.encryptedKey)) {
-                logger.warn('🔁', 'session_batch_recorder_session_key_mismatch', {
-                    sessionId,
-                    teamId,
-                    batchId: this.batchId,
-                })
+            // A sealed ML session key carries no KMS blob, so encryptedKey alone compares two empty buffers on that lane.
+            if (
+                !existingSessionKey.encryptedKey.equals(sessionKey.encryptedKey) ||
+                !existingSessionKey.plaintextKey.equals(sessionKey.plaintextKey)
+            ) {
+                SessionBatchMetrics.incrementMessagesDroppedSessionKeyMismatch()
+                // The key keeps differing for the rest of the batch, so the counter carries the volume and the log names the session once.
+                if (!this.keyMismatchReported.has(teamId, sessionId)) {
+                    this.keyMismatchReported.set(teamId, sessionId, true)
+                    logger.warn('🔁', 'session_batch_recorder_session_key_mismatch', {
+                        sessionId,
+                        teamId,
+                        batchId: this.batchId,
+                    })
+                }
                 return 0
             }
         } else {
@@ -369,6 +379,7 @@ export class SessionBatchRecorder {
 
             // Clear sessions, total size, and rate limiter state after successful flush
             this.sessions = new SessionMap()
+            this.keyMismatchReported = new SessionMap()
             this._size = 0
             this.rateLimiter.clear()
 

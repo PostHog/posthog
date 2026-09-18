@@ -674,8 +674,16 @@ export const redirects: Record<
     '/me/settings': urls.settings('user'),
     '/new': urls.newTab(),
     '/live-debugger': urls.liveDebugger(),
+    // Only billing, confirm-creation and create-project have an `/organization*` scene. Every other
+    // path here is guessed or bookmarked, matched no route, and rendered the 404 screen.
+    '/organization': urls.settings('organization'),
     '/organization/members': urls.settings('organization'),
     '/organization/settings': urls.settings('organization'),
+    '/organization/projects': urls.settings('organization'),
+    '/organization/settings/projects': urls.settings('organization'),
+    '/organization/projects/new': urls.projectCreateFirst(),
+    '/organization/create': urls.organizationCreateFirst(),
+    '/organization/new': urls.organizationCreateFirst(),
     '/pipeline': urls.sources(),
     '/pipelines': urls.sources(),
     '/pipeline/new/site-app': urls.webScriptsNew(),

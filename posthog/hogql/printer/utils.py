@@ -308,7 +308,8 @@ def prepare_ast_for_printing(
 
     if dialect == "trino":
         with context.timings.measure("trino_structural_lowering"):
-            node = cast(_T_AST, normalize_trino_ast(node, context))
+            # The next resolver pass looks up logical schema keys, which may differ from physical column names.
+            node = cast(_T_AST, normalize_trino_ast(node, context, physical_names=False))
         with context.timings.measure("resolve_types_after_trino_structural_lowering"):
             node = clone_expr(node, clear_types=True)
             node = resolve_types(

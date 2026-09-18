@@ -194,11 +194,13 @@ pub struct MultivariateFlagOptions {
 // Runtime Python mirror: products/feature_flags/backend/api/filters_schema.py validates
 // filters against these shapes at write time — keep field shapes in sync (issue #50084).
 //
-// `filters` is customer-writable JSONB that Django stores unvalidated, so every struct
-// reachable from here must carry `#[serde(flatten)] extra` and be weighed in
+// V1 `filters` is customer-writable JSONB that Django stores unvalidated, so each v1
+// struct reachable from here must carry `#[serde(flatten)] extra` and be weighed in
 // `estimate_filters_size`. Skipping either drops customer keys, or hides their bytes.
-#[derive(Debug, Clone, Deserialize, Serialize, Default)]
+#[derive(Clone, Deserialize, Serialize, Default)]
 pub struct FlagFilters {
+    #[serde(skip)]
+    pub non_v1: Option<Arc<super::config_v2::NonV1Config>>,
     #[serde(default)]
     pub groups: Vec<FlagPropertyGroup>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -252,6 +254,39 @@ pub struct FlagFilters {
     pub extra: serde_json::Map<String, serde_json::Value>,
 }
 
+impl std::fmt::Debug for FlagFilters {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let Self {
+            non_v1,
+            groups,
+            multivariate,
+            aggregation_group_type_index,
+            payloads,
+            feature_enrollment,
+            holdout,
+            early_exit,
+            extra,
+        } = self;
+        if !self.is_v1() {
+            return f
+                .debug_struct("FlagFilters")
+                .field("non_v1", non_v1)
+                .finish_non_exhaustive();
+        }
+        f.debug_struct("FlagFilters")
+            .field("non_v1", non_v1)
+            .field("groups", groups)
+            .field("multivariate", multivariate)
+            .field("aggregation_group_type_index", aggregation_group_type_index)
+            .field("payloads", payloads)
+            .field("feature_enrollment", feature_enrollment)
+            .field("holdout", holdout)
+            .field("early_exit", early_exit)
+            .field("extra", extra)
+            .finish()
+    }
+}
+
 pub type FeatureFlagId = i32;
 
 /// Defines which identifier is used for bucketing users into rollout and variants
@@ -279,7 +314,7 @@ pub struct FeatureFlag {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
     pub key: String,
-    // Non-v1 documents stay opaque in `extra`; check the format before reading v1 fields.
+    // Check the format before reading v1 fields; non-v1 documents retain their raw JSON.
     #[serde(
         deserialize_with = "crate::flags::config_format::deserialize_filters",
         serialize_with = "crate::flags::config_format::serialize_filters"
@@ -338,13 +373,13 @@ impl FeatureFlag {
 
 /// Row struct for PostgreSQL queries via sqlx. The `evaluation_tags` column is
 /// always named `evaluation_tags` in the SQL query, so no alias is needed.
-#[derive(Debug, Default, Serialize, sqlx::FromRow)]
-pub struct FeatureFlagRow {
+#[derive(Default, Serialize, sqlx::FromRow)]
+pub struct FeatureFlagRow<F = serde_json::Value> {
     pub id: i32,
     pub team_id: i32,
     pub name: Option<String>,
     pub key: String,
-    pub filters: serde_json::Value,
+    pub filters: F,
     pub deleted: bool,
     pub active: bool,
     pub ensure_experience_continuity: Option<bool>,
@@ -358,6 +393,41 @@ pub struct FeatureFlagRow {
     /// Populated by the from_pg fallback query via a correlated EXISTS over posthog_experiment.
     #[serde(default)]
     pub has_experiment: bool,
+}
+
+impl<F> std::fmt::Debug for FeatureFlagRow<F> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let Self {
+            id,
+            team_id,
+            name,
+            key,
+            filters: _,
+            deleted,
+            active,
+            ensure_experience_continuity,
+            version,
+            evaluation_runtime,
+            evaluation_tags,
+            bucketing_identifier,
+            has_experiment,
+        } = self;
+        f.debug_struct("FeatureFlagRow")
+            .field("id", id)
+            .field("team_id", team_id)
+            .field("name", name)
+            .field("key", key)
+            .field("filters", &"<redacted>")
+            .field("deleted", deleted)
+            .field("active", active)
+            .field("ensure_experience_continuity", ensure_experience_continuity)
+            .field("version", version)
+            .field("evaluation_runtime", evaluation_runtime)
+            .field("evaluation_tags", evaluation_tags)
+            .field("bucketing_identifier", bucketing_identifier)
+            .field("has_experiment", has_experiment)
+            .finish()
+    }
 }
 
 /// Request-scoped view of flag definitions plus the per-request filter set.
@@ -438,6 +508,10 @@ fn estimate_filters_size(filters: &FlagFilters) -> usize {
         .map_or(0, |h| estimate_json_map_size(&h.extra));
 
     groups_size
+        + filters
+            .non_v1
+            .as_ref()
+            .map_or(0, |config| config.estimated_heap_bytes())
         + estimate_json_map_size(&filters.extra)
         + multivariate_size
         + holdout_size

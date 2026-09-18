@@ -47,6 +47,18 @@ const EVENT_BATCH_FLUSH_MS = 16;
 const EVENT_BATCH_MAX_SIZE = 50;
 const SESSION_LOG_PAGE_LIMIT = 5_000;
 const ARCHIVED_LOG_FETCH_TIMEOUT_MS = 15_000;
+const BOOTSTRAP_FETCH_TIMEOUT_MS = 30_000;
+const BOOTSTRAP_FETCH_ATTEMPTS = 3;
+const BOOTSTRAP_FETCH_RETRY_DELAY_MS = 1_000;
+
+function createBootstrapTimeout(): { signal: AbortSignal; clear: () => void } {
+  const controller = new AbortController();
+  const timer = setTimeout(
+    () => controller.abort(),
+    BOOTSTRAP_FETCH_TIMEOUT_MS,
+  );
+  return { signal: controller.signal, clear: () => clearTimeout(timer) };
+}
 const MAX_HANDLED_RELAY_REQUEST_IDS = 1_000;
 const MCP_RELAY_METHODS_WITHOUT_APPROVAL = new Set([
   "initialize",
@@ -61,6 +73,7 @@ const MCP_RELAY_METHODS_WITHOUT_APPROVAL = new Set([
 // Authoritative end-of-stream sentinel, matched on the SSE event name (event.event, not data.type).
 // The client stops on it without consulting run status.
 const STREAM_END_EVENT_NAME = "stream-end";
+const END_EVENT_NAME = "end";
 
 interface SessionLogsPage {
   entries: StoredLogEntry[];
@@ -167,14 +180,19 @@ interface WatcherState {
   isBootstrapping: boolean;
   hasEmittedSnapshot: boolean;
   bufferedLogBatches: StoredLogEntry[][];
+  replayDedupMatcher: HistoricalEntryMatcher | null;
   // Live entries emitted since the last snapshot, retained so a re-subscribe snapshot can reconcile
   // entries the server has not persisted yet. emitCurrentSnapshot trims this to the still-missing
-  // set; with no re-subscribe it holds the run's emitted entries until the watch ends.
+  // set; with no re-subscribe it holds the run's emitted entries until the watch ends, capped at
+  // the tail window so a rebuild never has to reach back over the whole run.
   emittedLogEntries: StoredLogEntry[];
+  emittedFromEntryCount: number;
   failed: boolean;
   needsPostBootstrapReconnect: boolean;
   needsStopAfterBootstrap: boolean;
   streamEnded: boolean;
+  needsResync: boolean;
+  pendingStreamWindowReplay: boolean;
   // Consumes one automatic re-bootstrap recovery; re-armed by a data event or healthy connection.
   selfHealAttempted: boolean;
   // Both streamBaseUrl and streamReadToken non-null => read via the agent-proxy; either null => Django.
@@ -331,6 +349,14 @@ function relayApprovalRequest(
   };
 }
 
+function isResyncEndEvent(data: unknown): boolean {
+  return (
+    typeof data === "object" &&
+    data !== null &&
+    (data as { type?: string }).type === "resync"
+  );
+}
+
 function isKeepaliveEvent(event: SseEvent): boolean {
   return (
     event.event === "keepalive" ||
@@ -442,6 +468,70 @@ function filterEntriesNotInFrequencyMap(
     counts.set(serialized, remaining - 1);
     return false;
   });
+}
+
+function parseAgentEventId(
+  eventId: string,
+): { boot: string; sequence: number } | null {
+  const match = /^(.+)-(\d+)$/.exec(eventId);
+  if (!match) {
+    return null;
+  }
+  const sequence = Number(match[2]);
+  return Number.isSafeInteger(sequence) ? { boot: match[1], sequence } : null;
+}
+
+class HistoricalEntryMatcher {
+  private readonly counts: Map<string, number>;
+  private readonly coveredIds = new Set<string>();
+  private readonly coveredRanges = new Map<
+    string,
+    Array<{ first: number; last: number }>
+  >();
+
+  constructor(historicalEntries: StoredLogEntry[]) {
+    this.counts = buildEntryFrequencyMap(historicalEntries);
+    for (const entry of historicalEntries) {
+      if (Array.isArray(entry.covered_event_ids)) {
+        for (const covered of entry.covered_event_ids) {
+          if (typeof covered === "string") this.coveredIds.add(covered);
+        }
+      }
+      if (typeof entry.event_id !== "string") continue;
+      this.coveredIds.add(entry.event_id);
+      if (typeof entry.first_event_id !== "string") continue;
+      this.coveredIds.add(entry.first_event_id);
+      const first = parseAgentEventId(entry.first_event_id);
+      const last = parseAgentEventId(entry.event_id);
+      if (
+        first &&
+        last &&
+        first.boot === last.boot &&
+        first.sequence <= last.sequence
+      ) {
+        const ranges = this.coveredRanges.get(first.boot) ?? [];
+        ranges.push({ first: first.sequence, last: last.sequence });
+        this.coveredRanges.set(first.boot, ranges);
+      }
+    }
+  }
+
+  filterUnmatched(entries: StoredLogEntry[]): StoredLogEntry[] {
+    return filterEntriesNotInFrequencyMap(
+      entries.filter((entry) => !this.coversEventId(entry.event_id)),
+      this.counts,
+    );
+  }
+
+  private coversEventId(eventId: string | undefined): boolean {
+    if (!eventId) return false;
+    if (this.coveredIds.has(eventId)) return true;
+    const parsed = parseAgentEventId(eventId);
+    if (!parsed) return false;
+    return (this.coveredRanges.get(parsed.boot) ?? []).some(
+      ({ first, last }) => first <= parsed.sequence && parsed.sequence <= last,
+    );
+  }
 }
 
 function extractSandboxAlive(
@@ -1079,9 +1169,12 @@ export class CloudTaskEngine extends TypedEventEmitter<CloudTaskEvents> {
     watcher.failed = false;
     watcher.pendingLogEntries = [];
     watcher.bufferedLogBatches = [];
+    watcher.replayDedupMatcher = null;
     watcher.needsPostBootstrapReconnect = false;
     watcher.needsStopAfterBootstrap = false;
     watcher.streamEnded = false;
+    watcher.needsResync = false;
+    watcher.pendingStreamWindowReplay = false;
     watcher.selfHealAttempted = false;
     watcher.lastEventId = null;
     watcher.lastEventIdLeg = null;
@@ -1092,6 +1185,7 @@ export class CloudTaskEngine extends TypedEventEmitter<CloudTaskEvents> {
     // snapshot re-delivers history, so no dedup state is lost.
     watcher.seenEventIds.clear();
     watcher.totalEntryCount = 0;
+    watcher.resumeFromEntryCount = null;
     watcher.isBootstrapping = false;
     watcher.streamTargetResolved = false;
     watcher.streamBaseUrl = null;
@@ -1315,11 +1409,15 @@ export class CloudTaskEngine extends TypedEventEmitter<CloudTaskEvents> {
       isBootstrapping: false,
       hasEmittedSnapshot: false,
       bufferedLogBatches: [],
+      replayDedupMatcher: null,
       emittedLogEntries: [],
+      emittedFromEntryCount: 0,
       failed: false,
       needsPostBootstrapReconnect: false,
       needsStopAfterBootstrap: false,
       streamEnded: false,
+      needsResync: false,
+      pendingStreamWindowReplay: false,
       selfHealAttempted: false,
       streamTargetResolved: false,
       streamBaseUrl: null,
@@ -1360,7 +1458,32 @@ export class CloudTaskEngine extends TypedEventEmitter<CloudTaskEvents> {
     this.log.info("Cloud task watcher stopped", { key });
   }
 
-  private async bootstrapWatcher(key: string): Promise<void> {
+  private async retryBootstrapFetch<T>(
+    key: string,
+    watcher: WatcherState,
+    fetchOnce: () => Promise<T | null>,
+  ): Promise<T | null> {
+    for (let attempt = 1; ; attempt += 1) {
+      const result = await fetchOnce();
+      if (result) return result;
+      if (
+        attempt >= BOOTSTRAP_FETCH_ATTEMPTS ||
+        this.watchers.get(key) !== watcher ||
+        watcher.failed
+      ) {
+        return null;
+      }
+      await new Promise((resolve) =>
+        setTimeout(resolve, BOOTSTRAP_FETCH_RETRY_DELAY_MS * attempt),
+      );
+      if (this.watchers.get(key) !== watcher || watcher.failed) return null;
+    }
+  }
+
+  private async bootstrapWatcher(
+    key: string,
+    options: { coverFromOffset?: number } = {},
+  ): Promise<void> {
     const watcher = this.watchers.get(key);
     if (!watcher) return;
 
@@ -1368,7 +1491,9 @@ export class CloudTaskEngine extends TypedEventEmitter<CloudTaskEvents> {
     watcher.needsPostBootstrapReconnect = false;
     watcher.needsStopAfterBootstrap = false;
 
-    const run = await this.fetchTaskRun(watcher);
+    const run = await this.retryBootstrapFetch(key, watcher, () =>
+      this.fetchTaskRun(watcher),
+    );
     const currentWatcher = this.watchers.get(key);
     if (!currentWatcher || currentWatcher !== watcher) return;
     if (watcher.failed) return;
@@ -1398,7 +1523,9 @@ export class CloudTaskEngine extends TypedEventEmitter<CloudTaskEvents> {
     }
 
     if (isTerminalStatus(run.status)) {
-      let window = await this.fetchSessionLogsWindow(watcher);
+      let window = await this.retryBootstrapFetch(key, watcher, () =>
+        this.fetchSessionLogsWindow(watcher),
+      );
       // A terminal run whose persisted chain comes back empty can still have
       // a complete archived log (persistence raced teardown); fall back to it
       // rather than emitting an empty final transcript.
@@ -1421,6 +1548,7 @@ export class CloudTaskEngine extends TypedEventEmitter<CloudTaskEvents> {
         return;
       }
 
+      const rebuilt = watcher.hasEmittedSnapshot;
       watcher.totalEntryCount = window.chainTotal;
       watcher.hasEmittedSnapshot = true;
       this.emit(CloudTaskEvent.Update, {
@@ -1430,6 +1558,7 @@ export class CloudTaskEngine extends TypedEventEmitter<CloudTaskEvents> {
         newEntries: window.entries,
         totalEntryCount: watcher.totalEntryCount,
         ...(window.windowStart > 0 ? { windowStart: window.windowStart } : {}),
+        ...(rebuilt ? { rebuilt: true } : {}),
         status: watcher.lastStatus ?? undefined,
         stage: watcher.lastStage,
         output: watcher.lastOutput,
@@ -1441,11 +1570,21 @@ export class CloudTaskEngine extends TypedEventEmitter<CloudTaskEvents> {
       return;
     }
 
+    const replayingStreamWindow = watcher.pendingStreamWindowReplay;
     watcher.isBootstrapping = true;
     watcher.bufferedLogBatches = [];
-    void this.connectSse(key, { startLatest: true });
+    void this.connectSse(key, {
+      startLatest: !replayingStreamWindow,
+    });
 
-    const window = await this.fetchSessionLogsWindow(watcher);
+    const window = await this.retryBootstrapFetch(key, watcher, () =>
+      this.fetchSessionLogsWindow(
+        watcher,
+        options.coverFromOffset === undefined
+          ? {}
+          : { coverFromOffset: options.coverFromOffset },
+      ),
+    );
     const bootstrappingWatcher = this.watchers.get(key);
     if (!bootstrappingWatcher || bootstrappingWatcher !== watcher) return;
     if (watcher.failed) return;
@@ -1462,16 +1601,35 @@ export class CloudTaskEngine extends TypedEventEmitter<CloudTaskEvents> {
     // Flush any pending live entries into the bootstrap buffer before snapshot.
     this.flushLogBatch(key);
 
-    watcher.totalEntryCount = window.chainTotal;
+    const { snapshotEntries, missingEmittedEntries } =
+      this.mergeHistoricalAndEmittedEntries(
+        window.entries,
+        watcher.emittedLogEntries,
+      );
+    const rebuilt = watcher.hasEmittedSnapshot;
+    if (rebuilt) {
+      this.log.info("Cloud task watcher rebuilt from history", {
+        key,
+        windowStart: window.windowStart,
+        historyEntries: window.entries.length,
+        emittedEntries: watcher.emittedLogEntries.length,
+        retainedEmittedEntries: missingEmittedEntries.length,
+        bufferedBatches: watcher.bufferedLogBatches.length,
+      });
+    }
+    watcher.emittedLogEntries = missingEmittedEntries;
+    watcher.emittedFromEntryCount = window.windowStart + window.entries.length;
+    watcher.totalEntryCount = window.windowStart + snapshotEntries.length;
     watcher.hasEmittedSnapshot = true;
 
     this.emit(CloudTaskEvent.Update, {
       taskId: watcher.taskId,
       runId: watcher.runId,
       kind: "snapshot",
-      newEntries: window.entries,
+      newEntries: snapshotEntries,
       totalEntryCount: watcher.totalEntryCount,
       ...(window.windowStart > 0 ? { windowStart: window.windowStart } : {}),
+      ...(rebuilt ? { rebuilt: true } : {}),
       status: watcher.lastStatus ?? undefined,
       stage: watcher.lastStage,
       output: watcher.lastOutput,
@@ -1480,8 +1638,15 @@ export class CloudTaskEngine extends TypedEventEmitter<CloudTaskEvents> {
       ...sandboxAlivePayload(watcher),
     });
 
+    const snapshotMatcher =
+      replayingStreamWindow || watcher.bufferedLogBatches.length > 0
+        ? new HistoricalEntryMatcher(snapshotEntries)
+        : null;
     watcher.isBootstrapping = false;
-    this.drainBufferedLogBatches(key, window.entries);
+    watcher.replayDedupMatcher = replayingStreamWindow ? snapshotMatcher : null;
+    if (snapshotMatcher) {
+      this.drainBufferedLogBatches(key, snapshotMatcher);
+    }
 
     if (watcher.failed) {
       return;
@@ -1646,6 +1811,9 @@ export class CloudTaskEngine extends TypedEventEmitter<CloudTaskEvents> {
     // Captured after the leg-switch drop so they reflect what this connection actually sends.
     watcher.connSentLastEventId = watcher.lastEventId;
     const startLatest = Boolean(options?.startLatest && !watcher.lastEventId);
+    if (startLatest) {
+      watcher.replayDedupMatcher = null;
+    }
     const url = new URL(
       usingProxy
         ? `${base}/v1/runs/${encodeURIComponent(watcher.runId)}/stream`
@@ -1655,6 +1823,9 @@ export class CloudTaskEngine extends TypedEventEmitter<CloudTaskEvents> {
     );
     if (startLatest) {
       url.searchParams.set("start", "latest");
+    }
+    if (usingProxy) {
+      url.searchParams.set("resync", "1");
     }
     const headers: Record<string, string> = {
       Accept: "text/event-stream",
@@ -1931,6 +2102,7 @@ export class CloudTaskEngine extends TypedEventEmitter<CloudTaskEvents> {
     if (event.id) {
       watcher.lastEventId = event.id;
       watcher.lastEventIdLeg = watcher.streamLeg;
+      watcher.pendingStreamWindowReplay = false;
     }
 
     if (event.event === "error") {
@@ -1951,6 +2123,19 @@ export class CloudTaskEngine extends TypedEventEmitter<CloudTaskEvents> {
     // A keepalive or real event proves the transport recovered. A keepalive does not clear the
     // backend-error budget, which only a real data event below resets.
     watcher.reconnectAttempts = 0;
+
+    if (event.event === END_EVENT_NAME) {
+      if (isResyncEndEvent(event.data)) {
+        this.log.info("Cloud task stream resume position trimmed, rebuilding", {
+          key,
+          lastEventId: watcher.lastEventId,
+        });
+        watcher.lastEventId = null;
+        watcher.lastEventIdLeg = null;
+        watcher.needsResync = true;
+      }
+      return null;
+    }
 
     if (isKeepaliveEvent(event)) {
       return null;
@@ -2052,12 +2237,20 @@ export class CloudTaskEngine extends TypedEventEmitter<CloudTaskEvents> {
       watcher.batchFlushTimeoutId = null;
     }
 
-    const entries = watcher.pendingLogEntries;
+    const pending = watcher.pendingLogEntries;
     watcher.pendingLogEntries = [];
 
     if (watcher.isBootstrapping) {
-      watcher.bufferedLogBatches.push(entries);
+      watcher.bufferedLogBatches.push(pending);
       return;
+    }
+
+    let entries = pending;
+    const replayMatcher = watcher.replayDedupMatcher;
+    if (replayMatcher) {
+      entries = replayMatcher.filterUnmatched(pending);
+      if (entries.length === 0) return;
+      watcher.replayDedupMatcher = null;
     }
 
     watcher.totalEntryCount += entries.length;
@@ -2074,23 +2267,21 @@ export class CloudTaskEngine extends TypedEventEmitter<CloudTaskEvents> {
 
   private drainBufferedLogBatches(
     key: string,
-    historicalEntries: StoredLogEntry[],
+    matcher: HistoricalEntryMatcher,
   ): void {
     const watcher = this.watchers.get(key);
     if (!watcher || watcher.bufferedLogBatches.length === 0) return;
 
-    const historicalCounts = buildEntryFrequencyMap(historicalEntries);
-
     for (const entries of watcher.bufferedLogBatches) {
-      const dedupedEntries = filterEntriesNotInFrequencyMap(
-        entries,
-        historicalCounts,
-      );
+      const dedupedEntries = matcher.filterUnmatched(entries);
 
       if (dedupedEntries.length === 0) {
         continue;
       }
 
+      if (watcher.replayDedupMatcher === matcher) {
+        watcher.replayDedupMatcher = null;
+      }
       watcher.totalEntryCount += dedupedEntries.length;
       this.rememberEmittedLogEntries(watcher, dedupedEntries);
       this.emit(CloudTaskEvent.Update, {
@@ -2110,6 +2301,12 @@ export class CloudTaskEngine extends TypedEventEmitter<CloudTaskEvents> {
     entries: StoredLogEntry[],
   ): void {
     watcher.emittedLogEntries.push(...entries);
+    const retentionLimit = this.transcriptTailWindow;
+    if (retentionLimit === undefined) return;
+    const excess = watcher.emittedLogEntries.length - retentionLimit;
+    if (excess <= 0) return;
+    watcher.emittedLogEntries.splice(0, excess);
+    watcher.emittedFromEntryCount += excess;
   }
 
   private mergeHistoricalAndEmittedEntries(
@@ -2123,11 +2320,9 @@ export class CloudTaskEngine extends TypedEventEmitter<CloudTaskEvents> {
       return { snapshotEntries: historicalEntries, missingEmittedEntries: [] };
     }
 
-    const historicalCounts = buildEntryFrequencyMap(historicalEntries);
-    const missingEmittedEntries = filterEntriesNotInFrequencyMap(
-      emittedEntries,
-      historicalCounts,
-    );
+    const missingEmittedEntries = new HistoricalEntryMatcher(
+      historicalEntries,
+    ).filterUnmatched(emittedEntries);
 
     return {
       snapshotEntries: [...historicalEntries, ...missingEmittedEntries],
@@ -2147,8 +2342,7 @@ export class CloudTaskEngine extends TypedEventEmitter<CloudTaskEvents> {
     // emitted (a read-leg switch drops the cursor), which push the oldest
     // emitted entry out the back, so anchor on the offset instead.
     const window = await this.fetchSessionLogsWindow(watcher, {
-      coverFromOffset:
-        watcher.totalEntryCount - watcher.emittedLogEntries.length,
+      coverFromOffset: watcher.emittedFromEntryCount,
     });
     const currentWatcher = this.watchers.get(key);
     if (!currentWatcher || currentWatcher !== watcher || watcher.failed) {
@@ -2169,6 +2363,7 @@ export class CloudTaskEngine extends TypedEventEmitter<CloudTaskEvents> {
         watcher.emittedLogEntries,
       );
     watcher.emittedLogEntries = missingEmittedEntries;
+    watcher.emittedFromEntryCount = window.windowStart + window.entries.length;
     const snapshotTotal = window.windowStart + snapshotEntries.length;
     if (snapshotTotal > watcher.totalEntryCount) {
       watcher.totalEntryCount = snapshotTotal;
@@ -2222,6 +2417,7 @@ export class CloudTaskEngine extends TypedEventEmitter<CloudTaskEvents> {
     watcher.isBootstrapping = false;
     watcher.pendingLogEntries = [];
     watcher.bufferedLogBatches = [];
+    watcher.replayDedupMatcher = null;
 
     if (watcher.reconnectTimeoutId) {
       clearTimeout(watcher.reconnectTimeoutId);
@@ -2330,7 +2526,9 @@ export class CloudTaskEngine extends TypedEventEmitter<CloudTaskEvents> {
       currentWatcher.reconnectTimeoutId = null;
       void this.connectSse(key, {
         startLatest:
-          currentWatcher.isBootstrapping || currentWatcher.hasEmittedSnapshot,
+          (currentWatcher.isBootstrapping ||
+            currentWatcher.hasEmittedSnapshot) &&
+          !currentWatcher.pendingStreamWindowReplay,
       });
     }, delay);
   }
@@ -2352,6 +2550,7 @@ export class CloudTaskEngine extends TypedEventEmitter<CloudTaskEvents> {
     // Bootstrap owns the snapshot lifecycle: stopping mid-bootstrap would discard the backlog and
     // buffered live entries. Record intent and let bootstrap finish.
     if (watcher.isBootstrapping) {
+      watcher.needsResync = false;
       if (watcher.streamEnded || !reconnectOnDisconnect) {
         watcher.needsStopAfterBootstrap = true;
       } else {
@@ -2364,6 +2563,14 @@ export class CloudTaskEngine extends TypedEventEmitter<CloudTaskEvents> {
     // it is transport churn to reconnect through; status is tracked for display only, never to stop.
     if (watcher.streamEnded) {
       await this.finalizeWatcherStop(key);
+      return;
+    }
+
+    if (watcher.needsResync) {
+      const coverFromOffset = watcher.emittedFromEntryCount;
+      this.resetWatcherForRebootstrap(watcher);
+      watcher.pendingStreamWindowReplay = true;
+      void this.bootstrapWatcher(key, { coverFromOffset });
       return;
     }
 
@@ -2493,11 +2700,13 @@ export class CloudTaskEngine extends TypedEventEmitter<CloudTaskEvents> {
     url.searchParams.set("limit", limit.toString());
     url.searchParams.set("offset", offset.toString());
 
+    const timeout = createBootstrapTimeout();
     try {
       const authedResponse = await this.auth.authenticatedFetch(
         url.toString(),
         {
           method: "GET",
+          signal: timeout.signal,
         },
       );
 
@@ -2538,6 +2747,8 @@ export class CloudTaskEngine extends TypedEventEmitter<CloudTaskEvents> {
         error,
       });
       return null;
+    } finally {
+      timeout.clear();
     }
   }
 
@@ -2658,7 +2869,7 @@ export class CloudTaskEngine extends TypedEventEmitter<CloudTaskEvents> {
     watcher: WatcherState,
     signal: AbortSignal,
   ): Promise<void> {
-    const url = `${watcher.apiHost}/api/projects/${watcher.teamId}/tasks/${watcher.taskId}/runs/${watcher.runId}/stream_token/`;
+    const url = `${watcher.apiHost}/api/projects/${watcher.teamId}/tasks/${watcher.taskId}/runs/${watcher.runId}/stream_token/?resync=1`;
     try {
       const response = await this.auth.authenticatedFetch(url, {
         method: "GET",
@@ -2724,9 +2935,11 @@ export class CloudTaskEngine extends TypedEventEmitter<CloudTaskEvents> {
   ): Promise<TaskRunResponse | null> {
     const url = `${watcher.apiHost}/api/projects/${watcher.teamId}/tasks/${watcher.taskId}/runs/${watcher.runId}/`;
 
+    const timeout = createBootstrapTimeout();
     try {
       const authedResponse = await this.auth.authenticatedFetch(url, {
         method: "GET",
+        signal: timeout.signal,
       });
 
       if (!authedResponse.ok) {
@@ -2752,6 +2965,8 @@ export class CloudTaskEngine extends TypedEventEmitter<CloudTaskEvents> {
         error,
       });
       return null;
+    } finally {
+      timeout.clear();
     }
   }
 }

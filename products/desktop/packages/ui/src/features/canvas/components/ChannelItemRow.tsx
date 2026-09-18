@@ -36,6 +36,7 @@ import { useArchivingTasksStore } from "@posthog/ui/features/sidebar/archivingTa
 import { InlineEditInput } from "@posthog/ui/features/sidebar/components/items/TaskItem";
 import {
   PinnedBadge,
+  ROW_BADGE_CLASS,
   TaskBadgeStack,
   TaskStatusDot,
   TaskStatusTooltips,
@@ -111,15 +112,13 @@ const DELETING_DOT: TaskDot = {
 function RowBadge({ label, children }: { label: string; children: ReactNode }) {
   return (
     <Tooltip disableHoverablePopup>
-      {/* `cursor-default`: a badge names a fact about the row, it isn't a
-          control — see the same note in TaskBadgeStack. */}
       <TooltipTrigger
         render={
           <Avatar
             size="xs"
             aria-label={label}
             role="img"
-            className="cursor-default"
+            className={ROW_BADGE_CLASS}
           >
             <AvatarFallback className="bg-transparent">
               {children}
@@ -451,7 +450,10 @@ export function ChannelItemRow({
   const handleDragStart = useCallback(
     (event: DragEvent) => {
       if (item.kind === "canvas") {
-        writeCanvasDragData(event.dataTransfer, item.id);
+        writeCanvasDragData(event.dataTransfer, item.id, {
+          name: item.title,
+          channelId: channelId ?? null,
+        });
         event.dataTransfer.effectAllowed = "copy";
         return;
       }
@@ -463,7 +465,7 @@ export function ChannelItemRow({
       event.dataTransfer.effectAllowed = "copyMove";
       onDragStart?.(event);
     },
-    [item.id, item.kind, onDragStart],
+    [item.id, item.kind, item.title, channelId, onDragStart],
   );
 
   // A canvas gets the same menu with the items it actually has: command-centre

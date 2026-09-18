@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from temporalio import activity
 
 from posthog.models.comment import Comment
@@ -11,11 +13,31 @@ from products.business_knowledge.backend.logic import get_always_on_context
 from products.conversations.backend.ai.suggest import _build_ticket_context
 from products.conversations.backend.models import Ticket
 from products.conversations.backend.temporal.ai_reply.constants import (
+    LEARNED_CHUNK_LABEL,
+    LEARNED_CHUNK_NOTE,
     MAX_TICKET_CONTEXT_CHARS,
     PUBLISHABLE_TICKET_TYPES,
 )
 from products.conversations.backend.temporal.ai_reply.publish import channel_allows_bot_reply
 from products.conversations.backend.temporal.ai_reply.schemas import BuildContextOutput, SupportReplyInput
+
+if TYPE_CHECKING:
+    from products.business_knowledge.backend.logic import KnowledgeSearchResult
+
+
+def _format_always_on_context(chunks: list[KnowledgeSearchResult]) -> str:
+    """Join always-on chunks, keeping the learned-from-support label on the ones that need it.
+
+    The draft prompt puts this text under TEAM POLICY, so an unlabeled learned chunk would read
+    as documentation the team wrote rather than how it resolved one past ticket. Only generated
+    chunks get a prefix: the rest are already team-authored, and the block is char-capped.
+    """
+    if not chunks:
+        return ""
+    rendered = "\n\n".join(f"{LEARNED_CHUNK_LABEL} {c.content}" if c.is_generated else c.content for c in chunks)
+    if any(c.is_generated for c in chunks):
+        return f"{LEARNED_CHUNK_NOTE}\n\n{rendered}"
+    return rendered
 
 
 @activity.defn
@@ -44,10 +66,14 @@ def _build_context_sync(team_id: int, ticket_id: str, clarification_round: int =
     title = getattr(ticket, "title", "") or f"Ticket {ticket_id}"
 
     always_on_chunks = get_always_on_context(team_id)
-    always_on_text = "\n\n".join(c.content for c in always_on_chunks) if always_on_chunks else ""
+    always_on_text = _format_always_on_context(always_on_chunks)
 
     settings_dict = team.conversations_settings or {}
     diagnostics_allowed = bool(settings_dict.get("ai_diagnostics_enabled", False))
+    raw_docs_source = settings_dict.get("docs_source")
+    docs_source = raw_docs_source if isinstance(raw_docs_source, str) else ""
+    raw_custom = settings_dict.get("ai_reply_custom_instructions")
+    custom_instructions = raw_custom if isinstance(raw_custom, str) else ""
 
     auto_publish_ticket_types = [
         tt for tt in PUBLISHABLE_TICKET_TYPES if channel_allows_bot_reply(ticket=ticket, ticket_type=tt)
@@ -67,4 +93,6 @@ def _build_context_sync(team_id: int, ticket_id: str, clarification_round: int =
         prior_ticket_type=prior_ticket_type or "",
         prior_needs_diagnostics=prior_needs_diagnostics,
         followup_cancelled=followup_cancelled,
+        docs_source=docs_source,
+        custom_instructions=custom_instructions,
     )
