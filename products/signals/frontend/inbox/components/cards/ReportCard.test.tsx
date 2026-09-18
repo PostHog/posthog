@@ -332,14 +332,25 @@ describe('ReportCard', () => {
         expect(screen.getByText('42')).toBeInTheDocument()
     })
 
-    it('keeps the timestamp on a redesigned row that has no figure', () => {
+    it('drops the impact column on a redesigned row that has no figure, and keeps the timestamp', () => {
         // The harness renders a card for every test; these assert against their own.
         cleanup()
         enableRedesign()
         const { container } = render(<ReportCard report={makeReport('r-2', { metrics: [] })} />)
 
         expect(container.querySelector('[data-attr="report-card-impact-metric"]')).toBeNull()
+        expect(container.querySelector('[data-attr="report-card-impact-column"]')).toBeNull()
         expect(screen.getByText('2026-06-11T10:00:00Z')).toBeInTheDocument()
+    })
+
+    it('keeps the impact column on a row whose figure measures zero', () => {
+        // The harness renders a card for every test; these assert against their own.
+        cleanup()
+        enableRedesign()
+        const { container } = render(<ReportCard report={makeReport('r-2', { metrics: [makeMetric({ value: 0 })] })} />)
+
+        expect(container.querySelector('[data-attr="report-card-impact-column"]')).not.toBeNull()
+        expect(screen.getByText('0')).toBeInTheDocument()
     })
 
     it('uses the primary snapshot when there is no affected-user snapshot', () => {
