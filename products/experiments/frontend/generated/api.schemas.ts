@@ -1396,12 +1396,11 @@ export interface ExperimentMetricOutlierHandlingApi {
     upper_bound_percentile?: number | null
 }
 
-export type StepOrderValueApi = (typeof StepOrderValueApi)[keyof typeof StepOrderValueApi]
+export type FunnelOrderTypeApi = (typeof FunnelOrderTypeApi)[keyof typeof FunnelOrderTypeApi]
 
-export const StepOrderValueApi = {
-    Strict: 'strict',
-    Unordered: 'unordered',
+export const FunnelOrderTypeApi = {
     Ordered: 'ordered',
+    Unordered: 'unordered',
 } as const
 
 export type ExperimentMetricGoalApi = (typeof ExperimentMetricGoalApi)[keyof typeof ExperimentMetricGoalApi]
@@ -1438,8 +1437,8 @@ export interface ExperimentApiMetricApi {
     denominator?: ExperimentApiEventSourceApi | null
     /** For ratio metrics: winsorization applied to the denominator aggregate. Leave unset for a binomial-style denominator, which is never clamped. */
     denominator_outlier_handling?: ExperimentMetricOutlierHandlingApi | null
-    /** For funnel metrics: how the steps must occur. 'ordered' (default): in order, with other events allowed in between. 'strict': in order, with no other events in between. 'unordered': in any order. */
-    funnel_order_type?: StepOrderValueApi | null
+    /** For funnel metrics: how the steps must occur. 'ordered' (default): in order, with other events allowed in between. 'unordered': in any order. Experiment metrics do not support the 'strict' order of product-analytics funnels: the metric query reads only the step events and the exposure events, so 'strict' misses unrelated events between steps and instead drops users who are exposed again between two steps. */
+    funnel_order_type?: FunnelOrderTypeApi | null
     /** Whether higher or lower values indicate success. */
     goal?: ExperimentMetricGoalApi | null
     /** For mean metrics: exclude zero values when computing the winsorization percentile thresholds. */

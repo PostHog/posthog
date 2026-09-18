@@ -4930,10 +4930,10 @@ export const ExperimentsCreateBody = () => zod
                                     'For ratio metrics: winsorization applied to the denominator aggregate. Leave unset for a binomial-style denominator, which is never clamped.'
                                 ),
                             funnel_order_type: zod
-                                .union([zod.enum(['strict', 'unordered', 'ordered']), zod.null()])
+                                .union([zod.enum(['ordered', 'unordered']), zod.null()])
                                 .optional()
                                 .describe(
-                                    "For funnel metrics: how the steps must occur. 'ordered' (default): in order, with other events allowed in between. 'strict': in order, with no other events in between. 'unordered': in any order."
+                                    "For funnel metrics: how the steps must occur. 'ordered' (default): in order, with other events allowed in between. 'unordered': in any order. Experiment metrics do not support the 'strict' order of product-analytics funnels: the metric query reads only the step events and the exposure events, so 'strict' misses unrelated events between steps and instead drops users who are exposed again between two steps."
                                 ),
                             goal: zod
                                 .union([zod.enum(['increase', 'decrease']), zod.null()])
@@ -5966,10 +5966,10 @@ export const ExperimentsCreateBody = () => zod
                                     'For ratio metrics: winsorization applied to the denominator aggregate. Leave unset for a binomial-style denominator, which is never clamped.'
                                 ),
                             funnel_order_type: zod
-                                .union([zod.enum(['strict', 'unordered', 'ordered']), zod.null()])
+                                .union([zod.enum(['ordered', 'unordered']), zod.null()])
                                 .optional()
                                 .describe(
-                                    "For funnel metrics: how the steps must occur. 'ordered' (default): in order, with other events allowed in between. 'strict': in order, with no other events in between. 'unordered': in any order."
+                                    "For funnel metrics: how the steps must occur. 'ordered' (default): in order, with other events allowed in between. 'unordered': in any order. Experiment metrics do not support the 'strict' order of product-analytics funnels: the metric query reads only the step events and the exposure events, so 'strict' misses unrelated events between steps and instead drops users who are exposed again between two steps."
                                 ),
                             goal: zod
                                 .union([zod.enum(['increase', 'decrease']), zod.null()])
@@ -10881,10 +10881,10 @@ export const ExperimentsPartialUpdateBody = () => zod
                                     'For ratio metrics: winsorization applied to the denominator aggregate. Leave unset for a binomial-style denominator, which is never clamped.'
                                 ),
                             funnel_order_type: zod
-                                .union([zod.enum(['strict', 'unordered', 'ordered']), zod.null()])
+                                .union([zod.enum(['ordered', 'unordered']), zod.null()])
                                 .optional()
                                 .describe(
-                                    "For funnel metrics: how the steps must occur. 'ordered' (default): in order, with other events allowed in between. 'strict': in order, with no other events in between. 'unordered': in any order."
+                                    "For funnel metrics: how the steps must occur. 'ordered' (default): in order, with other events allowed in between. 'unordered': in any order. Experiment metrics do not support the 'strict' order of product-analytics funnels: the metric query reads only the step events and the exposure events, so 'strict' misses unrelated events between steps and instead drops users who are exposed again between two steps."
                                 ),
                             goal: zod
                                 .union([zod.enum(['increase', 'decrease']), zod.null()])
@@ -11917,10 +11917,10 @@ export const ExperimentsPartialUpdateBody = () => zod
                                     'For ratio metrics: winsorization applied to the denominator aggregate. Leave unset for a binomial-style denominator, which is never clamped.'
                                 ),
                             funnel_order_type: zod
-                                .union([zod.enum(['strict', 'unordered', 'ordered']), zod.null()])
+                                .union([zod.enum(['ordered', 'unordered']), zod.null()])
                                 .optional()
                                 .describe(
-                                    "For funnel metrics: how the steps must occur. 'ordered' (default): in order, with other events allowed in between. 'strict': in order, with no other events in between. 'unordered': in any order."
+                                    "For funnel metrics: how the steps must occur. 'ordered' (default): in order, with other events allowed in between. 'unordered': in any order. Experiment metrics do not support the 'strict' order of product-analytics funnels: the metric query reads only the step events and the exposure events, so 'strict' misses unrelated events between steps and instead drops users who are exposed again between two steps."
                                 ),
                             goal: zod
                                 .union([zod.enum(['increase', 'decrease']), zod.null()])
@@ -16811,10 +16811,10 @@ export const ExperimentsDuplicateCreateBody = () => zod
                                     'For ratio metrics: winsorization applied to the denominator aggregate. Leave unset for a binomial-style denominator, which is never clamped.'
                                 ),
                             funnel_order_type: zod
-                                .union([zod.enum(['strict', 'unordered', 'ordered']), zod.null()])
+                                .union([zod.enum(['ordered', 'unordered']), zod.null()])
                                 .optional()
                                 .describe(
-                                    "For funnel metrics: how the steps must occur. 'ordered' (default): in order, with other events allowed in between. 'strict': in order, with no other events in between. 'unordered': in any order."
+                                    "For funnel metrics: how the steps must occur. 'ordered' (default): in order, with other events allowed in between. 'unordered': in any order. Experiment metrics do not support the 'strict' order of product-analytics funnels: the metric query reads only the step events and the exposure events, so 'strict' misses unrelated events between steps and instead drops users who are exposed again between two steps."
                                 ),
                             goal: zod
                                 .union([zod.enum(['increase', 'decrease']), zod.null()])
@@ -17847,10 +17847,10 @@ export const ExperimentsDuplicateCreateBody = () => zod
                                     'For ratio metrics: winsorization applied to the denominator aggregate. Leave unset for a binomial-style denominator, which is never clamped.'
                                 ),
                             funnel_order_type: zod
-                                .union([zod.enum(['strict', 'unordered', 'ordered']), zod.null()])
+                                .union([zod.enum(['ordered', 'unordered']), zod.null()])
                                 .optional()
                                 .describe(
-                                    "For funnel metrics: how the steps must occur. 'ordered' (default): in order, with other events allowed in between. 'strict': in order, with no other events in between. 'unordered': in any order."
+                                    "For funnel metrics: how the steps must occur. 'ordered' (default): in order, with other events allowed in between. 'unordered': in any order. Experiment metrics do not support the 'strict' order of product-analytics funnels: the metric query reads only the step events and the exposure events, so 'strict' misses unrelated events between steps and instead drops users who are exposed again between two steps."
                                 ),
                             goal: zod
                                 .union([zod.enum(['increase', 'decrease']), zod.null()])

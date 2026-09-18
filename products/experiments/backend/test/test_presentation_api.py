@@ -16,6 +16,14 @@ from dateutil import parser
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.schema import (
+    ExperimentApiMetric,
+    ExperimentFunnelMetric,
+    ExperimentMeanMetric,
+    ExperimentRatioMetric,
+    ExperimentRetentionMetric,
+)
+
 from posthog.auth import IDJagAccessTokenAuthentication, OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
 from posthog.constants import AvailableFeature
 from posthog.models import Organization, OrganizationMembership, Team
@@ -9008,14 +9016,6 @@ class TestExperimentApiMetricParity(unittest.TestCase):
     }
 
     def test_api_schema_exposes_every_runtime_field(self) -> None:
-        from posthog.schema import (
-            ExperimentApiMetric,
-            ExperimentFunnelMetric,
-            ExperimentMeanMetric,
-            ExperimentRatioMetric,
-            ExperimentRetentionMetric,
-        )
-
         runtime_fields: set[str] = set()
         for metric_model in (
             ExperimentMeanMetric,
