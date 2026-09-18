@@ -365,7 +365,7 @@ export function WorkflowsTable(): JSX.Element {
                 <div className="flex justify-between gap-2 flex-wrap mb-4">
                     <LemonInput
                         type="search"
-                        placeholder="Search by name or email text"
+                        placeholder="Search for workflows"
                         onChange={(search) => setFilters({ search })}
                         value={filters.search}
                     />
