@@ -166,6 +166,32 @@ class TestOrganizationMembersForAccountAPI(APIBaseTest):
         self.assertEqual(second_page.status_code, status.HTTP_200_OK)
         self.assertEqual(len(second_page.json()["results"]), 2)
 
+    @parameterized.expand(
+        [
+            ("default", ""),
+            ("joined_at_desc", "&ordering=-joined_at"),
+            ("joined_at_asc", "&ordering=joined_at"),
+            ("level", "&ordering=level"),
+            ("last_login", "&ordering=-last_login"),
+        ]
+    )
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_pages_members_with_tied_joined_at(self, _name, ordering, _mock_flag):
+        member_count = 11
+        for index in range(member_count):
+            self._join(f"tied{index}@example.com", distinct_id=f"tied-distinct-{index}")
+        OrganizationMembership.objects.filter(organization=self.target_org).update(joined_at=datetime.now(tz=UTC))
+
+        paged_ids: list[str] = []
+        for offset in range(0, member_count + 1, 2):
+            response = self.client.get(f"{self._url(self.target_org.id)}{ordering}&limit=2&offset={offset}")
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            paged_ids += [member["id"] for member in response.json()["results"]]
+
+        # Every allowed ordering ties here, so the walk exposes a repeated or missing member
+        self.assertEqual(len(paged_ids), member_count)
+        self.assertEqual(len(set(paged_ids)), member_count)
+
     @patch("posthoganalytics.feature_enabled", return_value=True)
     def test_excludes_inactive_and_bot_users(self, _mock_flag):
         active = self._join("active@example.com", distinct_id="distinct-active")
