@@ -94,6 +94,318 @@ class TestSubscriptionScheduling:
 
         assert next_delivery_date is None
 
+    @time_machine.travel("2026-10-25 11:00:00", tick=False)
+    def test_weekly_delivery_keeps_local_wall_time_across_fall_dst_transition(self) -> None:
+        # #42016: a weekly Monday 8am US/Central subscription created in summer is stored
+        # as 13:00 UTC (CDT). After the Nov 1 transition to CST it must still deliver at
+        # 8am local, i.e. 14:00 UTC, not drift to 7am.
+        start = datetime(2026, 6, 1, 13, 0, tzinfo=ZoneInfo("UTC"))
+        kwargs = {
+            "frequency": "weekly",
+            "interval": 1,
+            "start_date": start,
+            "byweekday": ["monday"],
+            "tz_name": "US/Central",
+        }
+
+        before = Subscription._compute_next_delivery_date(
+            from_dt=datetime(2026, 10, 25, 12, 0, tzinfo=ZoneInfo("UTC")), **kwargs
+        )
+        assert before == datetime(2026, 10, 26, 13, 0, tzinfo=ZoneInfo("UTC"))  # Mon 8am CDT
+
+        after = Subscription._compute_next_delivery_date(
+            from_dt=datetime(2026, 11, 10, 12, 0, tzinfo=ZoneInfo("UTC")), **kwargs
+        )
+        assert after == datetime(2026, 11, 16, 14, 0, tzinfo=ZoneInfo("UTC"))  # Mon 8am CST
+
+    @time_machine.travel("2027-02-20 11:00:00", tick=False)
+    def test_weekly_delivery_keeps_local_wall_time_across_spring_forward(self) -> None:
+        # 8am US/Central in winter is 14:00 UTC (CST); after the Mar 14, 2027 transition
+        # it must become 13:00 UTC (CDT).
+        start = datetime(2027, 1, 4, 14, 0, tzinfo=ZoneInfo("UTC"))
+        kwargs = {
+            "frequency": "weekly",
+            "interval": 1,
+            "start_date": start,
+            "byweekday": ["monday"],
+            "tz_name": "US/Central",
+        }
+
+        before = Subscription._compute_next_delivery_date(
+            from_dt=datetime(2027, 2, 20, 12, 0, tzinfo=ZoneInfo("UTC")), **kwargs
+        )
+        assert before == datetime(2027, 2, 22, 14, 0, tzinfo=ZoneInfo("UTC"))  # Mon 8am CST
+
+        after = Subscription._compute_next_delivery_date(
+            from_dt=datetime(2027, 3, 15, 0, 0, tzinfo=ZoneInfo("UTC")), **kwargs
+        )
+        assert after == datetime(2027, 3, 15, 13, 0, tzinfo=ZoneInfo("UTC"))  # Mon 8am CDT
+
+    @time_machine.travel("2024-01-01 09:00:00", tick=False)
+    def test_daily_delivery_in_half_hour_offset_timezone_without_dst(self) -> None:
+        # 9am Asia/Kolkata daily: no DST, so the UTC time must stay fixed at 03:30.
+        next_delivery_date = Subscription._compute_next_delivery_date(
+            frequency="daily",
+            interval=1,
+            start_date=datetime(2024, 1, 1, 3, 30, tzinfo=ZoneInfo("UTC")),
+            from_dt=datetime(2024, 1, 1, 10, 0, tzinfo=ZoneInfo("UTC")),
+            tz_name="Asia/Kolkata",
+        )
+
+        assert next_delivery_date == datetime(2024, 1, 2, 3, 30, tzinfo=ZoneInfo("UTC"))
+
+    @time_machine.travel("2026-11-10 11:00:00", tick=False)
+    def test_without_timezone_the_utc_anchored_behavior_is_kept(self) -> None:
+        # tz_name=None (or an unknown name) reproduces the pre-fix behavior exactly:
+        # the delivery stays at a fixed UTC time and drifts in local time after DST.
+        kwargs = {
+            "frequency": "weekly",
+            "interval": 1,
+            "start_date": datetime(2026, 6, 1, 13, 0, tzinfo=ZoneInfo("UTC")),
+            "byweekday": ["monday"],
+        }
+        from_dt = datetime(2026, 11, 10, 12, 0, tzinfo=ZoneInfo("UTC"))
+        expected = datetime(2026, 11, 16, 13, 0, tzinfo=ZoneInfo("UTC"))
+
+        assert Subscription._compute_next_delivery_date(from_dt=from_dt, **kwargs) == expected
+        assert Subscription._compute_next_delivery_date(from_dt=from_dt, tz_name="not-a-timezone", **kwargs) == expected
+
+    @time_machine.travel("2026-09-06 23:00:00", tick=False)
+    def test_weekday_guard_matches_the_local_weekday(self) -> None:
+        # Monday 8am Asia/Tokyo is stored as Sunday 23:00 UTC. The daily/7 weekday guard
+        # must accept byweekday=["monday"] because Monday is the local weekday.
+        next_delivery_date = Subscription._compute_next_delivery_date(
+            frequency="daily",
+            interval=7,
+            start_date=datetime(2026, 9, 6, 23, 0, tzinfo=ZoneInfo("UTC")),  # Mon 8am JST
+            from_dt=datetime(2026, 9, 7, 0, 0, tzinfo=ZoneInfo("UTC")),
+            byweekday=["monday"],
+            tz_name="Asia/Tokyo",
+        )
+
+        assert next_delivery_date == datetime(2026, 9, 13, 23, 0, tzinfo=ZoneInfo("UTC"))  # Mon Sep 14 8am JST
+
+    @time_machine.travel("2026-10-31 11:00:00", tick=False)
+    def test_ambiguous_local_time_resolves_to_the_earlier_occurrence(self) -> None:
+        # Daily 1:30am US/Central: on Nov 1 2026 the wall time happens twice (CDT, then CST).
+        # zoneinfo fold=0 picks the earlier occurrence: 1:30am CDT = 06:30 UTC.
+        next_delivery_date = Subscription._compute_next_delivery_date(
+            frequency="daily",
+            interval=1,
+            start_date=datetime(2026, 10, 20, 6, 30, tzinfo=ZoneInfo("UTC")),
+            from_dt=datetime(2026, 10, 31, 12, 0, tzinfo=ZoneInfo("UTC")),
+            tz_name="US/Central",
+        )
+
+        assert next_delivery_date == datetime(2026, 11, 1, 6, 30, tzinfo=ZoneInfo("UTC"))
+
+    @time_machine.travel("2027-03-13 11:00:00", tick=False)
+    def test_nonexistent_local_time_normalizes_forward(self) -> None:
+        # Daily 2:30am US/Central: on Mar 14 2027 that wall time never happens (spring
+        # forward 02:00 -> 03:00). The pre-transition offset applies, so the delivery lands
+        # at 08:30 UTC, i.e. 3:30am local once the clock jumps.
+        next_delivery_date = Subscription._compute_next_delivery_date(
+            frequency="daily",
+            interval=1,
+            start_date=datetime(2027, 3, 1, 8, 30, tzinfo=ZoneInfo("UTC")),
+            from_dt=datetime(2027, 3, 13, 12, 0, tzinfo=ZoneInfo("UTC")),
+            tz_name="US/Central",
+        )
+
+        assert next_delivery_date == datetime(2027, 3, 14, 8, 30, tzinfo=ZoneInfo("UTC"))
+
+    @time_machine.travel("2026-11-01 05:15:00", tick=False)
+    def test_first_fold_occurrence_is_returned_while_it_is_still_ahead(self) -> None:
+        # Daily 1:30am US/Central, computed at 1:15am CDT (06:15 UTC) on transition day:
+        # the first 1:30am of the day is still ahead, so it is the next delivery.
+        next_delivery_date = Subscription._compute_next_delivery_date(
+            frequency="daily",
+            interval=1,
+            start_date=datetime(2026, 10, 20, 6, 30, tzinfo=ZoneInfo("UTC")),
+            from_dt=datetime(2026, 11, 1, 6, 15, tzinfo=ZoneInfo("UTC")),
+            tz_name="US/Central",
+        )
+
+        assert next_delivery_date == datetime(2026, 11, 1, 6, 30, tzinfo=ZoneInfo("UTC"))
+
+    @time_machine.travel("2026-11-01 06:15:00", tick=False)
+    def test_second_fold_occurrence_is_returned_when_the_first_is_already_past(self) -> None:
+        # Same schedule computed during the repeated hour, at 1:15am CST (07:15 UTC):
+        # the first 1:30am (06:30 UTC) is already past, so the delivery is the second
+        # occurrence of that wall time: 1:30am CST = 07:30 UTC.
+        next_delivery_date = Subscription._compute_next_delivery_date(
+            frequency="daily",
+            interval=1,
+            start_date=datetime(2026, 10, 20, 6, 30, tzinfo=ZoneInfo("UTC")),
+            from_dt=datetime(2026, 11, 1, 7, 15, tzinfo=ZoneInfo("UTC")),
+            tz_name="US/Central",
+        )
+
+        assert next_delivery_date == datetime(2026, 11, 1, 7, 30, tzinfo=ZoneInfo("UTC"))
+
+    @time_machine.travel("2026-11-01 05:45:00", tick=False)
+    def test_second_fold_is_returned_once_the_first_fold_wall_time_has_passed(self) -> None:
+        # At 1:45am CDT (06:45 UTC) the 1:30 wall time is behind on the wall clock, but its
+        # second occurrence (1:30am CST = 07:30 UTC) is still ahead.
+        next_delivery_date = Subscription._compute_next_delivery_date(
+            frequency="daily",
+            interval=1,
+            start_date=datetime(2026, 10, 20, 6, 30, tzinfo=ZoneInfo("UTC")),
+            from_dt=datetime(2026, 11, 1, 6, 45, tzinfo=ZoneInfo("UTC")),
+            tz_name="US/Central",
+        )
+
+        assert next_delivery_date == datetime(2026, 11, 1, 7, 30, tzinfo=ZoneInfo("UTC"))
+
+    @time_machine.travel("2026-11-01 05:30:00", tick=False)
+    def test_an_exact_occurrence_instant_counts_as_already_past(self) -> None:
+        # Exactly at the first-fold 1:30am (06:30 UTC): strictly-after semantics move to the
+        # second occurrence at 1:30am CST (07:30 UTC).
+        next_delivery_date = Subscription._compute_next_delivery_date(
+            frequency="daily",
+            interval=1,
+            start_date=datetime(2026, 10, 20, 6, 30, tzinfo=ZoneInfo("UTC")),
+            from_dt=datetime(2026, 11, 1, 6, 30, tzinfo=ZoneInfo("UTC")),
+            tz_name="US/Central",
+        )
+
+        assert next_delivery_date == datetime(2026, 11, 1, 7, 30, tzinfo=ZoneInfo("UTC"))
+
+    @time_machine.travel("2027-04-03 13:50:00", tick=False)
+    def test_half_hour_backward_transition(self) -> None:
+        # Australia/Lord_Howe falls back 30 minutes on Apr 4 2027: daily 1:45am exists at
+        # 14:45 UTC (+11) and 15:15 UTC (+10:30). At 14:50 UTC only the second is ahead.
+        next_delivery_date = Subscription._compute_next_delivery_date(
+            frequency="daily",
+            interval=1,
+            start_date=datetime(2027, 3, 20, 14, 45, tzinfo=ZoneInfo("UTC")),
+            from_dt=datetime(2027, 4, 3, 14, 50, tzinfo=ZoneInfo("UTC")),
+            tz_name="Australia/Lord_Howe",
+        )
+
+        assert next_delivery_date == datetime(2027, 4, 3, 15, 15, tzinfo=ZoneInfo("UTC"))
+
+    @time_machine.travel("2026-10-03 11:00:00", tick=False)
+    def test_daily_delivery_keeps_early_wall_time_across_positive_offset_transition(self) -> None:
+        # Daily 1:00am Australia/Sydney: on the Oct 4 spring-forward day (02:00 -> 03:00)
+        # 1:00am still exists, ahead of the gap, so the delivery is 15:00 UTC Oct 3 with
+        # the pre-transition offset. The next day it moves to 14:00 UTC (+11).
+        kwargs = {
+            "frequency": "daily",
+            "interval": 1,
+            "start_date": datetime(2026, 9, 1, 15, 0, tzinfo=ZoneInfo("UTC")),
+            "tz_name": "Australia/Sydney",
+        }
+
+        on_transition_day = Subscription._compute_next_delivery_date(
+            from_dt=datetime(2026, 10, 3, 12, 0, tzinfo=ZoneInfo("UTC")), **kwargs
+        )
+        assert on_transition_day == datetime(2026, 10, 3, 15, 0, tzinfo=ZoneInfo("UTC"))
+
+        after = Subscription._compute_next_delivery_date(
+            from_dt=datetime(2026, 10, 4, 12, 0, tzinfo=ZoneInfo("UTC")), **kwargs
+        )
+        assert after == datetime(2026, 10, 4, 14, 0, tzinfo=ZoneInfo("UTC"))
+
+    @time_machine.travel("2026-10-03 11:00:00", tick=False)
+    def test_half_hour_forward_transition_keeps_early_wall_time(self) -> None:
+        # Daily 12:15am Australia/Lord_Howe: the Oct 4 spring forward (02:00 -> 02:30)
+        # leaves 12:15am intact at 13:45 UTC (+10:30); the next day is 13:15 UTC (+11).
+        kwargs = {
+            "frequency": "daily",
+            "interval": 1,
+            "start_date": datetime(2026, 9, 1, 13, 45, tzinfo=ZoneInfo("UTC")),
+            "tz_name": "Australia/Lord_Howe",
+        }
+
+        on_transition_day = Subscription._compute_next_delivery_date(
+            from_dt=datetime(2026, 10, 3, 12, 0, tzinfo=ZoneInfo("UTC")), **kwargs
+        )
+        assert on_transition_day == datetime(2026, 10, 3, 13, 45, tzinfo=ZoneInfo("UTC"))
+
+        after = Subscription._compute_next_delivery_date(
+            from_dt=datetime(2026, 10, 4, 12, 0, tzinfo=ZoneInfo("UTC")), **kwargs
+        )
+        assert after == datetime(2026, 10, 4, 13, 15, tzinfo=ZoneInfo("UTC"))
+
+    @time_machine.travel("2026-10-24 22:00:00", tick=False)
+    def test_two_hour_fold_returns_both_occurrences(self) -> None:
+        # Antarctica/Troll falls back two hours on Oct 25 2026 (03:00 -> 01:00), so daily
+        # 2:00am exists at 00:00 UTC (+2) and again at 02:00 UTC (+0). Both folds are
+        # returned earliest-first while they are still ahead; the next day uses +0.
+        kwargs = {
+            "frequency": "daily",
+            "interval": 1,
+            "start_date": datetime(2026, 10, 20, 0, 0, tzinfo=ZoneInfo("UTC")),
+            "tz_name": "Antarctica/Troll",
+        }
+
+        before = Subscription._compute_next_delivery_date(
+            from_dt=datetime(2026, 10, 24, 23, 0, tzinfo=ZoneInfo("UTC")), **kwargs
+        )
+        assert before == datetime(2026, 10, 25, 0, 0, tzinfo=ZoneInfo("UTC"))
+
+        between = Subscription._compute_next_delivery_date(
+            from_dt=datetime(2026, 10, 25, 0, 30, tzinfo=ZoneInfo("UTC")), **kwargs
+        )
+        assert between == datetime(2026, 10, 25, 2, 0, tzinfo=ZoneInfo("UTC"))
+
+        after = Subscription._compute_next_delivery_date(
+            from_dt=datetime(2026, 10, 25, 2, 30, tzinfo=ZoneInfo("UTC")), **kwargs
+        )
+        assert after == datetime(2026, 10, 26, 2, 0, tzinfo=ZoneInfo("UTC"))
+
+    @time_machine.travel("2026-10-15 12:44:00", tick=False)
+    def test_subsecond_start_date_uses_whole_second_occurrences(self) -> None:
+        # dateutil's rrule works at whole-second precision: a 9:00:00.500 start produces
+        # 9:00:00 occurrences. The frontend preview mirrors this, so both stacks agree on
+        # the strict-future boundary at second precision.
+        kwargs = {
+            "frequency": "daily",
+            "interval": 1,
+            "start_date": datetime(2026, 9, 1, 13, 0, 0, 500000, tzinfo=ZoneInfo("UTC")),
+            "tz_name": "America/New_York",
+        }
+        occurrence = datetime(2026, 10, 15, 13, 0, tzinfo=ZoneInfo("UTC"))  # 9am EDT
+
+        before = Subscription._compute_next_delivery_date(from_dt=occurrence - timedelta(milliseconds=50), **kwargs)
+        assert before == occurrence
+
+        exact = Subscription._compute_next_delivery_date(from_dt=occurrence, **kwargs)
+        assert exact == occurrence + timedelta(days=1)
+
+        after = Subscription._compute_next_delivery_date(from_dt=occurrence + timedelta(milliseconds=50), **kwargs)
+        assert after == occurrence + timedelta(days=1)
+
+    @time_machine.travel("1920-04-30 11:45:00", tick=False)
+    def test_second_precision_historical_offset_transition(self) -> None:
+        # America/Argentina/Catamarca sprang forward 16m48s on May 1 1920 (00:00 ->
+        # 00:16:48), so daily 00:01:20 never happens that day: it delivers at the
+        # pre-transition offset, 04:18:08 UTC.
+        next_delivery_date = Subscription._compute_next_delivery_date(
+            frequency="daily",
+            interval=1,
+            start_date=datetime(1920, 4, 29, 4, 18, 8, tzinfo=ZoneInfo("UTC")),
+            from_dt=datetime(1920, 4, 30, 12, 0, tzinfo=ZoneInfo("UTC")),
+            tz_name="America/Argentina/Catamarca",
+        )
+
+        assert next_delivery_date == datetime(1920, 5, 1, 4, 18, 8, tzinfo=ZoneInfo("UTC"))
+
+    @time_machine.travel("1921-12-31 11:45:00", tick=False)
+    def test_sub_minute_historical_gap(self) -> None:
+        # America/Bahia_Banderas sprang forward 60 seconds on Jan 1 1922 (23:59 -> 00:00):
+        # daily 23:59:30 never happens, delivering at the pre-transition offset.
+        next_delivery_date = Subscription._compute_next_delivery_date(
+            frequency="daily",
+            interval=1,
+            start_date=datetime(1921, 12, 30, 7, 0, 30, tzinfo=ZoneInfo("UTC")),
+            from_dt=datetime(1921, 12, 31, 12, 0, tzinfo=ZoneInfo("UTC")),
+            tz_name="America/Bahia_Banderas",
+        )
+
+        assert next_delivery_date == datetime(1922, 1, 1, 7, 0, 30, tzinfo=ZoneInfo("UTC"))
+
 
 class TestSubscriptionDeliveryConfig:
     @parameterized.expand(
@@ -134,6 +446,24 @@ class TestSubscription(BaseTest):
         params.update(**kwargs)
 
         return Subscription.objects.create(**params)
+
+    def test_save_computes_next_delivery_in_the_team_timezone(self):
+        # set_next_delivery_date must forward the team timezone so the saved
+        # next_delivery_date follows the local wall time across DST (#42016):
+        # a weekly Monday 8am US/Central subscription created in summer delivers at
+        # 14:00 UTC in winter, not 13:00 UTC.
+        self.team.timezone = "US/Central"
+        self.team.save()
+
+        subscription = self._create_insight_subscription(
+            frequency="weekly",
+            interval=1,
+            start_date=datetime(2021, 6, 7, 13, 0, tzinfo=ZoneInfo("UTC")),  # Monday 8am CDT
+            byweekday=["monday"],
+        )
+
+        # Frozen at 2022-01-01: the next Monday is Jan 3, 8am CST = 14:00 UTC.
+        assert subscription.next_delivery_date == datetime(2022, 1, 3, 14, 0, tzinfo=ZoneInfo("UTC"))
 
     def test_creation(self):
         subscription = self._create_insight_subscription()
