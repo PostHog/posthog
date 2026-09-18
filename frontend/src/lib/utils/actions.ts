@@ -50,13 +50,31 @@ export function containsUnstableGeneratedId(value: string): boolean {
     return UNSTABLE_GENERATED_ID_REGEX.test(value)
 }
 
+// raw first-present matching: for callers that locate elements by their recorded
+// attributes (toolbar/elements/domElementIndex.ts), where the lookup must mirror how the
+// element was originally recorded. Selector building and save-as-action anchoring use
+// matchesStableDataAttribute instead.
 export function matchesDataAttribute(element: ElementType, dataAttributes: string[]): string | void {
+    return matchDataAttributeBy(element, dataAttributes, () => true)
+}
+
+// the first configured attribute whose value is usable long-term: unstable generated ids
+// are skipped in favor of a later configured attribute with a stable value
+export function matchesStableDataAttribute(element: ElementType, dataAttributes: string[]): string | void {
+    return matchDataAttributeBy(element, dataAttributes, (value) => !containsUnstableGeneratedId(value))
+}
+
+function matchDataAttributeBy(
+    element: ElementType,
+    dataAttributes: string[],
+    acceptValue: (value: string) => boolean
+): string | void {
     if (!element.attributes) {
         return
     }
     for (const attribute of dataAttributes) {
         const regex = new RegExp(`^attr__${attribute.split('*').map(escapeRegex).join('.*')}$`)
-        const match = Object.keys(element.attributes).find((a) => regex.test(a))
+        const match = Object.keys(element.attributes).find((a) => regex.test(a) && acceptValue(element.attributes[a]))
         if (match) {
             return match.replace(/^attr__/, '')
         }
@@ -69,13 +87,11 @@ const escapeQuotedSelectorValue = (value: string): string => value.replace(/\\/g
 
 export function elementToSelector(element: ElementType, dataAttributes: string[]): string {
     let selector = ''
-    const attribute = matchesDataAttribute(element, dataAttributes)
+    const attribute = matchesStableDataAttribute(element, dataAttributes)
     if (attribute) {
         const attributeValue = element.attributes[`attr__${attribute}`]
-        if (!containsUnstableGeneratedId(attributeValue)) {
-            selector += `[${attribute}="${escapeQuotedSelectorValue(attributeValue)}"]`
-            return selector
-        }
+        selector += `[${attribute}="${escapeQuotedSelectorValue(attributeValue)}"]`
+        return selector
     }
     if (element.attr_id && !containsUnstableGeneratedId(element.attr_id)) {
         selector += `[id="${CSS.escape(element.attr_id)}"]`
