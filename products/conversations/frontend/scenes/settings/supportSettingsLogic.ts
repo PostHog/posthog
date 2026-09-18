@@ -255,7 +255,7 @@ export interface supportSettingsLogicActions {
     installTeamsApp: (teamId: string) => {
         teamId: string
     }
-    loadAccountPropertyOptions: () => any
+    loadAccountPropertyOptions: (_: any) => any
     loadAccountPropertyOptionsFailure: (
         error: string,
         errorObject?: any
@@ -1077,19 +1077,23 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
         accountPropertyOptions: [
             [] as AIContextAccountPropertyApi[],
             {
-                loadAccountPropertyOptions: async () => {
+                loadAccountPropertyOptions: async (_, breakpoint) => {
                     const teamId = values.currentTeam?.id
                     if (!teamId) {
                         return []
                     }
-                    try {
-                        return await conversationsAiContextAccountPropertiesList(String(teamId))
-                    } catch {
+                    const options = await conversationsAiContextAccountPropertiesList(String(teamId)).catch(() => null)
+                    // A team switch clears the list and starts a newer load. Without this, the
+                    // previous team's response would repopulate what the switch just cleared.
+                    // It sits outside the catch above so the abort isn't swallowed as a failure.
+                    breakpoint()
+                    if (options === null) {
                         lemonToast.error(
                             "Couldn't load account properties. Refresh the page, and if it keeps happening contact support."
                         )
                         return values.accountPropertyOptions
                     }
+                    return options
                 },
             },
         ],
@@ -1913,7 +1917,7 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
                 // offering it until the new request lands.
                 cache.accountPropertyOptionsTeamId = teamId
                 actions.resetAccountPropertyOptions()
-                actions.loadAccountPropertyOptions()
+                actions.loadAccountPropertyOptions({})
             }
         },
         updateCurrentTeamSuccess: ({ payload }) => {
@@ -1999,7 +2003,7 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
         actions.loadPlaybook()
         if (values.featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS]) {
             cache.accountPropertyOptionsTeamId = values.currentTeam?.id
-            actions.loadAccountPropertyOptions()
+            actions.loadAccountPropertyOptions({})
         }
     }),
 ])
