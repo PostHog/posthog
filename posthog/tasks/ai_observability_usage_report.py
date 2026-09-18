@@ -38,6 +38,8 @@ def get_ph_client() -> PostHogClient:
 
 
 AI_EVENTS = [event.value for event in AIEventType]
+# Metrics queries count every `$ai_*` event, the same population the billing report meters.
+AI_EVENT_NAME_PREFIX = "$ai_"
 LLM_PROMPT_FETCHED_EVENT = "$llm_prompt_fetched"
 
 # The emitted report event. Shared by the emission and the already-reported lookup so the two
@@ -262,17 +264,25 @@ def get_teams_with_ai_events(
     begin: datetime,
     end: datetime,
     trigger_events: list[str],
+    event_prefix: str | None = None,
 ) -> list[int]:
     """
     Get all team_ids that have at least one AI observability trigger event in the period.
 
     This is a fast query that returns only distinct team_ids, allowing subsequent
     queries to filter by team_id and use the primary key index efficiently.
+
+    `event_prefix` widens the match to every event carrying that prefix, in addition to
+    the exact `trigger_events`. Team discovery passes no prefix on purpose: it must only
+    pick up customer-emitted core events, never server-side artifacts.
     """
+    event_predicate = "event IN %(ai_observability_report_trigger_events)s"
+    if event_prefix is not None:
+        event_predicate = f"({event_predicate} OR startsWith(event, %(event_prefix)s))"
     query = f"""
         SELECT DISTINCT team_id
         FROM {events_read_table(use_new_events_schema(None))}
-        WHERE event IN %(ai_observability_report_trigger_events)s
+        WHERE {event_predicate}
           AND timestamp >= %(begin)s
           AND timestamp < %(end)s
     """
@@ -289,6 +299,7 @@ def get_teams_with_ai_events(
             query,
             {
                 "ai_observability_report_trigger_events": trigger_events,
+                "event_prefix": event_prefix,
                 "begin": begin,
                 "end": end,
             },
@@ -427,7 +438,7 @@ def get_all_ai_metrics(
             countIf(event = '$ai_evaluation' AND {prop("$ai_evaluation_runtime")} = 'sentiment') as ai_sentiment_evaluation_count
         FROM {events_read_table(use_new)}
         WHERE team_id IN %(team_ids)s
-          AND event IN %(ai_events)s
+          AND startsWith(event, %(ai_event_prefix)s)
           AND timestamp >= %(begin)s
           AND timestamp < %(end)s
         GROUP BY team_id
@@ -437,7 +448,7 @@ def get_all_ai_metrics(
         begin,
         end,
         query_template,
-        {"ai_events": AI_EVENTS},
+        {"ai_event_prefix": AI_EVENT_NAME_PREFIX},
         num_splits=3,
         combine_results_func=_combine_all_metrics_results,
         team_ids=team_ids,
@@ -472,7 +483,7 @@ def get_ai_trace_counts(
             uniqIf({trace_id}, {trace_id} != '') as ai_trace_count
         FROM {events_read_table(use_new)}
         WHERE team_id IN %(team_ids)s
-          AND event IN %(ai_events)s
+          AND startsWith(event, %(ai_event_prefix)s)
           AND timestamp >= %(begin)s
           AND timestamp < %(end)s
         GROUP BY team_id
@@ -485,7 +496,7 @@ def get_ai_trace_counts(
         begin,
         end,
         query_template,
-        {"ai_events": AI_EVENTS},
+        {"ai_event_prefix": AI_EVENT_NAME_PREFIX},
         num_splits=1,
         team_ids=team_ids,
         query_name="Get AI trace counts",
@@ -637,7 +648,7 @@ def get_all_ai_dimension_breakdowns(
             sumMap(map({prop("$ai_cost_model_provider")}, toUInt64(1))) as cost_model_provider_breakdown
         FROM {events_read_table(use_new)}
         WHERE team_id IN %(team_ids)s
-          AND event IN %(ai_events)s
+          AND startsWith(event, %(ai_event_prefix)s)
           AND timestamp >= %(begin)s
           AND timestamp < %(end)s
         GROUP BY team_id
@@ -647,7 +658,7 @@ def get_all_ai_dimension_breakdowns(
         begin,
         end,
         query_template,
-        {"ai_events": AI_EVENTS},
+        {"ai_event_prefix": AI_EVENT_NAME_PREFIX},
         num_splits=4,
         combine_results_func=_combine_dimension_breakdown_results,
         team_ids=team_ids,
@@ -908,7 +919,9 @@ def _get_all_ai_observability_reports(
 
     # Phase 1: Get all team_ids with report trigger events (fast query)
     try:
-        team_ids = get_teams_with_ai_events(period.start, period.end, AI_OBSERVABILITY_REPORT_TRIGGER_EVENTS)
+        team_ids = get_teams_with_ai_events(
+            period.start, period.end, AI_OBSERVABILITY_REPORT_TRIGGER_EVENTS, event_prefix=AI_EVENT_NAME_PREFIX
+        )
     except Exception:
         logger.warning(
             "[AIO Usage Error] teams query failed",
