@@ -38,7 +38,6 @@ import {
   isJsonRpcResponse,
   isPersistedOptionSupported,
   isRateLimitError,
-  isTranscriptNeutralNotificationMethod,
   isTransientUpstreamError,
   isTurnEndedWithoutResponseError,
   leadingSlashCommand,
@@ -55,6 +54,7 @@ import {
   type TaskRunArtifact,
   type TaskRunStatus,
   TRANSCRIPT_TAIL_WINDOW,
+  TranscriptBoundaries,
 } from "@posthog/shared";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import {
@@ -1500,14 +1500,6 @@ function isSessionPromptEvent(event: AcpMessage): boolean {
   );
 }
 
-/** Matches SessionLogWriter, which keeps one chunk buffer across these. */
-function isTranscriptNeutralEvent(event: AcpMessage): boolean {
-  return (
-    isJsonRpcNotification(event.message) &&
-    isTranscriptNeutralNotificationMethod(event.message.method)
-  );
-}
-
 function finishAgentMessageChunkRun(position: AgentMessagePosition): void {
   if (!position.chunkRunActive) return;
   position.messageIndex += 1;
@@ -1524,9 +1516,13 @@ function discardChunksSupersededByHydratedMessages(
     messageIndex: 0,
     chunkRunActive: false,
   };
+  // Every line goes through the tracker in arrival order, the way the writer
+  // feeds it, so the two agree on which responses answer a control call.
+  const hydratedBoundaries = new TranscriptBoundaries();
   for (const event of hydratedTurn.events) {
+    const neutral = hydratedBoundaries.isNeutral(event.message);
     if (isSessionPromptEvent(event)) continue;
-    if (isTranscriptNeutralEvent(event)) continue;
+    if (neutral) continue;
     const updateKind = agentMessageUpdateKind(event);
     if (updateKind === "ignored") continue;
     if (updateKind === "chunk") {
@@ -1552,6 +1548,7 @@ function discardChunksSupersededByHydratedMessages(
     chunkRunActive: false,
   };
   let discardChunkRun = false;
+  const liveBoundaries = new TranscriptBoundaries();
   const events: AcpMessage[] = [];
   const eventHashes: number[] = [];
   for (
@@ -1560,10 +1557,11 @@ function discardChunksSupersededByHydratedMessages(
     eventIndex += 1
   ) {
     const event = liveTurn.events[eventIndex];
+    const neutral = liveBoundaries.isNeutral(event.message);
     let keep = true;
     if (isSessionPromptEvent(event)) {
       discardChunkRun = false;
-    } else if (isTranscriptNeutralEvent(event)) {
+    } else if (neutral) {
       // The writer's chunk buffer stays open across these, so the live
       // position must not advance either.
     } else {
