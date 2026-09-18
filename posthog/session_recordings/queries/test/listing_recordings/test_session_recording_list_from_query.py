@@ -24,6 +24,7 @@ from django.utils.timezone import now
 
 from dateutil.relativedelta import relativedelta
 from parameterized import parameterized, parameterized_class
+from posthoganalytics.contexts import get_capture_exception_code_variables_context
 from rest_framework.exceptions import ValidationError
 from tenacity import retry, stop_after_attempt, wait_exponential
 
@@ -5151,6 +5152,36 @@ class TestClickhouseSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseT
         printed_query = self._print_query(session_recording_list_instance.get_query())
 
         assert "entry_utm_source" in printed_query
+
+    def test_unexpected_properties_capture_disables_code_variable_capture(self) -> None:
+        # The error-tracking SDK has code-variable capture on globally, so it attaches the
+        # reporting frame's locals. Those locals hold the raw filters, including the whole
+        # user-written hogql expression, which the exception summary deliberately leaves out.
+        observed_context_values = []
+
+        def fake_capture_exception(error, additional_properties=None):
+            observed_context_values.append(get_capture_exception_code_variables_context())
+
+        query = RecordingsQuery.model_validate(
+            {
+                "properties": [
+                    {"key": "$feature/my-flag", "value": ["control"], "operator": "exact", "type": "feature"},
+                    {"key": "JSONExtractRaw(properties, 'Amount (USD)') > 100", "type": "hogql"},
+                ]
+            },
+        )
+        session_recording_list_instance = SessionRecordingListFromQuery(
+            query=query, team=self.team, hogql_query_modifiers=None
+        )
+
+        with patch(
+            "posthog.session_recordings.queries.session_recording_list_from_query.capture_exception",
+            side_effect=fake_capture_exception,
+        ) as mock_capture_exception:
+            session_recording_list_instance.get_query()
+
+        mock_capture_exception.assert_called_once()
+        assert observed_context_values == [False]
 
     @property
     def base_time(self):
