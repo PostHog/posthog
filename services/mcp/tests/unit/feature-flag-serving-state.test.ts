@@ -33,6 +33,8 @@ describe('feature flag serving state', () => {
                     active: false,
                     archived: false,
                     is_remote_configuration: false,
+                    evaluation_runtime: 'client',
+                    evaluation_contexts: ['staging'],
                     status: 'ACTIVE',
                     tags: [],
                     filters: { groups: [] },
@@ -57,6 +59,9 @@ describe('feature flag serving state', () => {
 
         expect(result.results[0]).toMatchObject({ key: 'new-checkout', active: false, status: 'ACTIVE' })
         expect(result.results[0]).not.toHaveProperty('filters')
+        // The evaluation service also leaves an enabled flag out of a caller's payload on a runtime or
+        // context mismatch, so both gates have to survive the trim next to `active`.
+        expect(result.results[0]).toMatchObject({ evaluation_runtime: 'client', evaluation_contexts: ['staging'] })
         // `active: false` does not stop the remote config payload endpoint, so the row has to say
         // which of the two disabled flags is still serving something.
         expect(result.results[1]).toMatchObject({ key: 'pricing-config', is_remote_configuration: true })
@@ -73,6 +78,14 @@ describe('feature flag serving state', () => {
         '%s names the remote config exception to active',
         (name) => {
             expect(getToolDefinition(name).description).toContain('is_remote_configuration')
+        }
+    )
+
+    it.each(['feature-flag-get-all', 'feature-flag-get-definition'])(
+        '%s names the runtime and context gates on an enabled flag',
+        (name) => {
+            expect(getToolDefinition(name).description).toContain('evaluation_runtime')
+            expect(getToolDefinition(name).description).toContain('evaluation_contexts')
         }
     )
 

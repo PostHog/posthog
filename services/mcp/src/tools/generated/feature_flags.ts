@@ -254,6 +254,8 @@ const featureFlagGetAll = (): ToolBase<
                     'active',
                     'archived',
                     'is_remote_configuration',
+                    'evaluation_runtime',
+                    'evaluation_contexts',
                     'status',
                     'tags',
                 ])

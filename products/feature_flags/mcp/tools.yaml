@@ -270,11 +270,19 @@ tools:
 
 
             Each row carries two separate states, and they answer different questions. `active` is the serving state:
-            true means the flag evaluates, false means it is turned off and flag evaluation falls back to the caller's
-            own default. `status` is the staleness classification — `ACTIVE`, `STALE`, `ARCHIVED`, `DELETED` or
-            `UNKNOWN`. A disabled flag reports `status: ACTIVE`, because disabled flags are not evaluated for staleness.
-            So `status: ACTIVE` with `active: false` is expected, not a contradiction. Report serving state from
-            `active` only, and never from `status`.
+            true means the flag is enabled and can evaluate, false means it is turned off and flag evaluation falls back
+            to the caller's own default. `status` is the staleness classification — `ACTIVE`, `STALE`, `ARCHIVED`,
+            `DELETED` or `UNKNOWN`. A disabled flag reports `status: ACTIVE`, because disabled flags are not evaluated
+            for staleness. So `status: ACTIVE` with `active: false` is expected, not a contradiction. Report serving
+            state from `active` only, and never from `status`.
+
+
+            `active: true` permits evaluation, and does not prove that a flag reaches a given caller. The evaluation
+            service leaves an enabled flag out of a caller's payload when `evaluation_runtime` does not match the
+            calling SDK, or when the flag's `evaluation_contexts` do not match the contexts the caller sends. That
+            caller then falls back to its own default, exactly as it does for a disabled flag. Each row carries both
+            fields: `evaluation_runtime: all` and an empty `evaluation_contexts` reach every caller, so check them
+            before you report a flag as live for a client or server SDK.
 
 
             `active` covers standard flag evaluation only, and remote config flags are the exception. A row with
@@ -312,6 +320,8 @@ tools:
                 - active
                 - archived
                 - is_remote_configuration
+                - evaluation_runtime
+                - evaluation_contexts
                 - status
                 - tags
     feature-flag-get-definition:
@@ -331,12 +341,14 @@ tools:
             `feature-flag-get-all` to search by key or name and find the ID.
 
 
-            `active` is the serving state: true means the flag evaluates, false means it is turned off. The `status`
-            field in the same response is the staleness classification, not the serving state, and a disabled flag
-            reports `status: ACTIVE`. Report serving state from `active` only. `active` covers standard flag evaluation
-            only: when `is_remote_configuration` is true, the payload endpoint ignores `active`, so it keeps serving a
-            configured payload while `active` is false. A flag with `has_encrypted_payloads: true` never evaluates,
-            whatever `active` holds, because only that endpoint can decrypt the payload.
+            `active` is the serving state: true means the flag is enabled and can evaluate, false means it is turned
+            off. The `status` field in the same response is the staleness classification, not the serving state, and a
+            disabled flag reports `status: ACTIVE`. Report serving state from `active` only. An enabled flag still does
+            not reach a caller whose runtime does not match `evaluation_runtime`, or whose contexts do not match
+            `evaluation_contexts`. `active` covers standard flag evaluation only: when `is_remote_configuration` is
+            true, the payload endpoint ignores `active`, so it keeps serving a configured payload while `active` is
+            false. A flag with `has_encrypted_payloads: true` never evaluates, whatever `active` holds, because only
+            that endpoint can decrypt the payload.
         param_overrides:
             id:
                 cast: string-int
