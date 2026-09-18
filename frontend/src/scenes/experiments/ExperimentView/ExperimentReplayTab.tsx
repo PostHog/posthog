@@ -541,8 +541,11 @@ export function ExperimentReplayTab({ experiment }: { experiment: Experiment }):
                     />
                 ) : /* Held back while the shelf is showing its tailored version of the same offer:
                      two pitches on one screen read as an ad. The shelf's own state decides, in
-                     `shelfVisionCrossSellShown`. */
-                shelfVisionCrossSellShown ? null : (
+                     `shelfVisionCrossSellShown`. Held back under a failed list for a different
+                     reason: the caption above it says no recordings could be loaded and offers the
+                     retry that fixes it, and this banner outweighs that retry on the page while
+                     pitching a metered add-on that watches the recordings the reader cannot see. */
+                shelfVisionCrossSellShown || listLoadError !== null ? null : (
                     <LemonBanner
                         type="ai"
                         className="mb-2"

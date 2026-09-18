@@ -2,6 +2,7 @@ import { Meta, StoryObj } from '@storybook/react'
 import { screen, waitFor, within } from '@testing-library/dom'
 import userEvent from '@testing-library/user-event'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
@@ -243,6 +244,19 @@ export const ExperimentRecordingsListLoadFailed: Story = {
             },
         }),
     ],
+}
+
+/**
+ * The same failed list for a reader who has the Replay vision entry point. The scanner banner is
+ * withheld: it renders heavier than the retry beside the caption, and it offers to watch recordings
+ * this reader cannot load. Nothing between the caption and the playlist is what this story pins.
+ */
+export const ExperimentRecordingsListLoadFailedWithVision: Story = {
+    ...ExperimentRecordingsListLoadFailed,
+    parameters: {
+        ...ExperimentRecordingsListLoadFailed.parameters,
+        featureFlags: [FEATURE_FLAGS.VISION_ENTRYPOINT_EXPERIMENTS],
+    },
 }
 
 /**
