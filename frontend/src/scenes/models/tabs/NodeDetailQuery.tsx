@@ -47,6 +47,7 @@ export function NodeDetailQuery({ id }: { id: string }): JSX.Element {
                 <h3 className="mb-0">Columns</h3>
                 <LemonTable
                     size="small"
+                    key={id}
                     pagination={{ pageSize: 10, useUrl: false }}
                     dataSource={columns}
                     rowKey="name"
