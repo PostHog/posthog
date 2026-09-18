@@ -12,13 +12,13 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { Link } from 'lib/lemon-ui/Link'
 import { cn } from 'lib/utils/css-classes'
 import { stripMarkdown } from 'lib/utils/markdown'
-import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { AssigneeDisplay, AssigneeResolver, AssigneeSelect } from 'products/conversations/frontend/components/Assignee'
 import { channelIcon } from 'products/conversations/frontend/components/Channels/ChannelsTag'
 import { channelOptions } from 'products/conversations/frontend/types'
+import { PersonDisplay } from 'products/persons/frontend/components/PersonDisplay'
 
 import {
     WIDGET_LIST_COUNT_TICKETS,

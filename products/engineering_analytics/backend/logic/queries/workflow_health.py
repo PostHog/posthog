@@ -44,6 +44,7 @@ from products.engineering_analytics.backend.logic.queries._workflow_filters impo
     LATEST_COMPLETED_RUN_FAILED,
     RUN_DURATION_PERCENTILE_CONDITION,
     SUCCESSFUL_RUN_CONDITION,
+    UNPAGED_SCAN_LIMIT,
     branch_filter_clause,
     date_to_filter_clause,
     default_branch_predicate,
@@ -52,6 +53,7 @@ from products.engineering_analytics.backend.logic.queries._workflow_filters impo
     run_started_floor_constant,
     success_rate_expr,
     window_pair_predicates,
+    workflow_name_filter_clause,
 )
 from products.engineering_analytics.backend.logic.queries.pr_cost import query_workflow_window_costs
 
@@ -80,15 +82,16 @@ _SELECT = f"""
         countIf(run_attempt > 1) AS rerun_cycles,
         countIf(is_merge_queue) AS merge_queue_run_count
     FROM __RUNS_SOURCE__ AS r
-    WHERE run_started_at >= {{date_from}} __DATE_TO__ __BRANCH__ __RUN_SCOPE__
+    WHERE run_started_at >= {{date_from}} __DATE_TO__ __BRANCH__ __RUN_SCOPE__ __WORKFLOW__
     GROUP BY repo_owner, repo_name, workflow_name
     ORDER BY run_count DESC
     LIMIT {_LIMIT}
 """
 
-# Success rate over the equal-length window before date_from — the delta baseline the UI renders as
+# Success rate over the equal-length window before date_from, the delta baseline the UI renders as
 # an honest Δpp instead of a server-baked percentage. Kept as its own slim scan so the main query's
-# window (and its LIMIT semantics) stay untouched.
+# window (and its LIMIT semantics) stay untouched. It is an unranked lookup, so capping it at _LIMIT
+# would drop workflows _SELECT ranked and make them read as "no previous window".
 _PREV_SELECT = f"""
     SELECT
         repo_owner,
@@ -96,8 +99,9 @@ _PREV_SELECT = f"""
         workflow_name,
         {success_rate_expr()} AS success_rate
     FROM __RUNS_SOURCE__ AS r
-    WHERE run_started_at >= {{prev_from}} AND run_started_at < {{date_from}} __BRANCH__ __RUN_SCOPE__
+    WHERE run_started_at >= {{prev_from}} AND run_started_at < {{date_from}} __BRANCH__ __RUN_SCOPE__ __WORKFLOW__
     GROUP BY repo_owner, repo_name, workflow_name
+    LIMIT {UNPAGED_SCAN_LIMIT}
 """
 
 # Merge-queue run counts over the same window with no branch/run_scope filter, so the list can rank
@@ -129,7 +133,7 @@ _BUCKET_SELECT = f"""
         countIf({SUCCESSFUL_RUN_CONDITION}) AS successes,
         countIf(status = 'completed' AND conclusion IN ({DECISIVE_FAILURE_CONCLUSIONS_SQL})) AS failures
     FROM __RUNS_SOURCE__ AS r
-    WHERE run_started_at >= {{date_from}} __DATE_TO__ __BRANCH__ __RUN_SCOPE__
+    WHERE run_started_at >= {{date_from}} __DATE_TO__ __BRANCH__ __RUN_SCOPE__ __WORKFLOW__
     GROUP BY repo_owner, repo_name, workflow_name, bucket_start
     LIMIT {_BUCKET_LIMIT}
 """
@@ -285,6 +289,7 @@ def query_workflow_health(
     date_to: datetime | None,
     branch: str | None,
     run_scope: WorkflowHealthRunScope,
+    workflow_name: str | None = None,
     workload: Workload = Workload.DEFAULT,
 ) -> list[WorkflowHealthItem]:
     granularity = pick_granularity(date_from, date_to)
@@ -295,6 +300,7 @@ def query_workflow_health(
     date_to_clause = date_to_filter_clause(date_to, placeholders)
     branch_clause = branch_filter_clause(branch, placeholders)
     run_scope_clause = run_scope_filter_clause(run_scope)
+    workflow_clause = workflow_name_filter_clause(workflow_name, placeholders)
 
     runs_source = curated.run_source(started_floor=True)
 
@@ -304,6 +310,7 @@ def query_workflow_health(
             .replace("__DATE_TO__", date_to_clause)
             .replace("__BRANCH__", branch_clause)
             .replace("__RUN_SCOPE__", run_scope_clause)
+            .replace("__WORKFLOW__", workflow_clause)
             .replace("__BUCKET_FN__", bucket_expr(granularity))
         )
 

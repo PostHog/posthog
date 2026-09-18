@@ -36,19 +36,19 @@ describe("agents page selection", () => {
     [{}, null],
     [
       { agent: "signals-scout-aio" },
-      { slug: "signals-scout-aio", tab: "activity" },
+      { skillName: "signals-scout-aio", tab: "activity" },
     ],
     [
       { agent: "a", finding: "f-1" },
-      { slug: "a", tab: "output", findingId: "f-1" },
+      { skillName: "a", tab: "output", findingId: "f-1" },
     ],
     [
       { agent: "a", agentTab: "settings" },
-      { slug: "a", tab: "settings" },
+      { skillName: "a", tab: "settings" },
     ],
     [
       { agent: "a", agentTab: "nonsense" },
-      { slug: "a", tab: "activity" },
+      { skillName: "a", tab: "activity" },
     ],
   ])("reads the open agent from %o", (search, agent) =>
     agent

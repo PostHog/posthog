@@ -24,7 +24,13 @@ export interface ProgressStep {
  * banner (attempt counter + backoff); `connection_failed` is its terminal state (retries exhausted or a
  * non-retryable open); `agent_error` / `agent_crash` are genuine agent-emitted failures rendered inline.
  */
-export type RunAlertKind = 'reconnecting' | 'connection_failed' | 'agent_error' | 'agent_crash'
+export type RunAlertKind =
+    | 'reconnecting'
+    | 'connection_failed'
+    | 'agent_error'
+    | 'agent_error_continued'
+    | 'agent_crash'
+    | 'message_undelivered'
 
 /**
  * View-model for the live connection banner, derived by `runStreamLogic.runConnectionState` and consumed
@@ -150,7 +156,11 @@ export interface ThreadItem {
      * For `error` items — distinguishes a friendlier agent-crash affordance (`crash`) from a
      * raw error line (`error`, the default). Drives the copy/styling branch in the renderer.
      */
-    variant?: 'error' | 'crash'
+    variant?: 'error' | 'crash' | 'undelivered'
+    /** For `error` items — a follow-up message failed to reach the agent because of this error. */
+    undeliveredMessage?: boolean
+    /** For `error` items — the run in the resume chain whose frame produced this error. */
+    sourceRunId?: string
     /** For `status` and `task_notification` items — the wire `status` string. */
     status?: string
     /** For `status` items — whether the status phase has completed. */

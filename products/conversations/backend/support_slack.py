@@ -1,16 +1,9 @@
-import hmac
-import time
-import hashlib
 from typing import TYPE_CHECKING, cast
 
 from django.db import transaction
-from django.http import HttpRequest
-
-from rest_framework.request import Request
 
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.instance_setting import get_instance_settings
-from posthog.models.integration import SlackIntegrationError
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.utils import mask_key_value
 
@@ -37,6 +30,12 @@ def get_support_slack_settings() -> dict:
     )
 
 
+def get_support_slack_signing_secret() -> str | None:
+    """The secret ingress verifies SupportHog deliveries with."""
+    secret = get_support_slack_settings().get("SUPPORT_SLACK_SIGNING_SECRET")
+    return str(secret) if secret else None
+
+
 def supporthog_missing_file_scopes(team: "Team") -> list[str]:
     """File scopes this install hasn't granted, for logging why attachments failed.
 
@@ -58,50 +57,21 @@ def get_support_slack_workspace_id(team: "Team") -> str | None:
     return config.slack_team_id or None
 
 
-def team_exists_for_slack_workspace(slack_team_id: str) -> bool:
-    """Whether any team has SupportHog connected to this Slack workspace.
+def team_for_slack_workspace(slack_team_id: str) -> "Team | None":
+    """Return the team that owns this Slack workspace, if SupportHog is connected."""
+    config = (
+        TeamConversationsSlackConfig.objects.filter(slack_team_id=slack_team_id, slack_bot_token__isnull=False)
+        .select_related("team")
+        .first()
+    )
+    return config.team if config else None
 
-    Used by the webhook endpoints for region routing — the Celery task re-resolves
-    the full config, so only existence matters here.
-    """
+
+def team_exists_for_slack_workspace(slack_team_id: str) -> bool:
+    """Whether any team has SupportHog connected to this Slack workspace."""
     return TeamConversationsSlackConfig.objects.filter(
         slack_team_id=slack_team_id, slack_bot_token__isnull=False
     ).exists()
-
-
-def validate_support_request(request: HttpRequest | Request) -> None:
-    """
-    Validate Support Slack bot requests.
-    Based on https://api.slack.com/authentication/verifying-requests-from-slack
-    """
-    support_settings = get_support_slack_settings()
-    signing_secret = str(support_settings.get("SUPPORT_SLACK_SIGNING_SECRET") or "")
-    slack_signature = request.headers.get("X-SLACK-SIGNATURE")
-    slack_time = request.headers.get("X-SLACK-REQUEST-TIMESTAMP")
-
-    if not signing_secret or not slack_signature or not slack_time:
-        raise SlackIntegrationError("Invalid")
-
-    try:
-        timestamp_diff = time.time() - float(slack_time)
-        # Reject requests older than 5 minutes OR from the future (with 60s tolerance for clock skew)
-        if timestamp_diff > 300 or timestamp_diff < -60:
-            raise SlackIntegrationError("Expired")
-    except ValueError:
-        raise SlackIntegrationError("Invalid")
-
-    sig_basestring = f"v0:{slack_time}:{request.body.decode('utf-8')}"
-    expected_signature = (
-        "v0="
-        + hmac.new(
-            signing_secret.encode("utf-8"),
-            sig_basestring.encode("utf-8"),
-            digestmod=hashlib.sha256,
-        ).hexdigest()
-    )
-
-    if not hmac.compare_digest(expected_signature, slack_signature):
-        raise SlackIntegrationError("Invalid")
 
 
 def save_supporthog_slack_token(

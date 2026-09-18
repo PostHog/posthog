@@ -310,8 +310,7 @@ export async function getInsightWithRetry(
             })}`
             const insightResponse: Response = await api.getResponse(apiUrl, methodOptions)
             const legacyInsight: InsightModel | null = await getJSONOrNull(insightResponse)
-            const result =
-                legacyInsight !== null ? getQueryBasedInsightModel(legacyInsight, 'dashboard_tile_refresh') : null
+            const result = legacyInsight !== null ? getQueryBasedInsightModel(legacyInsight) : null
 
             if (result?.query_status?.error_message === RATE_LIMIT_ERROR_MESSAGE) {
                 attempt++
@@ -349,10 +348,7 @@ export async function getInsightWithRetry(
                                 )
                                 const legacyInsight: InsightModel | null = await getJSONOrNull(refreshedInsightResponse)
                                 if (legacyInsight) {
-                                    const queryBasedInsight = getQueryBasedInsightModel(
-                                        legacyInsight,
-                                        'dashboard_tile_refresh_async'
-                                    )
+                                    const queryBasedInsight = getQueryBasedInsightModel(legacyInsight)
                                     return { ...queryBasedInsight, query_status: finalStatus }
                                 }
                             }
@@ -408,8 +404,8 @@ export async function getInsightWithRetry(
     return null
 }
 
-export const parseURLVariables = (searchParams: Record<string, any>): Record<string, Partial<HogQLVariable>> => {
-    const variables: Record<string, Partial<HogQLVariable>> = {}
+export const parseURLVariables = (searchParams: Record<string, any>): Record<string, HogQLVariable['value']> => {
+    const variables: Record<string, HogQLVariable['value']> = {}
 
     const raw = searchParams[SEARCH_PARAM_QUERY_VARIABLES_KEY]
     if (raw) {
@@ -426,7 +422,7 @@ export const parseURLVariables = (searchParams: Record<string, any>): Record<str
     return variables
 }
 
-export const encodeURLVariables = (variables: Record<string, any>): Record<string, string> => {
+export const encodeURLVariables = (variables: Record<string, HogQLVariable['value']>): Record<string, string> => {
     const encodedVariables: Record<string, string> = {}
 
     if (Object.keys(variables).length > 0) {
@@ -561,15 +557,4 @@ const LAYOUT_EDIT_EVENT_SOURCES = new Set<DashboardEventSource>([
 
 export function isLayoutEditEventSource(source: DashboardEventSource | null): boolean {
     return source !== null && LAYOUT_EDIT_EVENT_SOURCES.has(source)
-}
-
-export function shouldSnapshotUrlAtEditModeEntry(source: DashboardEventSource | null): boolean {
-    return (
-        source !== null &&
-        (isLayoutEditEventSource(source) ||
-            source === DashboardEventSource.DashboardFilters ||
-            source === DashboardEventSource.DashboardVariableOverride ||
-            source === DashboardEventSource.DashboardInsightColorsModal ||
-            source === DashboardEventSource.DashboardHeaderOverridesBanner)
-    )
 }

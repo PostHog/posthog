@@ -27,6 +27,7 @@ from posthog.sync import database_sync_to_async
 from posthog.temporal.common.scoped import scoped_temporal
 from posthog.temporal.common.utils import close_db_connections
 
+from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.auto_start import maybe_autostart_from_report_artefacts
 from products.signals.backend.daily_limit import capture_signal_report_daily_limit_paused, daily_report_limit_gate
 from products.signals.backend.models import SIGNALS_AT_RUN_INCREMENT, SignalReport, SignalTeamConfig
@@ -85,6 +86,8 @@ def _capture_report_event(
     result: str | None = None,
     failure_reason: str | None = None,
     pending_reason: str | None = None,
+    chart_count: int | None = None,
+    charts_enabled: bool | None = None,
 ) -> None:
     properties: dict = {
         "report_id": report_id,
@@ -94,6 +97,16 @@ def _capture_report_event(
     }
     if result is not None:
         properties["result"] = result
+    # Only the two outcomes that write prose carry a chart set, so the property is absent rather
+    # than zero on the others — a `failed` run charting nothing is not the same observation as a
+    # report that landed without a chart. The count is the report's stored set after the
+    # transition, which a run that authored nothing leaves standing from the run before it.
+    if chart_count is not None:
+        properties["chart_count"] = chart_count
+    # Chart rate is only readable within the population that could chart, so the rollout state this
+    # run saw rides along with the count. Absent when no research ran to ask.
+    if charts_enabled is not None:
+        properties["charts_enabled"] = charts_enabled
     if failure_reason is not None:
         properties["failure_reason"] = failure_reason
     if pending_reason is not None:
@@ -129,6 +142,15 @@ class ReportDecision:
     # a JSON set, `[]` to clear, or `None` to leave the column alone. `None` for the no-repo branch,
     # which does no research.
     charts: list[dict[str, Any]] | None = None
+    # Resolved metric payload with the same preserve/replace/clear semantics as charts.
+    metrics: list[dict[str, Any]] | None = None
+    # Check specs the research run's verification turn authored, and the research task they are
+    # attributed to. Empty for the no-repo branch, which does no research.
+    checks: list[dict[str, Any]] = field(default_factory=list)
+    research_task_id: str | None = None
+    # The chart rollout state the research run saw (see `RunAgenticReportOutput.charts_enabled`).
+    # `None` for the no-repo branch, which does no research and so never asks.
+    charts_enabled: bool | None = None
     # Suggested prompts to store with the title/summary. Always `[]`, because every decision carries
     # a freshly written title and summary, and the pipeline does not author prompts yet: whatever a
     # scout suggested was written against the prose this decision replaces, so leaving it would put
@@ -430,6 +452,10 @@ class SignalReportSummaryWorkflow:
                     choice=agentic_result.choice,
                     explanation=agentic_result.explanation,
                     charts=agentic_result.charts,
+                    metrics=agentic_result.metrics,
+                    checks=agentic_result.checks or [],
+                    research_task_id=agentic_result.research_task_id,
+                    charts_enabled=agentic_result.charts_enabled,
                     pending_reason="agent_requested",
                 )
             if decision.choice == ActionabilityChoice.NOT_ACTIONABLE:
@@ -467,7 +493,9 @@ class SignalReportSummaryWorkflow:
                         signal_count=signal_count,
                         source_products=source_products,
                         charts=decision.charts,
+                        metrics=decision.metrics,
                         suggested_prompts=decision.suggested_prompts,
+                        charts_enabled=decision.charts_enabled,
                         pending_reason=decision.pending_reason,
                     ),
                     start_to_close_timeout=timedelta(minutes=1),
@@ -487,7 +515,11 @@ class SignalReportSummaryWorkflow:
                     processed_signal_count=signal_count,
                     source_products=source_products,
                     charts=decision.charts,
+                    metrics=decision.metrics,
+                    checks=decision.checks,
+                    checks_task_id=decision.research_task_id,
                     suggested_prompts=decision.suggested_prompts,
+                    charts_enabled=decision.charts_enabled,
                 ),
                 start_to_close_timeout=timedelta(minutes=1),
                 retry_policy=RetryPolicy(maximum_attempts=3),
@@ -759,6 +791,20 @@ async def mark_report_in_progress_activity(input: MarkReportInProgressInput) -> 
 
 
 @frozen
+class _ReportTransition:
+    """What a status-transition activity learned inside its transaction, for its telemetry to read.
+
+    `has_new_signals` only means anything on the ready transition, so it defaults to False for the
+    others. On a duplicate transition the activity returns before reading the counts.
+    """
+
+    run_count: int
+    chart_count: int
+    was_duplicate: bool
+    has_new_signals: bool = False
+
+
+@frozen
 class MarkReportReadyInput:
     team_id: int
     report_id: str
@@ -770,10 +816,51 @@ class MarkReportReadyInput:
     # `[]` to clear, or `None` to leave the column untouched. Defaults to `None` so an older workflow
     # history that predates this field replays cleanly.
     charts: list[dict[str, Any]] | None = None
+    # Typed impact metrics written atomically with the prose and chart set.
+    metrics: list[dict[str, Any]] | None = None
+    # Check specs the research run's verification turn authored, written as rows in the same
+    # transaction as the metrics they reference. Empty or `None` writes none, which is also what an
+    # older workflow history that predates the field replays as.
+    checks: list[dict[str, Any]] | None = None
+    # Task the check rows are attributed to: the research sandbox that authored the specs.
+    checks_task_id: str | None = None
     # Suggested prompts to write alongside title/summary, same three states and same replay-safe
     # default. The research pipeline passes `[]`: it doesn't author prompts yet, and the ones a
     # scout wrote were written against the summary this transition is replacing.
     suggested_prompts: list[str] | None = None
+    # The chart rollout state the research run saw, for the completion event. Not persisted.
+    charts_enabled: bool | None = None
+
+
+def _write_research_checks(report: SignalReport, input: MarkReportReadyInput) -> None:
+    """Persist the research run's check specs on the report it just made ready.
+
+    Best-effort as a whole: the report's prose is what this transition exists to write, so a spec
+    the pipeline cannot store is dropped with a log rather than failing the transition and leaving
+    the report stuck in progress.
+    """
+    if not input.checks:
+        return
+    # Function-local: the authoring module reaches the alerts facade through the check executor,
+    # which has no business on this module's import path.
+    from products.signals.backend.report_check_authoring import create_checks_from_specs  # noqa: PLC0415
+    from products.signals.backend.report_checks import CheckSpec  # noqa: PLC0415
+
+    specs: list[CheckSpec] = []
+    for raw in input.checks:
+        try:
+            specs.append(CheckSpec.model_validate(raw))
+        except Exception:
+            logger.warning("signals report check spec did not validate", report_id=str(report.id))
+    create_checks_from_specs(
+        report=report,
+        specs=specs,
+        attribution=(
+            ArtefactAttribution.from_task(input.checks_task_id)
+            if input.checks_task_id
+            else ArtefactAttribution.system()
+        ),
+    )
 
 
 @temporalio.activity.defn
@@ -784,13 +871,15 @@ async def mark_report_ready_activity(input: MarkReportReadyInput) -> bool:
     try:
 
         @transaction.atomic
-        def do_update() -> tuple[bool, int, bool]:
+        def do_update() -> _ReportTransition:
             report = SignalReport.objects.select_for_update().get(id=input.report_id, team_id=input.team_id)
             if report.status == SignalReport.Status.READY:
-                return False, report.run_count, True
+                return _ReportTransition(run_count=report.run_count, chart_count=0, was_duplicate=True)
             if report.status == SignalReport.Status.CANDIDATE:
                 # Previous attempt took the re-promotion branch; preserve has_new_signals=True.
-                return True, report.run_count, True
+                return _ReportTransition(
+                    run_count=report.run_count, chart_count=0, was_duplicate=True, has_new_signals=True
+                )
             updated_fields = report.transition_to(SignalReport.Status.READY, title=input.title, summary=input.summary)
             # The pass is only now known to have covered anything, so this is where the count the
             # bucket schedule reads is written. A run that failed or paused earlier leaves the
@@ -800,6 +889,9 @@ async def mark_report_ready_activity(input: MarkReportReadyInput) -> bool:
             if input.charts is not None:
                 report.charts = input.charts
                 updated_fields = [*updated_fields, "charts"]
+            if input.metrics is not None:
+                report.metrics = input.metrics
+                updated_fields = [*updated_fields, "metrics"]
             if input.suggested_prompts is not None:
                 report.suggested_prompts = input.suggested_prompts
                 updated_fields = [*updated_fields, "suggested_prompts"]
@@ -816,9 +908,22 @@ async def mark_report_ready_activity(input: MarkReportReadyInput) -> bool:
                 # re-promote it back to candidate and loop to also process new signals
                 candidate_fields = report.transition_to(SignalReport.Status.CANDIDATE)
                 report.save(update_fields=candidate_fields)
-            return has_new_signals, report.run_count, False
+            else:
+                # Only a pass that settles writes its checks. A pass about to be re-researched is
+                # an intermediate one, and its checks would describe prose the next pass replaces.
+                # After the metrics write and inside the same transaction, because a
+                # `metric_threshold` check resolves the query off the metric set this transition
+                # just stored: written earlier it would name a metric the report does not have yet,
+                # and written later it could survive a rollback that took the metric with it.
+                _write_research_checks(report, input)
+            return _ReportTransition(
+                run_count=report.run_count,
+                chart_count=len(report.charts or []),
+                was_duplicate=False,
+                has_new_signals=has_new_signals,
+            )
 
-        has_new_signals, run_count, was_already_done = await database_sync_to_async(do_update, thread_sensitive=False)()
+        transition = await database_sync_to_async(do_update, thread_sensitive=False)()
     except Exception as e:
         logger.exception(
             f"Failed to mark report {input.report_id} as ready: {e}",
@@ -826,13 +931,13 @@ async def mark_report_ready_activity(input: MarkReportReadyInput) -> bool:
         )
         raise
 
-    if was_already_done:
+    if transition.was_duplicate:
         logger.info(
             f"Report {input.report_id} already past ready transition, skipping duplicate",
             report_id=input.report_id,
-            has_new_signals=has_new_signals,
+            has_new_signals=transition.has_new_signals,
         )
-        return has_new_signals
+        return transition.has_new_signals
 
     team = await Team.objects.select_related("organization").aget(pk=input.team_id)
     _capture_report_event(
@@ -841,17 +946,19 @@ async def mark_report_ready_activity(input: MarkReportReadyInput) -> bool:
         organization=team.organization,
         report_id=input.report_id,
         signal_count=input.processed_signal_count,
-        run_count=run_count,
+        run_count=transition.run_count,
         source_products=input.source_products,
         result="ready",
+        chart_count=transition.chart_count,
+        charts_enabled=input.charts_enabled,
     )
     logger.debug(
         f"Marked report {input.report_id} as ready",
         report_id=input.report_id,
         title=input.title,
-        has_new_signals=has_new_signals,
+        has_new_signals=transition.has_new_signals,
     )
-    return has_new_signals
+    return transition.has_new_signals
 
 
 @frozen
@@ -994,8 +1101,12 @@ class MarkReportPendingInput:
     source_products: list[str] = field(default_factory=list)
     # See MarkReportReadyInput.charts — written in the same transaction as the draft title/summary.
     charts: list[dict[str, Any]] | None = None
+    # See MarkReportReadyInput.metrics — same transaction and replay-safe default.
+    metrics: list[dict[str, Any]] | None = None
     # See MarkReportReadyInput.suggested_prompts — same transaction, same three states.
     suggested_prompts: list[str] | None = None
+    # See MarkReportReadyInput.charts_enabled — reported, never stored.
+    charts_enabled: bool | None = None
     # Coarse cause of the transition ("repo_selection_required" / "agent_requested"), see
     # ReportDecision.pending_reason.
     pending_reason: str | None = None
@@ -1009,16 +1120,19 @@ async def mark_report_pending_input_activity(input: MarkReportPendingInput) -> N
     try:
 
         @transaction.atomic
-        def do_update() -> tuple[int, bool]:
+        def do_update() -> _ReportTransition:
             report = SignalReport.objects.select_for_update().get(id=input.report_id, team_id=input.team_id)
             if report.status == SignalReport.Status.PENDING_INPUT:
-                return report.run_count, True
+                return _ReportTransition(run_count=report.run_count, chart_count=0, was_duplicate=True)
             updated_fields = report.transition_to(
                 SignalReport.Status.PENDING_INPUT, title=input.title, summary=input.summary, error=input.reason
             )
             if input.charts is not None:
                 report.charts = input.charts
                 updated_fields = [*updated_fields, "charts"]
+            if input.metrics is not None:
+                report.metrics = input.metrics
+                updated_fields = [*updated_fields, "metrics"]
             if input.suggested_prompts is not None:
                 report.suggested_prompts = input.suggested_prompts
                 updated_fields = [*updated_fields, "suggested_prompts"]
@@ -1026,9 +1140,11 @@ async def mark_report_pending_input_activity(input: MarkReportPendingInput) -> N
             # transaction) — not a model field, so it never persists past this save.
             report._pending_reason = input.pending_reason  # type: ignore[attr-defined]
             report.save(update_fields=updated_fields)
-            return report.run_count, False
+            return _ReportTransition(
+                run_count=report.run_count, chart_count=len(report.charts or []), was_duplicate=False
+            )
 
-        run_count, was_already_pending_input = await database_sync_to_async(do_update, thread_sensitive=False)()
+        transition = await database_sync_to_async(do_update, thread_sensitive=False)()
     except Exception as e:
         logger.exception(
             f"Failed to mark report {input.report_id} as pending_input: {e}",
@@ -1036,7 +1152,7 @@ async def mark_report_pending_input_activity(input: MarkReportPendingInput) -> N
         )
         raise
 
-    if was_already_pending_input:
+    if transition.was_duplicate:
         logger.info(
             f"Report {input.report_id} already in pending_input status, skipping duplicate transition",
             report_id=input.report_id,
@@ -1050,10 +1166,12 @@ async def mark_report_pending_input_activity(input: MarkReportPendingInput) -> N
         organization=team.organization,
         report_id=input.report_id,
         signal_count=input.signal_count,
-        run_count=run_count,
+        run_count=transition.run_count,
         source_products=input.source_products,
         result="pending_input",
         pending_reason=input.pending_reason,
+        chart_count=transition.chart_count,
+        charts_enabled=input.charts_enabled,
     )
     logger.debug(
         f"Marked report {input.report_id} as pending_input",

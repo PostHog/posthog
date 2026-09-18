@@ -38,6 +38,7 @@ import {
   isJsonRpcResponse,
   isPersistedOptionSupported,
   isRateLimitError,
+  isTranscriptNeutralNotificationMethod,
   isTransientUpstreamError,
   isTurnEndedWithoutResponseError,
   leadingSlashCommand,
@@ -68,7 +69,11 @@ import {
 } from "@posthog/shared/domain-types";
 import type { SendCommandOutput } from "../cloud-task/schemas";
 import type { CommentTarget } from "../comments/anchors";
-import type { AgentSessionNotification } from "../notification/agentSessionNotifications";
+import { isGithubConnectionRequiredError } from "../integrations/connectErrors";
+import type {
+  AgentSessionNotification,
+  AgentSessionNotificationTrigger,
+} from "../notification/agentSessionNotifications";
 import { extractPostHogObjectReferences } from "../posthog-objects/references";
 import type { SpeechKind, SpeechSource } from "../speech/identifiers";
 import {
@@ -126,6 +131,7 @@ import {
   normalizePromptToBlocks,
   promptReferencesAbsoluteFolder,
   selectEchoedOptimisticItemIds,
+  selectEchoedOptimisticItemIdsAfterRebuild,
   selectUnseededPendingFollowups,
   shellExecutesToContextBlocks,
 } from "./sessionEvents";
@@ -1494,6 +1500,14 @@ function isSessionPromptEvent(event: AcpMessage): boolean {
   );
 }
 
+/** Matches SessionLogWriter, which keeps one chunk buffer across these. */
+function isTranscriptNeutralEvent(event: AcpMessage): boolean {
+  return (
+    isJsonRpcNotification(event.message) &&
+    isTranscriptNeutralNotificationMethod(event.message.method)
+  );
+}
+
 function finishAgentMessageChunkRun(position: AgentMessagePosition): void {
   if (!position.chunkRunActive) return;
   position.messageIndex += 1;
@@ -1512,6 +1526,7 @@ function discardChunksSupersededByHydratedMessages(
   };
   for (const event of hydratedTurn.events) {
     if (isSessionPromptEvent(event)) continue;
+    if (isTranscriptNeutralEvent(event)) continue;
     const updateKind = agentMessageUpdateKind(event);
     if (updateKind === "ignored") continue;
     if (updateKind === "chunk") {
@@ -1548,6 +1563,9 @@ function discardChunksSupersededByHydratedMessages(
     let keep = true;
     if (isSessionPromptEvent(event)) {
       discardChunkRun = false;
+    } else if (isTranscriptNeutralEvent(event)) {
+      // The writer's chunk buffer stays open across these, so the live
+      // position must not advance either.
     } else {
       const updateKind = agentMessageUpdateKind(event);
       if (updateKind === "chunk") {
@@ -2240,10 +2258,12 @@ export class SessionService {
       session.editingQueuedId = previous.editingQueuedId;
       session.isPromptPending = previous.isPromptPending;
       session.promptStartedAt = previous.promptStartedAt;
+      session.currentPromptId = previous.currentPromptId;
       session.pausedDurationMs = previous.pausedDurationMs;
     }
 
     this.d.store.setSession(session);
+    this.updatePromptStateFromEvents(taskRunId, session.events);
     this.subscribeToChannel(taskRunId);
 
     try {
@@ -3555,6 +3575,7 @@ export class SessionService {
                 taskRunId,
                 session,
                 stopReason,
+                "cloud_turn_complete",
                 turnStartedAtTs ? acpMsg.ts - turnStartedAtTs : undefined,
               );
             }
@@ -3647,12 +3668,18 @@ export class SessionService {
     taskRunId: string,
     session: NotifiableAgentSession,
     stopReason: string,
+    trigger: Extract<
+      AgentSessionNotificationTrigger,
+      "local_prompt_response" | "cloud_turn_complete"
+    >,
     durationMs?: number,
   ): void {
     this.d.notifyAgentSession({
       kind: "turn_completed",
+      trigger,
       taskTitle: session.taskTitle,
       taskId: session.taskId,
+      taskRunId,
       stopReason,
       durationMs,
       isTaskAuthor: session.isTaskAuthor,
@@ -3663,11 +3690,17 @@ export class SessionService {
   private notifyNeedsInput(
     taskRunId: string,
     session: NotifiableAgentSession,
+    trigger: Extract<
+      AgentSessionNotificationTrigger,
+      "local_permission_request" | "cloud_permission_request"
+    >,
   ): void {
     this.d.notifyAgentSession({
       kind: "needs_input",
+      trigger,
       taskTitle: session.taskTitle,
       taskId: session.taskId,
+      taskRunId,
       isTaskAuthor: session.isTaskAuthor,
       agentSpoke: this.agentSpokeSinceTurnStarted(
         taskRunId,
@@ -3747,6 +3780,7 @@ export class SessionService {
           taskRunId,
           session,
           stopReason,
+          "local_prompt_response",
           turnStartedAtTs ? acpMsg.ts - turnStartedAtTs : undefined,
         );
       }
@@ -3992,7 +4026,7 @@ export class SessionService {
 
     this.d.store.setPendingPermissions(taskRunId, newPermissions);
     this.d.taskViewedApi.markActivity(session.taskId);
-    this.notifyNeedsInput(taskRunId, session);
+    this.notifyNeedsInput(taskRunId, session, "local_permission_request");
   }
 
   private handleCloudPermissionRequest(
@@ -4049,7 +4083,7 @@ export class SessionService {
 
     this.d.store.setPendingPermissions(taskRunId, newPermissions);
     this.d.taskViewedApi.markActivity(session.taskId);
-    this.notifyNeedsInput(taskRunId, session);
+    this.notifyNeedsInput(taskRunId, session, "cloud_permission_request");
   }
 
   private surfacePersistedPendingPermissions(
@@ -5124,6 +5158,32 @@ export class SessionService {
       }
       throw error;
     }
+  }
+
+  async retryGithubRequiredCloudRun(
+    taskId: string,
+    prompt: string,
+  ): Promise<void> {
+    const session = this.d.store.getSessionByTaskId(taskId);
+    if (!session?.isCloud || session.cloudStatus !== "failed") {
+      throw new Error("This task is not waiting for a GitHub connection");
+    }
+    // Reopening a failed task settles its status but not its reason, so the
+    // cached message is empty on the journey this recovery exists for: the
+    // user leaves while an owner approves access, then comes back.
+    let errorMessage = session.cloudErrorMessage;
+    if (!errorMessage) {
+      await this.refreshCloudRunStatus(session);
+      errorMessage =
+        this.d.store.getSessions()[session.taskRunId]?.cloudErrorMessage;
+    }
+    if (!isGithubConnectionRequiredError(errorMessage)) {
+      throw new Error("This task is not waiting for a GitHub connection");
+    }
+    await this.resumeCloudRun(
+      this.d.store.getSessionByTaskId(taskId) ?? session,
+      prompt,
+    );
   }
 
   /**
@@ -6897,9 +6957,10 @@ export class SessionService {
           cloudTranscriptEntryCount: update.totalEntryCount,
         });
       }
-      const watcher = this.cloudTaskWatchers.get(taskId);
-      const resumeHistoryCountOffset =
-        watcher?.runId === runId ? (watcher.resumeHistoryCountOffset ?? 0) : 0;
+      const resumeHistoryCountOffset = this.resumeHistoryCountOffsetFor(
+        taskId,
+        runId,
+      );
       let normalizedUpdate: CloudTaskUpdatePayload = update;
       if (
         resumeHistoryCountOffset > 0 &&
@@ -6914,8 +6975,9 @@ export class SessionService {
         };
         // The offset makes the count leaf-relative while windowStart stays
         // chain-relative; a windowed commit would mix the two units, so gaps
-        // on resume watchers keep falling back to the reconciler.
-        if (normalizedUpdate.kind === "snapshot") {
+        // on resume watchers keep falling back to the reconciler. A rebuilt
+        // snapshot commits each unit separately, so it keeps its window.
+        if (normalizedUpdate.kind === "snapshot" && !normalizedUpdate.rebuilt) {
           normalizedUpdate.windowStart = undefined;
         }
       }
@@ -8646,13 +8708,24 @@ export class SessionService {
       const session = this.d.store.getSessions()[taskRunId];
       const currentCount = session?.processedLineCount ?? 0;
       const expectedCount = update.totalEntryCount;
-      const plan = classifyCloudLogAppend(
-        currentCount,
-        expectedCount,
-        update.newEntries.length,
-      );
+      const plan =
+        update.kind === "snapshot" && update.rebuilt
+          ? ({ kind: "rebuild" } as const)
+          : classifyCloudLogAppend(
+              currentCount,
+              expectedCount,
+              update.newEntries.length,
+            );
 
-      if (plan.kind === "caught-up") {
+      if (plan.kind === "rebuild" && update.kind === "snapshot") {
+        this.commitWindowedCloudSnapshot(
+          taskRunId,
+          update.newEntries,
+          update.windowStart ?? 0,
+          expectedCount,
+          this.resumeHistoryCountOffsetFor(update.taskId, update.runId),
+        );
+      } else if (plan.kind === "caught-up") {
         // Already caught up — skip duplicate entries
       } else if (plan.kind === "append-tail") {
         this.appendCloudTailEvents(
@@ -8677,6 +8750,8 @@ export class SessionService {
           taskRunId,
           update.newEntries,
           update.windowStart,
+          undefined,
+          this.resumeHistoryCountOffsetFor(update.taskId, update.runId),
         );
       } else {
         if (update.kind === "logs" && session) {
@@ -8694,7 +8769,9 @@ export class SessionService {
           taskRunId,
           expectedCount,
           currentCount,
-          newEntries: update.newEntries,
+          entryBatches: [
+            { endCount: expectedCount, entries: update.newEntries },
+          ],
           logUrl: session?.logUrl,
         });
       }
@@ -9188,6 +9265,24 @@ export class SessionService {
     }
   }
 
+  private clearEchoedOptimisticItemsAfterRebuild(
+    taskRunId: string,
+    events: AcpMessage[],
+    firstEntryIndex: number,
+  ): void {
+    const session = this.getSessionByRunId(taskRunId);
+    if (!session?.optimisticItems.length) return;
+    const echoed = selectEchoedOptimisticItemIdsAfterRebuild(
+      session.optimisticItems,
+      events,
+      session.events,
+      { taskRunId, firstEntryIndex },
+    );
+    if (echoed.length > 0) {
+      this.d.store.removeOptimisticItems(taskRunId, echoed);
+    }
+  }
+
   private appendCloudTailEvents(
     taskRunId: string,
     entries: StoredLogEntry[],
@@ -9262,16 +9357,31 @@ export class SessionService {
     this.updatePromptStateFromEvents(taskRunId, events);
   }
 
+  private resumeHistoryCountOffsetFor(taskId: string, runId: string): number {
+    const watcher = this.cloudTaskWatchers.get(taskId);
+    return watcher?.runId === runId
+      ? (watcher.resumeHistoryCountOffset ?? 0)
+      : 0;
+  }
+
   private commitWindowedCloudSnapshot(
     taskRunId: string,
     entries: StoredLogEntry[],
     windowStart: number,
+    processedLineCount?: number,
+    ancestorEntryCount = 0,
   ): void {
+    const startEntryIndex = Math.max(0, windowStart - ancestorEntryCount);
     const events = convertStoredEntriesToEvents(entries, undefined, {
       taskRunId,
-      startEntryIndex: windowStart,
+      startEntryIndex,
+      firstPositionedEntryIndex: Math.max(0, ancestorEntryCount - windowStart),
     });
-    this.clearEchoedTailOptimisticItems(taskRunId, events);
+    this.clearEchoedOptimisticItemsAfterRebuild(
+      taskRunId,
+      events,
+      startEntryIndex,
+    );
     this.cloudRunIdleTracker.delete(taskRunId);
     // Moving the window start also trips loadOlderCloudTranscript's
     // stale-window guard if a prepend was in flight, instead of duplicating
@@ -9279,7 +9389,7 @@ export class SessionService {
     this.d.store.updateSession(taskRunId, {
       events,
       isCloud: true,
-      processedLineCount: windowStart + entries.length,
+      processedLineCount: processedLineCount ?? windowStart + entries.length,
       transcriptWindowStart: windowStart,
     });
     this.updatePromptStateFromEvents(taskRunId, events);

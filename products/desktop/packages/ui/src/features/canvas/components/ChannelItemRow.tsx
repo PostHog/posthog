@@ -36,6 +36,7 @@ import { useArchivingTasksStore } from "@posthog/ui/features/sidebar/archivingTa
 import { InlineEditInput } from "@posthog/ui/features/sidebar/components/items/TaskItem";
 import {
   PinnedBadge,
+  ROW_BADGE_CLASS,
   TaskBadgeStack,
   TaskStatusDot,
   TaskStatusTooltips,
@@ -56,9 +57,16 @@ import {
   type DragEvent,
   type ReactNode,
   useCallback,
+  useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
+
+// Pointer-rest delay before a canvas row warms its open-path caches. Matches
+// the space tree's hover-prefetch convention, so arrowing/scrolling rows under
+// a stationary cursor doesn't fire a request per row.
+const CANVAS_HOVER_PRIME_REST_MS = 250;
 
 /**
  * What a row can do. One object per channel rather than closures per item, so
@@ -72,6 +80,7 @@ export interface ChannelItemActions {
   archive: (item: ChannelItemModel) => void;
   remove?: (item: ChannelItemModel) => void;
   fileCanvas?: (item: ChannelItemModel, channelId: string) => void;
+  primeCanvas?: (id: string) => void;
 }
 
 // The channel sidebar's own chrome. Deliberately not shared with the Code
@@ -103,15 +112,13 @@ const DELETING_DOT: TaskDot = {
 function RowBadge({ label, children }: { label: string; children: ReactNode }) {
   return (
     <Tooltip disableHoverablePopup>
-      {/* `cursor-default`: a badge names a fact about the row, it isn't a
-          control — see the same note in TaskBadgeStack. */}
       <TooltipTrigger
         render={
           <Avatar
             size="xs"
             aria-label={label}
             role="img"
-            className="cursor-default"
+            className={ROW_BADGE_CLASS}
           >
             <AvatarFallback className="bg-transparent">
               {children}
@@ -249,7 +256,10 @@ function ChannelItemDot({
   const pendingDelete = useIsCanvasPendingDelete(item.id);
   const deleting = item.kind === "canvas" && pendingDelete;
   return (
-    <TaskStatusDot dot={deleting ? DELETING_DOT : taskDot(status ?? {})} />
+    <TaskStatusDot
+      dot={deleting ? DELETING_DOT : taskDot(status ?? {})}
+      hitArea="row"
+    />
   );
 }
 
@@ -274,6 +284,8 @@ export function ChannelItemRowView({
   onClick,
   onDragStart,
   onDragEnd,
+  onMouseEnter,
+  onMouseLeave,
 }: {
   item: ChannelItemModel;
   status: TaskStatusInput | null;
@@ -288,10 +300,14 @@ export function ChannelItemRowView({
   onClick?: (e: React.MouseEvent) => void;
   onDragStart?: (e: DragEvent) => void;
   onDragEnd?: (e: DragEvent) => void;
+  onMouseEnter?: () => void;
+  onMouseLeave?: () => void;
 }) {
   const pinBadge = item.pinned && showPinBadge;
   return (
     <SidebarItem
+      onMouseEnter={onMouseEnter}
+      onMouseLeave={onMouseLeave}
       // The space's lists follow web conventions — every clickable row shows a
       // pointer, like the feed and activity rows — unlike the Code sidebar,
       // which keeps SidebarItem's native cursor-default.
@@ -411,6 +427,12 @@ export function ChannelItemRow({
           : null,
   );
   const isArchiving = archivePresentation === "progress";
+  // Warm a canvas's open-path caches once the pointer RESTS on its row (250ms,
+  // the tree's prefetch convention) so the click opens against hot caches.
+  const hoverPrimeTimer = useRef<ReturnType<typeof setTimeout> | undefined>(
+    undefined,
+  );
+  useEffect(() => () => clearTimeout(hoverPrimeTimer.current), []);
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
   const [handoffOpen, setHandoffOpen] = useState(false);
   const handoffMounted = useMountedOnceOpened(handoffOpen);
@@ -428,7 +450,10 @@ export function ChannelItemRow({
   const handleDragStart = useCallback(
     (event: DragEvent) => {
       if (item.kind === "canvas") {
-        writeCanvasDragData(event.dataTransfer, item.id);
+        writeCanvasDragData(event.dataTransfer, item.id, {
+          name: item.title,
+          channelId: channelId ?? null,
+        });
         event.dataTransfer.effectAllowed = "copy";
         return;
       }
@@ -440,7 +465,7 @@ export function ChannelItemRow({
       event.dataTransfer.effectAllowed = "copyMove";
       onDragStart?.(event);
     },
-    [item.id, item.kind, onDragStart],
+    [item.id, item.kind, item.title, channelId, onDragStart],
   );
 
   // A canvas gets the same menu with the items it actually has: command-centre
@@ -529,6 +554,22 @@ export function ChannelItemRow({
         isArchiving
           ? undefined
           : (e) => (onClick ? onClick(e) : actions.open(item))
+      }
+      onMouseEnter={
+        item.kind === "canvas" && actions.primeCanvas
+          ? () => {
+              clearTimeout(hoverPrimeTimer.current);
+              hoverPrimeTimer.current = setTimeout(
+                () => actions.primeCanvas?.(item.id),
+                CANVAS_HOVER_PRIME_REST_MS,
+              );
+            }
+          : undefined
+      }
+      onMouseLeave={
+        item.kind === "canvas"
+          ? () => clearTimeout(hoverPrimeTimer.current)
+          : undefined
       }
     />
   );

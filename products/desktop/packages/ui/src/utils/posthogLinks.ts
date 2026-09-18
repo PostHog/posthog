@@ -70,6 +70,16 @@ export function experimentUrl(
   );
 }
 
+/** The project's date and time settings, where its timezone is set. */
+export function projectTimezoneSettingsUrl(
+  overrides?: LinkOverrides,
+): string | null {
+  return withProjectId(
+    (pid) => `/project/${pid}/settings/environment-customization#date-and-time`,
+    overrides,
+  );
+}
+
 export function skillUrl(
   skillName: string,
   overrides?: LinkOverrides,
@@ -87,6 +97,18 @@ export function inboxReportUrl(
 ): string | null {
   return withProjectId(
     (pid) => `/project/${pid}/inbox/${encodeURIComponent(reportId)}`,
+    overrides,
+  );
+}
+
+/** The browser-accessible URL for a support ticket, by ticket number or by ticket uuid. */
+export function supportTicketUrl(
+  ticketRef: string | number,
+  overrides?: LinkOverrides,
+): string | null {
+  return withProjectId(
+    (pid) =>
+      `/project/${pid}/support/tickets/${encodeURIComponent(String(ticketRef))}`,
     overrides,
   );
 }

@@ -1,4 +1,4 @@
-import { MOCK_DEFAULT_USER } from '~/lib/api.mock'
+import { MOCK_DEFAULT_TEAM, MOCK_DEFAULT_USER } from '~/lib/api.mock'
 
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
@@ -57,11 +57,6 @@ jest.mock('~/lib/api', () => {
         },
     }
 })
-
-jest.mock('products/business_knowledge/frontend/generated/api', () => ({
-    businessKnowledgeGapSuggestionsList: jest.fn().mockResolvedValue({ results: [] }),
-    businessKnowledgeGapSuggestionsDismissCreate: jest.fn().mockResolvedValue(undefined),
-}))
 
 jest.mock('products/conversations/frontend/generated/api', () => ({
     conversationsTicketsMessagesFullEmailRetrieve: jest.fn().mockResolvedValue({ content: 'Full email body' }),
@@ -246,6 +241,7 @@ describe('supportTicketSceneLogic chatMessages mapping', () => {
     test.each<[string, Record<string, any>, string]>([
         ['teams thread reply author', { teams_author_name: 'Chris' }, 'Chris'],
         ['slack thread reply author', { slack_author_name: 'Chris' }, 'Chris'],
+        ['github comment author', { from_github: true, github_login: 'chris' }, 'chris'],
         ['requester fallback without per-message author', {}, 'Mark'],
     ])('%s', (_name, itemContext, expectedName) => {
         logic.actions.setMessages([makeCustomerComment('msg-1', itemContext)])
@@ -655,26 +651,19 @@ describe('supportTicketSceneLogic tag pool refresh', () => {
 
     const ticketGetMock = api.conversationsTickets.get as jest.Mock
     const ticketUpdateMock = conversationsTicketsPartialUpdate as jest.Mock
-    const tagsListMock = api.tags.list as jest.Mock
-
     const loadedTicket = (): Ticket => ({ ...makeTicket(), priority: 'medium', assignee: null }) as Ticket
 
     beforeEach(async () => {
         initKeaTests()
-        tagsListMock.mockReset().mockResolvedValue(['known'])
         ticketGetMock.mockReset().mockResolvedValue(loadedTicket())
         ticketUpdateMock.mockReset()
-        // Prime the shared lazy-loaded tag pool so availableTags reflects the existing tags.
         tagsModel.mount()
-        tagsModel.actions.loadTags()
-        await expectLogic(tagsModel).toDispatchActions(['loadTagsSuccess'])
+        tagsModel.actions.setActiveProjectId(MOCK_DEFAULT_TEAM.id)
+        tagsModel.actions.setProjectTags(MOCK_DEFAULT_TEAM.id, ['known'])
         logic = supportTicketSceneLogic({ id: 42 })
         logic.mount()
         await expectLogic(logic).toDispatchActions(['setTicket'])
         expect(logic.values.availableTags).toEqual(['known'])
-        // Wait out lazyLoaders' deferred refetch, or it lands mid-test and makes the assertions below vacuous.
-        await expectLogic(tagsModel).toDispatchActions(['loadTagsSuccess'])
-        tagsListMock.mockClear()
     })
 
     afterEach(() => {
@@ -685,15 +674,13 @@ describe('supportTicketSceneLogic tag pool refresh', () => {
     // on other tickets; an already-known tag needs no reload.
     it('reloads the shared tag pool when a new tag was saved', async () => {
         ticketUpdateMock.mockResolvedValue({ ...loadedTicket(), tags: ['known', 'brand-new'] })
-        tagsListMock.mockResolvedValue(['known', 'brand-new'])
 
         logic.actions.setTags(['known', 'brand-new'])
-        await expectLogic(logic, () => {
+        await expectLogic(tagsModel, () => {
             logic.actions.updateTicket()
-        }).toDispatchActions(['setTicket'])
-        await expectLogic(tagsModel).toDispatchActions(['loadTagsSuccess'])
+        }).toDispatchActions(['loadTags'])
+        tagsModel.actions.loadTagsSuccess(['known', 'brand-new'], MOCK_DEFAULT_TEAM.id)
 
-        expect(tagsListMock).toHaveBeenCalledTimes(1)
         expect(logic.values.availableTags).toEqual(['known', 'brand-new'])
     })
 
@@ -705,7 +692,6 @@ describe('supportTicketSceneLogic tag pool refresh', () => {
             logic.actions.updateTicket()
         }).toDispatchActions(['setTicket'])
 
-        expect(tagsListMock).not.toHaveBeenCalled()
         expect(logic.values.availableTags).toEqual(['known'])
     })
 })

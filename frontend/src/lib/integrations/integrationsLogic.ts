@@ -22,6 +22,7 @@ import { EmailIntegrationDomainGroupedType, IntegrationKind, IntegrationType } f
 import {
     integrationsGithubAvailableInstallationsRetrieve,
     integrationsGithubReposRetrieve,
+    integrationsList,
     integrationsRequestAccessCreate,
 } from 'products/integrations/frontend/generated/api'
 import type {
@@ -90,6 +91,7 @@ export interface integrationsLogicValues {
             | 'google-pubsub'
             | 'google-search-console'
             | 'google-sheets'
+            | 'helpscout'
             | 'hubspot'
             | 'instagram'
             | 'intercom'
@@ -184,6 +186,7 @@ export interface integrationsLogicActions {
             | 'google-pubsub'
             | 'google-search-console'
             | 'google-sheets'
+            | 'helpscout'
             | 'hubspot'
             | 'instagram'
             | 'intercom'
@@ -270,120 +273,10 @@ export interface integrationsLogicActions {
         errorObject?: any
     }
     loadIntegrationsSuccess: (
-        integrations: {
-            config: any
-            created_at: string
-            created_by?: UserBasicType | null | undefined
-            display_name: string
-            errors?: string | undefined
-            files_write_requestable?: boolean | undefined
-            icon_url: any
-            id: number
-            installation_shared?: boolean | null | undefined
-            installation_status?: InstallationStatusEnumApi | null | undefined
-            kind:
-                | 'apns'
-                | 'aws-redshift'
-                | 'aws-s3'
-                | 'azure-blob'
-                | 'bing-ads'
-                | 'clickup'
-                | 'customerio-app'
-                | 'customerio-track'
-                | 'customerio-webhook'
-                | 'databricks'
-                | 'email'
-                | 'firebase'
-                | 'github'
-                | 'gitlab'
-                | 'google-ads'
-                | 'google-analytics'
-                | 'google-calendar'
-                | 'google-cloud-service-account'
-                | 'google-cloud-storage'
-                | 'google-pubsub'
-                | 'google-search-console'
-                | 'google-sheets'
-                | 'hubspot'
-                | 'instagram'
-                | 'intercom'
-                | 'jira'
-                | 'linear'
-                | 'linkedin-ads'
-                | 'meta-ads'
-                | 'pardot'
-                | 'pinterest-ads'
-                | 'postgresql'
-                | 'reddit-ads'
-                | 's3-compatible'
-                | 'salesforce'
-                | 'slack'
-                | 'snapchat'
-                | 'snowflake'
-                | 'stripe'
-                | 'tiktok-ads'
-                | 'twilio'
-                | 'vercel'
-                | 'youtube-analytics'
-        }[],
+        integrations: IntegrationType[],
         payload?: any
     ) => {
-        integrations: {
-            config: any
-            created_at: string
-            created_by?: UserBasicType | null | undefined
-            display_name: string
-            errors?: string | undefined
-            files_write_requestable?: boolean | undefined
-            icon_url: any
-            id: number
-            installation_shared?: boolean | null | undefined
-            installation_status?: InstallationStatusEnumApi | null | undefined
-            kind:
-                | 'apns'
-                | 'aws-redshift'
-                | 'aws-s3'
-                | 'azure-blob'
-                | 'bing-ads'
-                | 'clickup'
-                | 'customerio-app'
-                | 'customerio-track'
-                | 'customerio-webhook'
-                | 'databricks'
-                | 'email'
-                | 'firebase'
-                | 'github'
-                | 'gitlab'
-                | 'google-ads'
-                | 'google-analytics'
-                | 'google-calendar'
-                | 'google-cloud-service-account'
-                | 'google-cloud-storage'
-                | 'google-pubsub'
-                | 'google-search-console'
-                | 'google-sheets'
-                | 'hubspot'
-                | 'instagram'
-                | 'intercom'
-                | 'jira'
-                | 'linear'
-                | 'linkedin-ads'
-                | 'meta-ads'
-                | 'pardot'
-                | 'pinterest-ads'
-                | 'postgresql'
-                | 'reddit-ads'
-                | 's3-compatible'
-                | 'salesforce'
-                | 'slack'
-                | 'snapchat'
-                | 'snowflake'
-                | 'stripe'
-                | 'tiktok-ads'
-                | 'twilio'
-                | 'vercel'
-                | 'youtube-analytics'
-        }[]
+        integrations: IntegrationType[]
         payload?: any
     }
     newGoogleCloudKey: (
@@ -437,6 +330,7 @@ export interface integrationsLogicActions {
                 | 'google-pubsub'
                 | 'google-search-console'
                 | 'google-sheets'
+                | 'helpscout'
                 | 'hubspot'
                 | 'instagram'
                 | 'intercom'
@@ -499,6 +393,7 @@ export interface integrationsLogicActions {
                 | 'google-pubsub'
                 | 'google-search-console'
                 | 'google-sheets'
+                | 'helpscout'
                 | 'hubspot'
                 | 'instagram'
                 | 'intercom'
@@ -555,6 +450,7 @@ export interface integrationsLogicActions {
             | 'google-pubsub'
             | 'google-search-console'
             | 'google-sheets'
+            | 'helpscout'
             | 'hubspot'
             | 'instagram'
             | 'intercom'
@@ -618,6 +514,7 @@ export interface integrationsLogicActions {
             | 'google-pubsub'
             | 'google-search-console'
             | 'google-sheets'
+            | 'helpscout'
             | 'hubspot'
             | 'instagram'
             | 'intercom'
@@ -666,6 +563,7 @@ export interface integrationsLogicActions {
             | 'google-pubsub'
             | 'google-search-console'
             | 'google-sheets'
+            | 'helpscout'
             | 'hubspot'
             | 'instagram'
             | 'intercom'
@@ -739,6 +637,7 @@ export interface integrationsLogicMeta {
                 | 'google-pubsub'
                 | 'google-search-console'
                 | 'google-sheets'
+                | 'helpscout'
                 | 'hubspot'
                 | 'instagram'
                 | 'intercom'
@@ -923,17 +822,40 @@ export const integrationsLogic = kea<integrationsLogicType>([
             null as IntegrationType[] | null,
             {
                 loadIntegrations: async () => {
-                    const res = await api.integrations.list()
-
-                    // Simple modifier here to add icons and names - we can move this to the backend at some point
-
-                    return res.results.map((integration) => {
-                        return {
-                            ...integration,
-                            // TODO: Make the icons endpoint independent of hog functions
-                            icon_url: ICONS[integration.kind],
+                    const integrations: IntegrationType[] = []
+                    let offset = 0
+                    let hasNext = true
+                    while (hasNext) {
+                        const res = await integrationsList(String(values.currentProjectId), { limit: 100, offset })
+                        for (const integration of res.results) {
+                            // The API serves kinds this union does not name yet, and consumers such as
+                            // PosthogConnect read them, so every result is kept and only the icon is optional.
+                            const kind = integration.kind as IntegrationKind
+                            integrations.push({
+                                ...integration,
+                                kind,
+                                config: integration.config ?? {},
+                                created_by: integration.created_by
+                                    ? {
+                                          id: integration.created_by.id,
+                                          uuid: integration.created_by.uuid,
+                                          distinct_id: integration.created_by.distinct_id ?? '',
+                                          first_name: integration.created_by.first_name ?? '',
+                                          last_name: integration.created_by.last_name,
+                                          email: integration.created_by.email,
+                                          is_email_verified: integration.created_by.is_email_verified,
+                                          role_at_organization: integration.created_by.role_at_organization,
+                                      }
+                                    : integration.created_by,
+                                // TODO: Make the icons endpoint independent of hog functions
+                                icon_url: ICONS[kind],
+                            })
                         }
-                    })
+                        offset += res.results.length
+                        hasNext = !!res.next && res.results.length > 0
+                    }
+
+                    return integrations
                 },
                 newGoogleCloudKey: async ({ kind, key, callback }) => {
                     try {

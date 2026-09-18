@@ -322,6 +322,13 @@ describe('createXAxisTickCallback', () => {
         })
     })
 
+    it('infers daily labels across a daylight-saving transition', () => {
+        const labels = ['2026-03-08', '2026-03-09']
+        const callback = createXAxisTickCallback({ allDays: labels, timezone: 'America/New_York' })
+
+        expect(labels.map((label, index) => callback?.(label, index))).toEqual(['Mar 8', 'Mar 9'])
+    })
+
     describe('fallbacks', () => {
         it.each([
             { scenario: 'allDays is empty', allDays: [] as (string | number)[] },

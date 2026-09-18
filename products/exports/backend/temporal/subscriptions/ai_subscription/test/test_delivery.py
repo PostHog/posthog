@@ -13,6 +13,7 @@ from slack_sdk.errors import SlackApiError
 from posthog.helpers.slack_scopes import REQUIRED_SLACK_SCOPES
 
 from products.exports.backend.models.subscription import AIQueryPlanStatus, Subscription, SubscriptionDelivery
+from products.exports.backend.temporal.subscriptions.ai_subscription.activities import _deliver_ai_subscription
 from products.exports.backend.temporal.subscriptions.ai_subscription.delivery import (
     CHART_IMAGE_URL_TTL,
     SLACK_MRKDWN_SECTION_LIMIT,
@@ -31,12 +32,20 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.delivery im
 )
 from products.exports.backend.temporal.subscriptions.ai_subscription.report_pipeline import AiReportResult
 from products.exports.backend.temporal.subscriptions.ai_subscription.spec_generator import ReportWindow
-from products.exports.backend.temporal.subscriptions.types import AI_REPORT_WINDOW_END_KEY, SubscriptionTriggerType
+from products.exports.backend.temporal.subscriptions.types import (
+    AI_REPORT_CHARTS_KEY,
+    AI_REPORT_SNAPSHOT_KEY,
+    AI_REPORT_WINDOW_END_KEY,
+    DeliverSubscriptionInputs,
+    DeliverSubscriptionResult,
+    SubscriptionTriggerType,
+)
 
 from ee.tasks.subscriptions.slack_subscriptions import SlackMessage
 from ee.tasks.subscriptions.teams_subscriptions import TEAMS_CARD_TEXT_BUDGET
 
 _DELIVERY = "products.exports.backend.temporal.subscriptions.ai_subscription.delivery"
+_ACTIVITIES = "products.exports.backend.temporal.subscriptions.ai_subscription.activities"
 
 _PARA = "a" * (SLACK_MRKDWN_SECTION_LIMIT - 100)
 _DELIVERY_ID = uuid.UUID("12345678-1234-5678-1234-567812345678")
@@ -211,6 +220,10 @@ def _mock_subscription() -> MagicMock:
     sub.url = _SUBSCRIPTION_URL
     sub.team_id = 1
     sub.id = 2
+    sub.delivery_config = {}
+    sub.includes_delivery_part.side_effect = lambda option: Subscription._delivery_config_includes(
+        sub.delivery_config, option
+    )
     return sub
 
 
@@ -294,6 +307,30 @@ class TestChartsOnSlackMessages:
         assert all(block["type"] != "image" for block in sent[1])
         assert any("A short report." in block.get("text", {}).get("text", "") for block in sent[1])
 
+    async def test_a_hidden_chart_does_not_trigger_the_resend(self) -> None:
+        # A report that hides its charts already sends a payload with no image block, so the
+        # retry would repeat an identical message and double the posts Slack rate-limits.
+        subscription = _mock_subscription()
+        subscription.delivery_config = {"include_images": False}
+        sent: list[list[dict]] = []
+
+        async def _deliver(_integration, _subscription, message_data):
+            sent.append(message_data.blocks)
+            raise SlackApiError("bad blocks", response={"error": "invalid_blocks"})
+
+        with patch(f"{_DELIVERY}.deliver_slack_message_data", side_effect=_deliver):
+            with pytest.raises(SlackApiError):
+                await send_slack_ai_subscription_report(
+                    subscription=subscription,
+                    markdown="A short report.",
+                    integration=MagicMock(),
+                    delivery_id=_DELIVERY_ID,
+                    charts=[_CHART],
+                )
+
+        assert len(sent) == 1
+        assert all(block["type"] != "image" for block in sent[0])
+
     async def test_a_slack_error_that_is_not_about_blocks_still_raises(self) -> None:
         with patch(
             f"{_DELIVERY}.deliver_slack_message_data",
@@ -340,11 +377,117 @@ class TestBuildAISlackMessage:
             for block in thread_msg["blocks"]:
                 assert block["text"]["text"].strip(), "thread section text must be non-empty"
 
+    def test_minimal_delivery_keeps_only_the_title_and_report(self) -> None:
+        subscription = _mock_subscription()
+        subscription.delivery_config = {
+            "include_images": False,
+            "include_feedback": False,
+            "include_manage_link": False,
+            "include_posthog_hint": False,
+        }
+
+        message = _build_ai_slack_message(
+            subscription,
+            "A short report.",
+            delivery_id=_DELIVERY_ID,
+            integration=_mock_integration(REQUIRED_SLACK_SCOPES),
+            charts=[_CHART],
+        )
+
+        assert [block["type"] for block in message.blocks] == ["section", "section"]
+        assert message.blocks[1]["text"]["text"] == "A short report."
+
+    def test_with_images_delivery_keeps_charts_without_posthog_controls(self) -> None:
+        subscription = _mock_subscription()
+        subscription.delivery_config = {
+            "include_images": True,
+            "include_feedback": False,
+            "include_manage_link": False,
+            "include_posthog_hint": False,
+        }
+
+        message = _build_ai_slack_message(
+            subscription,
+            "A short report.",
+            delivery_id=_DELIVERY_ID,
+            integration=_mock_integration(REQUIRED_SLACK_SCOPES),
+            charts=[_CHART],
+        )
+
+        assert [block["type"] for block in message.blocks] == ["section", "section", "image"]
+        assert message.blocks[2]["image_url"] == _CHART["image_url"]
+
 
 class TestBuildAITeamsCard:
     def _body(self, markdown: str) -> list[dict]:
         card = build_ai_teams_card(_mock_subscription(), markdown, delivery_id=_DELIVERY_ID)
         return card["attachments"][0]["content"]["body"]
+
+    def test_charts_follow_the_report_text(self) -> None:
+        card = build_ai_teams_card(_mock_subscription(), "A short report.", delivery_id=_DELIVERY_ID, charts=[_CHART])
+        body = card["attachments"][0]["content"]["body"]
+
+        image_blocks = [block for block in body if block["type"] == "Image"]
+        assert image_blocks == [
+            {
+                "type": "Image",
+                "url": _CHART["image_url"],
+                "size": "Stretch",
+                "altText": _CHART["title"],
+            }
+        ]
+
+    def test_hidden_charts_do_not_appear(self) -> None:
+        subscription = _mock_subscription()
+        subscription.delivery_config = {"include_images": False}
+
+        card = build_ai_teams_card(subscription, "A short report.", delivery_id=_DELIVERY_ID, charts=[_CHART])
+        body = card["attachments"][0]["content"]["body"]
+
+        assert all(block["type"] != "Image" for block in body)
+
+    @pytest.mark.asyncio
+    async def test_delivery_includes_generated_chart_urls(self) -> None:
+        subscription = _mock_subscription()
+        subscription.target_type = Subscription.SubscriptionTarget.TEAMS
+
+        with (
+            patch(
+                f"{_ACTIVITIES}._load_snapshot",
+                new=AsyncMock(
+                    return_value={
+                        AI_REPORT_SNAPSHOT_KEY: "A short report.",
+                        AI_REPORT_CHARTS_KEY: [{"export_asset_id": 99, "title": "signups by day"}],
+                    }
+                ),
+            ),
+            patch(f"{_ACTIVITIES}.build_chart_image_urls", return_value=[_CHART]),
+            patch(
+                f"{_ACTIVITIES}.deliver_teams_webhook",
+                new=AsyncMock(return_value=DeliverSubscriptionResult()),
+            ) as deliver_teams,
+        ):
+            await _deliver_ai_subscription(
+                subscription,
+                DeliverSubscriptionInputs(
+                    subscription_id=subscription.id,
+                    exported_asset_ids=[],
+                    total_insight_count=0,
+                    delivery_id=_DELIVERY_ID,
+                ),
+                [],
+            )
+
+        assert deliver_teams.await_args is not None
+        body = deliver_teams.await_args.kwargs["body"]["attachments"][0]["content"]["body"]
+        assert [block for block in body if block["type"] == "Image"] == [
+            {
+                "type": "Image",
+                "url": _CHART["image_url"],
+                "size": "Stretch",
+                "altText": _CHART["title"],
+            }
+        ]
 
     def test_long_report_is_split_across_text_blocks(self) -> None:
         body = self._body("\n\n".join("x" * (TEAMS_TEXT_BLOCK_LIMIT - 50) for _ in range(3)))
@@ -382,6 +525,40 @@ class TestBuildAITeamsCard:
         body = card["attachments"][0]["content"]["body"]
 
         assert body[0]["text"] == "**Open report**"
+
+    def test_minimal_delivery_removes_feedback_and_manage_action(self) -> None:
+        subscription = _mock_subscription()
+        subscription.delivery_config = {
+            "include_images": False,
+            "include_feedback": False,
+            "include_manage_link": False,
+            "include_posthog_hint": False,
+        }
+
+        card = build_ai_teams_card(subscription, "A short report.", delivery_id=_DELIVERY_ID)
+        content = card["attachments"][0]["content"]
+
+        assert "Was this report useful?" not in str(content["body"])
+        assert content["actions"] == []
+
+    def test_minimal_delivery_shortening_notice_has_no_posthog_link(self) -> None:
+        subscription = _mock_subscription()
+        subscription.delivery_config = {
+            "include_images": False,
+            "include_feedback": False,
+            "include_manage_link": False,
+            "include_posthog_hint": False,
+        }
+
+        card = build_ai_teams_card(
+            subscription,
+            "\n\n".join("x" * (TEAMS_TEXT_BLOCK_LIMIT - 50) for _ in range(20)),
+            delivery_id=_DELIVERY_ID,
+        )
+        content = card["attachments"][0]["content"]
+
+        assert "This report was shortened to fit." in str(content["body"])
+        assert "Read all of it in PostHog" not in str(content["body"])
 
 
 def _mock_integration(scopes: frozenset[str]) -> MagicMock:
@@ -473,20 +650,67 @@ class TestFeedbackFooter:
         context = self._send_email_and_get_context()
         assert f"&delivery={_DELIVERY_ID}" in context["subscription_url"]
 
+    def test_minimal_email_keeps_unsubscribe_without_images_or_posthog_controls(self) -> None:
+        subscription = _mock_subscription()
+        subscription.delivery_config = {
+            "include_images": False,
+            "include_feedback": False,
+            "include_manage_link": False,
+            "include_posthog_hint": False,
+        }
+        with (
+            patch(
+                "products.exports.backend.temporal.subscriptions.ai_subscription.delivery.EmailMessage"
+            ) as email_message,
+            patch(
+                "products.exports.backend.temporal.subscriptions.ai_subscription.delivery.get_unsubscribe_token",
+                return_value="tok",
+            ),
+            patch(
+                "products.exports.backend.temporal.subscriptions.ai_subscription.delivery.raise_if_delivery_rejected"
+            ),
+        ):
+            send_email_ai_subscription_report(
+                email="a@b.com",
+                subscription=subscription,
+                markdown="Report body",
+                delivery_run_id="run-1",
+                delivery_id=_DELIVERY_ID,
+                charts=[_CHART],
+            )
 
-class TestPersistAiQueryPlanRaceGuard(APIBaseTest):
+        html = render_to_string("email/ai_subscription_report.html", email_message.call_args.kwargs["template_context"])
+
+        assert "Report body" in html
+        assert _CHART["image_url"] not in html
+        assert "Manage subscription" not in html
+        assert "Was this report useful?" not in html
+        assert "Unsubscribe from this report" in html
+
+
+class TestPersistAiQueryPlan(APIBaseTest):
     @parameterized.expand(
         [
-            # The write is conditional on the planning-time prompt: an edit that landed mid-generation
-            # (clearing the plan via save()) must not be overwritten with a plan for the old prompt.
-            ("prompt_unchanged_persists", "original prompt?", True),
-            ("prompt_changed_noops", "edited mid-generation?", False),
+            ("unchanged_prompt_and_images_persist", "original prompt?", {"include_images": False}, False, True),
+            ("changed_prompt_noops", "edited mid-generation?", {"include_images": False}, False, False),
+            ("images_enabled_mid_generation_noops", "original prompt?", {"include_images": True}, False, False),
+            ("images_disabled_mid_generation_noops", "original prompt?", {"include_images": False}, True, False),
+            ("explicitly_enabled_images_persist", "original prompt?", {"include_images": True}, True, True),
+            ("omitted_images_default_to_enabled", "original prompt?", {}, True, True),
         ]
     )
-    def test_persist_is_conditional_on_planning_prompt(self, _name: str, current_prompt: str, written: bool) -> None:
+    def test_persist_is_conditional_on_generation_inputs(
+        self,
+        _name: str,
+        current_prompt: str,
+        current_delivery_config: dict,
+        expected_include_images: bool,
+        written: bool,
+    ) -> None:
         sub = Subscription.objects.create(
             team=self.team,
             prompt=current_prompt,
+            delivery_config=current_delivery_config,
             target_type="email",
             target_value="a@posthog.com",
             frequency="weekly",
@@ -495,7 +719,13 @@ class TestPersistAiQueryPlanRaceGuard(APIBaseTest):
         )
         plan = {"version": 1, "plan": {}}
 
-        persisted = _persist_ai_query_plan(sub.id, self.team.id, "original prompt?", plan)
+        persisted = _persist_ai_query_plan(
+            sub.id,
+            self.team.id,
+            "original prompt?",
+            plan,
+            expected_include_images=expected_include_images,
+        )
 
         sub.refresh_from_db()
         assert persisted is written
@@ -583,24 +813,39 @@ class TestLastSuccessfulDeliveryAnchor(APIBaseTest):
 
 class TestFreezePlanPersistence:
     """build_ai_subscription_report freezes a freshly-generated plan and skips persistence on reuse.
-    These guard the freeze contract without touching the DB — the persist write itself is a one-line
-    queryset .update() exercised by the integration/activity suites."""
+    These guard the freeze contract without touching the DB — the conditional persist write itself is
+    exercised by the integration/activity suites."""
 
-    def _subscription(self, ai_query_plan: dict | None) -> MagicMock:
-        sub = MagicMock()
-        sub.id = 42
-        sub.team_id = 7
-        sub.prompt = "how are exports doing?"
-        sub.ai_query_plan = ai_query_plan
-        return sub
+    def _subscription(self, ai_query_plan: dict | None) -> Subscription:
+        return Subscription(
+            id=42,
+            team_id=7,
+            prompt="how are exports doing?",
+            ai_query_plan=ai_query_plan,
+            delivery_config={},
+            target_type="email",
+            target_value="a@posthog.com",
+            frequency="weekly",
+            interval=1,
+            start_date=datetime(2026, 1, 1, tzinfo=UTC),
+        )
 
-    def _context(self, sub: MagicMock) -> tuple[MagicMock, MagicMock, ReportWindow, dict | None]:
+    def _context(self, sub: Subscription) -> tuple[MagicMock, MagicMock, ReportWindow, dict | None]:
         end = datetime(2026, 6, 29, 16, 0, tzinfo=UTC)
         window = ReportWindow(start=end - timedelta(days=1), end=end)
         return MagicMock(), MagicMock(), window, sub.ai_query_plan
 
-    async def test_first_run_persists_freshly_generated_plan(self) -> None:
+    @parameterized.expand(
+        [
+            ("legacy_config", {}, True),
+            ("images_off", {"include_images": False}, False),
+        ]
+    )
+    async def test_first_run_persists_freshly_generated_plan(
+        self, _name: str, delivery_config: dict, expected_include_images: bool
+    ) -> None:
         sub = self._subscription(ai_query_plan=None)
+        sub.delivery_config = delivery_config
         fresh_plan = {
             "overall_intent": "i",
             "steps": [{"description": "d", "query_type": "hogql", "hogql": "SELECT 1"}],
@@ -624,7 +869,13 @@ class TestFreezePlanPersistence:
             returned = await build_ai_subscription_report(sub)
 
         # The plan generated on the first delivery is frozen onto the (id, team_id)-scoped subscription.
-        mock_persist.assert_called_once_with(sub.id, sub.team_id, sub.prompt, fresh_plan)
+        mock_persist.assert_called_once_with(
+            sub.id,
+            sub.team_id,
+            sub.prompt,
+            fresh_plan,
+            expected_include_images=expected_include_images,
+        )
         assert returned.query_plan_status == AIQueryPlanStatus.FROZEN
 
     async def test_persist_failure_does_not_abort_the_delivery(self) -> None:
@@ -697,3 +948,33 @@ class TestFreezePlanPersistence:
         assert mock_gen.await_args.kwargs["ai_query_plan"] == frozen
         mock_ctx.assert_called_once()
         assert returned.query_plan_status == AIQueryPlanStatus.FROZEN
+
+    @parameterized.expand(
+        [
+            ("legacy_config", {}, True, True),
+            ("images_on", {"include_images": True}, True, True),
+            ("images_off", {"include_images": False}, False, True),
+            ("manage_link_off", {"include_manage_link": False}, True, False),
+        ]
+    )
+    async def test_forwards_the_display_options_to_generation(
+        self, _name: str, delivery_config: dict, expected_charts: bool, expected_manage_link: bool
+    ) -> None:
+        # Generation renders the charts, so the option has to reach it — gating only the delivery
+        # renderers would still run a headless PNG export per chart for a report that hides them.
+        # Generation also writes the all-queries-failed notice, whose recovery sentence names the
+        # manage control, so it has to know whether the delivery renderers ship one.
+        sub = self._subscription(ai_query_plan=None)
+        sub.delivery_config = delivery_config
+        result = AiReportResult(
+            markdown="# R", diagnostics=(), window_end_utc="2026-06-29T16:00:00+00:00", plan_to_persist=None
+        )
+        with (
+            patch(f"{_DELIVERY}._resolve_subscription_context", return_value=self._context(sub)),
+            patch(f"{_DELIVERY}.generate_ai_report", new=AsyncMock(return_value=result)) as mock_gen,
+        ):
+            await build_ai_subscription_report(sub)
+
+        assert mock_gen.await_args is not None
+        assert mock_gen.await_args.kwargs["include_charts"] is expected_charts
+        assert mock_gen.await_args.kwargs["include_manage_link"] is expected_manage_link

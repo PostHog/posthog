@@ -11,7 +11,12 @@ names resolve lazily (PEP 562), keeping the runners off the ``django.setup()`` p
 that presentation loads at startup.
 """
 
-from typing import TYPE_CHECKING
+from __future__ import annotations
+
+from datetime import datetime
+from typing import TYPE_CHECKING, Any
+
+from products.product_analytics.backend.facade.contracts import TrendsQueryRunResult
 
 _B = "products.product_analytics.backend.hogql_queries."
 
@@ -39,10 +44,12 @@ _LAZY = {
     "step_source_for_event": "paths_v2.path_item",
 }
 
-__all__ = sorted(_LAZY)
+__all__ = sorted((*_LAZY, "run_cached_trends_query"))
 
 
 if TYPE_CHECKING:
+    from posthog.models import Team
+
     # Static view for mypy and IDEs only; runtime resolves through __getattr__ below, so these
     # modules stay off the django.setup() path. The runners that other products subclass must
     # resolve to their real class here, or subclass attribute inference collapses to Any. Ruff
@@ -67,6 +74,38 @@ if TYPE_CHECKING:
         TrendsQueryRunner,
     )
     from products.product_analytics.backend.hogql_queries.trends.utils import get_properties_chain  # noqa: F401
+
+
+def run_cached_trends_query(
+    *, query: dict[str, Any], team: Team, max_execution_time_seconds: int, cache_age_seconds: int
+) -> TrendsQueryRunResult:
+    """Run a Trends query through the blocking recent-cache path."""
+
+    from posthog.hogql.constants import HogQLGlobalSettings
+
+    from posthog.clickhouse.query_tagging import get_query_tag_value, is_api_key_access_method
+    from posthog.hogql_queries.query_runner import ExecutionMode
+
+    from products.product_analytics.backend.hogql_queries.trends.trends_query_runner import TrendsQueryRunner
+
+    runner = TrendsQueryRunner(
+        query=query,
+        team=team,
+        hogql_settings=HogQLGlobalSettings(max_execution_time=max_execution_time_seconds),
+    )
+    runner.is_query_service = is_api_key_access_method(get_query_tag_value("access_method"))
+    response = runner.run(
+        execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
+        cache_age_seconds=cache_age_seconds,
+    )
+    results = getattr(response, "results", None)
+    if not isinstance(results, list) or any(not isinstance(result, dict) for result in results):
+        raise ValueError("Trends query returned an invalid result set")
+    last_refresh = getattr(response, "last_refresh", None)
+    return TrendsQueryRunResult(
+        results=results,
+        last_refresh=last_refresh if isinstance(last_refresh, datetime) else None,
+    )
 
 
 def __getattr__(name: str):

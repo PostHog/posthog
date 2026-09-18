@@ -133,6 +133,61 @@ new_case_dir
 cp golden/full-override.yaml "$CASE_DIR/config.yaml"
 run_render full-override
 
+# Google Cloud Monitoring: GCP_PROJECT_ID enables a googlecloudmonitoring
+# receiver alongside (or instead of) the prometheus scrape.
+new_case_dir
+run_render gcp-only POSTHOG_API_KEY=phc_test GCP_PROJECT_ID=my-project \
+    GCP_METRICS='compute.googleapis.com/instance/cpu/utilization, compute.googleapis.com/instance/cpu/usage_time'
+
+new_case_dir
+run_render gcp-plus-scrape POSTHOG_API_KEY=phc_test SCRAPE_TARGETS=app:9090 GCP_PROJECT_ID=my-project \
+    GCP_METRICS='compute.googleapis.com/instance/cpu/utilization, compute.googleapis.com/instance/cpu/usage_time'
+
+# Filters can contain commas, so GCP_METRIC_FILTERS splits on semicolons.
+new_case_dir
+run_render gcp-filter POSTHOG_API_KEY=phc_test GCP_PROJECT_ID=my-project \
+    GCP_METRIC_FILTERS='metric.type = starts_with("compute.googleapis.com/") ; resource.type = "gce_instance"'
+
+# A mounted gcp_metrics_list.yaml is spliced as the receiver's metrics_list.
+new_case_dir
+cat >"$CASE_DIR/gcp_metrics_list.yaml" <<'EOF'
+- metric_name: 'compute.googleapis.com/instance/cpu/utilization'
+- metric_descriptor_filter: 'metric.type = starts_with("run.googleapis.com/")'
+EOF
+run_render gcp-mounted-metrics-list POSTHOG_API_KEY=phc_test GCP_PROJECT_ID=my-project
+
+new_case_dir
+run_render gcp-service-name POSTHOG_API_KEY=phc_test GCP_PROJECT_ID=my-project \
+    GCP_METRICS='compute.googleapis.com/instance/cpu/utilization' GCP_SERVICE_NAME=gcp-prod
+
+# A mounted but empty gcp_metrics_list.yaml yields no metrics_list entries and
+# must be rejected like a missing GCP_METRICS, not rendered into a bad config.
+new_case_dir
+: >"$CASE_DIR/gcp_metrics_list.yaml"
+expect_failure gcp-mounted-metrics-list-empty GCP_METRICS POSTHOG_API_KEY=phc_test GCP_PROJECT_ID=my-project
+
+new_case_dir
+expect_failure gcp-missing-metrics GCP_METRICS POSTHOG_API_KEY=phc_test GCP_PROJECT_ID=my-project
+
+new_case_dir
+expect_failure gcp-empty-metrics GCP_METRICS POSTHOG_API_KEY=phc_test GCP_PROJECT_ID=my-project GCP_METRICS=' , '
+
+new_case_dir
+expect_failure gcp-metrics-without-project GCP_PROJECT_ID POSTHOG_API_KEY=phc_test SCRAPE_TARGETS=app:9090 \
+    GCP_METRICS=compute.googleapis.com/instance/cpu/utilization
+
+# Every shard would pull the same Cloud Monitoring series, so GCP sources
+# are rejected on a sharded agent; run a separate single-instance agent.
+new_case_dir
+expect_failure gcp-sharded-rejected SHARD_COUNT POSTHOG_API_KEY=phc_test SCRAPE_TARGETS=app:9090 \
+    GCP_PROJECT_ID=my-project GCP_METRICS=x SHARD_COUNT=2 SHARD_INDEX=0
+
+# A credentials file the collector user cannot read fails at startup with a
+# Google auth error; the entrypoint turns it into a one-line error instead.
+new_case_dir
+expect_failure gcp-credentials-file-missing GOOGLE_APPLICATION_CREDENTIALS POSTHOG_API_KEY=phc_test \
+    GCP_PROJECT_ID=my-project GCP_METRICS=x GOOGLE_APPLICATION_CREDENTIALS="$CASE_DIR/missing.json"
+
 new_case_dir
 expect_failure missing-api-key POSTHOG_API_KEY SCRAPE_TARGETS=app:9090
 

@@ -44,6 +44,8 @@ from products.warehouse_sources.backend.billing import billed_usage_for_job
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import (
     AUTO_DISABLED_JOB_ERROR,
+    DUPLICATE_PRIMARY_KEY_DISABLED_MESSAGE,
+    MISSING_PRIMARY_KEY_DISABLED_MESSAGE,
     ExternalDataSchema,
     update_should_sync,
 )
@@ -58,6 +60,10 @@ from products.warehouse_sources.backend.temporal.data_imports.metrics import (
     get_v3_lock_skipped_metric,
     get_version_check_skipped_metric,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
+    DUPLICATE_PRIMARY_KEYS_ERROR,
+    MISSING_PRIMARY_KEYS_ERROR,
+)
 from products.warehouse_sources.backend.temporal.data_imports.post_import_job import (
     PostImportWorkflow,
     PostImportWorkflowInputs,
@@ -69,6 +75,14 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.bas
     ResumableSource,
     error_message_matches,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.errors import TRANSIENT_EGRESS_PROXY_ERRORS
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import (
+    DATABASE_HOST_NOT_ALLOWED_ERROR,
+    DATABASE_HOST_NOT_ALLOWED_GUIDANCE,
+    SSH_TUNNEL_HOST_NOT_ALLOWED_ERROR,
+    TEMPORARY_HOST_RESOLUTION_PREFIX,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import UNKNOWN_RESOURCE_PREFIX
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.acquire_v3_lock import (
     AcquireV3LockActivityInputs,
     CheckPipelineVersionActivityInputs,
@@ -113,8 +127,13 @@ LOGGER = get_logger(__name__)
 # Cap retries at 3 in local dev so failing syncs don't loop for tens of minutes while developers
 # iterate; prod cadence is unchanged. Defined at module level so tests can patch them to keep the
 # expensive retry-exhaustion paths fast.
-MAX_RESUMABLE_SOURCE_RETRIES = 3 if settings.DEBUG else 15
+MAX_RESUMABLE_SOURCE_RETRIES = 3 if settings.DEBUG else 20
 MAX_INCREMENTAL_SOURCE_RETRIES = 3 if settings.DEBUG else 9
+
+MISSING_INTEGRATION_MESSAGE = (
+    "The connected account for this source is no longer available — it may have been disconnected. "
+    "Please reconnect the source's account."
+)
 
 Any_Source_Errors: dict[str, str | None] = {
     "Could not establish session to SSH gateway": None,
@@ -122,10 +141,13 @@ Any_Source_Errors: dict[str, str | None] = {
     # resolve, or resolves to a private/internal address. Mirrors the `SSH tunnel host not allowed`
     # entry: a config problem only the customer can fix, so retrying just re-hits the same
     # rejection. Match the stable prefix and exclude the volatile host details that follow it.
-    "Database host not allowed": (
-        "PostHog rejected this source's database host because it either couldn't be resolved, or "
-        "resolves to a private/internal address. Check the host is spelled correctly and reachable "
-        "from the public internet, then re-enable the sync."
+    DATABASE_HOST_NOT_ALLOWED_ERROR: DATABASE_HOST_NOT_ALLOWED_GUIDANCE,
+    # Raised by `_pinned_ssh_host` for the bastion, the same class of config problem as the entry
+    # above: the tunnel host doesn't resolve, or resolves to a private/internal address.
+    SSH_TUNNEL_HOST_NOT_ALLOWED_ERROR: (
+        "PostHog rejected this source's SSH tunnel host because it either couldn't be resolved, or "
+        "resolves to a private/internal address. Check the tunnel host is spelled correctly and "
+        "reachable from the public internet, then re-enable the sync."
     ),
     # Raised by `SSHTunnel.get_tunnel` when `is_auth_valid()` fails — the SSH tunnel private key
     # can't be parsed, or password auth is missing a username/password. Shared by every
@@ -136,16 +158,15 @@ Any_Source_Errors: dict[str, str | None] = {
         "(private key, passphrase, or username and password) on the source's SSH tunnel "
         "configuration, then re-enable the sync."
     ),
-    "Primary key required for incremental syncs": (
-        "This table needs a primary key to sync incrementally, but none is set. Choose a primary key "
-        "for the table in its sync settings, or switch it to full table replication, then re-enable the sync."
-    ),
-    "The primary keys for this table are not unique": (
-        "The primary key set for this table isn't unique, so incremental syncing can't reliably match "
-        "rows to update. Choose a unique primary key in the table's sync settings, or switch it to full "
-        "table replication, then re-enable the sync."
-    ),
-    "Integration matching query does not exist": "The connected account for this source is no longer available — it may have been disconnected. Please reconnect the source's account.",
+    MISSING_PRIMARY_KEYS_ERROR: MISSING_PRIMARY_KEY_DISABLED_MESSAGE,
+    DUPLICATE_PRIMARY_KEYS_ERROR: DUPLICATE_PRIMARY_KEY_DISABLED_MESSAGE,
+    "Integration matching query does not exist": MISSING_INTEGRATION_MESSAGE,
+    # `OAuthMixin.get_oauth_integration` catches `Integration.DoesNotExist` and re-raises these
+    # two, so the ORM wording above never reaches here for the sources that go through it. Left
+    # unclassified they were retried to exhaustion and then shown raw, echoing an internal
+    # integration id back at the customer.
+    "Integration not found:": MISSING_INTEGRATION_MESSAGE,
+    "Missing integration ID": MISSING_INTEGRATION_MESSAGE,
     # A fatal TLS alert from the remote host (raised in the shared HTTP transport for every
     # REST-based source). The server refused the handshake, which is deterministic for a given
     # host/TLS config — retrying replays the identical failure, so it's not transient. Usually a
@@ -185,6 +206,15 @@ Any_Source_Errors: dict[str, str | None] = {
         "clients reject, such as an underscore. Fix the endpoint URL in your object storage settings, "
         "then re-enable the sync."
     ),
+    # Raised in shared pipeline code (`table_from_py_list` → `_process_batch`) when a batch carries
+    # rows that aren't objects, such as a REST resource whose selected response field holds arrays or
+    # scalars. Keyless rows carry no column names to build a table from, and the same shape comes back
+    # on every retry. Keep in step with `NON_MAPPING_ROW_ERROR` in arrow_utils.
+    "Rows from this table are not JSON objects": (
+        "This table's rows aren't objects with named fields, so PostHog has no columns to import. "
+        "If the source lets you choose which part of the response to read, point it at a list of "
+        "objects, then re-enable the sync."
+    ),
 }
 
 
@@ -204,6 +234,13 @@ TRANSIENT_POOLER_MESSAGE = (
 TRANSIENT_EGRESS_MESSAGE = (
     "PostHog couldn't reach your source over the network. This is on PostHog's side and usually "
     "clears on its own; the next sync runs on schedule."
+)
+
+# Copy for a table the running worker has no schema for. The web pods and the workers deploy
+# separately, so a newly shipped table is selectable before every worker can sync it.
+NEW_TABLE_NOT_READY_MESSAGE = (
+    "This table was added to PostHog too recently for this sync to pick it up. Nothing is wrong "
+    "with your source; the next sync runs on schedule."
 )
 
 TRANSIENT_VENDOR_UNAVAILABLE_MESSAGE = (
@@ -237,17 +274,30 @@ Transient_Error_Messages: dict[str, str] = {
     # PostHog's own egress proxy refusing the CONNECT. Nothing on the customer's side is wrong, so
     # this message asks nothing of them.
     "Cannot connect to proxy": TRANSIENT_EGRESS_MESSAGE,
-    "Tunnel connection failed: 502": TRANSIENT_EGRESS_MESSAGE,
-    "Tunnel connection failed: 503": TRANSIENT_EGRESS_MESSAGE,
-    "Tunnel connection failed: 504": TRANSIENT_EGRESS_MESSAGE,
+    **dict.fromkeys(TRANSIENT_EGRESS_PROXY_ERRORS, TRANSIENT_EGRESS_MESSAGE),
     # A vendor API that was down or overloaded, in the wording `requests.raise_for_status()` builds:
     # "<status> Server Error: <reason> for url: <url>". REST sources retry these in their transport
     # and again through Temporal, so reaching here means the outage outlasted both and the stored
     # text is a bare status plus the vendor URL. Only the gateway statuses are mapped: a 500 can be
     # one request the vendor mishandles every time, which is not an outage that clears on its own.
+    # The host policy's own lookup never answered. Every SQL source reaches it through the shared
+    # tunnel layer, so it is mapped here rather than per source.
+    TEMPORARY_HOST_RESOLUTION_PREFIX: (
+        "PostHog couldn't resolve your source's host: the lookup kept failing without an answer. "
+        "Check that the host name is correct and that its DNS records are answering; the next sync "
+        "runs on schedule."
+    ),
+    UNKNOWN_RESOURCE_PREFIX: NEW_TABLE_NOT_READY_MESSAGE,
     "502 Server Error": TRANSIENT_VENDOR_UNAVAILABLE_MESSAGE,
     "503 Server Error": TRANSIENT_VENDOR_UNAVAILABLE_MESSAGE,
     "504 Server Error": TRANSIENT_VENDOR_UNAVAILABLE_MESSAGE,
+    # Mixpanel signals a server-side abort inside an already-committed 200 body, so the export
+    # stops part-way through a day (mixpanel.py `EXPORT_TRUNCATED_ERROR`). The day is re-fetched
+    # in-process first; this copy is what the customer reads once those retries run out.
+    "Mixpanel export: stream ended early": (
+        "Mixpanel stopped sending a day of events before the export finished. This is on "
+        "Mixpanel's side and usually clears on its own; the next sync runs on schedule."
+    ),
 }
 
 
@@ -256,6 +306,17 @@ UNEXPECTED_ERROR_MESSAGE = "An unexpected error has occurred"
 CANCELLED_RUN_MESSAGE = (
     "This sync run was cancelled before it finished. This usually happens when a newer run replaces "
     "it or the source is paused. It will run again on its next schedule."
+)
+
+WORKER_RESTART_ERROR_MESSAGE = (
+    "This sync run was interrupted too many times by restarts on PostHog's side, so it did not finish. "
+    "It will run again automatically. No action is needed."
+)
+
+TRANSIENT_SOURCE_ERROR_MESSAGE = (
+    "The source's API kept returning temporary errors, such as rate limits or server errors, so this "
+    "sync run did not finish. This is usually a short problem on the source's side. The sync will run "
+    "again on its next schedule."
 )
 
 
@@ -279,6 +340,13 @@ def _customer_facing_error(cause: BaseException | None) -> str:
     # this one, the source was paused, or a worker was rolled). Give them something readable.
     if isinstance(cause, exceptions.CancelledError):
         return CANCELLED_RUN_MESSAGE
+    # A REST source exhausted every retry on a transient upstream failure (an HTTP 429/5xx, a dropped
+    # connection, or a timeout). Temporal records it as an ApplicationError typed
+    # `RESTClientRetryableError`, whose message is a raw string like "HTTP 503 for <url>". That status
+    # code means nothing to a customer, so replace it with a message that names the cause and says the
+    # sync retries on its next schedule.
+    if getattr(cause, "type", None) == "RESTClientRetryableError":
+        return TRANSIENT_SOURCE_ERROR_MESSAGE
     message = getattr(cause, "message", None)
     return message or str(cause)
 
@@ -469,7 +537,19 @@ async def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInpu
                 disable_exclude_workflow_id=activity.info().workflow_id,
             )
         elif not platform_failure:
-            transient_message = _transient_error_message(internal_error_normalized)
+            # A retryable failure that outlasted the whole retry budget lands here with
+            # `latest_error` still set to the raw driver text. The generic transient copy is
+            # consulted first; the source's own exhaustion messages cover the classes it does not
+            # name. Retryability is untouched: the schema is not disabled and the next scheduled
+            # run still tries.
+            transient_message = _transient_error_message(internal_error_normalized) or next(
+                (
+                    message
+                    for error, message in source_cls.get_retry_exhausted_errors().items()
+                    if error_message_matches(internal_error_normalized, [error])
+                ),
+                None,
+            )
             if transient_message is not None:
                 inputs.latest_error = transient_message
 
@@ -975,7 +1055,7 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                 )
 
             # Generate semantic descriptions for the synced table. Gated up front on actual need
-            # (feature flag + AI consent AND unannotated columns / missing table description, resolved in
+            # (AI consent AND unannotated columns / missing table description, resolved in
             # create_external_data_job_model_activity) so a steady-state sync — which re-fires every few
             # minutes — doesn't spawn a child that immediately no-ops; the activity re-checks as a safety
             # net and is idempotent. Keyed per schema so only one runs per schema at a time: a concurrent
@@ -1090,6 +1170,14 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
 
         except exceptions.ActivityError as e:
             if isinstance(e.cause, exceptions.ApplicationError) and e.cause.type == "WorkerShuttingDownError":
+                if is_v3:
+                    # No final batch reached the queue, so the loader can never complete this job.
+                    # A COMPLETED write would release the pipeline lock and let the buffered run
+                    # extract the same table again on top of this run's still-queued batches.
+                    # Set before the buffer-one activity so a failure there cannot skip it.
+                    update_inputs.status = ExternalDataJob.Status.FAILED
+                    update_inputs.internal_error = str(e.cause)
+                    update_inputs.latest_error = WORKER_RESTART_ERROR_MESSAGE
                 # Check if this is a WorkerShuttingDownError - implement Buffer One retry
                 schedule_id = str(inputs.external_data_schema_id)
                 await workflow.execute_activity(

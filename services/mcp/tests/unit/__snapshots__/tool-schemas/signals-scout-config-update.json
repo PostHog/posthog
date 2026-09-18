@@ -5,6 +5,11 @@
             "description": "Exempt this scout from the inactivity sweep, meaning both the `ignored` pause and the `no_output` quiet warning. Set it on watchdog scouts whose value is staying quiet.",
             "type": "boolean"
         },
+        "display_name": {
+            "description": "Name shown wherever people identify this scout, written however you want it — spaces, capitalization, and acronyms are kept as typed, and two scouts may share one. It does not change the scout's skill name, which stays its identity, so renaming a scout keeps its schedule, run history, notes, memory, and links. At most 200 characters; blank means the scout has no name of its own and is labelled from its skill name instead.",
+            "maxLength": 200,
+            "type": "string"
+        },
         "emit": {
             "description": "Whether the scout writes findings to the inbox. False = dry-run: it runs and logs but emits nothing.",
             "type": "boolean"
@@ -67,8 +72,7 @@
                                     "type": "number"
                                 },
                                 "thread_reports": {
-                                    "default": false,
-                                    "description": "When true, post a report as a thread: a short lead in the channel and the rest split into replies at the summary's section labels, which can be Markdown headings or bold labels. Keeps a long summary from being clipped at Slack's section limit. Off by default, and it does not change how findings post.",
+                                    "description": "When true, post a report as a thread: a short lead in the channel and the rest split into replies at the summary's section labels, which can be Markdown headings or bold labels. Keeps a long summary from being clipped at Slack's section limit. On by default; set it false to post a single message, which can truncate a long summary. It does not change how findings post.",
                                     "type": "boolean"
                                 },
                                 "users": {
@@ -120,6 +124,15 @@
             },
             "type": "object"
         },
+        "repositories": {
+            "description": "GitHub repositories this scout clones into its sandbox, each in `organization/repo` format. Set them for a scout that reads code, so it can search the tree and run the project's own tests instead of reading files one API call at a time. Empty (the default) leaves the sandbox without a checkout. The scout's GitHub access stays read-only either way, so a repository listed here is never writable from a run. At most 10, each reachable through the project's GitHub connection. Applies from the scout's next run.",
+            "items": {
+                "maxLength": 255,
+                "type": "string"
+            },
+            "maxItems": 10,
+            "type": "array"
+        },
         "run_cron_schedule": {
             "anyOf": [
                 {
@@ -162,11 +175,11 @@
             "type": "array"
         },
         "write_scopes": {
-            "description": "Extra write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `dashboard:write`, `insight:write`, `llm_skill:write`, `warehouse_table:write`, `warehouse_view:write`. Empty (the default) means the scout reads the project and writes only what every scout may write: notebooks, its findings, and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant. Applies from the scout's next run.",
+            "description": "Extra write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `dashboard:write`, `insight:write`, `llm_skill:write`, `replay_scanner:write`, `warehouse_table:write`, `warehouse_view:write`. Empty (the default) means the scout reads the project and writes only what every scout may write: notebooks, its findings, and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant. Applies from the scout's next run.",
             "items": {
                 "type": "string"
             },
-            "maxItems": 7,
+            "maxItems": 8,
             "type": "array"
         }
     },

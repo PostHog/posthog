@@ -120,7 +120,9 @@ export function planPermissionResponse(
   );
   const isModeSwitch = permission.toolCall?.kind === "switch_mode";
   const applyAllowAlwaysUpgrade =
-    selectedOption?.kind === "allow_always" && !isModeSwitch;
+    selectedOption?.kind === "allow_always" &&
+    !isModeSwitch &&
+    selectedOption._meta?.preservePermissionMode !== true;
 
   const optionTakesCustomInput =
     isOtherPermissionOption(optionId) ||

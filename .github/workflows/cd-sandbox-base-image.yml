@@ -13,6 +13,7 @@ on:
     pull_request:
         paths:
             - '.github/workflows/cd-sandbox-base-image.yml'
+            - '.github/actions/setup-uv/**'
             - 'products/tasks/backend/sandbox/images/**'
             - 'products/desktop/packages/agent-shadow/**'
             - 'products/posthog_ai/scripts/**'
@@ -63,6 +64,7 @@ jobs:
                   filters: |
                       sandbox_image:
                         - '.github/workflows/cd-sandbox-base-image.yml'
+                        - '.github/actions/setup-uv/**'
                         - 'products/tasks/backend/sandbox/images/**'
                         - 'products/desktop/packages/agent-shadow/**'
                         - 'products/*/skills/**'
@@ -181,11 +183,7 @@ jobs:
                   token: ${{ github.token }}
 
             - name: Install uv
-              uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
-              with:
-                  version: '0.11.28'
-                  enable-cache: true
-                  save-cache: ${{ github.ref == 'refs/heads/master' }}
+              uses: ./.github/actions/setup-uv
 
             - name: Install python dependencies
               run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
@@ -347,16 +345,6 @@ jobs:
                   password: ${{ secrets.GITHUB_TOKEN }}
                   logout: false
 
-            - name: Resolve published agent version
-              id: agent-version
-              run: |
-                  version=$(curl -fsSL --retry 3 https://registry.npmjs.org/@posthog%2fagent/latest | jq -r '.version')
-                  if [[ -z "$version" || "$version" == "null" ]]; then
-                    echo "Could not resolve the latest @posthog/agent version" >&2
-                    exit 1
-                  fi
-                  echo "version=$version" >> "$GITHUB_OUTPUT"
-
             - parallel:
                   - name: Build and push container image (base)
                     id: build
@@ -369,8 +357,9 @@ jobs:
                         push: ${{ github.event_name == 'pull_request' || vars.CD_DEPLOY_ENABLED == 'true' }}
                         tags: ${{ github.ref == 'refs/heads/master' && format('ghcr.io/posthog/posthog-sandbox-base:master,ghcr.io/posthog/posthog-sandbox-base:{0}', github.sha) || format('ghcr.io/posthog/posthog-sandbox-base:{0}', github.sha) }}
                         platforms: linux/arm64,linux/amd64
+                        # AGENT_VERSION is not passed here: the Dockerfile's ARG default is the
+                        # pinned, reviewed version. Bump it there, not by resolving npm "latest".
                         build-args: |
-                            AGENT_VERSION=${{ steps.agent-version.outputs.version }}
                             COMMIT_HASH=${{ github.sha }}
 
                   - name: Build and push container image (notebook)

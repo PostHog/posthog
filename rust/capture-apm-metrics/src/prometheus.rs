@@ -10,8 +10,9 @@ use axum::Json;
 use bytes::Bytes;
 use capture_logs::authorizer::Signal;
 use capture_logs::endpoints::prometheus::{
-    decode_write_request, estimate_expanded_bytes, write_request_to_kafka_rows,
+    decode_write_request, estimate_expanded_bytes, write_request_to_kafka_rows, RemoteWriteEncoding,
 };
+use metrics::counter;
 use serde::Deserialize;
 use serde_json::json;
 use tracing::{debug, error, instrument};
@@ -57,16 +58,21 @@ fn extract_token(
     query_token.filter(|t| !t.is_empty()).map(str::to_string)
 }
 
-/// Prometheus remote-write v1 ingestion endpoint.
+/// Prometheus remote-write v1 ingestion endpoint. Also accepts the
+/// VictoriaMetrics remote-write protocol (same protobuf, zstd body).
 ///
-/// Snappy-decodes the protobuf body, maps it to `KafkaMetricRow` records, and
+/// Decompresses the protobuf body, maps it to `KafkaMetricRow` records, and
 /// produces them through the shared `KafkaSink` so the rest of the pipeline is
 /// identical to OTLP ingestion. Response codes follow remote-write semantics:
-/// 204 on success, 400 on a permanent decode failure (sender drops the batch),
-/// 5xx on a transient produce failure (sender retries).
+/// 204 on success, 400 on a permanent decode failure (sender drops the batch;
+/// vmagent also falls back to snappy on 400), 5xx on a transient produce
+/// failure (sender retries).
 #[instrument(skip_all, fields(
     token = tracing::field::Empty,
     user_agent = %headers.get("user-agent")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or(""),
+    content_encoding = %headers.get("content-encoding")
         .and_then(|v| v.to_str().ok())
         .unwrap_or(""),
     content_length = %headers.get("content-length")
@@ -101,8 +107,15 @@ pub async fn export_prometheus_remote_write_http(
 
     tracing::Span::current().record("token", &token);
 
+    let encoding = RemoteWriteEncoding::from_headers(&headers);
+    counter!(
+        "capture_metrics_remote_write_requests",
+        "encoding" => encoding.as_str()
+    )
+    .increment(1);
+
     let (write_request, uncompressed_bytes) =
-        match decode_write_request(&body, service.max_request_body_size_bytes) {
+        match decode_write_request(&body, encoding, service.max_request_body_size_bytes) {
             Ok(decoded) => decoded,
             Err(e) => {
                 error!("Failed to decode remote-write request: {e}");

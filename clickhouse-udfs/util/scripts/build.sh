@@ -4,6 +4,7 @@ set -euo pipefail
 ROOT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 OUT_DIR="$ROOT_DIR/../../posthog/user_scripts"
 UDFS=(
+    decompress_udf
     json_drop_keys_udf
     json_clean_posthog_event_properties_udf
     json_strip_empty_strings_and_nulls_udf

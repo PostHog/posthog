@@ -1,8 +1,8 @@
 import {
   buildArchiveListOrdering,
   INBOX_DISMISSED_STATUS_FILTER,
-  INBOX_REFETCH_INTERVAL_MS,
 } from "@posthog/core/inbox/reportFiltering";
+import { DESKTOP_INBOX_REFETCH_INTERVAL_MS } from "@posthog/ui/features/inbox/hooks/inboxPolling";
 import { useInboxReportsInfinite } from "@posthog/ui/features/inbox/hooks/useInboxReports";
 
 /**
@@ -22,7 +22,7 @@ export function useInboxDismissedReports() {
       status: INBOX_DISMISSED_STATUS_FILTER,
       ordering: buildArchiveListOrdering("updated_at", "desc"),
     },
-    { refetchInterval: INBOX_REFETCH_INTERVAL_MS },
+    { refetchInterval: DESKTOP_INBOX_REFETCH_INTERVAL_MS },
   );
 
   return {

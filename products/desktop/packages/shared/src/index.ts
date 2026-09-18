@@ -19,6 +19,14 @@ export type {
 } from "./agent-conversation";
 export * from "./agent-runtime";
 export * from "./analytics-events";
+export type { TaskRunUpdate } from "./api-http-client";
+export {
+  API_DOWNLOAD_TIMEOUT_MS,
+  API_TRANSFER_TIMEOUT_MS,
+  PostHogHttpClient,
+  PostHogHttpError,
+  transferTimeoutMs,
+} from "./api-http-client";
 export type { ArchivedTask } from "./archive-domain";
 export { withTimeout } from "./async";
 export {
@@ -52,7 +60,11 @@ export {
   tabsSnapshotSchema,
   tabViewStateSchema,
 } from "./browser-tabs-schemas";
-export { omitNullCallToolResultFields } from "./call-tool-result";
+export {
+  boundPersistedMcpResult,
+  MAX_PERSISTED_MCP_RESULT_BYTES,
+  omitNullCallToolResultFields,
+} from "./call-tool-result";
 export * from "./canvas-contracts";
 export * from "./canvas-platform";
 export type { CloudRunSource, PrAuthorshipMode } from "./cloud";
@@ -184,7 +196,11 @@ export {
   MAX_IMAGE_BASE64_LENGTH,
   parseImageDataUrl,
 } from "./image";
-export { buildDiscussReportPrompt } from "./inbox-prompts";
+export {
+  buildDiscussReportPrompt,
+  buildLocalCodeSnapshotPrompt,
+  CODE_CONTEXT_DISCLOSURE,
+} from "./inbox-prompts";
 export type {
   AvailableSuggestedReviewer,
   SignalRecordKind,
@@ -253,11 +269,14 @@ export {
   workflowAgentStateSchema,
 } from "./orchestration";
 export {
+  CLIPBOARD_ATTACHMENT_DIR_NAME,
+  CLIPBOARD_ATTACHMENT_PREFIX,
   compactHomePath,
   expandTildePath,
   getFileExtension,
   getFileName,
   isAbsolutePath,
+  isClipboardAttachmentPath,
   pathToFileUri,
   toRelativePath,
 } from "./path";
@@ -270,6 +289,7 @@ export {
   type PiToolCallRecord,
   type PiToolName,
 } from "./pi-tool-call";
+export { POSTHOG_PRODUCTS, type PostHogProductId } from "./posthog-products";
 export {
   buildPrOutput,
   mergePrUrls,
@@ -299,10 +319,11 @@ export { normalizeRepoKey } from "./repo";
 export { getTaskRepository, parseRepository } from "./repository";
 export { rewriteSavedLocation } from "./route-migrations";
 export { Saga, type SagaLogger, type SagaResult } from "./saga";
-export { scoutSkillNameFromSlug, scoutSkillSlug } from "./scout-naming";
 export {
   type AcpMessage,
+  IDLE_RESUME_STOP_REASON,
   IMPORTED_USER_PROMPT_META_KEY,
+  isIdleResumeTurnComplete,
   isJsonRpcNotification,
   isJsonRpcRequest,
   isJsonRpcResponse,
@@ -374,8 +395,13 @@ export {
   readMcpToolName,
   readParentToolCallId,
 } from "./tool-meta";
+export { isTranscriptNeutralNotificationMethod } from "./transcript-neutral-notifications";
 export { TypedEventEmitter } from "./typed-event-emitter";
-export { isSafeExternalUrl, isSafePostHogUrl } from "./url";
+export {
+  isSafeExternalUrl,
+  isSafeGitHubPullRequestUrl,
+  isSafePostHogUrl,
+} from "./url";
 export { getCloudUrlFromRegion } from "./urls";
 export {
   buildVideoDataUrl,

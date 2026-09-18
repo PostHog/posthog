@@ -1,4 +1,4 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 
 import { LogsImpactCounts } from './LogsImpactCounts'
 import { logsImpactLogic } from './logsImpactLogic'
@@ -13,10 +13,21 @@ export interface LogsImpactStripProps {
  */
 export function LogsImpactStrip({ id }: LogsImpactStripProps): JSX.Element | null {
     const { impact } = useValues(logsImpactLogic({ id }))
+    const { pivotToGroupBy } = useActions(logsImpactLogic({ id }))
 
     if (!impact) {
         return null
     }
 
-    return <LogsImpactCounts impact={impact} />
+    // The backend names the dimension carrying the ID on most matching logs, so the pivot groups
+    // by the key the data uses. It names none when no matching log carries that ID at all.
+    const { sessionGroupKey, personGroupKey } = impact
+
+    return (
+        <LogsImpactCounts
+            impact={impact}
+            onGroupBySessions={sessionGroupKey ? () => pivotToGroupBy(sessionGroupKey) : undefined}
+            onGroupByUsers={personGroupKey ? () => pivotToGroupBy(personGroupKey) : undefined}
+        />
+    )
 }

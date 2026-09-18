@@ -371,7 +371,8 @@ class ScheduledChangeViewSet(ApprovalHandlingMixin, TeamAndOrgViewSetMixin, view
     scope_object = "feature_flag"
     serializer_class = ScheduledChangeSerializer
     # select_related keeps the serializer's nested change_request and created_by from N+1-ing list responses.
-    queryset = ScheduledChange.objects.select_related("change_request", "created_by").all()
+    # id breaks scheduled_at ties, so limit-offset pages cannot repeat or drop a schedule.
+    queryset = ScheduledChange.objects.select_related("change_request", "created_by").order_by("scheduled_at", "id")
 
     @extend_schema(
         parameters=[

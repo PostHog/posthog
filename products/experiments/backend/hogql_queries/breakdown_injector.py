@@ -45,10 +45,6 @@ class BreakdownInjector:
         """Returns True if any breakdowns are configured"""
         return len(self.breakdowns) > 0
 
-    def _get_breakdown_count(self) -> int:
-        """Returns the number of breakdowns configured"""
-        return len(self.breakdowns)
-
     def _get_breakdown_aliases(self) -> list[str]:
         """Returns list of breakdown aliases: ['breakdown_value_1', 'breakdown_value_2', ...]"""
         return [f"breakdown_value_{i + 1}" for i in range(len(self.breakdowns))]

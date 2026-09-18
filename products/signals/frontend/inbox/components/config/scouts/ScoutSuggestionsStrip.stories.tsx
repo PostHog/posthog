@@ -35,8 +35,14 @@ function StripState({
         logic.actions.showStrip()
         logic.actions.setCollapsed(collapsed)
         if (refreshing) {
-            logic.actions.requestRefresh()
+            const baseline = mockScoutSuggestionSet()
+            logic.actions.startRefreshPolling({
+                startedAt: Date.now(),
+                baselineGeneratedAt: baseline.generated_at,
+                baselineStatus: baseline.status,
+            })
         }
+        return () => logic.actions.refreshFinished()
     }, [logic, collapsed, refreshing])
     return <>{children}</>
 }
@@ -150,8 +156,21 @@ export const NothingLeft: Story = {
     ],
 }
 
-// What the header button opens on a project with nothing to suggest: skeletons until the scan lands.
+// A scan over a batch that already has picks: they stay readable until it replaces them.
 export const Scanning: Story = {
+    parameters: { stripRefreshing: true },
+    decorators: [mswDecorator({ get: { [SUGGESTIONS_URL]: () => [200, mockScoutSuggestionSet()] } })],
+}
+
+// The strip opens collapsed, so this is where most Refresh presses land: the picks stay named and
+// the scan says how long it has been going.
+export const ScanningCollapsed: Story = {
+    parameters: { stripCollapsed: true, stripRefreshing: true },
+    decorators: [mswDecorator({ get: { [SUGGESTIONS_URL]: () => [200, mockScoutSuggestionSet()] } })],
+}
+
+// The one case skeletons are left for: every pick was acted on while the scan ran.
+export const ScanningWithNothingToShow: Story = {
     parameters: { stripRefreshing: true },
     decorators: [
         mswDecorator({

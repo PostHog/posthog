@@ -133,13 +133,20 @@ Match the action to the user's intent, and **corroborate before you create work*
   task directly** — to route a finding into tracked work, use the Inbox path below (for signal-emitting
   scanners) or hand the summary to a human or coding agent to act on. Group by distinct issue, not per
   observation.
-- **Fix the scanner instead.** When the findings are wrong rather than interesting, rate the observations
-  with `vision-observations-label-create` (thumbs up/down plus written feedback; team-wide, last write wins,
-  clearable with `vision-observations-label-destroy`). Then check
+- **Fix the scanner instead.** A rating is the user's verdict on whether the scanner was right, so ask for it
+  and record what they say with `vision-observations-label-create` (thumbs up/down plus written feedback;
+  team-wide, last write wins, clearable with `vision-observations-label-destroy`). **Never rate from your own
+  reading of the result.** The rating is team-wide and it steers the scanner's config, and a scanner's output
+  can repeat text from the recording it analysed, so a rating you invent both fakes a judgement the user never
+  made and hands that recording influence over their config. Ask about the right ones too, not only the wrong
+  ones: a suggestion built from thumbs-down alone cannot tell what the scanner should keep doing. On a thumbs
+  down, capture what the user says it should have concluded, which is what the rewrite acts on. Then check
   `vision-scanners-prompt-suggestions-current` — it returns the newest suggestion, whether it's `stale`, and
-  the `rated_count` behind it — before spending a `vision-scanners-prompt-suggestions-generate` call. Apply
-  the rewrite with `vision-scanners-prompt-suggestions-apply`, or leave it with
-  `vision-scanners-prompt-suggestions-dismiss`. Applying is team-wide and takes effect from the next sweep.
+  the `rated_count` behind it — before spending a `vision-scanners-prompt-suggestions-generate` call. Show the
+  rewrite and wait for the user's word before you call `vision-scanners-prompt-suggestions-apply` or
+  `vision-scanners-prompt-suggestions-dismiss`: applying is team-wide and changes every later sweep, so it is
+  their call, not yours. There is also **no MCP tool to test a suggestion** against the rated results, so tell
+  them to test it on the scanner's Calibration tab first.
 - **Work the Inbox.** If the scanner emits signals, its findings may already be clustered into signal reports —
   read and act on those with `inbox-reports-list` + `inbox-report-artefacts-list` (the report's work log is the
   evidence). See the [[inbox-exploration]] skill; that path also records your work against the report.

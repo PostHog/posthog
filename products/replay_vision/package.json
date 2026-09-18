@@ -9,11 +9,13 @@
         "kea-forms": "catalog:",
         "kea-loaders": "catalog:",
         "kea-router": "catalog:",
+        "kea-subscriptions": "catalog:",
         "lodash.uniqby": "^4.7.0",
         "posthog-js": "catalog:"
     },
     "devDependencies": {
         "@testing-library/react": "^14.3.1",
+        "@testing-library/user-event": "^14.6.1",
         "kea-test-utils": "catalog:"
     },
     "peerDependencies": {

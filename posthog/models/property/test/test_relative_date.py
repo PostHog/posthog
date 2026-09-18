@@ -1,7 +1,7 @@
 import datetime
 
 import unittest
-from freezegun import freeze_time
+import time_machine
 
 from dateutil import tz
 
@@ -10,7 +10,7 @@ from posthog.models.property.relative_date import relative_date_parse_for_featur
 
 class TestRelativeDateParsing(unittest.TestCase):
     def test_invalid_input(self):
-        with freeze_time("2020-01-01T12:01:20.1340Z"):
+        with time_machine.travel("2020-01-01T12:01:20.1340Z", tick=False):
             assert relative_date_parse_for_feature_flag_matching("1") is None
             assert relative_date_parse_for_feature_flag_matching("1x") is None
             assert relative_date_parse_for_feature_flag_matching("1.2y") is None
@@ -29,7 +29,7 @@ class TestRelativeDateParsing(unittest.TestCase):
         assert relative_date_parse_for_feature_flag_matching("100000000000000000y") is None
 
     def test_hour_parsing(self):
-        with freeze_time("2020-01-01T12:01:20.1340Z"):
+        with time_machine.travel("2020-01-01T12:01:20.1340Z", tick=False):
             assert relative_date_parse_for_feature_flag_matching("1h") == datetime.datetime(
                 2020, 1, 1, 11, 1, 20, 134000, tzinfo=tz.gettz("UTC")
             )
@@ -54,7 +54,7 @@ class TestRelativeDateParsing(unittest.TestCase):
             ) == relative_date_parse_for_feature_flag_matching("2d")
 
     def test_day_parsing(self):
-        with freeze_time("2020-01-01T12:01:20.1340Z"):
+        with time_machine.travel("2020-01-01T12:01:20.1340Z", tick=False):
             assert relative_date_parse_for_feature_flag_matching("1d") == datetime.datetime(
                 2019, 12, 31, 12, 1, 20, 134000, tzinfo=tz.gettz("UTC")
             )
@@ -76,7 +76,7 @@ class TestRelativeDateParsing(unittest.TestCase):
             )
 
     def test_week_parsing(self):
-        with freeze_time("2020-01-01T12:01:20.1340Z"):
+        with time_machine.travel("2020-01-01T12:01:20.1340Z", tick=False):
             assert relative_date_parse_for_feature_flag_matching("1w") == datetime.datetime(
                 2019, 12, 25, 12, 1, 20, 134000, tzinfo=tz.gettz("UTC")
             )
@@ -98,7 +98,7 @@ class TestRelativeDateParsing(unittest.TestCase):
             )
 
     def test_month_parsing(self):
-        with freeze_time("2020-01-01T12:01:20.1340Z"):
+        with time_machine.travel("2020-01-01T12:01:20.1340Z", tick=False):
             assert relative_date_parse_for_feature_flag_matching("1m") == datetime.datetime(
                 2019, 12, 1, 12, 1, 20, 134000, tzinfo=tz.gettz("UTC")
             )
@@ -119,7 +119,7 @@ class TestRelativeDateParsing(unittest.TestCase):
                 "12m"
             ) == relative_date_parse_for_feature_flag_matching("1y")
 
-        with freeze_time("2020-04-03T00:00:00"):
+        with time_machine.travel("2020-04-03T00:00:00", tick=False):
             assert relative_date_parse_for_feature_flag_matching("1m") == datetime.datetime(
                 2020, 3, 3, 0, 0, 0, tzinfo=tz.gettz("UTC")
             )
@@ -141,7 +141,7 @@ class TestRelativeDateParsing(unittest.TestCase):
             ) == relative_date_parse_for_feature_flag_matching("1y")
 
     def test_year_parsing(self):
-        with freeze_time("2020-01-01T12:01:20.1340Z"):
+        with time_machine.travel("2020-01-01T12:01:20.1340Z", tick=False):
             assert relative_date_parse_for_feature_flag_matching("1y") == datetime.datetime(
                 2019, 1, 1, 12, 1, 20, 134000, tzinfo=tz.gettz("UTC")
             )

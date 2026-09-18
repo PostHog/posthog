@@ -6,6 +6,20 @@ export function isAccessDeniedError(error: { status?: number; code?: string | nu
     return error.status === 403 && error.code === 'permission_denied'
 }
 
+/** DRF code for `PostHogFeatureFlagPermission` (posthog/permissions.py). Keep in sync with the backend. */
+export const FEATURE_FLAG_REQUIRED_ERROR_CODE = 'feature_flag_required'
+
+/**
+ * A 403 from a feature flag gate rather than from access control: the flag behind the product
+ * is not on for this user yet. Early access enrollment reaches the server as an ingested person
+ * property, so this is also what the seconds right after enabling a feature preview look like,
+ * while the browser already evaluates the flag as on.
+ */
+export function isFeatureFlagGatedError(error: unknown): boolean {
+    const failure = error as { status?: number; code?: string | null } | null
+    return failure?.status === 403 && failure?.code === FEATURE_FLAG_REQUIRED_ERROR_CODE
+}
+
 /** DRF code for `ClickHouseQueryMemoryLimitExceeded` (posthog/exceptions.py). Keep in sync with the backend. */
 export const CLICKHOUSE_MEMORY_LIMIT_ERROR_CODE = 'clickhouse_memory_limit_exceeded'
 

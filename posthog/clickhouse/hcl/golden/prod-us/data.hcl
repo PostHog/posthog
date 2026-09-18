@@ -12,6 +12,9 @@ database "posthog" {
     column "uuid" {
       type = "UUID"
     }
+    column "data_deletion_request_id" {
+      type = "Nullable(UUID)"
+    }
     column "created_at" {
       type    = "DateTime64(6, 'UTC')"
       default = "now64()"
@@ -3406,6 +3409,26 @@ database "posthog" {
     }
   }
 
+  table "person_property_mutation_log" {
+    column "team_id" {
+      type = "Int64"
+    }
+    column "event_uuid" {
+      type = "UUID"
+    }
+    column "properties" {
+      type = "String"
+    }
+    column "ingested_at" {
+      type = "DateTime('UTC')"
+    }
+    engine "distributed" {
+      cluster_name    = "aux"
+      remote_database = "posthog"
+      remote_table    = "person_property_mutation_log_data"
+    }
+  }
+
   table "person_static_cohort" {
     order_by = ["team_id", "cohort_id", "person_id", "id"]
     settings = {
@@ -4270,6 +4293,9 @@ database "posthog" {
     column "has_autocapture" {
       type = "SimpleAggregateFunction(max, Bool)"
     }
+    column "flag_key_values" {
+      type = "SimpleAggregateFunction(groupUniqArrayArray(10000), Array(String))"
+    }
     column "flag_values" {
       type = "AggregateFunction(groupUniqArrayMap, Map(String, String))"
     }
@@ -4278,6 +4304,12 @@ database "posthog" {
     }
     column "event_names" {
       type = "SimpleAggregateFunction(groupUniqArrayArray, Array(String))"
+    }
+    column "hosts" {
+      type = "SimpleAggregateFunction(groupUniqArrayArray(100), Array(String))"
+    }
+    column "emails" {
+      type = "SimpleAggregateFunction(groupUniqArrayArray(10), Array(String))"
     }
     column "has_replay_events" {
       type = "SimpleAggregateFunction(max, Bool)"
@@ -4405,20 +4437,8 @@ database "posthog" {
     column "max_last_timestamp" {
       type = "SimpleAggregateFunction(max, DateTime64(6, 'UTC'))"
     }
-    column "block_first_timestamps" {
-      type = "SimpleAggregateFunction(groupArrayArray, Array(DateTime64(6, 'UTC')))"
-    }
-    column "block_last_timestamps" {
-      type = "SimpleAggregateFunction(groupArrayArray, Array(DateTime64(6, 'UTC')))"
-    }
-    column "block_urls" {
-      type = "SimpleAggregateFunction(groupArrayArray, Array(String))"
-    }
     column "first_url" {
       type = "AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC'))"
-    }
-    column "all_urls" {
-      type = "SimpleAggregateFunction(groupUniqArrayArray, Array(String))"
     }
     column "click_count" {
       type = "SimpleAggregateFunction(sum, Int64)"
@@ -4450,14 +4470,29 @@ database "posthog" {
     column "event_count" {
       type = "SimpleAggregateFunction(sum, Int64)"
     }
+    column "_timestamp" {
+      type = "SimpleAggregateFunction(max, DateTime)"
+    }
     column "snapshot_source" {
-      type = "AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC'))"
+      type = "AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC'))"
+    }
+    column "all_urls" {
+      type = "SimpleAggregateFunction(groupUniqArrayArray, Array(String))"
     }
     column "snapshot_library" {
       type = "AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC'))"
     }
-    column "_timestamp" {
-      type = "SimpleAggregateFunction(max, DateTime)"
+    column "block_first_timestamps" {
+      type = "SimpleAggregateFunction(groupArrayArray, Array(DateTime64(6, 'UTC')))"
+    }
+    column "block_last_timestamps" {
+      type = "SimpleAggregateFunction(groupArrayArray, Array(DateTime64(6, 'UTC')))"
+    }
+    column "block_urls" {
+      type = "SimpleAggregateFunction(groupArrayArray, Array(String))"
+    }
+    column "retention_period_days" {
+      type = "SimpleAggregateFunction(max, Nullable(Int64))"
     }
     column "is_deleted" {
       type    = "SimpleAggregateFunction(max, UInt8)"
@@ -4476,11 +4511,8 @@ database "posthog" {
     column "surfacing_score" {
       type = "SimpleAggregateFunction(max, Nullable(Float32))"
     }
-    column "retention_period_days" {
-      type = "SimpleAggregateFunction(max, Nullable(Int64))"
-    }
-    column "snapshot_mode" {
-      type = "AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC'))"
+    column "snapshot_mode_v2" {
+      type = "AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC'))"
     }
     engine "distributed" {
       cluster_name    = "posthog"
@@ -6151,6 +6183,9 @@ database "posthog" {
     column "has_autocapture" {
       type = "SimpleAggregateFunction(max, Bool)"
     }
+    column "flag_key_values" {
+      type = "SimpleAggregateFunction(groupUniqArrayArray(10000), Array(String))"
+    }
     column "flag_values" {
       type = "AggregateFunction(groupUniqArrayMap, Map(String, String))"
     }
@@ -6159,6 +6194,12 @@ database "posthog" {
     }
     column "event_names" {
       type = "SimpleAggregateFunction(groupUniqArrayArray, Array(String))"
+    }
+    column "hosts" {
+      type = "SimpleAggregateFunction(groupUniqArrayArray(100), Array(String))"
+    }
+    column "emails" {
+      type = "SimpleAggregateFunction(groupUniqArrayArray(10), Array(String))"
     }
     column "has_replay_events" {
       type = "SimpleAggregateFunction(max, Bool)"
@@ -6170,6 +6211,21 @@ database "posthog" {
     }
     index "flag_keys_bloom_filter" {
       expr        = "flag_keys"
+      type        = "bloom_filter()"
+      granularity = 1
+    }
+    index "flag_key_values_bloom_filter" {
+      expr        = "flag_key_values"
+      type        = "bloom_filter()"
+      granularity = 1
+    }
+    index "hosts_bloom_filter" {
+      expr        = "hosts"
+      type        = "bloom_filter()"
+      granularity = 1
+    }
+    index "emails_bloom_filter" {
+      expr        = "emails"
       type        = "bloom_filter()"
       granularity = 1
     }
@@ -6232,20 +6288,8 @@ database "posthog" {
     column "max_last_timestamp" {
       type = "SimpleAggregateFunction(max, DateTime64(6, 'UTC'))"
     }
-    column "block_first_timestamps" {
-      type = "SimpleAggregateFunction(groupArrayArray, Array(DateTime64(6, 'UTC')))"
-    }
-    column "block_last_timestamps" {
-      type = "SimpleAggregateFunction(groupArrayArray, Array(DateTime64(6, 'UTC')))"
-    }
-    column "block_urls" {
-      type = "SimpleAggregateFunction(groupArrayArray, Array(String))"
-    }
     column "first_url" {
       type = "AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC'))"
-    }
-    column "all_urls" {
-      type = "SimpleAggregateFunction(groupUniqArrayArray, Array(String))"
     }
     column "click_count" {
       type = "SimpleAggregateFunction(sum, Int64)"
@@ -6277,14 +6321,29 @@ database "posthog" {
     column "event_count" {
       type = "SimpleAggregateFunction(sum, Int64)"
     }
+    column "_timestamp" {
+      type = "SimpleAggregateFunction(max, DateTime)"
+    }
     column "snapshot_source" {
       type = "AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC'))"
+    }
+    column "all_urls" {
+      type = "SimpleAggregateFunction(groupUniqArrayArray, Array(String))"
     }
     column "snapshot_library" {
       type = "AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC'))"
     }
-    column "_timestamp" {
-      type = "SimpleAggregateFunction(max, DateTime)"
+    column "block_first_timestamps" {
+      type = "SimpleAggregateFunction(groupArrayArray, Array(DateTime64(6, 'UTC')))"
+    }
+    column "block_last_timestamps" {
+      type = "SimpleAggregateFunction(groupArrayArray, Array(DateTime64(6, 'UTC')))"
+    }
+    column "block_urls" {
+      type = "SimpleAggregateFunction(groupArrayArray, Array(String))"
+    }
+    column "retention_period_days" {
+      type = "SimpleAggregateFunction(max, Nullable(Int64))"
     }
     column "is_deleted" {
       type    = "SimpleAggregateFunction(max, UInt8)"
@@ -6303,11 +6362,8 @@ database "posthog" {
     column "surfacing_score" {
       type = "SimpleAggregateFunction(max, Nullable(Float32))"
     }
-    column "retention_period_days" {
-      type = "SimpleAggregateFunction(max, Nullable(Int64))"
-    }
-    column "snapshot_mode" {
-      type = "AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC'))"
+    column "snapshot_mode_v2" {
+      type = "AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC'))"
     }
     engine "replicated_aggregating_merge_tree" {
       zoo_path     = "/clickhouse/tables/reshard/{shard}/posthog.session_replay_events"
@@ -8381,6 +8437,9 @@ database "posthog" {
     column "has_autocapture" {
       type = "SimpleAggregateFunction(max, Bool)"
     }
+    column "flag_key_values" {
+      type = "SimpleAggregateFunction(groupUniqArrayArray(10000), Array(String))"
+    }
     column "flag_values" {
       type = "AggregateFunction(groupUniqArrayMap, Map(String, String))"
     }
@@ -8536,13 +8595,13 @@ database "posthog" {
       type = "SimpleAggregateFunction(sum, Int64)"
     }
     column "snapshot_source" {
-      type = "AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC'))"
+      type = "AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC'))"
     }
     column "snapshot_library" {
       type = "AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC'))"
     }
-    column "snapshot_mode" {
-      type = "AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC'))"
+    column "snapshot_mode_v2" {
+      type = "AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC'))"
     }
     column "_timestamp" {
       type = "SimpleAggregateFunction(max, DateTime)"
@@ -9686,12 +9745,11 @@ SELECT
   session_timestamp,
   team_id,
   argMaxMerge(distinct_id) AS distinct_id,
-  argMaxMerge(person_id) AS person_id,
   groupUniqArrayMerge(distinct_ids) AS distinct_ids,
   min(min_timestamp) AS min_timestamp,
   max(max_timestamp) AS max_timestamp,
   max(max_inserted_at) AS max_inserted_at,
-  arrayDistinct(arrayFlatten(groupArray(urls))) AS urls,
+  groupUniqArrayArray(2000)(urls) AS urls,
   argMinMerge(entry_url) AS entry_url,
   argMaxMerge(end_url) AS end_url,
   argMaxMerge(last_external_click_url) AS last_external_click_url,
@@ -9724,8 +9782,14 @@ SELECT
   uniqExactMerge(pageview_uniq) AS pageview_uniq,
   uniqExactMerge(autocapture_uniq) AS autocapture_uniq,
   uniqExactMerge(screen_uniq) AS screen_uniq,
-  uniqUpToMerge(1)(page_screen_autocapture_uniq_up_to) AS page_screen_autocapture_uniq_up_to,
-  groupUniqArrayMapMerge(flag_values) AS flag_values
+  uniqUpToMerge(1)(page_screen_uniq_up_to) AS page_screen_uniq_up_to,
+  max(has_autocapture) AS has_autocapture,
+  groupUniqArrayArray(10000)(flag_key_values) AS flag_key_values,
+  groupUniqArrayArray(flag_keys) AS flag_keys,
+  groupUniqArrayArray(2000)(event_names) AS event_names,
+  groupUniqArrayArray(100)(hosts) AS hosts,
+  groupUniqArrayArray(10)(emails) AS emails,
+  max(has_replay_events) AS has_replay_events
 FROM posthog.raw_sessions_v3
 GROUP BY
   session_id_v7, session_timestamp, team_id

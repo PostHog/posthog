@@ -36,7 +36,7 @@ export function createXAxisTickCallback({
         return
     }
 
-    const resolvedInterval = interval ?? inferInterval(parsedDates)
+    const resolvedInterval = interval ?? inferInterval(parsedDates, isDateOnlyLabel(allDays[0]))
     const mode = pickMode(resolvedInterval, parsedDates, first, last)
 
     return (_value: string | number, index: number): string | null => {
@@ -187,7 +187,21 @@ function formatQuarterLabel(date: Dayjs): string {
     return `Q${Math.floor(date.month() / 3) + 1}`
 }
 
-function inferInterval(parsedDates: Dayjs[]): TimeInterval {
+export function inferTimeInterval(allDays: string[], timezone: string): TimeInterval | undefined {
+    if (allDays.length === 0) {
+        return undefined
+    }
+    const parsedDates = allDays.map((day) => parseDateForAxis(day, timezone))
+    const first = parsedDates[0]
+    const last = parsedDates[parsedDates.length - 1]
+    return first?.isValid() && last?.isValid() ? inferInterval(parsedDates, isDateOnlyLabel(allDays[0])) : undefined
+}
+
+function isDateOnlyLabel(label: string | number): boolean {
+    return typeof label === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(label)
+}
+
+function inferInterval(parsedDates: Dayjs[], dateOnlyLabels: boolean): TimeInterval {
     if (parsedDates.length < 2) {
         return 'day'
     }
@@ -195,7 +209,7 @@ function inferInterval(parsedDates: Dayjs[]): TimeInterval {
     if (diffHours < 1) {
         return 'minute'
     }
-    if (diffHours < 24) {
+    if (!dateOnlyLabels && diffHours < 24) {
         return 'hour'
     }
     const diffDays = Math.abs(parsedDates[1].diff(parsedDates[0], 'day'))

@@ -435,6 +435,12 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconFlask,
         inMenu: false,
     },
+    [NodeKind.ExperimentExposureNode]: {
+        name: 'Experiment Exposure',
+        description: 'Retention metric start resolved to the experiment exposure.',
+        icon: IconFlask,
+        inMenu: false,
+    },
     [NodeKind.TeamTaxonomyQuery]: {
         name: 'Team Taxonomy',
         icon: IconHogQL,
@@ -505,6 +511,12 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
     [NodeKind.MetricsQuery]: {
         name: 'Metrics',
         description: 'Chart a service metric over time',
+        icon: IconLive,
+        inMenu: false,
+    },
+    [NodeKind.MetricsHistogramQuery]: {
+        name: 'Metrics heatmap',
+        description: 'Chart a histogram metric as a latency-over-time heatmap',
         icon: IconLive,
         inMenu: false,
     },
@@ -619,6 +631,12 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
     [NodeKind.MCPHarnessBreakdownQuery]: {
         name: 'MCP harness breakdown',
         description: 'MCP tool-call activity grouped by client harness.',
+        icon: IconPieChart,
+        inMenu: false,
+    },
+    [NodeKind.MCPModelBreakdownQuery]: {
+        name: 'MCP model breakdown',
+        description: 'MCP tool-call activity grouped by captured model.',
         icon: IconPieChart,
         inMenu: false,
     },

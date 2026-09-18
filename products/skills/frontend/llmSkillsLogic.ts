@@ -285,12 +285,16 @@ export interface llmSkillsLogicActions {
         options: {
             author_handle?: string
             display_name?: string
+            expected_skill_id: string
+            expected_version: number
             tags?: string[]
         }
     ) => {
         options: {
             author_handle?: string | undefined
             display_name?: string | undefined
+            expected_skill_id: string
+            expected_version: number
             tags?: string[] | undefined
         }
         skillName: string
@@ -369,7 +373,13 @@ export const llmSkillsLogic = kea<llmSkillsLogicType>([
         duplicateSkill: (skillName: string, newName: string) => ({ skillName, newName }),
         publishToCommunity: (
             skillName: string,
-            options: { display_name?: string; tags?: string[]; author_handle?: string }
+            options: {
+                expected_skill_id: string
+                expected_version: number
+                display_name?: string
+                tags?: string[]
+                author_handle?: string
+            }
         ) => ({ skillName, options }),
         publishToCommunitySuccess: (skillName: string) => ({ skillName }),
         publishToCommunityFailure: (skillName: string) => ({ skillName }),
@@ -494,7 +504,7 @@ export const llmSkillsLogic = kea<llmSkillsLogicType>([
                 },
             },
         ],
-        // Resolved GitHub handle for the current user — used to prefill the publish dialog's
+        // Resolved GitHub handle for the current user — used to prefill the share dialog's
         // author_handle so the common case (GitHub-SSO'd users) is correct by default. Null when
         // no GitHub identity is linked; the dialog field then falls back to free text.
         githubLogin: [
@@ -644,6 +654,8 @@ export const llmSkillsLogic = kea<llmSkillsLogicType>([
                     String(ApiConfig.getCurrentTeamId()),
                     skillName,
                     {
+                        expected_skill_id: options.expected_skill_id,
+                        expected_version: options.expected_version,
                         display_name: options.display_name,
                         tags: options.tags,
                         author_handle: options.author_handle,

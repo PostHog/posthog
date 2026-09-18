@@ -1,20 +1,26 @@
+import json
 import time
 import uuid
+import asyncio
 import datetime as dt
 import threading
+import contextlib
 from typing import Any
 
 import pytest
+import time_machine
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.conf import settings
 from django.db import IntegrityError, OperationalError, connections, transaction
+from django.test import override_settings
 from django.utils import timezone
 
 import httpx
 import aiohttp
 import psycopg.errors
 from asgiref.sync import sync_to_async
+from google.genai import types
 from google.genai.errors import APIError
 from parameterized import parameterized
 from posthoganalytics.exception_utils import exceptions_from_error_tuple
@@ -33,6 +39,7 @@ from posthog.models import Organization, Team
 from posthog.models.user import User
 from posthog.redis import get_async_client
 from posthog.session_recordings.queries.session_replay_events import SessionEventsPage, SessionReplayEvents
+from posthog.session_recordings.session_recording_v2_service import RecordingBlock
 
 from products.exports.backend.models.exported_asset import ExportedAsset
 from products.replay_vision.backend.api.observation_progress import stream_observation_progress
@@ -56,6 +63,7 @@ from products.replay_vision.backend.temporal.activities.call_scanner_provider im
     _extract_segments,
     _inject_known_freeform_tags,
     _load_known_freeform_tags,
+    _MissionOutcome,
     _resolve_citations,
     call_scanner_provider_activity,
 )
@@ -74,6 +82,7 @@ from products.replay_vision.backend.temporal.activities.emit_observation_signal 
 )
 from products.replay_vision.backend.temporal.activities.ensure_session_asset import ensure_session_asset_activity
 from products.replay_vision.backend.temporal.activities.fetch_session_events import fetch_session_events_activity
+from products.replay_vision.backend.temporal.activities.fetch_session_network import fetch_session_network_activity
 from products.replay_vision.backend.temporal.activities.observation_state import (
     mark_observation_failed_activity,
     mark_observation_ineligible_activity,
@@ -94,11 +103,12 @@ from products.replay_vision.backend.temporal.errors import (
     IneligibleSessionKind,
     ScannerFailureError,
 )
-from products.replay_vision.backend.temporal.gemini import classify_gemini_error
+from products.replay_vision.backend.temporal.gemini import classify_gemini_error, classify_gemini_file_error
 from products.replay_vision.backend.temporal.gemini_cleanup_sweep.constants import (
     REDIS_INDEX_KEY as _GEMINI_REDIS_INDEX_KEY,
     REDIS_KEY_PREFIX as _GEMINI_REDIS_KEY_PREFIX,
 )
+from products.replay_vision.backend.temporal.network_capture import SessionNetworkPayload
 from products.replay_vision.backend.temporal.scanners.base import ChipSegment, Segment, SignalFinding, TextSegment
 from products.replay_vision.backend.temporal.scanners.classifier import ClassifierOutput, ClassifierScanner
 from products.replay_vision.backend.temporal.scanners.monitor import MonitorOutput, MonitorScanner
@@ -125,6 +135,7 @@ from products.replay_vision.backend.temporal.types import (
     EnsureSessionAssetOutput,
     EventTable,
     FetchSessionEventsInputs,
+    FetchSessionNetworkInputs,
     MarkObservationFailedInputs,
     MarkObservationIneligibleInputs,
     MarkObservationRunningInputs,
@@ -137,6 +148,7 @@ from products.replay_vision.backend.temporal.types import (
     UploadedVideo,
     UploadVideoToGeminiInputs,
 )
+from products.replay_vision.backend.temporal.video_clock import VideoClock
 from products.replay_vision.backend.temporal.workflow import (
     _activity_timeout_kind,
     _extract_kind_for_type,
@@ -166,6 +178,7 @@ def test_scanner_snapshot_loads_rows_with_retired_model_and_provider_ids() -> No
     )
     assert snapshot.model == "gemini-1.0-flash-retired-preview"
     assert snapshot.provider == "hooli"
+    assert snapshot.verify_positives == "off"
 
 
 def _make_scanner(**overrides) -> ReplayScanner:
@@ -504,6 +517,98 @@ class TestCreateObservationActivity:
             observation_id=None, was_created=False, scanner_type=scanner.scanner_type
         )
         assert not ReplayObservation.objects.filter(scanner=scanner, session_id="sess-no-consent").exists()
+
+    @parameterized.expand(
+        [
+            ("quota", 5, 5),
+            ("consent", None, None),
+        ]
+    )
+    def test_blocked_scan_emits_one_event_per_scanner_and_reason(
+        self, reason: str, expected_credit_limit: int | None, expected_credits_used: int | None
+    ) -> None:
+        # A refused scan writes no observation row, so this event is the only thing that can count it.
+        scanner = _make_scanner()
+        sibling = _make_scanner(team=scanner.team, name="sibling")
+        if reason == "consent":
+            org = scanner.team.organization
+            org.is_ai_data_processing_approved = False
+            org.save()
+
+        # Both gates would refuse, so the consent case reporting no credit figures is what proves
+        # consent is checked first.
+        with (
+            patch(
+                "products.replay_vision.backend.temporal.activities.create_observation.quota_state",
+                return_value=QuotaSnapshot(
+                    credit_limit=5,
+                    credits_used=5,
+                    period_start=dt.datetime.now(dt.UTC),
+                    period_end=dt.datetime.now(dt.UTC),
+                    projected_monthly_credits=0,
+                ),
+            ),
+            patch(
+                "products.replay_vision.backend.temporal.activities.create_observation.posthoganalytics.capture"
+            ) as capture,
+        ):
+            for session_id in ("sess-a", "sess-b"):
+                assert self._admit(scanner, session_id).was_created is False
+            assert self._admit(sibling, "sess-c").was_created is False
+            # Flip consent so the same scanner is now refused for the other reason, which the dedup
+            # key holds separately.
+            org = scanner.team.organization
+            org.is_ai_data_processing_approved = reason == "consent"
+            org.save()
+            assert self._admit(scanner, "sess-d").was_created is False
+
+        emitted = [
+            (c.kwargs["properties"]["scanner_id"], c.kwargs["properties"]["reason"]) for c in capture.call_args_list
+        ]
+        # Two sessions on one scanner share an event; another scanner, or another reason, reports on
+        # its own.
+        assert emitted == [
+            (str(scanner.id), reason),
+            (str(sibling.id), reason),
+            (str(scanner.id), "quota" if reason == "consent" else "consent"),
+        ]
+        kwargs = capture.call_args_list[0].kwargs
+        assert kwargs["event"] == "replay_vision_scan_blocked"
+        assert kwargs["distinct_id"] == f"replay-vision:{scanner.team_id}"
+        properties = kwargs["properties"]
+        assert properties["reason"] == reason
+        assert properties["scanner_type"] == "monitor"
+        # The enum's value, not its repr: a dashboard filters on the string the event carries.
+        assert properties["triggered_by"] == "schedule"
+        assert properties["credit_limit"] == expected_credit_limit
+        assert properties["credits_used"] == expected_credits_used
+        assert properties["team_id"] == scanner.team_id
+        assert properties["organization_id"] == str(scanner.team.organization_id)
+        assert kwargs["groups"]["project"] == str(scanner.team.uuid)
+
+    def test_blocked_scan_settles_and_stays_quiet_when_the_dedup_store_fails(self) -> None:
+        # The scan is already refused, so a Redis outage must neither fail the activity into a retry
+        # that reaches the same decision, nor emit the per-session flood the dedup gate exists to stop.
+        scanner = _make_scanner()
+        org = scanner.team.organization
+        org.is_ai_data_processing_approved = False
+        org.save()
+
+        with (
+            patch(
+                "products.replay_vision.backend.temporal.activities.create_observation.redis.get_client",
+                side_effect=RuntimeError("redis unreachable"),
+            ),
+            patch(
+                "products.replay_vision.backend.temporal.activities.create_observation.posthoganalytics.capture"
+            ) as capture,
+        ):
+            result = self._admit(scanner, "sess-redis-down")
+
+        assert result == CreateObservationOutput(
+            observation_id=None, was_created=False, scanner_type=scanner.scanner_type
+        )
+        capture.assert_not_called()
 
     @parameterized.expand(
         [
@@ -867,6 +972,7 @@ class TestEgressConsentRecheck:
                     CallScannerProviderInputs(
                         team_id=team.id,
                         observation_id=uuid.uuid4(),
+                        exported_asset_id=1,
                         file_uri="gemini://files/x",
                         mime_type="video/mp4",
                     ),
@@ -953,7 +1059,11 @@ class TestKnownFreeformTags:
     @pytest.mark.asyncio
     async def test_injection_is_gated_and_best_effort(self) -> None:
         inputs = CallScannerProviderInputs(
-            team_id=1, observation_id=uuid.uuid4(), file_uri="gemini://files/x", mime_type="video/mp4"
+            team_id=1,
+            observation_id=uuid.uuid4(),
+            exported_asset_id=1,
+            file_uri="gemini://files/x",
+            mime_type="video/mp4",
         )
         monitor = MonitorScanner(prompt="x")
         no_freeform = ClassifierScanner(prompt="x", tags=["a"])
@@ -986,11 +1096,18 @@ class TestKnownFreeformTags:
             ),
         )
 
+        asset = await sync_to_async(ExportedAsset.objects.create)(
+            team_id=target.team_id,
+            export_format="video/mp4",
+            is_system=True,
+            export_context={"session_recording_id": target.session_id, "inactivity_periods": []},
+        )
+
         with (
             patch(
                 "products.replay_vision.backend.temporal.activities.call_scanner_provider._run_mission",
                 new_callable=AsyncMock,
-                return_value=(model_output, []),
+                return_value=_MissionOutcome(finalized=model_output, signals=[]),
             ) as mock_run_mission,
             patch(
                 "products.replay_vision.backend.temporal.activities.call_scanner_provider._load_llm_inputs",
@@ -1003,6 +1120,7 @@ class TestKnownFreeformTags:
                 CallScannerProviderInputs(
                     team_id=target.team_id,
                     observation_id=target.id,
+                    exported_asset_id=asset.id,
                     file_uri="gemini://files/x",
                     mime_type="video/mp4",
                 ),
@@ -2203,9 +2321,161 @@ class TestFetchSessionEventsActivity:
             assert "3" in str(exc_info.value)
 
 
+class TestFetchSessionNetworkActivity:
+    @pytest.mark.asyncio
+    async def test_unconfigured_recording_api_fails_without_retry(self) -> None:
+        with override_settings(RECORDING_API_URL=""):
+            with pytest.raises(ApplicationError) as exc_info:
+                await fetch_session_network_activity(
+                    FetchSessionNetworkInputs(observation_id=uuid.uuid4(), team_id=1, session_id="sess-1")
+                )
+
+        assert exc_info.value.non_retryable is True
+        assert "RECORDING_API_URL" in str(exc_info.value)
+
+    @pytest.mark.asyncio
+    async def test_a_long_block_listing_is_read_not_refused(self) -> None:
+        # A block count gate refused the median recording: real sessions run to hundreds of blocks. Only
+        # the compressed size refuses a session now, and the read itself is bounded by its own deadline.
+        from products.replay_vision.backend.temporal.activities import fetch_session_network as mod
+
+        blocks = [
+            RecordingBlock(key=f"k{i}", start_byte=0, end_byte=1024, start_timestamp="", end_timestamp="")
+            for i in range(700)
+        ]
+        with (
+            patch.object(mod, "list_blocks_async", AsyncMock(return_value=blocks)),
+            patch.object(mod, "_collect", AsyncMock(return_value=SessionNetworkPayload(captured=True))) as collect,
+        ):
+            payload = await mod._load_payload(team_id=1, session_id="sess-1")
+
+        assert collect.await_count == 1, "a 700-block listing must still be read"
+        assert payload.captured is True
+
+    @pytest.mark.asyncio
+    async def test_a_stalled_block_cannot_outlive_the_read_budget(self) -> None:
+        # A request carries its own 30s timeout, so a deadline checked only between batches lets the read
+        # run far past its budget and can spend the activity's whole timeout before anything is stored.
+        from products.replay_vision.backend.temporal.activities import fetch_session_network as mod
+
+        blocks = [
+            RecordingBlock(key=f"k{i}", start_byte=0, end_byte=16, start_timestamp="", end_timestamp="")
+            for i in range(8)
+        ]
+
+        class _StalledClient:
+            async def fetch_block(self, *args: Any, **kwargs: Any) -> bytes:
+                await asyncio.sleep(30)
+                return b""
+
+        @contextlib.asynccontextmanager
+        async def _client(*args: Any, **kwargs: Any) -> Any:
+            yield _StalledClient()
+
+        started = time.monotonic()
+        with (
+            patch.object(mod, "recording_api_client", _client),
+            patch.object(mod, "_READ_BUDGET_SECONDS", 0.2),
+        ):
+            payload = await mod._collect(blocks, session_id="sess-1", team_id=1)
+        elapsed = time.monotonic() - started
+
+        assert elapsed < 5, f"the read ran {elapsed:.1f}s past a 0.2s budget"
+        assert payload.partial is True
+        assert payload.captured is False
+
+    @pytest.mark.asyncio
+    async def test_a_stalled_block_does_not_discard_its_finished_siblings(self) -> None:
+        # Cancelling the batch on timeout must not throw away the blocks that already came back: those
+        # requests are the partial result the scan is promised.
+        from products.replay_vision.backend.temporal.activities import fetch_session_network as mod
+
+        fast = json.dumps(
+            {
+                "window_id": "w1",
+                "data": [
+                    {
+                        "type": 6,
+                        "timestamp": 1000,
+                        "data": {
+                            "plugin": "rrweb/network@1",
+                            "payload": {"requests": [{"name": "https://app.test/boom", "status": 500}]},
+                        },
+                    }
+                ],
+            }
+        ).encode()
+
+        class _OneFastOneStalled:
+            def __init__(self) -> None:
+                self.served = 0
+
+            async def fetch_block(self, key: str, *args: Any, **kwargs: Any) -> bytes:
+                if key == "fast":
+                    self.served += 1
+                    return fast
+                await asyncio.sleep(30)
+                return b""
+
+        @contextlib.asynccontextmanager
+        async def _client(*args: Any, **kwargs: Any) -> Any:
+            yield _OneFastOneStalled()
+
+        blocks = [
+            RecordingBlock(key="fast", start_byte=0, end_byte=16, start_timestamp="", end_timestamp=""),
+            RecordingBlock(key="stalled", start_byte=0, end_byte=16, start_timestamp="", end_timestamp=""),
+        ]
+        with (
+            patch.object(mod, "recording_api_client", _client),
+            patch.object(mod, "_READ_BUDGET_SECONDS", 0.3),
+        ):
+            payload = await mod._collect(blocks, session_id="sess-1", team_id=1)
+
+        assert payload.partial is True
+        assert [r.url for r in payload.requests] == ["https://app.test/boom"], "the finished block was lost"
+
+    def test_a_batch_is_bounded_by_bytes_not_only_by_count(self) -> None:
+        # Concurrency alone does not bound memory: blocks reach tens of MiB, and four decompressed at
+        # once would threaten the worker's limit.
+        from products.replay_vision.backend.temporal.activities import fetch_session_network as mod
+
+        def block(size: int) -> RecordingBlock:
+            return RecordingBlock(key="k", start_byte=0, end_byte=size, start_timestamp="", end_timestamp="")
+
+        small = [block(1024) for _ in range(8)]
+        assert len(mod._next_batch(small, 0)) == mod._BLOCK_CONCURRENCY
+
+        large = [block(mod._MAX_BATCH_COMPRESSED_BYTES) for _ in range(4)]
+        assert len(mod._next_batch(large, 0)) == 1, "one oversized block must not ride with three others"
+
+        # A block bigger than the whole budget still gets read, on its own.
+        assert len(mod._next_batch([block(mod._MAX_BATCH_COMPRESSED_BYTES * 4)], 0)) == 1
+
+    @pytest.mark.asyncio
+    async def test_a_listing_over_the_size_ceiling_is_refused(self) -> None:
+        from products.replay_vision.backend.temporal.activities import fetch_session_network as mod
+
+        huge = [
+            RecordingBlock(
+                key="k", start_byte=0, end_byte=mod._MAX_COMPRESSED_BYTES + 1, start_timestamp="", end_timestamp=""
+            )
+        ]
+        with (
+            patch.object(mod, "list_blocks_async", AsyncMock(return_value=huge)),
+            patch.object(mod, "_collect", AsyncMock()) as collect,
+        ):
+            payload = await mod._load_payload(team_id=1, session_id="sess-1")
+
+        assert collect.await_count == 0
+        # Not "clean": a session never read cannot show that nothing failed.
+        assert payload.partial is True
+        assert payload.captured is False
+
+
 @pytest.mark.django_db(transaction=True)
 class TestEnsureSessionAssetActivity:
     @pytest.mark.asyncio
+    @time_machine.travel("2026-06-15T10:30:00Z", tick=False)
     async def test_creates_new_asset_with_vision_render_params(self) -> None:
         scanner = await sync_to_async(_make_scanner)()
         result = await ensure_session_asset_activity(
@@ -2222,6 +2492,8 @@ class TestEnsureSessionAssetActivity:
         assert ctx["playback_speed"] == 8
         assert ctx["recording_fps"] == 3
         assert ctx["show_metadata_footer"] is True
+        # No local override: the expiry has to stay whatever the bucket's lifecycle rule drops at.
+        assert asset.expires_after == dt.datetime(2026, 7, 16, tzinfo=dt.UTC)
 
     @pytest.mark.asyncio
     async def test_reuses_existing_system_asset_for_same_session(self) -> None:
@@ -2399,10 +2671,14 @@ async def test_apply_scanner_workflow_drives_full_success_pipeline() -> None:
 
     activity_order = [fn for fn, _ in mocks.activity_calls]
     assert activity_order[:2] == [create_observation_activity, mark_observation_running_activity]
-    # fetch + ensure_asset run in parallel — order between them is non-deterministic.
-    assert set(activity_order[2:4]) == {fetch_session_events_activity, ensure_session_asset_activity}
+    # fetch + network + ensure_asset run in parallel — order between them is non-deterministic.
+    assert set(activity_order[2:5]) == {
+        fetch_session_events_activity,
+        fetch_session_network_activity,
+        ensure_session_asset_activity,
+    }
     # Success is persisted before any downstream emission so a late transient failure can't discard the result.
-    assert activity_order[4:] == [
+    assert activity_order[5:] == [
         upload_video_to_gemini_activity,
         call_scanner_provider_activity,
         mark_observation_succeeded_activity,
@@ -3141,6 +3417,67 @@ class TestUploadFinalizeFailures:
         assert exc_info.value.message == "The AI provider did not finish the video upload"
 
 
+@pytest.mark.django_db(transaction=True)
+class TestUploadedFileNotActive:
+    """A file that never reaches ACTIVE takes its kind from the provider's own file error. A kind of
+    `provider_rejected` stops Temporal retrying and tells the user to pick a different recording, so only a
+    refused input may claim it."""
+
+    @parameterized.expand(
+        [
+            ("no_error_reported", None, FailureKind.PROVIDER_TRANSIENT),
+            ("internal", 13, FailureKind.PROVIDER_TRANSIENT),
+            ("unavailable", 14, FailureKind.PROVIDER_TRANSIENT),
+            ("invalid_argument", 3, FailureKind.PROVIDER_REJECTED),
+            ("unauthenticated", 16, FailureKind.PROVIDER_REJECTED),
+        ]
+    )
+    def test_maps_file_error_codes(self, _label: str, code: int | None, expected: FailureKind) -> None:
+        error = types.FileStatus(code=code) if code is not None else None
+        assert classify_gemini_file_error(error) is expected
+
+    @staticmethod
+    def _team() -> Team:
+        org = Organization.objects.create(name="upload-org")
+        return Team.objects.create(organization=org, name="upload-team")
+
+    @parameterized.expand(
+        [
+            ("processing_failure", 13, FailureKind.PROVIDER_TRANSIENT, False),
+            ("input_rejection", 3, FailureKind.PROVIDER_REJECTED, True),
+        ]
+    )
+    @pytest.mark.asyncio
+    async def test_activity_classifies_a_failed_file(
+        self, _label: str, code: int, expected: FailureKind, expected_non_retryable: bool
+    ) -> None:
+        team = await sync_to_async(self._team)()
+        asset = await ExportedAsset.objects.acreate(team=team, export_format="video/mp4", content=b"mp4-bytes")
+        failed_file = types.File(
+            name="files/abc",
+            state=types.FileState.FAILED,
+            error=types.FileStatus(code=code, message="the provider quoted 'wf-secret-name' back at us"),
+        )
+        with patch(
+            "products.replay_vision.backend.temporal.activities.upload_video_to_gemini.RawGenAIClient"
+        ) as mock_client:
+            mock_client.return_value.files.upload.return_value = failed_file
+            with patch(
+                "products.replay_vision.backend.temporal.activities.upload_video_to_gemini.track_uploaded_file",
+                AsyncMock(),
+            ):
+                with pytest.raises(ScannerFailureError) as exc_info:
+                    await ActivityEnvironment().run(
+                        upload_video_to_gemini_activity, UploadVideoToGeminiInputs(asset_id=asset.id)
+                    )
+
+        assert exc_info.value.kind is expected
+        # A provider-side processing failure must reach Temporal as retryable.
+        assert exc_info.value.non_retryable is expected_non_retryable
+        # The provider's message can quote request content, so only the shape of the failure reaches the user.
+        assert exc_info.value.message == f"The AI provider could not process the video (error code {code})"
+
+
 class TestGeminiErrorRedaction:
     """`error_reason` is shown to the user verbatim, and a Gemini error body can quote request content
     (prompt text, file references). The provider-facing activities must surface only the fixed summary."""
@@ -3159,7 +3496,11 @@ class TestGeminiErrorRedaction:
                 await ActivityEnvironment().run(
                     call_scanner_provider_activity,
                     CallScannerProviderInputs(
-                        team_id=1, observation_id=uuid.uuid4(), file_uri="gemini://files/x", mime_type="video/mp4"
+                        team_id=1,
+                        observation_id=uuid.uuid4(),
+                        exported_asset_id=1,
+                        file_uri="gemini://files/x",
+                        mime_type="video/mp4",
                     ),
                 )
         assert exc_info.value.kind is FailureKind.PROVIDER_REJECTED
@@ -3190,7 +3531,11 @@ class TestGeminiErrorRedaction:
                 await ActivityEnvironment().run(
                     call_scanner_provider_activity,
                     CallScannerProviderInputs(
-                        team_id=1, observation_id=uuid.uuid4(), file_uri="gemini://files/x", mime_type="video/mp4"
+                        team_id=1,
+                        observation_id=uuid.uuid4(),
+                        exported_asset_id=1,
+                        file_uri="gemini://files/x",
+                        mime_type="video/mp4",
                     ),
                 )
         assert exc_info.value.kind is FailureKind.PROVIDER_TRANSIENT
@@ -3271,6 +3616,7 @@ class TestWorkflowErrorHelpers:
 
 
 _DURATION_MS = 600_000  # 10-minute recording for the citation tests
+_IDENTITY_CLOCK = VideoClock(spans=())
 
 
 def _monitor_scanner() -> MonitorScanner:
@@ -3368,7 +3714,7 @@ class TestExtractSegments:
         ],
     )
     def test_extract_segments(self, text: str, expected_plain: str, expected_segments: list[Segment]) -> None:
-        plain, segments = _extract_segments(text, _DURATION_MS)
+        plain, segments = _extract_segments(text, _DURATION_MS, _IDENTITY_CLOCK)
         assert plain == expected_plain
         assert segments == expected_segments
 
@@ -3376,7 +3722,7 @@ class TestExtractSegments:
 class TestResolveCitations:
     def test_populates_field_and_segments(self) -> None:
         finalized = MonitorOutput(verdict="yes", reasoning="User retried (t 12) twice.", confidence=0.9)
-        resolved = _resolve_citations(finalized, _monitor_scanner(), _DURATION_MS)
+        resolved = _resolve_citations(finalized, _monitor_scanner(), _DURATION_MS, _IDENTITY_CLOCK)
         assert isinstance(resolved, MonitorOutput)
         assert resolved.reasoning == "User retried twice."
         assert resolved.reasoning_segments == [
@@ -3387,14 +3733,14 @@ class TestResolveCitations:
 
     def test_summarizer_uses_summary_field(self) -> None:
         finalized = SummarizerOutput(title="t", summary="They tried X (t 7).", confidence=0.9)
-        resolved = _resolve_citations(finalized, _summarizer_scanner(), _DURATION_MS)
+        resolved = _resolve_citations(finalized, _summarizer_scanner(), _DURATION_MS, _IDENTITY_CLOCK)
         assert isinstance(resolved, SummarizerOutput)
         assert resolved.summary == "They tried X."
         assert any(isinstance(s, ChipSegment) and s.timestamp_ms == 7_000 for s in resolved.summary_segments)
 
     def test_no_citations_in_text_yields_single_text_segment(self) -> None:
         finalized = MonitorOutput(verdict="yes", reasoning="No citations here.", confidence=0.9)
-        resolved = _resolve_citations(finalized, _monitor_scanner(), _DURATION_MS)
+        resolved = _resolve_citations(finalized, _monitor_scanner(), _DURATION_MS, _IDENTITY_CLOCK)
         assert isinstance(resolved, MonitorOutput)
         assert resolved.reasoning == "No citations here."
         assert resolved.reasoning_segments == [TextSegment(value="No citations here.")]

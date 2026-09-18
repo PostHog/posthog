@@ -13,4 +13,4 @@ pub use cohort_core::filters::{
 pub use cohort_core::filters::{FilterCatalog, Generation};
 pub use cohort_core::filters::{TeamFilters, TeamFiltersBuilder};
 
-pub use manager::{run_refresh_loop, CatalogHandle, CatalogStats};
+pub use manager::{run_refresh_loop, CatalogHandle, CatalogRefreshError, CatalogStats};
