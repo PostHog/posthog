@@ -49,6 +49,7 @@ from hogli_commands.change_detection import changed_files, matches_globs
 from hogli_commands.complexity_lint import PYTHON_SCOPE, TEST_WARN_AT, TYPESCRIPT_SCOPE, WARN_AT
 from hogli_commands.depot_mirrors import mirror_violations
 from hogli_commands.devenv.generator import TRACKED_MPROCS_FILES
+from hogli_commands.lockfile_merge import missing_resolutions
 from hogli_commands.size_lint import SCOPE as SIZE_SCOPE
 
 Requirement = Literal["node", "desktop-node", "stack", "clickhouse", "python-env"]
@@ -480,6 +481,7 @@ def _run_diff_check(chk: DiffCheck, do_fix: bool, against: str | None, strict: b
 # start — master moves fast and we'd rather over-warn and tune down from
 # telemetry than under-warn. Advisory only (never auto-merged). Env-tunable.
 _MASTER_REF = "origin/master"
+_LOCKFILE = "pnpm-lock.yaml"
 _STALE_COMMITS_DEFAULT = 5
 _STALE_DAYS_DEFAULT = 2
 _FETCH_TTL_SECONDS = 600  # skip re-fetching origin/master if refreshed this recently
@@ -542,14 +544,40 @@ def _commit_age_days(ref: str) -> int | None:
     return max(0, (datetime.now(when.tzinfo) - when).days)
 
 
-def _merge_conflicts() -> list[str] | None:
-    """Files that would conflict if master were merged right now, computed without
-    touching the working tree (``git merge-tree``, git >= 2.38). None = can't tell."""
-    result = _git_run("merge-tree", "--write-tree", "--name-only", "HEAD", _MASTER_REF)
+def _merge_preview() -> tuple[str, list[str]] | None:
+    """The tree merging master would produce, and the files that would conflict.
+
+    Computed without touching the working tree (``git merge-tree``, git >= 2.38).
+    None = can't tell. The tree is written to the object store, so a caller can
+    read the merged content of any file out of it.
+
+    ``--no-messages`` drops the trailing "Auto-merging"/"CONFLICT" prose, which
+    otherwise lands in the same stream as the file names and counts as conflicted
+    files: one conflicted file reads as three without it.
+    """
+    result = _git_run("merge-tree", "--write-tree", "--name-only", "--no-messages", "HEAD", _MASTER_REF)
     if result is None or result.returncode not in (0, 1):
         return None
+    lines = result.stdout.splitlines()
+    if not lines or not lines[0].strip():
+        return None
     # returncode 1 = conflicts; first output line is the merged tree OID.
-    return [line for line in result.stdout.splitlines()[1:] if line] if result.returncode == 1 else []
+    conflicts = [line for line in lines[1:] if line] if result.returncode == 1 else []
+    return lines[0].strip(), conflicts
+
+
+def _lockfile_breakage(
+    tree_oid: str, branch_files: list[str], master_files: list[str], conflicts: list[str]
+) -> list[str]:
+    """Dependencies the merged lockfile names but no longer resolves.
+
+    Only both sides editing the lockfile can produce this, and a side that git
+    reports as conflicted is already covered by the conflict risk.
+    """
+    if _LOCKFILE not in branch_files or _LOCKFILE not in master_files or _LOCKFILE in conflicts:
+        return []
+    merged = _git("show", f"{tree_oid}:{_LOCKFILE}", timeout=20.0)
+    return missing_resolutions(merged) if merged else []
 
 
 def _changed_on_master(merge_base: str) -> list[str]:
@@ -562,13 +590,25 @@ def _changed_on_master(merge_base: str) -> list[str]:
 _MIGRATION_GLOB = ["*/migrations/*.py"]
 
 
-def _staleness_risks(branch_files: list[str], master_files: list[str], conflicts: list[str] | None) -> list[str]:
+def _staleness_risks(
+    branch_files: list[str],
+    master_files: list[str],
+    conflicts: list[str] | None,
+    lockfile_breakage: list[str] | None = None,
+) -> list[str]:
     """Concrete ways merging master late will break this branch — each a failure
     class that recurs on unrebased PRs: textual conflicts, migration collisions,
     generated-file drift, and CI workflows changing underneath the branch."""
     risks: list[str] = []
     if conflicts:
         risks.append(f"merging master conflicts in {len(conflicts)} file(s) (e.g. {conflicts[0]})")
+    if lockfile_breakage:
+        example = lockfile_breakage[0]
+        if len(example) > 60:
+            example = example[:57] + "..."
+        count = len(lockfile_breakage)
+        what = example if count == 1 else f"{count} dependencies (e.g. {example})"
+        risks.append(f"merging master leaves {what} unresolved in {_LOCKFILE} — regenerate with pnpm install")
     branch_apps = {str(Path(f).parent) for f in branch_files if matches_globs(f, _MIGRATION_GLOB)}
     master_apps = {str(Path(f).parent) for f in master_files if matches_globs(f, _MIGRATION_GLOB)}
     collisions = sorted(branch_apps & master_apps)
@@ -602,8 +642,11 @@ def _staleness(branch_files: list[str]) -> tuple[Status, str, dict[str, Any]]:
         return "pass", "even with master", {"stale": False, "behind_commits": 0, "branch_age_days": 0}
 
     age_days = _commit_age_days(merge_base)  # merge-base age ≈ time since the branch last synced with master
-    conflicts = _merge_conflicts()
-    risks = _staleness_risks(branch_files, _changed_on_master(merge_base), conflicts)
+    preview = _merge_preview()
+    conflicts = None if preview is None else preview[1]
+    master_files = _changed_on_master(merge_base)
+    breakage = _lockfile_breakage(preview[0], branch_files, master_files, preview[1]) if preview else []
+    risks = _staleness_risks(branch_files, master_files, conflicts, breakage)
     if behind >= _env_int("HOGLI_PREFLIGHT_STALE_COMMITS", _STALE_COMMITS_DEFAULT):
         risks.append(f"{behind} commits (≈ PRs) behind")
     elif age_days is not None and age_days >= _env_int("HOGLI_PREFLIGHT_STALE_DAYS", _STALE_DAYS_DEFAULT):
@@ -615,6 +658,7 @@ def _staleness(branch_files: list[str]) -> tuple[Status, str, dict[str, Any]]:
         "branch_age_days": age_days,
         "merge_conflict_files": len(conflicts) if conflicts is not None else None,
         "staleness_risks": len(risks),
+        "lockfile_unresolved": len(breakage),
     }
     if risks:
         return "advisory", f"{' · '.join(risks)} — merge master in: git merge {_MASTER_REF}", props
