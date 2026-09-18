@@ -531,7 +531,7 @@ impl RawProxyInner {
                             "reason" => reason,
                         )
                         .increment(1);
-                        // `channel()` round-robins onto another pod.
+                        // The balancer re-picks an endpoint per request.
                         retry_backoff(&mut delay_ms, &self.retry_config, &method, &client).await;
                         continue;
                     }
