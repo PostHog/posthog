@@ -3,7 +3,7 @@ import { useActions, useMountedLogic, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
 import { useEffect, useMemo, useRef } from 'react'
 
-import { LemonButton, LemonCheckbox, LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonCheckbox, LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
 
 import { useBulkSelection } from 'lib/lemon-ui/LemonTable/useBulkSelection'
 import { newInternalTab } from 'lib/utils/newInternalTab'
@@ -195,6 +195,26 @@ export function SupportTicketsTable({ embedded = false }: SupportTicketsTablePro
     )
 }
 
+function SpikeFilterNotice(): JSX.Element | null {
+    const { spikeTicketIds, spikeTopic } = useValues(supportTicketsSceneLogic)
+    const { clearSpikeFilter } = useActions(supportTicketsSceneLogic)
+
+    if (!spikeTicketIds.length) {
+        return null
+    }
+
+    return (
+        <LemonBanner
+            type="info"
+            action={{ children: 'Show all tickets', onClick: () => clearSpikeFilter() }}
+            data-attr="spike-filter-notice"
+        >
+            Showing the {spikeTicketIds.length} tickets from
+            {spikeTopic ? ` "${spikeTopic}"` : ' a detected spike'}.
+        </LemonBanner>
+    )
+}
+
 export function SupportTicketsScene(): JSX.Element {
     return (
         <SceneContent className="pb-4">
@@ -208,6 +228,7 @@ export function SupportTicketsScene(): JSX.Element {
             />
             <ScenesTabs />
             <TicketSpikeBanner />
+            <SpikeFilterNotice />
             <TicketListFilters />
             <SupportTicketsTable />
         </SceneContent>

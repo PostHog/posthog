@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 
 from django.core.cache import cache
+from django.utils import timezone
 
 import structlog
 
@@ -21,6 +22,37 @@ MAX_RECENT_SPIKES = 5
 
 def _key(team_id: int) -> str:
     return f"conversations:ticket_patterns:recent:{team_id}"
+
+
+def spike_key(spike: dict) -> str:
+    """Identity of one reported spike: the topic and when detection reported it.
+
+    Keyed on both so the same topic firing again later is a new spike rather than one that
+    inherits an old dismissal.
+    """
+    return f"{spike.get('topic', '')}:{spike.get('detected_at', '')}"
+
+
+def dismiss_spike(team_id: int, key: str, user_name: str) -> bool:
+    """Mark one spike dismissed for the whole project. False when the key matches nothing.
+
+    Dismissal lives on the spike record, so it expires with the banner it hides. There is nothing
+    to clean up, and a team never inherits a dismissal for a spike they can no longer see.
+    """
+    spikes = recent_spikes(team_id)
+    for spike in spikes:
+        if spike_key(spike) == key:
+            spike["dismissed_by"] = user_name
+            spike["dismissed_at"] = timezone.now().isoformat()
+            break
+    else:
+        return False
+    try:
+        cache.set(_key(team_id), json.dumps(spikes), timeout=RECENT_SPIKES_TTL_SECONDS)
+    except Exception:
+        logger.warning("ticket_patterns: dismiss write failed", team_id=team_id, exc_info=True)
+        return False
+    return True
 
 
 def record_spike(team_id: int, spike: dict) -> None:

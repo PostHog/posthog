@@ -29,6 +29,7 @@ import type {
     TicketFullEmailApi,
     TicketMessageApi,
     TicketPatternApi,
+    TicketPatternDismissApi,
     TicketReplyRequestApi,
     TicketUpdateRequestApi,
     TicketViewApi,
@@ -67,6 +68,30 @@ export const conversationsTicketPatternsList = async (
     return apiMutator<TicketPatternApi[]>(getConversationsTicketPatternsListUrl(projectId), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getConversationsTicketPatternsDismissCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/conversations/ticket_patterns/dismiss/`
+}
+
+/**
+ * Spikes reported for this project in the last day.
+ *
+ * Reads a short-lived cache written when detection reports, not a table. The durable record is
+ * the `$conversation_ticket_pattern_detected` event, so an empty list means "nothing recent or
+ * nothing cached", never "this never happened".
+ */
+export const conversationsTicketPatternsDismissCreate = async (
+    projectId: string,
+    ticketPatternDismissApi: TicketPatternDismissApi,
+    options?: RequestInit
+): Promise<TicketPatternDismissApi> => {
+    return apiMutator<TicketPatternDismissApi>(getConversationsTicketPatternsDismissCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(ticketPatternDismissApi),
     })
 }
 

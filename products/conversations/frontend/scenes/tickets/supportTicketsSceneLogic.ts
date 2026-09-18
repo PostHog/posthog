@@ -222,6 +222,8 @@ export interface supportTicketsSceneLogicValues {
     selectedTickets: Ticket[]
     slaFilter: TicketSlaState | 'all'
     sorting: Sorting | null
+    spikeTicketIds: string[]
+    spikeTopic: string | null
     statusFilter: TicketStatus[]
     tagsExcludeFilter: string[]
     tagsFilter: string[]
@@ -256,6 +258,9 @@ export interface supportTicketsSceneLogicActions {
         value: true
     }
     clearSelectedTickets: () => {
+        value: true
+    }
+    clearSpikeFilter: () => {
         value: true
     }
     loadSavedView: (shortId: string) => {
@@ -313,6 +318,13 @@ export interface supportTicketsSceneLogicActions {
     }
     setSorting: (sorting: Sorting | null) => {
         sorting: Sorting | null
+    }
+    setSpikeFilter: (
+        ticketIds: string[],
+        topic: string | null
+    ) => {
+        ticketIds: string[]
+        topic: string | null
     }
     setStatusFilter: (statuses: TicketStatus[]) => {
         statuses: TicketStatus[]
@@ -389,6 +401,9 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
     props({} as SupportTicketsSceneLogicProps),
     key((props: SupportTicketsSceneLogicProps) => props?.key || 'SupportTicketsScene'),
     actions({
+        // Narrow the list to an explicit set of tickets, e.g. the ones behind a detected spike.
+        setSpikeFilter: (ticketIds: string[], topic: string | null) => ({ ticketIds, topic }),
+        clearSpikeFilter: true,
         setStatusFilter: (statuses: TicketStatus[]) => ({ statuses }),
         setChannelFilter: (channel: TicketChannel | 'all') => ({ channel }),
         setSlaFilter: (sla: TicketSlaState | 'all') => ({ sla }),
@@ -421,6 +436,20 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
         clearSelectedTickets: true,
     }),
     reducers({
+        spikeTicketIds: [
+            [] as string[],
+            {
+                setSpikeFilter: (_, { ticketIds }) => ticketIds,
+                clearSpikeFilter: () => [],
+            },
+        ],
+        spikeTopic: [
+            null as string | null,
+            {
+                setSpikeFilter: (_, { topic }) => topic,
+                clearSpikeFilter: () => null,
+            },
+        ],
         tickets: [
             [] as Ticket[],
             {
@@ -755,6 +784,9 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
             if (values.dateTo) {
                 params.date_to = values.dateTo
             }
+            if (values.spikeTicketIds.length > 0) {
+                params.ids = values.spikeTicketIds.join(',')
+            }
             params.order_by = values.orderBy
             params.limit = SUPPORT_TICKETS_PAGE_SIZE
             params.offset = (values.currentPage - 1) * SUPPORT_TICKETS_PAGE_SIZE
@@ -804,6 +836,13 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
         },
         setStatusFilter: () => {
             actions.clearActiveView()
+            actions.setCurrentPage(1)
+        },
+        setSpikeFilter: () => {
+            // setCurrentPage is what reloads the list, as it is for every other filter here.
+            actions.setCurrentPage(1)
+        },
+        clearSpikeFilter: () => {
             actions.setCurrentPage(1)
         },
         setPriorityFilter: () => {
@@ -967,6 +1006,14 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
         '/support/tickets': (_, searchParams) => {
             if (props.distinctIds?.length) {
                 return
+            }
+            const urlIds = typeof searchParams.ids === 'string' ? searchParams.ids.split(',').filter(Boolean) : []
+            if (!objectsEqual(urlIds, values.spikeTicketIds)) {
+                if (urlIds.length) {
+                    actions.setSpikeFilter(urlIds, (searchParams.spike as string) ?? null)
+                } else {
+                    actions.clearSpikeFilter()
+                }
             }
             // A URL change we wrote ourselves already matches state — re-applying it would
             // clobber filters not encoded in the URL. External navigations don't set this.

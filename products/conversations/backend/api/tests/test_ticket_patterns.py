@@ -37,3 +37,28 @@ class TestTicketPatternsAPI(APIBaseTest):
 
         assert response.status_code == 200, response.json()
         assert response.json() == []
+
+    def test_dismissal_hides_the_spike_for_everyone(self):
+        self.user.first_name = "Robin"
+        self.user.save()
+        record_spike(self.team.id, SPIKE)
+        key = f"{SPIKE['topic']}:{SPIKE['detected_at']}"
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/conversations/ticket_patterns/dismiss/", {"key": key}
+        )
+        assert response.status_code == 204, response.content
+
+        # A second person reading the list sees it already dismissed, and by whom.
+        listed = self.client.get(f"/api/projects/{self.team.id}/conversations/ticket_patterns/").json()
+        assert listed[0]["dismissed_by"] == "Robin"
+        assert listed[0]["dismissed_at"] is not None
+
+    def test_dismissing_an_unknown_spike_is_a_404(self):
+        record_spike(self.team.id, SPIKE)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/conversations/ticket_patterns/dismiss/", {"key": "nope:nope"}
+        )
+
+        assert response.status_code == 404, response.content

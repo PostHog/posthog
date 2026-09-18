@@ -93425,6 +93425,21 @@ export namespace Schemas {
       requester_count: number;
       /** When detection reported this spike. */
       detected_at: string;
+      /**
+         * Name of the teammate who dismissed this spike for the project, if anyone has.
+         * @nullable
+         */
+      dismissed_by?: string | null;
+      /**
+         * When the spike was dismissed.
+         * @nullable
+         */
+      dismissed_at?: string | null;
+    }
+
+    export interface TicketPatternDismiss {
+      /** Identity of the spike to dismiss, as `topic:detected_at` from the list response. */
+      key: string;
     }
 
     /**
