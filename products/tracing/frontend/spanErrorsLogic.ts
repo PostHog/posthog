@@ -4,7 +4,7 @@ import { loaders } from 'kea-loaders'
 import { chunk } from 'lib/utils/arrays'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { sessionErrorsWindow, traceErrorsWindow, usableId } from './errorCorrelation'
+import { type ErrorScope, sessionErrorsWindow, traceErrorsWindow, usableId } from './errorCorrelation'
 import { tracingSpansErrorCountsCreate } from './generated/api'
 import type { TeamTracingConfigApi } from './generated/api.schemas'
 import { tracingSpansErrorCountsCreateBodySpanIdsMax } from './generated/api.zod'
@@ -24,7 +24,7 @@ const LOOKUP_DEBOUNCE_MS = 300
 const NO_SESSIONS: Map<string, string> = new Map()
 
 /** Which join produced a row's count. The badge says a different thing for each. */
-export type SpanErrorTier = 'span' | 'trace' | 'session'
+export type SpanErrorTier = ErrorScope
 
 export interface SpanErrorBadge {
     tier: SpanErrorTier

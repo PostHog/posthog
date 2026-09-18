@@ -14,6 +14,7 @@ const ALL_IDS: TraceErrorsLogicProps = {
     spanId: SPAN_ID,
     timestamp: '2026-06-02T08:00:00Z',
     sessionId: 'session-a',
+    initialScope: null,
 }
 
 describe('traceErrorsLogic', () => {
@@ -56,6 +57,33 @@ describe('traceErrorsLogic', () => {
 
         expect(logic.values.availableScopes).toEqual(expected)
         expect(logic.values.effectiveScope).toBe(expected[0] ?? null)
+    })
+
+    // A trace-tier badge exists only when the span scope found nothing, so defaulting to the most
+    // precise scope landed the click on the one list it had already ruled out.
+    it.each([
+        ['trace', 'trace'],
+        ['session', 'session'],
+    ])('opens on the %s scope the caller named, not the most precise one', async (_name, scope) => {
+        await mount({ initialScope: scope as any })
+
+        expect(logic.values.effectiveScope).toBe(scope)
+    })
+
+    // A scope the trace cannot offer must not strand the tab on an empty selection.
+    it('ignores a named scope the trace does not offer', async () => {
+        await mount({ initialScope: 'session', sessionId: null })
+
+        expect(logic.values.effectiveScope).toBe('span')
+    })
+
+    // The control is the user speaking; the caller's scope was only a starting point.
+    it('lets the scope control override the scope the caller named', async () => {
+        await mount({ initialScope: 'trace' })
+        logic.actions.setScope('session')
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.effectiveScope).toBe('session')
     })
 
     // The filter decides which issues the tab lists, so a scope that sends the wrong property

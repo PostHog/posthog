@@ -2,6 +2,12 @@ import { dayjs } from 'lib/dayjs'
 
 import { TRACE_LOOKUP_WINDOW_HOURS } from './traceLinks'
 
+/**
+ * Which ids an exception was matched on, in falling order of confidence. One type for both
+ * surfaces, so a badge's answer can open the drawer's tab on the same footing.
+ */
+export type ErrorScope = 'span' | 'trace' | 'session'
+
 // How far from a span an exception in the same session can sit and still count as related. It
 // matches the window the Logs product's Related errors surface uses, so the same session reads
 // the same way in both products.

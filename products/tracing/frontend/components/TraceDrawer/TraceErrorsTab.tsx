@@ -43,11 +43,20 @@ export interface TraceErrorsTabProps {
     timestamp: string | null
     /** The trace's session, or null when the spans resolve to no single session. */
     sessionId: string | null
+    /** The scope to open on, when the caller named one. A badge names the tier it counted. */
+    initialScope: TraceErrorsScope | null
     /** The spans the session is resolved from are still arriving, so a null session is not yet an answer. */
     resolving: boolean
 }
 
-export function TraceErrorsTab({ traceId, spanId, timestamp, sessionId, resolving }: TraceErrorsTabProps): JSX.Element {
+export function TraceErrorsTab({
+    traceId,
+    spanId,
+    timestamp,
+    sessionId,
+    initialScope,
+    resolving,
+}: TraceErrorsTabProps): JSX.Element {
     // Only the session scope waits. The trace and span scopes read ids the clicked row already
     // carries, so holding the whole tab for a session resolve would delay the precise answer for
     // the fuzzy one.
@@ -55,7 +64,7 @@ export function TraceErrorsTab({ traceId, spanId, timestamp, sessionId, resolvin
         return <LoadingState />
     }
 
-    const logicProps: TraceErrorsLogicProps = { traceId, spanId, timestamp, sessionId }
+    const logicProps: TraceErrorsLogicProps = { traceId, spanId, timestamp, sessionId, initialScope }
 
     return (
         <BindLogic logic={traceErrorsLogic} props={logicProps}>

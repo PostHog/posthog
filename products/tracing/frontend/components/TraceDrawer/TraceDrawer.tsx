@@ -16,6 +16,7 @@ import { cn } from 'lib/utils/css-classes'
 
 import { canViewMetrics } from 'products/metrics/frontend/metricsAccess'
 
+import type { ErrorScope } from '../../errorCorrelation'
 import { useKeepMountedWhileOpen } from '../../hooks/useKeepMountedWhileOpen'
 import { getQueryText } from '../../spanSummary'
 import type { TraceIdentity } from '../../traceIdentity'
@@ -47,6 +48,8 @@ export interface TraceDrawerProps {
     showErrorsTab: boolean
     /** Which inspector tab is open. Held in tracingViewerLogic so a caller can open one directly. */
     inspectorTab: SpanInspectorTab
+    /** The scope the Errors tab opens on, when the caller named one. */
+    errorsScope: ErrorScope | null
     onSelectInspectorTab: (tab: SpanInspectorTab) => void
     loading: boolean
     /** The open trace has more spans than the loaded pages — drives the waterfall's infinite scroll. */
@@ -72,6 +75,7 @@ export function TraceDrawer({
     sessionId,
     showErrorsTab,
     inspectorTab,
+    errorsScope,
     onSelectInspectorTab,
     loading,
     hasMoreSpans = false,
@@ -241,6 +245,7 @@ export function TraceDrawer({
                                                       spanId={inspectedSpan.span_id}
                                                       timestamp={rootSpan?.timestamp ?? inspectedSpan.timestamp ?? ts}
                                                       sessionId={sessionId}
+                                                      initialScope={errorsScope}
                                                       resolving={loading}
                                                   />
                                               ),

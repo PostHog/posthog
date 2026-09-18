@@ -16,6 +16,7 @@ import type { AggregatedSpanRow, DateRange, SpanTreeNode } from '../../../fronte
 import type { UniversalFiltersGroup } from '../../../frontend/src/types'
 import type { TracingDurationHistogramData, VisibleDurationRange } from './durationBuckets'
 import type { TracingLatencyHeatmapData } from './durationBuckets'
+import type { ErrorScope } from './errorCorrelation'
 import { spanErrorsLogic } from './spanErrorsLogic'
 import type { SpanErrorBadge } from './spanErrorsLogic'
 import type { TraceIdentity } from './traceIdentity'
@@ -96,6 +97,7 @@ export interface tracingSceneLogicValues {
     canLoadMoreTraceSpans: boolean // tracingViewerLogic
     compareFlameServiceName: string | null // tracingViewerLogic
     compareFlameSpanName: string | null // tracingViewerLogic
+    errorsScope: ErrorScope | null // tracingViewerLogic
     inspectorTab: SpanInspectorTab // tracingViewerLogic
     isLoadingFullTrace: boolean // tracingViewerLogic
     isTraceOpen: boolean // tracingViewerLogic
@@ -214,12 +216,14 @@ export interface tracingSceneLogicActions {
         traceId: string,
         options?:
             | {
+                  errorsScope?: ErrorScope | null
                   spanId?: string | null
                   tab?: SpanInspectorTab | null
                   ts?: string | null
               }
             | undefined
     ) => {
+        errorsScope: ErrorScope | null
         spanId: string | null
         tab: SpanInspectorTab | null
         traceId: string
@@ -314,6 +318,7 @@ export const tracingSceneLogic = kea<tracingSceneLogicType>([
                 'traceSessionId',
                 'sessionErrorBadgesEnabled',
                 'inspectorTab',
+                'errorsScope',
                 'isLoadingFullTrace',
                 'canLoadMoreTraceSpans',
                 'compareFlameSpanName',

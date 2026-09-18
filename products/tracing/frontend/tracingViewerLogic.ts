@@ -1,6 +1,7 @@
 import { MakeLogicType, actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import posthog from 'posthog-js'
 
+import type { ErrorScope } from './errorCorrelation'
 import {
     EMPTY_TRACE_IDENTITY,
     resolveSpanSessionId,
@@ -33,6 +34,7 @@ export interface tracingViewerLogicValues {
     canLoadMoreTraceSpans: boolean
     compareFlameServiceName: string | null
     compareFlameSpanName: string | null
+    errorsScope: ErrorScope | null
     inspectorTab: SpanInspectorTab
     isLoadingFullTrace: boolean
     isTraceOpen: boolean
@@ -90,11 +92,13 @@ export interface tracingViewerLogicActions {
     openTrace: (
         traceId: string,
         options?: {
+            errorsScope?: ErrorScope | null
             spanId?: string | null
             tab?: SpanInspectorTab | null
             ts?: string | null
         }
     ) => {
+        errorsScope: ErrorScope | null
         spanId: string | null
         tab: SpanInspectorTab | null
         traceId: string
@@ -178,12 +182,18 @@ export const tracingViewerLogic = kea<tracingViewerLogicType>([
     actions({
         openTrace: (
             traceId: string,
-            options?: { spanId?: string | null; ts?: string | null; tab?: SpanInspectorTab | null }
+            options?: {
+                spanId?: string | null
+                ts?: string | null
+                tab?: SpanInspectorTab | null
+                errorsScope?: ErrorScope | null
+            }
         ) => ({
             traceId,
             spanId: options?.spanId ?? null,
             ts: options?.ts ?? null,
             tab: options?.tab ?? null,
+            errorsScope: options?.errorsScope ?? null,
         }),
         selectInspectorTab: (tab: SpanInspectorTab) => ({ tab }),
         selectSpan: (spanId: string | null) => ({ spanId }),
@@ -223,6 +233,14 @@ export const tracingViewerLogic = kea<tracingViewerLogicType>([
         // link carries which trace to read, and the reader picks their own tab from there, so a
         // reload lands on Attributes by design. Opening another trace while the drawer is up
         // keeps the tab, so a person reading the Logs tab row by row stays on it.
+        // The scope the Errors tab opens on, when the caller named one.
+        errorsScope: [
+            null as ErrorScope | null,
+            {
+                openTrace: (_, { errorsScope }) => errorsScope,
+                closeTrace: () => null,
+            },
+        ],
         inspectorTab: [
             'attributes' as SpanInspectorTab,
             {

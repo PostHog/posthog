@@ -24,6 +24,7 @@ import { TraceDrawer } from './components/TraceDrawer/TraceDrawer'
 import { VirtualizedSpanList } from './components/VirtualizedSpanList/VirtualizedSpanList'
 import { TRACING_DISPLAY_TIMEZONE } from './dateFormats'
 import { tracingEmptyState } from './emptyState/tracingEmptyState'
+import type { ErrorScope } from './errorCorrelation'
 import { OperationsTable } from './OperationsTable'
 import { TraceCompareFlame } from './TraceCompareFlame'
 import { TraceCompareTable } from './TraceCompareTable'
@@ -86,6 +87,7 @@ function TracingSceneContents(): JSX.Element {
         sessionErrorBadgesEnabled,
         errorBadgeByRow,
         inspectorTab,
+        errorsScope,
         isLoadingFullTrace,
         canLoadMoreTraceSpans,
         traceSpansLoadingMore,
@@ -141,14 +143,14 @@ function TracingSceneContents(): JSX.Element {
     // value there re-renders every visible row. This handler and `spanErrors` below are both
     // passed that way, so both hold their identity.
     const onRowClick = useCallback(
-        (span: Span, tab?: SpanInspectorTab): void => {
+        (span: Span, tab?: SpanInspectorTab, errorsScope?: ErrorScope): void => {
             // Clicking a row leaves the scrollable <main tabIndex="0"> as the active element;
             // react-modal then scrolls it back into view when restoring focus on close. Blur so
             // the restore target is <body>, which doesn't scroll.
             ;(document.activeElement as HTMLElement | null)?.blur?.()
             // Anchor the waterfall on the clicked span. In Spans mode this is often a child span,
             // so without spanId the drawer would open unfocused at the root.
-            openTrace(span.trace_id, { spanId: span.span_id, ts: span.timestamp, tab })
+            openTrace(span.trace_id, { spanId: span.span_id, ts: span.timestamp, tab, errorsScope })
         },
         [openTrace]
     )
@@ -157,7 +159,10 @@ function TracingSceneContents(): JSX.Element {
     const spanErrors = useMemo(
         () =>
             sessionErrorBadgesEnabled
-                ? { badges: errorBadgeByRow, onShow: (span: Span) => onRowClick(span, 'errors') }
+                ? {
+                      badges: errorBadgeByRow,
+                      onShow: (span: Span, scope: ErrorScope) => onRowClick(span, 'errors', scope),
+                  }
                 : undefined,
         [sessionErrorBadgesEnabled, errorBadgeByRow, onRowClick]
     )
@@ -317,6 +322,7 @@ function TracingSceneContents(): JSX.Element {
                 sessionId={traceSessionId}
                 showErrorsTab={sessionErrorBadgesEnabled}
                 inspectorTab={inspectorTab}
+                errorsScope={errorsScope}
                 onSelectInspectorTab={selectInspectorTab}
                 loading={isLoadingFullTrace}
                 hasMoreSpans={canLoadMoreTraceSpans}

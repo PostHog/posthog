@@ -10,6 +10,7 @@ import { SortingIndicator } from 'lib/lemon-ui/LemonTable/sorting'
 import { cn } from 'lib/utils/css-classes'
 
 import { TRACING_DATE_FORMAT, TRACING_DISPLAY_TIMEZONE, TRACING_TIME_FORMAT } from '../../dateFormats'
+import type { ErrorScope } from '../../errorCorrelation'
 import type { SpanErrorBadge } from '../../spanErrorsLogic'
 import { formatDuration } from '../../TraceWaterfallView'
 import type { TracingOrderBy, TracingOrderDirection } from '../../tracingFiltersLogic'
@@ -59,7 +60,8 @@ interface SortProps {
 export interface SpanErrors {
     /** What each row badges, by span uuid. A row the map does not hold carries no badge. */
     badges: Map<string, SpanErrorBadge>
-    onShow: (span: Span) => void
+    /** The tier travels with the click so the drawer opens on the scope the badge just named. */
+    onShow: (span: Span, scope: ErrorScope) => void
 }
 
 interface VirtualizedSpanListProps extends SortProps {
@@ -235,7 +237,7 @@ function SpanRow({
                             tier={errorBadge.tier}
                             errorCount={errorBadge.count}
                             alsoInSession={errorBadge.alsoInSession}
-                            onClick={() => spanErrors.onShow(span)}
+                            onClick={() => spanErrors.onShow(span, errorBadge.tier)}
                         />
                     )}
                 </TableCell>
