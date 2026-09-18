@@ -125,6 +125,24 @@ describe('dataNodeLogic', () => {
             expect(JSON.stringify(capture.mock.calls)).not.toMatch(/synthetic-search-secret|synthetic-person/)
         })
 
+        it.each([
+            [{ status: 513 }, 'failed', 'out_of_memory'],
+            [{ code: 'clickhouse_memory_limit_exceeded' }, 'failed', 'out_of_memory'],
+            [{ status: 504 }, 'timed_out', 'timeout'],
+            [{ status: 512 }, 'failed', 'query_rejected'],
+            [{ status: 500 }, 'failed', 'query_error'],
+            [{ code: 'synthetic-unknown-code' }, 'failed', 'query_error'],
+        ])('preserves a structured query failure %j without its text', async (failure, outcome, errorType) => {
+            mockedQuery.mockRejectedValueOnce({ ...failure, detail: 'synthetic-error-secret timeout memory' })
+            mount()
+            logic.actions.loadData()
+            await expectLogic(logic).toFinishAllListeners()
+            expect(capture.mock.calls).toHaveLength(2)
+            expect(capture.mock.calls.at(-1)?.[1]).toMatchObject({ outcome, error_type: errorType })
+            expect(JSON.stringify(capture.mock.calls)).not.toContain('synthetic-error-secret')
+            expect(logic.values.queryJourneyReceipt).toBeNull()
+        })
+
         it.each(['success', 'error'])('does not let a stale %s finish the replacement', async (terminal) => {
             let resolve!: (value: any) => void
             let reject!: (error: Error) => void

@@ -38,6 +38,7 @@ import { ApiError, isAccessDeniedError } from 'lib/api-error'
 import { DataColorTheme } from 'lib/colors'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { customerJourneyFailure } from 'lib/customerJourneys/customerJourneyFailure'
 import { isCustomerJourneyTelemetryEnabled } from 'lib/customerJourneys/startCustomerJourney'
 import { Dayjs, dayjs, now } from 'lib/dayjs'
 import { Link } from 'lib/lemon-ui/Link'
@@ -47,7 +48,7 @@ import { deleteInsightWithUndo } from 'lib/utils/deleteWithUndo'
 import { clearDOMTextSelection, getJSHeapMemory, uuid } from 'lib/utils/dom'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { objectsEqual } from 'lib/utils/objects'
-import { shouldCancelQuery } from 'lib/utils/requests'
+import { isAbortedRequest, shouldCancelQuery } from 'lib/utils/requests'
 import { toParams } from 'lib/utils/url'
 import { addInsightToDashboardLogic } from 'scenes/dashboard/addInsightToDashboardModalLogic'
 import { BREAKPOINTS, dashboardToSaveableTemplate, getDashboardTileDisplayName } from 'scenes/dashboard/dashboardUtils'
@@ -4494,7 +4495,13 @@ export const dashboardLogic = kea<dashboardLogicType>([
                             if (queryError) {
                                 actions.setRefreshError(insight.short_id, queryError)
                                 if (isJourneyTile) {
-                                    if (journeyController.failed(journeyAttemptId, tile.id, 'query_error')) {
+                                    if (
+                                        journeyController.failed(
+                                            journeyAttemptId,
+                                            tile.id,
+                                            customerJourneyFailure(queryError).error_type
+                                        )
+                                    ) {
                                         actions.clearDashboardJourneyRenderReadiness()
                                     }
                                 }
@@ -4538,17 +4545,23 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         if (isJourneyTile && cache.acceptedDashboardJourneyAttemptId !== journeyAttemptId) {
                             return
                         }
+                        if (
+                            isJourneyTile &&
+                            !isAbortedRequest(e) &&
+                            journeyController.failed(
+                                journeyAttemptId,
+                                tile.id,
+                                customerJourneyFailure(e, 'load_error').error_type
+                            )
+                        ) {
+                            actions.clearDashboardJourneyRenderReadiness()
+                        }
                         if (shouldCancelQuery(e)) {
                             console.warn(`Insight refresh cancelled for ${insight.short_id} due to abort signal:`, e)
                             actions.abortQuery({ queryId, queryStartTime, shortId: insight.short_id })
                             tilesAbortedCount++
                         } else {
                             actions.setRefreshError(insight.short_id, e)
-                            if (isJourneyTile) {
-                                if (journeyController.failed(journeyAttemptId, tile.id, 'load_error')) {
-                                    actions.clearDashboardJourneyRenderReadiness()
-                                }
-                            }
                             tilesErroredCount++
                         }
                     }
