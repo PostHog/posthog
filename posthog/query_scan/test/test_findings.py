@@ -320,7 +320,10 @@ class TestAssistantPrompt(SimpleTestCase):
             query_kind="HogQLQuery",
         )
 
+        by_design = build_warning(kind=QueryScanFindingKind.NO_EVENT_FILTER, by_design=True, query_kind="HogQLQuery")
+
         self.assertIsNone(assistant_prompt([on_insight], fixable_only=True))
+        self.assertIsNone(assistant_prompt([on_insight, by_design], fixable_only=True))
         fixable = assistant_prompt([on_insight, in_query], fixable_only=True)
         assert fixable is not None
         self.assertNotIn("no_start_date", fixable)

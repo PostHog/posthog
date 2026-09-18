@@ -552,16 +552,16 @@ def assistant_prompt(
     """What the assistant reads about a slow run: the goal, the run, one line per finding, and the
     standing rules. "Fix with AI" sends it as the person's message.
 
-    ``fixable_only`` is for "Fix with AI": None unless a finding is actionable, and without the
-    findings fixed on the insight or the dashboard rather than in the query. A by-design finding
-    stays, because its guidance tells the assistant what not to change.
+    ``fixable_only`` is for "Fix with AI": without the findings fixed on the insight or the
+    dashboard rather than in the query, and None unless one of the rest is actionable. A by-design
+    finding stays, because its guidance tells the assistant what not to change.
     """
     if fixable_only:
-        if not any(finding.actionable for finding in findings):
-            return None
         findings = [
             finding for finding in findings if finding.by_design or finding.fix_location not in _OUTSIDE_THE_QUERY
         ]
+        if not any(finding.actionable for finding in findings):
+            return None
     if not findings:
         return None
     lines = [ASSISTANT_GOAL, ""]
