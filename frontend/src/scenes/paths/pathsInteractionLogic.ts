@@ -156,6 +156,7 @@ export const pathsInteractionLogic = kea<pathsInteractionLogicType>([
                 // cancels the pending clear, so the card to SVG transition stays seamless.
                 unhoverCard: () => false,
                 clearHover: () => false,
+                setNodes: () => false,
             },
         ],
         // The card whose popover is open. Debounced through clearHover, so that crossing the
@@ -174,13 +175,23 @@ export const pathsInteractionLogic = kea<pathsInteractionLogicType>([
 
     listeners(({ actions, cache }) => ({
         requestClearHover: () => {
-            // Same key, so a new request replaces the pending one
-            cache.disposables.add(() => {
-                const timer = setTimeout(() => {
-                    actions.clearHover()
-                }, CLEAR_HOVER_DEBOUNCE_MS)
-                return () => clearTimeout(timer)
-            }, CLEAR_HOVER_TIMER)
+            // Same key, so a new request replaces the pending one. This is a one-shot, so it
+            // deregisters itself once it fires: the plugin re-runs the setup of every entry that
+            // is still registered when the tab becomes visible, which would otherwise re-arm this
+            // timer on every return to the tab for the rest of the logic's life.
+            // `pauseOnPageHidden` is off because a 30 ms pointer debounce is not background work,
+            // and pausing it holds a pending clear until the tab is visible again.
+            cache.disposables.add(
+                () => {
+                    const timer = setTimeout(() => {
+                        cache.disposables.dispose(CLEAR_HOVER_TIMER)
+                        actions.clearHover()
+                    }, CLEAR_HOVER_DEBOUNCE_MS)
+                    return () => clearTimeout(timer)
+                },
+                CLEAR_HOVER_TIMER,
+                { pauseOnPageHidden: false }
+            )
         },
         hoverNode: () => {
             cache.disposables.dispose(CLEAR_HOVER_TIMER)
