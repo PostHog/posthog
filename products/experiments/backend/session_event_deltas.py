@@ -55,7 +55,7 @@ activity instead would select on something that happens after treatment and can 
 variant: a variant that brings people back more gets more of its people into the window, and the
 people who met the change and did not come back are never compared. First exposure time also
 spans the whole run rather than a trailing window, so an experiment that stopped enrolling weeks
-ago still compares its last enrollees, in the sessions where they met the change. While an
+ago still compares its last enrollees, in their first sessions after exposure. While an
 experiment runs, the newest FIRST_SESSION_SETTLING_HOURS of enrollment is held back, because those
 people are still inside the session the comparison would read. The one case this selection does
 not cover is a rollout split that changed inside the compared stretch: the newest enrollees are
@@ -73,13 +73,12 @@ independent, which is what the ranking's noise test below assumes. The numerator
 treatment: on that experiment one variant's people averaged seven covered sessions each against
 the other's two, so they had seven chances to have done anything rather than two. So a person is
 read from one session: the one holding their earliest event at or after their first exposure,
-among their events up to FIRST_SESSION_HORIZON_HOURS after it, which is the same amount of
-behavior on both sides. Only rows at or after the first exposure
-count: what a person did in the exposure session before the flag was evaluated is the same in every
-variant, so keeping it only dilutes the comparison. A person with no session in that horizon is
-not compared. A card's *recordings*, by contrast, come from any of a compared person's sessions in
-the horizon that contain the event — the statistics need fairness, the watchlist needs the behavior
-on screen.
+among their events up to FIRST_SESSION_HORIZON_HOURS after it, which is the same amount of behavior
+on both sides. Only rows at or after the first exposure count: what a person did in the exposure
+session before the flag was evaluated is the same in every variant, so keeping it only dilutes the
+comparison. A person with no session in that horizon is not compared. A card's *recordings*, by
+contrast, come from any of a compared person's sessions in the horizon that contain the event — the
+statistics need fairness, the watchlist needs the behavior on screen.
 
 **Ranking.** Each variant is compared against all the others pooled, so a five-variant experiment needs no
 pairing and costs the same one scan as two variants. Rates are compared on the log of their ratio, and
@@ -723,8 +722,8 @@ class _ComparedEnrollment:
     rather than a hull around scattered people. When nobody has been exposed both sit on the
     window end, so the compared span is empty rather than a claim about a stretch nobody was read
     in. The ranges are newest first, the order the walk admits them in, and disjoint; they reach up
-    to the horizon past `enrolled_before`, because each compared person is read from the session
-    they met the change in.
+    to the horizon past `enrolled_before`, because each compared person's first session after
+    exposure can start that long after their own exposure.
     """
 
     cutoff: datetime

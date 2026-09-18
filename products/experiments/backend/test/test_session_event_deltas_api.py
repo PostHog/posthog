@@ -805,8 +805,8 @@ class TestExperimentSessionEventDeltas(ClickhouseTestMixin, APILicensedTest):
             # The same people, back days rather than hours later. The horizon is a week, so a
             # first session this late is still the one they are compared in.
             ("browser_sessions_days_later", timedelta(days=3), True),
-            # The same people, back only eight days later: past the horizon, so they read as
-            # having no session at all.
+            # The same people, back eight days later: past the horizon, so they read as having no
+            # session at all.
             ("browser_sessions_past_the_horizon", timedelta(days=8), False),
         ]
     )
