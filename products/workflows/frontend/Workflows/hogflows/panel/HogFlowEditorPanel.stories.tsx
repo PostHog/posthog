@@ -1,6 +1,5 @@
 import type { Meta, StoryFn } from '@storybook/react'
 import { ReactFlowProvider } from '@xyflow/react'
-import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
@@ -9,18 +8,11 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { mswDecorator } from '~/mocks/browser'
 
 import { NEW_WORKFLOW, WorkflowLogicProps, workflowLogic } from '../../workflowLogic'
-import { WORKFLOW_EMAIL_STEP_MOCKS } from '../editor/workflowEditorStoryFixtures'
 import { hogFlowEditorLogic, HogFlowEditorMode } from '../hogFlowEditorLogic'
 import type { HogFlow, HogFlowAction } from '../types'
 import { HogFlowEditorPanel } from './HogFlowEditorPanel'
 
 const LOGIC_PROPS: WorkflowLogicProps = { id: 'storybook-configuration-panel' }
-
-const WELCOME_EMAIL_HTML = `<html><body style="font-family: sans-serif; margin: 0; padding: 24px;">
-<h1>Welcome to Example</h1>
-<p>Thanks for creating an account. Here are three things to try first.</p>
-<ul><li>Invite a teammate</li><li>Connect a data source</li><li>Build your first dashboard</li></ul>
-</body></html>`
 
 const PANEL_WORKFLOW: HogFlow = {
     ...NEW_WORKFLOW,
@@ -69,28 +61,6 @@ const PANEL_WORKFLOW: HogFlow = {
             },
         },
         {
-            id: 'email',
-            type: 'function_email',
-            name: 'Send welcome email',
-            description: 'Welcome the new account by email.',
-            config: {
-                template_id: 'template-email',
-                inputs: {
-                    email: {
-                        templating: 'liquid',
-                        value: {
-                            to: { name: '', email: '{{ person.properties.email }}' },
-                            from: {},
-                            subject: 'Welcome to Example',
-                            preheader: '',
-                            html: WELCOME_EMAIL_HTML,
-                            text: 'Thanks for creating an account.',
-                        },
-                    },
-                },
-            },
-        },
-        {
             id: 'conditional',
             type: 'conditional_branch',
             name: 'Route by account stage',
@@ -130,8 +100,7 @@ const PANEL_WORKFLOW: HogFlow = {
     edges: [
         { from: 'trigger', to: 'delay', type: 'continue' },
         { from: 'delay', to: 'webhook', type: 'continue' },
-        { from: 'webhook', to: 'email', type: 'continue' },
-        { from: 'email', to: 'conditional', type: 'continue' },
+        { from: 'webhook', to: 'conditional', type: 'continue' },
         { from: 'conditional', to: 'cohort', type: 'branch', index: 0 },
         { from: 'conditional', to: 'exit', type: 'branch', index: 1 },
         { from: 'conditional', to: 'exit', type: 'continue' },
@@ -144,7 +113,6 @@ const PANEL_WORKFLOW: HogFlow = {
 type PanelStoryProps = {
     mode: HogFlowEditorMode
     selectedNodeId: string | null
-    layout?: 'floating' | 'panel'
 }
 
 const meta: Meta<typeof HogFlowEditorPanel> = {
@@ -159,7 +127,6 @@ const meta: Meta<typeof HogFlowEditorPanel> = {
             get: {
                 '/api/environments/:team_id/hog_flows/:id/': PANEL_WORKFLOW,
                 '/api/environments/:team_id/messaging_categories': { count: 0, results: [] },
-                ...WORKFLOW_EMAIL_STEP_MOCKS,
             },
             patch: {
                 '/api/environments/:team_id/hog_flows/:id/': async ({ request }) => [
@@ -190,7 +157,7 @@ const meta: Meta<typeof HogFlowEditorPanel> = {
 }
 export default meta
 
-function PanelStory({ mode, selectedNodeId, layout = 'floating' }: PanelStoryProps): JSX.Element {
+function PanelStory({ mode, selectedNodeId }: PanelStoryProps): JSX.Element {
     const { originalWorkflow } = useValues(workflowLogic(LOGIC_PROPS))
     const { nodes } = useValues(hogFlowEditorLogic(LOGIC_PROPS))
     const { setWorkflowValues } = useActions(workflowLogic(LOGIC_PROPS))
@@ -213,14 +180,8 @@ function PanelStory({ mode, selectedNodeId, layout = 'floating' }: PanelStoryPro
         <ReactFlowProvider>
             <BindLogic logic={workflowLogic} props={LOGIC_PROPS}>
                 <BindLogic logic={hogFlowEditorLogic} props={LOGIC_PROPS}>
-                    <div
-                        className={clsx(
-                            'relative h-screen w-[37rem] overflow-hidden bg-surface-primary',
-                            // The docked panel sizes itself as a share of the editor; here it is the whole story.
-                            layout === 'panel' && '[&>div]:!w-full [&>div]:!max-w-full'
-                        )}
-                    >
-                        <HogFlowEditorPanel layout={layout} />
+                    <div className="relative h-screen w-[37rem] overflow-hidden bg-surface-primary">
+                        <HogFlowEditorPanel />
                     </div>
                 </BindLogic>
             </BindLogic>
@@ -241,10 +202,6 @@ Trigger.args = { mode: 'build', selectedNodeId: 'trigger' }
 
 export const Webhook: StoryFn<PanelStoryProps> = Template.bind({})
 Webhook.args = { mode: 'build', selectedNodeId: 'webhook' }
-
-// Docked, because only a panel with a fixed height shows whether the preview fills it.
-export const Email: StoryFn<PanelStoryProps> = Template.bind({})
-Email.args = { mode: 'build', selectedNodeId: 'email', layout: 'panel' }
 
 export const ConditionalBranch: StoryFn<PanelStoryProps> = Template.bind({})
 ConditionalBranch.args = { mode: 'build', selectedNodeId: 'conditional' }
