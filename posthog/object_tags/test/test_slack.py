@@ -2,10 +2,7 @@ import unittest
 
 from parameterized import parameterized
 
-from products.tasks.backend.temporal.slack_relay.object_tags import (
-    rewrite_object_tags_for_slack,
-    split_incomplete_tag_suffix,
-)
+from posthog.object_tags.slack import rewrite_object_tags_for_slack, split_incomplete_tag_suffix
 
 PROJECT = "https://us.posthog.com/project/2"
 UUID = "0190f8a1-7c3e-7b2a-9d4f-2a1b3c4d5e6f"
@@ -26,6 +23,7 @@ class TestRewriteObjectTagsForSlack(unittest.TestCase):
             ("experiment", "7", "/experiments/7"),
             ("survey", UUID, f"/surveys/{UUID}"),
             ("ticket", UUID, f"/support/tickets/{UUID}"),
+            ("report", "rep-1", "/inbox/rep-1"),
             ("trace", UUID, f"/ai-observability/traces/{UUID}"),
             ("eval", "5", "/ai-evals/evaluations/5"),
             ("event", UUID, f"/data-management/events/{UUID}"),
@@ -131,10 +129,38 @@ class TestRewriteObjectTagsForSlack(unittest.TestCase):
                 '<hogql label="a &amp; b">SELECT 1</hogql>',
                 f"[a & b]({PROJECT}/sql?open_query=SELECT%201&unfurl=false)",
             ),
+            (
+                "a_broadcast_in_a_label_cannot_ping_the_channel",
+                '<insight id="1" title="&lt;!channel&gt;"/>',
+                f"[&lt;!channel&gt;]({PROJECT}/insights/1?unfurl=false)",
+            ),
+            (
+                "a_broadcast_in_a_caption_cannot_ping_the_channel",
+                '<hogql display="block" title="T" caption="&lt;!channel&gt;">SELECT 1</hogql>',
+                f"**[T]({PROJECT}/sql?open_query=SELECT%201&unfurl=false)**\n```\nSELECT 1\n```\n_&lt;!channel&gt;_",
+            ),
+            (
+                "sql_quoting_tag_markup_stays_one_tag",
+                'See <hogql label="q">SELECT \'<insight id="x">\'</hogql>.',
+                f"See [q]({PROJECT}/sql?open_query=SELECT%20%27%3Cinsight%20id%3D%22x%22%3E%27&unfurl=false).",
+            ),
         ]
     )
     def test_rewrites(self, _name: str, text: str, expected: str) -> None:
         assert rewrite(text) == expected
+
+    def test_the_fence_grows_past_any_backtick_run_in_the_sql(self) -> None:
+        # A run at least as long as the fence would close it early and spill the rest of
+        # the SQL — including a live broadcast token — outside the code block.
+        rendered = rewrite('<hogql display="block" title="T">a\n```\n<!channel> b</hogql>')
+        assert rendered == (
+            f"**[T]({PROJECT}/sql?open_query=a%0A%60%60%60%0A%3C%21channel%3E%20b&unfurl=false)**\n"
+            "````\na\n```\n<!channel> b\n````"
+        )
+
+    def test_a_list_marker_whose_only_content_is_a_block_is_dropped(self) -> None:
+        rendered = rewrite('- <hogql display="block" title="T">SELECT 1</hogql>')
+        assert rendered == f"**[T]({PROJECT}/sql?open_query=SELECT%201&unfurl=false)**\n```\nSELECT 1\n```"
 
     @parameterized.expand(
         [
@@ -213,6 +239,16 @@ class TestSplitIncompleteTagSuffix(unittest.TestCase):
             ("self_closing_tag_is_sent", 'See <flag id="1"/> now', 'See <flag id="1"/> now', ""),
             ("comparison_is_not_a_tag", "a < b and c", "a < b and c", ""),
             ("unknown_tag_is_sent", "x <unknown>y", "x <unknown>y", ""),
+            ("unknown_partial_is_sent", "plain <widget", "plain <widget", ""),
+            ("unregistered_partial_with_id_is_held", 'x <inbox id="r', "x ", '<inbox id="r'),
+            ("unregistered_opener_with_id_is_held", 'x <inbox id="r1">lab', "x ", '<inbox id="r1">lab'),
+            ("opener_inside_inline_code_is_sent", 'Use `<insight id="a">` now', 'Use `<insight id="a">` now', ""),
+            (
+                "quoted_markup_inside_a_complete_tag_is_sent",
+                "<hogql>SELECT '<insight id=\"x\">'</hogql>",
+                "<hogql>SELECT '<insight id=\"x\">'</hogql>",
+                "",
+            ),
             ("whole_text_is_held_when_it_is_all_one_open_tag", '<insight id="1">check', "", '<insight id="1">check'),
             (
                 "open_fence_is_held",

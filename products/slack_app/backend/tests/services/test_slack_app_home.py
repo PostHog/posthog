@@ -916,6 +916,21 @@ class TestRenderEditModal:
         assert option_values
         assert all(v.startswith("gpt-") for v in option_values)
 
+    def test_model_options_carry_the_cost_of_a_priced_model(self):
+        view = render_edit_modal(current=AIPreferences(runtime_adapter="claude"))
+        model_block = _find_block(view, MODAL_BLOCK_MODEL)
+        assert model_block
+        options = {o["value"]: o for o in model_block["element"]["options"]}
+        assert "Claude Sonnet 5" in options["claude-opus-5"]["description"]["text"]
+        assert "2.5×" in options["claude-opus-5"]["description"]["text"]
+
+    def test_model_option_omits_the_cost_line_when_the_catalog_prices_nothing(self):
+        view = render_edit_modal(current=AIPreferences(runtime_adapter="codex"))
+        model_block = _find_block(view, MODAL_BLOCK_MODEL)
+        assert model_block
+        options = {o["value"]: o for o in model_block["element"]["options"]}
+        assert "description" not in options["gpt-5"]
+
     def test_effort_block_renders_only_when_supported_efforts_provided(self):
         view = render_edit_modal(
             current=AIPreferences(runtime_adapter="claude", model="claude-opus-4-7"),
@@ -943,6 +958,9 @@ class TestRenderEditModal:
         assert runtime_block["element"]["initial_option"]["value"] == "claude"
         assert model_block["element"]["initial_option"]["value"] == "claude-opus-4-7"
         assert effort_block["element"]["initial_option"]["value"] == "high"
+        # Slack rejects the whole view when an initial option is not one of the offered
+        # options, down to the cost line under the name.
+        assert model_block["element"]["initial_option"] in model_block["element"]["options"]
 
     def test_dispatch_action_set_on_runtime_and_model(self):
         view = render_edit_modal(current=AIPreferences(runtime_adapter="claude"))

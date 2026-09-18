@@ -1,10 +1,13 @@
-"""Slack Events API deliveries for the SupportHog app.
+"""Slack deliveries for the SupportHog app, from the Events API and from interactive components.
 
-Two entry points, both reached from the facade after ingress verified the signature and parsed
-the envelope: ``slack_delivery_ownership`` answers which region holds the workspace the delivery
-is about, and ``accept_slack_event`` writes the inbound receipt and wakes its worker. No HTTP in
-here -- ingress owns the request, the receipt and the forward to the region that owns the
-workspace.
+Three entry points, all reached from the facade after ingress verified the signature and parsed
+the body: ``slack_delivery_ownership`` answers which region holds the workspace the delivery is
+about, and ``accept_slack_event`` and ``accept_slack_interactivity`` write the inbound receipt and
+wake its worker. No HTTP in here -- ingress owns the request, the receipt and the forward to the
+region that owns the workspace.
+
+Both Slack endpoints live here because they answer ownership the same way: each carries the
+workspace id in the delivery context, and one bounded lookup resolves it for both.
 """
 
 import json
@@ -18,6 +21,7 @@ from products.conversations.backend.models import ConversationInboundEventSource
 from products.conversations.backend.services.inbound_events import (
     accept_inbound_event,
     slack_events_source_id,
+    slack_interactivity_source_id,
     slack_retry_metadata_from_values,
 )
 from products.conversations.backend.support_slack import team_for_slack_workspace
@@ -55,12 +59,17 @@ def slack_delivery_ownership(delivery: WebhookDelivery) -> DeliveryOwnership:
     return DeliveryOwnership.LOCAL if team is not None else DeliveryOwnership.ELSEWHERE
 
 
-def accept_slack_event(delivery: WebhookDelivery) -> None:
-    """Record a verified Slack event against the workspace's team and wake its worker."""
-    payload: dict[str, Any] = dict(delivery.payload)
+def _accept_delivery(
+    delivery: WebhookDelivery,
+    *,
+    source: ConversationInboundEventSource,
+    payload: dict[str, Any],
+    source_id: str,
+) -> None:
+    """Write the inbound receipt for a verified Slack delivery and wake its worker."""
     slack_team_id = delivery.context.get("slack_team_id", "")
     # Unguarded on purpose: a timed-out lookup fails the delivery, so the dispatcher releases the
-    # dedup mark and Slack's redelivery reaches this consumer instead of the event being lost.
+    # dedup mark and Slack's redelivery reaches this consumer instead of the delivery being lost.
     team = _team_for_workspace(slack_team_id) if slack_team_id else None
     if team is None:
         # Quiet on purpose: ingress reports a delivery no region here owns, off the ownership
@@ -73,16 +82,41 @@ def accept_slack_event(delivery: WebhookDelivery) -> None:
     )
     accept_inbound_event(
         team=team,
+        source=source,
+        source_id=source_id,
+        provider_account_id=slack_team_id,
+        payload=payload,
+        provider_retry_num=retry_num,
+        provider_retry_reason=retry_reason,
+        wake=wake_inbound_event,
+    )
+
+
+def accept_slack_event(delivery: WebhookDelivery) -> None:
+    """Record a verified Slack event against the workspace's team and wake its worker."""
+    payload: dict[str, Any] = dict(delivery.payload)
+    _accept_delivery(
+        delivery,
         source=ConversationInboundEventSource.SLACK_EVENTS,
+        payload=payload,
         # A delivery carries no raw body, so an event without an id falls back to a hash of the
         # parsed payload rather than of the signed bytes.
         source_id=slack_events_source_id(
             event_id=delivery.delivery_id,
             signed_body=json.dumps(payload, sort_keys=True).encode("utf-8"),
         ),
-        provider_account_id=slack_team_id,
+    )
+
+
+def accept_slack_interactivity(delivery: WebhookDelivery) -> None:
+    """Record a verified Slack interactive payload against the workspace's team and wake its worker."""
+    payload: dict[str, Any] = dict(delivery.payload)
+    # The signed `payload` field, which the incarnation carries on the context so the source id
+    # hashes the bytes Slack signed rather than a re-serialization of the parsed mapping.
+    raw_payload = delivery.context.get("raw_payload", "")
+    _accept_delivery(
+        delivery,
+        source=ConversationInboundEventSource.SLACK_INTERACTIVITY,
         payload=payload,
-        provider_retry_num=retry_num,
-        provider_retry_reason=retry_reason,
-        wake=wake_inbound_event,
+        source_id=slack_interactivity_source_id(payload=payload, signed_body=raw_payload.encode("utf-8")),
     )
