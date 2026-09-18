@@ -294,11 +294,19 @@ class TestDataQualityRunAPI(APIBaseTest):
             )
 
     @parameterized.expand([("table",), ("view",)])
-    def test_a_token_scoped_to_one_kind_of_warehouse_object_does_not_reach_checks(self, subject_type: str) -> None:
-        self._check(self.orders)
+    def test_a_token_scoped_to_one_kind_of_warehouse_object_reaches_only_that_kind(self, subject_type: str) -> None:
+        purchases = DataWarehouseTable.objects.create(team=self.team, name="purchases", format="Parquet")
+        table_check = self._check(
+            self.orders, subject_type=SubjectType.TABLE, saved_query_id=None, table_id=purchases.id
+        )
+        view_check = self._check(self.orders)
         self._authenticate_token("pat", [f"warehouse_{subject_type}:write", "query:read"])
 
-        assert self.client.get(self.checks_url).status_code == 403
+        listed = self.client.get(self.checks_url)
+
+        assert listed.status_code == 200, listed.json()
+        expected = table_check if subject_type == "table" else view_check
+        assert [row["id"] for row in listed.json()["results"]] == [str(expected.id)]
 
     def test_catalog_only_members_see_teammates_metric_checks_and_suites(self) -> None:
         author = self._create_user("metric-author@example.com")
