@@ -260,7 +260,7 @@ export class MlKeyBatch {
                     this.encryption.rememberCommitted(key)
                     return
                 }
-                // A session keys its own partition, so only a rebalance overlap or a team key puts two writers on one row.
+                // Batches overlap, so a later batch reads before an earlier one writes, and a new session routinely meets its own earlier candidate here.
                 if (stored.deleted?.BOOL === true) {
                     this.keys.delete(id)
                     dropped += 1

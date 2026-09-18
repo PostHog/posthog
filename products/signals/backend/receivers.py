@@ -377,6 +377,50 @@ def close_pr_when_report_dismissed(
 
 
 @receiver(post_save, sender=SignalReport)
+def arm_pending_checks_when_report_resolved(
+    sender: type[SignalReport],
+    instance: SignalReport,
+    created: bool,
+    update_fields: set[str] | None = None,
+    **kwargs: Any,
+) -> None:
+    """Start the soak clock on the report's pending checks the moment it resolves.
+
+    A check written during research predates any fix, so it carries a soak duration rather than a
+    date. The resolve is what it waits for, and hooking the model rather than each caller makes
+    every resolve path the same clock: a merged pull request's webhook, a manual resolve in the
+    inbox, and an MCP state write all finish in a ``save``. Plenty of fixes never have a pull
+    request to date a window from, which is why the report's own transition is the event.
+    """
+    if instance.status != SignalReport.Status.RESOLVED:
+        return
+    if not _status_changed_on_this_save(
+        instance, created=created, update_fields=update_fields, prior_status=getattr(instance, "_prior_status", None)
+    ):
+        return
+    team_id = instance.team_id
+    report_id = str(instance.id)
+    resolved_at = timezone.now()
+    # After commit, so a rolled-back resolve never arms a check, and best-effort: a report that
+    # resolved is the outcome that matters, and a failure here leaves the checks pending rather
+    # than losing them.
+    transaction.on_commit(
+        partial(_arm_pending_checks_safely, team_id=team_id, report_id=report_id, resolved_at=resolved_at)
+    )
+
+
+def _arm_pending_checks_safely(*, team_id: int, report_id: str, resolved_at: datetime) -> None:
+    # Function-local: the authoring module reaches the execution module and from there the alerts
+    # facade, which the startup-import-budget test keeps off django.setup().
+    from products.signals.backend.report_check_authoring import arm_pending_checks  # noqa: PLC0415
+
+    try:
+        arm_pending_checks(team_id=team_id, report_id=report_id, resolved_at=resolved_at)
+    except Exception:
+        logger.exception("signals.report_check.arm_on_resolve_failed", report_id=report_id, team_id=team_id)
+
+
+@receiver(post_save, sender=SignalReport)
 def emit_report_embedding_on_document_change(
     sender: type[SignalReport],
     instance: SignalReport,
