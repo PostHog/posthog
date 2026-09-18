@@ -8991,14 +8991,7 @@ class TestExperimentApiExposureCriteriaParity(unittest.TestCase):
 
 
 class TestExperimentApiMetricParity(unittest.TestCase):
-    """Structural guard: the slim API metric schema must expose every writable metric field.
-
-    Runtime validation uses the full ``ExperimentMetric`` union, so the backend accepts any field
-    on it. ``ExperimentApiMetric`` is the slim type that drives the OpenAPI spec and, downstream,
-    the MCP tool / frontend write schema. A field honored at runtime but missing from the slim
-    type is silently stripped by the generated client before it ever reaches the API — which is
-    how ``conversion_window_unit`` and ``funnel_order_type`` stayed unsettable over the API.
-    """
+    """A field missing from the slim API metric schema is stripped by the generated write clients."""
 
     INTENTIONALLY_OMITTED = {
         # Server-computed or internal.

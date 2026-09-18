@@ -4933,7 +4933,7 @@ export const ExperimentsCreateBody = () => zod
                                 .union([zod.enum(['strict', 'unordered', 'ordered']), zod.null()])
                                 .optional()
                                 .describe(
-                                    "For funnel metrics: how the steps must occur. 'ordered' (default): in order, with other events allowed in between. 'unordered': in any order. Do not set 'strict' on an experiment metric: the metric query reads only the step events and the exposure events, so 'strict' misses unrelated events between steps and instead drops users who are exposed again between two steps. It stays in this schema so that a metric which already has it survives a round trip."
+                                    "For funnel metrics: how the steps must occur. 'ordered' (default) or 'unordered'. Do not use 'strict': experiment funnels give wrong counts with it."
                                 ),
                             goal: zod
                                 .union([zod.enum(['increase', 'decrease']), zod.null()])
@@ -5969,7 +5969,7 @@ export const ExperimentsCreateBody = () => zod
                                 .union([zod.enum(['strict', 'unordered', 'ordered']), zod.null()])
                                 .optional()
                                 .describe(
-                                    "For funnel metrics: how the steps must occur. 'ordered' (default): in order, with other events allowed in between. 'unordered': in any order. Do not set 'strict' on an experiment metric: the metric query reads only the step events and the exposure events, so 'strict' misses unrelated events between steps and instead drops users who are exposed again between two steps. It stays in this schema so that a metric which already has it survives a round trip."
+                                    "For funnel metrics: how the steps must occur. 'ordered' (default) or 'unordered'. Do not use 'strict': experiment funnels give wrong counts with it."
                                 ),
                             goal: zod
                                 .union([zod.enum(['increase', 'decrease']), zod.null()])
@@ -10884,7 +10884,7 @@ export const ExperimentsPartialUpdateBody = () => zod
                                 .union([zod.enum(['strict', 'unordered', 'ordered']), zod.null()])
                                 .optional()
                                 .describe(
-                                    "For funnel metrics: how the steps must occur. 'ordered' (default): in order, with other events allowed in between. 'unordered': in any order. Do not set 'strict' on an experiment metric: the metric query reads only the step events and the exposure events, so 'strict' misses unrelated events between steps and instead drops users who are exposed again between two steps. It stays in this schema so that a metric which already has it survives a round trip."
+                                    "For funnel metrics: how the steps must occur. 'ordered' (default) or 'unordered'. Do not use 'strict': experiment funnels give wrong counts with it."
                                 ),
                             goal: zod
                                 .union([zod.enum(['increase', 'decrease']), zod.null()])
@@ -11920,7 +11920,7 @@ export const ExperimentsPartialUpdateBody = () => zod
                                 .union([zod.enum(['strict', 'unordered', 'ordered']), zod.null()])
                                 .optional()
                                 .describe(
-                                    "For funnel metrics: how the steps must occur. 'ordered' (default): in order, with other events allowed in between. 'unordered': in any order. Do not set 'strict' on an experiment metric: the metric query reads only the step events and the exposure events, so 'strict' misses unrelated events between steps and instead drops users who are exposed again between two steps. It stays in this schema so that a metric which already has it survives a round trip."
+                                    "For funnel metrics: how the steps must occur. 'ordered' (default) or 'unordered'. Do not use 'strict': experiment funnels give wrong counts with it."
                                 ),
                             goal: zod
                                 .union([zod.enum(['increase', 'decrease']), zod.null()])
@@ -16814,7 +16814,7 @@ export const ExperimentsDuplicateCreateBody = () => zod
                                 .union([zod.enum(['strict', 'unordered', 'ordered']), zod.null()])
                                 .optional()
                                 .describe(
-                                    "For funnel metrics: how the steps must occur. 'ordered' (default): in order, with other events allowed in between. 'unordered': in any order. Do not set 'strict' on an experiment metric: the metric query reads only the step events and the exposure events, so 'strict' misses unrelated events between steps and instead drops users who are exposed again between two steps. It stays in this schema so that a metric which already has it survives a round trip."
+                                    "For funnel metrics: how the steps must occur. 'ordered' (default) or 'unordered'. Do not use 'strict': experiment funnels give wrong counts with it."
                                 ),
                             goal: zod
                                 .union([zod.enum(['increase', 'decrease']), zod.null()])
@@ -17850,7 +17850,7 @@ export const ExperimentsDuplicateCreateBody = () => zod
                                 .union([zod.enum(['strict', 'unordered', 'ordered']), zod.null()])
                                 .optional()
                                 .describe(
-                                    "For funnel metrics: how the steps must occur. 'ordered' (default): in order, with other events allowed in between. 'unordered': in any order. Do not set 'strict' on an experiment metric: the metric query reads only the step events and the exposure events, so 'strict' misses unrelated events between steps and instead drops users who are exposed again between two steps. It stays in this schema so that a metric which already has it survives a round trip."
+                                    "For funnel metrics: how the steps must occur. 'ordered' (default) or 'unordered'. Do not use 'strict': experiment funnels give wrong counts with it."
                                 ),
                             goal: zod
                                 .union([zod.enum(['increase', 'decrease']), zod.null()])
