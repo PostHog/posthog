@@ -3073,7 +3073,9 @@ async fn test_cache_miss_does_not_enqueue_rebuild_when_self_heal_disabled() {
 #[case("omitted_target")]
 #[case("malformed_envelope")]
 #[tokio::test]
-async fn test_unverified_definitions_never_304_and_rebuilt_aliases_are_stable(#[case] scenario: &str) {
+async fn test_unverified_definitions_never_304_and_rebuilt_aliases_are_stable(
+    #[case] scenario: &str,
+) {
     use feature_flags::{
         config::{Config, FlexBool},
         utils::test_utils::{dummy_s3_client, setup_redis_client, TestContext},
