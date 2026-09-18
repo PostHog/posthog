@@ -1,9 +1,25 @@
 # HogQL recipes over the GitHub warehouse tables
 
-These base subqueries mirror the product's curated builders
-(`products/engineering_analytics/backend/logic/views/`), so an insight built on them matches what the dashboard and MCP tools report.
+These base subqueries follow the product's curated builders
+(`products/engineering_analytics/backend/logic/views/`), so the recipes below report what the dashboard and MCP tools do.
+Both bases are simplified: neither carries the fork-network and merge-queue attribution rules the builders apply.
+Read the caveat under each base and each recipe before you compose a query of your own.
 Replace every `github_*` table name (`github_pull_requests`, `github_workflow_runs`, `github_workflow_jobs`, `github_reviews`, `github_team_members`) with the team's real table name from `engineering-analytics-sources` (`prefix` + `github_<endpoint>`).
 The `engineering_analytics_*` views used below have fixed names — no prefix, no discovery.
+
+## Contents
+
+- [The PR base](#the-pr-base) — the shared PR subquery: state, repo identity, bot flag, `open_to_merge_seconds`
+- [The workflow-runs base](#the-workflow-runs-base) — the shared CI subquery: conclusion, duration, and a simplified `pr_number`
+- [Recipe: weekly open→merge time trend](#recipe-weekly-openmerge-time-trend) — p50 and p95 hours to merge
+- [Recipe: weekly CI success rate and p95 duration per workflow](#recipe-weekly-ci-success-rate-and-p95-duration-per-workflow) — which conclusions count as a verdict
+- [Recipe: PR throughput per week](#recipe-pr-throughput-per-week) — merged and closed-unmerged counts, bucketed by opening week
+- [Recipe: open PRs with failing CI right now](#recipe-open-prs-with-failing-ci-right-now) — latest run per `(head_sha, workflow_name)`, with only completed failures counted
+- [Job-level recipes](#job-level-recipes) — queue wait and run time from the jobs table, and why you must not recompute cost
+- [Recipe: weekly CI cost by workflow (job_costs view)](#recipe-weekly-ci-cost-by-workflow-job_costs-view) — dollar spend, and what a NULL cost means
+- [Review recipes](#review-recipes) — review states, plus a weekly time-to-first-review recipe
+- [Recipe: a team's weekly merge time (team_members table)](#recipe-a-teams-weekly-merge-time-team_members-table) — the membership semi-join
+- [Recipe: distinct CI failures per day (ci_failures view)](#recipe-distinct-ci-failures-per-day-ci_failures-view) — fingerprinted pytest failures, bounded by logs retention
 
 ## The PR base
 
@@ -43,6 +59,13 @@ The two-layer shape is required: the inner `SELECT` parses string timestamps and
 the outer derives state, repo identity, and durations.
 Collapsing the layers hits ClickHouse's Array-inside-Nullable rejection and same-`SELECT` alias limits.
 
+This base keeps merge-queue gate PRs, which the product's builder drops.
+A queue opens one throwaway draft PR per merge attempt, so those rows are CI artifacts and no PR surface shows them.
+Every recipe below that reads this base filters `NOT is_bot`, which removes them, because the queue bot authors them.
+The one exception is the failing-CI recipe, which counts open PRs of every author on purpose — so that recipe can count a gate attempt the dashboard leaves out.
+Before you use this base for an open-PR count, take the gate filter from `logic/views/pull_requests.py`, which reads `head.ref` and pairs the branch shape with the PR author.
+SPEC §6 locks the rule.
+
 ## The workflow-runs base
 
 ```sql
@@ -74,8 +97,14 @@ FROM (
 )
 ```
 
-`pr_number` is the first entry of the run's `pull_requests` association, or `0` when there is none (fork PRs, pushes with no open PR); filter `pr_number > 0` before attributing runs to PRs.
+`pr_number` here is the first entry of the run's `pull_requests` association, or `0` when there is none (fork PRs, pushes with no open PR).
 This association, not `head_sha`, is how the product links CI to a PR across all its pushes.
+
+The `pr_number` above is simplified, and the product's builder applies two further rules that change it.
+It keeps only association entries whose `base.repo.id` equals the run's own `repository.id`, because GitHub lists every PR in the fork network that shares the run's head SHA — so an unfiltered first entry credits a default-branch push to a downstream fork's "sync from upstream" PR, under this repo's own owner and name.
+It also resolves a merge-queue gate run through the gate branch name rather than the association, corroborated against the run actor, because the association names the throwaway PR the queue opened instead of the PR being landed.
+So do not attribute runs to PRs from this base alone.
+Take both rules from `logic/views/workflow_runs.py` and `logic/merge_queue.py` first; SPEC §6 locks them, and the product `CLAUDE.md` calls CI↔PR linkage the decision most often re-derived wrong.
 
 ## Recipe: weekly open→merge time trend
 
@@ -119,7 +148,17 @@ ORDER BY week, runs DESC
 The success rate counts `failure`, `timed_out`, `startup_failure`, and `stale` as failures.
 It excludes skipped, cancelled, neutral, and action-required runs because they did not reach a pass-or-fail verdict.
 The duration percentile uses successful runs because cancelled and failed runs end early.
+The dashboard's Workflows table drops successful runs under 10 seconds from its run percentiles, because a path-gated workflow that succeeds in seconds without doing real work would otherwise report seconds-long percentiles on every surface.
+It falls back to every successful run when a workflow has no slower sample, because duration alone cannot tell a gate no-op from a fast workflow.
+This recipe keeps those runs, so its `p95_seconds` reads lower than the dashboard's wherever gated runs are a large share of the successes.
+Take `run_duration_percentile_expr` from `logic/queries/_workflow_filters.py` if you need the two to agree.
 For a single-workflow tile, add `AND workflow_name = 'CI'` and drop the group.
+
+The `run_started_at` filter above is the exact boundary, and it cannot prune the parquet scan, because the base computes that column.
+So without a coarse floor on the raw string column, the tile reads the team's whole run history on every refresh.
+Floor the base's source the way the product's runs builder does under `started_floor` (`logic/views/workflow_runs.py`), keeping the floor in its own innermost `SELECT` so the parsing alias cannot capture it: `FROM (SELECT * FROM github_workflow_runs WHERE run_started_at >= '<61 days ago, YYYY-MM-DD>')`.
+That floor is a literal date, so re-set it when you edit a saved tile.
+Leave the base unfloored for the failing-CI recipe below, which needs the latest run for open PRs of any age.
 
 ## Recipe: PR throughput per week
 
@@ -137,9 +176,15 @@ GROUP BY week
 ORDER BY week
 ```
 
+These buckets are opening cohorts: a PR counts in the week it was opened, not the week it resolved.
+The newest week therefore reads low, because most of its PRs have not resolved yet, and earlier weeks change between refreshes as their PRs merge later.
+A PR opened before the window never appears, however recently it merged.
+Count merges on the merge clock instead, which is what the dashboard and the MCP tools do: the open→merge recipe above already returns `merged_prs` per merge week.
+
 ## Recipe: open PRs with failing CI right now
 
-A PR's current CI status is the latest completed run per `(head_sha, workflow_name)`; this is the one place head SHA is the correct key:
+A PR's current CI status comes from the latest run per `(head_sha, workflow_name)`; a failure counts only when that latest run is completed.
+This is the one place head SHA is the correct key:
 
 ```sql
 WITH prs AS (<PR base>),
@@ -180,12 +225,24 @@ SELECT
     round(sum(estimated_cost_usd), 2) AS estimated_cost_usd
 FROM engineering_analytics_job_costs
 WHERE created_at >= now() - INTERVAL 60 DAY
+  AND created_at_raw >= '<61 days ago, YYYY-MM-DD>'
 GROUP BY week, workflow_name
 ORDER BY week, estimated_cost_usd DESC
 ```
 
+Both bounds are required, because the view carries no window of its own.
+The parsed `created_at` filter is the exact boundary; the coarse `created_at_raw` string floor (a day below the window) is the only predicate the parquet scan can prune on, so without it every refresh reads the team's whole job history.
+That floor is a literal date, so it stays where you wrote it while `now() - INTERVAL 60 DAY` rolls forward.
+A saved insight then scans one extra day of job history for every day since you saved it, so re-set the floor when you next edit the tile.
+The floor trims that scan only: the view's re-run-copy duplicate scan reads no `created_at_raw`, so keep the window as tight as the tile needs.
+
 Grain is one row per job attempt, so `sum` is correct across retries.
-`estimated_cost_usd` is NULL (skipped by `sum`) for non-billable jobs (github-hosted, non-Linux, unclassifiable labels) and for jobs still running; disambiguate a NULL via `provider` (non-billable) vs `completed_at` (unsettled).
+`estimated_cost_usd` is NULL (skipped by `sum`) for three reasons: a job on a tier the model does not price, a job with no usable elapsed time, or a re-run copy that never executed (GitHub re-lists an already-passed job under a later `run_attempt`, so Depot billed nothing).
+Disambiguate a NULL by `provider` together with `os` (only Depot Linux is priced, so a github-hosted, unclassifiable, or Depot macOS / Windows tier reads NULL), `duration_seconds IS NULL` (no elapsed time), or `is_rerun_copy` (never executed).
+Read `provider` alone and a Depot macOS job looks billable, because only its `os` says otherwise.
+Elapsed time is missing mostly because the job is queued or still running, but a finished job whose `started_at` or `completed_at` did not parse reads NULL too.
+So test `duration_seconds`, not `completed_at`: an unparsable `started_at` leaves `completed_at` set, and that job then looks settled.
+Test `is_rerun_copy` first: a copy keeps the earlier attempt's timestamps, so it reads as settled on a priced tier, and only the flag explains it.
 Add `WHERE pr_number = <n>` for one PR's cost — it matches `engineering-analytics-pr-cost`, since the tool reads the same rendered cost SELECT.
 With several connected sources, filter `repo_owner` / `repo_name`.
 
