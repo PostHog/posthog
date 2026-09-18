@@ -148,6 +148,9 @@ Find a run using the `wizard.run_id` attribute on its creation, dispatch, and ac
 These spans also carry `team_id`.
 Clone spans include `process.exit.code`; diff persistence spans include `wizard.diff.size_bytes`.
 Custom Wizard spans record error types and error status without recording exception messages, command output, repository contents, or credentials.
+Every Wizard activity replaces failure messages with a fixed message before Temporal records the failure.
+The replacement preserves the error type and retry settings, but drops details and exception chains so automatic Temporal spans cannot export sandbox output.
+Cancellation exceptions keep their cancellation semantics.
 
 The CLI runs in a separate sandbox process and is distributed from another repository.
 Its internal agent steps are represented by the duration of `wizard.cli.execute`; they do not emit child spans from this instrumentation.

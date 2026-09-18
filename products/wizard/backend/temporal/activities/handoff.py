@@ -12,13 +12,17 @@ from products.wizard.backend.logic.workers import (
 )
 from products.wizard.backend.logic.workers.service import GitRepositoryHandoffRequest
 from products.wizard.backend.observability.tracing import annotate_run_span, wizard_span
-from products.wizard.backend.temporal.activities.errors import WIZARD_WORKER_EXECUTION_ERROR_TYPE
+from products.wizard.backend.temporal.activities.errors import (
+    WIZARD_WORKER_EXECUTION_ERROR_TYPE,
+    sanitize_activity_errors,
+)
 from products.wizard.backend.temporal.activities.lifecycle import transition_cloud_run
 from products.wizard.backend.temporal.contracts import PreparedGitRepositoryWorkspace
 
 
 @activity.defn(name="wizard_create_run_artifacts")
 @asyncify
+@sanitize_activity_errors
 def create_run_artifacts(input: PreparedGitRepositoryWorkspace) -> None:
     annotate_run_span(input.team_id, input.run_id)
     wizard_facade.update_run_stage(input.team_id, input.run_id, WizardRunStage.CREATING_ARTIFACTS)

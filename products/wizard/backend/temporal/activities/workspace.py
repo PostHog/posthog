@@ -28,6 +28,7 @@ from products.wizard.backend.temporal.activities.errors import (
     WIZARD_REPOSITORY_ACCESS_ERROR_TYPE,
     WIZARD_RUN_CONFIGURATION_ERROR_TYPE,
     WIZARD_WORKER_EXECUTION_ERROR_TYPE,
+    sanitize_activity_errors,
 )
 from products.wizard.backend.temporal.activities.lifecycle import transition_cloud_run
 from products.wizard.backend.temporal.contracts import (
@@ -39,6 +40,7 @@ from products.wizard.backend.temporal.contracts import (
 
 @activity.defn(name="wizard_provision_worker")
 @asyncify
+@sanitize_activity_errors
 def provision_worker(input: WizardRunActivityInput) -> ProvisionedWizardWorker:
     annotate_run_span(input.team_id, input.run_id)
     run = _get_cloud_run(input)
@@ -86,6 +88,7 @@ def provision_worker(input: WizardRunActivityInput) -> ProvisionedWizardWorker:
 
 @activity.defn(name="wizard_clone_repository")
 @asyncify
+@sanitize_activity_errors
 def clone_repository(input: ProvisionedWizardWorker) -> PreparedGitRepositoryWorkspace:
     annotate_run_span(input.team_id, input.run_id)
     run = _get_cloud_run(WizardRunActivityInput(team_id=input.team_id, run_id=input.run_id))
@@ -135,6 +138,7 @@ def clone_repository(input: ProvisionedWizardWorker) -> PreparedGitRepositoryWor
 
 @activity.defn(name="wizard_destroy_worker")
 @asyncify
+@sanitize_activity_errors
 def destroy_worker(input: ProvisionedWizardWorker) -> None:
     annotate_run_span(input.team_id, input.run_id)
     worker_lifecycle.cleanup_worker(input.team_id, input.run_id, input.sandbox_id)
