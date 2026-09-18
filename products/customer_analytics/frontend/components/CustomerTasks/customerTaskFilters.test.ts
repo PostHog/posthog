@@ -3,9 +3,11 @@ import type { CustomerTaskApi } from 'products/customer_analytics/frontend/gener
 import {
     customerTaskDueBounds,
     customerTaskEditDisabledReason,
+    customerTaskSearchParams,
     customerTasksQuery,
     defaultCustomerTaskFilters,
     hasCustomerTaskFilters,
+    parseCustomerTaskSearchParams,
 } from './customerTaskFilters'
 import type { CustomerTaskDueFilter, CustomerTasksContext } from './customerTaskFilters'
 
@@ -114,5 +116,41 @@ describe('customer task filter helpers', () => {
                 canViewAll
             )
         ).toMatchObject({ assigned_to: assignedTo })
+    })
+    test.each([
+        ['the inbox defaults', {}],
+        ['a filtered view', { status: 'all', assignee: 'unassigned', due: 'overdue', archive: 'archived', page: '3' }],
+        ['a named member and an account', { assignee: '42', account: 'account-1', sort: '-updated_at' }],
+        ['a search', { search: 'renewal' }],
+        ['a whitespace search the query still sends', { search: '  ' }],
+    ])('round-trips %s through the search params', (_, params) => {
+        expect(customerTaskSearchParams(parseCustomerTaskSearchParams(params))).toEqual(params)
+    })
+
+    test.each([
+        ['an unknown status', { status: 'archived' }, { status: 'open' }],
+        ['an unknown due window', { due: 'next_week' }, { due: 'any' }],
+        ['an unknown archive state', { archive: 'deleted' }, { archiveState: 'active' }],
+        ['a non-member assignee', { assignee: 'someone' }, { assignee: 'me' }],
+        ['a negative member id', { assignee: '-1' }, { assignee: 'me' }],
+        ['an empty account', { account: '' }, { account: null }],
+    ])('falls back to the inbox default for %s', (_, params, expected) => {
+        expect(parseCustomerTaskSearchParams(params).filters).toMatchObject(expected)
+    })
+
+    test.each([
+        ['an unknown column', { sort: 'priority' }, 'due_at'],
+        ['a known column', { sort: '-name' }, '-name'],
+    ])('resolves the ordering for %s', (_, params, expected) => {
+        expect(parseCustomerTaskSearchParams(params).ordering).toBe(expected)
+    })
+
+    test.each([
+        ['no page', {}, 1],
+        ['page zero', { page: '0' }, 1],
+        ['a fractional page', { page: '2.5' }, 1],
+        ['a later page', { page: '4' }, 4],
+    ])('resolves %s', (_, params, expected) => {
+        expect(parseCustomerTaskSearchParams(params).page).toBe(expected)
     })
 })

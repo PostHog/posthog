@@ -44,3 +44,22 @@ That facade reads the workflow owner ID through `products/workflows/backend/faca
 Only Workflows queries the workflow model.
 The URL and basename stay unchanged.
 The view pins its OpenAPI product attribution to `workflows` but remains excluded from generated API docs.
+
+## Task digest content and links
+
+Task digests read the assignee's current tasks, deadlines, and permissions when built.
+Only active, assigned tasks with open or in-progress status appear.
+Task and linked-account access restrictions apply to both the listed tasks and the overdue count.
+
+**Due today** covers the full current date in the project timezone.
+The email lists up to 10 tasks, shows the total beside the section heading, and shows the remaining count below the list.
+The remaining count links to active tasks assigned to the email recipient with the **Today** due-date filter.
+**Due this week** covers tomorrow through Friday of the current workweek; Friday and weekend digests do not include next week.
+An overdue task has a deadline before the current instant, so tasks due earlier today also contribute to the overdue count.
+Empty digests are skipped, but an overdue count alone is enough to send one.
+
+Task links open the task editor using `task_id`.
+The overdue link selects `status=open`, `assignee=me`, `archive=active`, and `due=overdue` on the Tasks tab.
+Explicit URL filters replace locally saved filters, and the overdue cutoff is evaluated when the view loads.
+The notification settings link opens the personal task digest settings.
+Content generation does not schedule or send email; delivery is controlled separately.
