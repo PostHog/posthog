@@ -1,4 +1,4 @@
-import { LemonCollapse, LemonTag, Link } from '@posthog/lemon-ui'
+import { LemonCard, LemonCollapse, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { urls } from 'scenes/urls'
 
@@ -36,13 +36,13 @@ export function SharedMetricLinkedExperiments({
     return (
         <>
             {/* Wide main column: an open card beside the form */}
-            <div className="hidden @min-[64rem]/main-content:block rounded border border-primary bg-surface-primary p-4">
+            <LemonCard hoverEffect={false} className="hidden @min-[64rem]/main-content:block p-4">
                 <div className="flex items-baseline justify-between gap-2 mb-3">
                     <h3 className="text-sm font-semibold mb-0">Used in experiments</h3>
                     <span className="text-muted text-xs shrink-0">{countLabel}</span>
                 </div>
                 <div className="max-h-96 overflow-y-auto">{experimentList}</div>
-            </div>
+            </LemonCard>
             {/* Narrow: collapsed by default so a long list does not push the form down */}
             <div className="@min-[64rem]/main-content:hidden">
                 <LemonCollapse
