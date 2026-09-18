@@ -10,6 +10,7 @@ from decimal import Decimal
 from typing import Any, ClassVar, cast
 from urllib.parse import quote
 
+import time_machine
 from unittest.mock import ANY, AsyncMock, MagicMock, call, patch
 
 from django.conf import settings
@@ -48,6 +49,7 @@ from products.tasks.backend.facade import (
 )
 from products.tasks.backend.facade.repo_selection import RepoSelectionResult
 from products.tasks.backend.facade.run_config import TaskArtifactAdapter, TaskArtifactType
+from products.tasks.backend.logic.services.ai_run_defaults import update_team_ai_run_preferences
 from products.tasks.backend.logic.services.code_usage_gate import (
     CodeUsageStatus,
     _gateway_usage_url,
@@ -68,6 +70,7 @@ from products.tasks.backend.logic.services.staged_artifacts import (
     get_task_staged_artifacts,
 )
 from products.tasks.backend.logic.services.task_usage import TaskTokenUsageUnavailable, TaskUsage
+from products.tasks.backend.logic.services.workflow_dispatch import materialize_due_scheduled_task_runs
 from products.tasks.backend.logic.stream.redis_stream import (
     TaskRunRedisStream,
     TaskRunStreamEntryOrKeepalive,
@@ -90,6 +93,7 @@ from products.tasks.backend.models import (
     TaskSession,
     TaskThreadMessage,
     TaskThreadMessageMention,
+    TaskWorkflowDispatch,
 )
 from products.tasks.backend.presentation.serializers import (
     TASK_RUN_ARTIFACT_MAX_SIZE_BYTES,
@@ -1574,6 +1578,78 @@ class TestTaskAPI(BaseTaskAPITest):
         self.assertEqual(run.state["run_source"], "agent")
         self.assertEqual(mock_workflow.call_args.kwargs["posthog_mcp_scopes"], "read_only")
 
+    @parameterized.expand([(True, False), (True, True), (False, False), (False, True)])
+    @time_machine.travel("2026-09-18T12:00:00Z", tick=False)
+    @patch("products.tasks.backend.presentation.views.api._is_internal_debug_team", return_value=True)
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_schedule_task_run(self, combined_create, explicit_model, mock_workflow, _mock_internal_team):
+        update_team_ai_run_preferences(self.team.id, runtime_adapter="codex", model="gpt-5.5", reasoning_effort="high")
+        task = self.create_task()
+        url = "/api/projects/@current/tasks/" if combined_create else f"/api/projects/@current/tasks/{task.id}/run/"
+        payload = {
+            "scheduled_at": "2026-09-19T12:00:00",
+            "branch": "main",
+            "pending_user_message": "Check the result after more data arrives.",
+            "run_source": "agent",
+        }
+        if combined_create:
+            payload.update(description="Check the result", start_run=True)
+        if explicit_model:
+            payload.update(model="claude-sonnet-4-6", reasoning_effort="medium")
+        response = self.client.post(url, payload, format="json")
+
+        assert response.status_code == (201 if combined_create else 200), response.json()
+        assert "run_error" not in response.json()
+        run = TaskRun.objects.get(id=response.json()["latest_run"]["id"])
+        assert run.status == TaskRun.Status.NOT_STARTED
+        assert run.queued_at is None
+        assert run.branch == "main"
+        assert response.json()["latest_run"]["scheduled_at"] == "2026-09-19T12:00:00Z"
+        assert run.state["model"] == ("claude-sonnet-4-6" if explicit_model else "gpt-5.5")
+        assert run.state["runtime_adapter"] == ("claude" if explicit_model else "codex")
+        assert run.state["reasoning_effort"] == ("medium" if explicit_model else "high")
+        assert run.state["pending_user_message"] == payload["pending_user_message"]
+        assert not TaskWorkflowDispatch.objects.for_team(self.team.id).filter(task_run=run).exists()
+        mock_workflow.assert_not_called()
+
+        assert materialize_due_scheduled_task_runs(100) == 0
+        update_team_ai_run_preferences(self.team.id, runtime_adapter="codex", model="gpt-5.5", reasoning_effort="low")
+        with time_machine.travel("2026-09-19T12:00:00Z", tick=False):
+            assert materialize_due_scheduled_task_runs(100) == 1
+            assert materialize_due_scheduled_task_runs(100) == 0
+        run.refresh_from_db()
+        assert run.status == TaskRun.Status.QUEUED
+        assert run.state["reasoning_effort"] == ("medium" if explicit_model else "high")
+        dispatch = TaskWorkflowDispatch.objects.for_team(self.team.id).get(task_run=run)
+        assert dispatch.payload["user_id"] == self.user.id
+        assert dispatch.payload["posthog_mcp_scopes"] == "read_only"
+
+    @time_machine.travel("2026-09-18T12:00:00Z", tick=False)
+    @patch("products.tasks.backend.facade.api._idling_warm_run_for_task")
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_schedule_resume_keeps_model_without_reusing_warm_run(self, mock_workflow, mock_warm):
+        task = self.create_task()
+        previous_run = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            status=TaskRun.Status.COMPLETED,
+            state={"runtime_adapter": "codex", "model": "gpt-5.5", "reasoning_effort": "high"},
+        )
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/run/",
+            {"resume_from_run_id": str(previous_run.id), "scheduled_at": "2026-09-19T12:00:00Z"},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        run = TaskRun.objects.get(id=response.json()["latest_run"]["id"])
+        assert run.status == TaskRun.Status.NOT_STARTED
+        assert run.state["resume_from_run_id"] == str(previous_run.id)
+        assert run.state["model"] == "gpt-5.5"
+        assert run.state["reasoning_effort"] == "high"
+        mock_warm.assert_not_called()
+        mock_workflow.assert_not_called()
+
     @patch("products.tasks.backend.presentation.views.api._is_internal_debug_team", return_value=True)
     @patch(
         "products.tasks.backend.temporal.client.execute_task_processing_workflow",
@@ -1629,7 +1705,7 @@ class TestTaskAPI(BaseTaskAPITest):
     def test_create_task_validates_first_run_payload(self, _mock_internal_team):
         response = self.client.post(
             "/api/projects/@current/tasks/",
-            {"description": "Invalid model", "model": "claude-sonnet-5", "start_run": True},
+            {"description": "Invalid model", "model": "unknown-model", "start_run": True},
             format="json",
         )
 
@@ -4582,7 +4658,7 @@ class TestTaskAPI(BaseTaskAPITest):
 
     @parameterized.expand(
         [
-            ("missing_runtime_adapter", {"model": "gpt-5.3-codex"}, "runtime_adapter"),
+            ("missing_model_with_effort", {"runtime_adapter": "codex", "reasoning_effort": "high"}, "model"),
             ("missing_model", {"runtime_adapter": "codex"}, "model"),
         ]
     )
@@ -9457,6 +9533,30 @@ class TestTaskRunCancelAPI(BaseTaskAPITest):
         kwargs.setdefault("status", TaskRun.Status.IN_PROGRESS)
         kwargs.setdefault("environment", TaskRun.Environment.CLOUD)
         return TaskRun.objects.create(task=task, team=self.team, **kwargs)
+
+    @time_machine.travel("2026-09-18T12:00:00Z", tick=False)
+    @patch("posthog.temporal.common.client.sync_connect")
+    @patch("products.tasks.backend.facade.cancellation._signal_complete_task")
+    @patch("products.tasks.backend.facade.api.send_cancel")
+    def test_cancel_scheduled_run_before_dispatch(self, mock_send_cancel, mock_signal, mock_connect):
+        task = self.create_task()
+        run = task.create_run(
+            scheduled_at=django_timezone.now() + timedelta(days=1),
+            extra_state={"pending_dispatch": {"user_id": self.user.id, "posthog_mcp_scopes": "read_only"}},
+        )
+
+        for expected_status in (status.HTTP_202_ACCEPTED, status.HTTP_200_OK):
+            response = self.client.post(self._cancel_url(task, run), {}, format="json")
+            assert response.status_code == expected_status
+        run.refresh_from_db()
+        assert run.status == TaskRun.Status.CANCELLED
+        assert run.completed_at is not None
+        mock_send_cancel.assert_not_called()
+        mock_signal.assert_not_called()
+        mock_connect.assert_not_called()
+        with time_machine.travel("2026-09-20T12:00:00Z", tick=False):
+            assert materialize_due_scheduled_task_runs(100) == 0
+        assert not TaskWorkflowDispatch.objects.for_team(self.team.id).filter(task_run=run).exists()
 
     @patch("products.tasks.backend.models.posthoganalytics.capture")
     @patch("products.tasks.backend.facade.api.create_sandbox_connection_token", return_value="token")

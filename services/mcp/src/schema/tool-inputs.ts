@@ -673,12 +673,34 @@ export const ProjectSetActiveSchema = z.object({
     projectId: z.number().int().positive(),
 })
 
+const taskAgentRunOptions = {
+    scheduled_at: z.iso
+        .datetime({ offset: true, local: true })
+        .nullish()
+        .describe(
+            'Earliest start time for a one-off run. Use a future ISO 8601 timestamp within 90 days. Times without an offset use UTC. Omit to start immediately.'
+        ),
+    model: z
+        .string()
+        .min(1)
+        .optional()
+        .describe(
+            'Omit to use saved defaults, or the prior model on resume. For an explicit choice, first call tasks-models-retrieve. The server derives the runtime adapter and saves the choice now.'
+        ),
+    reasoning_effort: z
+        .string()
+        .min(1)
+        .optional()
+        .describe('Optional effort supported by the selected model. Requires model. See tasks-models-retrieve.'),
+}
+
 export const TaskAgentCreateSchema = z
     .object({
         title: z.string().max(255).optional(),
         description: z.string().min(1).describe('Instructions for the agent.'),
         repository: z.string().nullish().describe('Repository in organization/repo format.'),
         branch: z.string().min(1).max(255).nullish().describe('Base branch for the run.'),
+        ...taskAgentRunOptions,
     })
     .transform((input) => ({ ...input, start_run: true as const }))
 
@@ -688,6 +710,7 @@ export const TaskAgentRunCreateSchema = z
         branch: z.string().max(255).nullish().describe('Git branch to check out in the sandbox.'),
         resume_from_run_id: z.string().uuid().optional().describe('ID of a previous run to resume from.'),
         pending_user_message: z.string().optional().describe('Initial or follow-up message for the run.'),
+        ...taskAgentRunOptions,
     })
     .transform((input) => ({ ...input, mode: 'background' as const, run_source: 'agent' as const }))
 

@@ -133,6 +133,20 @@ def cancel_task_run(
     }
     if requested_by_user_id is not None:
         marker["cancel_requested_by_user_id"] = requested_by_user_id
+    if run.scheduled_at is not None:
+        with transaction.atomic():
+            run = TaskRun.objects.select_for_update().get(id=run.id, task_id=task_id, team_id=team_id)
+            if run.status == TaskRun.Status.NOT_STARTED:
+                run.state = {**(run.state or {}), **marker}
+                run.save(update_fields=["state", "updated_at"])
+                dto = tasks_api.update_task_run(
+                    run.id,
+                    task_id,
+                    team_id,
+                    validated_data={"status": TaskRun.Status.CANCELLED, "error_message": error_message},
+                    only_if_non_terminal=True,
+                )
+                return "accepted", dto
     try:
         if only_if_awaiting_first_message:
             with transaction.atomic():

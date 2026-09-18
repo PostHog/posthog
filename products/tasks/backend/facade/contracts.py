@@ -598,6 +598,7 @@ class TaskRunDetailDTO:
     updated_at: datetime | None = None
     completed_at: datetime | None = None
     preview_available: bool = False
+    scheduled_at: datetime | None = None
 
 
 @dataclass(frozen=True)
