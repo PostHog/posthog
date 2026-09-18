@@ -19,8 +19,14 @@ export function EditableNote({
   const commit = async () => {
     if (draft === null) return;
     const next = draft.trim();
-    setDraft(null);
-    if (next !== note) await onSave(next);
+    if (next === note) {
+      setDraft(null);
+      return;
+    }
+    try {
+      await onSave(next);
+      setDraft(null);
+    } catch {}
   };
 
   const onKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {

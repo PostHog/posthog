@@ -165,7 +165,7 @@ export function buildGoalMeasurePrompt(input: {
   today?: string;
 }): string {
   const { channelName, channelId, goal, contextLayerEnabled } = input;
-  const today = input.today ?? new Date().toISOString().slice(0, 10);
+  const today = input.today ?? new Date().toLocaleDateString("en-CA");
   return `Turn a sentence about a goal into a measured goal in the space "${channelName}".
 
 The person wrote: "${goal.name}"

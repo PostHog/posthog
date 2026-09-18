@@ -74,6 +74,7 @@ export function deriveTrendSql(
 }
 
 function withoutTimeFilters(where: string): string[] | null {
+  if (/\bBETWEEN\b/i.test(where)) return null;
   if (splitOn(where, OR).length > 1) return null;
   return splitOn(where, AND)
     .filter((part) => !/\btimestamp\b/i.test(part))

@@ -114,12 +114,15 @@ export function GoalComposer({
     },
   });
   const runMutate = run.mutate;
+  const latestMeasure = useRef(measure);
+  latestMeasure.current = measure;
 
   useEffect(() => {
-    if (step === "review" && measure?.kind === "hogql" && measure.sql.trim()) {
-      runMutate(measure.sql);
+    const current = latestMeasure.current;
+    if (step === "review" && current?.kind === "hogql" && current.sql.trim()) {
+      runMutate(current.sql);
     }
-  }, [step, measure, runMutate]);
+  }, [step, runMutate]);
 
   useLayoutEffect(() => {
     const el = askRef.current;

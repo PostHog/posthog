@@ -91,13 +91,15 @@ function lastNumericCell(row: unknown[]): number | null {
   return values.find((value) => value !== null) ?? null;
 }
 
-function currentBucketStart(period: GoalPeriod): Date {
+function currentBucketStart(period: GoalPeriod, weekStartDay: number): Date {
   const now = new Date();
   const start = new Date(
     Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()),
   );
   if (period === "week") {
-    start.setUTCDate(start.getUTCDate() - start.getUTCDay());
+    start.setUTCDate(
+      start.getUTCDate() - ((start.getUTCDay() - weekStartDay + 7) % 7),
+    );
   }
   if (period === "month") start.setUTCDate(1);
   return start;
@@ -113,8 +115,8 @@ function bucketsBefore(start: Date, period: GoalPeriod, count: number): Date {
   return date;
 }
 
-function bucketStarts(period: GoalPeriod): Date[] {
-  const start = currentBucketStart(period);
+function bucketStarts(period: GoalPeriod, weekStartDay: number): Date[] {
+  const start = currentBucketStart(period, weekStartDay);
   const count = BUCKET_COUNT[period];
   return Array.from({ length: count }, (_, index) =>
     bucketsBefore(start, period, count - 1 - index),
@@ -129,7 +131,9 @@ function trendPoints(rows: unknown[][], period: GoalPeriod): GoalTrendPoint[] {
       return key && value !== null ? [[key, value] as const] : [];
     }),
   );
-  return bucketStarts(period).map((start) => ({
+  const firstKey = byBucket.keys().next().value;
+  const weekStartDay = firstKey ? new Date(firstKey).getUTCDay() : 0;
+  return bucketStarts(period, weekStartDay).map((start) => ({
     label: start.toISOString(),
     value: byBucket.get(isoDay(start)) ?? 0,
   }));
@@ -138,7 +142,7 @@ function trendPoints(rows: unknown[][], period: GoalPeriod): GoalTrendPoint[] {
 export function useGoalTrend(goal: ContextGoal) {
   const query = goalTrendQuery(goal);
   return useAuthenticatedQuery<GoalTrend>(
-    ["context-goal-trend", query?.sql ?? ""] as const,
+    ["context-goal-trend", query?.period, query?.sql ?? ""] as const,
     async (client) => {
       if (!query) return { period: "day", points: [] };
       const grid = await client.runHogQLQuery(query.sql);
