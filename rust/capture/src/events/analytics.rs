@@ -6,14 +6,15 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
-use chrono::DateTime;
+use chrono::{DateTime, SecondsFormat};
 use common_ingestion_warnings::{
     WarningEmitter, CAPTURE_LEGACY_ANALYTICS, CAPTURE_LEGACY_RATE_LIMIT,
 };
+use common_types::timestamp::CLIENT_CAPTURE_PROPERTY;
 use common_types::{CapturedEvent, RawEvent};
 use limiters::token_dropper::TokenDropper;
 use metrics::{counter, histogram};
-use serde_json;
+use serde_json::{self, Value};
 use tracing::{error, instrument, warn, Span};
 use uuid::Uuid;
 
@@ -100,7 +101,7 @@ fn create_heatmap_redirect(
         properties.insert("$cookieless_mode".to_string(), value.clone());
     }
 
-    let heatmap_event = RawEvent {
+    let mut heatmap_event = RawEvent {
         token: event.token.clone(),
         distinct_id: Some(serde_json::Value::String(distinct_id)),
         // Leave unset so process_single_event seeds the UUID from the event timestamp.
@@ -113,13 +114,13 @@ fn create_heatmap_redirect(
         set_once: None,
     };
 
-    process_single_event(&heatmap_event, historical_cfg, context).map(Some)
+    process_single_event(&mut heatmap_event, historical_cfg, context).map(Some)
 }
 
 /// Process a single analytics event from RawEvent to ProcessedEvent.
 #[instrument(skip_all, fields(event_name, request_id))]
 pub fn process_single_event(
-    event: &RawEvent,
+    event: &mut RawEvent,
     historical_cfg: router::HistoricalConfig,
     context: &ProcessingContext,
 ) -> Result<ProcessedEvent, CaptureError> {
@@ -138,11 +139,6 @@ pub fn process_single_event(
     } else {
         context.client_ip.clone()
     };
-
-    let data = serde_json::to_string(&event).map_err(|e| {
-        error!("failed to encode data field: {e:#}");
-        CaptureError::NonRetryableSinkError
-    })?;
 
     // Compute the actual event timestamp using our timestamp parsing logic
     let sent_at_utc = context.sent_at.map(|sa| {
@@ -170,6 +166,23 @@ pub fn process_single_event(
         event.uuid,
         parsed_timestamp.timestamp,
     );
+
+    // Recorded before serialization so the capture instant travels with the event rather
+    // than having to be reconstructed downstream out of a UUID's internal bits. The value
+    // is the device's own clock reading, so it carries that device's clock error and not
+    // the request's delivery delay: the gap between two of these from one device is the
+    // real interval between the events, which the stored timestamp cannot promise.
+    if let Some(captured_at) = parsed_timestamp.client_capture {
+        event.properties.insert(
+            CLIENT_CAPTURE_PROPERTY.to_string(),
+            Value::String(captured_at.to_rfc3339_opts(SecondsFormat::Millis, true)),
+        );
+    }
+
+    let data = serde_json::to_string(&event).map_err(|e| {
+        error!("failed to encode data field: {e:#}");
+        CaptureError::NonRetryableSinkError
+    })?;
 
     let event_name = event.event.clone();
 
@@ -338,23 +351,23 @@ async fn process_events_inner(
                 .retain(|key, _| !key.starts_with(crate::gateway_provenance::GATEWAY_PREFIX));
         }
         if raw.event == "$$heatmap" || !has_heatmap_data(&raw) {
-            events.push(process_single_event(&raw, historical_cfg, context)?);
+            events.push(process_single_event(&mut raw, historical_cfg, context)?);
             continue;
         }
         let mut redirect = match create_heatmap_redirect(&raw, historical_cfg, context) {
             Ok(Some(redirect)) => redirect,
             Ok(None) => {
-                events.push(process_single_event(&raw, historical_cfg, context)?);
+                events.push(process_single_event(&mut raw, historical_cfg, context)?);
                 continue;
             }
             Err(err) => {
                 error!("failed to create heatmap redirect: {err:#}");
-                events.push(process_single_event(&raw, historical_cfg, context)?);
+                events.push(process_single_event(&mut raw, historical_cfg, context)?);
                 continue;
             }
         };
         raw.properties.remove("$heatmap_data");
-        let mut processed = process_single_event(&raw, historical_cfg, context)?;
+        let mut processed = process_single_event(&mut raw, historical_cfg, context)?;
         processed.metadata.skip_heatmap_processing = true;
         events.push(processed);
         counter!("capture_heatmap_redirects_created").increment(1);
@@ -784,7 +797,7 @@ mod tests {
 
         let mut properties = HashMap::new();
         properties.insert("distinct_id".to_string(), json!("test_user"));
-        let event = RawEvent {
+        let mut event = RawEvent {
             uuid: None,
             distinct_id: None,
             event: "$pageview".to_string(),
@@ -796,9 +809,12 @@ mod tests {
             token: Some("test_token".to_string()),
         };
 
-        let processed =
-            process_single_event(&event, router::HistoricalConfig::new(false, 1), &context)
-                .unwrap();
+        let processed = process_single_event(
+            &mut event,
+            router::HistoricalConfig::new(false, 1),
+            &context,
+        )
+        .unwrap();
 
         let expected_millis = processed
             .metadata
@@ -812,6 +828,51 @@ mod tests {
     }
 
     #[test]
+    fn client_capture_property_reaches_the_serialized_event() {
+        // The property is what downstream consumers read, so it has to survive
+        // serialization, not merely exist on the parse result.
+        let now = DateTime::parse_from_rfc3339("2023-01-01T12:00:30Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let sent_at = time::OffsetDateTime::parse(
+            "2023-01-01T12:00:00Z",
+            &time::format_description::well_known::Rfc3339,
+        )
+        .unwrap();
+        let context = create_test_context(now, Some(sent_at));
+        let mut event = RawEvent {
+            uuid: None,
+            distinct_id: Some(Value::String("d1".to_string())),
+            event: "$pageview".to_string(),
+            properties: HashMap::new(),
+            timestamp: Some("2023-01-01T11:00:00Z".to_string()),
+            offset: None,
+            set: None,
+            set_once: None,
+            token: Some("test_token".to_string()),
+        };
+
+        let processed = process_single_event(
+            &mut event,
+            router::HistoricalConfig::new(false, 1),
+            &context,
+        )
+        .unwrap();
+
+        // The device said 11:00:00; the stored timestamp carries the 30s the request took.
+        assert!(processed
+            .event
+            .data
+            .contains("\"$client_capture_time\":\"2023-01-01T11:00:00.000Z\""));
+        assert_eq!(
+            processed.metadata.computed_timestamp.unwrap(),
+            DateTime::parse_from_rfc3339("2023-01-01T11:00:30Z")
+                .unwrap()
+                .with_timezone(&Utc)
+        );
+    }
+
+    #[test]
     fn test_server_assigned_uuid_floors_pre_epoch_event() {
         let now = DateTime::parse_from_rfc3339("2023-01-01T12:00:00Z")
             .unwrap()
@@ -821,7 +882,7 @@ mod tests {
         let mut properties = HashMap::new();
         properties.insert("distinct_id".to_string(), json!("test_user"));
         // A pre-1970 timestamp has negative Unix millis, which can't fit the unsigned UUIDv7 time field.
-        let event = RawEvent {
+        let mut event = RawEvent {
             uuid: None,
             distinct_id: None,
             event: "$pageview".to_string(),
@@ -833,9 +894,12 @@ mod tests {
             token: Some("test_token".to_string()),
         };
 
-        let processed =
-            process_single_event(&event, router::HistoricalConfig::new(false, 1), &context)
-                .unwrap();
+        let processed = process_single_event(
+            &mut event,
+            router::HistoricalConfig::new(false, 1),
+            &context,
+        )
+        .unwrap();
 
         // The event keeps its pre-epoch timestamp, but the uuid floors to the epoch rather than wrapping to garbage.
         assert!(
@@ -856,9 +920,12 @@ mod tests {
             .with_timezone(&Utc);
 
         let context = create_test_context(now, None);
-        let event = create_test_event(Some("2023-01-01T11:00:00Z".to_string()), None, None);
-        let result =
-            process_single_event(&event, router::HistoricalConfig::new(false, 1), &context);
+        let mut event = create_test_event(Some("2023-01-01T11:00:00Z".to_string()), None, None);
+        let result = process_single_event(
+            &mut event,
+            router::HistoricalConfig::new(false, 1),
+            &context,
+        );
 
         assert!(result.is_ok());
         let processed = result.unwrap();
@@ -881,10 +948,13 @@ mod tests {
         .unwrap();
         let context = create_test_context(now, Some(sent_at));
 
-        let event = create_test_event(Some("2023-01-01T11:59:55Z".to_string()), None, None);
+        let mut event = create_test_event(Some("2023-01-01T11:59:55Z".to_string()), None, None);
 
-        let result =
-            process_single_event(&event, router::HistoricalConfig::new(false, 1), &context);
+        let result = process_single_event(
+            &mut event,
+            router::HistoricalConfig::new(false, 1),
+            &context,
+        );
 
         assert!(result.is_ok());
         let processed = result.unwrap();
@@ -905,10 +975,14 @@ mod tests {
         .unwrap();
         let context = create_test_context(now, Some(sent_at));
 
-        let event = create_test_event(Some("2023-01-01T11:00:00Z".to_string()), None, Some(true));
+        let mut event =
+            create_test_event(Some("2023-01-01T11:00:00Z".to_string()), None, Some(true));
 
-        let result =
-            process_single_event(&event, router::HistoricalConfig::new(false, 1), &context);
+        let result = process_single_event(
+            &mut event,
+            router::HistoricalConfig::new(false, 1),
+            &context,
+        );
 
         assert!(result.is_ok());
         let processed = result.unwrap();
@@ -928,10 +1002,13 @@ mod tests {
         let mut context = create_test_context(now, None);
         context.historical_migration = false;
 
-        let event = create_test_event(Some("2023-01-01T11:00:00Z".to_string()), None, None);
+        let mut event = create_test_event(Some("2023-01-01T11:00:00Z".to_string()), None, None);
 
-        let result =
-            process_single_event(&event, router::HistoricalConfig::new(false, 1), &context);
+        let result = process_single_event(
+            &mut event,
+            router::HistoricalConfig::new(false, 1),
+            &context,
+        );
 
         assert!(result.is_ok());
         let processed = result.unwrap();
@@ -949,10 +1026,13 @@ mod tests {
         let mut context = create_test_context(now, None);
         context.historical_migration = true;
 
-        let event = create_test_event(Some("2023-01-01T11:00:00Z".to_string()), None, None);
+        let mut event = create_test_event(Some("2023-01-01T11:00:00Z".to_string()), None, None);
 
-        let result =
-            process_single_event(&event, router::HistoricalConfig::new(false, 1), &context);
+        let result = process_single_event(
+            &mut event,
+            router::HistoricalConfig::new(false, 1),
+            &context,
+        );
 
         assert!(result.is_ok());
         let processed = result.unwrap();

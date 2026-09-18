@@ -2,6 +2,7 @@ use std::io;
 use std::ops::Not;
 
 use chrono::{DateTime, SecondsFormat, Utc};
+use common_types::timestamp::CLIENT_CAPTURE_PROPERTY;
 use common_types::{CapturedEventHeaders, HasEventName};
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
@@ -433,6 +434,22 @@ impl WrappedEvent {
         }
         if let Some(ppp) = self.options.process_person_profile {
             inject!(buf, first, "$process_person_profile", &ppp);
+        }
+
+        // The device's own clock reading at capture. v1 requires a client timestamp on
+        // every event, so unlike v0 there is never an offset to reconstruct it from.
+        // Parsed rather than passed through so both capture paths emit one shape, and
+        // written whatever `disable_skew_correction` says: opting out of the correction
+        // is not opting out of knowing when the device captured the event.
+        if let Ok(captured_at) = DateTime::parse_from_rfc3339(&self.event.timestamp) {
+            inject!(
+                buf,
+                first,
+                CLIENT_CAPTURE_PROPERTY,
+                &captured_at
+                    .with_timezone(&Utc)
+                    .to_rfc3339_opts(SecondsFormat::Millis, true)
+            );
         }
 
         // Materialize $lib/$lib_version from the required PostHog-Sdk-Info
@@ -1727,11 +1744,13 @@ mod tests {
 
         let ctx = serialize_ctx();
         let (_, data) = serialize_and_parse(&wrapped, &ctx);
-        // $lib/$lib_version always materialize from the (valid) Sdk-Info header.
+        // $lib/$lib_version always materialize from the (valid) Sdk-Info header, and the
+        // client timestamp always materializes as the device's capture instant.
         let props = &data.properties;
         assert_eq!(props["$lib"], "posthog-rs");
         assert_eq!(props["$lib_version"], "1.0.0");
-        assert_eq!(props.len(), 2);
+        assert_eq!(props["$client_capture_time"], "2026-03-19T14:29:58.123Z");
+        assert_eq!(props.len(), 3);
     }
 
     #[test]
@@ -1771,7 +1790,8 @@ mod tests {
         assert_eq!(props["$cookieless_mode"], true);
         assert_eq!(props["$lib"], "posthog-rs");
         assert_eq!(props["$lib_version"], "1.0.0");
-        assert_eq!(props.len(), 4);
+        assert!(props.contains_key("$client_capture_time"));
+        assert_eq!(props.len(), 5);
     }
 
     #[test]
@@ -2055,7 +2075,8 @@ mod tests {
         assert_eq!(data.properties["$session_id"], "sess-abc");
         assert_eq!(data.properties["$lib"], "posthog-rs");
         assert_eq!(data.properties["$lib_version"], "1.0.0");
-        assert_eq!(data.properties.len(), 3);
+        assert!(data.properties.contains_key("$client_capture_time"));
+        assert_eq!(data.properties.len(), 4);
     }
 
     // --- CapturedEvent round-trip parity using realistic fixtures ---

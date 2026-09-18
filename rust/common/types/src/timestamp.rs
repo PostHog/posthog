@@ -5,6 +5,11 @@ use std::borrow::Cow;
 
 const FUTURE_EVENT_HOURS_CUTOFF_MILLIS: i64 = 23 * 3600 * 1000; // 23 hours
 
+/// Property carrying the device's own clock reading at capture, when the client sent
+/// enough to derive it. Consumers that need the order events happened in on one device
+/// read this; the stored timestamp answers when the server received them.
+pub const CLIENT_CAPTURE_PROPERTY: &str = "$client_capture_time";
+
 /// Which input set the returned timestamp. A caller cannot infer this from the
 /// arguments, because a `timestamp` that fails to parse falls through to `Now`
 /// while still looking like a supplied timestamp.
@@ -36,6 +41,11 @@ pub struct ParsedTimestamp {
     /// Which input produced `timestamp`, before the future clamp and the
     /// out-of-bounds fallback can overwrite the value.
     pub source: TimestampSource,
+    /// What the device's own clock read when it captured the event, when the client
+    /// sent enough to derive it. Unlike `timestamp`, this carries the device's clock
+    /// error rather than the request's delivery delay, so the difference between two
+    /// of these from one device is the real interval between those events.
+    pub client_capture: Option<DateTime<Utc>>,
 }
 
 /// Parse event timestamp with clock skew adjustment and validation
@@ -57,7 +67,7 @@ pub fn parse_event_timestamp(
     let effective_sent_at = if ignore_sent_at { None } else { sent_at };
 
     // Handle timestamp parsing and clock skew adjustment
-    let mut result = handle_timestamp(timestamp, offset, effective_sent_at, now);
+    let mut result = handle_timestamp(timestamp, offset, effective_sent_at, sent_at, now);
 
     // Check for future events - clamp to now
     let now_diff = result
@@ -80,14 +90,22 @@ fn handle_timestamp(
     timestamp: Option<&str>,
     offset: Option<i64>,
     sent_at: Option<DateTime<Utc>>,
+    // The send stamp as the client wrote it. Kept separate from `sent_at` because
+    // `$ignore_sent_at` removes that one from the correction, and deriving the capture
+    // instant is not a correction.
+    raw_sent_at: Option<DateTime<Utc>>,
     now: DateTime<Utc>,
 ) -> ParsedTimestamp {
     let mut parsed_ts = now;
     let mut clock_skew = None;
     let mut source = TimestampSource::Now;
+    let mut client_capture = None;
 
     if let Some(timestamp_str) = timestamp {
         let timestamp_parsed = parse_date(timestamp_str);
+        // The client timestamp is the device's reading at capture, whether or not the
+        // correction below also uses it.
+        client_capture = timestamp_parsed;
 
         if let (Some(sent_at), Some(timestamp_parsed)) = (sent_at, timestamp_parsed) {
             // Clock skew: how far the client clock is ahead of the server.
@@ -107,12 +125,20 @@ fn handle_timestamp(
     if let Some(offset_ms) = offset {
         parsed_ts = now - Duration::milliseconds(offset_ms);
         source = TimestampSource::Offset;
+        if client_capture.is_none() {
+            // An SDK that sends `offset` replaced the timestamp with the age it measured
+            // at flush, so the send stamp less that age is the same device reading. It
+            // inherits whatever elapsed between those two stamps, which is the SDK's own
+            // serialize and compress step rather than anything on the network.
+            client_capture = raw_sent_at.map(|at| at - Duration::milliseconds(offset_ms));
+        }
     }
 
     ParsedTimestamp {
         timestamp: parsed_ts,
         clock_skew,
         source,
+        client_capture,
     }
 }
 
@@ -201,6 +227,52 @@ mod tests {
 
     fn dt(s: &str) -> DateTime<Utc> {
         DateTime::parse_from_rfc3339(s).unwrap().with_timezone(&Utc)
+    }
+
+    #[test]
+    fn client_capture_is_the_device_reading_not_the_corrected_one() {
+        // The whole point of the field: it must not move with the delivery delay the way
+        // `timestamp` does, or a consumer ordering by it gains nothing.
+        let now = dt("2023-01-01T12:00:30Z");
+        let sent_at = Some(dt("2023-01-01T12:00:00Z"));
+        let result = parse_event_timestamp(Some("2023-01-01T11:00:00Z"), None, sent_at, false, now);
+        assert_eq!(result.client_capture, Some(dt("2023-01-01T11:00:00Z")));
+        assert_eq!(result.timestamp, dt("2023-01-01T11:00:30Z"));
+    }
+
+    #[test]
+    fn client_capture_is_derived_from_offset_when_the_sdk_dropped_the_timestamp() {
+        // An SDK that sends `offset` deletes the timestamp, so the send stamp less the age
+        // it measured is the only remaining device reading.
+        let now = dt("2023-01-01T12:00:30Z");
+        let sent_at = Some(dt("2023-01-01T12:00:00Z"));
+        let result = parse_event_timestamp(None, Some(60_000), sent_at, false, now);
+        assert_eq!(result.client_capture, Some(dt("2023-01-01T11:59:00Z")));
+        assert_eq!(result.source, TimestampSource::Offset);
+    }
+
+    #[test]
+    fn client_capture_survives_ignore_sent_at() {
+        // `$ignore_sent_at` opts out of the correction, not out of knowing when the device
+        // captured the event.
+        let now = dt("2023-01-01T12:00:30Z");
+        let sent_at = Some(dt("2023-01-01T12:00:00Z"));
+        let result = parse_event_timestamp(None, Some(60_000), sent_at, true, now);
+        assert_eq!(result.client_capture, Some(dt("2023-01-01T11:59:00Z")));
+    }
+
+    #[test]
+    fn client_capture_is_absent_when_nothing_derives_it() {
+        let now = dt("2023-01-01T12:00:00Z");
+        assert_eq!(
+            parse_event_timestamp(None, None, None, false, now).client_capture,
+            None
+        );
+        // An unparseable timestamp is not a device reading either.
+        assert_eq!(
+            parse_event_timestamp(Some("not a date"), None, None, false, now).client_capture,
+            None
+        );
     }
 
     #[test]
