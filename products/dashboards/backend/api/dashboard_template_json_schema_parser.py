@@ -16,9 +16,12 @@ class DashboardTemplateCreationJSONSchemaParser(JSONParser):
 
     def parse(self, stream, media_type=None, parser_context=None):
         data = super().parse(stream, media_type or "application/json", parser_context)
+        # A body without a "template" key used to reach the view and raise KeyError there, so a malformed
+        # request answered with a 500 instead of telling the client what was wrong.
+        if not isinstance(data, dict) or "template" not in data:
+            raise ValidationError(detail="Invalid JSON: must provide a 'template' key")
         try:
-            template = data["template"]
-            jsonschema.validate(template, dashboard_template_schema)
+            jsonschema.validate(data["template"], dashboard_template_schema)
         except ValueError as error:
             raise ValidationError(detail=f"Invalid JSON: {error}")
         except SchemaError as error:

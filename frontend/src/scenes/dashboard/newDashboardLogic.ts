@@ -417,9 +417,11 @@ export const newDashboardLogic = kea<newDashboardLogicType>([
                 tiles,
             }
 
+            let result: DashboardType
+            // Only the request belongs in this try: the modal must stay open until it resolves, so a failure
+            // leaves the chosen template selected and Create ready to retry.
             try {
-                actions.hideNewDashboardModal()
-                const result: DashboardType = await api.create(
+                result = await api.create(
                     `api/environments/${teamLogic.values.currentTeamId}/dashboards/create_from_template_json`,
                     {
                         template: dashboardJSON,
@@ -427,30 +429,41 @@ export const newDashboardLogic = kea<newDashboardLogicType>([
                         _create_in_folder: UNFILED_DASHBOARDS_FOLDER,
                     }
                 )
-
-                actions.resetNewDashboard()
-                const queryBasedDashboard = getQueryBasedDashboard(result)
-                queryBasedDashboard && dashboardsModel.actions.addDashboardSuccess(queryBasedDashboard)
-                actions.submitNewDashboardSuccessWithResult(result, variables)
-
-                eventUsageLogic.actions.reportWebDashboardCreatedFromTemplate({
-                    dashboard_id: result.id,
-                    template_id: template.id,
-                    template_name: template.template_name,
-                    template_variable_count: variables.length,
-                    template_scope: template.scope ?? null,
-                })
-
-                if (redirectAfterCreation) {
-                    router.actions.push(urls.dashboard(result.id))
-                }
             } catch (e: any) {
+                actions.setIsLoading(false)
                 if (!isBreakpoint(e)) {
                     const message = e.code && e.detail ? `${e.code}: ${e.detail}` : e
                     lemonToast.error(`Could not create dashboard: ${message}`)
+                    eventUsageLogic.actions.reportWebDashboardCreationFromTemplateFailed({
+                        template_id: template.id,
+                        template_name: template.template_name,
+                        template_variable_count: variables.length,
+                        template_scope: template.scope ?? null,
+                        status: e.status ?? null,
+                        code: e.code ?? null,
+                    })
                 }
+                return
             }
+
+            actions.hideNewDashboardModal()
+            actions.resetNewDashboard()
             actions.setIsLoading(false)
+            if (redirectAfterCreation) {
+                router.actions.push(urls.dashboard(result.id))
+            }
+
+            const queryBasedDashboard = getQueryBasedDashboard(result)
+            queryBasedDashboard && dashboardsModel.actions.addDashboardSuccess(queryBasedDashboard)
+            actions.submitNewDashboardSuccessWithResult(result, variables)
+
+            eventUsageLogic.actions.reportWebDashboardCreatedFromTemplate({
+                dashboard_id: result.id,
+                template_id: template.id,
+                template_name: template.template_name,
+                template_variable_count: variables.length,
+                template_scope: template.scope ?? null,
+            })
         },
         showVariableSelectModal: ({ template }) => {
             actions.setActiveDashboardTemplate(template)

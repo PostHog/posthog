@@ -19,7 +19,7 @@ export function NewDashboardModal(): JSX.Element {
     const builtLogic = useMountedLogic(newDashboardLogic)
     const { hideNewDashboardModal, clearActiveDashboardTemplate, createDashboardFromTemplate } =
         useActions(newDashboardLogic)
-    const { newDashboardModalVisible, activeDashboardTemplate, variableSelectModalVisible } =
+    const { newDashboardModalVisible, activeDashboardTemplate, variableSelectModalVisible, isLoading } =
         useValues(newDashboardLogic)
 
     const { variables } = useValues(dashboardTemplateVariablesLogic)
@@ -82,7 +82,9 @@ export function NewDashboardModal(): JSX.Element {
             // Base UI would otherwise focus the filter input on open.
             initialFocus={!isMobile()}
             open={newDashboardModalVisible}
-            onOpenChange={(open) => !open && hideNewDashboardModal()}
+            // Ignore Escape, the close button and outside clicks while a create is in flight: dismissing
+            // would clear the chosen template and leave a failure with no retry path.
+            onOpenChange={(open) => !open && !isLoading && hideNewDashboardModal()}
             className={cn(
                 'w-[min(100vw-3rem,1200px)] max-h-[calc(100vh-4rem)] supports-[max-height:1dvh]:max-h-[calc(100dvh-4rem)] top-8',
                 'bg-surface-primary',
@@ -114,7 +116,7 @@ export function NewDashboardModal(): JSX.Element {
                     {variableSelectModalVisible ? (
                         <div />
                     ) : (
-                        <LemonButton onClick={clearActiveDashboardTemplate} type="secondary">
+                        <LemonButton onClick={clearActiveDashboardTemplate} type="secondary" disabled={isLoading}>
                             Back
                         </LemonButton>
                     )}
@@ -123,6 +125,7 @@ export function NewDashboardModal(): JSX.Element {
                             activeDashboardTemplate && createDashboardFromTemplate(activeDashboardTemplate, variables)
                         }}
                         type="primary"
+                        loading={isLoading}
                     >
                         Create
                     </LemonButton>

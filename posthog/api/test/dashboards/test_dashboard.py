@@ -2956,6 +2956,19 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         )
         assert response.status_code == 400, response.json()
 
+    @parameterized.expand(
+        [
+            ("no_template_key", {"creation_context": "onboarding"}),
+            ("template_key_misspelled", {"templates": valid_template}),
+        ]
+    )
+    def test_create_from_template_json_rejects_body_without_a_template(self, _name: str, body: dict) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/dashboards/create_from_template_json",
+            body,
+        )
+        assert response.status_code == 400, response.json()
+
     def test_create_from_template_json_can_provide_text_tile(self) -> None:
         template: dict = {
             **valid_template,
