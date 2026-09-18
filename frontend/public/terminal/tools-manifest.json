@@ -1,0 +1,70 @@
+{
+    "repository": "https://dl-cdn.alpinelinux.org/alpine/v3.22/main/x86",
+    "packages": [
+        {
+            "file": "libncursesw-6.5_p20250503-r0.apk",
+            "sha256": "b1262e30c3eb0c9a9b74dba4f33c36ca37e33c4a060429af22f371236bfd4d61"
+        },
+        {
+            "file": "musl-1.2.5-r12.apk",
+            "sha256": "d047373c9afb6eaac68df1d03128ac75803350b0368327af85cc95a5b042a1da"
+        },
+        {
+            "file": "nano-8.4-r0.apk",
+            "sha256": "d5fb5ce60cc5b0f3f10f2c5bde5a30ae06d93537b08f0bf57ffd522f8ec290aa"
+        },
+        {
+            "file": "nano-syntax-8.4-r0.apk",
+            "sha256": "890d993bab1d6b41b078168116b399cf5736ed19b4b3593097dd2810b4c28c9f"
+        },
+        {
+            "file": "ncdu-1.22-r0.apk",
+            "sha256": "b19f10b46b05eafccafb92b4d0d720e30e657869b3d9b344829c33d99b8734f0"
+        },
+        {
+            "file": "ncurses-terminfo-base-6.5_p20250503-r0.apk",
+            "sha256": "3264426877964e0ac55488ede6313e907d3663f831008b45fa27c95d60ac34b8"
+        },
+        {
+            "file": "tree-2.2.1-r0.apk",
+            "sha256": "7b6f11680a3f16097d99bb0a5558b62499b1cbea1d1c39f7fed58f38b5ae325b"
+        }
+    ],
+    "sources": [
+        {
+            "name": "nano",
+            "url": "https://distfiles.alpinelinux.org/distfiles/v3.22/nano-8.4.tar.xz",
+            "sha512": "1b8258e341a8722114b24af9d4676fbd8a91dc3639786a81bcd192a7b4fbca87581ab8ebe49493dfb3599ae90b59f4df8ae2a4ee0c0c7ccec9a49b563c82f44a",
+            "license_file": "nano-8.4/COPYING",
+            "recipe": "https://github.com/alpinelinux/aports/tree/eadb70705bb9ed4a955c88a318bcf204efe43c71/main/nano"
+        },
+        {
+            "name": "tree",
+            "url": "https://distfiles.alpinelinux.org/distfiles/v3.22/unix-tree-2.2.1.tar.gz",
+            "sha512": "e7f514c2c12bc409d28c83a2c359bf463f8c624b6fc78cb847e0849925dfca746a9dac9a9e55b721972c474a33dba99a069f69694eaa08c12f4ce77db6d49953",
+            "license_file": "unix-tree-2.2.1/LICENSE",
+            "recipe": "https://github.com/alpinelinux/aports/tree/f716d231228886a4bdd36b0a0e1c546f3708a56d/main/tree"
+        },
+        {
+            "name": "ncdu",
+            "url": "https://distfiles.alpinelinux.org/distfiles/v3.22/ncdu-1.22.tar.gz",
+            "sha512": "04f338e7b0992c1d94893dc6f2ad80318618690232c7bba43cd9a01ce513052460ed396dca49a060f31dbbb72dcddd59e7f78715dbe0da937a7f3d7725f8d2c1",
+            "license_file": "ncdu-1.22/COPYING",
+            "recipe": "https://github.com/alpinelinux/aports/tree/340f9cbafa599f670f3019cfdc76b5f989e43012/main/ncdu"
+        },
+        {
+            "name": "musl",
+            "url": "https://distfiles.alpinelinux.org/distfiles/v3.22/musl-1.2.5.tar.gz",
+            "sha512": "7bb7f7833923cd69c7a1a9b8a5f1784bfd5289663eb6061dcd43d583e45987df8a68a1be05d75cc1c88a3f5b610653d1a70f4a9cff4d8f7fd41ae73ee058c17c",
+            "license_file": "musl-1.2.5/COPYRIGHT",
+            "recipe": "https://github.com/alpinelinux/aports/tree/1546f29a1fd233db15464ce000b6247ed71b31e7/main/musl"
+        },
+        {
+            "name": "ncurses",
+            "url": "https://distfiles.alpinelinux.org/distfiles/v3.22/ncurses-6.5-20250503.tgz",
+            "sha512": "b417ea609e497eb746ddb3bef89eafb9eb9e78e605b4b8445cc47f005c22dae24c2c461cd014f7a76c1c6e3f685e0363a7a229af24360b4505483e3bd36efd41",
+            "license_file": "ncurses-6.5-20250503/COPYING",
+            "recipe": "https://github.com/alpinelinux/aports/tree/3fefbe8dda8b3e85458edb190e2f3a69ad16035c/main/ncurses"
+        }
+    ]
+}

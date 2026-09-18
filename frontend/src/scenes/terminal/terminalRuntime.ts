@@ -2,6 +2,7 @@ import { V86 } from 'v86'
 import wasmUrl from 'v86/build/v86.wasm?url'
 
 import jqUrl from 'public/terminal/jq-linux-i386.bin?url'
+import toolsUrl from 'public/terminal/tools-linux-i386.tar.gz.bin?url'
 
 import { NinePServer } from './ninepServer'
 
@@ -50,7 +51,7 @@ export class TerminalRuntime {
     constructor(private onOutput: (bytes: Uint8Array) => void) {}
 
     async start(server: NinePServer, signal: AbortSignal, onReady: () => void): Promise<void> {
-        const [bios, vgaBios, kernel, jq] = await Promise.all([
+        const [bios, vgaBios, kernel, jq, tools] = await Promise.all([
             verifiedImage(
                 `${FIRMWARE}/seabios.bin`,
                 '73e3f359102e3a9982c35fce98eb7cd08f18303ac7f1ba6ebfbe6cdc1c244d98',
@@ -68,12 +69,22 @@ export class TerminalRuntime {
                 signal
             ),
             verifiedImage(jqUrl, 'ba996e8ce436973e2f39e2639405a37e8c81ba8c722b71c83996278ad0af16dd', signal),
+            verifiedImage(toolsUrl, '8e02b805b83b4c41b2b17f2e9b53719ead625331180ffed9f65bcbe3ddd2fb97', signal),
         ])
+        if (signal.aborted || this.disposed) {
+            return
+        }
+        // The guest's BusyBox tar has no gzip support.
+        const toolsArchive = await new Response(
+            new Blob([tools]).stream().pipeThrough(new DecompressionStream('gzip'))
+        ).arrayBuffer()
         if (signal.aborted || this.disposed) {
             return
         }
         const bin = server.filesystem.directory('bin', server.filesystem.root)
         server.filesystem.file('jq', bin, async () => ({ bytes: new Uint8Array(jq) })).size = jq.byteLength
+        server.filesystem.file('tools.tar', bin, async () => ({ bytes: new Uint8Array(toolsArchive) })).size =
+            toolsArchive.byteLength
         const emulator = (this.emulator = new V86({
             wasm_path: wasmUrl,
             bios: { buffer: bios },
@@ -115,6 +126,8 @@ export class TerminalRuntime {
                         'unset TZ',
                         `printf '%s\\n' '${clock.timezone}' > /etc/TZ`,
                         `date -s @${clock.timestamp} > /dev/null`,
+                        'tar -xf /posthog/bin/tools.tar -C / || exit',
+                        'export EDITOR=nano VISUAL=nano',
                         'cp /posthog/bin/jq /usr/bin/jq && chmod +x /usr/bin/jq || exit',
                         'cp /posthog/bin/ph /usr/bin/ph && chmod +x /usr/bin/ph || exit',
                         'stty -F /dev/ttyS1 raw -echo',
@@ -124,7 +137,7 @@ export class TerminalRuntime {
                         "export PS1='\\[\\033[32m\\]posthog\\[\\033[0m\\]:\\[\\033[34m\\]\\w\\[\\033[0m\\] $ '",
                         'cd /posthog/files',
                         'clear',
-                        'printf \'PostHog terminal\\n\\nTry:\\n  ls --color=auto\\n  find . -name "*.md"\\n  vi Unfiled/Notebooks/Foobar.md\\n  mkdir Research\\n  ph tools\\n  ph notebooks-list --limit 10 | jq .\\n  cat /posthog/README.txt\\n\\nUse your own notebook path with vi. Save with :wq; quit with :q!.\\nSelecting text copies it. Folder creation and moves update PostHog.\\n\\n\'',
+                        "printf 'PostHog terminal\\n\\nTry:\\n  tree -C -L 3\\n  nano Unfiled/Notebooks/Foobar.md\\n  vi Unfiled/Notebooks/Foobar.md\\n  ncdu -r /posthog/files\\n  mkdir Research\\n  ph tools\\n  ph notebooks-list --limit 10 | jq .\\n  cat /posthog/README.txt\\n\\nUse your own notebook path. In nano, Ctrl+S saves and Ctrl+X exits.\\nIn vi, save with :wq; quit with :q!. Selecting text copies it.\\nFolder creation and moves update PostHog.\\n\\n'",
                         'stty echo',
                         "printf '\\036' > /dev/ttyS1",
                     ].join('\n') + '\n'
