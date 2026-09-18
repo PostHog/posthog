@@ -5,25 +5,34 @@ import { ApiConfig } from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { delay } from 'lib/utils/async'
 
 import {
     notebooksRunsCreate,
     notebooksRunsInterruptCreate,
     notebooksRunsRetrieve,
 } from 'products/notebooks/frontend/generated/api'
-import type { NotebookRunStatusResponseApi } from 'products/notebooks/frontend/generated/api.schemas'
+import type {
+    NotebookRunStartRequestApi,
+    NotebookRunStatusResponseApi,
+} from 'products/notebooks/frontend/generated/api.schemas'
 
 import { buildNotebookRunFinishedEvent, buildNotebookRunStartedEvent } from './notebookAnalytics'
+import { notebookLogic } from './notebookLogic'
 import { notebookNodeStalenessLogic } from './notebookNodeStalenessLogic'
 import { NotebookOperation, notebookOperationsLogic } from './notebookOperationsLogic'
 import { notebookSettingsLogic } from './notebookSettingsLogic'
+import { getSavableNotebookVariables } from './notebookVariables'
 import { sandboxStartMessage } from './SandboxStartMessage'
 
 /** How often the scene asks the backend where the run has got to. Matches the workflow's own cadence. */
 const POLL_INTERVAL_MS = 2000
 
-/** Consecutive failed status reads before the run is treated as lost, about ten seconds. */
+/** Consecutive failed status reads before the UI says so. Polling continues regardless. */
 const MAX_POLL_FAILURES = 5
+
+/** How long to wait for a pending content save before starting a run anyway. */
+const SAVE_FLUSH_TIMEOUT_MS = 3000
 
 export interface NotebookRunLogicProps {
     shortId: string
@@ -210,6 +219,26 @@ export const notebookRunLogic = kea<notebookRunLogicType>([
         const operation = runAllOperation(props.shortId)
         const teamId = (): string => String(ApiConfig.getCurrentTeamId())
 
+        /** Save whatever autosave is still holding, and return the run body to start with. */
+        const flushPendingEdits = async (): Promise<NotebookRunStartRequestApi> => {
+            const notebook = notebookLogic.findMounted({ shortId: props.shortId })
+            if (!notebook) {
+                return {}
+            }
+            if (notebook.values.localContent) {
+                notebook.actions.saveNotebookNow()
+                // The save clears localContent, which is the signal it landed. Bounded: a save
+                // that cannot complete must not block the run forever, and the worst case is
+                // the behaviour this had before — a run against the last saved content.
+                const deadline = performance.now() + SAVE_FLUSH_TIMEOUT_MS
+                while (notebook.values.localContent && performance.now() < deadline) {
+                    await delay(50)
+                }
+            }
+            const variables = getSavableNotebookVariables(notebook.values.variables ?? [])
+            return variables.length ? { variables } : {}
+        }
+
         return {
             startRun: async () => {
                 if (values.isBusy && values.activeOperation?.id !== operation.id) {
@@ -219,11 +248,24 @@ export const notebookRunLogic = kea<notebookRunLogicType>([
                 }
                 actions.startOperation(operation)
                 cache.startedAt = performance.now()
+                cache.interruptRequested = false
                 try {
-                    const started = await notebooksRunsCreate(teamId(), props.shortId, {})
+                    // Autosave debounces content by 400ms and variables by 500ms, so clicking
+                    // straight after an edit used to freeze the previously saved code and
+                    // values: the results then landed under newer text the user could see.
+                    // Flush the content, and hand the variables to the start call, which
+                    // stores them in the same transaction that creates the run.
+                    const body = await flushPendingEdits()
+                    const started = await notebooksRunsCreate(teamId(), props.shortId, body)
                     // The only place this id exists before the first poll, and `startRun`
                     // cleared the previous run, so without it every poll asks for /runs/undefined/.
                     cache.runId = started.run_id
+                    if (cache.interruptRequested) {
+                        // Stop was pressed while this request was still out. Send it now that
+                        // there is something to stop, rather than dropping the click.
+                        cache.interruptRequested = false
+                        actions.interruptRun()
+                    }
                     posthog.capture(...buildNotebookRunStartedEvent(props.shortId, started.cell_count))
                     if (started.starts_sandbox) {
                         // The backend decides this at dispatch, so it is the only accurate source.
@@ -269,13 +311,20 @@ export const notebookRunLogic = kea<notebookRunLogicType>([
                         actions.runFinished(run)
                     }
                 } catch (error: any) {
-                    // The run keeps going on the backend whether or not this poll lands, so a
-                    // blip must not strand the UI on Stop with the notebook still held. Give up
-                    // only once the status endpoint has been unreachable for several tries.
-                    cache.pollFailures = (cache.pollFailures ?? 0) + 1
-                    if (cache.pollFailures >= MAX_POLL_FAILURES) {
+                    if ((error as { status?: number } | null)?.status === 404) {
+                        // The run is gone, so there is nothing left to recover.
                         actions.stopPolling()
-                        lemonToast.error(error?.detail || error?.message || 'Lost track of the run')
+                        lemonToast.error('That run no longer exists.')
+                        return
+                    }
+                    // Anything else is the status endpoint being unreachable, and the run keeps
+                    // going on the backend regardless. Giving up here released the notebook
+                    // while the run was still live — letting a per-cell run start underneath it
+                    // — and left the banner stuck on Stop with no way back. So keep the timer
+                    // and the operation, say so once, and let a later poll pick the run up.
+                    cache.pollFailures = (cache.pollFailures ?? 0) + 1
+                    if (cache.pollFailures === MAX_POLL_FAILURES) {
+                        lemonToast.error(error?.detail || error?.message || 'Lost contact with the run — still trying')
                     }
                 } finally {
                     cache.pollInFlight = false
@@ -306,6 +355,12 @@ export const notebookRunLogic = kea<notebookRunLogicType>([
             interruptRun: async () => {
                 const runId = values.run?.run_id ?? cache.runId
                 if (!runId) {
+                    // The start request has not answered yet, so there is no run to stop.
+                    // Remember the click: `startRun` sends it the moment the id lands. Without
+                    // this the click vanished and left both Stop controls disabled for the
+                    // rest of the run, because nothing reset the in-flight flag.
+                    cache.interruptRequested = true
+                    actions.setInterrupting(false)
                     return
                 }
                 try {

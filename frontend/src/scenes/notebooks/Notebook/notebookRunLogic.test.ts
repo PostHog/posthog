@@ -8,6 +8,7 @@ import {
     notebooksRunsRetrieve,
 } from 'products/notebooks/frontend/generated/api'
 
+import { notebookLogic } from './notebookLogic'
 import { notebookNodeStalenessLogic } from './notebookNodeStalenessLogic'
 import { notebookOperationsLogic } from './notebookOperationsLogic'
 import { notebookRunLogic } from './notebookRunLogic'
@@ -130,6 +131,89 @@ describe('notebookRunLogic', () => {
         expect(operations.values.isBusy).toBe(false)
 
         operations.unmount()
+    })
+
+    it('recovers after a long outage instead of stranding the run', async () => {
+        // Giving up released the notebook while the backend run was still live, which let a
+        // per-cell run start underneath it, and left the banner on Stop with no way back.
+        jest.mocked(notebooksRunsRetrieve).mockResolvedValueOnce(
+            runStatus('running', [cell('s1', 'running', 'cell-1')])
+        )
+        logic = notebookRunLogic({ shortId: SHORT_ID })
+        logic.mount()
+        const operations = notebookOperationsLogic({ shortId: SHORT_ID })
+        operations.mount()
+        await expectLogic(logic, () => logic!.actions.startRun()).toDispatchActions(['setRun'])
+
+        for (let attempt = 0; attempt < 8; attempt++) {
+            jest.mocked(notebooksRunsRetrieve).mockRejectedValueOnce(new Error('offline'))
+            await expectLogic(logic, () => logic!.actions.pollRun()).toFinishAllListeners()
+        }
+
+        // Well past the point the UI says it lost contact, and it is still watching.
+        expect(logic.values.isRunning).toBe(true)
+        expect(operations.values.isBusy).toBe(true)
+
+        jest.mocked(notebooksRunsRetrieve).mockResolvedValueOnce(runStatus('done', [cell('s1', 'done', 'cell-1')]))
+        await expectLogic(logic, () => logic!.actions.pollRun()).toDispatchActions(['runFinished'])
+        expect(operations.values.isBusy).toBe(false)
+
+        operations.unmount()
+    })
+
+    it('sends a Stop pressed before the run id arrives', async () => {
+        // isStarting already renders Stop, so the click is reachable. It used to return here
+        // without sending anything and without clearing the in-flight flag, leaving both Stop
+        // controls disabled until the run finished on its own.
+        let releaseStart: (value: any) => void = () => {}
+        jest.mocked(notebooksRunsCreate).mockReturnValueOnce(
+            new Promise((resolve) => {
+                releaseStart = resolve
+            }) as any
+        )
+        jest.mocked(notebooksRunsRetrieve).mockResolvedValue(
+            runStatus('interrupted', [cell('s1', 'interrupted', 'cell-1')])
+        )
+        logic = notebookRunLogic({ shortId: SHORT_ID })
+        logic.mount()
+
+        logic.actions.startRun()
+        logic.actions.interruptRun()
+        expect(notebooksRunsInterruptCreate).not.toHaveBeenCalled()
+        expect(logic.values.isInterrupting).toBe(false)
+
+        releaseStart({ run_id: 'nbrun-1', cell_count: 1, starts_sandbox: false, sandbox_hourly_price: null })
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(notebooksRunsInterruptCreate).toHaveBeenCalledWith(expect.any(String), SHORT_ID, 'nbrun-1')
+    })
+
+    it('starts the run with the edits autosave is still holding', async () => {
+        // Content saves debounce for 400ms and variables for 500ms, so a click straight after
+        // an edit froze the previously saved code and values, and the results then landed
+        // under newer text the user could see.
+        const pending = {
+            values: {
+                localContent: { type: 'doc' } as any,
+                variables: [{ name: 'days_back', type: 'number', value: 7 }],
+            },
+            actions: {
+                saveNotebookNow: jest.fn(() => {
+                    pending.values.localContent = null as any
+                }),
+            },
+        }
+        jest.spyOn(notebookLogic, 'findMounted').mockReturnValue(pending as any)
+        jest.mocked(notebooksRunsRetrieve).mockResolvedValue(runStatus('done', [cell('s1', 'done', 'cell-1')]))
+        logic = notebookRunLogic({ shortId: SHORT_ID })
+        logic.mount()
+
+        await expectLogic(logic, () => logic!.actions.startRun()).toDispatchActions(['setRun'])
+
+        expect(pending.actions.saveNotebookNow).toHaveBeenCalled()
+        expect(jest.mocked(notebooksRunsCreate).mock.calls[0][2]).toEqual({
+            variables: [{ name: 'days_back', type: 'number', value: 7 }],
+        })
     })
 
     it('reports a failed run against the cell that stopped it', async () => {
