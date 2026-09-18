@@ -2259,6 +2259,21 @@ export interface eventUsageLogicActions {
         survey: Survey
         totalDurationMs: number
     }
+    reportSurveyConsolidatedResultsQueryFailure: (
+        survey: Survey,
+        totalDurationMs: number,
+        failedQueries: {
+            aggregate: boolean
+            openEnded: boolean
+        }
+    ) => {
+        failedQueries: {
+            aggregate: boolean
+            openEnded: boolean
+        }
+        survey: Survey
+        totalDurationMs: number
+    }
     reportSurveyCreated: (
         survey: Survey,
         isDuplicate?: boolean,
@@ -2283,6 +2298,9 @@ export interface eventUsageLogicActions {
     }
     reportSurveyEmptyStateViewed: () => {
         value: true
+    }
+    reportSurveyResponsesCountQueryFailure: (surveyCount: number) => {
+        surveyCount: number
     }
     reportSurveyTemplateClicked: (
         template: SurveyTemplateType,
@@ -3218,6 +3236,12 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             totalDurationMs: number,
             queryDurations: { aggregate: number; openEnded: number }
         ) => ({ survey, totalDurationMs, queryDurations }),
+        reportSurveyConsolidatedResultsQueryFailure: (
+            survey: Survey,
+            totalDurationMs: number,
+            failedQueries: { aggregate: boolean; openEnded: boolean }
+        ) => ({ survey, totalDurationMs, failedQueries }),
+        reportSurveyResponsesCountQueryFailure: (surveyCount: number) => ({ surveyCount }),
         reportSurveyEmptyStateViewed: true,
         reportSurveyAiPromptSubmitted: (source: string) => ({ source }),
         reportProductTourViewed: (tour: ProductTour) => ({ tour }),
@@ -4634,6 +4658,20 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 duration: totalDurationMs,
                 aggregate_duration: queryDurations.aggregate,
                 open_ended_duration: queryDurations.openEnded,
+            })
+        },
+        reportSurveyConsolidatedResultsQueryFailure: ({ survey, totalDurationMs, failedQueries }) => {
+            posthog.capture('survey consolidated results query failed', {
+                name: survey.name,
+                id: survey.id,
+                duration: totalDurationMs,
+                aggregate_failed: failedQueries.aggregate,
+                open_ended_failed: failedQueries.openEnded,
+            })
+        },
+        reportSurveyResponsesCountQueryFailure: ({ surveyCount }) => {
+            posthog.capture('survey responses count query failed', {
+                survey_count: surveyCount,
             })
         },
         reportProductTourViewed: ({ tour }) => {
