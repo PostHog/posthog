@@ -369,6 +369,7 @@ The only sanctioned exception is a job whose purpose is validating the migration
 **Name the OS version, never `ubuntu-latest`.**
 GitHub moves the `-latest` aliases to a new image on its own schedule (24.04 became `latest` in 2025, 26.04 follows), which changes the toolchain and system packages under every job at once with nothing in this repo to bisect.
 `WF011` rejects `ubuntu-latest`, `macos-latest`, `windows-latest` and the `depot-*-latest` mirrors in `runs-on` and in `strategy.matrix`, so use `ubuntu-24.04` (or `depot-ubuntu-24.04`) and land an image bump as its own PR.
+A runner matrix that an expression builds (`fromJSON(needs.plan.outputs.val)`) is opaque to the linter, so it fails closed: pin the labels where they are generated (`dist-workspace.toml` for the release workflows) and put `# hogli-lint: allow-generated-runner-matrix -- <where they are pinned>` above the job key.
 New Depot labels must be added to the allow-list in `.github/actionlint.yaml` or actionlint fails.
 Details: `/depot-github-runners`.
 

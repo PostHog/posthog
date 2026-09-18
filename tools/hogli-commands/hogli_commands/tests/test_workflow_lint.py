@@ -267,8 +267,13 @@ class TestPinnedRunnerImagesCheck:
                 "strategy.matrix.os",
                 "windows-latest",
             ),
+            (
+                "runs-on: ${{ matrix['runner'] }}\n    strategy:\n      matrix:\n        runner: [ubuntu-latest]",
+                "strategy.matrix.runner",
+                "ubuntu-latest",
+            ),
         ],
-        ids=["plain", "depot-suffixed", "label-list", "expression", "matrix-list", "matrix-include"],
+        ids=["plain", "depot-suffixed", "label-list", "expression", "matrix-list", "matrix-include", "matrix-bracket"],
     )
     def test_fails_floating_labels(self, tmp_path: Path, job_body: str, source: str, label: str) -> None:
         _write(
@@ -289,6 +294,96 @@ class TestPinnedRunnerImagesCheck:
         assert issue.job == "build"
         assert issue.message.startswith(source)
         assert label in issue.message
+
+    def test_generated_runner_matrix_fails_closed_without_marker(self, tmp_path: Path) -> None:
+        _write(
+            tmp_path,
+            "wf.yml",
+            """
+            name: My
+            on: [pull_request]
+            jobs:
+              plan:
+                runs-on: ubuntu-24.04
+                timeout-minutes: 10
+                outputs:
+                  matrix: ${{ steps.plan.outputs.matrix }}
+                steps:
+                  - id: plan
+                    run: echo ok
+              build:
+                needs: [plan]
+                runs-on: ${{ matrix.runner }}
+                timeout-minutes: 10
+                strategy:
+                  matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+                steps:
+                  - run: echo ok
+            """,
+        )
+        [issue] = PinnedRunnerImagesCheck().run(_read_all(tmp_path)).issues
+        assert issue.job == "build"
+        assert "allow-generated-runner-matrix" in issue.message
+
+    def test_generated_matrix_used_only_in_a_comparison_needs_no_marker(self, tmp_path: Path) -> None:
+        _write(
+            tmp_path,
+            "wf.yml",
+            """
+            name: My
+            on: [pull_request]
+            jobs:
+              build:
+                runs-on: ${{ matrix.browser == 'webkit' && 'depot-ubuntu-24.04' || 'ubuntu-24.04' }}
+                timeout-minutes: 10
+                strategy:
+                  matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+                steps:
+                  - run: echo ok
+            """,
+        )
+        assert PinnedRunnerImagesCheck().run(_read_all(tmp_path)).issues == []
+
+    def test_generated_runner_matrix_passes_with_marker_and_reason(self, tmp_path: Path) -> None:
+        _write(
+            tmp_path,
+            "wf.yml",
+            """
+            name: My
+            on: [pull_request]
+            jobs:
+              # hogli-lint: allow-generated-runner-matrix -- labels are pinned in dist-workspace.toml
+              build:
+                runs-on: ${{ matrix.runner }}
+                timeout-minutes: 10
+                strategy:
+                  matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+                steps:
+                  - run: echo ok
+            """,
+        )
+        assert PinnedRunnerImagesCheck().run(_read_all(tmp_path)).issues == []
+
+    def test_generated_runner_matrix_marker_without_reason_still_fails(self, tmp_path: Path) -> None:
+        _write(
+            tmp_path,
+            "wf.yml",
+            """
+            name: My
+            on: [pull_request]
+            jobs:
+              # hogli-lint: allow-generated-runner-matrix
+              build:
+                runs-on: ${{ matrix.runner }}
+                timeout-minutes: 10
+                strategy:
+                  matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+                steps:
+                  - run: echo ok
+            """,
+        )
+        [issue] = PinnedRunnerImagesCheck().run(_read_all(tmp_path)).issues
+        assert issue.job == "build"
 
     def test_ignores_latest_outside_runner_fields(self, tmp_path: Path) -> None:
         _write(
