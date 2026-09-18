@@ -57,6 +57,12 @@ class AlertDestinationRow(NamedTuple):
     inputs: dict[str, Any] | None
 
 
+def stored_inputs(inputs: dict[str, Any] | None, encrypted_inputs: dict[str, Any] | None) -> dict[str, Any]:
+    """The inputs a destination was built with. A HogFunction keeps its secret inputs in a
+    separate encrypted column, and a read that tells destinations apart needs them back."""
+    return {**(inputs or {}), **(encrypted_inputs or {})}
+
+
 def alert_destination_group_key(*, template_id: str, inputs: dict[str, Any] | None) -> AlertDestinationGroupKey:
     spec = SPEC_BY_TEMPLATE_ID.get(template_id)
     if spec is None:
@@ -90,11 +96,14 @@ def list_alert_destination_groups(
     raw_rows = list(
         owned_alert_destinations_qs(team_id=team_id, alert_ids=[alert_id], allowed_event_ids=allowed_event_ids)
         .order_by("created_at", "id")
-        .values_list("id", "template_id", "inputs", "enabled")
+        .values_list("id", "template_id", "inputs", "encrypted_inputs", "enabled")
     )
-    rows = [AlertDestinationRow(row_id, template_id, inputs) for row_id, template_id, inputs, _ in raw_rows]
+    rows = [
+        AlertDestinationRow(row_id, template_id, stored_inputs(inputs, encrypted_inputs))
+        for row_id, template_id, inputs, encrypted_inputs, _ in raw_rows
+    ]
     grouped_ids = group_alert_destination_rows(rows)
-    enabled_by_id = {row_id: enabled for row_id, _, _, enabled in raw_rows}
+    enabled_by_id = {row_id: enabled for row_id, _, _, _, enabled in raw_rows}
 
     groups: list[AlertDestinationGroup] = []
     for key, ids in grouped_ids.items():
@@ -197,11 +206,12 @@ def _raise_if_alert_already_has_these_destination_configs(
     stored_rows = (
         owned_alert_destinations_qs(team_id=team_id, alert_ids=[alert_id], allowed_event_ids=allowed_event_ids)
         .filter(template_id__in={key.template_id for key in readable_keys})
-        .values_list("template_id", "inputs")
+        .values_list("template_id", "inputs", "encrypted_inputs")
     )
     if any(
-        alert_destination_group_key(template_id=template_id or "", inputs=inputs) in readable_keys
-        for template_id, inputs in stored_rows
+        alert_destination_group_key(template_id=template_id or "", inputs=stored_inputs(inputs, encrypted_inputs))
+        in readable_keys
+        for template_id, inputs, encrypted_inputs in stored_rows
     ):
         raise AlertDestinationValidationError("This destination is already configured for this alert.")
 
@@ -277,12 +287,12 @@ def soft_delete_alert_destinations(
     unique_ids = set(hog_function_ids)
     with transaction.atomic():
         owned_rows = [
-            AlertDestinationRow(*row)
-            for row in owned_alert_destinations_qs(
+            AlertDestinationRow(row_id, template_id, stored_inputs(inputs, encrypted_inputs))
+            for row_id, template_id, inputs, encrypted_inputs in owned_alert_destinations_qs(
                 team_id=team_id, alert_ids=[alert_id], allowed_event_ids=allowed_event_ids
             )
             .select_for_update()
-            .values_list("id", "template_id", "inputs")
+            .values_list("id", "template_id", "inputs", "encrypted_inputs")
         ]
         owned_ids = {row.hog_function_id for row in owned_rows}
         invalid_ids = unique_ids - owned_ids

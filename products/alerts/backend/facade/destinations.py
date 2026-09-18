@@ -57,6 +57,15 @@ def validate_destination_data(
     destination_configs.validate_destination_data(data, allowed_destination_types=allowed_destination_types)
 
 
+def destination_handles_event_kind(destination_type: DestinationType, spec: EventKindSpec) -> bool:
+    """Whether a destination type has something to send for one event kind.
+
+    An incident manager such as PagerDuty follows only the kinds that trigger or resolve an
+    incident, so a product filters its event kinds with this before it builds configs.
+    """
+    return destination_configs.destination_handles_event_kind(destination_type, spec)
+
+
 def build_alert_destination_config(
     *,
     spec: EventKindSpec,

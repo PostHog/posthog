@@ -63,6 +63,7 @@ from .mailjet.template_mailjet import (
 from .make.template_make import template as make
 from .microsoft_teams.template_microsoft_teams import template as microsoft_teams
 from .onesignal.template_onesignal import template as onesignal
+from .pagerduty.template_pagerduty import template as pagerduty
 from .posthog.template_posthog import (
     TemplatePostHogMigrator,
     template as posthog,
@@ -122,6 +123,7 @@ HOG_FUNCTION_TEMPLATES = [
     make,
     microsoft_teams,
     onesignal,
+    pagerduty,
     posthog,
     reddit_pixel,
     rudderstack,
