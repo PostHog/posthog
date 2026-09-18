@@ -771,6 +771,21 @@ def test_autostart_description_lists_source_issues_only_when_references_exist(so
         assert "inbox/reports/0198c0de-0000-7000-8000-000000000001).' -" in description
 
 
+def test_autostart_description_opens_the_pr_before_the_simplify_pass():
+    description = _build_autostart_task_description(
+        report_id="0198c0de-0000-7000-8000-000000000001",
+        team_id=1,
+        summary="Fix the auth panel.",
+        repository="PostHog/posthog",
+        priority=None,
+    )
+
+    open_pr = description.index("open the draft PR")
+    simplify = description.index("`/simplify`")
+    assert open_pr < simplify
+    assert "skip this polish pass" in description
+
+
 @pytest.mark.parametrize(
     ("summary", "expect_fix_loop"),
     [
