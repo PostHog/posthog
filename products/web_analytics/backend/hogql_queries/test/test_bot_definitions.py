@@ -4,8 +4,12 @@ import pytest
 
 from posthog.models.bot_definition.sql import _bot_definition_rows
 
-from products.web_analytics.backend.hogql_queries.bot_definitions import BOT_DEFINITIONS
-from products.web_analytics.backend.hogql_queries.bot_ip_definitions import BOT_IP_DEFINITIONS
+from products.web_analytics.backend.hogql_queries.bot_definitions import BOT_DEFINITIONS, BotDefinition
+from products.web_analytics.backend.hogql_queries.bot_ip_definitions import BOT_IP_DEFINITIONS, BotIPDefinition
+
+
+def _ua_and_ip_definitions() -> list[tuple[str, BotDefinition | BotIPDefinition]]:
+    return [*BOT_DEFINITIONS.items(), *BOT_IP_DEFINITIONS.items()]
 
 
 class TestBotDefinitionsDataStructure:
@@ -42,14 +46,14 @@ class TestBotDefinitionsDataStructure:
 
     def test_agent_source_slugs_are_well_formed(self):
         # Slugs are filter values users type and save; a malformed one breaks filtering silently.
-        for pattern, bot_def in [*BOT_DEFINITIONS.items(), *BOT_IP_DEFINITIONS.items()]:
+        for pattern, bot_def in _ua_and_ip_definitions():
             slug = bot_def.agent_source_slug
             assert re.fullmatch(r"[a-z0-9-]+", slug), f"Malformed agent_source slug for {pattern}: {slug!r}"
 
     def test_ai_agents_pin_their_agent_source(self):
         # An AI Agent slug is a filter value people save, so it must not follow the display name.
         # Bots and automation share the per-category fallback slugs, so they stay optional.
-        for pattern, bot_def in [*BOT_DEFINITIONS.items(), *BOT_IP_DEFINITIONS.items()]:
+        for pattern, bot_def in _ua_and_ip_definitions():
             if bot_def.traffic_type != "AI Agent":
                 continue
             assert bot_def.agent_source, f"AI Agent definition {pattern} must set agent_source explicitly"
