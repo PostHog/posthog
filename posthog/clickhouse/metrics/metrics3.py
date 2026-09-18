@@ -73,7 +73,7 @@ CREATE TABLE IF NOT EXISTS {_db()}.{METRIC_SERIES4_TABLE_NAME}
     INDEX idx_time_bucket_minmax time_bucket TYPE minmax GRANULARITY 1
 )
 ENGINE = {ReplacingMergeTree(METRIC_SERIES4_TABLE_NAME, replication_scheme=ReplicationScheme.REPLICATED, ver="timestamp")}
-PARTITION BY toMonday(original_expiry_timestamp)
+PARTITION BY toStartOfWeek(original_expiry_timestamp)
 ORDER BY (team_id, metric_name, series_fingerprint, time_bucket)
 TTL original_expiry_timestamp
 SETTINGS

@@ -129,7 +129,7 @@ database "posthog" {
     }
   }
   table "metric_series4" {
-    partition_by = "toMonday(original_expiry_timestamp)"
+    partition_by = "toStartOfWeek(original_expiry_timestamp)"
     order_by     = ["team_id", "metric_name", "series_fingerprint", "time_bucket"]
     ttl          = "original_expiry_timestamp"
     settings = {
