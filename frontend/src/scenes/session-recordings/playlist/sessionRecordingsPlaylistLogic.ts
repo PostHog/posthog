@@ -505,6 +505,12 @@ export interface SessionRecordingPlaylistLogicProps {
      */
     onRecordingsLoaded?: (recordings: SessionRecordingType[], isFirstPage: boolean) => void
     /**
+     * Called when a list load fails, with whether it was a first-page load. A load that a newer one
+     * supersedes, or that the viewer leaves behind, stops at a breakpoint and is not a failure, so
+     * it is not reported here.
+     */
+    onRecordingsLoadFailed?: (error: { status: number | null; detail: string }, isFirstPage: boolean) => void
+    /**
      * Called once each time the recording the player shows changes — clicked, played next,
      * picked via the URL, or the implicit autoplay fallback to the top of the list (on first
      * load, and again when a reload changes which recording is at the top). Re-selecting the
@@ -1106,6 +1112,10 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             },
             {
                 loadSessionRecordings: async ({ direction, userModifiedFilters, forceRefetch }, breakpoint) => {
+                    // kea-loaders builds the failure action from the error alone, so the failure
+                    // listener cannot see which load it belongs to. Recorded here, where the load
+                    // that is about to run still carries it.
+                    cache.loadDirection = direction
                     // Captured before the awaits: `values` reads throw if this logic unmounts
                     // mid-flight, and the fetch report must carry the filters the request was
                     // built from, not whatever they are once the response lands.
@@ -1417,7 +1427,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             false,
             {
                 loadSessionRecordingsFailure: () => true,
-                loadSessionRecordingSuccess: () => false,
+                loadSessionRecordingsSuccess: () => false,
                 setFilters: () => false,
                 setAdvancedFilters: () => false,
                 loadNext: () => false,
@@ -1743,6 +1753,18 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                 props.onRecordingsLoaded?.(sessionRecordingsResponse.results, !payload?.direction)
                 pruneSelectedRecordingsIds()
                 notifyRecordingSelected()
+            },
+
+            loadSessionRecordingsFailure: ({ error, errorObject }) => {
+                // The status is kept apart from the message because a 400 is a refusal the host
+                // page cannot retry away, while every other failure is worth offering a retry for.
+                props.onRecordingsLoadFailed?.(
+                    {
+                        status: typeof errorObject?.status === 'number' ? errorObject.status : null,
+                        detail: errorObject?.detail || error,
+                    },
+                    !cache.loadDirection
+                )
             },
 
             loadPinnedRecordingsSuccess: () => {
