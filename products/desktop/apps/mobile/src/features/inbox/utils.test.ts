@@ -334,6 +334,11 @@ describe("sourceLine", () => {
       expected: "Conversations · Ticket",
     },
     {
+      product: "signals_check",
+      type: "check_failed",
+      expected: "Report checks · Check failed",
+    },
+    {
       product: "mystery_source",
       type: "thing",
       expected: "mystery source · thing",

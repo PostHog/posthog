@@ -18,6 +18,7 @@ describe("SOURCE_PRODUCT_OPTIONS", () => {
     const values = SOURCE_PRODUCT_OPTIONS.map((o) => o.value);
     expect(values).toContain("replay_vision");
     expect(values).toContain("signals_scout");
+    expect(values).toContain("signals_check");
   });
 });
 
@@ -53,6 +54,7 @@ describe("narrowSourceProductOptions", () => {
     const result = values([]);
     expect(result).toContain("replay_vision");
     expect(result).toContain("signals_scout");
+    expect(result).toContain("signals_check");
     expect(result).not.toContain("github");
   });
 
