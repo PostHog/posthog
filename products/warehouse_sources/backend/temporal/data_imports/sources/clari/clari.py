@@ -1,5 +1,4 @@
 import time
-import dataclasses
 from collections.abc import Callable, Iterator
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, Optional
@@ -8,6 +7,8 @@ from urllib.parse import quote, urlencode
 import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.clari.settings import (
     ACTIVITY_INITIAL_LOOKBACK_DAYS,
@@ -32,7 +33,7 @@ class ClariRetryableError(Exception):
     pass
 
 
-@dataclasses.dataclass
+@frozen
 class ClariResumeConfig:
     # Forecast and activity: the in-flight export job to re-poll instead of
     # creating a new one (exports are quota-limited). Audit events: the
