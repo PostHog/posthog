@@ -57193,6 +57193,11 @@ export namespace Schemas {
          */
       readonly recording_subject_email: string | null;
       /**
+         * PNG still of the session at its highlight moment, served from the exports content endpoint. Null until rendered.
+         * @nullable
+         */
+      readonly thumbnail_asset_id: number | null;
+      /**
          * Id of the preceding sibling observation for the same scanner (prev/next nav), honoring any list filters and ordering passed to retrieve; only set on retrieve, null at the start of the set.
          * @nullable
          */

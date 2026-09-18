@@ -2,14 +2,16 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
 
-import { IconPlayFilled } from '@posthog/icons'
-import { Link } from '@posthog/lemon-ui'
+import { IconGridMasonry, IconList, IconPlayFilled } from '@posthog/icons'
+import { LemonSegmentedButton, LemonSkeleton, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { PaginationControl } from 'lib/lemon-ui/PaginationControl'
 import { colonDelimitedDuration } from 'lib/utils/durations'
 import { pluralize } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
+
+import { getExportsContentRetrieveUrl } from '~/generated/core/api'
 
 import { ObservationResultSummary } from '../components/ObservationCard'
 import { ScannerOutputBadge } from '../components/ScannerOutputBadge'
@@ -19,8 +21,12 @@ import { observationDetailUrl } from '../observations/replayObservationLogic'
 import { parseCitedSegments } from '../utils/citations'
 import { hasScannerPage, scannerLabel } from '../utils/observation'
 import { firstCitedTimestampMs, searchReturnParams } from './observationQueries'
-import { type ObservationSearchLogicProps, SEARCH_PAGE_SIZE, observationSearchLogic } from './observationSearchLogic'
-import { type Tier, groupByTier } from './resultTiers'
+import {
+    type ObservationSearchLogicProps,
+    type ResultsView,
+    SEARCH_PAGE_SIZE,
+    observationSearchLogic,
+} from './observationSearchLogic'
 import { snippetSegments } from './snippetSegments'
 
 // The global SessionPlayerModal opens from the hash and seeks from `t`.
@@ -36,96 +42,162 @@ function watchMomentUrl(
     ).url
 }
 
-function MomentCard({
-    result,
-    searchedQuery,
-    returnParams,
-}: {
+interface ResultProps {
     result: ObservationSearchResultApi
+    teamId: number | null
     searchedQuery: string
     returnParams: Record<string, string>
+}
+
+type Tier = 'top' | 'other'
+
+function WatchLink({
+    observation,
+    teamId,
+    compact,
+}: {
+    observation: ReplayObservationApi
+    teamId: number | null
+    compact?: boolean
 }): JSX.Element {
     const routerValues = useValues(router)
-    const observation = result.observation
-    const snapshot = observation.scanner_snapshot
-    const email = observation.recording_subject_email
-    const subjectClass = clsx('text-xs truncate', !email && 'font-mono')
     const citedMs = firstCitedTimestampMs(observation)
-    const snippet = parseCitedSegments(result.matched_content, undefined)
+    const thumbnailAssetId = observation.thumbnail_asset_id
     return (
-        <div
-            className="flex flex-col border border-primary rounded-lg bg-surface-primary overflow-hidden"
-            data-attr="vision-search-result"
+        <Link
+            to={watchMomentUrl(observation, citedMs, routerValues)}
+            className={clsx(
+                'relative block aspect-video bg-surface-tertiary text-primary hover:bg-fill-highlight-100',
+                compact && 'w-28 rounded overflow-hidden'
+            )}
+            data-attr="vision-search-result-watch"
         >
-            <Link
-                to={watchMomentUrl(observation, citedMs, routerValues)}
-                className="relative block aspect-video bg-surface-tertiary text-primary hover:bg-fill-highlight-100"
-                data-attr="vision-search-result-watch"
-            >
-                {snapshot && (
-                    <span className="absolute top-2 left-2">
-                        <ScannerOutputBadge scannerType={snapshot.scanner_type} size="small" />
-                    </span>
-                )}
-                <span className="absolute inset-0 flex items-center justify-center">
-                    <span className="size-10 rounded-full bg-surface-primary border border-primary flex items-center justify-center text-lg">
-                        <IconPlayFilled />
-                    </span>
+            {thumbnailAssetId !== null && teamId !== null && (
+                <img
+                    src={getExportsContentRetrieveUrl(String(teamId), thumbnailAssetId)}
+                    alt=""
+                    loading="lazy"
+                    className="absolute inset-0 size-full object-cover"
+                />
+            )}
+            <span className="absolute inset-0 flex items-center justify-center">
+                <span
+                    className={clsx(
+                        'rounded-full bg-surface-primary border border-primary flex items-center justify-center',
+                        compact ? 'size-6 text-sm' : 'size-10 text-lg'
+                    )}
+                >
+                    <IconPlayFilled />
                 </span>
+            </span>
+            {!compact && (
                 <span className="absolute bottom-2 right-2 text-xs font-medium px-1.5 py-0.5 rounded bg-surface-primary border border-primary">
                     {citedMs !== null
                         ? `Watch at ${colonDelimitedDuration(Math.floor(citedMs / 1000), null)}`
                         : 'Watch recording'}
                 </span>
-            </Link>
+            )}
+        </Link>
+    )
+}
+
+function ScannerName({ observation }: { observation: ReplayObservationApi }): JSX.Element {
+    return hasScannerPage(observation) ? (
+        <Link
+            to={urls.replayVision(observation.scanner_id)}
+            className="font-semibold text-sm truncate text-primary"
+            data-attr="vision-search-result-scanner"
+        >
+            {scannerLabel(observation)}
+        </Link>
+    ) : (
+        <span className="font-semibold text-sm truncate">{scannerLabel(observation)}</span>
+    )
+}
+
+function MatchSnippet({
+    result,
+    searchedQuery,
+}: {
+    result: ObservationSearchResultApi
+    searchedQuery: string
+}): JSX.Element | null {
+    const snippet = parseCitedSegments(result.matched_content, undefined)
+    if (snippet.length === 0) {
+        return null
+    }
+    return (
+        <div className="text-sm text-secondary line-clamp-2">
+            {snippet.map((cited, citedIndex) =>
+                cited.kind === 'chip' ? (
+                    <TimestampCitation key={citedIndex} timestampMs={cited.timestamp_ms} />
+                ) : (
+                    snippetSegments(cited.value, searchedQuery).map((segment, index) => (
+                        <span
+                            key={`${citedIndex}-${index}`}
+                            className={segment.highlighted ? 'font-semibold' : undefined}
+                        >
+                            {segment.text}
+                        </span>
+                    ))
+                )
+            )}
+        </div>
+    )
+}
+
+function SubjectLink({ observation }: { observation: ReplayObservationApi }): JSX.Element {
+    const email = observation.recording_subject_email
+    const subjectClass = clsx('text-xs truncate', !email && 'font-mono')
+    return observation.distinct_id ? (
+        <Link
+            to={urls.personByDistinctId(observation.distinct_id)}
+            className={clsx(subjectClass, 'text-primary')}
+            data-attr="vision-search-result-person"
+        >
+            {email ?? observation.distinct_id}
+        </Link>
+    ) : (
+        <span className={clsx(subjectClass, 'text-muted')}>{email ?? observation.session_id}</span>
+    )
+}
+
+function MomentCard({
+    result,
+    teamId,
+    searchedQuery,
+    returnParams,
+    tier,
+}: ResultProps & { tier: Tier | null }): JSX.Element {
+    const observation = result.observation
+    const snapshot = observation.scanner_snapshot
+    return (
+        <div
+            className="flex flex-col border border-primary rounded-lg bg-surface-primary overflow-hidden"
+            data-attr="vision-search-result"
+        >
+            <div className="relative">
+                <WatchLink observation={observation} teamId={teamId} />
+                <span className="absolute top-2 left-2 flex items-center gap-1">
+                    {snapshot && <ScannerOutputBadge scannerType={snapshot.scanner_type} size="small" />}
+                    {tier === 'top' && (
+                        <LemonTag type="success" size="small">
+                            Top match
+                        </LemonTag>
+                    )}
+                </span>
+            </div>
             <div className="flex flex-col gap-1.5 p-3 min-w-0">
                 <div className="flex items-center gap-2 min-w-0">
-                    {hasScannerPage(observation) ? (
-                        <Link
-                            to={urls.replayVision(observation.scanner_id)}
-                            className="font-semibold text-sm truncate text-primary"
-                            data-attr="vision-search-result-scanner"
-                        >
-                            {scannerLabel(observation)}
-                        </Link>
-                    ) : (
-                        <span className="font-semibold text-sm truncate">{scannerLabel(observation)}</span>
-                    )}
+                    <ScannerName observation={observation} />
                     <span className="ml-auto shrink-0 text-xs text-muted">
                         <TZLabel time={observation.created_at} />
                     </span>
                 </div>
-                {snippet.length > 0 && (
-                    <div className="text-sm text-secondary line-clamp-2">
-                        {snippet.map((cited, citedIndex) =>
-                            cited.kind === 'chip' ? (
-                                <TimestampCitation key={citedIndex} timestampMs={cited.timestamp_ms} />
-                            ) : (
-                                snippetSegments(cited.value, searchedQuery).map((segment, index) => (
-                                    <span
-                                        key={`${citedIndex}-${index}`}
-                                        className={segment.highlighted ? 'font-semibold' : undefined}
-                                    >
-                                        {segment.text}
-                                    </span>
-                                ))
-                            )
-                        )}
-                    </div>
-                )}
+                <MatchSnippet result={result} searchedQuery={searchedQuery} />
                 <ObservationResultSummary observation={observation} />
                 <div className="flex items-center gap-2 min-w-0 text-xs">
-                    {observation.distinct_id ? (
-                        <Link
-                            to={urls.personByDistinctId(observation.distinct_id)}
-                            className={clsx(subjectClass, 'text-primary')}
-                            data-attr="vision-search-result-person"
-                        >
-                            {email ?? observation.distinct_id}
-                        </Link>
-                    ) : (
-                        <span className={clsx(subjectClass, 'text-muted')}>{email ?? observation.session_id}</span>
-                    )}
+                    <SubjectLink observation={observation} />
                     <Link
                         to={observationDetailUrl(observation.id, returnParams)}
                         className="ml-auto shrink-0"
@@ -139,13 +211,92 @@ function MomentCard({
     )
 }
 
+function tierGroups(
+    results: ObservationSearchResultApi[],
+    tierOf: (result: ObservationSearchResultApi) => Tier | null
+): { tier: Tier | null; results: ObservationSearchResultApi[] }[] {
+    const groups: { tier: Tier | null; results: ObservationSearchResultApi[] }[] = []
+    for (const result of results) {
+        const tier = tierOf(result)
+        const last = groups[groups.length - 1]
+        if (last && last.tier === tier) {
+            last.results.push(result)
+        } else {
+            groups.push({ tier, results: [result] })
+        }
+    }
+    return groups
+}
+
 function TierHeading({ tier }: { tier: Tier }): JSX.Element {
     return (
-        <div className="flex items-baseline gap-2 text-xs">
+        <div className="flex items-baseline gap-2 px-3 py-1.5 rounded bg-surface-tertiary text-xs">
             <span className="font-semibold">{tier === 'top' ? 'Top matches' : 'Other matches'}</span>
             <span className="text-muted">
                 {tier === 'top' ? 'Closest to what you described.' : 'Related, but further from what you described.'}
             </span>
+        </div>
+    )
+}
+
+function MomentRow({ result, teamId, searchedQuery, returnParams }: ResultProps): JSX.Element {
+    const observation = result.observation
+    const snapshot = observation.scanner_snapshot
+    return (
+        <div
+            className="flex gap-3 border border-primary rounded-lg bg-surface-primary p-2 min-w-0"
+            data-attr="vision-search-result"
+        >
+            <div className="shrink-0 self-center">
+                <WatchLink observation={observation} teamId={teamId} compact />
+            </div>
+            <div className="flex flex-col gap-1 min-w-0 flex-1">
+                <div className="flex items-center gap-2 min-w-0">
+                    <ScannerName observation={observation} />
+                    {snapshot && <ScannerOutputBadge scannerType={snapshot.scanner_type} size="small" />}
+                    <SubjectLink observation={observation} />
+                    <span className="ml-auto shrink-0 flex items-center gap-2 text-xs text-muted">
+                        <TZLabel time={observation.created_at} />
+                        <Link
+                            to={observationDetailUrl(observation.id, returnParams)}
+                            data-attr="vision-search-result-detail"
+                        >
+                            Details
+                        </Link>
+                    </span>
+                </div>
+                <MatchSnippet result={result} searchedQuery={searchedQuery} />
+                <ObservationResultSummary observation={observation} />
+            </div>
+        </div>
+    )
+}
+
+function ResultsSkeleton({ view }: { view: ResultsView }): JSX.Element {
+    const lines = (
+        <div className="flex flex-col gap-1.5 min-w-0 flex-1">
+            <LemonSkeleton className="h-4 w-1/3" />
+            <LemonSkeleton className="h-3 w-full" />
+            <LemonSkeleton className="h-3 w-2/3" />
+        </div>
+    )
+    return view === 'grid' ? (
+        <div className="grid gap-3 grid-cols-1 @xl:grid-cols-2 @3xl:grid-cols-3" aria-busy>
+            {Array.from({ length: 6 }, (_, index) => (
+                <div key={index} className="flex flex-col border border-primary rounded-lg overflow-hidden">
+                    <LemonSkeleton className="aspect-video w-full rounded-none" />
+                    <div className="p-3">{lines}</div>
+                </div>
+            ))}
+        </div>
+    ) : (
+        <div className="flex flex-col gap-2" aria-busy>
+            {Array.from({ length: 5 }, (_, index) => (
+                <div key={index} className="flex items-center gap-3 border border-primary rounded-lg p-2">
+                    <LemonSkeleton className="w-28 aspect-video shrink-0" />
+                    {lines}
+                </div>
+            ))}
         </div>
     )
 }
@@ -160,50 +311,89 @@ export function SearchResults(logicProps: ObservationSearchLogicProps): JSX.Elem
         sourceObservationId,
         truncated,
         topMatchDistanceCutoff,
+        view,
         page,
         pageCount,
         pageResults,
         pageStartIndex,
         pageEndIndex,
     } = useValues(logic)
-    const { setPage } = useActions(logic)
+    const { setPage, setView } = useActions(logic)
 
-    if (!results || results.length === 0) {
+    if (!searching && (!results || results.length === 0)) {
         return null
     }
     const returnParams = searchReturnParams(searchedQuery ?? '', scannerId, sourceObservationId)
+    const tierOf = (result: ObservationSearchResultApi): Tier | null =>
+        topMatchDistanceCutoff === null ? null : result.distance <= topMatchDistanceCutoff ? 'top' : 'other'
     return (
-        <div className={clsx('flex flex-col gap-3', searching && 'opacity-50 pointer-events-none')}>
-            <div className="text-xs text-secondary">
-                {truncated ? 'Showing the top ' : ''}
-                {pluralize(results.length, 'match', 'matches')}, best first
+        <div className="flex flex-col gap-3">
+            <div className="flex items-center gap-2">
+                <span className="text-xs text-secondary">
+                    {searching || !results
+                        ? 'Searching…'
+                        : `${truncated ? 'Showing the top ' : ''}${pluralize(results.length, 'match', 'matches')}, best first`}
+                </span>
+                <LemonSegmentedButton<ResultsView>
+                    size="xsmall"
+                    className="ml-auto"
+                    value={view}
+                    onChange={setView}
+                    options={[
+                        {
+                            value: 'grid',
+                            icon: <IconGridMasonry />,
+                            tooltip: 'Thumbnails',
+                            'data-attr': 'vision-search-view-grid',
+                        },
+                        { value: 'list', icon: <IconList />, tooltip: 'List', 'data-attr': 'vision-search-view-list' },
+                    ]}
+                />
             </div>
-            {groupByTier(pageResults, topMatchDistanceCutoff).map((group) => (
-                <div key={group.tier ?? 'all'} className="flex flex-col gap-2">
-                    {group.tier && <TierHeading tier={group.tier} />}
-                    <div className="grid gap-3 grid-cols-1 @xl:grid-cols-2 @3xl:grid-cols-3">
+            {searching || !results ? (
+                <ResultsSkeleton view={view} />
+            ) : view === 'grid' ? (
+                <div className="grid gap-3 grid-cols-1 @xl:grid-cols-2 @3xl:grid-cols-3">
+                    {pageResults.map((result) => (
+                        <MomentCard
+                            key={result.observation.id}
+                            result={result}
+                            teamId={logicProps.teamId}
+                            searchedQuery={searchedQuery ?? ''}
+                            returnParams={returnParams}
+                            tier={tierOf(result)}
+                        />
+                    ))}
+                </div>
+            ) : (
+                tierGroups(pageResults, tierOf).map((group) => (
+                    <div key={group.tier ?? 'all'} className="flex flex-col gap-2">
+                        {group.tier && <TierHeading tier={group.tier} />}
                         {group.results.map((result) => (
-                            <MomentCard
+                            <MomentRow
                                 key={result.observation.id}
                                 result={result}
+                                teamId={logicProps.teamId}
                                 searchedQuery={searchedQuery ?? ''}
                                 returnParams={returnParams}
                             />
                         ))}
                     </div>
-                </div>
-            ))}
-            <PaginationControl
-                pagination={{ controlled: true, pageSize: SEARCH_PAGE_SIZE }}
-                currentPage={page}
-                setCurrentPage={setPage}
-                pageCount={pageCount}
-                dataSourcePage={pageResults}
-                entryCount={results.length}
-                currentStartIndex={pageStartIndex}
-                currentEndIndex={pageEndIndex}
-                nouns={['match', 'matches']}
-            />
+                ))
+            )}
+            {!searching && results && (
+                <PaginationControl
+                    pagination={{ controlled: true, pageSize: SEARCH_PAGE_SIZE }}
+                    currentPage={page}
+                    setCurrentPage={setPage}
+                    pageCount={pageCount}
+                    dataSourcePage={pageResults}
+                    entryCount={results.length}
+                    currentStartIndex={pageStartIndex}
+                    currentEndIndex={pageEndIndex}
+                    nouns={['match', 'matches']}
+                />
+            )}
         </div>
     )
 }
