@@ -46,6 +46,9 @@ var keywords = []string{"SELECT", "FROM", "WHERE", "GROUP BY", "ORDER BY", "LIMI
 var queryStarters = []catalog.Entry{{Name: "SELECT"}, {Name: "WITH"}}
 var betweenSeparator = []string{"AND"}
 var predicateContinuations = []string{"AND", "OR", "GROUP BY", "ORDER BY", "LIMIT"}
+var joinPredicateContinuations = []string{"AND", "OR", "WHERE", "GROUP BY", "ORDER BY", "LIMIT"}
+var joinPredicateContinuationsBeforeJoin = []string{"AND", "OR"}
+var caseExpressionKeywords = []string{"CASE", "WHEN", "THEN", "ELSE", "END", "NULL", "TRUE", "FALSE", "NOT"}
 var comparisonOperators = []string{"=", "!=", "<", "<=", ">", ">=", "LIKE", "ILIKE", "IN", "NOT IN", "IS NULL", "IS NOT NULL", "BETWEEN", "NOT BETWEEN"}
 var commonFunctions = []string{"avg", "coalesce", "count", "countDistinct", "countIf", "if", "max", "min", "now", "sum", "sumIf", "toDate", "toDateTime", "uniq", "uniqExact"}
 var simpleHogQLIdentifier = regexp.MustCompile(`^[A-Za-z_$][A-Za-z0-9_$]*$`)
@@ -140,18 +143,35 @@ func Complete(schema *catalog.PreparedCatalog, query string, position int, posit
 		suggestions = appendNamed(suggestions, betweenSeparator, lowerPrefix, "keyword", "")
 	} else if mode == completionModePredicateContinuation {
 		suggestions = appendNamed(suggestions, predicateContinuations, lowerPrefix, "keyword", "")
+	} else if mode == completionModeJoinPredicateContinuation {
+		continuations := joinPredicateContinuations
+		if laterJoinAtCursor(query, position) {
+			continuations = joinPredicateContinuationsBeforeJoin
+		}
+		suggestions = appendNamed(suggestions, continuations, lowerPrefix, "keyword", "")
 	} else if mode == completionModePostExpression {
 		suggestions = appendNamed(suggestions, comparisonOperators, lowerPrefix, "operator", "")
 		suggestions = appendNamed(suggestions, predicateContinuations, lowerPrefix, "keyword", "")
+	} else if mode == completionModeJoinPostExpression {
+		suggestions = appendNamed(suggestions, comparisonOperators, lowerPrefix, "operator", "")
+		continuations := joinPredicateContinuations
+		if laterJoinAtCursor(query, position) {
+			continuations = joinPredicateContinuationsBeforeJoin
+		}
+		suggestions = appendNamed(suggestions, continuations, lowerPrefix, "keyword", "")
 	} else {
 		suggestions = fieldSuggestions(bindings, lowerPrefix)
 		if document != nil && document.LimitError() != nil {
 			return Result{}, document.LimitError()
 		}
-		if mode == completionModeExpression {
+		if mode == completionModeExpression || mode == completionModeCaseExpression {
 			suggestions = appendFunctions(suggestions, lowerPrefix)
 		}
-		for _, keyword := range keywords {
+		availableKeywords := keywords
+		if mode == completionModeCaseExpression {
+			availableKeywords = caseExpressionKeywords
+		}
+		for _, keyword := range availableKeywords {
 			if hasLowerPrefix(keyword, lowerPrefix) {
 				suggestions = append(suggestions, Suggestion{Label: keyword, Kind: "keyword"})
 			}
@@ -189,6 +209,11 @@ func Complete(schema *catalog.PreparedCatalog, query string, position int, posit
 		result.ParseError = parseErr.Error()
 	}
 	return result, nil
+}
+
+func laterJoinAtCursor(query string, position int) bool {
+	_, cursorDepth, _ := scanSQLTokens(query[:position])
+	return hasLaterJoinAtDepth(query[position:], cursorDepth)
 }
 
 func indexedResult(entries iter.Seq[catalog.Entry], kind string, offset int, parseErr error) Result {

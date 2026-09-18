@@ -24,6 +24,8 @@ from products.engineering_analytics.backend.facade.contracts import (
     DeliveryLeadTime,
     DeliverySummary,
     DurationDistribution,
+    PullRequestReadyToMerge,
+    ReadyToMergeMedians,
     ScopeRepoDistribution,
     ScopeRepoFigure,
 )
@@ -47,6 +49,7 @@ CI_LOOKBACK = timedelta(days=30)
 _MERGED_SELECT = f"""
     SELECT
         pr.number,
+        pr.author_handle,
         (__SCOPE__) AS in_scope,
         pr.created_at,
         pr.merged_at,
@@ -114,6 +117,7 @@ class MergedPRFacts:
     """The per-PR facts behind every scope and repo figure."""
 
     number: int
+    author: str
     in_scope: bool
     created_at: datetime
     merged_at: datetime
@@ -213,10 +217,40 @@ def _approval_splits(facts: list[MergedPRFacts]) -> list[_ApprovalSplit]:
     return splits
 
 
+def _median_before_approval(facts: list[MergedPRFacts]) -> float | None:
+    return quantile([split.before_seconds for split in _approval_splits(facts)], 0.5)
+
+
+def _median_after_approval(facts: list[MergedPRFacts]) -> float | None:
+    return quantile([split.after_seconds for split in _approval_splits(facts)], 0.5)
+
+
 def _before_approval_share(facts: list[MergedPRFacts]) -> float | None:
     splits = _approval_splits(facts)
     total = sum(split.before_seconds + split.after_seconds for split in splits)
     return sum(split.before_seconds for split in splits) / total if total else None
+
+
+def ready_to_merge_medians(facts: list[MergedPRFacts]) -> ReadyToMergeMedians:
+    return ReadyToMergeMedians(
+        merged_pr_count=len(facts),
+        ready_to_merge_seconds=quantile(_ready_seconds(facts), 0.5),
+        p90_ready_to_merge_seconds=quantile(_ready_seconds(facts), 0.9),
+        ready_to_first_approval_seconds=_median_before_approval(facts),
+        first_approval_to_merge_seconds=_median_after_approval(facts),
+        before_first_approval_share=_before_approval_share(facts),
+    )
+
+
+def pull_request_ready_to_merge(fact: MergedPRFacts) -> PullRequestReadyToMerge:
+    split = next(iter(_approval_splits([fact])), None)
+    return PullRequestReadyToMerge(
+        number=fact.number,
+        ready_to_merge_seconds=fact.ready_to_merge_seconds,
+        ready_to_first_approval_seconds=split.before_seconds if split else None,
+        first_approval_to_merge_seconds=split.after_seconds if split else None,
+        before_first_approval_share=_before_approval_share([fact]),
+    )
 
 
 def _pushes_after_approval(facts: list[MergedPRFacts]) -> float | None:
@@ -269,10 +303,10 @@ class DeliverySummaryAggregator:
         return self._figure(lambda facts: quantile(_ready_seconds(facts), q))
 
     def median_ready_to_first_approval(self) -> ScopeRepoFigure:
-        return self._figure(lambda facts: quantile([split.before_seconds for split in _approval_splits(facts)], 0.5))
+        return self._figure(_median_before_approval)
 
     def median_first_approval_to_merge(self) -> ScopeRepoFigure:
-        return self._figure(lambda facts: quantile([split.after_seconds for split in _approval_splits(facts)], 0.5))
+        return self._figure(_median_after_approval)
 
     def before_first_approval_share(self) -> ScopeRepoFigure:
         return self._figure(_before_approval_share)
@@ -343,9 +377,19 @@ def _lead_time(
     )
 
 
-def _query_merged_facts(
+@dataclass(frozen=True, kw_only=True)
+class _MergedRow:
+    number: int
+    author: str
+    in_scope: bool
+    created_at: datetime
+    merged_at: datetime
+    ready_to_merge_seconds: int | None
+
+
+def _query_merged_rows(
     curated: CuratedGitHubSource, *, scope: DeliveryScope, date_from: datetime, date_to: datetime | None
-) -> list[MergedPRFacts]:
+) -> list[_MergedRow]:
     placeholders: dict[str, ast.Expr] = {"date_from": ast.Constant(value=date_from), **scope.placeholders()}
     date_to_clause = ""
     if date_to is not None:
@@ -359,25 +403,77 @@ def _query_merged_facts(
         .replace("__DATE_TO__", date_to_clause)
         .replace("__PR_SOURCE__", curated.pr_source())
     )
-    merged_rows = curated.run(
-        sql, query_type="engineering_analytics.delivery_summary_merged", placeholders=placeholders
+    response = curated.run(sql, query_type="engineering_analytics.delivery_summary_merged", placeholders=placeholders)
+    return [
+        _MergedRow(
+            number=int(number),
+            author=author or "",
+            in_scope=bool(in_scope),
+            created_at=created_at,
+            merged_at=merged_at,
+            ready_to_merge_seconds=int(ready_seconds) if ready_seconds is not None else None,
+        )
+        for number, author, in_scope, created_at, merged_at, ready_seconds in response.results or []
+        if created_at is not None and merged_at is not None
+    ]
+
+
+def _query_approvals(curated: CuratedGitHubSource, numbers: ast.Constant) -> dict[int, list[datetime]]:
+    reviews_source = curated.reviews_source()
+    if reviews_source is None:
+        return {}
+    response = curated.run(
+        _APPROVALS_SELECT.replace("__REVIEWS_SOURCE__", reviews_source),
+        query_type="engineering_analytics.delivery_summary_approvals",
+        placeholders={"pr_numbers": numbers},
     )
-    rows = [row for row in merged_rows.results or [] if row[2] is not None and row[3] is not None]
-    pr_numbers = sorted({int(row[0]) for row in rows})
+    return {int(number): list(times) for number, times in response.results or []}
+
+
+def _merged_facts(
+    row: _MergedRow,
+    *,
+    approved_at: list[datetime],
+    pushed_at: list[datetime] | None = None,
+    gate_attempts: list[_GateAttempt] | None = None,
+    cost: PRCostAggregate | None = None,
+) -> MergedPRFacts:
+    return MergedPRFacts(
+        number=row.number,
+        author=row.author,
+        in_scope=row.in_scope,
+        created_at=row.created_at,
+        merged_at=row.merged_at,
+        ready_to_merge_seconds=row.ready_to_merge_seconds,
+        approved_at=approved_at,
+        pushed_at=pushed_at or [],
+        gate_attempts=gate_attempts or [],
+        cost=cost,
+    )
+
+
+def query_ready_to_merge_facts(
+    curated: CuratedGitHubSource, *, scope: DeliveryScope, date_from: datetime, date_to: datetime | None
+) -> list[MergedPRFacts]:
+    """The merged PRs with only the facts the ready-to-merge medians read: no CI, queue or cost reads."""
+    rows = _query_merged_rows(curated, scope=scope, date_from=date_from, date_to=date_to)
+    if not rows:
+        return []
+    approvals = _query_approvals(curated, ast.Constant(value=sorted({row.number for row in rows})))
+    return [_merged_facts(row, approved_at=approvals.get(row.number, [])) for row in rows]
+
+
+def _query_merged_facts(
+    curated: CuratedGitHubSource, *, scope: DeliveryScope, date_from: datetime, date_to: datetime | None
+) -> list[MergedPRFacts]:
+    rows = _query_merged_rows(curated, scope=scope, date_from=date_from, date_to=date_to)
+    pr_numbers = sorted({row.number for row in rows})
     if not pr_numbers:
         return []
 
     run_from = date_from - CI_LOOKBACK
     numbers = ast.Constant(value=pr_numbers)
-    approvals: dict[int, list[datetime]] = {}
-    reviews_source = curated.reviews_source()
-    if reviews_source is not None:
-        response = curated.run(
-            _APPROVALS_SELECT.replace("__REVIEWS_SOURCE__", reviews_source),
-            query_type="engineering_analytics.delivery_summary_approvals",
-            placeholders={"pr_numbers": numbers},
-        )
-        approvals = {int(number): list(times) for number, times in response.results or []}
+    approvals = _query_approvals(curated, numbers)
 
     runs_source = curated.run_source(started_floor=True)
     pushes_response = curated.run(
@@ -411,18 +507,14 @@ def _query_merged_facts(
     costs = query_pr_costs_since(curated=curated, pr_numbers=pr_numbers, run_from=run_from)
 
     return [
-        MergedPRFacts(
-            number=int(number),
-            in_scope=bool(in_scope),
-            created_at=created_at,
-            merged_at=merged_at,
-            ready_to_merge_seconds=int(ready_seconds) if ready_seconds is not None else None,
-            approved_at=approvals.get(int(number), []),
-            pushed_at=pushes.get(int(number), []),
-            gate_attempts=gates.get(int(number), []),
-            cost=costs.get(int(number)),
+        _merged_facts(
+            row,
+            approved_at=approvals.get(row.number, []),
+            pushed_at=pushes.get(row.number, []),
+            gate_attempts=gates.get(row.number, []),
+            cost=costs.get(row.number),
         )
-        for number, in_scope, created_at, merged_at, ready_seconds in rows
+        for row in rows
     ]
 
 

@@ -58,6 +58,16 @@ This setting changes only how patterns are derived. The stored log body is never
 
 A change reaches log ingestion within a few minutes. Records ingested in that window keep the patterns derived from the previous configuration.
 
+## JSON body parsing limits
+
+**JSON parse logs** flattens a JSON body into up to 50 attributes. Sender-supplied attributes win on key collisions. Nested objects use dotted paths; arrays in the body keep their existing indexed paths, such as `items.0.name`. The original body is retained.
+
+Body enrichment has a 1 MiB byte budget for the body, severity text, and the keys and values in both log and resource attributes combined. This is a logical content limit, not the size of the encoded Avro record. The same accounting applies to log transformations. A body can fit on its own but exceed this limit when its extracted fields are added.
+
+Flattening visits at most 10,000 JSON nodes, allows a depth of 128, and budgets at most 1 MiB for generated paths and separately for retained serialized attributes. It retains at most 50 fields but continues the bounded traversal to preserve later collisions with those fields. If a size or traversal budget is exceeded, enrichment adds no fields and leaves the input record unchanged. Other configured ingestion stages still apply.
+
+Operators can monitor `logs_ingestion_json_enrichment_skipped_total` with `reason` values `input_size`, `flatten_budget`, and `output_size`. A `source` label separates `body` skips from `selected_attribute` skips. These counts cover enrichment skips, not dropped logs. Each source is checked independently, so a record can increment the counter more than once.
+
 ## JSON attribute parsing configuration
 
 In **Settings > Project > Logs > JSON parse log attribute**, enter one attribute key and select **Save**. Clear the key and save to turn it off. This setting is independent of **JSON parse logs**, which parses the log body. The control uses the same project-admin and Logs Editor restrictions as the other Logs settings.
@@ -71,7 +81,22 @@ The project API stores the key in `logs_settings.json_parse_logs_attribute_key`,
 - The default is off. An empty string disables parsing.
 - The API replaces the entire `logs_settings` object. Include the other current settings when updating it, as the UI does. Sending `logs_settings: null` clears all Logs settings.
 
-Saving a key records your choice. No fields are extracted from the attribute yet.
+### Extract fields from a JSON attribute
+
+Extraction requires both a saved key and an operator rollout gate: `LOGS_JSON_ATTRIBUTE_EXTRACTION_ENABLED_TEAMS`. This new gate defaults to empty (disabled), accepts comma-separated project IDs or `*`, and runs only on logs, never traces. The existing probe allowlist does not enable extraction.
+
+When enabled, PostHog parses the selected log attribute as a JSON object, including an object wrapped in a JSON string. Nested fields become dotted attributes prefixed with the selected key. For example, `payload` containing `{"user":{"id":"example-user"}}` adds `payload.user.id`.
+
+- Sender-supplied attributes take precedence, followed by fields extracted from the selected attribute, then fields extracted from the JSON body.
+- Nested arrays remain one JSON-string attribute at their object path. `payload` containing `{"flags":["alpha","beta"]}` adds `payload.flags`, not `payload.flags.0` or `payload.flags.1`. Array order and element types are preserved; this does not add native membership filtering.
+- A top-level array, primitive, invalid JSON, or missing key adds no fields. String-wrapped top-level arrays also add no fields.
+- Extraction does not remove or rewrite the source attribute. If PII scrubbing is enabled, it runs first and extraction uses the scrubbed source. Configured transformations and drop rules still run afterwards.
+
+Each selected object contributes at most 50 fields; each nested array counts as one field. The depth, node, and byte budgets described above apply, including validation of the contents of retained arrays. Over-budget extraction adds no fields from that source. The combined record must remain within the shared 1 MiB content budget.
+
+Extracted fields are available to log-based metrics and subsequent ingestion stages. To link logs to people or sessions, set **Link to person** or **Link to session** to the extracted path, such as `payload.personId` or `payload.sessionId`.
+
+Enabling extraction moves otherwise-passthrough traffic to Avro decoding and re-encoding. Roll out to a small project allowlist and monitor ingestion lag, CPU, and enrichment skips. The `logs_ingestion_processing_duration_seconds` metric carries an `attribute_extraction_enabled` label, so you can separate this cost from body parsing and PII scrubbing. Clearing the new extraction allowlist disables extraction without disabling the probe.
 
 ### Measure-only ingestion probe
 

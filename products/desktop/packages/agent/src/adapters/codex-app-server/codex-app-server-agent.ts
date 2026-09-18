@@ -23,6 +23,18 @@ import type {
 } from "@agentclientprotocol/sdk";
 import { RequestError } from "@agentclientprotocol/sdk";
 import {
+  buildContextWikiInstructions,
+  type ContextWikiEnv,
+  resolveContextWikiPath,
+} from "@posthog/harness/extensions/context-wiki";
+import { LOCAL_TOOLS_MCP_NAME } from "@posthog/harness/extensions/local-tools";
+import {
+  extractPostHogSubTool,
+  isPostHogExecDescriptor,
+  matchesPostHogExecPermission,
+  resolvePostHogExecPermissionRegex,
+} from "@posthog/harness/extensions/posthog-mcp-policy";
+import {
   classifyGatewayLimitError,
   mcpToolKey,
   posthogToolMeta,
@@ -35,19 +47,9 @@ import {
   POSTHOG_NOTIFICATIONS,
   steerDeclined,
 } from "../../acp-extensions";
-import {
-  buildContextWikiInstructions,
-  resolveContextWikiPath,
-} from "../../context-wiki";
 import type { ModelInfo } from "../../gateway-models";
 import { DEFAULT_CODEX_MODEL } from "../../gateway-models";
-import {
-  extractPostHogSubTool,
-  isPostHogExecDescriptor,
-  matchesPostHogExecPermission,
-  resolvePostHogExecPermissionRegex,
-} from "../../posthog-exec-permission";
-import type { ContextWikiEnv, ProcessSpawnedCallback } from "../../types";
+import type { ProcessSpawnedCallback } from "../../types";
 import { ALLOW_BYPASS } from "../../utils/common";
 import { Logger } from "../../utils/logger";
 import {
@@ -66,7 +68,6 @@ import {
   sanitizeAgentErrorCause,
 } from "../error-classification";
 import { isLocalSkillCommandChunk } from "../local-skill";
-import { LOCAL_TOOLS_MCP_NAME } from "../local-tools";
 import { visiblePromptBlocks } from "../prompt-blocks";
 import { resolveSpokenNarration } from "../session-meta";
 import {

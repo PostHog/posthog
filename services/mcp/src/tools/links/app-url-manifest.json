@@ -664,11 +664,6 @@
         "params": ["id"],
         "scope": "project"
     },
-    "errorTrackingIssueFingerprints": {
-        "template": "/error_tracking/{id}/fingerprints",
-        "params": ["id"],
-        "scope": "project"
-    },
     "event": {
         "template": "/events/{id}/{timestamp}",
         "params": ["id", "timestamp"],
@@ -1717,6 +1712,11 @@
     "visualReviewSnapshotOverview": {
         "template": "/visual_review/repos/{repoId}/snapshots",
         "params": ["repoId"],
+        "scope": "project"
+    },
+    "warehouseDestinations": {
+        "template": "/data-management/warehouse-destinations",
+        "params": [],
         "scope": "project"
     },
     "warehouseProperties": {

@@ -19,10 +19,12 @@ import {
     Breakdown,
     ExperimentFunnelsQuery,
     ExperimentMetric,
+    ExperimentExposureNode,
     ExperimentMetricSource,
     ExperimentRetentionMetric,
     ExperimentTrendsQuery,
     InsightQueryNode,
+    isExperimentExposureNode,
     isExperimentFunnelMetric,
     isExperimentMeanMetric,
     isExperimentRatioMetric,
@@ -135,6 +137,12 @@ export interface ExperimentRecordingsTabContext {
      * which is the ordinary case, so this is what separates the two populations in a report.
      */
     entry_point: string | null
+    /**
+     * Why the results row that opened this visit could not hand its metric to the tab, so the list
+     * shows every recording of the variant instead. Null on every other visit. Kept as a string
+     * rather than the scene's union so telemetry doesn't import from the scene.
+     */
+    metric_unavailable_reason: string | null
     variant_count: number
     metric_count: number
     linkable_metric_count: number
@@ -170,6 +178,13 @@ export interface ExperimentRecordingsFilterContext {
      * results row produced can be told from one somebody narrowed into by hand.
      */
     entry_point: string | null
+    /**
+     * Why the results row that opened this visit could not hand its metric to the tab, so the list
+     * shows every recording of the variant instead. Null on every other visit, and null once the
+     * viewer moves a facet themselves, for the same reason `entry_point` is. Kept as a string
+     * rather than the scene's union so telemetry doesn't import from the scene.
+     */
+    metric_unavailable_reason: string | null
 }
 
 /**
@@ -393,13 +408,22 @@ function retentionWindowDays(metric: ExperimentRetentionMetric): number | undefi
     return multiplier ? (metric.retention_window_end - metric.retention_window_start) * multiplier : undefined
 }
 
-function getSourceProperties(source: ExperimentMetricSource): {
+function getSourceProperties(source: ExperimentMetricSource | ExperimentExposureNode): {
     source_kind: string
     is_data_warehouse: boolean
     property_filter_count: number
     math_type: string | undefined
     has_math_hogql: boolean
 } {
+    if (isExperimentExposureNode(source)) {
+        return {
+            source_kind: source.kind,
+            is_data_warehouse: false,
+            property_filter_count: 0,
+            math_type: undefined,
+            has_math_hogql: false,
+        }
+    }
     return {
         source_kind: source.kind,
         is_data_warehouse: source.kind === NodeKind.ExperimentDataWarehouseNode,
