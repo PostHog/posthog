@@ -34,12 +34,13 @@ class TestFunnelCaptureOrder(ClickhouseTestMixin, APIBaseTest):
             event_uuid=str(uuid7(int(self.CAPTURED_FIRST.timestamp() * 1000))),
             properties={"$device_id": device_id} if device_id else {},
         )
-        # Captured second, delivered immediately.
+        # Captured second, delivered promptly. Real delivery is never instant, and a zero gap
+        # would read as a UUID capture minted itself.
         _create_event(
             team=self.team,
             event="step two",
             distinct_id="u1",
-            timestamp=self.CAPTURED_SECOND,
+            timestamp=self.CAPTURED_SECOND + timedelta(milliseconds=200),
             event_uuid=str(uuid7(int(self.CAPTURED_SECOND.timestamp() * 1000))),
             properties={"$device_id": device_id} if device_id else {},
         )
@@ -79,3 +80,22 @@ class TestFunnelCaptureOrder(ClickhouseTestMixin, APIBaseTest):
 
         assert results[0]["count"] == 1
         assert results[1]["count"] == 0
+
+    def test_capture_minted_uuid_does_not_drag_the_device_offset(self) -> None:
+        # Capture mints a UUIDv7 from the timestamp it just computed when the SDK sends none, so
+        # that row's offset is zero. Counting it in the device minimum would pull the device onto
+        # its own clock and reorder the rows that do carry a client instant.
+        self._given_an_out_of_order_device()
+        _create_event(
+            team=self.team,
+            event="unrelated",
+            distinct_id="u1",
+            timestamp=self.CAPTURED_FIRST,
+            event_uuid=str(uuid7(int(self.CAPTURED_FIRST.timestamp() * 1000))),
+            properties={"$device_id": "dev-a"},
+        )
+
+        results = self._run(use_capture_order=True)
+
+        assert results[0]["count"] == 1
+        assert results[1]["count"] == 1
