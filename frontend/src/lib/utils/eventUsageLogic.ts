@@ -135,6 +135,12 @@ export interface ExperimentRecordingsTabContext {
      * which is the ordinary case, so this is what separates the two populations in a report.
      */
     entry_point: string | null
+    /**
+     * Why the results row that opened this visit could not hand its metric to the tab, so the list
+     * shows every recording of the variant instead. Null on every other visit. Kept as a string
+     * rather than the scene's union so telemetry doesn't import from the scene.
+     */
+    metric_unavailable_reason: string | null
     variant_count: number
     metric_count: number
     linkable_metric_count: number
@@ -170,6 +176,13 @@ export interface ExperimentRecordingsFilterContext {
      * results row produced can be told from one somebody narrowed into by hand.
      */
     entry_point: string | null
+    /**
+     * Why the results row that opened this visit could not hand its metric to the tab, so the list
+     * shows every recording of the variant instead. Null on every other visit, and null once the
+     * viewer moves a facet themselves, for the same reason `entry_point` is. Kept as a string
+     * rather than the scene's union so telemetry doesn't import from the scene.
+     */
+    metric_unavailable_reason: string | null
 }
 
 /**
