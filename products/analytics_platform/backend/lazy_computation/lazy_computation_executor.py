@@ -1661,8 +1661,10 @@ def ensure_precomputed(
                       same request that ran this ensure (background builders whose
                       readers arrive minutes later). Skips the replica-quorum wait on
                       the INSERT, so builds keep succeeding while a replica is down
-                      or stale-registered; the cost is a sub-second replication
-                      window in which a reader could miss the newest part.
+                      or stale-registered; the cost is that a reader can miss the
+                      newest parts until replication catches up — usually fast, but
+                      with no guaranteed bound. The post-build settle wait covers the
+                      builder's own read-back; later readers accept the residual risk.
 
     Returns:
         ComputationResult with job_ids that can be used to query the data

@@ -742,14 +742,21 @@ class TestWebEnsurePrecomputed(BaseTest):
         web_ensure_precomputed(team=self.team, ttl_seconds={"default": 3600}, table=None)
         assert is_team_oom_pinned(self.team.pk) is False
 
+    @parameterized.expand(
+        [
+            ("defaults_to_no_quorum", {}, False),
+            ("explicit_override_survives", {"read_after_write": True}, True),
+        ]
+    )
     @mock.patch(f"{_COMMON}.ensure_precomputed")
-    def test_builds_never_require_replica_quorum(self, mock_ensure):
+    def test_builds_never_require_replica_quorum(self, _name, extra_kwargs, expected, mock_ensure):
         # No web analytics build is read back in-request, so the wrapper must opt out of
         # the framework's quorum wait: with it, one downed aux replica fails every build
-        # (TOO_FEW_LIVE_REPLICAS) and precompute serving collapses region-wide.
+        # (TOO_FEW_LIVE_REPLICAS) and precompute serving collapses region-wide. An
+        # explicit caller override must survive — the default is a setdefault, not a stamp.
         mock_ensure.return_value = LazyComputationResult(ready=True, job_ids=[], memory_exceeded=False)
-        web_ensure_precomputed(team=self.team, ttl_seconds={"default": 3600}, table=None)
-        assert mock_ensure.call_args.kwargs["read_after_write"] is False
+        web_ensure_precomputed(team=self.team, ttl_seconds={"default": 3600}, table=None, **extra_kwargs)
+        assert mock_ensure.call_args.kwargs["read_after_write"] is expected
 
     @mock.patch(f"{_COMMON}.ensure_precomputed")
     def test_pinned_team_restamps_prebuilt_schedule(self, mock_ensure):
