@@ -615,9 +615,25 @@ def test_untrusted_checkout_quarantines_every_startup_config_path(mocker) -> Non
     )
 
     command = sandbox.execute.call_args.args[0]
-    repo_path = sandbox_repo_path("PostHog/posthog")
+    assert sandbox_repo_path("PostHog/posthog") in command
     for path in (".claude/settings.json", ".claude/settings.local.json", ".claude/hooks", ".mcp.json"):
-        assert f"{repo_path}/{path}" in command
+        assert path in command
+
+
+def test_quarantine_leaves_the_working_tree_clean(mocker) -> None:
+    # Without the assume-unchanged pass, every quarantined repository carries a deleted
+    # .claude/settings.json in `git status`, and the agent's commit tooling can sweep that removal
+    # into a commit on somebody's PR branch. The flag must be set before the files go, while the
+    # index entry still matches the worktree.
+    sandbox = mocker.Mock()
+    sandbox.execute.return_value = ExecutionResult(stdout="", stderr="", exit_code=0)
+
+    _quarantine_untrusted_agent_config(
+        _context(repository="PostHog/posthog", state={"untrusted_checkout": True}), sandbox
+    )
+
+    command = sandbox.execute.call_args.args[0]
+    assert command.index("update-index --assume-unchanged") < command.index("rm -rf")
 
 
 def test_trusted_checkout_keeps_the_repositorys_own_config(mocker) -> None:

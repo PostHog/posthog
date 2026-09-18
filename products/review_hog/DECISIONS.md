@@ -3301,8 +3301,10 @@ RATE_LIMITED` (GraphQL's primary signal, invisible to the REST-shaped helper) no
    the repository's bootstrap hooks — the escalation is only there when the branch's author is not
    the credential owner. Stamped on the run (not derived at checkout) so a resume that skips the
    checkout activity still launches quarantined, and added to the facade's non-PATCHable state keys
-   so the sandbox agent cannot clear it for the next launch. Working tree only, never a commit, so
-   the branch is untouched. Residual: `.git/config` in a restored repo-setup snapshot still carries
+   so the sandbox agent cannot clear it for the next launch. The tracked entries are marked
+   assume-unchanged before the removal, while the index still matches the worktree: otherwise every
+   quarantined repository carries a deleted `.claude/settings.json` in `git status`, and the
+   resolution stage's own commit tooling could sweep that removal onto the PR branch. Residual: `.git/config` in a restored repo-setup snapshot still carries
    the write-capable token its creator cloned with (`provision_sandbox.py`), so a hook that survived
    this quarantine would find a credential on disk as well as in the environment; and the read-only
    stages still run with a write-capable token because `github_read_access=True` also disables

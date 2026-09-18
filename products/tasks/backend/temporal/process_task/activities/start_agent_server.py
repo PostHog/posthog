@@ -196,20 +196,28 @@ def _quarantine_untrusted_agent_config(ctx: TaskProcessingContext, sandbox: Sand
     branch's own configuration un-runnable; a prompt instruction cannot, because nothing has asked
     the model anything yet.
 
-    Deletes from the WORKING TREE only, so the branch is unchanged and a later commit does not
-    carry the deletion. `git` still reports the paths as deleted, which the resolution stage's
-    clean-tree checks tolerate because they inspect the paths they wrote.
+    Removes from the WORKING TREE only, and marks the tracked entries assume-unchanged FIRST, so
+    `git status` stays clean afterwards. Otherwise every quarantined repository would carry a
+    ` D .claude/settings.json` the agent's own commit tooling could sweep into a commit, which
+    would land the removal on somebody's PR branch. Order matters: the flag has to be set while the
+    index entry still matches the worktree.
 
-    Best-effort per path: a missing path is the normal case (most repositories have none of them),
-    and a failure to remove one is logged loudly rather than failing the launch, because the run
-    has already paid for its sandbox by this point.
+    Best-effort: a repository with none of these paths is the normal case, and a failure is logged
+    loudly rather than failing the launch, because the run has already paid for its sandbox by this
+    point. The removal runs even when the index bookkeeping fails, because a dirty status is a
+    cosmetic problem and an executable hook is not.
     """
     if not ctx.untrusted_checkout or not ctx.repositories:
         return
+    paths = " ".join(shlex.quote(path) for path in _UNTRUSTED_AGENT_CONFIG_PATHS)
     for repository in ctx.repositories:
         repo_path = sandbox_repo_path(repository)
-        targets = " ".join(shlex.quote(f"{repo_path}/{path}") for path in _UNTRUSTED_AGENT_CONFIG_PATHS)
-        result = sandbox.execute(f"rm -rf {targets}", timeout_seconds=30)
+        command = (
+            f"cd {shlex.quote(repo_path)} && "
+            f"git ls-files -z -- {paths} | xargs -0 -r git update-index --assume-unchanged; "
+            f"rm -rf -- {paths}"
+        )
+        result = sandbox.execute(command, timeout_seconds=30)
         if result.exit_code != 0:
             logger.error(
                 "Could not quarantine the checkout's agent config",

@@ -74,9 +74,10 @@ working tree before the agent starts (`products/tasks` —
 `start_agent_server.py::_quarantine_untrusted_agent_config`). Hooks and stdio MCP servers both name
 a command to run, and a `SessionStart` hook executes at agent startup — before the model picks a
 tool and before any approval callback — so neither the prompt floors nor a permission mode can
-refuse it. Deleting the files is the only control that reaches it. The deletion touches the working
-tree only, so the branch is unchanged. The flag is stamped on the run and is not PATCHable, so the
-sandbox agent cannot turn its own quarantine off for the next launch.
+refuse it. Deleting the files is the only control that reaches it. The removal is marked
+assume-unchanged first, so `git status` stays clean and the resolution stage's commit tooling cannot
+sweep it onto the PR branch. The flag is stamped on the run and is not PATCHable, so the sandbox
+agent cannot turn its own quarantine off for the next launch.
 
 The **author-permission gate** decides whose ask may drive a code-writing turn, deterministically and
 server-side: `github_threads.py::comment_is_trusted` trusts an OWNER / MEMBER / COLLABORATOR author (their ask
