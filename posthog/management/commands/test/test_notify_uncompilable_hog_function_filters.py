@@ -94,6 +94,21 @@ class TestNotifyUncompilableHogFunctionFilters(BaseTest):
         scoped.delay.assert_called_once_with(self.team.id, [str(mine.id)])
         zero.delay.assert_not_called()
 
+    def test_a_failed_send_leaves_later_teams_untouched(self) -> None:
+        # The email for a team goes out right after that team's writes, so a broker failure part
+        # way through cannot disable a project it never told.
+        other_team = Team.objects.create(organization=self.organization, name="Other")
+        self._broken(name="Mine")
+        theirs = self._broken(name="Theirs", team=other_team)
+
+        with patch(TASK) as task:
+            task.delay.side_effect = RuntimeError("broker down")
+            with self.assertRaises(RuntimeError):
+                call_command("notify_uncompilable_hog_function_filters", "--apply", "--disable", stdout=StringIO())
+
+        theirs.refresh_from_db()
+        assert theirs.enabled is True
+
     def test_rejects_a_limit_below_one(self) -> None:
         # `if limit:` read 0 as "no limit" and would hand the whole fleet to --apply.
         self._broken()

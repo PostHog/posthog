@@ -62,33 +62,42 @@ class Command(BaseCommand):
                 raise CommandError("--limit must be 1 or more")
             queryset = queryset[:limit]
 
-        count = 0
-        by_team: dict[int, list[str]] = {}
+        # Collected first so nothing is written while the queryset is still being walked.
+        by_team: dict[int, list[HogFunction]] = {}
         for hog_function in queryset:
-            count += 1
-            by_team.setdefault(hog_function.team_id, []).append(str(hog_function.id))
+            by_team.setdefault(hog_function.team_id, []).append(hog_function)
             error = (hog_function.filters or {}).get("bytecode_error", "")
             self.stdout.write(
                 f"team={hog_function.team_id} id={hog_function.id} type={hog_function.type} "
                 f"name={hog_function.name!r} error={error!r}"
             )
 
-            if apply and disable:
-                hog_function.enabled = False
-                # save() rather than a queryset update: the post_save receiver is what tells the
-                # workers to reload, and without it the function stays live in their cache. The
-                # cost is that save() recompiles the filters, which fails again and rewrites the
-                # same bytecode_error. That is wasted work, not a wrong result.
-                hog_function.save(update_fields=["enabled"])
-
+        count = sum(len(functions) for functions in by_team.values())
         self.stdout.write("")
-        for team_id, ids in sorted(by_team.items()):
-            self.stdout.write(f"team={team_id}: {len(ids)} destination(s)")
-            # One email per project. A shared mistake breaks many destinations at once, so a task
-            # per destination would mail the same admins the same root cause repeatedly. Queued
-            # after the loop so the email reports the enabled state --disable has already written.
+
+        # One team at a time, and the email for a team goes out right after that team's writes.
+        # A broker or database failure part way through therefore leaves later teams untouched,
+        # and the line printed per team says how far the run got.
+        #
+        # The gap this does not close: a send that fails after the disable leaves that team's
+        # destinations off and unnotified, and a plain re-run will not find them because the scope
+        # is enabled destinations. Re-enable them and re-run with --team-id.
+        for team_id, functions in sorted(by_team.items()):
+            if apply and disable:
+                for hog_function in functions:
+                    hog_function.enabled = False
+                    # save() rather than a queryset update: the post_save receiver is what tells
+                    # the workers to reload, and without it the destination stays live in their
+                    # cache. The cost is that save() recompiles the filters, which fails again and
+                    # rewrites the same bytecode_error. That is wasted work, not a wrong result.
+                    hog_function.save(update_fields=["enabled"])
+
             if apply:
-                send_hog_function_filters_uncompilable.delay(team_id, ids)
+                # One email per project. A shared mistake breaks many destinations at once, so a
+                # task per destination would mail the same admins the same root cause repeatedly.
+                send_hog_function_filters_uncompilable.delay(team_id, [str(f.id) for f in functions])
+
+            self.stdout.write(f"team={team_id}: {len(functions)} destination(s)" + (" queued" if apply else ""))
 
         self.stdout.write("")
         self.stdout.write(f"{count} enabled destination(s) with uncompilable filters across {len(by_team)} team(s)")

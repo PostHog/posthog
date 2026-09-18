@@ -18,6 +18,7 @@ from prometheus_client import Counter, Histogram
 from posthog.caching.login_device_cache import check_and_cache_login_device
 from posthog.cloud_utils import is_cloud
 from posthog.constants import AUTH_BACKEND_DISPLAY_NAMES, INVITE_DAYS_VALIDITY
+from posthog.dataclasses import frozen
 from posthog.email import (
     EMAIL_TASK_KWARGS,
     EmailMessage,
@@ -761,6 +762,14 @@ def send_hog_function_disabled(hog_function_id: str) -> None:
     message.send()
 
 
+@frozen
+class UncompilableDestination:
+    """One destination the email lists, with the reason its filters would not compile."""
+
+    hog_function: HogFunction
+    bytecode_error: str
+
+
 @shared_task(**EMAIL_TASK_KWARGS)
 @with_team_scope()
 def send_hog_function_filters_uncompilable(team_id: int, hog_function_ids: list[str]) -> None:
@@ -790,20 +799,20 @@ def send_hog_function_filters_uncompilable(team_id: int, hog_function_ids: list[
         team_id=team_id, id__in=hog_function_ids, deleted=False
     )
     broken = [
-        {"hog_function": hog_function, "bytecode_error": (hog_function.filters or {}).get("bytecode_error")}
+        UncompilableDestination(hog_function=hog_function, bytecode_error=error)
         for hog_function in hog_functions
-        if (hog_function.filters or {}).get("bytecode_error")
+        if (error := (hog_function.filters or {}).get("bytecode_error"))
     ]
     if not broken:
         return
-    broken.sort(key=lambda entry: entry["hog_function"].name or "")
+    broken.sort(key=lambda entry: entry.hog_function.name or "")
 
     recipients = {membership.user for membership in _get_project_admins_to_notify_of_email_sending_suspension(team)}
     # A creator may have left the organization, or kept organization membership while losing access
     # to this project. The email names the project, the destinations and the filter errors, so a
     # creator is included by effective access to this team, not by organization membership.
     for entry in broken:
-        creator = entry["hog_function"].created_by
+        creator = entry.hog_function.created_by
         if not creator or creator in recipients:
             continue
         creator_membership = OrganizationMembership.objects.filter(
@@ -827,7 +836,7 @@ def send_hog_function_filters_uncompilable(team_id: int, hog_function_ids: list[
     # be able to tell the recipients the destinations are now off. sha256 rather than hash(), which
     # is seeded per process and would give the same set a new key after a worker restart.
     fingerprint = ";".join(
-        f"{entry['hog_function'].id}:{entry['bytecode_error']}:{int(entry['hog_function'].enabled)}" for entry in broken
+        f"{entry.hog_function.id}:{entry.bytecode_error}:{int(entry.hog_function.enabled)}" for entry in broken
     )
     digest = hashlib.sha256(fingerprint.encode("utf-8")).hexdigest()[:16]
     # No urgency prefix in the subject: a bracketed one got the suspension emails filtered to junk
