@@ -3285,8 +3285,8 @@ RATE_LIMITED` (GraphQL's primary signal, invisible to the REST-shaped helper) no
    `commit_verified=False` — caveat reply, no link, never auto-resolves. Residual (accepted): echoing one of
    the bot's own earlier fix commits still passes; that closes only with the recorded Tasks
    session-provenance follow-up.
-   _Built 2026-09-18 (off the SecurityHog agent-injection finding FBRX-5523c688, filed as a critical
-   Signals inbox report):_ the two pieces deferred above as BLOCKING pre-public-release gates are now built, so
+   _Built 2026-09-18 (off an agent-injection security review of the resolution stage's write path):_ the two
+   pieces deferred above as BLOCKING pre-public-release gates are now built, so
    the only prompt-only control left on the write path is the one that needs a change outside this repo.
    **Structural (JSON) comment rendering** — `render_thread` / `render_work_list` emit JSON, mirroring the review
    stage's `PR_COMMENTS`. Flat text made the attribution forgeable: a commenter could type

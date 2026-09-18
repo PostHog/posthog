@@ -84,7 +84,7 @@ the orchestrator's, and only `body` is theirs.
 **TODO (BLOCKING — before any rollout beyond the dogfood team / public release) — the last of the three
 injection-surface hardening items from the July e2e GO conditions.** The path backstop, the author-permission
 gate and the structural rendering above are all built — the latter two deferred by maintainer decisions
-2026-08-06 and 2026-08-10, then landed off the SecurityHog agent-injection finding (DECISIONS.md Stage 7). This
+2026-08-06 and 2026-08-10, then landed off a security review of the write path (DECISIONS.md Stage 7). This
 one MUST land before the resolution stage runs on PRs the team does not own:
 
 - **Pre-push restricted-paths enforcement** — the path backstop is detection, not prevention: GitHub's
