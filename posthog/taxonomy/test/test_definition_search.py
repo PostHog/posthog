@@ -1,3 +1,5 @@
+from collections.abc import Callable
+
 from posthog.test.base import APIBaseTest, BaseTest
 from unittest.mock import patch
 
@@ -5,6 +7,9 @@ from django.core.cache import cache
 from django.db import DEFAULT_DB_ALIAS, connection
 from django.test.utils import CaptureQueriesContext
 
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 from parameterized import parameterized
 
 from posthog.models import EventDefinition, PropertyDefinition
@@ -46,6 +51,18 @@ class TestSearchPlan(BaseTest):
     def test_plan_survives_a_cache_outage(self, _name: str, failing_method: str) -> None:
         with patch.object(cache, failing_method, side_effect=ConnectionError("redis down")):
             assert search_plan("posthog_eventdefinition", self.team.pk, DEFAULT_DB_ALIAS) == "project_scan"
+
+    @parameterized.expand([("search_plan", search_plan), ("is_large_project", is_large_project)])
+    def test_plan_is_recorded_on_the_request_span(self, _name: str, read_plan: Callable[..., object]) -> None:
+        exporter = InMemorySpanExporter()
+        provider = TracerProvider()
+        provider.add_span_processor(SimpleSpanProcessor(exporter))
+
+        with provider.get_tracer(__name__).start_as_current_span("definitions_list"):
+            read_plan("posthog_eventdefinition", self.team.pk, DEFAULT_DB_ALIAS)
+
+        attributes = exporter.get_finished_spans()[0].attributes or {}
+        assert attributes["taxonomy_search_plan"] == "project_scan"
 
 
 class TestDefinitionEndpointsUseSearchPlan(APIBaseTest):
