@@ -71,7 +71,9 @@ describe('DashboardRefreshJourneyController', () => {
         })
 
         const result: unknown[] = []
-        expect(controller.dataReady('attempt-1', 10, result)?.expectedResult).toBe(result)
+        controller.queryStarted('attempt-1', 10, 'synthetic-query')
+        controller.queryStarted('stale-attempt', 10, 'stale-query')
+        expect(controller.dataReady('attempt-1', 10, result, false)?.expectedResult).toBe(result)
         expect(controller.dataReady('attempt-1', 11, [{ count: 1 }])).toBeNull()
 
         controller.renderCommitted('attempt-1', 10)
@@ -91,6 +93,8 @@ describe('DashboardRefreshJourneyController', () => {
                     insight_type: 'RETENTION',
                     state: 'ready',
                     duration_ms: expect.any(Number),
+                    client_query_id: 'synthetic-query',
+                    response_cached: false,
                 },
             ],
             insight_type_summary: {

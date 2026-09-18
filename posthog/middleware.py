@@ -544,6 +544,8 @@ class CHQueries:
             return response
         finally:
             if is_api_request:
+                if client_query_id := get_query_tag_value("client_query_id"):
+                    trace.get_current_span().set_attribute("query.client_query_id", client_query_id)
                 API_REQUESTS_LATENCY_SECONDS.labels(
                     # DRF viewset name (api:viewset-action) when set, view function name
                     # otherwise. (Django builds view_name from url_name, so url_name as a
