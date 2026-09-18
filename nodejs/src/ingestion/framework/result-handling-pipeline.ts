@@ -1,6 +1,6 @@
 import { Message } from 'node-rdkafka'
 
-import { DlqOutput, IngestionWarningsOutput } from '~/common/outputs'
+import { DlqOutput } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { PromiseScheduler } from '~/common/utils/promise-scheduler'
 import { ingestionPipelineResultCounter } from '~/ingestion/common/metrics'
@@ -22,7 +22,7 @@ import {
 } from './results'
 
 export type PipelineConfig<R extends string = never> = {
-    outputs: IngestionOutputs<DlqOutput | IngestionWarningsOutput | R>
+    outputs: IngestionOutputs<DlqOutput | R>
     promiseScheduler: PromiseScheduler
 }
 
