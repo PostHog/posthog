@@ -246,13 +246,19 @@ function flattenJsonWithBudget(
             if (Array.isArray(value) && value.length + nodes > MAX_JSON_NODES) {
                 return null
             }
-            const keys = Array.isArray(value)
-                ? Array.from({ length: value.length }, (_, index) => String(index))
-                : Object.keys(value)
-            nodes += keys.length
-            if (nodes > MAX_JSON_NODES) {
-                return null
+            const keys = Array.isArray(value) ? Array.from({ length: value.length }, (_, index) => String(index)) : []
+            if (!Array.isArray(value)) {
+                for (const key in value) {
+                    if (!Object.hasOwn(value, key)) {
+                        continue
+                    }
+                    if (nodes + keys.length >= MAX_JSON_NODES) {
+                        return null
+                    }
+                    keys.push(key)
+                }
             }
+            nodes += keys.length
             for (let index = keys.length - 1; index >= 0; index--) {
                 const key = keys[index]
                 const childPrefix = entry.prefix ? `${entry.prefix}.${key}` : key

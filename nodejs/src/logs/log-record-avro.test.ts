@@ -185,6 +185,11 @@ describe('log-record-avro', () => {
             ],
             ['handles empty object', {}, {}],
             ['handles empty array', { items: [] }, {}],
+            [
+                'ignores inherited and non-enumerable properties',
+                Object.create({ inherited: true }, { kept: { value: 1, enumerable: true }, hidden: { value: 2 } }),
+                { kept: 1 },
+            ],
             ['preserves later dotted-key overwrites', { path: { value: 1 }, 'path.value': 2 }, { 'path.value': 2 }],
             ['preserves later nested overwrites', { 'path.value': 1, path: { value: 2 } }, { 'path.value': 2 }],
             ['preserves top-level array indexing', ['a', null, { b: true }], { '0': 'a', '1': 'null', '2.b': true }],
@@ -222,6 +227,35 @@ describe('log-record-avro', () => {
             Object.fromEntries(Array.from({ length: 10_000 }, (_, index) => [`key${index}`, {}])),
         ])('bounds wide containers even when they contain no leaves', (input) => {
             expect(flattenJson(input)).toBeNull()
+        })
+
+        it.each([
+            ['root', 9_999, false, false],
+            ['nested', 9_997, true, false],
+            ['nested', 9_998, true, true],
+        ] as const)(
+            'honors the remaining node budget for %s objects with %i children',
+            (_name, count, nested, skipped) => {
+                const children = Object.fromEntries(Array.from({ length: count }, (_, index) => [`key${index}`, {}]))
+                const input = nested ? { first: true, children } : children
+
+                expect(flattenJson(input)).toEqual(skipped ? null : nested ? { first: true } : {})
+            }
+        )
+
+        it('stops key inspection when a sub-1 MiB object exceeds the node budget', () => {
+            const input = Object.fromEntries(Array.from({ length: 100_000 }, (_, index) => [String(index), 0]))
+            expect(Buffer.byteLength(JSON.stringify(input))).toBeLessThan(MAX_LOG_RECORD_BYTES)
+            const guardedInput = new Proxy(input, {
+                getOwnPropertyDescriptor(target, key) {
+                    if (key === '10000') {
+                        throw new Error('Inspected a key beyond the node budget')
+                    }
+                    return Reflect.getOwnPropertyDescriptor(target, key)
+                },
+            })
+
+            expect(flattenJson(guardedInput)).toBeNull()
         })
     })
 
