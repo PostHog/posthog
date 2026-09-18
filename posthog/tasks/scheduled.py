@@ -317,10 +317,12 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         name="team metadata expiry tracking cleanup",
     )
 
-    sender.add_periodic_task(
+    add_periodic_task_with_expiry(
+        sender,
         crontab(hour="4", minute="0"),
         update_team_event_volumes.s(),
         name="team event volume update",
+        expires_seconds=12 * 3600,
     )
 
     # SES tenant reputation reconciliation - daily at 6:30 AM UTC. EventBridge events are the

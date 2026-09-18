@@ -2,6 +2,7 @@ from typing import Optional
 
 from django.db import models
 
+from posthog.models.scoping.manager import EnvironmentScopedManager
 from posthog.models.team import Team
 
 
@@ -12,6 +13,8 @@ class TeamEventVolume(models.Model):
     events_last_year = models.BigIntegerField()
     computed_at = models.DateTimeField()
 
+    objects = EnvironmentScopedManager()
+
 
 def events_last_year_for(team_id: int) -> Optional[int]:
-    return TeamEventVolume.objects.filter(team_id=team_id).values_list("events_last_year", flat=True).first()
+    return TeamEventVolume.objects.for_team(team_id).values_list("events_last_year", flat=True).first()

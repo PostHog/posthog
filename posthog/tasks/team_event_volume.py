@@ -46,7 +46,7 @@ def update_team_event_volumes() -> None:
         for team_id, events in rows
         if team_id in team_ids
     ]
-    TeamEventVolume.objects.bulk_create(
+    TeamEventVolume.objects.unscoped().bulk_create(
         volumes,
         update_conflicts=True,
         update_fields=["events_last_year", "computed_at"],
@@ -55,8 +55,10 @@ def update_team_event_volumes() -> None:
     )
     # A team with no events in the window is absent from the result, so its row is the only one
     # this run did not stamp.
-    reset = TeamEventVolume.objects.filter(computed_at__lt=computed_at).update(
-        events_last_year=0, computed_at=computed_at
+    reset = (
+        TeamEventVolume.objects.unscoped()
+        .filter(computed_at__lt=computed_at)
+        .update(events_last_year=0, computed_at=computed_at)
     )
     logger.info(
         "team_event_volumes_updated", teams=len(volumes), reset=reset, seconds=round(perf_counter() - started, 1)

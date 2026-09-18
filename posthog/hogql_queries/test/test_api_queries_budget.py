@@ -56,7 +56,7 @@ class TestApiQueriesBudgetEnforcement(BaseTest):
 
     @override_settings(API_QUERIES_BUDGET_BYTES_PER_EVENT_PER_HOUR=10)
     def test_status_rate_scales_with_the_teams_event_volume(self):
-        TeamEventVolume.objects.create(team=self.team, events_last_year=10_000, computed_at=timezone.now())
+        TeamEventVolume.objects.unscoped().create(team=self.team, events_last_year=10_000, computed_at=timezone.now())
         status = get_api_queries_budget_status(self.team)
         assert status is not None
         assert status.spec.bytes_per_hour == 100_000

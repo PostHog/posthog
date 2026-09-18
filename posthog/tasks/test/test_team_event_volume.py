@@ -10,9 +10,11 @@ from posthog.tasks.team_event_volume import update_team_event_volumes
 
 
 class TestUpdateTeamEventVolumes(ClickhouseTestMixin, BaseTest):
-    def test_counts_the_last_year_per_team_and_zeroes_teams_that_went_quiet(self):
+    def test_counts_the_last_year_per_team_and_zeroes_teams_that_went_quiet(self) -> None:
         quiet = Team.objects.create(organization=self.organization, name="quiet")
-        TeamEventVolume.objects.create(team=quiet, events_last_year=5, computed_at=timezone.now() - timedelta(days=1))
+        TeamEventVolume.objects.unscoped().create(
+            team=quiet, events_last_year=5, computed_at=timezone.now() - timedelta(days=1)
+        )
         _create_event(team=self.team, event="e", distinct_id="a")
         _create_event(team=self.team, event="e", distinct_id="a")
         _create_event(team=self.team, event="e", distinct_id="a", timestamp=timezone.now() - timedelta(days=400))
@@ -20,5 +22,5 @@ class TestUpdateTeamEventVolumes(ClickhouseTestMixin, BaseTest):
 
         update_team_event_volumes()
 
-        assert TeamEventVolume.objects.get(team=self.team).events_last_year == 2
-        assert TeamEventVolume.objects.get(team=quiet).events_last_year == 0
+        assert TeamEventVolume.objects.for_team(self.team.id).get().events_last_year == 2
+        assert TeamEventVolume.objects.for_team(quiet.id).get().events_last_year == 0
