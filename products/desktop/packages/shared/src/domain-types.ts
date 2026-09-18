@@ -1046,6 +1046,10 @@ export interface SuggestedReviewer {
   github_name: string | null;
   relevant_commits: SuggestedReviewerCommit[];
   user: SuggestedReviewerUser | null;
+  reason?: string | null;
+  source_skill?: string | null;
+  source_label?: string;
+  explanation?: string | null;
 }
 
 export interface SuggestedReviewerWriteEntry {

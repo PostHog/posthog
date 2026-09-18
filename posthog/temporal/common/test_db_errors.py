@@ -1,3 +1,5 @@
+import errno
+
 import pytest
 
 from django.db import InterfaceError, InternalError, OperationalError
@@ -36,6 +38,14 @@ class _WithSqlstate(Exception):
         ),
         (OperationalError("connection failed: FATAL: password authentication failed for user"), False),
         (OperationalError("no such database"), False),
+        # The connect path's socket/selector setup raises a bare OSError, not an OperationalError,
+        # when this worker's own fd table is full — same condition already retried on a source's
+        # connect path (postgres.py::_is_too_many_open_files_error).
+        (OSError(errno.EMFILE, "Too many open files"), True),
+        (OSError(errno.ENFILE, "Too many open files in system"), True),
+        # An unrelated errno (e.g. a real permissions problem) must not be swept up just because
+        # it shares the exception type.
+        (OSError(errno.EACCES, "Permission denied"), False),
     ],
 )
 def test_is_transient_db_error_by_message(error: BaseException, expected: bool) -> None:

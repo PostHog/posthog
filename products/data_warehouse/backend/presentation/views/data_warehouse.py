@@ -28,6 +28,7 @@ from posthog.cloud_utils import get_cached_instance_license
 from posthog.helpers.dashboard_templates import create_data_ops_dashboard
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.extensions import get_or_create_team_extension
+from posthog.models.user import User
 from posthog.permissions import is_service_auth
 from posthog.utils import convert_property_value, flatten
 
@@ -187,6 +188,9 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 status=status.HTTP_403_FORBIDDEN,
             )
         return None
+
+    def _audit_principal(self, request: Request) -> str:
+        return f"api:{cast(User, request.user).email}"
 
     @action(methods=["GET"], detail=False, required_scopes=["query:read"])
     def property_values(self, request: Request, **kwargs) -> Response:
@@ -1028,6 +1032,7 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             request.data.get("database_name"),
             self.team_id,
             request.data.get("schema_name"),
+            triggered_by=self._audit_principal(request),
         )
 
     @extend_schema(
@@ -1067,6 +1072,7 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             self.team.organization_id,
             self.team.id,
             request.data.get("schema_name"),
+            triggered_by=self._audit_principal(request),
         )
 
     @extend_schema(
@@ -1088,7 +1094,7 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         admin_error = self._require_organization_admin(request, "deprovision")
         if admin_error is not None:
             return admin_error
-        return managed_warehouse.deprovision(self.team.organization_id)
+        return managed_warehouse.deprovision(self.team.organization_id, triggered_by=self._audit_principal(request))
 
     @extend_schema(
         responses={
@@ -1117,7 +1123,7 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         admin_error = self._require_organization_admin(request, "delete the provisioning record for")
         if admin_error is not None:
             return admin_error
-        return managed_warehouse.delete_org(self.team.organization_id)
+        return managed_warehouse.delete_org(self.team.organization_id, triggered_by=self._audit_principal(request))
 
     @extend_schema(
         responses={
@@ -1325,7 +1331,7 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         admin_error = self._require_organization_admin(request, "reset the root password for")
         if admin_error is not None:
             return admin_error
-        return managed_warehouse.reset_password(self.team.organization_id)
+        return managed_warehouse.reset_password(self.team.organization_id, triggered_by=self._audit_principal(request))
 
     @extend_schema(
         parameters=[
