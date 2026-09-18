@@ -500,7 +500,7 @@ function SubscriptionScheduleStep({ logicProps }: { logicProps: SubscriptionLogi
     const { subscription } = useValues(subscriptionLogic(logicProps))
     const { currentTeam } = useValues(teamLogic)
     const availableFrequencyOptions = subscription?.interval === 1 ? frequencyOptionsSingular : frequencyOptionsPlural
-    const nextDeliveryDate = subscription ? getNextDeliveryDate(subscription) : null
+    const nextDeliveryDate = subscription ? getNextDeliveryDate(subscription, currentTeam?.timezone) : null
 
     return (
         <div className="flex flex-col gap-4">
@@ -683,7 +683,8 @@ function SubscriptionReviewStep({
     const { generatePreview } = useActions(subscriptionLogic(logicProps))
     const selectedInsightsCount = subscription.dashboard_export_insights?.length ?? 0
     const advancedSettings = getSubscriptionAdvancedSettings(subscription)
-    const nextDeliveryDate = getNextDeliveryDate(subscription)
+    const { currentTeam } = useValues(teamLogic)
+    const nextDeliveryDate = getNextDeliveryDate(subscription, currentTeam?.timezone)
     const isAiPrompt = subscription.resource_type === SubscriptionResourceTypes.AiPrompt
     let reviewNotice: JSX.Element
 
