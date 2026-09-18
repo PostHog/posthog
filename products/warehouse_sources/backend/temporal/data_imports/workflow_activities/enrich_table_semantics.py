@@ -27,6 +27,7 @@ from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
 from posthog.exceptions_capture import capture_exception
+from posthog.llm.gateway_client import GatewayNotConfiguredError
 from posthog.llm.semantic_enrichment import (
     DEFAULT_ENRICHMENT_MODEL,
     MAX_BUSINESS_CONTEXT_CHARS,
@@ -432,6 +433,25 @@ def enrich_table_semantics_sync(team_id: int, schema_id: uuid.UUID) -> dict[str,
             columns_needing_description=columns_needing_description,
             business_context=business_context,
         )
+    except GatewayNotConfiguredError:
+        # No gateway in this deployment, so the call never went out. It fails identically for every
+        # team until one is configured, which no retry and no exception report can change. The
+        # canonical descriptions above are already persisted, and the columns left undescribed carry
+        # no annotation, so a later sync asks for them.
+        log.warning("warehouse_enrichment.llm_gateway_not_configured", canonical=canonical_count)
+        emit_completed(
+            "partial",
+            canonical_annotations=canonical_count,
+            ai_annotations=0,
+            llm_called=False,
+            reason="llm_gateway_not_configured",
+        )
+        return {
+            "status": "partial",
+            "canonical_annotations": canonical_count,
+            "ai_annotations": 0,
+            "error": "llm_gateway_not_configured",
+        }
     except Exception as e:
         capture_exception(e)
         log.error(

@@ -15,6 +15,34 @@ from . import model, refresh_tracking
 
 logger = structlog.get_logger(__name__)
 
+# google-auth posts the signed service-account grant to whatever URL `token_uri` names, so a stored
+# key file decides where a worker sends an outbound request. Google issues service-account keys with
+# only these two endpoints, so any other value is hand-edited.
+GOOGLE_SERVICE_ACCOUNT_TOKEN_URIS = frozenset(
+    {"https://oauth2.googleapis.com/token", "https://accounts.google.com/o/oauth2/token"}
+)
+
+GOOGLE_SERVICE_ACCOUNT_INVALID_TOKEN_URI_ERROR = (
+    "The token_uri in your Google Cloud JSON key file is not Google's OAuth token endpoint. Please download "
+    "a fresh service account key from Google Cloud and re-upload the JSON file without editing it."
+)
+
+
+class InvalidGoogleTokenUriError(ValidationError):
+    """Still a 400 through DRF, and named so the batch-export retry classifier can match it."""
+
+    def __init__(self) -> None:
+        super().__init__(GOOGLE_SERVICE_ACCOUNT_INVALID_TOKEN_URI_ERROR)
+
+    def __str__(self) -> str:
+        return GOOGLE_SERVICE_ACCOUNT_INVALID_TOKEN_URI_ERROR
+
+
+def require_google_token_uri(token_uri: object) -> str:
+    if not isinstance(token_uri, str) or token_uri.strip() not in GOOGLE_SERVICE_ACCOUNT_TOKEN_URIS:
+        raise InvalidGoogleTokenUriError()
+    return token_uri.strip()
+
 
 def is_unique_service_account_by_organization_id(service_account_email: str, organization_id: str) -> bool:
     """Check if the service account is only in one organization.
@@ -67,7 +95,7 @@ class GoogleCloudServiceAccountIntegration:
         if isinstance(private_key, str) and isinstance(private_key_id, str) and isinstance(token_uri, str):
             sensitive_config["private_key"] = private_key
             sensitive_config["private_key_id"] = private_key_id
-            sensitive_config["token_uri"] = token_uri
+            sensitive_config["token_uri"] = require_google_token_uri(token_uri)
 
             is_impersonated = False
 
@@ -115,10 +143,12 @@ class GoogleCloudServiceAccountIntegration:
 
     @property
     def service_account_info(self) -> dict[str, str]:
+        # Rows written before the factory validated the field, or by another write path, still
+        # carry whatever the key file said. Every credential build reads through here.
         return {
             "private_key": self.integration.sensitive_config["private_key"],
             "private_key_id": self.integration.sensitive_config["private_key_id"],
-            "token_uri": self.integration.sensitive_config["token_uri"],
+            "token_uri": require_google_token_uri(self.integration.sensitive_config["token_uri"]),
             "client_email": self.service_account_email,
             "project_id": self.project_id,
         }
@@ -141,6 +171,8 @@ class GoogleCloudIntegration:
             scope = "https://www.googleapis.com/auth/devstorage.read_write"
         else:
             raise NotImplementedError(f"Google Cloud integration kind {kind} not implemented")
+
+        key_info["token_uri"] = require_google_token_uri(key_info.get("token_uri"))
 
         try:
             credentials = service_account.Credentials.from_service_account_info(key_info, scopes=[scope])
@@ -194,6 +226,14 @@ class GoogleCloudIntegration:
             raise NotImplementedError(f"Google Cloud integration kind {self.integration.kind} not implemented")
 
         key_info = self.integration.sensitive_config.get("key_info", self.integration.sensitive_config)
+        try:
+            key_info["token_uri"] = require_google_token_uri(key_info.get("token_uri"))
+        except InvalidGoogleTokenUriError:
+            refresh_tracking.record_refresh_failure(
+                self.integration, reason=refresh_tracking.REFRESH_FAILURE_REASON_INVALID_TOKEN_URI
+            )
+            self.integration.save(update_fields=["config"])
+            raise
         credentials = service_account.Credentials.from_service_account_info(key_info, scopes=[scope])
 
         try:

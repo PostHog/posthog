@@ -211,6 +211,7 @@ export function TrendsBarChart({
         [trendsFilter, isPercentStackView, baseCurrency]
     )
 
+    const hideAxes = context?.hideAxes
     const timeSeriesConfig: TimeSeriesBarChartConfig = useChartConfig(
         () => ({
             ...buildTrendsBarTimeSeriesConfig({
@@ -222,6 +223,7 @@ export function TrendsBarChart({
                 interval,
                 timezone,
                 allDays: currentPeriodResult?.days ?? [],
+                hideAxes,
                 xAxisLabel: trendsFilter?.xAxisLabel,
                 yAxisLabel: trendsFilter?.yAxisLabel,
                 goalLines,
@@ -241,6 +243,7 @@ export function TrendsBarChart({
             interval,
             timezone,
             currentPeriodResult?.days,
+            hideAxes,
             trendsFilter?.xAxisLabel,
             trendsFilter?.yAxisLabel,
             goalLines,
@@ -275,6 +278,8 @@ export function TrendsBarChart({
             yScaleType: yAxisScaleType === 'log10' ? 'log' : 'linear',
             axisOrientation: 'horizontal',
             barLayout: 'stacked',
+            hideXAxis: hideAxes,
+            hideYAxis: hideAxes,
             yTickFormatter: aggregatedYTickFormatter,
             xTickFormatter,
             xAxisLabel: trendsFilter?.xAxisLabel,
@@ -290,6 +295,7 @@ export function TrendsBarChart({
             bars: { fitToHeight: embedded, divergingStack: true },
         }
     }, [
+        hideAxes,
         yAxisScaleType,
         aggregatedYTickFormatter,
         trendsFilter?.xAxisLabel,

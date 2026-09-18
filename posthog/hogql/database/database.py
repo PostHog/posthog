@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING, Any, Literal, Optional, Union, cast
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from django.conf import settings
+from django.db.models import Q, prefetch_related_objects
 
 import structlog
 from opentelemetry import trace
@@ -1364,18 +1365,12 @@ class Database(BaseModel):
         # Raw name cache, not get_view_names(): whether deferred revenue views belong in this
         # serialization was decided once at the top, and get_view_names would force the build.
         views = [] if self._is_direct_query() else list(self._view_table_names)
+        if include_only:
+            views = [name for name in views if name in include_only]
 
-        direct_query_source_ids = [self._connection_id] if self._is_direct_query() and self._connection_id else None
         warehouse_tables_query = (
-            DataWarehouseTable.raw_objects.select_related("credential", "external_data_source")
-            .prefetch_related(
-                latest_completed_job_prefetch(
-                    context.team_id,
-                    "external_data_source__jobs",
-                    to_attr="latest_completed_job",
-                    source_ids=direct_query_source_ids,
-                )
-            )
+            DataWarehouseTable.raw_objects.select_related("external_data_source")
+            .defer("external_data_source__job_inputs")
             # `queryable()` drops soft-deleted tables and orphans of a soft-deleted source, so an
             # orphan can't shadow the live table sharing its name in the SQL editor catalog.
             .queryable()
@@ -1391,7 +1386,31 @@ class Database(BaseModel):
         else:
             warehouse_tables_query = warehouse_tables_query.none()
 
+        if include_only:
+            table_ids = set()
+            for name in include_only:
+                try:
+                    schema_table = self.get_table_node(name).get()
+                except ResolutionError:
+                    continue
+                if isinstance(schema_table, S3Table) and schema_table.table_id is not None:
+                    table_ids.add(schema_table.table_id)
+            warehouse_tables_query = warehouse_tables_query.filter(Q(name__in=include_only) | Q(id__in=table_ids))
+
         warehouse_tables_with_data = list(warehouse_tables_query.all())
+        prefetch_related_objects(
+            warehouse_tables_with_data,
+            latest_completed_job_prefetch(
+                context.team_id,
+                "external_data_source__jobs",
+                to_attr="latest_completed_job",
+                source_ids={
+                    table.external_data_source_id
+                    for table in warehouse_tables_with_data
+                    if table.external_data_source_id
+                },
+            ),
+        )
         _preload_active_external_data_schemas(warehouse_tables_with_data)
         if self._is_direct_query():
             warehouse_tables_with_data = [
@@ -1556,7 +1575,7 @@ class Database(BaseModel):
         all_views = (
             DataWarehouseSavedQuery.objects.select_related("table")
             .exclude(deleted=True)
-            .filter(team_id=context.team_id)
+            .filter(team_id=context.team_id, name__in=views)
             .all()
             if views
             else []
@@ -1638,14 +1657,19 @@ class Database(BaseModel):
         use_cached_sources: bool = False,
         trigger: str = "direct",
         allowed_system_tables: Collection[str] | None = None,
+        schema_table_names: set[str] | None = None,
     ) -> Database:
+        """Build a query catalog, or a reduced catalog for schema serialization only.
+
+        Query execution must omit schema_table_names because it can prune unrelated warehouse tables.
+        """
         if timings is None:
             timings = HogQLTimings()
 
         HOGQL_DATABASE_BUILD_TOTAL.labels(trigger=trigger).inc()
 
         cache_key = None
-        if use_cached_sources:
+        if use_cached_sources and not schema_table_names:
             cache_key = Database._sources_cache_key(
                 team=team,
                 user=user,
@@ -1674,6 +1698,7 @@ class Database(BaseModel):
                     # enumerates every table on each request, so deferral would rebuild the views
                     # per request instead of amortizing them across the TTL.
                     defer_revenue_views=cache_key is None,
+                    schema_table_names=schema_table_names,
                 )
 
         if cache_key is None:
@@ -1791,6 +1816,7 @@ class Database(BaseModel):
         bypass_warehouse_access_control: bool = False,
         allowed_system_tables: Collection[str] | None = None,
         defer_revenue_views: bool = True,
+        schema_table_names: set[str] | None = None,
     ) -> HogQLDatabaseSources:
         """Run every Postgres query / feature-flag check / external request needed to build the
         database, returning a bundle that Database._build_from_sources turns into tables with no I/O."""
@@ -1997,6 +2023,23 @@ class Database(BaseModel):
             if sq.table_id is not None and sq.table is not None and sq.folder_path in sq.table.url_pattern
         }
 
+        with timings.measure("data_warehouse_joins", emit_span=True):
+            data_warehouse_joins = list(DataWarehouseJoin.objects.filter(team_id=team.pk).exclude(deleted=True))
+
+        with timings.measure("data_warehouse_expressions", emit_span=True):
+            # canonical=True with the already-loaded team: for_team's own resolution queries the
+            # default DB, which some callers (e.g. ClickHouse-backed tests) can't reach.
+            expressions_query = DataWarehouseExpression.objects.for_team(
+                team.parent_team_id or team.pk, canonical=True
+            ).exclude(deleted=True)
+            # An expression is scoped either to one connection's direct-query database or to the
+            # default warehouse database; never both.
+            if is_direct_query:
+                expressions_query = expressions_query.filter(connection_id=connection_id)
+            else:
+                expressions_query = expressions_query.filter(connection_id__isnull=True)
+            data_warehouse_expressions = list(expressions_query)
+
         virtual_schemas: list[ExternalDataSchema] = []
         with timings.measure("data_warehouse_tables", emit_span=True):
             if virtual_source is not None:
@@ -2036,6 +2079,31 @@ class Database(BaseModel):
                             external_data_source__access_method=ExternalDataSourceAccessMethod.DIRECT
                         )
 
+                    if schema_table_names and not is_direct_query and not modifiers.dataWarehouseEventsModifiers:
+                        catalog = list(
+                            tables_query.select_related("external_data_source").only(
+                                "id",
+                                "name",
+                                "external_data_source__id",
+                                "external_data_source__source_type",
+                                "external_data_source__prefix",
+                                "external_data_source__access_method",
+                            )
+                        )
+                        scoped_names = _schema_warehouse_scope(
+                            catalog, schema_table_names, [sq.name for sq in all_saved_queries]
+                        )
+                        if scoped_names is not None:
+                            prefixes = {name.split(".")[0] for name in scoped_names}
+                            has_dependencies = (
+                                any(view.name.split(".")[0] in prefixes for view in revenue_views)
+                                or bool(_revenue_trigger_prefixes(revenue_source_handles) & prefixes)
+                                or any(join.source_table_name in scoped_names for join in data_warehouse_joins)
+                                or any(expr.table_name in scoped_names for expr in data_warehouse_expressions)
+                            )
+                            if not has_dependencies:
+                                tables_query = tables_query.filter(name__in=scoped_names)
+
                     warehouse_tables = list(tables_query)
                     # Direct-query mode builds the direct-postgres tables, which read source.job_inputs, so
                     # keep it hydrated there instead of lazily reloading it per table.
@@ -2052,23 +2120,6 @@ class Database(BaseModel):
                                 connection_id=cast(str, connection_id),
                             )
                         ]
-
-        with timings.measure("data_warehouse_joins", emit_span=True):
-            data_warehouse_joins = list(DataWarehouseJoin.objects.filter(team_id=team.pk).exclude(deleted=True))
-
-        with timings.measure("data_warehouse_expressions", emit_span=True):
-            # canonical=True with the already-loaded team: for_team's own resolution queries the
-            # default DB, which some callers (e.g. ClickHouse-backed tests) can't reach.
-            expressions_query = DataWarehouseExpression.objects.for_team(
-                team.parent_team_id or team.pk, canonical=True
-            ).exclude(deleted=True)
-            # An expression is scoped either to one connection's direct-query database or to the
-            # default warehouse database; never both.
-            if is_direct_query:
-                expressions_query = expressions_query.filter(connection_id=connection_id)
-            else:
-                expressions_query = expressions_query.filter(connection_id__isnull=True)
-            data_warehouse_expressions = list(expressions_query)
 
         with timings.measure("attach_credentials", emit_span=True):
             # Tables and view-backing tables share the credential pool; attach across all of them.
@@ -3203,6 +3254,27 @@ def _strip_external_source_prefix(source: ExternalDataSource, table_name: str) -
             break
 
     return table_name_stripped
+
+
+def _schema_warehouse_scope(
+    tables: Sequence[DataWarehouseTable], requested: set[str], view_names: Collection[str]
+) -> set[str] | None:
+    names = [(table.name, get_data_warehouse_table_name(table.external_data_source, table.name)) for table in tables]
+    matched = {key for raw, key in names if raw in requested or key in requested}
+    if not requested.issubset({raw for raw, key in names if key in matched} | matched):
+        return None
+
+    # Inferred and explicit foreign keys add reverse fields, including the joined table's field
+    # names. Keep the whole namespace so those fields match a full catalog serialization.
+    namespaces = {name.rpartition(".")[0] for name in matched if "." in name}
+    if any(name in requested or name.rpartition(".")[0] in namespaces for name in view_names):
+        return None
+    return {
+        name
+        for raw, key in names
+        if key in matched or ("." in key and key.rpartition(".")[0] in namespaces)
+        for name in (raw, key)
+    }
 
 
 def _get_warehouse_table_keys(warehouse_table: DataWarehouseTable, *, direct_query: bool) -> list[str]:

@@ -5,7 +5,7 @@ import base64
 import asyncio
 import hashlib
 from collections.abc import AsyncGenerator, Iterator
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import Any, ClassVar, cast
 from urllib.parse import quote
@@ -4056,6 +4056,23 @@ class TestTaskAPI(BaseTaskAPITest):
         mock_workflow.assert_not_called()
 
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_start_run_endpoint_rejects_scheduled_run(self, mock_workflow):
+        task = self.create_task()
+        task_run = task.create_run(
+            environment=TaskRun.Environment.CLOUD,
+            scheduled_at=django_timezone.now() + timedelta(days=1),
+        )
+
+        response = self.client.post(f"/api/projects/@current/tasks/{task.id}/runs/{task_run.id}/start/")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            {"error": "This run is scheduled to start automatically. Wait for it to start, or create a new run."},
+        )
+        mock_workflow.assert_not_called()
+
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_start_run_endpoint_rolls_back_pending_state_when_workflow_trigger_fails(self, mock_workflow):
         mock_workflow.side_effect = RuntimeError("workflow start failed")
         task = self.create_task()
@@ -5392,8 +5409,13 @@ class TestTaskAPI(BaseTaskAPITest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual({t["id"] for t in response.json()["results"]}, {str(mentioned.id)})
 
-    def test_filter_by_pr_state_uses_latest_run_not_any_run(self):
-        """A task whose latest run has no PR state must not match an older run's state."""
+    def test_filter_by_pr_state_uses_the_latest_run_that_opened_a_pr(self):
+        """A resume doesn't drop the task's PR, so the filter reads the run that opened it.
+
+        The task response inherits that PR onto `latest_run.output` (see `_inherited_pr_fields`),
+        so anchoring this filter on the newest run instead would make `?pr_state=open` disagree
+        with the `latest_run` the same endpoint returns for the same task.
+        """
         base_time = django_timezone.now()
 
         task = self.create_task("Task with mixed PR runs")
@@ -5410,10 +5432,35 @@ class TestTaskAPI(BaseTaskAPITest):
             status=TaskRun.Status.IN_PROGRESS,
             created_at=base_time + timedelta(seconds=1),
         )
+        self.create_task("Task that never opened a PR")
 
         response = self.client.get("/api/projects/@current/tasks/?pr_state=open")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["results"], [])
+        self.assertEqual([t["id"] for t in response.json()["results"]], [str(task.id)])
+
+    def test_filter_by_pr_state_prefers_the_newer_of_two_prs(self):
+        """Two runs with their own PRs: the newer one's state is the task's."""
+        base_time = datetime(2026, 1, 1, tzinfo=UTC)
+
+        task = self.create_task("Task with two PRs")
+        TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            status=TaskRun.Status.COMPLETED,
+            created_at=base_time,
+            output={"pr_url": "https://github.com/posthog/posthog/pull/1", "pr_state": "open"},
+        )
+        TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            status=TaskRun.Status.COMPLETED,
+            created_at=base_time + timedelta(seconds=1),
+            output={"pr_url": "https://github.com/posthog/posthog/pull/2", "pr_state": "closed"},
+        )
+
+        self.assertEqual(self.client.get("/api/projects/@current/tasks/?pr_state=open").json()["results"], [])
+        closed = self.client.get("/api/projects/@current/tasks/?pr_state=closed")
+        self.assertEqual([t["id"] for t in closed.json()["results"]], [str(task.id)])
 
     def test_filter_by_status_uses_latest_run_not_any_run(self):
         """A task whose latest run is in_progress must not match status=completed, even if an older run completed."""

@@ -353,6 +353,7 @@ class TestPersonalAPIKeyScopeChanges(ActivityLogTestHelper):
                 filtered_teams = [teams_dict[team_id] for team_id in kwargs["pk__in"] if team_id in teams_dict]
                 mock_result = MagicMock()
                 mock_result.select_related.return_value = filtered_teams
+                mock_result.values_list.return_value = [(team.organization_id, team.id) for team in filtered_teams]
                 return mock_result
             elif "organization_id__in" in kwargs:
                 org_ids = kwargs["organization_id__in"]
@@ -387,6 +388,7 @@ class TestPersonalAPIKeyScopeChanges(ActivityLogTestHelper):
             else:
                 mock_result = MagicMock()
                 mock_result.select_related.return_value = []
+                mock_result.values_list.return_value = []
                 return mock_result
 
         return filter_teams
