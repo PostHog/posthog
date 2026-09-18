@@ -23,8 +23,13 @@ The VM receives no session cookies or API keys and has no network connection.
 
 Your project tree appears under `/posthog/files`.
 Markdown notebooks have a `.md` extension, and saving an existing markdown file updates the notebook with optimistic version checks.
-Other objects appear as read-only `.json` files; notebooks, insights, dashboards, and feature flags expose their API representations, while other types expose their filesystem records.
+Notebooks, insights, dashboards, feature flags, cohorts, actions, surveys, and experiments expose editable `.json` API representations when you have edit access.
+Other types expose read-only filesystem records.
 `/posthog/api` provides the same JSON representations grouped by type and ID.
+Saving JSON in either mount sends the parsed object to its existing update endpoint with PATCH, using the mounted object's ID and your current project.
+The API validates writable fields and ignores its read-only fields. Editing an ID inside the JSON does not change the target endpoint.
+Malformed JSON, non-object JSON, and API errors fail the save and preserve the edited bytes under `/posthog/recovery`; the error banner includes the API's reason when available.
+Notebook JSON saves retain version checks. Other objects use the concurrency behavior of their update endpoint.
 Extensions only affect this filesystem view, not names stored in PostHog.
 
 ```sh
@@ -88,7 +93,7 @@ Calls serialize through a guest file lock, so pipelines and background commands 
 Tool descriptions and argument schemas appear as JSON files under `/posthog/tools`; `ph tools` loads connected tool schemas there too.
 Run `ph refresh` after mutations to update the tree and tool catalog.
 
-Notebook writes commit on `fsync` or close.
+File writes commit on `fsync` or close.
 A rejected save returns an I/O error, shows a browser error banner, and preserves the edit under `/posthog/recovery`.
 Check that banner after saving: some programs do not check errors returned from `close`.
 Use `mkdir` and `mv` inside `/posthog/files` to create folders and move or rename project files and folders.
@@ -98,7 +103,7 @@ Moves to an existing destination are rejected rather than replacing another obje
 Use `rm` for files, `rmdir` for empty folders, and `rm -r` for folder trees under `/posthog/files`.
 Removing the last file reference deletes its PostHog object through the same permission checks as the project tree.
 Folder removal checks for remaining contents on the server, including contents absent from the terminal's snapshot.
-Files open for writing must be closed before removal. `/posthog/api` remains read-only.
+Files open for writing must be closed before removal. Remove or move objects through `/posthog/files`.
 Use `ph notebook-create` to create notebooks; creating ordinary files through the mount is unsupported.
 
 ```sh

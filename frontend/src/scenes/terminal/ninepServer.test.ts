@@ -147,6 +147,7 @@ describe('PostHog 9P filesystem', () => {
         const recovered = [...filesystem.recovery.children!.values()][0]
         expect(decoder.decode((await recovered.open!()).bytes)).toBe('My edit')
         expect(errors[0]).toContain(`/posthog/recovery/${recovered.name}`)
+        expect(errors[0]).toContain('Conflict')
         await walk('note.md')
         expect(await open(1)).toBe(13)
     })
