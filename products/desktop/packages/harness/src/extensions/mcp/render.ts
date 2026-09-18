@@ -50,12 +50,12 @@ export function formatArgsExpanded(args: unknown): string {
 }
 
 export function renderMcpToolCall(
-  piName: string,
+  displayName: string,
   args: unknown,
   theme: Theme,
   expanded: boolean,
 ): InstanceType<typeof Text> {
-  let text = theme.fg("toolTitle", theme.bold(piName));
+  let text = theme.fg("toolTitle", theme.bold(displayName));
   if (expanded) {
     const pretty = formatArgsExpanded(args);
     if (pretty) {
@@ -180,11 +180,12 @@ function renderSearchResult(
 function renderCallOutput(
   server: string,
   tool: string,
+  title: string | undefined,
   content: ReadonlyArray<{ type: string; text?: string }>,
   theme: Theme,
   expanded: boolean,
 ): string {
-  const header = `${theme.fg("toolTitle", theme.bold(server))} ${theme.fg("muted", "\u2192")} ${theme.fg("dim", tool)}`;
+  const header = `${theme.fg("toolTitle", theme.bold(server))} ${theme.fg("muted", "\u2192")} ${theme.fg("dim", title ?? tool)}`;
   const text = content
     .map((c) => (c.type === "text" ? (c.text ?? "") : `[${c.type}]`))
     .join("\n")
@@ -260,6 +261,7 @@ export function renderMcpProxyResult(
         renderCallOutput(
           details.server,
           details.tool,
+          details.title,
           result.content,
           theme,
           options.expanded,

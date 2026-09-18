@@ -13,7 +13,7 @@ export interface PosthogToolMeta {
   /** Agent-facing tool name, e.g. "Bash" or "mcp__posthog__exec". */
   toolName: string;
   /** Set only for MCP tool calls — the originating server + tool. */
-  mcp?: { server: string; tool: string };
+  mcp?: { server: string; tool: string; title?: string };
   mcpProxy?: PiMcpCallDetails;
   mcpInstallationId?: string;
   /** Parent subagent tool call for nested activity. */
@@ -80,7 +80,7 @@ export function readParentToolCallId(meta: unknown): string | undefined {
  */
 export function readMcpToolDescriptor(
   meta: unknown,
-): { server: string; tool: string } | undefined {
+): { server: string; tool: string; title?: string } | undefined {
   const m = asToolCallMeta(meta);
   if (m?.posthog?.mcp) return m.posthog.mcp;
   const name = m?.posthog?.toolName ?? m?.claudeCode?.toolName;

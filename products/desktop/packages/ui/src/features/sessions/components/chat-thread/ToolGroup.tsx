@@ -1,3 +1,4 @@
+import { getPostHogExecDisplay } from "@posthog/core/sessions/posthogExecDisplay";
 import {
   ChatMarker,
   ChatMarkerContent,
@@ -76,17 +77,6 @@ function friendlyName(key: string): string {
 }
 
 function mcpDisplayName(toolCall: ToolCall): string | undefined {
-  const descriptor = readMcpToolDescriptor(toolCall._meta);
-  if (descriptor) {
-    return formatPiMcpToolName(mcpToolKey(descriptor));
-  }
-
-  if (toolCall.title.startsWith("mcp_")) {
-    return formatPiMcpToolName(toolCall.title);
-  }
-
-  if (toolCall.title !== "mcp") return undefined;
-
   const details =
     readPiMcpCallDetails(toolCall.details) ??
     readMcpProxyCallDetails(toolCall._meta);
@@ -94,9 +84,27 @@ function mcpDisplayName(toolCall: ToolCall): string | undefined {
     return `Searching MCP tools for "${details.query}"`;
   }
   if (details?.kind === "tool") {
-    return formatPiMcpToolName(details.name);
+    const posthogDisplay = getPostHogExecDisplay({
+      tool: details.name,
+      args: details.args,
+    });
+    const descriptor = readMcpToolDescriptor(toolCall._meta);
+    const label = posthogDisplay?.label ?? descriptor?.title;
+    return label
+      ? formatPiMcpToolName(details.name, label)
+      : formatPiMcpToolName(details.name);
   }
-  return "MCP";
+
+  const descriptor = readMcpToolDescriptor(toolCall._meta);
+  if (descriptor) {
+    return formatPiMcpToolName(mcpToolKey(descriptor), descriptor.title);
+  }
+
+  if (toolCall.title.startsWith("mcp_")) {
+    return formatPiMcpToolName(toolCall.title);
+  }
+
+  return toolCall.title === "mcp" ? "MCP" : undefined;
 }
 
 function isToolActive(item: SessionUpdateItem): boolean {

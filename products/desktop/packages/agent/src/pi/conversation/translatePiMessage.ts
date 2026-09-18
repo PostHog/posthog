@@ -67,6 +67,7 @@ const mcpToolDetailsSchema: z.ZodType<McpCallDetails> = z.object({
     mcp: z.object({
       server: z.string().min(1),
       tool: z.string().min(1),
+      title: z.string().min(1).optional(),
       result: mcpResultMetaSchema.optional(),
     }),
   }),

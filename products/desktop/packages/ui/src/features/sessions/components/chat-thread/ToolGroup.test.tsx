@@ -178,11 +178,15 @@ describe("ToolGroup", () => {
           title: "mcp",
           toolMeta: posthogToolMeta({
             toolName: "mcp__posthog__query-trends",
-            mcp: { server: "posthog", tool: "query-trends" },
+            mcp: {
+              server: "posthog",
+              tool: "query-trends",
+              title: "Query trends",
+            },
           }),
         }),
       ],
-      expected: "posthog - query trends",
+      expected: "posthog - Query trends",
     },
     {
       name: "ignores malformed MCP display details",

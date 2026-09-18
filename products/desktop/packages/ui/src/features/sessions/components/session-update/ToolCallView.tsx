@@ -3,6 +3,7 @@ import {
   compactHomePath,
   formatPiMcpToolName,
   readMcpProxyCallDetails,
+  readMcpToolDescriptor,
   readPiMcpCallDetails,
 } from "@posthog/shared";
 import type { ToolCall } from "@posthog/ui/features/sessions/types";
@@ -57,13 +58,24 @@ function mcpProxyDisplay(
       tool: details.name,
       args: details.args,
     });
-    if (posthogDisplay) {
+    const descriptor = readMcpToolDescriptor(toolCall._meta);
+    const label = posthogDisplay?.label ?? descriptor?.title;
+    if (label) {
       return {
-        title: formatPiMcpToolName(details.name, posthogDisplay.label),
-        input: posthogDisplay.input,
+        title: formatPiMcpToolName(details.name, label),
+        ...(posthogDisplay?.input ? { input: posthogDisplay.input } : {}),
       };
     }
     return { title: formatPiMcpToolName(details.name) };
+  }
+  const descriptor = readMcpToolDescriptor(toolCall._meta);
+  if (descriptor) {
+    return {
+      title: formatPiMcpToolName(
+        `mcp__${descriptor.server}__${descriptor.tool}`,
+        descriptor.title,
+      ),
+    };
   }
   if (toolCall.title.startsWith("mcp_")) {
     return { title: formatPiMcpToolName(toolCall.title) };

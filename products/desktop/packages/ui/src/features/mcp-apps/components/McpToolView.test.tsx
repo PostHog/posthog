@@ -48,24 +48,33 @@ describe("McpToolView", () => {
     {
       toolName: "mcp__posthog__query",
       rawInput: {},
-      expected: "posthog - query",
+      meta: {
+        posthog: {
+          toolName: "mcp__posthog__query",
+          mcp: { server: "posthog", tool: "query", title: "Run query" },
+        },
+      },
+      expected: "posthog - Run query",
     },
     {
       toolName: "mcp__posthog__exec",
       rawInput: { command: "call feature-flag-get-all" },
       expected: "posthog - feature-flag-get-all",
     },
-  ])("shows the relevant MCP tool name", ({ toolName, rawInput, expected }) => {
-    render(
-      <Theme>
-        <McpToolView
-          toolCall={makeToolCall({ rawInput })}
-          mcpToolName={toolName}
-          expanded
-        />
-      </Theme>,
-    );
+  ])(
+    "shows the relevant MCP tool name",
+    ({ toolName, rawInput, meta, expected }) => {
+      render(
+        <Theme>
+          <McpToolView
+            toolCall={makeToolCall({ rawInput, _meta: meta })}
+            mcpToolName={toolName}
+            expanded
+          />
+        </Theme>,
+      );
 
-    expect(screen.getByText(expected)).toBeInTheDocument();
-  });
+      expect(screen.getByText(expected)).toBeInTheDocument();
+    },
+  );
 });

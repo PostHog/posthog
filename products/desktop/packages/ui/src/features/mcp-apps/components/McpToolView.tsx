@@ -3,6 +3,7 @@ import {
   getPostHogExecDisplay,
   isPostHogExecTool,
 } from "@posthog/core/sessions/posthogExecDisplay";
+import { readMcpToolDescriptor } from "@posthog/shared";
 import { useChatThreadChrome } from "../../sessions/components/chat-thread/chatThreadChrome";
 import { ToolRow } from "../../sessions/components/session-update/ToolRow";
 import {
@@ -43,10 +44,12 @@ export function McpToolView({
 
   const { serverName: defaultServerName, toolName: defaultToolName } =
     parseMcpToolKey(mcpToolName);
+  const descriptor = readMcpToolDescriptor(toolCall._meta);
   const posthogDisplay = isPostHogExecTool(mcpToolName)
     ? getPostHogExecDisplay(rawInput)
     : null;
-  const toolName = posthogDisplay?.label ?? defaultToolName;
+  const toolName =
+    posthogDisplay?.label ?? descriptor?.title ?? defaultToolName;
   const displayName = `${defaultServerName} - ${toolName}`;
   const inputPreview = posthogDisplay
     ? posthogDisplay.input

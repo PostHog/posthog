@@ -57,7 +57,13 @@ describe("ToolCallView", () => {
     },
     {
       title: "mcp__posthog__project-get",
-      expected: "posthog - project get",
+      meta: {
+        posthog: {
+          toolName: "mcp__posthog__project-get",
+          mcp: { server: "posthog", tool: "project-get", title: "Get project" },
+        },
+      },
+      expected: "posthog - Get project",
     },
     {
       title: "mcp",
