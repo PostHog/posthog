@@ -1049,7 +1049,11 @@ class TestPaths(ClickhouseTestMixin, APIBaseTest):
         response = PathsQueryRunner(
             query={
                 "kind": "PathsQuery",
-                "pathsFilter": {"stripQueryString": True, "excludeEvents": ["/spam?ref=ad"]},
+                "pathsFilter": {
+                    "includeEventTypes": ["$pageview"],
+                    "stripQueryString": True,
+                    "excludeEvents": ["/spam?ref=ad"],
+                },
             },
             team=self.team,
         ).run()
