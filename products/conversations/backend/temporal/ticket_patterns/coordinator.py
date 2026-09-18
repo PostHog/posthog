@@ -72,7 +72,12 @@ def _collect_eligible_teams() -> list[EligibleTeam]:
         .order_by("id")
     )
     # Start each tick where the cap would otherwise keep cutting, so team 51 is not starved
-    # forever. Every team is reached within ceil(len / MAX_TEAMS_PER_RUN) ticks.
+    # forever. This reaches every team within ceil(len / MAX_TEAMS_PER_RUN) ticks only while the
+    # schedule fires every tick, because the offset counts wall-clock ticks rather than runs that
+    # happened. Fires dropped on a fixed period can pin the offset and starve the rest: 100 teams
+    # with every second fire dropped holds it at 0 forever. The schedule's execution timeout is
+    # what stops a run outliving its interval and dropping the next fire. Holding the guarantee
+    # through a dropped fire instead would need a stored cursor, which this design does without.
     if len(opted_in) > MAX_TEAMS_PER_RUN:
         tick = int(timezone.now().timestamp() // (COORDINATOR_INTERVAL_MINUTES * 60))
         offset = (tick * MAX_TEAMS_PER_RUN) % len(opted_in)
