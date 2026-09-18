@@ -20,6 +20,10 @@ from posthog.schema import (
 
 from posthog.models.team.team import Team
 
+from products.experiments.backend.metric_conversion_window import (
+    UNITLESS_CONVERSION_WINDOW_ERROR,
+    first_unitless_conversion_window,
+)
 from products.experiments.backend.models.experiment import (
     LEGACY_METRIC_KINDS,
     ExperimentSavedMetric,
@@ -102,7 +106,9 @@ class ExperimentSavedMetricService:
 
         if "query" in update_data:
             existing_uuid = saved_metric.query.get("uuid") if saved_metric.query else None
-            update_data["query"] = self._normalize_query_for_write(update_data["query"], existing_uuid=existing_uuid)
+            update_data["query"] = self._normalize_query_for_write(
+                update_data["query"], existing_uuid=existing_uuid, stored_query=saved_metric.query
+            )
             enforce_warehouse_metric_access([update_data["query"]], team=self.team, user=self.user)
 
         for attr, value in update_data.items():
@@ -124,7 +130,9 @@ class ExperimentSavedMetricService:
             raise ValidationError("Saved metric does not exist or does not belong to this project")
 
     @classmethod
-    def _normalize_query_for_write(cls, query: dict, *, existing_uuid: str | None = None) -> dict:
+    def _normalize_query_for_write(
+        cls, query: dict, *, existing_uuid: str | None = None, stored_query: dict | None = None
+    ) -> dict:
         cls.validate_query(query)
 
         normalized_query = dict(query)
@@ -137,6 +145,12 @@ class ExperimentSavedMetricService:
             normalized_query["uuid"] = existing_uuid
         elif not incoming_uuid:
             normalized_query["uuid"] = str(uuid4())
+
+        # An update resends the whole query, so a stored unit-less window stays editable. The
+        # normalized query keeps the stored identity, whether or not the stored row carries a uuid.
+        stored_by_uuid = {normalized_query["uuid"]: stored_query} if stored_query else {}
+        if first_unitless_conversion_window([normalized_query], stored_by_uuid) is not None:
+            raise ValidationError(f"Invalid query: {UNITLESS_CONVERSION_WINDOW_ERROR}")
 
         return normalized_query
 

@@ -1,3 +1,5 @@
+from uuid import uuid4
+
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
@@ -304,3 +306,27 @@ class TestExperimentSavedMetricService(APIBaseTest):
             assert updated.description == "Updated description"
         elif field_name == "query":
             assert updated.query["source"]["event"] == "$pageleave"
+
+    def test_create_saved_metric_rejects_conversion_window_without_unit(self) -> None:
+        with self.assertRaises(ValidationError) as ctx:
+            self._service().create_saved_metric(
+                name="Window without unit",
+                query={**self._valid_experiment_metric(), "conversion_window": 7},
+            )
+
+        assert "conversion_window_unit" in str(ctx.exception)
+
+    def test_update_saved_metric_keeps_stored_unitless_window_editable(self) -> None:
+        # Written through the model: the service now refuses this shape, but saved metrics hold it.
+        stored_query = {**self._valid_experiment_metric(), "uuid": str(uuid4()), "conversion_window": 7}
+        saved_metric = ExperimentSavedMetric.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="Original name",
+            query=stored_query,
+        )
+
+        updated = self._service().update_saved_metric(saved_metric, {"name": "Updated name", "query": stored_query})
+
+        assert updated.name == "Updated name"
+        assert updated.query["conversion_window"] == 7
