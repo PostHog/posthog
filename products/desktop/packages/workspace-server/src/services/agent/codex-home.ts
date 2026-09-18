@@ -25,6 +25,15 @@ export function getCodexHomeDir(
 }
 
 /**
+ * CODEX_HOME for the account cloud tasks bill to. A separate device
+ * authorization from the user's own `~/.codex`, so neither login breaks the
+ * other.
+ */
+export function getCloudAccountCodexHome(appDataPath: string): string {
+  return path.join(appDataPath, "codex-cloud-account");
+}
+
+/**
  * Empties a task run's private CODEX_HOME except `sessions/`, the thread
  * rollouts `thread/resume` needs after the app relaunches. Safe for any
  * adapter — a no-op when the directory was never created.

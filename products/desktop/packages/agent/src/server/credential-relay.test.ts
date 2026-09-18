@@ -50,7 +50,7 @@ describe("CredentialRelay", () => {
 
     relay.resolve({ requestId, error: "sensitive-untrusted-error" });
     await expect(tokenPromise).rejects.toThrow(
-      "PostHog Desktop could not provide the Claude token.",
+      "PostHog Desktop could not provide the subscription token.",
     );
   });
 
