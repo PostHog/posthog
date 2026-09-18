@@ -7,6 +7,7 @@ import { LogsViewer } from 'scenes/hog-functions/logs/LogsViewer'
 import { urls } from 'scenes/urls'
 
 import { renderWorkflowLogMessage } from '../../logs/log-utils'
+import { WorkflowDraftBanner } from '../../WorkflowDraftBanner'
 import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
 
 export function HogFlowEditorPanelLogs(): JSX.Element | null {
@@ -18,6 +19,10 @@ export function HogFlowEditorPanelLogs(): JSX.Element | null {
 
     return (
         <>
+            <WorkflowDraftBanner
+                className="m-2 mb-0"
+                message="This workflow is a draft, so it does not run. No new logs arrive until you enable it."
+            />
             <div className="border-b">
                 <LemonButton to={urls.workflow(workflow.id, 'logs')} size="xsmall" sideIcon={<IconOpenInApp />}>
                     {shouldShowActionLevelLogs

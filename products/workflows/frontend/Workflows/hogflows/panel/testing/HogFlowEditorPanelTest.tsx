@@ -28,6 +28,7 @@ import { urls } from 'scenes/urls'
 import { asDisplay } from 'products/persons/frontend/person-utils'
 
 import { renderWorkflowLogMessage } from '../../../logs/log-utils'
+import { WorkflowDraftBanner } from '../../../WorkflowDraftBanner'
 import { TRIGGER_NODE_ID, workflowLogic } from '../../../workflowLogic'
 import { hogFlowEditorLogic } from '../../hogFlowEditorLogic'
 import { hogFlowEditorTestLogic } from './hogFlowEditorTestLogic'
@@ -342,6 +343,8 @@ export function HogFlowEditorPanelTest(): JSX.Element | null {
                                       ? 'Workflow was skipped because the event did not match the filter criteria'
                                       : 'Error: ' + testResult.errors?.join(', ')}
                             </LemonBanner>
+
+                            <WorkflowDraftBanner message="This workflow is a draft, so it does not run for your users." />
 
                             <div className="flex flex-col gap-2">
                                 <LemonLabel>Logs</LemonLabel>
