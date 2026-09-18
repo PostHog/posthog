@@ -3756,19 +3756,28 @@ class HogFlowPagination(LimitOffsetPagination):
     max_limit = 500
 
 
-# What a person remembers about a message they received or authored. The email `html`, `text` and
-# `design` are left out because their markup and boilerplate would match almost any search term.
-_ACTION_SEARCH_TEXT_PATHS = (
+# The email body as a person reads it: the editor's plain-text export when it exists, otherwise the HTML
+# with style blocks and tags removed, so CSS and markup never match a search term. The first quantifier
+# is non-greedy because Postgres gives a whole regex the greediness of its first quantifier.
+_EMAIL_BODY_TEXT_SQL = (
+    "COALESCE(NULLIF(action #>> '{config,inputs,email,value,text}', ''), "
+    "regexp_replace(regexp_replace(action #>> '{config,inputs,email,value,html}', "
+    "'<style[^>]*?>.*?</style>', ' ', 'gi'), '<[^>]+>', ' ', 'g'))"
+)
+
+# What a person remembers about a message they received or authored.
+_ACTION_SEARCH_TEXT_SQL = (
     "action ->> 'name'",
     "action #>> '{config,inputs,email,value,subject}'",
     "action #>> '{config,inputs,email,value,preheader}'",
+    _EMAIL_BODY_TEXT_SQL,
 )
 
 
 def _action_content_matches(regex_pattern: str) -> RawSQL:
     """A predicate that is true when a step in the live actions or the pending draft matches the search."""
     table = HogFlow._meta.db_table
-    step_matches = " OR ".join(f"{path} ~* %s" for path in _ACTION_SEARCH_TEXT_PATHS)
+    step_matches = " OR ".join(f"{text} ~* %s" for text in _ACTION_SEARCH_TEXT_SQL)
     clauses = []
     for source in (f'"{table}"."actions"', f'"{table}"."draft" -> \'actions\''):
         # `actions` defaults to {} on a workflow that never got a graph, and jsonb_array_elements raises on
@@ -3778,7 +3787,7 @@ def _action_content_matches(regex_pattern: str) -> RawSQL:
             f"CASE WHEN jsonb_typeof({source}) = 'array' THEN {source} ELSE '[]'::jsonb END"
             f") AS action WHERE {step_matches})"
         )
-    params = [regex_pattern] * (len(clauses) * len(_ACTION_SEARCH_TEXT_PATHS))
+    params = [regex_pattern] * (len(clauses) * len(_ACTION_SEARCH_TEXT_SQL))
     return RawSQL(" OR ".join(clauses), params, output_field=models.BooleanField())
 
 
@@ -3850,7 +3859,7 @@ WRITABLE_DRAFT_CONTENT_FIELDS = frozenset(DRAFT_CONTENT_FIELDS) - frozenset(HogF
             OpenApiParameter(
                 "search",
                 OpenApiTypes.STR,
-                description="Case-insensitive search across workflow name and description, step names, and the subject line and preheader of email steps, in both the live workflow and its pending draft.",
+                description="Case-insensitive search. Matches workflow name and description first; only when nothing matches those, it matches step names and the subject line, preheader and body text of email steps, in both the live workflow and its pending draft.",
             ),
             OpenApiParameter(
                 "created_by",
@@ -3996,21 +4005,6 @@ class HogFlowViewSet(
             # otherwise repeat on one page and never appear on another.
             queryset = queryset.order_by("-updated_at", "-id")
 
-            search = self.request.GET.get("search")
-            if search is not None:
-                search = search.strip()
-                if search:
-                    if len(search) > 200:
-                        raise exceptions.ValidationError({"search": "Search term cannot exceed 200 characters"})
-                    # Escape regex metacharacters, then let spaces match any run of space/dash/underscore
-                    # so "welcome email" also matches "welcome-email" — same approach as feature flag search.
-                    regex_pattern = re.escape(search).replace(r"\ ", r"[\s\-_]*")
-                    queryset = queryset.filter(
-                        Q(name__iregex=regex_pattern)
-                        | Q(description__iregex=regex_pattern)
-                        | Q(_action_content_matches(regex_pattern))
-                    )
-
             created_by = self.request.GET.get("created_by")
             if created_by:
                 try:
@@ -4055,6 +4049,31 @@ class HogFlowViewSet(
                 raise exceptions.ValidationError({"trigger": f"Invalid trigger"})
 
         return queryset
+
+    def filter_queryset(self, queryset: QuerySet) -> QuerySet:
+        # Search runs after the filter backends so the tier decision below sees the same rows the response
+        # will: a name match that the `status` filter then drops must not stop the step search from running.
+        queryset = super().filter_queryset(queryset)
+        if self.action != "list":
+            return queryset
+
+        search = (self.request.GET.get("search") or "").strip()
+        if not search:
+            return queryset
+        if len(search) > 200:
+            raise exceptions.ValidationError({"search": "Search term cannot exceed 200 characters"})
+        # Escape regex metacharacters, then let spaces match any run of space/dash/underscore
+        # so "welcome email" also matches "welcome-email" — same approach as feature flag search.
+        regex_pattern = re.escape(search).replace(r"\ ", r"[\s\-_]*")
+
+        # Name and description are small columns, while the step search has to read every workflow's `actions`
+        # JSON (tens of KB per email step). Only fall through to the step content when nothing matched by
+        # name, so the common search stays cheap and a subject line or body text, which rarely appears in a
+        # workflow name, is still found.
+        by_name = Q(name__iregex=regex_pattern) | Q(description__iregex=regex_pattern)
+        if queryset.filter(by_name).exists():
+            return queryset.filter(by_name)
+        return queryset.filter(Q(_action_content_matches(regex_pattern)))
 
     def safely_get_object(self, queryset):
         # TODO(team-workflows): Somehow implement version lookups

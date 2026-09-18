@@ -219,22 +219,28 @@ class TestHogFlowAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("name_match", "welcome", {"Welcome email"}),
-            ("case_insensitive", "WELCOME", {"Welcome email"}),
-            ("description_match", "quarterly", {"Digest"}),
-            ("space_matches_separators", "password reset", {"Password reset"}),
-            ("step_name_match", "monthly invoice", {"Billing"}),
-            ("email_subject_match", "for march", {"Billing"}),
-            ("email_preheader_match", "billing page", {"Billing"}),
-            ("email_body_not_searched", "footer-links", set()),
-            ("draft_email_subject_match", "beta access", {"Onboarding"}),
-            ("no_match", "nonexistent", set()),
+            ("name_match", "search=welcome", {"Welcome email"}),
+            ("case_insensitive", "search=WELCOME", {"Welcome email"}),
+            ("description_match", "search=quarterly", {"Digest"}),
+            ("space_matches_separators", "search=password reset", {"Password reset"}),
+            ("step_name_match", "search=monthly invoice", {"Billing"}),
+            ("email_subject_match", "search=for march", {"Billing"}),
+            ("email_preheader_match", "search=billing page", {"Billing"}),
+            ("email_body_text_match", "search=is attached", {"Billing"}),
+            ("email_markup_not_searched", "search=footer-links", set()),
+            ("email_html_only_body_match", "search=for your payment", {"Receipts"}),
+            ("email_css_not_searched", "search=111111", set()),
+            ("draft_email_subject_match", "search=beta access", {"Onboarding"}),
+            ("name_tier_hides_step_matches", "search=march", {"March campaign"}),
+            ("tier_decision_respects_status_filter", "search=march&status=draft", {"Billing"}),
+            ("no_match", "search=nonexistent", set()),
         ]
     )
-    def test_list_search_matches_name_description_and_step_content(self, _name, search, expected_names):
+    def test_list_search_matches_name_description_and_step_content(self, _name, query, expected_names):
         HogFlow.objects.create(team=self.team, name="Welcome email", created_by=self.user)
         HogFlow.objects.create(team=self.team, name="Password reset", created_by=self.user)
         HogFlow.objects.create(team=self.team, name="Digest", description="quarterly summary", created_by=self.user)
+        HogFlow.objects.create(team=self.team, name="March campaign", status=HogFlow.State.ACTIVE, created_by=self.user)
         HogFlow.objects.create(
             team=self.team,
             name="Billing",
@@ -262,6 +268,29 @@ class TestHogFlowAPI(APIBaseTest):
         )
         HogFlow.objects.create(
             team=self.team,
+            name="Receipts",
+            created_by=self.user,
+            actions=[
+                {
+                    "id": "email_1",
+                    "name": "Receipt email",
+                    "type": "function_email",
+                    "config": {
+                        "template_id": "template-email",
+                        "inputs": {
+                            "email": {
+                                "value": {
+                                    "subject": "Your receipt",
+                                    "html": '<style type="text/css">.footer { color: #111111; }</style><p>Thanks for your <strong>payment</strong></p>',
+                                }
+                            }
+                        },
+                    },
+                }
+            ],
+        )
+        HogFlow.objects.create(
+            team=self.team,
             name="Onboarding",
             status=HogFlow.State.ACTIVE,
             created_by=self.user,
@@ -280,7 +309,7 @@ class TestHogFlowAPI(APIBaseTest):
             },
         )
 
-        response = self.client.get(f"/api/projects/{self.team.id}/hog_flows?search={search}")
+        response = self.client.get(f"/api/projects/{self.team.id}/hog_flows?{query}")
         assert response.status_code == 200, response.json()
         assert {flow["name"] for flow in response.json()["results"]} == expected_names
 

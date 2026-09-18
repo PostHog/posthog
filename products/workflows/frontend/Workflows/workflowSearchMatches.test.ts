@@ -24,7 +24,13 @@ function emailAction(id: string, name: string, value: Record<string, unknown>): 
 const invoiceEmail = emailAction('email_1', 'Monthly invoice email', {
     subject: 'Your invoice for March is ready',
     preheader: 'Download it from your billing page',
+    text: 'Your invoice is attached. Reply to this email if a line item looks wrong.',
     html: '<table class="footer-links"><tr><td>Your invoice is attached.</td></tr></table>',
+})
+
+const receiptEmail = emailAction('email_2', 'Receipt email', {
+    subject: 'Your receipt',
+    html: '<style type="text/css">.footer { color: #111111; }</style><p>Thanks for your <strong>payment</strong></p>',
 })
 
 describe('findMatchingWorkflowSteps', () => {
@@ -40,17 +46,41 @@ describe('findMatchingWorkflowSteps', () => {
             'billing page',
             { actionId: 'email_1', field: 'Email preheader', value: 'Download it from your billing page' },
         ],
+        [
+            'email body text, excerpted around the match',
+            'line item',
+            {
+                actionId: 'email_1',
+                field: 'Email body',
+                value: '…is attached. Reply to this email if a line item looks wrong.',
+            },
+        ],
+        [
+            'email body text, excerpt cut at a word boundary',
+            'attached',
+            {
+                actionId: 'email_1',
+                field: 'Email body',
+                value: 'Your invoice is attached. Reply to this email if a line item…',
+            },
+        ],
+        [
+            'email HTML with the markup stripped when there is no plain text',
+            'for your payment',
+            { actionId: 'email_2', field: 'Email body', value: 'Thanks for your payment' },
+        ],
     ])('matches the %s', (_field, search, expected) => {
-        const workflow = workflowWith({ actions: [invoiceEmail] })
+        const workflow = workflowWith({ actions: [invoiceEmail, receiptEmail] })
         expect(findMatchingWorkflowSteps(workflow, search)).toEqual([expected])
     })
 
     test.each([
         ['the search is blank', '   '],
-        ['the email body matched', 'footer-links'],
+        ['only the HTML markup matched', 'footer-links'],
+        ['only a style block matched', '111111'],
         ['the search has regex characters that appear nowhere', 'invoice (march)'],
     ])('returns nothing when %s', (_reason, search) => {
-        const workflow = workflowWith({ actions: [invoiceEmail] })
+        const workflow = workflowWith({ actions: [invoiceEmail, receiptEmail] })
         expect(findMatchingWorkflowSteps(workflow, search)).toEqual([])
     })
 

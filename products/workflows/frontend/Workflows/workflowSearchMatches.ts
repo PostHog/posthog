@@ -1,7 +1,7 @@
 import { isEmailAction } from './hogflows/steps/types'
 import { HogFlow, HogFlowAction } from './hogflows/types'
 
-export type WorkflowStepMatchField = 'Step' | 'Email subject' | 'Email preheader'
+export type WorkflowStepMatchField = 'Step' | 'Email subject' | 'Email preheader' | 'Email body'
 
 export interface WorkflowStepMatch {
     actionId: string
@@ -9,8 +9,42 @@ export interface WorkflowStepMatch {
     value: string
 }
 
+const EXCERPT_PADDING = 40
+
 function escapeRegExp(value: string): string {
     return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+/** The body as a person reads it: the editor's plain-text export, else the HTML without styles and tags. */
+function emailBodyText(email: Record<string, unknown> | undefined): string | null {
+    if (typeof email?.text === 'string' && email.text.trim()) {
+        return email.text
+    }
+    if (typeof email?.html === 'string') {
+        return email.html.replace(/<style[^>]*>[\s\S]*?<\/style>/gi, ' ').replace(/<[^>]+>/g, ' ')
+    }
+    return null
+}
+
+function excerptAround(text: string, regex: RegExp): string | null {
+    const collapsed = text.replace(/\s+/g, ' ').trim()
+    const match = regex.exec(collapsed)
+    if (!match) {
+        return null
+    }
+    const matchEnd = match.index + match[0].length
+    let start = Math.max(0, match.index - EXCERPT_PADDING)
+    let end = Math.min(collapsed.length, matchEnd + EXCERPT_PADDING)
+    // Snap to word boundaries so the excerpt does not open or close mid-word.
+    const firstSpace = collapsed.indexOf(' ', start)
+    if (start > 0 && firstSpace !== -1 && firstSpace < match.index) {
+        start = firstSpace + 1
+    }
+    const lastSpace = collapsed.lastIndexOf(' ', end)
+    if (end < collapsed.length && lastSpace > matchEnd) {
+        end = lastSpace
+    }
+    return `${start > 0 ? '…' : ''}${collapsed.slice(start, end)}${end < collapsed.length ? '…' : ''}`
 }
 
 /**
@@ -32,7 +66,7 @@ function matchStep(action: HogFlowAction, regex: RegExp): WorkflowStepMatch | nu
     if (!isEmailAction(action)) {
         return null
     }
-    const email = action.config.inputs?.email?.value
+    const email: Record<string, unknown> | undefined = action.config.inputs?.email?.value
     const candidates: [WorkflowStepMatchField, unknown][] = [
         ['Email subject', email?.subject],
         ['Email preheader', email?.preheader],
@@ -42,7 +76,9 @@ function matchStep(action: HogFlowAction, regex: RegExp): WorkflowStepMatch | nu
             return { actionId: action.id, field, value }
         }
     }
-    return null
+    const body = emailBodyText(email)
+    const excerpt = body ? excerptAround(body, regex) : null
+    return excerpt ? { actionId: action.id, field: 'Email body', value: excerpt } : null
 }
 
 /**

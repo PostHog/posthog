@@ -1792,7 +1792,7 @@ export type HogFlowsListParams = {
      */
     origin_product?: HogFlowsListOriginProduct
     /**
-     * Case-insensitive search across workflow name and description, step names, and the subject line and preheader of email steps, in both the live workflow and its pending draft.
+     * Case-insensitive search. Matches workflow name and description first; only when nothing matches those, it matches step names and the subject line, preheader and body text of email steps, in both the live workflow and its pending draft.
      */
     search?: string
     /**

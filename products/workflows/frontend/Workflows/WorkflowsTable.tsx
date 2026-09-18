@@ -110,7 +110,7 @@ function WorkflowActionsSummary({ workflow }: { workflow: HogFlow }): JSX.Elemen
 function WorkflowStepMatches({ workflow, matches }: { workflow: HogFlow; matches: WorkflowStepMatch[] }): JSX.Element {
     const hiddenCount = matches.length - MAX_VISIBLE_STEP_MATCHES
     return (
-        <div className="mt-1 text-xs text-secondary">
+        <div className="mt-1 max-w-sm text-xs text-secondary">
             {matches.slice(0, MAX_VISIBLE_STEP_MATCHES).map((match) => (
                 <Link
                     key={match.actionId}
@@ -385,7 +385,7 @@ export function WorkflowsTable(): JSX.Element {
                 <div className="flex justify-between gap-2 flex-wrap mb-4">
                     <LemonInput
                         type="search"
-                        placeholder="Search by name or subject"
+                        placeholder="Search by name or email text"
                         onChange={(search) => setFilters({ search })}
                         value={filters.search}
                     />
