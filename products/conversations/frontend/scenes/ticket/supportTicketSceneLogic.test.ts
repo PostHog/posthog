@@ -1130,6 +1130,26 @@ describe('supportTicketSceneLogic message load failures', () => {
         }
     )
 
+    // The newer load owns the thread and will report its own outcome, so the older one's failure
+    // must not reach the agent or the failure rate.
+    it('stays quiet when a superseded poll fails after a newer one starts', async () => {
+        let rejectStalePoll: ((reason: Error) => void) | undefined
+        commentsListMock.mockImplementationOnce(
+            () =>
+                new Promise((_resolve, reject) => {
+                    rejectStalePoll = reject
+                })
+        )
+
+        logic.actions.loadMessages()
+        logic.actions.loadMessages()
+        rejectStalePoll?.(new Error('thread unavailable'))
+        await new Promise((resolve) => setTimeout(resolve, 0))
+
+        expect(errorToast).not.toHaveBeenCalled()
+        expect(captureMock).not.toHaveBeenCalledWith('support agent surface load failed', expect.anything())
+    })
+
     it('reports a failed ticket load to the agent and to the failure rate', async () => {
         ticketGetMock.mockRejectedValueOnce(new Error('ticket unavailable'))
 

@@ -1294,6 +1294,7 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
             const revision = ++cache.messageRevision
             const ticketId = values.ticket.id
             const isLive = whileMounted(cache)
+            const isSuperseded = (): boolean => cache.messageRevision !== revision || values.ticket?.id !== ticketId
             let response: CountedPaginatedResponse<CommentType>
             try {
                 response = await api.comments.list({
@@ -1304,19 +1305,23 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 if (!isLive()) {
                     return
                 }
-                captureSupportAgentLoadFailed({
-                    surface: 'ticket_scene',
-                    reason: 'thread_load_failed',
-                    error,
-                })
-                lemonToast.error('Failed to load messages')
+                // A newer load owns the thread now, so this one's failure is neither worth telling
+                // the agent about nor worth counting against the surface.
+                if (!isSuperseded()) {
+                    captureSupportAgentLoadFailed({
+                        surface: 'ticket_scene',
+                        reason: 'thread_load_failed',
+                        error,
+                    })
+                    lemonToast.error('Failed to load messages')
+                }
                 actions.setMessagesLoading(false)
                 return
             }
             if (!isLive()) {
                 return
             }
-            if (cache.messageRevision !== revision || values.ticket?.id !== ticketId) {
+            if (isSuperseded()) {
                 // setMessages replaces the list wholesale, so a poll that started before a
                 // newer load or a local write must not apply its older snapshot.
                 actions.setMessagesLoading(false)
