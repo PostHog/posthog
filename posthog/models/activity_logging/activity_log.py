@@ -778,6 +778,13 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         "last_run_at",
         "latest_error",
         "deleted_name",
+        "table",
+        "managed_viewset",
+        "origin",
+        "is_test",
+        "expires_at",
+        "incremental_state",
+        "semantic_enrichment_hash",
     ],
     "Endpoint": [
         "saved_query",
