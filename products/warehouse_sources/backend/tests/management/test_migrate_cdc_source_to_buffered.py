@@ -124,7 +124,7 @@ class TestMigrateCDCSourceToBuffered(BaseTest):
         # The purge itself is best-effort; a surviving file would replay legacy-delivered rows
         # against a lane with no watermark, silently. Abort with the mode unchanged.
         source = self._source()
-        self._schema(source, "users")
+        schema = self._schema(source, "users")
         leftover = f"bucket/cdc_producer/x/{build_buffer_file_name(1, 2, 0)}"
 
         with _mocked_side_effects(buffer_keys=[leftover]) as mocks:
@@ -133,6 +133,10 @@ class TestMigrateCDCSourceToBuffered(BaseTest):
 
         source.refresh_from_db()
         assert "cdc_ingest_mode" not in source.job_inputs
+        # The mode never changed, so the source is the legacy source it was before the command
+        # ran. Keeping its schedules paused would stop the customer's syncs with nothing to
+        # report it: no run starts, so there is no job row and no error.
+        mocks["unpause_schema"].assert_called_once_with(str(schema.id))
         mocks["unpause"].assert_not_called()
 
     def test_rollback_drains_the_buffer_then_pauses_the_consumer_before_the_mode_flips(self):
@@ -147,6 +151,24 @@ class TestMigrateCDCSourceToBuffered(BaseTest):
         # Fully-applied leftovers stay: the position guard no-ops a replay, the TTL clears them.
         mocks["purge"].assert_not_called()
         mocks["pause_schema"].assert_called_once_with(str(schema.id))
+        # Step 4 paused them, so the rollback has to hand them back, or the source lands on legacy
+        # delivery with nothing scheduled to load it.
+        mocks["unpause_schema"].assert_called_once_with(str(schema.id))
+
+    def test_restoring_schedules_leaves_a_schema_that_stopped_syncing_paused(self):
+        # A drain wait runs for minutes, and a user who turns a schema off in that window must not
+        # have it turned back on by the abort path.
+        source = self._source()
+        staying = self._schema(source, "users")
+        disabled = self._schema(source, "events")
+        leftover = f"bucket/cdc_producer/x/{build_buffer_file_name(1, 2, 0)}"
+        ExternalDataSchema.objects.filter(id=disabled.id).update(should_sync=False)
+
+        with _mocked_side_effects(buffer_keys=[leftover]) as mocks:
+            with pytest.raises(CommandError, match="survived the purge"):
+                self._run(source)
+
+        mocks["unpause_schema"].assert_called_once_with(str(staying.id))
 
     def test_rollback_refuses_while_the_buffer_holds_unapplied_changes(self):
         # The buffer tail is WAL the slot already advanced past — flipping to legacy before the
@@ -163,6 +185,7 @@ class TestMigrateCDCSourceToBuffered(BaseTest):
         assert source.job_inputs["cdc_ingest_mode"] == "buffered"
         # Consumer schedules must still be live so they can catch up for the re-run.
         mocks["pause_schema"].assert_not_called()
+        mocks["unpause_schema"].assert_not_called()
 
     def test_rollback_ignores_prefixes_the_buffered_lane_never_served(self):
         # A legacy schema's prefix holds shadow copies no consumer ever reads, so scanning it would

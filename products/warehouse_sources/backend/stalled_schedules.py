@@ -1,0 +1,220 @@
+"""Find schemas that should be syncing but have stopped getting runs.
+
+A schema's cadence lives in a Temporal schedule whose paused flag is written once, when the
+schedule is created or rewritten (`sync_external_data_job_workflow`). Nothing keeps that flag
+in step with `should_sync` afterwards, so a schedule paused out of band stays paused while
+Postgres still reports the schema as syncing. `migrate_cdc_source_to_buffered` pauses every
+per-schema schedule at its step 3 and unpauses at its step 7, so any abort in between leaves
+them down.
+
+That failure is silent in a way an ordinary sync failure is not. No run starts, so there is no
+job row, no `latest_error`, and nothing for the failure digest to report. Every column a
+dashboard would read keeps saying the schema is healthy.
+
+This module carries the predicate that finds those schemas from Postgres alone, shared by the
+periodic sweep that reports them and the management command that repairs them.
+"""
+
+from datetime import timedelta
+
+from django.db.models import DateTimeField, DurationField, ExpressionWrapper, F, QuerySet, Value
+from django.db.models.functions import Coalesce, Greatest
+from django.utils import timezone
+
+import structlog
+
+from posthog.dataclasses import frozen
+
+from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
+from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+
+logger = structlog.get_logger(__name__)
+
+# Consecutive runs a schema can miss before the silence is a fault rather than jitter. A run
+# starts late when the source is slow, the worker fleet is saturated, or the previous run
+# overran its own interval, and none of those need repair.
+DEFAULT_MISSED_INTERVALS = 3
+
+# Floor under the stall window. Without it a five-minute schema qualifies after 20 minutes,
+# which one slow run produces on its own.
+DEFAULT_MIN_STALL = timedelta(hours=2)
+
+# Matches the `sync_frequency_interval` column default, used when the column is null.
+FALLBACK_SYNC_INTERVAL = timedelta(hours=6)
+
+# Statuses that already report themselves. A failing schema carries its error on the row and
+# reaches the failure digest; a billing-limited one still starts runs. Neither is this fault,
+# and including them would bury it.
+SELF_REPORTING_STATUSES = (
+    ExternalDataSchema.Status.FAILED,
+    ExternalDataSchema.Status.BILLING_LIMIT_REACHED,
+    ExternalDataSchema.Status.BILLING_LIMIT_TOO_LOW,
+    ExternalDataSchema.Status.PAUSED,
+)
+
+# Replaces the stale Running status on a repaired schema. The row keeps a visible record of the
+# gap, and the schema's own next tick clears it.
+REPAIRED_SCHEMA_ERROR = (
+    "This sync stopped running on its schedule. PostHog restarted it, and the next sync runs on schedule."
+)
+
+
+@frozen
+class StalledSchema:
+    schema_id: str
+    team_id: int
+    name: str
+    source_id: str
+    source_type: str
+    # "no_runs" when nothing has started since the stall window opened, which points at the
+    # schedule. "stuck_job" when a run did start and never finished, which points at its
+    # Temporal workflow and belongs to `unstick_external_data_jobs` instead.
+    kind: str
+    stalled_for: timedelta
+    cdc_ingest_mode: str
+
+    @property
+    def repairable_here(self) -> bool:
+        """Whether unpausing the schedule is the right fix.
+
+        A buffered CDC source is excluded because its schedule paces buffer consumption: once
+        the mode is flipped, restarting the schedule out of sequence merges files against a
+        table the buffered lane already writes. Those go back through
+        `migrate_cdc_source_to_buffered`.
+        """
+        return self.kind == "no_runs" and self.cdc_ingest_mode != "buffered"
+
+
+def stalled_schema_queryset(
+    *,
+    missed_intervals: int = DEFAULT_MISSED_INTERVALS,
+    min_stall: timedelta = DEFAULT_MIN_STALL,
+) -> QuerySet[ExternalDataSchema]:
+    """Schemas whose last successful sync is older than their own cadence allows.
+
+    The window scales with `sync_frequency_interval` because a fixed one cannot serve both a
+    five-minute schema and a daily one. A daily schema therefore needs days of silence to
+    qualify, which is the cost of not flagging every schema that merely ran slowly.
+    """
+    stall_window = ExpressionWrapper(
+        Greatest(
+            Coalesce(F("sync_frequency_interval"), Value(FALLBACK_SYNC_INTERVAL)) * missed_intervals,
+            Value(min_stall),
+        ),
+        output_field=DurationField(),
+    )
+    return (
+        ExternalDataSchema.objects.filter(
+            should_sync=True,
+            deleted=False,
+            source__deleted=False,
+            # Has completed at least one sync, so a schema still working through its first
+            # snapshot is not read as stalled.
+            last_synced_at__isnull=False,
+            # Narrows the scan before the per-row window below, which is computed and so cannot
+            # use an index. No schema can qualify sooner than the floor, so this drops the bulk
+            # of the fleet without changing the result.
+            last_synced_at__lt=timezone.now() - min_stall,
+        )
+        .exclude(source__access_method=ExternalDataSource.AccessMethod.DIRECT)
+        .exclude(status__in=SELF_REPORTING_STATUSES)
+        .annotate(
+            stalled_after=ExpressionWrapper(
+                F("last_synced_at") + stall_window,
+                output_field=DateTimeField(),
+            )
+        )
+        .filter(stalled_after__lt=timezone.now())
+    )
+
+
+def find_stalled_schemas(
+    *,
+    missed_intervals: int = DEFAULT_MISSED_INTERVALS,
+    min_stall: timedelta = DEFAULT_MIN_STALL,
+    team_id: int | None = None,
+    source_type: str | None = None,
+    limit: int | None = None,
+) -> list[StalledSchema]:
+    queryset = stalled_schema_queryset(missed_intervals=missed_intervals, min_stall=min_stall)
+    if team_id is not None:
+        queryset = queryset.filter(team_id=team_id)
+    if source_type is not None:
+        queryset = queryset.filter(source__source_type__iexact=source_type)
+
+    queryset = queryset.select_related("source").order_by("last_synced_at")
+    if limit is not None:
+        queryset = queryset[:limit]
+
+    schemas = list(queryset)
+    if not schemas:
+        return []
+
+    # One query for the whole batch rather than one per schema. The batch is small by
+    # construction: a healthy fleet returns nothing here.
+    schemas_with_running_jobs = set(
+        ExternalDataJob.objects.filter(
+            schema_id__in=[schema.id for schema in schemas],
+            status=ExternalDataJob.Status.RUNNING,
+        ).values_list("schema_id", flat=True)
+    )
+
+    now = timezone.now()
+    stalled = []
+    for schema in schemas:
+        # The queryset already excludes a null stamp. The check is here because the column is
+        # nullable, so the subtraction below has no other way to know.
+        if schema.last_synced_at is None:
+            continue
+        stalled.append(
+            StalledSchema(
+                schema_id=str(schema.id),
+                team_id=schema.team_id,
+                name=schema.name,
+                source_id=str(schema.source_id),
+                source_type=schema.source.source_type,
+                kind="stuck_job" if schema.id in schemas_with_running_jobs else "no_runs",
+                stalled_for=now - schema.last_synced_at,
+                cdc_ingest_mode=(schema.source.job_inputs or {}).get("cdc_ingest_mode", "legacy"),
+            )
+        )
+    return stalled
+
+
+def repair_stalled_schema(stalled: StalledSchema) -> None:
+    """Put a stalled schema back on its schedule.
+
+    Rewrites the Temporal schedule from the schema's current `should_sync`, which clears a
+    paused flag left behind out of band and recreates a schedule that went missing. The rewrite
+    does not fire a run: every scheduled run bills, so the repair waits for the schema's own
+    next tick rather than charging for one now.
+    """
+    # data_load.service imports temporalio at module scope, so a top-level import here would
+    # put the Temporal client on the import path of the sweep's Celery autodiscovery.
+    from products.data_warehouse.backend.facade.api import sync_external_data_job_workflow  # noqa: PLC0415
+
+    # Shared with the workflow's own finalization so a repaired row reads the same as one an
+    # ordinary failed run left behind.
+    from products.warehouse_sources.backend.temporal.data_imports.external_data_job import (  # noqa: PLC0415
+        _fail_stale_running_schema,
+    )
+
+    schema = ExternalDataSchema.objects.select_related("source").get(id=stalled.schema_id, team_id=stalled.team_id)
+
+    # A schema whose run never reached finalization still reads RUNNING, and the scheduler
+    # treats that as a live run. Repainting it first stops the next tick being skipped.
+    if schema.status == ExternalDataSchema.Status.RUNNING:
+        _fail_stale_running_schema(
+            str(schema.id),
+            schema.team_id,
+            REPAIRED_SCHEMA_ERROR,
+            logger,
+        )
+
+    sync_external_data_job_workflow(
+        schema,
+        create=True,
+        should_sync=True,
+        trigger_immediately=False,
+    )
