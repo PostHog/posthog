@@ -4676,6 +4676,11 @@ export interface ModelChoiceApi {
     display_name: string
     /** Reasoning efforts this model accepts, in ascending order. Empty for a model with no effort control. */
     supported_efforts: ReasoningEffortEnumApi[]
+    /**
+     * Per-token cost against the catalogue baseline, ready to display, such as '2.5x' or '~0.55x'. Prefixed when the input and output rates diverge enough that one number flatters either. Null for a model the catalogue quotes no rate for.
+     * @nullable
+     */
+    cost_multiplier?: string | null
 }
 
 export interface ModelCatalogueResponseApi {

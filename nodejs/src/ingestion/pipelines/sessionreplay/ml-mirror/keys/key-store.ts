@@ -1,8 +1,10 @@
+import { randomBytes } from 'node:crypto'
+
 import { logger } from '~/common/utils/logger'
-import { MlMirrorMetrics } from '~/ingestion/pipelines/sessionreplay/ml-mirror/metrics'
+import { MlKeyIdentityMismatchReason, MlMirrorMetrics } from '~/ingestion/pipelines/sessionreplay/ml-mirror/metrics'
 import { sessionStartMonth } from '~/ingestion/pipelines/sessionreplay/ml-mirror/session-identifier-format'
 
-import { MlDataKey, MlKeyEncryption } from './crypto'
+import { MlDataKey, MlKeyEncryption, openSessionKey, sealSessionKey } from './crypto'
 import { DynamoItem, MlKeyDynamoDB } from './dynamodb'
 import {
     MlKeyIdentity,
@@ -105,43 +107,97 @@ export class MlKeyBatch {
             }
         }
         const unusable: MlStoredKeyMismatch[] = []
-        await Promise.all(
-            [...keyIdentities].map(async ([id, identity]) => {
-                const item = this.state.get(id)
-                if (item?.deleted?.BOOL === true) {
-                    return
-                }
-                if (item) {
-                    if (!item.wrapped_key?.B) {
-                        if (!this.reportedUnusable.has(id)) {
-                            this.reportedUnusable.add(id)
-                            unusable.push({ id, teamId: identity.teamId })
-                        }
+        // A session key opens under its team month key, so the month keys resolve first.
+        for (const group of [
+            [...keyIdentities].filter(([, identity]) => !identity.sessionId),
+            [...keyIdentities].filter(([, identity]) => identity.sessionId),
+        ]) {
+            await Promise.all(
+                group.map(async ([id, identity]) => {
+                    const item = this.state.get(id)
+                    if (item?.deleted?.BOOL === true) {
                         return
                     }
-                    // A key wrapped while the organization was part of the KMS context only unwraps under that organization, which the row still names.
-                    const organizationId = item.organization_id?.S
-                    const storedIdentity = { ...identity, ...(organizationId ? { organizationId } : {}) }
-                    this.keys.set(id, await this.encryption.decrypt(storedIdentity, Buffer.from(item.wrapped_key.B)))
-                } else {
-                    let candidate = this.candidates.get(id)
-                    if (!candidate) {
-                        candidate = await this.encryption.generate(identity)
-                        this.candidates.set(id, candidate)
+                    if (item) {
+                        const stored = await this.openStored(identity, item)
+                        if (typeof stored === 'string') {
+                            const rowNeedsRepair = stored !== 'month_key_unavailable'
+                            if (this.reportUnusable(id, stored) && rowNeedsRepair) {
+                                unusable.push({ id, teamId: identity.teamId })
+                            }
+                            return
+                        }
+                        this.keys.set(id, stored)
+                    } else {
+                        if (identity.sessionId && !this.monthKeyFor(identity)) {
+                            this.reportUnusable(id, 'month_key_unavailable')
+                            return
+                        }
+                        let candidate = this.candidates.get(id)
+                        if (!candidate) {
+                            candidate = identity.sessionId
+                                ? { identity, plaintext: randomBytes(32), wrapped: Buffer.alloc(0) }
+                                : await this.encryption.generate(identity)
+                            this.candidates.set(id, candidate)
+                        }
+                        this.keys.set(id, candidate)
                     }
-                    this.keys.set(id, candidate)
-                }
-            })
-        )
-        // A row with no wrapped key and no tombstone cannot serve this batch; its sessions are dropped like blocked ones so one bad row cannot stop the lane, and the log names it so the data can be repaired.
+                })
+            )
+        }
+        // A row that gives no key cannot serve this batch; its sessions are dropped like blocked ones so one bad row cannot stop the lane, and the log names it so the data can be repaired.
         if (unusable.length) {
-            MlMirrorMetrics.incrementMlKeyIdentityMismatch('wrapped_key_missing', unusable.length)
             logger.error('🔑', 'ml_key_stored_key_unusable', {
                 count: unusable.length,
                 teamIds: [...new Set(unusable.map((entry) => entry.teamId))],
                 rows: unusable.map((entry) => entry.id),
             })
         }
+    }
+
+    private reportUnusable(id: string, reason: MlKeyIdentityMismatchReason): boolean {
+        if (this.reportedUnusable.has(id)) {
+            return false
+        }
+        this.reportedUnusable.add(id)
+        MlMirrorMetrics.incrementMlKeyIdentityMismatch(reason, 1)
+        return true
+    }
+
+    private monthKeyFor(identity: MlKeyIdentity): MlDataKey | undefined {
+        return this.keys.get(tableKeyString(imageKeyId(identity.teamId, keySessionMonth(identity))))
+    }
+
+    /** Resolves a stored row to its key, whether KMS wrapped it or its team month key sealed it. */
+    private async openStored(
+        identity: MlKeyIdentity,
+        item: DynamoItem
+    ): Promise<MlDataKey | MlKeyIdentityMismatchReason> {
+        if (item.sealed_key?.B && item.key_nonce?.B) {
+            const monthKey = this.monthKeyFor(identity)
+            if (!monthKey) {
+                return 'month_key_unavailable'
+            }
+            const sealed = { sealed: Buffer.from(item.sealed_key.B), nonce: Buffer.from(item.key_nonce.B) }
+            try {
+                const plaintext = openSessionKey(monthKey.plaintext, identity, sealed)
+                MlMirrorMetrics.incrementMlKeyScheme('v3')
+                return { identity, plaintext, wrapped: Buffer.alloc(0) }
+            } catch {
+                // A seal opens under one month key only, so a failure here means the row and the month key disagree. One row must not stop the lane.
+                return 'seal_unopenable'
+            }
+        }
+        if (!item.wrapped_key?.B) {
+            return 'wrapped_key_missing'
+        }
+        if (identity.sessionId) {
+            MlMirrorMetrics.incrementMlKeyScheme('v2')
+        }
+        // A key wrapped while the organization was part of the KMS context only unwraps under that organization, which the row still names.
+        const organizationId = item.organization_id?.S
+        const storedIdentity = { ...identity, ...(organizationId ? { organizationId } : {}) }
+        return this.encryption.decrypt(storedIdentity, Buffer.from(item.wrapped_key.B))
     }
 
     public get(teamId: number, sessionId: string): MlSessionKeys | undefined {
@@ -156,12 +212,38 @@ export class MlKeyBatch {
 
     // The index entry goes first and is idempotent, so every stored key has an index entry even when the key put fails or a retried put reports the batch's own write as a competitor's. An index entry without a key is harmless: the month sweep leaves a tombstone that a later key put respects.
     private async persist(deadline: AbortSignal): Promise<void> {
-        let dropped = 0
         const unstored = [...this.keys].filter(([id]) => !this.state.has(id))
-        // Every index entry goes in before any key, so a key put that fails still leaves its entry, as it did when each
-        // key wrote its own. These need no condition, so they batch and a key costs one write request rather than two.
+        // The month key commits first. A put that loses leaves session keys sealed under bytes that nobody stored.
+        const monthKeys = unstored.filter(([, key]) => !key.identity.sessionId)
+        if (monthKeys.length) {
+            await this.write(monthKeys, deadline)
+        }
+        await this.write(
+            unstored.filter(([, key]) => key.identity.sessionId),
+            deadline
+        )
+    }
+
+    private async write(entries: [string, MlDataKey][], deadline: AbortSignal): Promise<void> {
+        let dropped = 0
+        const rows: [string, MlDataKey, DynamoItem][] = []
+        for (const [id, key] of entries) {
+            const row = this.rowFor(key)
+            if (!row) {
+                this.keys.delete(id)
+                dropped += 1
+                continue
+            }
+            rows.push([id, key, row])
+        }
+        if (!rows.length) {
+            this.reportDropped(dropped)
+            return
+        }
+        // Every index entry goes in before any key, so a key put that fails still leaves its entry. These need no
+        // condition, so they batch and a key costs one write request rather than two.
         await this.db.putMany(
-            unstored.map(([, key]) => {
+            rows.map(([, key]) => {
                 const location = storedKeyId(key.identity)
                 return {
                     key: monthKeyIndexId(key.identity, location),
@@ -171,35 +253,39 @@ export class MlKeyBatch {
             deadline
         )
         const results = await Promise.allSettled(
-            unstored.map(async ([id, key]) => {
+            rows.map(async ([id, key, row]) => {
                 const location = storedKeyId(key.identity)
-                const stored = await this.db.putIfAbsent(
-                    location,
-                    {
-                        wrapped_key: { B: key.wrapped },
-                        team_id: { N: String(key.identity.teamId) },
-                        session_month: { S: keySessionMonth(key.identity) },
-                    },
-                    deadline
-                )
+                const stored = await this.db.putIfAbsent(location, row, deadline)
                 if (!stored) {
                     this.encryption.rememberCommitted(key)
                     return
                 }
-                // A session keys its own partition, so only a rebalance overlap or a team key puts two writers on one row.
-                if (!stored.wrapped_key?.B || stored.deleted?.BOOL === true) {
+                // Batches overlap, so a later batch reads before an earlier one writes, and a new session routinely meets its own earlier candidate here.
+                if (stored.deleted?.BOOL === true) {
                     this.keys.delete(id)
                     dropped += 1
                     return
                 }
-                const wrapped = Buffer.from(stored.wrapped_key.B)
-                if (wrapped.equals(key.wrapped)) {
+                // A wrapped blob is stable, so equal bytes name this batch's own write and spare a KMS decrypt.
+                if (
+                    key.wrapped.length &&
+                    stored.wrapped_key?.B &&
+                    key.wrapped.equals(Buffer.from(stored.wrapped_key.B))
+                ) {
                     this.encryption.rememberCommitted(key)
                     return
                 }
-                const organizationId = stored.organization_id?.S
-                const identity = { ...key.identity, ...(organizationId ? { organizationId } : {}) }
-                this.keys.set(id, await this.encryption.decrypt(identity, wrapped))
+                const winner = await this.openStored(key.identity, stored)
+                if (typeof winner === 'string') {
+                    this.keys.delete(id)
+                    dropped += 1
+                    return
+                }
+                if (winner.plaintext.equals(key.plaintext)) {
+                    this.encryption.rememberCommitted(key)
+                    return
+                }
+                this.keys.set(id, winner)
             })
         )
         const failures = results.filter((result): result is PromiseRejectedResult => result.status === 'rejected')
@@ -207,9 +293,33 @@ export class MlKeyBatch {
         if (failure) {
             throw failure.reason
         }
+        this.reportDropped(dropped)
+    }
+
+    private reportDropped(dropped: number): void {
         if (dropped) {
             logger.info('🔑', 'ml_key_commit_dropped_blocked', { dropped })
         }
+    }
+
+    /** A month key keeps its KMS blob. A session key carries the seal its month key made, so it gives no row once that month key goes. */
+    private rowFor(key: MlDataKey): DynamoItem | undefined {
+        const shared = {
+            team_id: { N: String(key.identity.teamId) },
+            session_month: { S: keySessionMonth(key.identity) },
+        }
+        if (!key.identity.sessionId) {
+            if (!key.wrapped.length) {
+                throw new Error('ML month key has no KMS blob to store')
+            }
+            return { wrapped_key: { B: key.wrapped }, ...shared }
+        }
+        const monthKey = this.monthKeyFor(key.identity)
+        if (!monthKey) {
+            return undefined
+        }
+        const sealed = sealSessionKey(monthKey.plaintext, key.identity, key.plaintext)
+        return { sealed_key: { B: sealed.sealed }, key_nonce: { B: sealed.nonce }, ...shared }
     }
 
     public async commit(): Promise<void> {

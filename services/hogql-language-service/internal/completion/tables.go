@@ -14,7 +14,10 @@ func tableResult(schema *catalog.PreparedCatalog, bindings analysis.Bindings, pr
 		return indexedResult(slices.Values(schema.Tables().Prefix(prefix)), "table", offset, parseErr)
 	}
 	slices.SortFunc(ctes, func(left, right catalog.Entry) int {
-		return strings.Compare(strings.ToLower(left.Name), strings.ToLower(right.Name))
+		if comparison := strings.Compare(strings.ToLower(left.Name), strings.ToLower(right.Name)); comparison != 0 {
+			return comparison
+		}
+		return strings.Compare(left.Name, right.Name)
 	})
 	cteNames := map[string]bool{}
 	shadowed := map[string]bool{}
