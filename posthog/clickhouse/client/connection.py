@@ -18,9 +18,13 @@ from posthog.dataclasses import frozen
 if TYPE_CHECKING:
     from clickhouse_connect.driver import Client as HttpClient
 
+from posthog.clickhouse.driver_patches import install_clickhouse_driver_patches
 from posthog.clickhouse.workload import Workload
 from posthog.settings import data_stores
 from posthog.utils import patchable
+
+# Installed here because every ClickHouse client in the app is built in this module.
+install_clickhouse_driver_patches()
 
 
 class NodeRole(StrEnum):
