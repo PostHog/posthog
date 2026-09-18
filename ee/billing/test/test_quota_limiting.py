@@ -18,6 +18,7 @@ from posthog.api.test.test_team import create_team
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 from posthog.redis import get_client
+from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 
 from ee.billing.quota_limiting import (
     INFORMATIONAL_USAGE_RESOURCES,
@@ -257,6 +258,39 @@ class TestQuotaLimiting(BaseTest):
         assert self.redis_client.zrange(f"@posthog/quota-limits/api_queries_read_bytes", 0, -1) == []
         assert self.redis_client.zrange(f"@posthog/quota-limits/survey_responses", 0, -1) == []
         assert self.redis_client.zrange(f"@posthog/quota-limits/rows_exported", 0, -1) == []
+
+    @time_machine.travel("2021-01-25T23:59:59Z", tick=False)
+    def test_quota_limiting_recordings_counts_mobile_sessions(self) -> None:
+        with self.settings(USE_TZ=False):
+            # Billing charges web and mobile recordings against the same limit, so a mobile-heavy
+            # org must be limited too. Overage buffer for recordings is 1000, so todays_usage
+            # has to cross limit + buffer - stored usage (10 + 1100 >= 100 + 1000).
+            self.organization.usage = {
+                "recordings": {"usage": 10, "limit": 100},
+                "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
+            }
+            self.organization.customer_trust_scores = zero_trust_scores()
+            self.organization.save()
+
+            timestamp = now() - relativedelta(hours=1)
+            for _ in range(0, 1100):
+                produce_replay_summary(
+                    team_id=self.team.id,
+                    session_id=str(uuid4()),
+                    distinct_id="user",
+                    first_timestamp=timestamp,
+                    last_timestamp=timestamp,
+                    snapshot_source="mobile",
+                    ensure_analytics_event_in_session=False,
+                )
+
+        flush_persons_and_events()
+
+        result = update_all_orgs_billing_quotas()
+        assert result.quota_limited_orgs["recordings"] == {str(self.organization.id): 1612137599}
+        assert self.team.api_token.encode("UTF-8") in self.redis_client.zrange(
+            f"@posthog/quota-limits/recordings", 0, -1
+        )
 
     def test_billing_rate_limit_not_set_if_missing_org_usage(self) -> None:
         with self.settings(USE_TZ=False):

@@ -1107,6 +1107,14 @@ def update_all_orgs_billing_quotas(
         "sandbox_compute", get_teams_with_billable_sandbox_compute_usage_in_period, period.start, period.end
     )
     compute_credits = convert_team_usage_rows_to_dict(sandbox_compute_usage.credits)
+    # Both snapshot sources: billing charges web and mobile recordings the same way, so an org
+    # whose volume is mostly mobile must hit the limit too.
+    web_recordings = convert_team_usage_rows_to_dict(
+        _timed_query("recordings_web", get_teams_with_recording_count_in_period, period.start, period.end)
+    )
+    mobile_recordings = convert_team_usage_rows_to_dict(
+        _timed_query("recordings_mobile", get_teams_with_recording_count_in_period, period.start, period.end, "mobile")
+    )
 
     # Clickhouse is good at counting things so we count across all teams rather than doing it one by one
     all_data = {
@@ -1114,9 +1122,10 @@ def update_all_orgs_billing_quotas(
             _timed_query("billable_events", get_teams_with_billable_event_count_in_period, period.start, period.end)
         ),
         "teams_with_exceptions_captured_in_period": convert_team_usage_rows_to_dict(exception_metrics),
-        "teams_with_recording_count_in_period": convert_team_usage_rows_to_dict(
-            _timed_query("recordings", get_teams_with_recording_count_in_period, period.start, period.end)
-        ),
+        "teams_with_recording_count_in_period": {
+            team_id: web_recordings.get(team_id, 0) + mobile_recordings.get(team_id, 0)
+            for team_id in web_recordings.keys() | mobile_recordings.keys()
+        },
         "teams_with_rows_synced_in_period": convert_team_usage_rows_to_dict(
             _timed_query("rows_synced", get_teams_with_rows_synced_in_period, period.start, period.end)
         ),
