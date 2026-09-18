@@ -1,7 +1,7 @@
 import clsx from 'clsx'
 
 import { IconInfo } from '@posthog/icons'
-import { Spinner } from '@posthog/lemon-ui'
+import { LemonSkeleton } from '@posthog/lemon-ui'
 
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
@@ -29,8 +29,8 @@ export function ChartPreviewTile({
         body = <ChartPreviewCanvas uniqueKey={uniqueKey} query={query} response={response} />
     } else if (loading) {
         body = (
-            <div className="flex flex-1 items-center justify-center">
-                <Spinner />
+            <div className="flex flex-1 p-2">
+                <LemonSkeleton className="h-full w-full" />
             </div>
         )
     } else {

@@ -79,6 +79,7 @@ export interface chartAlternativesLogicValues {
     embedded: boolean
     galleryOpen: boolean
     inSharedMode: boolean | undefined
+    isEditableSurface: boolean
     options: ChartDisplayOptionGroup[]
     selectionDisabledReason: string | undefined
     trendsSource: TrendsQuery | null
@@ -147,14 +148,17 @@ export interface chartAlternativesLogicMeta {
             options: ChartDisplayOptionGroup[],
             currentDisplay: ChartDisplayType
         ) => ChartDisplayOption | undefined
-        canShowAlternatives: (
-            featureFlags: FeatureFlagsSet,
+        isEditableSurface: (
             editMode: boolean | undefined,
             embedded: boolean,
             inSharedMode: boolean | undefined,
             isInDashboardContext: boolean,
             canEditInsight: boolean,
-            editingDisabledReason: null,
+            editingDisabledReason: null
+        ) => boolean
+        canShowAlternatives: (
+            featureFlags: FeatureFlagsSet,
+            isEditableSurface: boolean,
             isTrends: boolean,
             query: Node<Record<string, any>> | null,
             trendsSource: TrendsQuery | null
@@ -261,38 +265,41 @@ export const chartAlternativesLogic = kea<chartAlternativesLogicType>([
             (options: ChartDisplayOptionGroup[], currentDisplay: ChartDisplayType): ChartDisplayOption | undefined =>
                 optionForDisplay(options, currentDisplay),
         ],
-        canShowAlternatives: [
+        isEditableSurface: [
             (s) => [
-                s.featureFlags,
                 s.editMode,
                 s.embedded,
                 s.inSharedMode,
                 s.isInDashboardContext,
                 s.canEditInsight,
                 s.editingDisabledReason,
-                s.isTrends,
-                s.query,
-                s.trendsSource,
             ],
             (
-                featureFlags: FeatureFlagsSet,
                 editMode: boolean | undefined,
                 embedded: boolean,
                 inSharedMode: boolean | undefined,
                 isInDashboardContext: boolean,
                 canEditInsight: boolean,
-                editingDisabledReason: null,
-                isTrends: boolean,
-                query: Node | null,
-                trendsSource: TrendsQuery | null
+                editingDisabledReason: null
             ): boolean =>
-                !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_CHART_ALTERNATIVES] &&
                 !!editMode &&
                 !embedded &&
                 !inSharedMode &&
                 !isInDashboardContext &&
                 canEditInsight &&
-                !editingDisabledReason &&
+                !editingDisabledReason,
+        ],
+        canShowAlternatives: [
+            (s) => [s.featureFlags, s.isEditableSurface, s.isTrends, s.query, s.trendsSource],
+            (
+                featureFlags: FeatureFlagsSet,
+                isEditableSurface: boolean,
+                isTrends: boolean,
+                query: Node | null,
+                trendsSource: TrendsQuery | null
+            ): boolean =>
+                !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_CHART_ALTERNATIVES] &&
+                isEditableSurface &&
                 isTrends &&
                 !!query &&
                 !!trendsSource,
