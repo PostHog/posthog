@@ -162,6 +162,9 @@ jobs:
             repo_invariants: ${{ steps.filter.outputs.repo_invariants || 'false' }}
             product_yamls_files: ${{ steps.filter.outputs.product_yamls_files }}
             timing_scripts: ${{ steps.filter.outputs.timing_scripts }}
+            # Which engine runs this event's backend tests. Depot CI never decides on its
+            # own: it waits for the hand-off job below and runs only when that succeeded.
+            engine: github
         steps:
             # For pull requests it's not necessary to checkout the code, but we
             # also want this to run on master so we need to checkout
@@ -438,6 +441,20 @@ jobs:
                         # Exec command reference templates - feed generate-exec-docs.ts
                         - 'services/mcp/src/templates/sections/**/*'
                         - 'services/mcp/schema/exec-command-reference.md'
+
+    # The only signal Depot CI acts on. Its wait job in .depot/workflows/ci-backend.yml
+    # polls this check by name and runs the backend tests only when it concluded
+    # `success`, so a skipped hand-off keeps the event on GitHub Actions. Renaming
+    # this job breaks that lookup.
+    hand-off-to-depot:
+        name: Hand off backend tests to Depot CI
+        runs-on: ubuntu-latest
+        timeout-minutes: 2
+        needs: [changes]
+        if: needs.changes.outputs.engine == 'depot'
+        permissions: {}
+        steps:
+            - run: echo "::notice::Depot CI runs the backend tests for this event. GitHub Actions runs none."
 
     detect-snapshot-mode:
         name: Detect snapshot mode
