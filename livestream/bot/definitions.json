@@ -1836,6 +1836,48 @@
     "traffic_type": "Bot"
   },
   {
+    "pattern": "SalesOS-EntityIdentity",
+    "name": "SalesOS Entity Identity",
+    "category": "search_crawler",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "SalesOS-CompanyGraph/",
+    "name": "SalesOS Company Graph",
+    "category": "search_crawler",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "SalesOS-CompanyGraphGate",
+    "name": "SalesOS Company Graph Gate",
+    "category": "search_crawler",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "SSI-Nutch",
+    "name": "SSI Nutch",
+    "category": "search_crawler",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "SpiderLing",
+    "name": "SpiderLing",
+    "category": "search_crawler",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "theWebIQBot",
+    "name": "theWebIQ",
+    "category": "search_crawler",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "mycel/",
+    "name": "mycel",
+    "category": "search_crawler",
+    "traffic_type": "Bot"
+  },
+  {
     "pattern": "LaunchReadyCodeBot",
     "name": "LaunchReadyCodeBot",
     "category": "seo_crawler",
@@ -1898,6 +1940,18 @@
   {
     "pattern": "BenchRankBot",
     "name": "BenchRank",
+    "category": "seo_crawler",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "posthog-competitor-happenings",
+    "name": "PostHog Competitor Happenings",
+    "category": "seo_crawler",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "BotAppetit",
+    "name": "Bot Appetit",
     "category": "seo_crawler",
     "traffic_type": "Bot"
   },

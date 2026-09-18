@@ -715,6 +715,50 @@ export const BOT_DEFINITIONS: { pattern: string; definition: BotDefinition }[] =
             operator: 'swissaitalent.ch',
         },
     },
+    {
+        pattern: 'SalesOS-EntityIdentity',
+        definition: {
+            name: 'SalesOS Entity Identity',
+            category: 'search_crawler',
+            trafficType: 'Bot',
+            operator: 'SalesSearch',
+        },
+    },
+    // The trailing slash keeps this off 'SalesOS-CompanyGraphGate', which is a separate identity.
+    {
+        pattern: 'SalesOS-CompanyGraph/',
+        definition: {
+            name: 'SalesOS Company Graph',
+            category: 'search_crawler',
+            trafficType: 'Bot',
+            operator: 'SalesSearch',
+        },
+    },
+    {
+        pattern: 'SalesOS-CompanyGraphGate',
+        definition: {
+            name: 'SalesOS Company Graph Gate',
+            category: 'search_crawler',
+            trafficType: 'Bot',
+            operator: 'SalesSearch',
+        },
+    },
+    {
+        pattern: 'SSI-Nutch',
+        definition: { name: 'SSI Nutch', category: 'search_crawler', trafficType: 'Bot', operator: 'SSI' },
+    },
+    {
+        pattern: 'SpiderLing',
+        definition: { name: 'SpiderLing', category: 'search_crawler', trafficType: 'Bot', operator: 'Sketch Engine' },
+    },
+    {
+        pattern: 'theWebIQBot',
+        definition: { name: 'theWebIQ', category: 'search_crawler', trafficType: 'Bot', operator: 'theWebIQ' },
+    },
+    {
+        pattern: 'mycel/',
+        definition: { name: 'mycel', category: 'search_crawler', trafficType: 'Bot', operator: 'mycel' },
+    },
     // SEO / marketing crawlers
     {
         pattern: 'LaunchReadyCodeBot',
@@ -789,6 +833,20 @@ export const BOT_DEFINITIONS: { pattern: string; definition: BotDefinition }[] =
     {
         pattern: 'BenchRankBot',
         definition: { name: 'BenchRank', category: 'seo_crawler', trafficType: 'Bot', operator: 'BenchRank' },
+    },
+    {
+        pattern: 'posthog-competitor-happenings',
+        definition: {
+            name: 'PostHog Competitor Happenings',
+            category: 'seo_crawler',
+            trafficType: 'Bot',
+            operator: 'PostHog',
+        },
+    },
+    // Matches both the scanner and the renderer, which run under one on-demand audit.
+    {
+        pattern: 'BotAppetit',
+        definition: { name: 'Bot Appetit', category: 'seo_crawler', trafficType: 'Bot', operator: 'Milk Moon Studio' },
     },
     // Social / link-preview crawlers
     {
