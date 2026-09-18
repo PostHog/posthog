@@ -10,8 +10,11 @@
 # Intentional deltas vs canonical (everything else is kept apples-to-apples):
 # - The `wait-for-handoff` job waits for GitHub Actions to hand the event off and exposes
 #   `handed_off`, true only when GitHub Actions handed the tests to this engine. Canonical's
-#   `Django Tests Pass` gate then relays this workflow's gate verdict. Neither the hand-off
-#   job nor the relay has a counterpart here.
+#   `Django Tests Pass` gate then relays this workflow's gate verdict. When the GitHub
+#   `DEPOT_TOKEN` secret is set, a GitHub rerun of that gate retries this workflow's failed
+#   jobs; without it the rerun reads the same verdict again. A red verdict tells the
+#   developer how to rerun the tests here. Neither the hand-off job nor the relay has a
+#   counterpart here.
 # - runs-on: depot-* labels instead of ubuntu-latest
 # - action paths: ./.depot/actions/... instead of ./.github/actions/... (pnpm-install,
 #   setup-sqlx-cli, setup-python-cached, setup-uv, setup-turbo, and paths-filter mirror
