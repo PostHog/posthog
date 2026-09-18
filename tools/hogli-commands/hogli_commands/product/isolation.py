@@ -381,15 +381,37 @@ def _input_covers(input_glob: str, accepted: str) -> bool:
     return False
 
 
-def _webhook_consumers_unwatched(product_dir: Path, inputs: list[str]) -> bool:
+def _literal_prefix_overlaps(glob: str, prefix: str) -> bool:
+    """Whether a glob could reach inside `prefix`, judged only by its literal part."""
+    literal = glob.split("*", 1)[0]
+    return literal.startswith(prefix) or prefix.startswith(literal)
+
+
+def _webhook_consumers_unwatched(product_dir: Path, raw_inputs: list[str]) -> bool:
     """True when the product declares webhook consumers and no narrowed input watches the module.
 
     Presence-based like the routes rule, because core imports the module by name on the first
     delivery: a product that adds it without listing it would keep the skip while a consumer
-    change — a new handler, a new event type — runs no Django suite."""
+    change — a new handler, a new event type — runs no Django suite.
+
+    Takes the raw input list, negations included, because a negation that reaches the module wins
+    over every positive match: turbo leaves the file out of the task hash, and the CI matcher in
+    .github/scripts/trunk-impacted-targets.js reads the list the same way.
+
+    Negations are read conservatively, the way the model-surface check reads them. There is no glob
+    engine here, so _input_covers only decides the input shapes turbo.json uses; a negation it
+    cannot fully evaluate ('!backend/**/webhook_consumers.py', '!backend/webhook_*.py') is assumed
+    to reach the file, because the safe failure is a suite that runs. A positive still has to cover
+    the file for real."""
     if not (product_dir / "backend" / "webhook_consumers.py").exists():
         return False
-    return not any(_input_covers(i.removeprefix("./"), p) for i in inputs for p in _WEBHOOK_CONSUMERS_PREFIXES)
+    positive = [i.removeprefix("./") for i in raw_inputs if not i.startswith("!")]
+    negations = [i.removeprefix("!").removeprefix("./") for i in raw_inputs if i.startswith("!")]
+    if any(
+        _input_covers(n, p) or _literal_prefix_overlaps(n, p) for n in negations for p in _WEBHOOK_CONSUMERS_PREFIXES
+    ):
+        return True
+    return not any(_input_covers(i, p) for i in positive for p in _WEBHOOK_CONSUMERS_PREFIXES)
 
 
 def has_narrowed_turbo_inputs(
@@ -410,11 +432,13 @@ def has_narrowed_turbo_inputs(
     checks).
 
     A webhook_consumers.py module is the one extended surface that is also required once it exists:
-    listing it is optional for a product that has none, mandatory for a product that has one."""
-    inputs = [i for i in contract_check_inputs(product_dir) if not i.startswith("!")]
+    listing it is optional for a product that has none, mandatory for a product that has one, and
+    any negation that can reach it leaves it unwatched however the positive globs read."""
+    raw = contract_check_inputs(product_dir)
+    inputs = [i for i in raw if not i.startswith("!")]
     if not inputs:
         return False
-    if _webhook_consumers_unwatched(product_dir, inputs):
+    if _webhook_consumers_unwatched(product_dir, raw):
         return False
     permanent_prefixes = tuple(p for m in permanent_modules for p in _module_input_prefixes(m))
     accepted = (
@@ -439,10 +463,10 @@ def webhook_consumers_unwatched(product_dir: Path) -> bool:
     consumer module is what makes has_narrowed_turbo_inputs() answer False, and every other
     turbo-omission issue is gated on a narrowed product, so the omission that silenced them would
     otherwise be the one thing nobody says out loud."""
-    inputs = [i for i in contract_check_inputs(product_dir) if not i.startswith("!")]
-    if not inputs:
+    raw = contract_check_inputs(product_dir)
+    if not [i for i in raw if not i.startswith("!")]:
         return False
-    return _webhook_consumers_unwatched(product_dir, inputs)
+    return _webhook_consumers_unwatched(product_dir, raw)
 
 
 def _uncovered_locations(product_dir: Path, targets_to_prefixes: dict[str, tuple[str, ...]]) -> set[str]:
@@ -836,12 +860,6 @@ def uncovered_carveout_modules(product_dir: Path, carveout_modules: frozenset[st
     A carve-out class crosses the boundary for a class-identity registry, so a change to its
     defining module is a coupling change core must re-test — exactly like a permanent exposure."""
     return _uncovered_locations(product_dir, {m: (m,) for m in carveout_modules})
-
-
-def _literal_prefix_overlaps(glob: str, prefix: str) -> bool:
-    """Whether a glob could reach inside `prefix`, judged only by its literal part."""
-    literal = glob.split("*", 1)[0]
-    return literal.startswith(prefix) or prefix.startswith(literal)
 
 
 def unwatched_model_surface(product_dir: Path) -> set[str]:

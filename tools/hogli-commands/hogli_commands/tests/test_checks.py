@@ -343,6 +343,15 @@ _NARROWED_TURBO_WITH_CONSUMERS = {
     },
 }
 
+
+def _narrowed_turbo(inputs: list[str]) -> dict:
+    """A turbo.json body whose backend:contract-check watches exactly `inputs`."""
+    return {
+        "extends": ["//"],
+        "tasks": {"backend:contract-check": {"inputs": inputs, "outputs": [], "cache": True}},
+    }
+
+
 chain_check = IsolationChainCheck()
 
 
@@ -465,6 +474,69 @@ class TestIsolationChainWebhookConsumers:
             pytest.param(_NARROWED_TURBO, True, id="narrowed_without_the_consumer_input"),
             pytest.param(_NARROWED_TURBO_WITH_CONSUMERS, False, id="narrowed_with_the_consumer_input"),
             pytest.param(None, False, id="unnarrowed_still_watches_all_of_backend"),
+            # a negation that covers the module leaves it out of the task hash, so listing it and
+            # then excluding it is still an unwatched consumer
+            pytest.param(
+                _narrowed_turbo(
+                    [
+                        "backend/facade/**",
+                        "backend/webhook_consumers.py",
+                        "backend/migrations/**",
+                        "!backend/webhook_consumers.py",
+                    ]
+                ),
+                True,
+                id="negation_cancels_the_consumer_input",
+            ),
+            pytest.param(
+                _narrowed_turbo(
+                    [
+                        "backend/facade/**",
+                        "backend/webhook_consumers.py",
+                        "backend/migrations/**",
+                        "!backend/**",
+                    ]
+                ),
+                True,
+                id="negation_glob_cancels_the_consumer_input",
+            ),
+            # a negation whose shape the matcher can't evaluate is read as reaching the module
+            pytest.param(
+                _narrowed_turbo(
+                    [
+                        "backend/facade/**",
+                        "backend/webhook_consumers.py",
+                        "backend/migrations/**",
+                        "!backend/**/webhook_consumers.py",
+                    ]
+                ),
+                True,
+                id="deep_negation_glob_cancels_the_consumer_input",
+            ),
+            pytest.param(
+                _narrowed_turbo(
+                    [
+                        "backend/facade/**",
+                        "backend/webhook_consumers.py",
+                        "backend/migrations/**",
+                        "!backend/webhook_*.py",
+                    ]
+                ),
+                True,
+                id="stem_negation_glob_cancels_the_consumer_input",
+            ),
+            pytest.param(
+                _narrowed_turbo(
+                    [
+                        "backend/facade/**",
+                        "backend/webhook_consumers.py",
+                        "backend/migrations/**",
+                        "!backend/models/**",
+                    ]
+                ),
+                False,
+                id="negation_of_an_unrelated_path_leaves_the_consumer_watched",
+            ),
         ],
     )
     def test_unwatched_consumer_module_is_reported_when_not_eligible(
@@ -1995,6 +2067,14 @@ class TestNarrowedTurboWiringSurface:
             (["backend/facade/**", "backend/webhook_consumers.py"], True),
             # present but unlisted: a consumer change would run no Django suite, so it isn't narrowed
             (["backend/facade/**"], False),
+            # listed and then negated: turbo drops the file from the task hash, so it is unwatched
+            (["backend/facade/**", "backend/webhook_consumers.py", "!backend/webhook_consumers.py"], False),
+            (["backend/facade/**", "backend/webhook_consumers.py", "!backend/**"], False),
+            # a negation shape the matcher can't evaluate is read as reaching the module
+            (["backend/facade/**", "backend/webhook_consumers.py", "!backend/**/webhook_consumers.py"], False),
+            (["backend/facade/**", "backend/webhook_consumers.py", "!backend/webhook_*.py"], False),
+            # a negation of an unrelated path cannot reach the module, so it stays watched
+            (["backend/facade/**", "backend/webhook_consumers.py", "!backend/models/**"], True),
         ],
     )
     def test_present_webhook_consumers_must_stay_watched(

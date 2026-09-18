@@ -136,6 +136,16 @@ JOB_STATUS_CACHE_TTL_SECONDS = 30
 JOB_STATUS_CACHE_MAX_ENTRIES = 1000
 
 
+def _is_transient_queue_connection_drop(err: Exception, conn: psycopg.AsyncConnection[Any]) -> bool:
+    """Whether `err` is a queue-db connection dying mid-query rather than a real bug.
+
+    A network blip, server-side cull, or pgbouncer bounce leaves `conn` closed; the next
+    reconcile cycle reconnects and retries, so it isn't worth paging on (mirrors the
+    conn.closed check already applied to the stranded-run sweep's own OperationalError).
+    """
+    return isinstance(err, psycopg.OperationalError) and conn.closed
+
+
 class DeltaBatchConsumerAdapter:
     log_prefix: str = ""
     executing_state: str = SourceBatchStatus.State.EXECUTING.value
@@ -454,8 +464,11 @@ class DeltaBatchConsumerAdapter:
                 reason="enqueued into an already-failed run (reconcile sweep)",
             )
         except Exception as e:
-            logger.exception("reconcile_straggler_sweep_failed", run_uuid=ref.run_uuid)
-            capture_exception(e)
+            if _is_transient_queue_connection_drop(e, conn):
+                logger.warning("reconcile_straggler_sweep_closed_connection", run_uuid=ref.run_uuid, error=str(e))
+            else:
+                logger.exception("reconcile_straggler_sweep_failed", run_uuid=ref.run_uuid)
+                capture_exception(e)
             return
 
         if stragglers:
@@ -550,10 +563,13 @@ class DeltaBatchConsumerAdapter:
                     reason=STRANDED_RUN_ERROR,
                 )
             except Exception as e:
-                # Without the batches failed we'd fail the job while leaving claimable stragglers
-                # behind — the exact resurrection this ordering prevents. Skip the rest for this run.
-                logger.exception("stranded_run_batch_sweep_failed", run_uuid=ref.run_uuid)
-                capture_exception(e)
+                if _is_transient_queue_connection_drop(e, conn):
+                    logger.warning("stranded_run_batch_sweep_closed_connection", run_uuid=ref.run_uuid, error=str(e))
+                else:
+                    # Without the batches failed we'd fail the job while leaving claimable stragglers
+                    # behind — the exact resurrection this ordering prevents. Skip the rest for this run.
+                    logger.exception("stranded_run_batch_sweep_failed", run_uuid=ref.run_uuid)
+                    capture_exception(e)
                 continue
 
             try:

@@ -12,7 +12,12 @@ import type { ReplayObservationApi, VisionObservationsRetrieveParams } from '../
 import { scheduleObservationPoll } from '../logics/observationPolling'
 import { requestObservationRetry } from '../logics/observationRetry'
 import { OBSERVATION_LIST_FILTER_KEYS, OBSERVATION_LIST_URL_PARAM_KEYS } from '../replay_scanners/types'
-import { scannerBreadcrumb } from '../utils/breadcrumbs'
+import {
+    OBSERVATION_ORIGIN_PARAM,
+    WATCH_FEED_ORIGIN,
+    scannerBreadcrumb,
+    watchFeedBreadcrumb,
+} from '../utils/breadcrumbs'
 import { hasScannerPage, scannerLabel } from '../utils/observation'
 import { parseNumericParam } from '../utils/urlParams'
 import { observationProgressLogic } from './observationProgressLogic'
@@ -35,7 +40,7 @@ export function neighborFilterParams(searchParams: Record<string, unknown>): Vis
             if (parsed !== null) {
                 params[key] = parsed
             }
-        } else if (typeof value === 'string' && value) {
+        } else if (typeof value === 'string' && value && !(key === 'order_by' && value === '-created_at')) {
             params[key] = value
         }
     }
@@ -75,6 +80,16 @@ export function scannerReturnParams(searchParams: Record<string, unknown>): Reco
         }
     }
     return params
+}
+
+/**
+ * Carries the home-view origin (`from`) across prev/next, so back keeps returning to the feed the
+ * reader came from even after they page through neighbors within the scene.
+ */
+export function observationOriginParams(searchParams: Record<string, unknown>): Record<string, string> {
+    return searchParams[OBSERVATION_ORIGIN_PARAM] === WATCH_FEED_ORIGIN
+        ? { [OBSERVATION_ORIGIN_PARAM]: WATCH_FEED_ORIGIN }
+        : {}
 }
 
 /** The crumb the observation page's back button returns to. */
@@ -301,10 +316,15 @@ export const replayObservationLogic = kea<replayObservationLogicType>([
             const inFlight = values.observation?.status === 'pending' || values.observation?.status === 'running'
             scheduleObservationPoll(cache.disposables, inFlight, actions.loadObservation)
         }
-        // Point the breadcrumb at whatever owns this observation, so "back" returns there instead of the vision home.
+        // Point the breadcrumb at whatever owns this observation, so "back" returns there instead of the
+        // vision home. The watch feed is the exception: it opens rows from the home scene, so back returns
+        // to the feed rather than the scanner that owns the row.
         const setParentBreadcrumb = (observation: ReplayObservationApi): void => {
+            const { searchParams } = router.values
             replayObservationSceneLogic().actions.setParentBreadcrumb(
-                observationParentBreadcrumb(observation, scannerReturnParams(router.values.searchParams))
+                searchParams[OBSERVATION_ORIGIN_PARAM] === WATCH_FEED_ORIGIN
+                    ? watchFeedBreadcrumb()
+                    : observationParentBreadcrumb(observation, scannerReturnParams(searchParams))
             )
         }
         return {

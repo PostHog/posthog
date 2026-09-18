@@ -588,6 +588,15 @@ WORKFLOWS_CANCEL_JWT_SECRETS = get_list(
     get_from_env("WORKFLOWS_CANCEL_JWT_SECRET", "local-dev-workflows-cancel-jwt" if DEBUG or TEST else "")
 )
 
+# Scoped JWT keys for the workflow step resume route (a finished task run waking the workflow
+# step that dispatched it). The Celery and Temporal workers mint, the plugin server verifies.
+# Its own key per the one-key-per-surface rule above. Comma-separated, newest first. Empty
+# outside dev/test, in which case the wake falls back to the `$workflow_step_resume` internal
+# event. The dev/test value must match the plugin server's default (nodejs/src/cdp/config.ts).
+WORKFLOWS_STEP_RESUME_JWT_SECRETS = get_list(
+    get_from_env("WORKFLOWS_STEP_RESUME_JWT_SECRET", "local-dev-workflows-step-resume-jwt" if DEBUG or TEST else "")
+)
+
 # Signs the tokens a workflow's "Create AI task" action calls back with. The dev/test value
 # must match the plugin server's minting default so local workflows work with no setup.
 TASKS_CREATE_JWT_SECRETS = get_list(

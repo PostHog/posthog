@@ -89,6 +89,7 @@ jest.mock('lib/components/Cards/InsightCard', () => ({
         tile: { id: number }
         showResizeHandles: boolean
         apiErrored?: boolean
+        canEditDashboard?: boolean
         queryId?: string
         apiError?: Error & {
             status?: number
@@ -106,6 +107,7 @@ jest.mock('lib/components/Cards/InsightCard', () => ({
                 data-tile-id={String(tile.id)}
                 data-show-resize-handles={String(showResizeHandles)}
                 data-api-errored={apiErrored ? 'true' : undefined}
+                data-can-edit-dashboard={props.canEditDashboard === false ? 'false' : undefined}
                 data-api-error-status={apiError?.status}
                 data-api-error-detail={apiError?.detail ?? undefined}
                 data-api-error-code={apiError?.code ?? undefined}
@@ -298,6 +300,10 @@ describe('DashboardItems', () => {
         )
         expect(container.querySelector('[data-attr="insight-card"]')).toHaveAttribute(
             'data-show-resize-handles',
+            'false'
+        )
+        expect(container.querySelector('[data-attr="insight-card"]')).toHaveAttribute(
+            'data-can-edit-dashboard',
             'false'
         )
     })

@@ -121,6 +121,20 @@ describe('SavedInsightsFilters Created by dropdown', () => {
         })
     })
 
+    it('shows tag skeletons while tags load', async () => {
+        useMocks({
+            get: {
+                '/api/projects/:team_id/tags/': () => new Promise(() => {}),
+            },
+        })
+        renderFilters()
+        await userEvent.click(screen.getByText('Tags'))
+
+        await waitFor(() => {
+            expect(screen.getAllByText('Loading…')).toHaveLength(5)
+        })
+    })
+
     it('toggles member selection and calls setFilters', async () => {
         renderFilters()
         await userEvent.click(screen.getByText('Created by'))

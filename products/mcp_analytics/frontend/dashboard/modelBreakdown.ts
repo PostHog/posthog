@@ -1,7 +1,14 @@
 import { dayjs } from 'lib/dayjs'
 import { dateStringToComponents, dateStringToDayJs } from 'lib/utils/dateFilters'
 
-import { DateRange, HogQLFilters, MCPModelBreakdownItem, NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
+import {
+    DateRange,
+    HogQLFilters,
+    InsightVizNode,
+    MCPModelBreakdownItem,
+    NodeKind,
+    TrendsQuery,
+} from '~/queries/schema/schema-general'
 import { BaseMathType, ChartDisplayType } from '~/types'
 
 export function summarizeModelBreakdown(rows: MCPModelBreakdownItem[]): {
@@ -25,17 +32,20 @@ export function summarizeModelBreakdown(rows: MCPModelBreakdownItem[]): {
     }
 }
 
-export function buildModelExplorationQuery(filters: HogQLFilters): TrendsQuery {
+export function buildModelExplorationQuery(filters: HogQLFilters): InsightVizNode<TrendsQuery> {
     return {
-        ...filters,
-        kind: NodeKind.TrendsQuery,
-        series: [{ kind: NodeKind.EventsNode, event: '$mcp_tool_call', math: BaseMathType.TotalCount }],
-        breakdownFilter: {
-            breakdown: "coalesce(nullIf(trim(toString(properties.$mcp_llm_model)), ''), 'Unknown')",
-            breakdown_type: 'hogql',
-            breakdown_limit: 50,
+        kind: NodeKind.InsightVizNode,
+        source: {
+            ...filters,
+            kind: NodeKind.TrendsQuery,
+            series: [{ kind: NodeKind.EventsNode, event: '$mcp_tool_call', math: BaseMathType.TotalCount }],
+            breakdownFilter: {
+                breakdown: "coalesce(nullIf(trim(toString(properties.$mcp_llm_model)), ''), 'Unknown')",
+                breakdown_type: 'hogql',
+                breakdown_limit: 50,
+            },
+            trendsFilter: { display: ChartDisplayType.ActionsTable },
         },
-        trendsFilter: { display: ChartDisplayType.ActionsTable },
     }
 }
 

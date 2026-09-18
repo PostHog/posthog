@@ -39,6 +39,7 @@ from products.engineering_analytics.backend.logic.cost import (
     render_is_billable_job,
     runner_tier_descriptor,
 )
+from products.engineering_analytics.backend.logic.merge_queue import in_merge_queue_namespace_expr
 from products.engineering_analytics.backend.logic.queries._buckets import (
     Granularity,
     bucket_expr,
@@ -50,7 +51,6 @@ from products.engineering_analytics.backend.logic.queries._workflow_filters impo
     branch_filter_clause,
     cost_run_scope_filter_clause,
     date_to_filter_clause,
-    merge_queue_branch_predicate,
     run_windowed_job_created_floor_constant,
     window_pair_predicates,
 )
@@ -238,6 +238,44 @@ def query_pr_list_costs(
     }
 
 
+# Per-PR billable cost for a population that can be repo-wide (every PR merged in a window), so unlike
+# _LIST_COST_SELECT it carries a floor: runs started before ``run_from`` are left out, which trims the
+# jobs scan for a population of thousands of PRs.
+_FLOORED_PR_COST_SELECT = """
+    SELECT c.pr_number AS pr_number, __COST_AGGREGATES__
+    FROM __COST_SOURCE__ AS c
+    WHERE c.pr_number IN {pr_numbers} AND c.run_started_at >= {run_from}
+    GROUP BY c.pr_number
+    LIMIT 1000000
+"""
+
+
+def query_pr_costs_since(
+    *, curated: CuratedGitHubSource, pr_numbers: list[int], run_from: datetime
+) -> dict[int, PRCostAggregate]:
+    """Per-PR billable cost from the runs started at or after ``run_from``, keyed by PR number.
+
+    Empty when the jobs source isn't synced or no PR numbers are given. Keyed by number alone
+    because a resolved source is one repository's tables.
+    """
+    cost_source = curated.job_cost_source(created_floor=True)
+    if cost_source is None or not pr_numbers:
+        return {}
+    sql = _FLOORED_PR_COST_SELECT.replace("__COST_SOURCE__", cost_source).replace(
+        "__COST_AGGREGATES__", _cost_aggregates()
+    )
+    response = curated.run(
+        sql,
+        query_type="engineering_analytics.pr_costs_since",
+        placeholders={
+            "pr_numbers": ast.Constant(value=pr_numbers),
+            "run_from": ast.Constant(value=run_from),
+            "job_created_floor": run_windowed_job_created_floor_constant(run_from),
+        },
+    )
+    return {int(pr_number): _aggregate(*agg) for pr_number, *agg in response.results or []}
+
+
 # Per-workflow billable cost over a window (Workflows tab), grouped and costed in SQL and keyed by
 # workflow_name. Windowed and optionally branch/run-scope filtered on the run's attributes (the cost
 # source carries run_started_at and run_head_branch alongside the per-job cost columns).
@@ -399,11 +437,11 @@ def query_workflow_window_costs_with_prev(
     if date_to is not None:
         date_to_clause = "AND c.run_started_at <= {date_to}"
         placeholders["date_to"] = ast.Constant(value=date_to)
-    # The prefix predicate deliberately counts all queue-shaped spend, including branch shapes
+    # The namespace predicate deliberately counts all queue spend, including branch shapes
     # logic/merge_queue.py cannot resolve to a PR (e.g. trunk-merge/gr-*). The per-PR landing stats
     # in merge_queue_overview.py use the narrower corroborated population; the two answer different
     # questions, so don't unify them casually.
-    queue = merge_queue_branch_predicate("c.head_branch")
+    queue = in_merge_queue_namespace_expr("c.head_branch")
     queue_agg = (
         f"sumIf(ifNull(c.billable_seconds, 0), {queue} AND {windows.current}) AS queue_billable_seconds, "
         f"sumIf(ifNull(c.billable_seconds, 0), {queue} AND {windows.previous}) AS queue_billable_seconds_prev"

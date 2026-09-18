@@ -14,7 +14,7 @@ import uuid
 from datetime import UTC, datetime
 
 from posthog.dataclasses import frozen
-from posthog.utils import get_safe_cache, safe_cache_set
+from posthog.utils import absolute_uri, get_safe_cache, safe_cache_set
 
 from products.context_layer.backend import store
 from products.tasks.backend.facade import api as tasks_facade
@@ -47,10 +47,18 @@ class DreamRun:
     pages_added: int
     pages_modified: int
     pages_deleted: int
+    task_run_id: str | None = None
 
 
 @frozen
 class ActiveDreamRun:
+    run_status: str
+    started_at: datetime
+
+
+@frozen
+class UnpublishedDreamRun:
+    task_url: str
     run_status: str
     started_at: datetime
 
@@ -74,13 +82,14 @@ class DreamRunList:
     head_sha: str
     dreams: list[DreamRun]
     active_run: ActiveDreamRun | None
+    unpublished_run: UnpublishedDreamRun | None
 
 
 _STATUS_MAP = {"A": "added", "M": "modified", "D": "deleted"}
 
 
 def _list_cache_key(organization_id: uuid.UUID | str, head_sha: str) -> str:
-    return f"context_layer:dreams:{organization_id}:{head_sha}"
+    return f"context_layer:dreams:v2:{organization_id}:{head_sha}"
 
 
 def _detail_cache_key(organization_id: uuid.UUID | str, head_sha: str, sha: str) -> str:
@@ -93,19 +102,36 @@ def list_dream_runs(organization_id: uuid.UUID | str) -> DreamRunList:
     active_run = _get_active_dream_run(organization_id)
     cached = get_safe_cache(_list_cache_key(organization_id, head_sha))
     if cached is not None:
-        return DreamRunList(
-            head_sha=head_sha,
-            dreams=[_dream_run_from_dict(entry) for entry in cached if isinstance(entry, dict)],
-            active_run=active_run,
+        dreams = [_dream_run_from_dict(entry) for entry in cached if isinstance(entry, dict)]
+    else:
+        with store.checkout_repo(organization_id) as checkout:
+            dreams = _read_dream_runs(checkout)
+        safe_cache_set(
+            _list_cache_key(organization_id, head_sha),
+            [_dream_run_to_dict(dream) for dream in dreams],
+            CACHE_TTL_SECONDS,
         )
-    with store.checkout_repo(organization_id) as checkout:
-        dreams = _read_dream_runs(checkout)
-    safe_cache_set(
-        _list_cache_key(organization_id, head_sha),
-        [_dream_run_to_dict(dream) for dream in dreams],
-        CACHE_TTL_SECONDS,
+    return DreamRunList(
+        head_sha=head_sha,
+        dreams=dreams,
+        active_run=active_run,
+        unpublished_run=_get_unpublished_dream_run(organization_id, dreams),
     )
-    return DreamRunList(head_sha=head_sha, dreams=dreams, active_run=active_run)
+
+
+def _get_unpublished_dream_run(organization_id: uuid.UUID | str, dreams: list[DreamRun]) -> UnpublishedDreamRun | None:
+    run = tasks_facade.get_latest_internal_task_run_for_organization(
+        organization_id, ai_stage=DREAM_AI_STAGE, terminal_only=True
+    )
+    if run is None or run.created_at is None or not run.is_terminal:
+        return None
+    if any(dream.task_run_id == str(run.id) for dream in dreams):
+        return None
+    return UnpublishedDreamRun(
+        task_url=absolute_uri(f"/project/{run.team_id}/tasks/{run.task_id}"),
+        run_status=run.status,
+        started_at=run.created_at,
+    )
 
 
 def _get_active_dream_run(organization_id: uuid.UUID | str) -> ActiveDreamRun | None:
@@ -169,6 +195,7 @@ def _read_dream_runs(checkout: store.RepoCheckout) -> list[DreamRun]:
         subject, _, body = rest.partition(_FIELD_SEPARATOR)
         if not subject.startswith(DREAM_SUBJECT_PREFIX):
             continue
+        summary, trailer_separator, task_run_id = ("\n\n" + body.strip()).rpartition("\n\nTask-Run-Id: ")
         counts = {"A": 0, "M": 0, "D": 0}
         for line in changes.splitlines():
             status, _, path = line.partition("\t")
@@ -180,10 +207,11 @@ def _read_dream_runs(checkout: store.RepoCheckout) -> list[DreamRun]:
                 sha=sha,
                 date=subject.removeprefix(DREAM_SUBJECT_PREFIX).strip(),
                 committed_at=datetime.fromisoformat(committed_at),
-                summary=body.strip(),
+                summary=summary.strip() if trailer_separator else body.strip(),
                 pages_added=counts["A"],
                 pages_modified=counts["M"],
                 pages_deleted=counts["D"],
+                task_run_id=task_run_id if trailer_separator else None,
             )
         )
     return dreams
@@ -229,6 +257,7 @@ def _dream_run_to_dict(dream: DreamRun) -> dict[str, object]:
         "pages_added": dream.pages_added,
         "pages_modified": dream.pages_modified,
         "pages_deleted": dream.pages_deleted,
+        "task_run_id": dream.task_run_id,
     }
 
 
@@ -241,6 +270,7 @@ def _dream_run_from_dict(data: dict[str, object]) -> DreamRun:
         pages_added=int(str(data["pages_added"])),
         pages_modified=int(str(data["pages_modified"])),
         pages_deleted=int(str(data["pages_deleted"])),
+        task_run_id=str(data["task_run_id"]) if data.get("task_run_id") else None,
     )
 
 

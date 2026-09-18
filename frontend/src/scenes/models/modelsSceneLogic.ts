@@ -3,6 +3,7 @@ import { router, urlToAction } from 'kea-router'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import type { DataWarehouseSavedQuerySummary } from 'scenes/data-warehouse/saved_queries/dataWarehouseViewsLogic'
 import { dataWarehouseViewsLogic } from 'scenes/data-warehouse/saved_queries/dataWarehouseViewsLogic'
 import { urls } from 'scenes/urls'
 
@@ -15,7 +16,6 @@ import { buildAdjacencyMaps, traverseLineage } from 'products/data_modeling/fron
 import { servingSuspension } from 'products/data_modeling/frontend/suspension'
 
 import type { FeatureFlagsSet } from '../../lib/logic/featureFlagLogic'
-import type { DataWarehouseSavedQuery } from '../../types'
 
 export type ModelsSceneTab = 'overview' | 'models' | 'lineage' | 'data-quality'
 
@@ -35,7 +35,7 @@ export interface AttentionModel {
 }
 
 export interface modelsSceneLogicValues {
-    dataWarehouseSavedQueries: DataWarehouseSavedQuery[] // dataWarehouseViewsLogic
+    dataWarehouseSavedQueries: DataWarehouseSavedQuerySummary[] // dataWarehouseViewsLogic
     dataWarehouseSavedQueriesLoading: boolean // dataWarehouseViewsLogic
     featureFlags: FeatureFlagsSet // featureFlagLogic
     receivedFeatureFlags: boolean // featureFlagLogic
@@ -72,7 +72,7 @@ export interface modelsSceneLogicMeta {
             suspendedNodes: DataModelingNode[],
             edges: DataModelingEdge[],
             nodes: DataModelingNode[],
-            savedQueries: DataWarehouseSavedQuery[]
+            savedQueries: DataWarehouseSavedQuerySummary[]
         ) => AttentionModel[]
         behindSchedule: (
             nodes: DataModelingNode[],
@@ -140,18 +140,13 @@ export const modelsSceneLogic = kea<modelsSceneLogicType>([
         ],
         // The saved-query list response omits `suspended`, so read it off the nodes.
         /**
-         * A marker only means scheduled runs stopped when it is on the serving engine and the team
-         * enforces suspension. Detection runs for every team, so an unenforced marker is a record
-         * of repeated failures while the schedule keeps firing.
+         * Only a marker on the serving engine means scheduled runs stopped. The shadow engine marks
+         * its own failures, and those leave the schedule firing.
          */
         suspendedNodes: [
-            (s) => [s.nodes, s.featureFlags],
-            (nodes: DataModelingNode[], featureFlags: FeatureFlagsSet): DataModelingNode[] => {
-                if (!featureFlags[FEATURE_FLAGS.DATA_MODELING_SUSPEND_FAILING_NODES]) {
-                    return []
-                }
-                return nodes.filter((node) => servingSuspension(node.suspended))
-            },
+            (s) => [s.nodes],
+            (nodes: DataModelingNode[]): DataModelingNode[] =>
+                nodes.filter((node) => servingSuspension(node.suspended)),
         ],
         suspensionBySavedQueryId: [
             (s) => [s.suspendedNodes],
