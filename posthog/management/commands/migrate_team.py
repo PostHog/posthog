@@ -22,8 +22,8 @@ logger.setLevel(logging.INFO)
 EXPORT_NAME = "PostHog HTTP Migration"
 VALID_INTERVALS = {i[0] for i in BATCH_EXPORT_INTERVALS}
 REGION_URLS = {
-    "us": "https://app.posthog.com/batch",
-    "eu": "https://eu.posthog.com/batch",
+    "us": "https://us.i.posthog.com/batch/",
+    "eu": "https://eu.i.posthog.com/batch/",
 }
 
 
