@@ -12,7 +12,7 @@ import {
     reducers,
     selectors,
 } from 'kea'
-import posthog, { Survey, SurveyType } from 'posthog-js'
+import posthog, { Survey, SurveyQuestionType, SurveyType } from 'posthog-js'
 
 import { SurveyAnswer, isSurveyAnswerValid, supportsApiSurvey } from './surveyQuestions'
 
@@ -34,6 +34,7 @@ export interface apiSurveyLogicValues {
     answers: Record<string, SurveyAnswer>
     submitting: boolean
     completed: boolean
+    ratingAccepted: boolean
     submissionId: string
     eventProperties: Record<string, unknown>
     canSubmit: boolean
@@ -53,8 +54,10 @@ export interface apiSurveyLogicActions {
         choice: string,
         checked: boolean
     ) => { questionId: string; choice: string; checked: boolean }
-    submit: () => { value: true }
-    responseQueued: () => { value: true }
+    submitRating: (answer: string) => { answer: string }
+    acceptRating: () => { value: true }
+    submit: (partial?: boolean) => { partial: boolean }
+    responseQueued: (completed?: boolean) => { completed: boolean }
 }
 
 export type apiSurveyLogicType = MakeLogicType<apiSurveyLogicValues, apiSurveyLogicActions, ApiSurveyProps>
@@ -73,19 +76,25 @@ export const apiSurveyLogic: LogicWrapper<apiSurveyLogicType> = kea<apiSurveyLog
         setError: (error: string) => ({ error }),
         setAnswer: (questionId: string, answer: SurveyAnswer) => ({ questionId, answer }),
         toggleChoice: (questionId: string, choice: string, checked: boolean) => ({ questionId, choice, checked }),
-        submit: true,
-        responseQueued: true,
+        submitRating: (answer: string) => ({ answer }),
+        acceptRating: true,
+        submit: (partial = false) => ({ partial }),
+        responseQueued: (completed = true) => ({ completed }),
     }),
     reducers({
         survey: [null as Survey | null, { surveyLoaded: (_, { survey }) => survey }],
         loading: [true, { loadSurvey: () => true, surveyLoaded: () => false, setError: () => false }],
-        error: ['', { loadSurvey: () => '', submit: () => '', setError: (_, { error }) => error }],
+        error: [
+            '',
+            { loadSurvey: () => '', submitRating: () => '', submit: () => '', setError: (_, { error }) => error },
+        ],
         answers: [
             {} as Record<string, SurveyAnswer>,
             { setAnswer: (state, { questionId, answer }) => ({ ...state, [questionId]: answer }) },
         ],
         submitting: [false, { submit: () => true, responseQueued: () => false, setError: () => false }],
-        completed: [false, { responseQueued: () => true }],
+        completed: [false, { responseQueued: (_, { completed }) => completed }],
+        ratingAccepted: [false, { acceptRating: () => true }],
         submissionId: ['', { surveyLoaded: (_, { submissionId }) => submissionId }],
         eventProperties: [
             {} as Record<string, unknown>,
@@ -166,12 +175,38 @@ export const apiSurveyLogic: LogicWrapper<apiSurveyLogicType> = kea<apiSurveyLog
                 checked ? [...new Set([...selected, choice])] : selected.filter((value) => value !== choice)
             )
         },
-        submit: () => {
+        submitRating: ({ answer }) => {
+            const question = values.survey?.questions[0]
+            if (
+                values.ratingAccepted ||
+                values.completed ||
+                values.submitting ||
+                !question ||
+                question.type !== SurveyQuestionType.Rating ||
+                !isSurveyAnswerValid(question, answer)
+            ) {
+                return
+            }
+            actions.setAnswer(question.id!, answer)
+            if (values.survey!.questions.length === 1) {
+                actions.submit()
+            } else if (values.survey!.enable_partial_responses) {
+                actions.submit(true)
+            } else {
+                actions.acceptRating()
+            }
+        },
+        submit: ({ partial }) => {
             if (values.completed) {
                 actions.responseQueued()
                 return
             }
-            if (!values.canSubmit || !values.survey) {
+            const firstQuestion = values.survey?.questions[0]
+            const canSubmitPartial =
+                values.survey?.enable_partial_responses &&
+                firstQuestion?.type === SurveyQuestionType.Rating &&
+                isSurveyAnswerValid(firstQuestion, values.answers[firstQuestion.id!])
+            if (!values.survey || (partial ? !canSubmitPartial : !values.canSubmit)) {
                 actions.setError('Check your answers before sending the response.')
                 return
             }
@@ -186,12 +221,15 @@ export const apiSurveyLogic: LogicWrapper<apiSurveyLogicType> = kea<apiSurveyLog
                 const queued = (props.client ?? posthog).capture('survey sent', {
                     ...values.eventProperties,
                     ...responses,
-                    $survey_completed: true,
+                    $survey_completed: !partial,
                 })
                 if (!queued) {
                     throw new Error('not queued')
                 }
-                actions.responseQueued()
+                actions.responseQueued(!partial)
+                if (partial) {
+                    actions.acceptRating()
+                }
             } catch {
                 actions.setError('Couldn’t send your response. Your answers are still here. Try again.')
             }

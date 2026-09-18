@@ -1,11 +1,13 @@
+import { SurveyQuestion, SurveyQuestionType } from 'posthog-js'
 import { useEffect, useRef } from 'react'
 
 import { IconThumbsDown, IconThumbsUp } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
-export type SurveyFeedbackRating = '1' | '2'
+import { ratingValues } from './surveyQuestions'
 
 export function SurveyFeedbackButtons({
+    question,
     value,
     submissionId,
     onChange,
@@ -14,16 +16,17 @@ export function SurveyFeedbackButtons({
     disabledReason,
     expanded = false,
 }: {
-    value?: SurveyFeedbackRating
+    question: Extract<SurveyQuestion, { type: typeof SurveyQuestionType.Rating }>
+    value?: string
     submissionId: string
-    onChange: (rating: SurveyFeedbackRating, submissionId: string) => void
+    onChange: (rating: string, submissionId: string) => void
     onMoreFeedback: (submissionId: string) => void
     loading?: boolean
     disabledReason?: string
     expanded?: boolean
 }): JSX.Element {
     const moreFeedbackRef = useRef<HTMLButtonElement>(null)
-    const pendingFocusRating = useRef<SurveyFeedbackRating>()
+    const pendingFocusRating = useRef<string>()
 
     useEffect(() => {
         if (value && pendingFocusRating.current === value && !loading && !disabledReason && !expanded) {
@@ -36,35 +39,65 @@ export function SurveyFeedbackButtons({
         <div
             className="flex w-full flex-wrap items-center justify-between gap-2"
             role="group"
-            aria-label="Survey feedback"
+            aria-label={question.question}
         >
             <span className="text-secondary text-sm">
-                {value === undefined ? 'Was this helpful?' : 'Thanks for your feedback.'}
+                {value === undefined ? question.question : 'Thanks for your feedback.'}
+                {value === undefined && question.description && (
+                    <span className="block text-xs">{question.description}</span>
+                )}
             </span>
             {value === undefined ? (
-                <div className="flex items-center gap-2">
-                    {(
-                        [
-                            { value: '1', label: 'Helpful', icon: <IconThumbsUp /> },
-                            { value: '2', label: 'Not helpful', icon: <IconThumbsDown /> },
-                        ] as const
-                    ).map((option) => (
-                        <LemonButton
-                            key={option.value}
-                            type="secondary"
-                            size="small"
-                            icon={option.icon}
-                            aria-label={option.label}
-                            tooltip={option.label}
-                            loading={loading}
-                            disabledReason={disabledReason}
-                            onClick={() => {
-                                pendingFocusRating.current = option.value
-                                onChange(option.value, submissionId)
-                            }}
-                            data-attr={option.value === '1' ? 'api-survey-thumbs-up' : 'api-survey-thumbs-down'}
-                        />
-                    ))}
+                <div className="max-w-full space-y-2">
+                    <div className="flex flex-wrap items-center gap-2">
+                        {ratingValues(question.scale).map((rating) => {
+                            const label =
+                                question.display === 'emoji'
+                                    ? rating === '1'
+                                        ? question.lowerBoundLabel || 'Thumbs up'
+                                        : question.upperBoundLabel || 'Thumbs down'
+                                    : rating
+                            return (
+                                <LemonButton
+                                    key={rating}
+                                    data-attr={
+                                        question.display === 'emoji'
+                                            ? rating === '1'
+                                                ? 'api-survey-thumbs-up'
+                                                : 'api-survey-thumbs-down'
+                                            : 'api-survey-rating'
+                                    }
+                                    type="secondary"
+                                    size="small"
+                                    icon={
+                                        question.display === 'emoji' ? (
+                                            rating === '1' ? (
+                                                <IconThumbsUp />
+                                            ) : (
+                                                <IconThumbsDown />
+                                            )
+                                        ) : undefined
+                                    }
+                                    aria-label={label}
+                                    tooltip={question.display === 'emoji' ? label : undefined}
+                                    loading={loading}
+                                    disabledReason={disabledReason}
+                                    onClick={() => {
+                                        pendingFocusRating.current = rating
+                                        onChange(rating, submissionId)
+                                    }}
+                                >
+                                    {question.display === 'number' ? rating : undefined}
+                                </LemonButton>
+                            )
+                        })}
+                    </div>
+                    {question.display === 'number' && (
+                        <div className="flex justify-between gap-4 text-xs text-secondary">
+                            <span>{question.lowerBoundLabel}</span>
+                            <span>{question.upperBoundLabel}</span>
+                        </div>
+                    )}
                 </div>
             ) : (
                 <LemonButton

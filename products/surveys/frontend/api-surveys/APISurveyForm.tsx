@@ -6,7 +6,10 @@ import { ApiSurveyProps, apiSurveyLogic } from './apiSurveyLogic'
 import { APISurveyQuestion } from './APISurveyQuestion'
 import { advanceSurveyFocus } from './surveyKeyboardNavigation'
 
-export function APISurveyForm(props: ApiSurveyProps): JSX.Element {
+export function APISurveyForm({
+    answeredQuestionIds = [],
+    ...props
+}: ApiSurveyProps & { answeredQuestionIds?: string[] }): JSX.Element {
     const logic = apiSurveyLogic(props)
     const { survey, loading, error, answers, canSubmit, completed, submitting } = useValues(logic)
     const { loadSurvey, setAnswer, toggleChoice, submit } = useActions(logic)
@@ -26,22 +29,24 @@ export function APISurveyForm(props: ApiSurveyProps): JSX.Element {
     }
     return (
         <div className="space-y-4" data-attr="api-survey-form" onKeyDown={advanceSurveyFocus}>
-            {survey.questions.map((question) => (
-                <APISurveyQuestion
-                    key={question.id}
-                    question={question}
-                    value={answers[question.id!]}
-                    onChange={(answer) => setAnswer(question.id!, answer)}
-                    onToggleChoice={(choice, checked) => toggleChoice(question.id!, choice, checked)}
-                    disabled={submitting}
-                />
-            ))}
+            {survey.questions
+                .filter((question) => !answeredQuestionIds.includes(question.id!))
+                .map((question) => (
+                    <APISurveyQuestion
+                        key={question.id}
+                        question={question}
+                        value={answers[question.id!]}
+                        onChange={(answer) => setAnswer(question.id!, answer)}
+                        onToggleChoice={(choice, checked) => toggleChoice(question.id!, choice, checked)}
+                        disabled={submitting}
+                    />
+                ))}
             {error && <LemonBanner type="error">{error}</LemonBanner>}
             <LemonButton
                 type="primary"
                 loading={submitting}
                 disabledReason={!canSubmit ? 'Complete the required answers and check their limits' : undefined}
-                onClick={submit}
+                onClick={() => submit()}
                 data-attr="api-survey-submit"
             >
                 Send feedback

@@ -1,5 +1,6 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 
+import { exampleFeedbackRating } from './apiSurvey.fixtures'
 import { SurveyFeedbackButtons } from './SurveyFeedbackButtons'
 
 describe('SurveyFeedbackButtons', () => {
@@ -12,7 +13,7 @@ describe('SurveyFeedbackButtons', () => {
     ] as const)('sends %s separately from opening detailed feedback', (label, rating) => {
         const onChange = jest.fn()
         const onMoreFeedback = jest.fn()
-        const props = { submissionId, onChange, onMoreFeedback }
+        const props = { question: exampleFeedbackRating, submissionId, onChange, onMoreFeedback }
         const { rerender } = render(<SurveyFeedbackButtons {...props} />)
         expect(screen.queryByText('Share more feedback')).toBeNull()
         fireEvent.click(screen.getByLabelText(label))
@@ -29,7 +30,7 @@ describe('SurveyFeedbackButtons', () => {
     })
 
     it('waits until saving finishes before focusing the follow-up action', () => {
-        const props = { submissionId, onChange: jest.fn(), onMoreFeedback: jest.fn() }
+        const props = { question: exampleFeedbackRating, submissionId, onChange: jest.fn(), onMoreFeedback: jest.fn() }
         const { rerender } = render(<SurveyFeedbackButtons {...props} />)
         const thumb = screen.getByLabelText('Helpful')
         thumb.focus()
@@ -44,9 +45,36 @@ describe('SurveyFeedbackButtons', () => {
         expect(document.activeElement).toBe(document.body)
     })
 
+    it.each([3, 5, 7, 10] as const)('renders the configured numeric scale %s', (scale) => {
+        const onChange = jest.fn()
+        render(
+            <SurveyFeedbackButtons
+                question={{
+                    ...exampleFeedbackRating,
+                    display: 'number',
+                    scale,
+                    question: 'How useful?',
+                    lowerBoundLabel: 'Low',
+                    upperBoundLabel: 'High',
+                }}
+                submissionId={submissionId}
+                onChange={onChange}
+                onMoreFeedback={jest.fn()}
+            />
+        )
+        const start = scale === 10 ? 0 : 1
+        expect(screen.getAllByRole('button').map((button) => button.textContent)).toEqual(
+            Array.from({ length: scale - start + 1 }, (_, index) => String(start + index))
+        )
+        fireEvent.click(screen.getByRole('button', { name: String(start) }))
+        expect(onChange).toHaveBeenCalledWith(String(start), submissionId)
+        expect(screen.getByText('How useful?')).toBeTruthy()
+    })
+
     it('does not steal focus for a preselected rating', () => {
         render(
             <SurveyFeedbackButtons
+                question={exampleFeedbackRating}
                 submissionId={submissionId}
                 value="1"
                 onChange={jest.fn()}
@@ -61,6 +89,7 @@ describe('SurveyFeedbackButtons', () => {
         const onMoreFeedback = jest.fn()
         render(
             <SurveyFeedbackButtons
+                question={exampleFeedbackRating}
                 submissionId={submissionId}
                 onChange={onChange}
                 onMoreFeedback={onMoreFeedback}

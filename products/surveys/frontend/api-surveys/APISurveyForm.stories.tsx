@@ -1,11 +1,10 @@
 import { Meta, StoryObj } from '@storybook/react'
-import { useId, useState } from 'react'
 
-import { LemonButton, LemonModal } from '@posthog/lemon-ui'
+import { LemonButton } from '@posthog/lemon-ui'
 
-import { exampleApiSurvey, exampleSurveyClient } from './apiSurvey.fixtures'
+import { exampleApiSurvey, exampleSurveyClient, exampleRatingSurvey, exampleFeedbackRating } from './apiSurvey.fixtures'
+import { APISurveyFeedback } from './APISurveyFeedback'
 import { APISurveyForm } from './APISurveyForm'
-import { SurveyFeedbackButtons, SurveyFeedbackRating } from './SurveyFeedbackButtons'
 
 const meta: Meta<typeof APISurveyForm> = {
     title: 'Surveys/API survey form',
@@ -61,44 +60,31 @@ export const KeyboardNavigation: Story = {
 }
 
 export const Dialog: Story = {
-    render: (args, { parameters }) => {
-        const [isOpen, setIsOpen] = useState(!!parameters.initiallyOpen)
-        const titleId = useId()
-        const [submissionId] = useState(() => crypto.randomUUID())
-        const [rating, setRating] = useState<SurveyFeedbackRating | undefined>(
-            parameters.initiallyOpen ? '1' : undefined
-        )
-        return (
-            <>
-                <SurveyFeedbackButtons
-                    value={rating}
-                    submissionId={submissionId}
-                    onChange={setRating}
-                    onMoreFeedback={() => setIsOpen(true)}
-                    expanded={isOpen}
-                />
-                <LemonModal
-                    isOpen={isOpen}
-                    onClose={() => setIsOpen(false)}
-                    title={<span id={titleId}>Share more feedback</span>}
-                    contentRef={(element) => element?.setAttribute('aria-labelledby', titleId)}
-                    width={520}
-                    hasUnsavedInput
-                >
-                    {isOpen && (
-                        <APISurveyForm
-                            {...args}
-                            submissionId={submissionId}
-                            context={{ ...args.context, feedback_rating: rating }}
-                        />
-                    )}
-                </LemonModal>
-            </>
-        )
+    args: { client: exampleSurveyClient([exampleRatingSurvey]) },
+    render: (args) => <APISurveyFeedback {...args} />,
+}
+
+export const NumericRating: Story = {
+    ...Dialog,
+    args: {
+        client: exampleSurveyClient([
+            {
+                ...exampleRatingSurvey,
+                questions: [
+                    {
+                        ...exampleFeedbackRating,
+                        display: 'number',
+                        scale: 10,
+                        question: 'How likely are you to recommend this?',
+                        lowerBoundLabel: 'Not likely',
+                        upperBoundLabel: 'Very likely',
+                    },
+                    ...exampleRatingSurvey.questions.slice(1),
+                ],
+            },
+        ]),
     },
 }
 
-export const DialogOpen: Story = {
-    ...Dialog,
-    parameters: { initiallyOpen: true },
-}
+export const FeedbackLoading: Story = { ...Dialog, args: Loading.args, parameters: Loading.parameters }
+export const FeedbackUnavailable: Story = { ...Dialog, args: Unavailable.args }
