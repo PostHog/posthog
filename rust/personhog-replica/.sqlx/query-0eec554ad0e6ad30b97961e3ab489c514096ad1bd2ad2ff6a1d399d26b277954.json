@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        UPDATE posthog_persondistinctid\n        SET is_deleted = true, version = COALESCE(version, 0) + 1\n        WHERE team_id = $1 AND person_id = ANY($2) AND is_deleted = false\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int4",
+        "Int8Array"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "0eec554ad0e6ad30b97961e3ab489c514096ad1bd2ad2ff6a1d399d26b277954"
+}

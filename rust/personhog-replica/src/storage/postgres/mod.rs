@@ -42,6 +42,8 @@ pub struct PostgresStorage {
     pub(crate) bulk_chunk_size: usize,
     pub(crate) bulk_max_concurrent_chunks: usize,
     pub(crate) tombstoned_delete_max_rows: usize,
+    /// When true, person deletes tombstone rows instead of removing them.
+    pub(crate) tombstone_deletes: bool,
 }
 
 impl PostgresStorage {
@@ -54,6 +56,7 @@ impl PostgresStorage {
         bulk_chunk_size: usize,
         bulk_max_concurrent_chunks: usize,
         tombstoned_delete_max_rows: usize,
+        tombstone_deletes: bool,
     ) -> Self {
         Self {
             primary_pool,
@@ -63,6 +66,7 @@ impl PostgresStorage {
             bulk_chunk_size,
             bulk_max_concurrent_chunks,
             tombstoned_delete_max_rows,
+            tombstone_deletes,
         }
     }
 
