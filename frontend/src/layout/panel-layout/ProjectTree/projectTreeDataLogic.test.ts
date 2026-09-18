@@ -1,6 +1,7 @@
 import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
+import { sceneFileLogic } from 'lib/components/Scenes/sceneFileLogic'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
@@ -154,6 +155,22 @@ describe('projectTreeDataLogic', () => {
         projectTree.unmount()
     })
 
+    it('loads current insight metadata when a file consumer opens and follows navigation', async () => {
+        const currentItem = jest
+            .spyOn(projectTreeDataLogic.selectors, 'projectTreeRef')
+            .mockReturnValue({ type: 'insight', ref: 'insight1' })
+        const consumer = sceneFileLogic()
+        consumer.mount()
+        await expectLogic(consumer).toFinishAllListeners()
+        expect(api.fileSystem.list).toHaveBeenCalledWith({ type: 'insight', ref: 'insight1' })
+        currentItem.mockReturnValue({ type: 'insight', ref: 'insight2' })
+        await expectLogic(consumer, () =>
+            panelLayoutLogic.actions.setActivePanelIdentifier('Products')
+        ).toFinishAllListeners()
+        expect(api.fileSystem.list).toHaveBeenCalledWith({ type: 'insight', ref: 'insight2' })
+        consumer.unmount()
+    })
+
     it('defers ancestor folder loading until Files opens and follows the latest insight', async () => {
         const currentItem = jest.spyOn(breadcrumbsLogic.selectors, 'projectTreeRef').mockReturnValue({
             type: 'insight',
@@ -176,15 +193,18 @@ describe('projectTreeDataLogic', () => {
         const projectTree = projectTreeLogic({ key: 'project-tree' })
         projectTree.mount()
         await expectLogic(projectTree).toFinishAllListeners()
-        expect(api.fileSystem.list).toHaveBeenCalledWith({ type: 'insight', ref: 'insight1' })
+        expect(api.fileSystem.list).not.toHaveBeenCalledWith(expect.objectContaining({ ref: 'insight1' }))
         expect(api.fileSystem.list).not.toHaveBeenCalledWith(expect.objectContaining({ parent: 'Unfiled/Insights' }))
-        expect(logic.values.sortedItems).toEqual(expect.arrayContaining([expect.objectContaining({ ref: 'insight1' })]))
+        expect(logic.values.sortedItems).not.toEqual(
+            expect.arrayContaining([expect.objectContaining({ ref: 'insight1' })])
+        )
 
         currentItem.mockReturnValue({ type: 'insight', ref: 'insight2' })
         await expectLogic(projectTree, () => {
             panelLayoutLogic.actions.setActivePanelIdentifier('Products')
         }).toFinishAllListeners()
         expect(api.fileSystem.list).not.toHaveBeenCalledWith(expect.objectContaining({ parent: 'Reports' }))
+        expect(api.fileSystem.list).not.toHaveBeenCalledWith(expect.objectContaining({ ref: 'insight2' }))
 
         await expectLogic(projectTree, () => {
             panelLayoutLogic.actions.setActivePanelIdentifier('Project')

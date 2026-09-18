@@ -1602,6 +1602,9 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         },
         assureVisibility: async ({ projectTreeRef, expandIfHidden }, breakpoint) => {
             if (projectTreeRef) {
+                if (projectTreeRef.type === 'insight' && !expandIfHidden && !isProjectTreeActive(props, values)) {
+                    return
+                }
                 if (projectTreeRef.type === 'folder' && projectTreeRef.ref) {
                     if (!expandIfHidden && !isProjectTreeActive(props, values)) {
                         return
