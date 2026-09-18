@@ -116,9 +116,9 @@ tools:
 
 
             When the flag is enabled, archiving stops it evaluating everywhere. Archiving sets `active` to false, so a
-            flag with `is_remote_configuration` true keeps serving its payload to SDKs even then. Tell the user what else this affects:
-            linked experiments, surveys, early access features and session replay settings all appear in the flag's full
-            definition.
+            flag with `is_remote_configuration` true keeps serving its payload to SDKs even then. Tell the user what
+            else this affects: linked experiments, surveys, early access features and session replay settings all appear
+            in the flag's full definition.
 
 
             Returns 400 when the flag is enabled and other active flags depend on it. Returns 409 when an approval
@@ -169,11 +169,11 @@ tools:
             so targeting, rollout percentages, variants and payloads cannot change. There is no request body.
 
 
-            A disabled flag stops evaluating everywhere, so flag evaluation falls back to the caller's own default.
-            That covers flag evaluation only: when `is_remote_configuration` is true, the payload endpoint keeps
-            serving the payload to SDKs while `active` is false, so do not report payload delivery as stopped. Tell the
-            user what else this affects: linked experiments, surveys, early access features and session replay settings all
-            appear in the flag's full definition. `feature-flag-get-definition-by-key` already returns it, and
+            A disabled flag stops evaluating everywhere, so flag evaluation falls back to the caller's own default. That
+            covers flag evaluation only: when `is_remote_configuration` is true, the payload endpoint keeps serving the
+            payload to SDKs while `active` is false, so do not report payload delivery as stopped. Tell the user what
+            else this affects: linked experiments, surveys, early access features and session replay settings all appear
+            in the flag's full definition. `feature-flag-get-definition-by-key` already returns it, and
             `feature-flag-get-definition` returns it by ID.
 
 
