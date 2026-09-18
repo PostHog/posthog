@@ -1,4 +1,5 @@
 import { mswDecorator } from '~/mocks/browser'
+import _hogFunctionTemplatesDestinations from '~/mocks/fixtures/_hogFunctionTemplatesDestinations.json'
 
 import { NEW_WORKFLOW } from '../../workflowLogic'
 import { EXAMPLE_WORKFLOWS } from '../tree/exampleWorkflows'
@@ -277,8 +278,46 @@ const PICKABLE_WORKFLOWS: Record<string, HogFlow> = {
     ...EXAMPLE_WORKFLOWS,
 }
 
+// The email template ships with `status: 'hidden'`, so the destinations fixture does not carry it.
+const EMAIL_TEMPLATE = {
+    id: 'template-email',
+    name: 'Email',
+    description: 'Sends an email via PostHog email service',
+    type: 'destination',
+    status: 'hidden',
+    free: false,
+    icon_url: '/static/posthog-icon.svg',
+    category: ['Custom'],
+    code: '',
+    code_language: 'hog',
+    inputs_schema: [
+        {
+            type: 'native_email',
+            key: 'email',
+            label: 'Email message',
+            integration: 'email',
+            required: true,
+            secret: false,
+            description: 'The email message to send. Configure the recipient, sender, subject, and content.',
+            templating: 'liquid',
+        },
+    ],
+}
+
+export const WORKFLOW_EMAIL_STEP_MOCKS = {
+    '/api/projects/:team_id/hog_function_templates': {
+        ..._hogFunctionTemplatesDestinations,
+        results: [EMAIL_TEMPLATE, ..._hogFunctionTemplatesDestinations.results],
+    },
+    // nosemgrep: no-environments-api-urls-frontend -- api.messaging has not migrated to generated project routes.
+    '/api/environments/:team_id/messaging_templates': { count: 0, results: [] },
+    // nosemgrep: no-environments-api-urls-frontend -- api.integrations has not migrated to generated project routes.
+    '/api/environments/:team_id/integrations/': { count: 0, results: [] },
+}
+
 export const workflowEditorStoryDecorator = mswDecorator({
     get: {
+        ...WORKFLOW_EMAIL_STEP_MOCKS,
         // nosemgrep: no-environments-api-urls-frontend -- api.hogFlows has not migrated to generated project routes.
         '/api/environments/:team_id/hog_flows/:id/': ({ params }) => [
             200,

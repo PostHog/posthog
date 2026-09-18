@@ -9,6 +9,7 @@ import { mswDecorator } from '~/mocks/browser'
 
 import { Workflow } from '../../Workflow'
 import { NEW_WORKFLOW, workflowLogic } from '../../workflowLogic'
+import { WORKFLOW_EMAIL_STEP_MOCKS } from '../editor/workflowEditorStoryFixtures'
 import type { HogFlow, HogFlowAction } from '../types'
 import { EXAMPLE_WORKFLOWS } from './exampleWorkflows'
 import { HogFlowTreeEditor } from './HogFlowTreeEditor'
@@ -314,6 +315,7 @@ const meta: Meta<typeof HogFlowTreeEditor> = {
         ),
         mswDecorator({
             get: {
+                ...WORKFLOW_EMAIL_STEP_MOCKS,
                 '/api/environments/:team_id/hog_flows/:id/': ({ params }) => [
                     200,
                     PICKABLE_WORKFLOWS[String(params.id)] ?? COMPLEX_WORKFLOW,
