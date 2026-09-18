@@ -308,13 +308,19 @@ describe('SkillCatalog and exec learn', () => {
         expect(results[0]!.score!).toBeGreaterThan(results[1]!.score!)
     })
 
-    it('offers a read and line-range recovery hint when a file search finds nothing', () => {
-        const output = makeCatalog().searchFile('retention-analysis', 'references/functions.md', 'nonexistentxyz')
+    it.each(['nonexistentxyz', '--file'])(
+        'offers a read and line-range recovery hint when a file search for %s finds nothing',
+        async (query) => {
+            const learn = new ExecLearnCatalog([], { posthog: makeCatalog() })
+            const output = await learn.execute(`posthog:retention-analysis references/functions.md -s "${query}"`)
 
-        expect(output).toContain('No matches for "nonexistentxyz" in retention-analysis/references/functions.md.')
-        expect(output).toContain('Read it with `learn retention-analysis references/functions.md` (3 lines,')
-        expect(output).toContain('--lines <start>:<end>')
-    })
+            expect(output).toContain(`No matches for "${query}" in posthog:retention-analysis/references/functions.md.`)
+            expect(output).toContain(
+                'Read it with `learn posthog:retention-analysis references/functions.md` (3 lines,'
+            )
+            expect(output).toContain('--lines <start>:<end>')
+        }
+    )
 
     it('describes a batch of qualified names, tolerating unknown names without failing the batch', async () => {
         const learn = new ExecLearnCatalog([], { posthog: makeCatalog(), project: makeProjectSkills() })

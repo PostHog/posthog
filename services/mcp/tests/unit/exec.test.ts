@@ -257,6 +257,11 @@ describe('exec tool', () => {
                 hint: '`learn` does not support --file. Pass the file path directly: `learn <source>:<skill> <path>`.',
                 recovery: 'learn posthog:bot-traffic SKILL.md',
             },
+            {
+                command: 'learn posthog:bot-traffic SKILL.md --file',
+                hint: '`learn` does not support --file. Pass the file path directly: `learn <source>:<skill> <path>`.',
+                recovery: 'learn posthog:bot-traffic SKILL.md',
+            },
         ])('returns recovery guidance for $command without opening the gate', async ({ command, hint, recovery }) => {
             const exec = createExec(undefined, undefined, {
                 learnCatalog: guideCatalog(false),
