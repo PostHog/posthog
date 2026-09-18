@@ -96,7 +96,11 @@ describe('materializationJobsLogic', () => {
         jest.useRealTimers()
     })
 
-    it('shows saved run modes after incremental refresh is disabled', async () => {
+    it.each([
+        ['shows a first run with incremental settings', 'full_refresh', 'first run', true],
+        ['shows a completed incremental run', 'incremental', null, true],
+        ['hides full-refresh-only history', 'full_refresh', 'not configured for incremental materialization', false],
+    ])('%s', async (_name, runMode, fullRefreshReason, showsRefreshMode) => {
         const mocks = apiMocks({
             isMaterialized: true,
             incremental: {
@@ -108,21 +112,14 @@ describe('materializationJobsLogic', () => {
         mocks.get!['/api/projects/:team_id/data_modeling_jobs/'] = [
             200,
             {
-                count: 2,
+                count: 1,
                 results: [
                     {
-                        id: 'full-run',
+                        id: 'run-1',
                         status: 'Completed',
-                        run_mode: 'full_refresh',
-                        full_refresh_reason: 'first run',
+                        run_mode: runMode,
+                        full_refresh_reason: fullRefreshReason,
                         rows_materialized: 20,
-                    },
-                    {
-                        id: 'incremental-run',
-                        status: 'Completed',
-                        run_mode: 'incremental',
-                        full_refresh_reason: null,
-                        rows_materialized: 5,
                     },
                 ],
             },
@@ -140,9 +137,14 @@ describe('materializationJobsLogic', () => {
             })
         )
 
-        expect(screen.getByRole('columnheader', { name: 'Refresh mode' })).toBeTruthy()
-        expect(screen.getByLabelText('Full refresh. Reason: first run.')).toBeTruthy()
-        expect(screen.getByText('Incremental')).toBeTruthy()
+        const refreshModeHeader = screen.queryByRole('columnheader', { name: 'Refresh mode' })
+        expect(!!refreshModeHeader).toBe(showsRefreshMode)
+        if (fullRefreshReason === 'first run') {
+            expect(screen.getByLabelText('Full refresh. Reason: first run.')).toBeTruthy()
+        }
+        if (runMode === 'incremental') {
+            expect(screen.getByText('Incremental')).toBeTruthy()
+        }
     })
 
     it('pages through older runs without changing the latest run or growing polling requests', async () => {
