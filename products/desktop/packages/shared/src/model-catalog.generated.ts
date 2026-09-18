@@ -81,7 +81,6 @@ export const MODELS: readonly CatalogModel[] = [
     runtimeAdapter: "claude",
     reasoningEfforts: ["high", "max"],
     label: "GLM-5.2",
-    accessFlag: "posthog-code-glm-model",
     cost: {
       inputPerMtok: 1.4,
       outputPerMtok: 4.4,
@@ -94,7 +93,6 @@ export const MODELS: readonly CatalogModel[] = [
     runtimeAdapter: "claude",
     reasoningEfforts: ["high", "max"],
     label: "GLM-5.3",
-    accessFlag: "posthog-code-glm-53-model",
     cost: {
       inputPerMtok: 1.4,
       outputPerMtok: 4.4,
@@ -107,7 +105,6 @@ export const MODELS: readonly CatalogModel[] = [
     runtimeAdapter: "claude",
     reasoningEfforts: ["high", "max"],
     label: "GLM-5.3 Flash",
-    accessFlag: "posthog-code-glm-53-flash-model",
     cost: {
       inputPerMtok: 0.15,
       outputPerMtok: 0.5,
@@ -120,7 +117,6 @@ export const MODELS: readonly CatalogModel[] = [
     runtimeAdapter: "claude",
     reasoningEfforts: [],
     label: "Kimi K3",
-    accessFlag: "tasks-kimi-k3",
     cost: {
       inputPerMtok: 3,
       outputPerMtok: 15,
@@ -133,7 +129,6 @@ export const MODELS: readonly CatalogModel[] = [
     runtimeAdapter: "claude",
     reasoningEfforts: [],
     label: "DeepSeek V4 Flash",
-    accessFlag: "posthog-code-deepseek-model",
     cost: {
       inputPerMtok: 0.13,
       outputPerMtok: 0.26,
