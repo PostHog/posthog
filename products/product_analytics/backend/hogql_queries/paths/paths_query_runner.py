@@ -2,9 +2,11 @@ import itertools
 from collections import defaultdict
 from datetime import datetime, timedelta
 from math import ceil
-from re import escape
+from re import (
+    compile as re_compile,
+    escape,
+)
 from typing import Any, Literal, Optional, cast
-from urllib.parse import urlsplit, urlunsplit
 
 from posthog.schema import (
     CachedPathsQueryResponse,
@@ -41,6 +43,10 @@ from posthog.models.user import User
 
 from products.product_analytics.backend.hogql_queries.funnels.funnels_query_runner import FunnelsQueryRunner
 from products.product_analytics.backend.hogql_queries.funnels.utils import funnel_window_interval_unit_to_sql
+
+# ClickHouse `cutQueryString` cuts from the first `?` to the next `#`, so it also cuts the
+# parameters of a hash-routed URL. `urlsplit` reads those as fragment and keeps them.
+QUERY_STRING_PATTERN = re_compile(r"\?[^#]*")
 
 EVENT_IN_SESSION_LIMIT_DEFAULT = 5
 SESSION_TIME_THRESHOLD_DEFAULT_SECONDS = 30 * 60  # 30 minutes
@@ -104,7 +110,9 @@ class PathsQueryRunner(AnalyticsQueryRunner[PathsQueryResponse]):
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.NotIn,
                     left=ast.Field(chain=["path_item"]),
-                    right=ast.Constant(value=self.query.pathsFilter.excludeEvents),
+                    right=ast.Constant(
+                        value=[self._strip_query_string(event) for event in self.query.pathsFilter.excludeEvents]
+                    ),
                 )
             )
 
@@ -119,15 +127,20 @@ class PathsQueryRunner(AnalyticsQueryRunner[PathsQueryResponse]):
 
         return event in (self.query.pathsFilter.includeEventTypes or [])
 
+    def _strip_query_string(self, path_item: str) -> str:
+        if self.query.pathsFilter.stripQueryString:
+            return QUERY_STRING_PATTERN.sub("", path_item, count=1)
+        return path_item
+
     def _normalize_target(self, url: Optional[str]) -> Optional[str]:
         # Mirrors the normalization applied to event URLs in `construct_event_hogql`,
         # so that startPoint/endPoint values match the values stored in
         # `compact_path` / `start_filtered_path`: the query string is cut first when
         # `stripQueryString` is set, then one trailing slash. The bare "/" URL is preserved.
-        if url and self.query.pathsFilter.stripQueryString:
-            parts = urlsplit(url)
-            url = urlunsplit((parts.scheme, parts.netloc, parts.path, "", parts.fragment))
-        if url and len(url) > 1 and url.endswith("/"):
+        if not url:
+            return url
+        url = self._strip_query_string(url)
+        if len(url) > 1 and url.endswith("/"):
             return url[:-1]
         return url
 

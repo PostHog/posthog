@@ -991,18 +991,22 @@ class TestPaths(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            ("plain_target", "/products"),
-            ("target_with_query_string", "/products/?color=blue"),
+            ("plain_target", "/products", "/products"),
+            ("target_with_query_string", "/products", "/products/?color=blue"),
+            ("hash_routed_target", "/#/products", "/#/products?color=blue"),
         ]
     )
-    def test_paths_strip_query_string(self, _name: str, start_point: str) -> None:
+    def test_paths_strip_query_string(self, _name: str, base_url: str, start_point: str) -> None:
         # Query strings must be cut before the trailing slash strip, so that
         # `/products/?color=red` merges with `/products` and not only with `/products/`.
         # The start point gets the same treatment, because the selector offers raw URLs.
         _create_person(team_id=self.team.pk, distinct_ids=["person_1"])
         _create_person(team_id=self.team.pk, distinct_ids=["person_2"])
 
-        for distinct_id, start_url in (("person_1", "/products/?color=red"), ("person_2", "/products?sort=price")):
+        for distinct_id, start_url in (
+            ("person_1", f"{base_url}/?color=red"),
+            ("person_2", f"{base_url}?sort=price"),
+        ):
             for url in (start_url, "/checkout"):
                 _create_event(
                     properties={"$current_url": url},
@@ -1025,7 +1029,34 @@ class TestPaths(ClickhouseTestMixin, APIBaseTest):
         assert isinstance(merged, CachedPathsQueryResponse)
         self.assertEqual(len(merged.results), 1)
         self.assertTrue(
-            merged.results[0].dict().items() >= {"source": "1_/products", "target": "2_/checkout", "value": 2}.items()
+            merged.results[0].dict().items() >= {"source": f"1_{base_url}", "target": "2_/checkout", "value": 2}.items()
+        )
+
+    def test_paths_strip_query_string_excludes_events(self) -> None:
+        # Exclusions come from the same picker as the start point, so they need the same cut.
+        _create_person(team_id=self.team.pk, distinct_ids=["person_1"])
+        _create_person(team_id=self.team.pk, distinct_ids=["person_2"])
+
+        for distinct_id in ("person_1", "person_2"):
+            for url in ("/products?color=red", "/spam?ref=ad", "/checkout"):
+                _create_event(
+                    properties={"$current_url": url},
+                    distinct_id=distinct_id,
+                    event="$pageview",
+                    team=self.team,
+                )
+
+        response = PathsQueryRunner(
+            query={
+                "kind": "PathsQuery",
+                "pathsFilter": {"stripQueryString": True, "excludeEvents": ["/spam?ref=ad"]},
+            },
+            team=self.team,
+        ).run()
+        assert isinstance(response, CachedPathsQueryResponse)
+        self.assertEqual(len(response.results), 1)
+        self.assertTrue(
+            response.results[0].dict().items() >= {"source": "1_/products", "target": "2_/checkout", "value": 2}.items()
         )
 
     def test_paths_in_window(self):
