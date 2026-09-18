@@ -117,6 +117,10 @@ export const INGESTION_WARNING_TYPES = {
     replay_lib_version_too_old: { category: 'replay', severity: 'info' },
     message_contained_no_valid_rrweb_events: { category: 'replay', severity: 'warning' },
     message_timestamp_diff_too_large: { category: 'replay', severity: 'warning' },
+    // Session-scoped drops: each loses a whole recording, where the three above lose at most one
+    // chunk. 'replay' rather than 'quota' because 'quota' collects limits that drop nothing.
+    replay_session_rate_limited: { category: 'replay', severity: 'error' },
+    replay_session_retention_unresolved: { category: 'replay', severity: 'error' },
     // Capture's replay endpoint (/s), which validates the $snapshot envelope before
     // the batch is collapsed into one $snapshot_items message. Distinguished from the
     // three above by `source: capture` and `path: replay` — those describe conditions

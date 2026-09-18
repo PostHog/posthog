@@ -31,6 +31,11 @@ type TrackAndGateStepInput = {
  * every batch. A session that trips its own budget in this batch is caught by unioning the newly-blocked
  * set that handleNewSessions returns with the earlier block read.
  *
+ * A blocked session loses its whole recording, so every one of its messages drops with the
+ * customer-visible `replay_session_rate_limited` warning attached, debounced per team because the
+ * budget is per team. The log naming each blocked session runs over the deduped set instead, so it
+ * stays one line per lost recording rather than one per message.
+ *
  * Blocked sessions are dropped right here. They carry no key, so nothing downstream acts on them — key
  * resolution would skip them and the mark-seen step would only drop them — and, crucially, a blocked
  * session is never marked seen: the block key alone keeps it out of the budget and out of recording, so
@@ -72,18 +77,31 @@ export function createTrackAndGateStep<T extends TrackAndGateStepInput>(
         }
         const newlyBlocked = await sessionFilter.handleNewSessions(newSessions)
 
+        // Walk the deduped set, not `values`: one session spans many messages, and support needs one
+        // line per lost recording to answer which drop hit it. Info, because debug never ships.
+        const blocked = new SessionSet()
+        for (const { teamId, sessionId } of toResolve) {
+            if (alreadyBlocked.has(teamId, sessionId) || newlyBlocked.has(teamId, sessionId)) {
+                blocked.add(teamId, sessionId)
+                logger.info('🔁', 'session_replay_session_dropped_before_record', {
+                    sessionId,
+                    teamId,
+                    reason: 'session_blocked',
+                })
+            }
+        }
+
         return values.map((value) => {
             const teamId = value.team.teamId
             const sessionId = value.headers.session_id
             const isNewSession = !seen.get(teamId, sessionId)
 
-            if (alreadyBlocked.has(teamId, sessionId) || newlyBlocked.has(teamId, sessionId)) {
-                logger.debug('🔁', 'session_replay_session_dropped_before_record', {
-                    sessionId,
-                    teamId,
-                    reason: 'session_blocked',
-                })
-                return drop<Allowed<T & NewSessionFlag>>('session_blocked')
+            if (blocked.has(teamId, sessionId)) {
+                return drop<Allowed<T & NewSessionFlag>>(
+                    'session_blocked',
+                    [],
+                    [{ type: 'replay_session_rate_limited', details: { sessionId }, key: String(teamId) }]
+                )
             }
             return ok({ ...value, isNewSession, status: 'allowed' as const })
         })

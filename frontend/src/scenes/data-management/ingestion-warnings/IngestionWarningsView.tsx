@@ -37,6 +37,8 @@ export const WARNING_TYPE_TO_DESCRIPTION: Record<string, string> = {
     replay_timestamp_invalid: 'Replay event timestamp is invalid',
     replay_timestamp_too_far: 'Replay event timestamp was too far in the future',
     replay_message_too_large: 'Replay data was dropped because it was too large to ingest',
+    replay_session_rate_limited: 'Dropped a whole recording because the team hit its new-session limit',
+    replay_session_retention_unresolved: 'Dropped a whole recording because its retention period could not be resolved',
     set_on_exception: '$set or $set_once is ignored on exception events and should not be sent',
     schema_validation_failed: 'Event rejected due to schema validation failure',
     invalid_heatmap_data: 'Invalid heatmap data',
