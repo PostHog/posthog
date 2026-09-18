@@ -81,6 +81,13 @@ class TestClassifySlackAppProjectRouteActivity:
         assert result is not None
         assert result.integration_id == self.other.id
 
+    def test_a_gateway_failure_leaves_the_run_where_routing_put_it(self):
+        with (
+            patch(f"{ACTIVITY_MODULE}.routable_projects", return_value=self.offered),
+            patch(f"{ACTIVITY_MODULE}.classify_slack_app_project_route", side_effect=RuntimeError("boom")),
+        ):
+            assert classify_slack_app_project_route_activity(self._input()) is None
+
     def test_naming_the_project_the_run_already_had_reports_no_route(self):
         # A returned route is what drives both the rebind and the notice posted in the
         # thread, so naming the default must not read as a move.

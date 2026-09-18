@@ -1,3 +1,4 @@
+import pytest
 from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
@@ -33,9 +34,13 @@ class TestClassifySlackAppProjectRoute:
     def test_resolves_to_an_offered_project(self, _name, content, expected):
         assert self._classify(content) == expected
 
-    def test_llm_failure_falls_back_to_no_route(self):
-        with patch(CLASSIFIER, side_effect=RuntimeError("boom")):
-            assert classify_slack_app_project_route("check staging", PROJECTS, "Northwind · Production") is None
+    def test_llm_failure_propagates_rather_than_reading_as_no_route(self):
+        # The eval suite calls this function directly. A swallowed gateway failure is
+        # indistinguishable from a clean "no project", so an outage would score as a pass
+        # on every negative case and report a healthy mean. The activity does the falling
+        # back; this must not.
+        with patch(CLASSIFIER, side_effect=RuntimeError("boom")), pytest.raises(RuntimeError):
+            classify_slack_app_project_route("check staging", PROJECTS, "Northwind · Production")
 
     def test_reply_is_pinned_to_the_offered_projects(self):
         # The enum is the only thing that keeps the classifier from naming a team this

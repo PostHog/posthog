@@ -577,8 +577,12 @@ def classify_slack_app_project_route(
     """Read the project a mention asked to be answered from, out of its text.
 
     Returns ``None`` when the author named none, which is the overwhelming majority of
-    mentions and the answer on any parse, validation, or LLM failure. A miss leaves the
-    run on the project routing already resolved.
+    mentions, and on a reply this cannot parse.
+
+    A gateway failure raises instead of returning ``None``. The activity turns that into
+    the same fallback, so production behaviour is unchanged; the eval suite calls this
+    function directly, and a swallowed failure there is indistinguishable from a clean
+    "no project" — it would score a dead gateway as a pass on every negative case.
 
     It takes the opposite rule to the model classifier: a model named as the subject of a
     question is never an instruction, while a project named as the subject usually is
@@ -608,9 +612,6 @@ def classify_slack_app_project_route(
         reply = _ProjectRouteReply.model_validate(parsed)
     except (ValidationError, ValueError):
         logger.info("slack_app_project_route_unusable_reply")
-        return None
-    except Exception:
-        logger.exception("slack_app_project_route_classify_failed")
         return None
 
     if reply.project_id is None:
@@ -652,11 +653,17 @@ def classify_slack_app_project_route_activity(input: SlackAppProjectRouteInput) 
     if not projects:
         return None
 
-    chosen = classify_slack_app_project_route(
-        input.event_text,
-        projects,
-        default_project_label=f"{integration.team.organization.name} · {integration.team.name}",
-    )
+    try:
+        chosen = classify_slack_app_project_route(
+            input.event_text,
+            projects,
+            default_project_label=f"{integration.team.organization.name} · {integration.team.name}",
+        )
+    except Exception:
+        # The fallback boundary: a mention we cannot classify stays on the project
+        # routing already resolved, which is what it would have done anyway.
+        logger.exception("slack_app_project_route_classify_failed")
+        return None
     # A message naming the project the run was already going to use asked for nothing.
     if chosen is None or chosen.integration_id == integration.id:
         return None
