@@ -1326,7 +1326,7 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
         },
         confirmDeleteInsight: async ({ dashboardId }) => {
             const { insight, currentTeamId } = values
-            await deleteInsightWithUndo({
+            const deleted = await deleteInsightWithUndo({
                 object: insight as QueryBasedInsightModel,
                 endpoint: `projects/${currentTeamId}/insights`,
                 callback: (undo: boolean) => {
@@ -1341,6 +1341,11 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                     actions.reloadSavedInsights()
                 },
             })
+            if (!deleted) {
+                // Staying put keeps the user on the insight they still have, instead of sending them
+                // to the list as if the delete had worked.
+                return
+            }
             if (dashboardId) {
                 router.actions.push(urls.dashboard(dashboardId))
                 dashboardsModel.actions.updateDashboardInsight(

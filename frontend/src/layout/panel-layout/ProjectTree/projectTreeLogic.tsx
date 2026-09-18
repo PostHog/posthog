@@ -26,12 +26,14 @@ import { getEntryAccessDisabledReason } from 'lib/utils/accessControlUtils'
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
 import { PROJECT_TREE_KEY } from '~/layout/panel-layout/ProjectTree/ProjectTree'
 import { PAGINATION_LIMIT, projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
+import { recentItemsModel } from '~/models/recentItemsModel'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
 import { ProjectTreeRef } from '~/types'
 
 import type { Breadcrumb, UserBasicType } from '../../../types'
 import { panelLayoutLogic } from '../panelLayoutLogic'
 import type { PanelLayoutNavIdentifier } from '../panelLayoutLogic'
+import { matchesRefType, refTypeParams } from './refTypes'
 import type { FolderState, ProjectTreeAction } from './types'
 import {
     convertFileSystemEntryToTreeDataItem,
@@ -39,8 +41,6 @@ import {
     formatUrlAsName,
     calculateMovePath,
     joinPath,
-    matchesRefType,
-    refTypeParams,
     sortFilesAndFolders,
     splitPath,
     splitProtocolPath,
@@ -1691,10 +1691,12 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
 
 export function refreshTreeItem(type: string, ref: string): void {
     projectTreeDataLogic.findMounted()?.actions.syncTypeAndRef(type, ref)
+    recentItemsModel.findMounted()?.actions.restoreItem(type, ref)
 }
 
 export function deleteFromTree(type: string, ref: string): void {
     projectTreeDataLogic.findMounted()?.actions.deleteTypeAndRef(type, ref)
+    recentItemsModel.findMounted()?.actions.removeItem(type, ref)
 }
 
 export function getLastNewFolder(): string | undefined {
