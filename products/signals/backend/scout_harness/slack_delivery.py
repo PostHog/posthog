@@ -763,7 +763,9 @@ def post_scout_report_to_slack(
             team_id=report.team_id,
             report_id=str(report.id),
             integration_id=integration.id,
-            channel=channel_id,
+            # The conversation Slack posted into, which for a member target is the direct message
+            # it opened rather than the id we sent. An inbound mention names the conversation.
+            channel=str(response.get("channel") or channel_id),
             thread_ts=str(thread_ts),
         )
     if threaded:
