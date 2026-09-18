@@ -85,10 +85,12 @@ class TaggedItemsRelation(GenericRelation):
 
     # Django caches these on the field. They depend on the flag, so compute them on each use.
     @property
+    # nosemgrep: tuple-return-prefer-dataclass -- Django reads these field pairs positionally
     def related_fields(self) -> list[tuple[models.Field, models.Field]]:
         return self.resolve_related_fields()
 
     @property
+    # nosemgrep: tuple-return-prefer-dataclass -- Django reads these field pairs positionally
     def reverse_related_fields(self) -> list[tuple[models.Field, models.Field]]:
         return [(rhs, lhs) for lhs, rhs in self.related_fields]
 
