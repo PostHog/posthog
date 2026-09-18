@@ -72,7 +72,8 @@ SETTINGS kafka_skip_broken_messages = 100,
 - `kafka_num_consumers` is per node, so the role's node count multiplies it; the total must not
   exceed the topic's partitions.
 - Columns and settings are fixed at creation: drop and recreate the table with its MV, no `SYNC`.
-  `ALTER TABLE <mv> MODIFY QUERY` covers an MV-SELECT-only change.
+  `ALTER TABLE <mv> MODIFY QUERY` covers an MV-SELECT-only change. Never for
+  `kafka_events_json_ws` / `events_json_ws_mv` — see Critical rules.
 
 `posthog/clickhouse/migrations/AGENTS.md` has the sizing rules and the rest.
 

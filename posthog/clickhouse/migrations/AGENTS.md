@@ -335,7 +335,8 @@ table on the node. Resolve the count through `kafka_num_consumers()` in
 
 Columns and settings are fixed at creation, so drop and recreate the table together with its MV, as
 migration 0307 does. Neither is replicated, so no `SYNC`. `ALTER TABLE <mv> MODIFY QUERY` covers a
-change to an MV's SELECT alone (0298, 0199, 0208).
+change to an MV's SELECT alone (0298, 0199, 0208). This does not apply to `kafka_events_json_ws` or
+`events_json_ws_mv`, which are never dropped or recreated — see the no-go zone caution above.
 
 With no MV attached nothing drives consumption and no offsets advance, so the cost is lag, not
 loss, provided the recreated table keeps the same `kafka_group_name`. Rows already written keep the
