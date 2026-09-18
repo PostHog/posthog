@@ -4,6 +4,7 @@ The per-tool table and activity series resolve the effective tool name so exec-w
 calls match the per-tool detail runners. Category queries use the event-supplied category.
 """
 
+from collections.abc import Sequence
 from functools import cached_property
 from typing import TYPE_CHECKING, Literal, cast
 
@@ -88,7 +89,7 @@ def _named_tool_where(
     date_range: QueryDateRange,
     categories: list[str] | None,
     team: "Team",
-    properties: "list[AnyPropertyFilterDiscriminated] | None" = None,
+    properties: "Sequence[AnyPropertyFilterDiscriminated] | None" = None,
     filter_test_accounts: bool | None = None,
     *,
     tool_name: str | None = None,

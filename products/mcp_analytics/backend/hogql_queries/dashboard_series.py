@@ -1,5 +1,6 @@
 """Query runners for the MCP analytics dashboard's interval-bucketed charts."""
 
+from collections.abc import Sequence
 from functools import cached_property
 from typing import TYPE_CHECKING
 
@@ -39,7 +40,7 @@ _IS_ERROR = "toBool(properties.$mcp_is_error)"
 
 def _dashboard_where(
     date_range: QueryDateRange,
-    properties: list[AnyPropertyFilterDiscriminated] | None,
+    properties: Sequence[AnyPropertyFilterDiscriminated] | None,
     filter_test_accounts: bool | None,
     team: "Team",
 ) -> ast.Expr:

@@ -317,9 +317,7 @@ const MCPHarnessBreakdownQuery = z.object({
 
 const MCPToolStatsQuery = z.object({
     dateRange: DateRange.optional(),
-    filterTestAccounts: z.coerce.boolean().optional(),
     kind: z.literal('MCPToolStatsQuery').default('MCPToolStatsQuery'),
-    properties: z.array(MCPAnalyticsPropertyFilter).optional(),
     toolName: z
         .string()
         .describe('The effective tool name to scope to (matched against the single-exec-resolved tool name).'),
@@ -329,12 +327,10 @@ const IntervalType = z.enum(['second', 'minute', 'hour', 'day', 'week', 'month',
 
 const MCPToolDailyStatsQuery = z.object({
     dateRange: DateRange.optional(),
-    filterTestAccounts: z.coerce.boolean().optional(),
     interval: IntervalType.describe(
         'Bucket granularity for the series. The frontend passes getDefaultInterval so a sub-day window buckets by hour/minute instead of collapsing to a single day point. Defaults to day.'
     ).optional(),
     kind: z.literal('MCPToolDailyStatsQuery').default('MCPToolDailyStatsQuery'),
-    properties: z.array(MCPAnalyticsPropertyFilter).optional(),
     toolName: z
         .string()
         .describe('The effective tool name to scope to (matched against the single-exec-resolved tool name).'),
@@ -342,9 +338,7 @@ const MCPToolDailyStatsQuery = z.object({
 
 const MCPToolFailuresQuery = z.object({
     dateRange: DateRange.optional(),
-    filterTestAccounts: z.coerce.boolean().optional(),
     kind: z.literal('MCPToolFailuresQuery').default('MCPToolFailuresQuery'),
-    properties: z.array(MCPAnalyticsPropertyFilter).optional(),
     toolName: z
         .string()
         .describe('The effective tool name to scope to (matched against the single-exec-resolved tool name).'),
@@ -359,9 +353,7 @@ const MCPToolFailureOccurrencesQuery = z.object({
     errorType: z
         .string()
         .describe('Raw $mcp_error_type bucket; "unknown" selects errored events without an error type.'),
-    filterTestAccounts: z.coerce.boolean().optional(),
     kind: z.literal('MCPToolFailureOccurrencesQuery').default('MCPToolFailureOccurrencesQuery'),
-    properties: z.array(MCPAnalyticsPropertyFilter).optional(),
     toolName: z
         .string()
         .describe('The effective tool name to scope to (matched against the single-exec-resolved tool name).'),
@@ -369,9 +361,7 @@ const MCPToolFailureOccurrencesQuery = z.object({
 
 const MCPToolTopUsersQuery = z.object({
     dateRange: DateRange.optional(),
-    filterTestAccounts: z.coerce.boolean().optional(),
     kind: z.literal('MCPToolTopUsersQuery').default('MCPToolTopUsersQuery'),
-    properties: z.array(MCPAnalyticsPropertyFilter).optional(),
     toolName: z
         .string()
         .describe('The effective tool name to scope to (matched against the single-exec-resolved tool name).'),
@@ -379,12 +369,10 @@ const MCPToolTopUsersQuery = z.object({
 
 const MCPToolNeighborsQuery = z.object({
     dateRange: DateRange.optional(),
-    filterTestAccounts: z.coerce.boolean().optional(),
     kind: z.literal('MCPToolNeighborsQuery').default('MCPToolNeighborsQuery'),
     neighborDirection: z
         .enum(['before', 'after'])
         .describe('Whether to count tools called immediately before or after the target tool.'),
-    properties: z.array(MCPAnalyticsPropertyFilter).optional(),
     toolName: z
         .string()
         .describe('The effective tool name to scope to (matched against the single-exec-resolved tool name).'),
@@ -392,9 +380,7 @@ const MCPToolNeighborsQuery = z.object({
 
 const MCPToolSampleIntentsQuery = z.object({
     dateRange: DateRange.optional(),
-    filterTestAccounts: z.coerce.boolean().optional(),
     kind: z.literal('MCPToolSampleIntentsQuery').default('MCPToolSampleIntentsQuery'),
-    properties: z.array(MCPAnalyticsPropertyFilter).optional(),
     toolName: z
         .string()
         .describe('The effective tool name to scope to (matched against the single-exec-resolved tool name).'),
@@ -402,9 +388,7 @@ const MCPToolSampleIntentsQuery = z.object({
 
 const MCPToolDescriptionsQuery = z.object({
     dateRange: DateRange.optional(),
-    filterTestAccounts: z.coerce.boolean().optional(),
     kind: z.literal('MCPToolDescriptionsQuery').default('MCPToolDescriptionsQuery'),
-    properties: z.array(MCPAnalyticsPropertyFilter).optional(),
     toolName: z
         .string()
         .describe('The effective tool name to scope to (matched against the single-exec-resolved tool name).'),

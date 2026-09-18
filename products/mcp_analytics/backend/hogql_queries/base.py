@@ -6,6 +6,7 @@ its harness-label SQL.
 """
 
 import json
+from collections.abc import Sequence
 from datetime import datetime
 from typing import TYPE_CHECKING
 
@@ -67,7 +68,7 @@ def tool_scope_exprs(tool: str) -> list[ast.Expr]:
 
 def shared_filter_exprs(
     team: "Team",
-    properties: "list[AnyPropertyFilterDiscriminated] | None",
+    properties: "Sequence[AnyPropertyFilterDiscriminated] | None",
     filter_test_accounts: bool | None,
 ) -> list[ast.Expr]:
     """Property filters plus, when enabled, the team's default test-account exclusions.

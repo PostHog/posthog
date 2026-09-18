@@ -6,4 +6,4 @@ An absent or invalid `filter_test_accounts` value follows the project's default;
 
 The Tool quality queries accept event, person, and session property filters and the test-account choice.
 The Tool quality tab will not apply them until its UI wiring lands.
-Sessions and Activity still need query and UI wiring before their metrics can be described as filtered by these parameters.
+Tool reports, Sessions, and Activity still need query and UI wiring before their metrics can be described as filtered by these parameters.

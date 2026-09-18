@@ -27,8 +27,8 @@ from posthog.schema import (
     LogPropertyFilter,
     LogPropertyFilterType,
     MCPModelBreakdownQuery,
+    MCPToolCallBreakdownQuery,
     MCPToolQualityRowsQuery,
-    MCPToolStatsQuery,
     MetricPropertyFilter,
     PersonMetadataPropertyFilter,
     PersonPropertyFilter,
@@ -291,19 +291,20 @@ class TestPropertyFilterDiscriminator(SimpleTestCase):
 
     @parameterized.expand(
         [
+            ("MCPToolCallBreakdownQuery", MCPToolCallBreakdownQuery, {}),
             ("MCPModelBreakdownQuery", MCPModelBreakdownQuery, {}),
             ("MCPToolQualityRowsQuery", MCPToolQualityRowsQuery, {}),
-            ("MCPToolStatsQuery", MCPToolStatsQuery, {"toolName": "search"}),
         ]
     )
     def test_mcp_analytics_properties_use_the_discriminated_filter(
         self, kind: str, model: type[BaseModel], extra_fields: dict
     ) -> None:
-        for property_type, expected in [
+        supported_filters: list[tuple[str, type[BaseModel]]] = [
             ("event", EventPropertyFilter),
             ("person", PersonPropertyFilter),
             ("session", SessionPropertyFilter),
-        ]:
+        ]
+        for property_type, expected in supported_filters:
             query = model.model_validate(
                 {
                     "kind": kind,

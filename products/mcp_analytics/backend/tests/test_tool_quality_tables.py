@@ -24,6 +24,7 @@ from posthog.hogql import ast
 from posthog.hogql.errors import QueryError
 
 from products.access_control.backend.facade.user_access_control import UserAccessControlError
+from products.mcp_analytics.backend.hogql_queries.base import shared_filter_exprs
 from products.mcp_analytics.backend.hogql_queries.tool_quality_tables import (
     MCPToolCategoriesQueryRunner,
     MCPToolCategoryCountsQueryRunner,
@@ -263,13 +264,8 @@ class TestMCPToolQualitySharedFilters(_MCPAnalyticsTeamScopedTestMixin, Clickhou
     """
 
     def test_rejects_executable_property_filters(self) -> None:
-        runner = MCPToolQualityRowsQueryRunner(
-            query=MCPToolQualityRowsQuery(properties=[HogQLPropertyFilter(key="1 = 1")]),
-            team=self.team,
-        )
-
         with self.assertRaisesRegex(QueryError, "Only event, person, and session property filters"):
-            runner.calculate()
+            shared_filter_exprs(self.team, [HogQLPropertyFilter(key="1 = 1")], None)
 
     @parameterized.expand(
         [
