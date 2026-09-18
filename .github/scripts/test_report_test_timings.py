@@ -889,8 +889,20 @@ def test_product_shard_derives_product_suite_and_keeps_repo_relative_paths(
 # ---------- workflow context ----------
 
 
+@pytest.mark.parametrize(
+    "engine_env,run_url,engine",
+    [
+        ({}, "https://github.com/PostHog/posthog/actions/runs/25218527467", None),
+        (
+            {"CI_ENGINE": "depot", "DEPOT_JOB_URL": "https://depot.dev/orgs/org1/workflows/wf1?job=j1"},
+            "https://depot.dev/orgs/org1/workflows/wf1?job=j1",
+            "depot",
+        ),
+    ],
+    ids=["github actions", "depot ci"],
+)
 def test_workflow_resource_attributes_includes_query_and_drilldown_fields(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, engine_env: dict[str, str], run_url: str, engine: str | None
 ) -> None:
     event_path = tmp_path / "event.json"
     event_path.write_text(json.dumps({"number": 57216}))
@@ -901,6 +913,9 @@ def test_workflow_resource_attributes_includes_query_and_drilldown_fields(
     monkeypatch.setenv("GITHUB_SERVER_URL", "https://github.com")
     monkeypatch.setenv("GITHUB_REPOSITORY", "PostHog/posthog")
     monkeypatch.setenv("GITHUB_RUN_ID", "25218527467")
+    monkeypatch.delenv("CI_ENGINE", raising=False)
+    for name, value in engine_env.items():
+        monkeypatch.setenv(name, value)
 
     attrs = report_test_timings.workflow_resource_attributes()
 
@@ -910,7 +925,8 @@ def test_workflow_resource_attributes_includes_query_and_drilldown_fields(
     assert attrs["ci.branch"] == "worktree-per-test-telemetry-junit"
     assert attrs["ci.pr_number"] == 57216
     assert attrs["ci.repository"] == "PostHog/posthog"
-    assert attrs["ci.run_url"] == "https://github.com/PostHog/posthog/actions/runs/25218527467"
+    assert attrs["ci.run_url"] == run_url
+    assert attrs.get("ci.engine") == engine
 
 
 def test_workflow_resource_attributes_branch_on_push(monkeypatch: pytest.MonkeyPatch) -> None:

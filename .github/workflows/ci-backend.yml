@@ -4260,6 +4260,37 @@ jobs:
                   check_required_result "Snapshot commit job" "${{ needs.handle-snapshots.result }}"
 
                   echo "All backend and product checks passed."
+            # Depot check runs carry no annotations, so the relay can only say that Depot's gate
+            # failed. Depot starts its cancel jobs only after a deterministic failure, so their
+            # check runs name the root cause.
+            - name: Explain a deterministic failure on Depot
+              if: failure() && needs.changes.outputs.engine == 'depot'
+              env:
+                  GH_TOKEN: ${{ github.token }}
+                  REPO: ${{ github.repository }}
+                  SHA: ${{ github.event.pull_request.head.sha }}
+                  EVENT_AT: ${{ github.event.pull_request.updated_at }}
+                  PR_NUMBER: ${{ github.event.pull_request.number }}
+                  # Must match the workflow and job names in .depot/workflows/ci-backend.yml.
+                  DEPOT_APP_ID: '219785'
+                  DEPOT_WORKFLOW: Backend CI on Depot
+              run: |
+                  conclusion() {
+                      gh api -X GET "repos/$REPO/commits/$SHA/check-runs" -f app_id="$DEPOT_APP_ID" -f check_name="$DEPOT_WORKFLOW / $1" \
+                          | jq -r --arg since "$EVENT_AT" --argjson pr "$PR_NUMBER" \
+                              '[.check_runs[] | select((.started_at // "") >= $since and any(.pull_requests[]?; .number == $pr))] | max_by(.id) | .conclusion // ""'
+                  }
+                  # A cancel job can end cancelled by its own request. A superseded run cancels
+                  # every job, so the check itself must have failed too.
+                  failed_deterministically() {
+                      [ "$(conclusion "$1")" = failure ] && [[ "$(conclusion "$2")" =~ ^(success|cancelled)$ ]]
+                  }
+                  if failed_deterministically "Repo checks (depot-ubuntu-24.04)" "Cancel Backend CI after repo check failure"; then
+                      echo "::error title=Repo checks failed deterministically::Open the repo checks job on Depot CI for the root failure. Retrying will not fix this."
+                  fi
+                  if failed_deterministically "Validate OpenAPI types" "Cancel Backend CI after OpenAPI check failure"; then
+                      echo "::error title=OpenAPI type checks failed deterministically::Open the OpenAPI type check job on Depot CI for the root failure. Retrying will not fix this."
+                  fi
 
     test-selection-verdict:
         needs: [django, turbo-tests, changes, turbo-discover]
