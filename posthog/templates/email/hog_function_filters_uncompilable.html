@@ -8,8 +8,9 @@
     <p>Here's what's wrong with it:</p>
     <p><i>{{ bytecode_error }}</i></p>
     <p>
-        This usually happens when a filter refers to a cohort. Cohort membership can't be checked while an event is
-        being processed, so the filter can't run. Replacing the cohort with the person properties it's based on will fix it.
+        If the error above is about a cohort, replace the cohort with the person properties it's based on. Cohort
+        membership can't be checked while an event is being processed, so a filter that refers to one can't run.
+        For any other error, edit the filter to remove the expression the error names.
     </p>
     <div class="mb mt text-center">
         <a class="button" href="{{ hog_function.url }}">Fix the filters</a>
