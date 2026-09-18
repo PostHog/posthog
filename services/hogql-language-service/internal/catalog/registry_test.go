@@ -1,6 +1,7 @@
 package catalog
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -118,16 +119,23 @@ func TestRegistryEvictsCatalogsToStayWithinMemoryBudget(t *testing.T) {
 }
 
 func TestRegistryCountsAliasesAgainstMemoryBudget(t *testing.T) {
-	base := &Catalog{Tables: map[string]Table{"orders": {Fields: map[string]Field{"id": {Type: "integer"}}}}, Properties: map[string][]Property{}}
+	canonicalName := "orders." + strings.Repeat("canonical", 32)
+	aliasName := "demo_" + strings.Repeat("alias", 32)
+	base := &Catalog{Tables: map[string]Table{canonicalName: {Fields: map[string]Field{"id": {Type: "integer"}}}}, Properties: map[string][]Property{}}
 	withAlias := &Catalog{
 		Tables:       base.Tables,
-		TableAliases: map[string]string{"demo_postgres_orders": "orders"},
+		TableAliases: map[string]string{aliasName: strings.Clone(canonicalName)},
 		Properties:   base.Properties,
 	}
 	baseSize := Prepare(base).EstimatedBytes()
 	aliased := Prepare(withAlias)
-	if aliased.EstimatedBytes() <= baseSize {
-		t.Fatalf("alias did not increase estimated bytes: base=%d alias=%d", baseSize, aliased.EstimatedBytes())
+	expectedAliasBytes := int64(len(aliasName) + len(canonicalName) + 96)
+	if actual := aliased.EstimatedBytes() - baseSize; actual != expectedAliasBytes {
+		t.Fatalf("alias bytes = %d, want %d", actual, expectedAliasBytes)
+	}
+	rightSized := NewRegistry(1, baseSize+expectedAliasBytes, time.Hour)
+	if err := rightSized.Put(serviceauth.Authorization{TeamID: 1, UserID: 10}, "1", aliased); err != nil {
+		t.Fatalf("Put() error = %v for exact derived budget", err)
 	}
 	registry := NewRegistry(1, baseSize, time.Hour)
 	if err := registry.Put(serviceauth.Authorization{TeamID: 1, UserID: 10}, "1", aliased); err != ErrCatalogTooLarge {

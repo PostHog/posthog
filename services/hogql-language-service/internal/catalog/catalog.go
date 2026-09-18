@@ -274,6 +274,10 @@ func (c *PreparedCatalog) estimateSize() int64 {
 	}
 	if c.hasAliases {
 		for _, entry := range c.tableSpellings.entries {
+			if c.tableValues[c.tablesByName[entry.Name]].Name == entry.Name {
+				size += 32
+				continue
+			}
 			size += entrySize(entry) + 32
 		}
 	}
