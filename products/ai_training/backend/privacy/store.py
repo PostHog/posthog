@@ -25,6 +25,8 @@ KEY_READ_LEASE_SECONDS = 300
 MONTH_DELETE_GRACE_DAYS = 14
 # A batch admitted just inside the grace period still commits within its 45 s budget, so deletion stays behind that too.
 MONTH_DELETE_IN_FLIGHT_MARGIN = timedelta(hours=1)
+# A per-session deletion keeps the team month key, so it must also remove the seal that the month key opens.
+KEY_MATERIAL_ATTRIBUTES = ("wrapped_key", "sealed_key", "key_nonce")
 DynamoItem = dict[str, dict[str, str | bool | bytes]]
 
 
@@ -133,7 +135,7 @@ class AITrainingPrivacyStore:
                         "Update": {
                             "TableName": self.table_name,
                             "Key": {"pk": key["pk"], "sk": key["sk"]},
-                            "UpdateExpression": "SET deleted = :deleted REMOVE wrapped_key",
+                            "UpdateExpression": "SET deleted = :deleted REMOVE " + ", ".join(KEY_MATERIAL_ATTRIBUTES),
                             "ExpressionAttributeValues": {":deleted": {"BOOL": True}},
                         },
                     }
