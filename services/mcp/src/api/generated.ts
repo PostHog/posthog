@@ -46264,6 +46264,8 @@ export namespace Schemas {
       readonly email_sending_rate_limit: unknown;
       readonly edges: unknown;
       readonly actions: unknown;
+      /** Staged content changes awaiting publish — a full snapshot of the workflow's actions, edges and settings. Null when there's nothing staged. Test it with a use_draft test run, then promote it with the publish endpoint or throw it away with discard_draft. */
+      readonly draft: unknown;
       /** @nullable */
       readonly abort_action: string | null;
       readonly variables: unknown;
@@ -104367,7 +104369,7 @@ export namespace Schemas {
      */
     origin_product?: HogFlowsListOriginProduct;
     /**
-     * Case-insensitive search across workflow name and description.
+     * Case-insensitive search. Matches workflow name and description first; only when nothing matches those, it matches step names and the subject line, preheader and body text of email steps, in both the live workflow and its pending draft.
      */
     search?: string;
     /**
