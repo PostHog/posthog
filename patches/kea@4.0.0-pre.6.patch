@@ -1,66 +1,104 @@
 diff --git a/lib/index.cjs.js b/lib/index.cjs.js
-index 917e1c5..0c70918 100644
+index 6cd21508919609f0b6fa59765919a97420946fe1..5816adbf1410a51fa545c2c2532b3dbd21b55fa1 100644
 --- a/lib/index.cjs.js
 +++ b/lib/index.cjs.js
-@@ -612,9 +612,27 @@ var isPaused = function isPaused() {
- var getStoreState$1 = function getStoreState() {
-   return getContext().store.getState();
+@@ -609,8 +609,28 @@ var pauseCounter = 0;
+ var isPaused = function isPaused() {
+   return pauseCounter !== 0;
  };
 +var lastSelectableStore;
 +var lastSelectableStoreState;
++// PostHog patch: redux getState() throws while a reducer is running, and kea reads store state on
++// two paths that can land in that window (seen on Firefox): a React render snapshot, and any
++// selector or value a dispatch reaches. The pre-dispatch state is the correct snapshot for both,
++// and the store notifies again once the dispatch commits. The fallback is scoped to the store
++// instance so a context reset can never serve state from a previous store.
++function readStoreState(store) {
++  try {
++    var storeState = store.getState();
++    lastSelectableStore = store;
++    lastSelectableStoreState = storeState;
++    return storeState;
++  } catch (error) {
++    if (lastSelectableStore !== store || lastSelectableStoreState === undefined) {
++      throw error;
++    }
++    return lastSelectableStoreState;
++  }
++}
+ var getStoreState$1 = function getStoreState() {
+-  return getContext().store.getState();
++  return readStoreState(getContext().store);
+ };
  function useSelector(selector) {
    return shim$1.exports.useSyncExternalStore(getContext().store.subscribe, function () {
--    return selector(getStoreState$1());
-+    // PostHog patch: redux getState() throws while a dispatch is running, and React can pull
-+    // a render snapshot in that window (seen on Firefox). The pre-dispatch state is the correct
-+    // snapshot, and the store notifies again once the dispatch commits. The fallback is scoped
-+    // to the store instance so a context reset can never serve state from a previous store.
-+    var store = getContext().store;
-+    var storeState;
-+    try {
-+      storeState = store.getState();
-+      lastSelectableStore = store;
-+      lastSelectableStoreState = storeState;
-+    } catch (error) {
-+      if (lastSelectableStore !== store || lastSelectableStoreState === undefined) {
-+        throw error;
-+      }
-+      storeState = lastSelectableStoreState;
-+    }
-+    return selector(storeState);
-   });
+@@ -777,7 +797,7 @@ function getContext() {
+   return context;
  }
- function useValues(logic) {
+ var getStoreState = function getStoreState() {
+-  return getContext().store.getState();
++  return readStoreState(getContext().store);
+ };
+ function setContext(newContext) {
+   context = newContext;
+@@ -1732,7 +1752,7 @@ var corePlugin = {
+       options.middleware.push(function (store) {
+         return function (next) {
+           return function (action) {
+-            var previousState = store.getState();
++            var previousState = getStoreState$1();
+             var response = next(action);
+             var _getPluginContext = getPluginContext('listeners'),
+               byAction = _getPluginContext.byAction;
 diff --git a/lib/index.esm.js b/lib/index.esm.js
-index 8116790..3500e6a 100644
+index 03fc2ba40b1c6445f0b642ed236dceccc5659fcb..c1d11d1adf01a783eb609cd80be8201876b9ca43 100644
 --- a/lib/index.esm.js
 +++ b/lib/index.esm.js
-@@ -586,9 +586,27 @@ var isPaused = function isPaused() {
- var getStoreState$1 = function getStoreState() {
-   return getContext().store.getState();
+@@ -583,8 +583,28 @@ var pauseCounter = 0;
+ var isPaused = function isPaused() {
+   return pauseCounter !== 0;
  };
 +var lastSelectableStore;
 +var lastSelectableStoreState;
++// PostHog patch: redux getState() throws while a reducer is running, and kea reads store state on
++// two paths that can land in that window (seen on Firefox): a React render snapshot, and any
++// selector or value a dispatch reaches. The pre-dispatch state is the correct snapshot for both,
++// and the store notifies again once the dispatch commits. The fallback is scoped to the store
++// instance so a context reset can never serve state from a previous store.
++function readStoreState(store) {
++  try {
++    var storeState = store.getState();
++    lastSelectableStore = store;
++    lastSelectableStoreState = storeState;
++    return storeState;
++  } catch (error) {
++    if (lastSelectableStore !== store || lastSelectableStoreState === undefined) {
++      throw error;
++    }
++    return lastSelectableStoreState;
++  }
++}
+ var getStoreState$1 = function getStoreState() {
+-  return getContext().store.getState();
++  return readStoreState(getContext().store);
+ };
  function useSelector(selector) {
    return shim$1.exports.useSyncExternalStore(getContext().store.subscribe, function () {
--    return selector(getStoreState$1());
-+    // PostHog patch: redux getState() throws while a dispatch is running, and React can pull
-+    // a render snapshot in that window (seen on Firefox). The pre-dispatch state is the correct
-+    // snapshot, and the store notifies again once the dispatch commits. The fallback is scoped
-+    // to the store instance so a context reset can never serve state from a previous store.
-+    var store = getContext().store;
-+    var storeState;
-+    try {
-+      storeState = store.getState();
-+      lastSelectableStore = store;
-+      lastSelectableStoreState = storeState;
-+    } catch (error) {
-+      if (lastSelectableStore !== store || lastSelectableStoreState === undefined) {
-+        throw error;
-+      }
-+      storeState = lastSelectableStoreState;
-+    }
-+    return selector(storeState);
-   });
+@@ -751,7 +771,7 @@ function getContext() {
+   return context;
  }
- function useValues(logic) {
+ var getStoreState = function getStoreState() {
+-  return getContext().store.getState();
++  return readStoreState(getContext().store);
+ };
+ function setContext(newContext) {
+   context = newContext;
+@@ -1706,7 +1726,7 @@ var corePlugin = {
+       options.middleware.push(function (store) {
+         return function (next) {
+           return function (action) {
+-            var previousState = store.getState();
++            var previousState = getStoreState$1();
+             var response = next(action);
+             var _getPluginContext = getPluginContext('listeners'),
+               byAction = _getPluginContext.byAction;
