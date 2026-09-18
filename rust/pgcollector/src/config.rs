@@ -119,9 +119,17 @@ pub struct LogsConfig {
     /// Must match the server's `log_line_prefix`. RDS default shown.
     #[serde(default = "default_prefix")]
     pub log_line_prefix: String,
+    /// Statement durations at or above this keep their own `ts_query_durations` row
+    /// (for the slowest-samples view); every duration also counts in the per-minute
+    /// histogram, which is what the quantiles come from.
+    #[serde(default = "default_sample_rows_over_ms")]
+    pub sample_rows_over_ms: f64,
 }
 fn default_prefix() -> String {
     "%t:%r:%u@%d:[%p]:".into()
+}
+fn default_sample_rows_over_ms() -> f64 {
+    100.0
 }
 
 #[derive(Debug, Deserialize, Clone, Default)]
@@ -244,6 +252,7 @@ fn servers_from_env(explicit: &[ServerConfig]) -> Vec<ServerConfig> {
                     log_group: Some(v.clone()),
                     region: None,
                     log_line_prefix: prefix,
+                    sample_rows_over_ms: default_sample_rows_over_ms(),
                 });
             }
         }

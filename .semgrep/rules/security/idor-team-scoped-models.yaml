@@ -58,9 +58,12 @@ rules:
                               |Account
                               |AccountChannelSummary
                               |AccountRelationship
+                              |AccountRelationshipControl
                               |AccountRelationshipDefinition
                               |AccountTrackRuleRun
                               |Action
+                              |AEOCitationCheck
+                              |AEOPrompt
                               |AgentApplication
                               |AgentArtifact
                               |AgentIdentityCredential
@@ -207,6 +210,7 @@ rules:
                               |FeatureRequest
                               |FeatureRequestAccountLink
                               |FeatureRequestEvidence
+                              |FeatureRequestGitHubLink
                               |FeatureRequestHistory
                               |FeatureRequestProductArea
                               |FeatureRequestProductAreaLink
@@ -259,6 +263,7 @@ rules:
                               |LoopTrigger
                               |LLMModelConfiguration
                               |LLMPrompt
+                              |LLMPromptDependency
                               |LLMPromptLabel
                               |LLMProviderKey
                               |LLMSkill
@@ -309,6 +314,7 @@ rules:
                               |QuickFilterContext
                               |ReplayObservation
                               |ReplayObservationLabel
+                              |ReplayObservationMedia
                               |ReplayObservationUsage
                               |ReplayObservationView
                               |ReplayScanner
@@ -474,6 +480,7 @@ rules:
                         |Account
                         |AccountChannelSummary
                         |AccountRelationship
+                        |AccountRelationshipControl
                         |AccountRelationshipDefinition
                         |AccountTrackRuleRun
                         |Action
@@ -620,6 +627,7 @@ rules:
                         |FeatureRequest
                         |FeatureRequestAccountLink
                         |FeatureRequestEvidence
+                        |FeatureRequestGitHubLink
                         |FeatureRequestHistory
                         |FeatureRequestProductArea
                         |FeatureRequestProductAreaLink
@@ -667,6 +675,7 @@ rules:
                         |NotebookWidgetInstance
                         |LLMModelConfiguration
                         |LLMPrompt
+                        |LLMPromptDependency
                         |LLMPromptLabel
                         |LLMProviderKey
                         |LLMSkill
@@ -715,6 +724,7 @@ rules:
                         |QuickFilterContext
                         |ReplayObservation
                         |ReplayObservationLabel
+                        |ReplayObservationMedia
                         |ReplayObservationUsage
                         |ReplayObservationView
                         |ReplayScanner

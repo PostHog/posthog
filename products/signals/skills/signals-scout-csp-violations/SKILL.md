@@ -1,5 +1,6 @@
 ---
 name: signals-scout-csp-violations
+scout-display-name: CSP violations
 description: >
   Signals scout for Content Security Policy violations. Watches `$csp_violation` events for
   blocked-URL clusters, per-directive bursts, post-deploy regressions, and suspicious third-

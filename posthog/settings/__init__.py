@@ -130,6 +130,10 @@ PERSON_ON_EVENTS_OVERRIDE: bool = get_from_env("PERSON_ON_EVENTS_OVERRIDE", opti
 # Only written in specific scripts - do not use outside of them.
 PERSON_ON_EVENTS_V2_OVERRIDE: bool = get_from_env("PERSON_ON_EVENTS_V2_OVERRIDE", optional=True, type_cast=str_to_bool)
 
+# When on, the person bulk delete API hands profile deletion to a Celery task that pages through
+# each person's distinct IDs, instead of tombstoning them inline in the request.
+PERSON_BULK_DELETE_ASYNC: bool = get_from_env("PERSON_BULK_DELETE_ASYNC", False, type_cast=str_to_bool)
+
 # Events data retention enforcement override (ops kill switch / local + test toggle). When unset (None),
 # enforcement falls back to the per-project `events-data-retention` cohort flag. When set, forces it on/off everywhere.
 EVENTS_DATA_RETENTION_ENFORCED: bool | None = get_from_env(
@@ -148,8 +152,6 @@ OTEL_SERVICE_NAME: str | None = os.getenv("OTEL_SERVICE_NAME", None)
 PROM_PUSHGATEWAY_ADDRESS: str | None = os.getenv("PROM_PUSHGATEWAY_ADDRESS", None)
 
 HOGQL_INCREASED_MAX_EXECUTION_TIME: int = get_from_env("HOGQL_INCREASED_MAX_EXECUTION_TIME", 600, type_cast=int)
-
-QUERY_COALESCING_MAX_WAIT_SECONDS: int = get_from_env("QUERY_COALESCING_MAX_WAIT_SECONDS", 300, type_cast=int)
 
 # Extend and override these settings with EE's ones
 if "ee.apps.EnterpriseConfig" in INSTALLED_APPS:

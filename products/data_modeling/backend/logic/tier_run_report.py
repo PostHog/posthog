@@ -161,9 +161,11 @@ def _reportable_nodes(dag: DAG) -> list[Node]:
     """Every node a run could act on. Mirrors `schedulable_nodes`' exclusion of soft-deleted saved
     queries — those keep their target but the scheduler never sees them, so reporting them would
     manufacture permanent phantom rows. Source (TABLE) nodes are kept so the page can show them.
+    METRIC nodes are dropped: nothing ever runs them.
     """
     return list(
         Node.objects.filter(team_id=dag.team_id, dag=dag)
+        .exclude(type=NodeType.METRIC)
         .exclude(saved_query__deleted=True)
         .select_related("saved_query")
     )
@@ -328,9 +330,7 @@ def _suspension_detail(node: Node) -> str:
 
     Only the serving engine's marker blocks a run (`execute_dag` reads one engine's list), and the
     managed warehouse shadow suspends independently and often. Reporting its marker would turn healthy
-    nodes and their whole subtree into false `suspended` / `blocked` rows. Note a marker is written
-    whether or not `data-modeling-suspend-failing-nodes` is on for the team, so on a team without
-    that flag a marker here is decorative and the node still runs.
+    nodes and their whole subtree into false `suspended` / `blocked` rows.
     """
     suspended = ((node.properties or {}).get("system") or {}).get("suspended") or {}
     entry = suspended.get(DataModelingJobEngine.CLICKHOUSE.value)

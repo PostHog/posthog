@@ -8,6 +8,7 @@ from django.conf import settings
 
 from ..facade.contracts import SavedQuerySummary
 from ..models.datawarehouse_saved_query import DataWarehouseSavedQuery
+from ..models.edge import Edge
 from ..models.node import Node
 from .saved_query_freshness import saved_query_materialized_at
 
@@ -109,17 +110,25 @@ def _resolve_allowed_saved_query_ids(
     )
 
 
-def backing_table_ids_by_saved_query(team_id: int) -> dict[UUID, UUID]:
+def backing_table_ids_by_saved_query(team_id: int, *, table_ids: Collection[UUID] | None = None) -> dict[UUID, UUID]:
     """Private backing table ids mapped to their saved query ids. One query.
 
     Includes soft-deleted saved queries because deleting a view leaves its backing table behind.
     The URL predicate deliberately matches the HogQL catalog's private-backing-table exclusion.
+
+    ``table_ids`` narrows the lookup to the tables a caller asked about, so a caller holding a
+    handful of tables does not load the team's whole view list. ``None`` asks about every table; an
+    empty collection asks about none.
     """
+    if table_ids is not None and not table_ids:
+        return {}
     saved_queries = (
         DataWarehouseSavedQuery.objects.filter(team_id=team_id, table__isnull=False)
         .select_related("table")
         .only("id", "team_id", "table_id", "table__url_pattern")
     )
+    if table_ids is not None:
+        saved_queries = saved_queries.filter(table_id__in=table_ids)
     return {
         saved_query.table_id: saved_query.id
         for saved_query in saved_queries
@@ -168,3 +177,23 @@ def get_saved_query_ids_for_nodes(team_id: int, node_ids: Iterable[UUID | str]) 
         "saved_query_id", flat=True
     )
     return [str(saved_query_id) for saved_query_id in rows]
+
+
+def dependent_saved_query_ids(team_id: int, saved_query_ids: Collection[UUID]) -> dict[UUID, frozenset[UUID]]:
+    """The live saved queries that read directly from each given one, keyed by the given id.
+
+    Follows the edges of every node a saved query has, so a dependent in another DAG counts too.
+    """
+    dependents: dict[UUID, set[UUID]] = {saved_query_id: set() for saved_query_id in saved_query_ids}
+    edges = (
+        Edge.objects.filter(
+            team_id=team_id,
+            source__saved_query_id__in=saved_query_ids,
+            target__saved_query__isnull=False,
+        )
+        .exclude(target__saved_query__deleted=True)
+        .values_list("source__saved_query_id", "target__saved_query_id")
+    )
+    for source_id, target_id in edges:
+        dependents[source_id].add(target_id)
+    return {saved_query_id: frozenset(ids) for saved_query_id, ids in dependents.items()}
