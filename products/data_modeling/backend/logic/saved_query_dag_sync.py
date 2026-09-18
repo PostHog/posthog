@@ -370,15 +370,14 @@ def get_dependent_saved_queries(saved_query: "DataWarehouseSavedQuery") -> list[
     Get SavedQueries that depend on this one (immediate dependents only).
 
     Returns a list of DataWarehouseSavedQuery objects that have edges pointing
-<<<<<<< fix/data-modeling-delete-guard-all-nodes
-    from any of this saved query's nodes (i.e., they reference this view in their query).
+    from this saved query's nodes (i.e., they reference this view in their query).
+
+    Every node of the saved query counts, not just one: the delete removes all of them, so a
+    dependent hanging off a second DAG's node would lose its edge without ever blocking the delete.
+    A dependent that reads the query in more than one DAG is reported once, at its oldest node, so
+    the returned order is deterministic even when the query has nodes in several DAGs.
     """
     nodes = Node.objects.filter(team=saved_query.team, saved_query=saved_query)
-    # Dedupe by saved-query identity, not by Node row: the same saved query can have a
-    # node in more than one DAG (the uniqueness constraint is per team+dag+saved_query),
-    # so distinct Node rows can carry the same downstream saved query twice. Order the
-    # nodes explicitly so the returned order is deterministic, and keep the first-seen
-    # saved query for each id.
     dependent_nodes = (
         Node.objects.filter(
             team=saved_query.team,
@@ -388,27 +387,6 @@ def get_dependent_saved_queries(saved_query: "DataWarehouseSavedQuery") -> list[
         .select_related("saved_query")
         .order_by("created_at", "id")
     )
-    seen: set[int] = set()
-    dependents: list[DataWarehouseSavedQuery] = []
-    for node in dependent_nodes:
-        dependent = node.saved_query
-        if dependent is not None and not dependent.deleted and dependent.id not in seen:
-            seen.add(dependent.id)
-            dependents.append(dependent)
-    return dependents
-=======
-    from this saved query's nodes (i.e., they reference this view in their query).
-
-    Every node of the saved query counts, not just one: the delete removes all of them, so a
-    dependent hanging off a second DAG's node would lose its edge without ever blocking the delete.
-    A dependent that reads the query in more than one DAG is reported once.
-    """
-    nodes = Node.objects.filter(team=saved_query.team, saved_query=saved_query)
-    dependent_nodes = Node.objects.filter(
-        team=saved_query.team,
-        incoming_edges__source__in=nodes,
-        saved_query__isnull=False,
-    ).select_related("saved_query")
     dependents: dict[str, DataWarehouseSavedQuery] = {}
     for dependent_node in dependent_nodes:
         dependent = dependent_node.saved_query
@@ -490,7 +468,6 @@ def blocked_lineage_node_id(dependents: Sequence[Dependent], fallback_node_id: s
 def _oldest_node_id(nodes: QuerySet[Node]) -> str | None:
     oldest_node = nodes.order_by("created_at").first()
     return str(oldest_node.id) if oldest_node else None
->>>>>>> master
 
 
 def delete_node_from_dag(saved_query: "DataWarehouseSavedQuery") -> None:
@@ -499,13 +476,6 @@ def delete_node_from_dag(saved_query: "DataWarehouseSavedQuery") -> None:
 
     Must be called BEFORE soft_delete() due to on_delete=PROTECT on the saved_query FK.
     """
-<<<<<<< fix/data-modeling-delete-guard-all-nodes
-    deps = get_dependent_saved_queries(saved_query)
-    if deps:
-        names = ", ".join(d.name for d in deps)
-        raise HasDependentsError(f"Node cannot be deleted because it has dependents: {names}")
-=======
->>>>>>> master
     nodes = Node.objects.filter(team=saved_query.team, saved_query=saved_query).select_related("dag", "dag__team")
     with transaction.atomic():
         # Hold every DAG this query has a node in, so a sync cannot attach a dependent between the
