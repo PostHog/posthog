@@ -96,7 +96,6 @@ async def prepare_observation_thumbnail_activity(inputs: ObservationMediaInputs)
 
     export_context = {
         # The recording id serves the recording-delete cascade, the observation id every other expiry.
-        # The recording id serves the recording-delete cascade, the observation id every other expiry.
         "session_recording_id": media_inputs.session_id,
         "observation_id": str(media_inputs.observation_id),
         "media_kind": ReplayObservationMedia.Kind.THUMBNAIL.value,
