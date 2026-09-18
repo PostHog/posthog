@@ -287,6 +287,30 @@ class TestPersonCustomPropertySource(TeamScopedTestMixin, APIBaseTest):
         start_backfill.assert_not_called()
 
     @patch("products.customer_analytics.backend.facade.api._start_person_backfill_if_enabled")
+    def test_update_disabled_person_mapping_leaves_provenance_alone(self, start_backfill):
+        # Provenance names the source that writes a property. A disabled source writes nothing, so
+        # editing its mapping must not make it the owner of a definition it does not feed.
+        source = self._create(is_enabled=False, user_access_control=self._uac(allowed=True))
+        start_backfill.reset_mock()
+        definition = PropertyDefinition.objects.create(
+            team=self.team,
+            name="plan_tier",
+            type=PropertyDefinition.Type.PERSON,
+        )
+
+        view = api.update_custom_property_source(
+            team_id=self.team.id,
+            source_id=source.id,
+            fields={"column_property_map": {"plan": "plan_tier"}, "column_descriptions": {"plan": "Plan tier"}},
+            user_access_control=self._uac(allowed=True),
+        )
+
+        assert view is not None and view.column_descriptions == {"plan": "Plan tier"}
+        definition.refresh_from_db()
+        assert definition.warehouse_origin is None
+        start_backfill.assert_not_called()
+
+    @patch("products.customer_analytics.backend.facade.api._start_person_backfill_if_enabled")
     def test_update_disabled_person_mapping_requires_editor_without_starting_a_backfill(self, start_backfill):
         source = self._create(is_enabled=False, user_access_control=self._uac(allowed=True))
         start_backfill.reset_mock()
@@ -650,7 +674,7 @@ class TestPersonCustomPropertySource(TeamScopedTestMixin, APIBaseTest):
             self._create_view_source(user_access_control=self._uac(allowed=False))
 
     @patch("products.customer_analytics.backend.facade.api._start_person_backfill_if_enabled")
-    @patch("products.customer_analytics.backend.facade.api._enqueue_custom_property_sync")
+    @patch("products.customer_analytics.backend.facade.api._send_initial_account_property_sync")
     def test_view_backed_person_source_never_queues_account_sync(self, enqueue_account_sync, _start_backfill):
         with self.captureOnCommitCallbacks(execute=True):
             source = self._create_view_source(user_access_control=self._uac(allowed=True))

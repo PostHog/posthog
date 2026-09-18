@@ -5,6 +5,7 @@ import dataclasses
 import pytest
 from unittest.mock import AsyncMock, patch
 
+from temporalio.exceptions import ActivityError
 from temporalio.testing import ActivityEnvironment
 
 from products.warehouse_sources.backend.temporal.data_imports import person_property_backfill_job as bj
@@ -21,6 +22,19 @@ def _inputs(team_id: int) -> PersonPropertyBackfillActivityInputs:
         source_type="Stripe",
         schema_name="charges",
         trigger="manual",
+    )
+
+
+def _activity_error() -> ActivityError:
+    """What ``execute_activity`` raises once the activity exhausts its single attempt."""
+    return ActivityError(
+        "backfill failed",
+        scheduled_event_id=1,
+        started_event_id=2,
+        identity="test",
+        activity_type="backfill-warehouse-person-properties",
+        activity_id="1",
+        retry_state=None,
     )
 
 
@@ -115,3 +129,61 @@ async def test_in_flight_backfill_runs_one_follow_up_with_the_latest_request() -
         await running
 
     assert observed == [first, latest]
+
+
+@pytest.mark.asyncio
+async def test_a_failed_run_still_serves_a_request_that_arrived_while_it_ran() -> None:
+    # The API reports a request that lands mid-run as queued, so losing it with the run it happened
+    # to overlap would strand a mapping edit with nothing telling the user.
+    first = _inputs(900004)
+    latest = dataclasses.replace(first, schema_name="users-v2")
+    seed = dataclasses.replace(first, skip_initial_run=True)
+    runner = bj.BackfillWarehousePersonPropertiesWorkflow(seed)
+    await runner.request_backfill(first)
+
+    first_started = asyncio.Event()
+    release_first = asyncio.Event()
+    observed: list[PersonPropertyBackfillActivityInputs] = []
+
+    async def execute_activity(_activity, inputs, **_kwargs):
+        observed.append(inputs)
+        if len(observed) == 1:
+            first_started.set()
+            await release_first.wait()
+            raise _activity_error()
+
+    with (
+        patch.object(bj.workflow, "execute_activity", AsyncMock(side_effect=execute_activity)),
+        patch.object(bj.workflow, "wait_condition", AsyncMock()),
+    ):
+        running = asyncio.create_task(runner.run(seed))
+        await first_started.wait()
+        await runner.request_backfill(latest)
+        release_first.set()
+        await running
+
+    assert observed == [first, latest]
+
+
+@pytest.mark.asyncio
+async def test_a_failed_run_with_nothing_queued_fails_the_workflow() -> None:
+    # Swallowing the failure outright would report a backfill that never ran as a clean completion.
+    only = _inputs(900005)
+    seed = dataclasses.replace(only, skip_initial_run=True)
+    runner = bj.BackfillWarehousePersonPropertiesWorkflow(seed)
+    await runner.request_backfill(only)
+
+    observed: list[PersonPropertyBackfillActivityInputs] = []
+
+    async def execute_activity(_activity, inputs, **_kwargs):
+        observed.append(inputs)
+        raise _activity_error()
+
+    with (
+        patch.object(bj.workflow, "execute_activity", AsyncMock(side_effect=execute_activity)),
+        patch.object(bj.workflow, "wait_condition", AsyncMock()),
+        pytest.raises(ActivityError),
+    ):
+        await runner.run(seed)
+
+    assert observed == [only]

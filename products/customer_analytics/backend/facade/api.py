@@ -2436,12 +2436,15 @@ def update_custom_property_source(
         source.consecutive_failures = 0
         source.last_sync_error = None
     source.save()
-    if binding is not None and (mapping_changed or descriptions_changed):
+    # Provenance names the source that writes a property, so only a source that will write claims it.
+    # Re-enabling runs a backfill, and that stamps the mapping the source has by then.
+    if binding is not None and will_be_enabled and (mapping_changed or descriptions_changed):
         _stamp_profile_source_provenance(source, binding)
     # Only re-sync on a change that affects what gets written — not on every (possibly no-op) PATCH.
     if reenabling or columns_changed:
         _enqueue_initial_account_property_sync(source)
-        _start_person_backfill_if_enabled(source)
+        if will_be_enabled:
+            _start_person_backfill_if_enabled(source)
     return _to_custom_property_source_view(source, user_access_control)
 
 

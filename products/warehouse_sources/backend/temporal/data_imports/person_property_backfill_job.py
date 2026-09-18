@@ -24,6 +24,7 @@ import structlog
 from prometheus_client import Counter, Histogram
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
+from temporalio.exceptions import ActivityError
 
 from posthog.exceptions_capture import capture_exception
 from posthog.temporal.common.base import PostHogWorkflow
@@ -155,14 +156,24 @@ class BackfillWarehousePersonPropertiesWorkflow(PostHogWorkflow):
             activity_inputs = self._pending_inputs
             self._pending_inputs = None
             assert activity_inputs is not None
-            await workflow.execute_activity(
-                backfill_warehouse_person_properties_activity,
-                activity_inputs,
-                start_to_close_timeout=timedelta(hours=6),
-                heartbeat_timeout=timedelta(minutes=5),
-                # A one-off full-table read: don't silently re-scan the whole table on a transient error.
-                retry_policy=RetryPolicy(maximum_attempts=1),
-            )
+            try:
+                await workflow.execute_activity(
+                    backfill_warehouse_person_properties_activity,
+                    activity_inputs,
+                    start_to_close_timeout=timedelta(hours=6),
+                    heartbeat_timeout=timedelta(minutes=5),
+                    # A one-off full-table read: don't silently re-scan the whole table on a transient error.
+                    retry_policy=RetryPolicy(maximum_attempts=1),
+                )
+            except ActivityError:
+                # The activity records its own failed runs before raising, so the failure already
+                # reached the UI. A request that arrived while it ran was reported to its caller as
+                # queued, so serve that before giving up — a mapping edit must not die with the run
+                # it happened to overlap. With nothing pending, fail the workflow as before.
+                await workflow.wait_condition(workflow.all_handlers_finished)
+                if self._pending_inputs is None:
+                    raise
+                continue
 
             # Drain signal handlers and re-check before completing. A signal racing the completion
             # command makes Temporal replay this task; a signal after completion starts a fresh run.
