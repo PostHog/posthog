@@ -6584,6 +6584,8 @@ const api = {
             type?: 'messaging' | 'automation' | 'loop'
             /** JSON-encoded object the stored trigger must contain, e.g. `{"type":"batch"}`. */
             trigger?: string
+            /** Comma-separated tag names; by default a workflow must carry all of them. */
+            tags?: string
             limit?: number
             offset?: number
         }): Promise<CountedPaginatedResponse<HogFlow>> {

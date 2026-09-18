@@ -203,6 +203,21 @@ export function workflowActivityDescriber(logItem: ActivityLogItem, asNotificati
                     changes.push(<>updated {change.field}</>)
                     break
                 }
+                case 'tag': {
+                    // Mirrored from the tag's own activity: one entry per tag added or removed.
+                    changes.push(
+                        change.action === 'deleted' ? (
+                            <>
+                                removed the tag <strong>{String(change.before)}</strong>
+                            </>
+                        ) : (
+                            <>
+                                added the tag <strong>{String(change.after)}</strong>
+                            </>
+                        )
+                    )
+                    break
+                }
                 default:
                     changes.push(<>updated {change.field}</>)
             }
