@@ -50,12 +50,11 @@ logger = structlog.get_logger(__name__)
 
 INSIGHT_ALERT_FIRING_EVENT = "$insight_alert_firing"
 
-# AlertConfiguration columns the prepare path and its helpers read. Narrowing the SELECT to
-# these keeps alert evaluation working on a deploy where the worker image runs ahead of an
-# AlertConfiguration migration: a column the database does not have yet is not on this list,
-# so it is never selected. Related rows come through select_related and stay unnarrowed. Add
-# a column only when the prepare path reads it; a missing one costs a lazy query, not an
-# incorrect result.
+# AlertConfiguration columns the prepare path and its helpers read. Narrowing the SELECT to these
+# keeps prepare_alert working on a deploy where the worker image runs ahead of an
+# AlertConfiguration migration. select_related rows stay unnarrowed, so a new column on Insight,
+# Team, Organization or Threshold is not covered. Add a column only when the prepare path reads
+# it: a missing one costs a lazy query, not an incorrect result.
 PREPARE_ALERT_FIELDS = (
     "id",
     "team_id",

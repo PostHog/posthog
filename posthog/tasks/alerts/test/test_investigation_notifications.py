@@ -185,8 +185,7 @@ class TestInvestigationNotificationSafetyNet(APIBaseTest):
     @patch("posthog.tasks.alerts.investigation_notifications.dispatch_alert_notification")
     def test_schema_lag_while_dispatching_is_not_swallowed(self, mock_dispatch: object) -> None:
         # Dispatch reaches tables beyond the alert itself. A missing column there must reach the
-        # caller, which counts it, rather than being logged as this one check's failure and
-        # leaving the sweep to report a partial count as if the run had been normal.
+        # caller, which counts it, instead of being logged as this one check's failure.
         error = ProgrammingError("column does not exist")
         error.__cause__ = psycopg.errors.UndefinedColumn("column does not exist")
         mock_dispatch.side_effect = error  # type: ignore[attr-defined]
@@ -200,8 +199,6 @@ class TestInvestigationNotificationSafetyNet(APIBaseTest):
 
     def test_sweeps_when_an_alert_column_it_does_not_read_is_missing(self) -> None:
         # Stands in for a deploy where the worker image runs ahead of an alerts migration.
-        # The candidate scan reads no AlertConfiguration column, so a column the database
-        # does not have yet cannot fail the sweep before it looks at a single check.
         with connection.cursor() as cursor:
             cursor.execute(
                 "ALTER TABLE posthog_alertconfiguration "
@@ -230,8 +227,7 @@ class TestInvestigationNotificationSafetyNet(APIBaseTest):
         with CaptureQueriesContext(connection) as captured:
             assert run_investigation_notification_safety_net() == 3
 
-        # The scan itself only joins the table, so a SELECT from it is a candidate's alert
-        # being loaded. One batched load covers the whole chunk.
+        # The scan only joins the table, so a SELECT from it is a candidate's alert being loaded.
         alert_reads = [q for q in captured.captured_queries if 'FROM "posthog_alertconfiguration"' in q["sql"]]
         assert len(alert_reads) == 1
 

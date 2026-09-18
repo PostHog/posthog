@@ -49,8 +49,7 @@ INVESTIGATION_NOTIFY_GRACE_MINUTES = 5
 # force-dispatch that would fire a notification the verdict gate was meant to hold.
 INVESTIGATION_RUNNING_GRACE_MINUTES = 90
 
-# Candidates are read in chunks so their alerts come back in one query per chunk rather
-# than one query per candidate. The sweep runs every minute and has no candidate ceiling.
+# The sweep has no candidate ceiling, so a backlog must not become one alert query per candidate.
 SWEEP_CHUNK_SIZE = 100
 
 
@@ -68,11 +67,10 @@ def run_investigation_notification_safety_net() -> int:
     # legitimately-held check from this safety net; `investigation_agent_enabled`
     # is a stickier configuration knob and picks up exactly the checks whose
     # dispatch could have been the workflow's responsibility.
-    # The scan deliberately does not select_related the alert: selecting every
-    # AlertConfiguration column lets a column the database has not migrated yet fail the sweep
-    # before it reads a row. The filter joins for `investigation_agent_enabled` without
-    # selecting from the table, and prefetch_related loads the candidates' alerts in one
-    # follow-up query per chunk. A sweep that finds nothing runs no follow-up query at all.
+    # Do not select_related the alert here: that puts every AlertConfiguration column in the
+    # scan's SELECT, so a column the database has not migrated yet fails the sweep before it
+    # reads a row. The filter joins the table for `investigation_agent_enabled` without
+    # selecting from it.
     candidates = (
         AlertCheck.objects.filter(
             state=AlertState.FIRING,
@@ -124,9 +122,9 @@ def run_investigation_notification_safety_net() -> int:
                 record_alert_delivery(alert, locked, deliveries, stamp_on_empty=True)
         except Exception as error:
             if is_schema_lag_error(error):
-                # A missing column is sweep-wide, not specific to this check: every later
-                # candidate fails the same way. Let it out so the caller classifies and counts
-                # it once, rather than logging it per check and reporting a partial count.
+                # A missing column fails every later candidate the same way, so let it out for
+                # the caller to count once instead of logging it per check and returning a
+                # partial count.
                 raise
             logger.exception(
                 "alert.investigation_safety_net_failed",
