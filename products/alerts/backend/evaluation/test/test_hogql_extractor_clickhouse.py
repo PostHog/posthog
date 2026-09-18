@@ -99,6 +99,7 @@ class TestHogQLDetectorPagination(APIBaseTest):
         )
         mode = ExecutionMode.CALCULATE_BLOCKING_ALWAYS
         calculation = calculate_for_query_based_insight(insight, team=self.team, user=self.user, execution_mode=mode)
+        assert isinstance(calculation.result, list)
         assert len(calculation.result) == (180 if sql_limit else 100)
         assert calculation.has_more is (None if sql_limit else True)
         config = HogQLAlertConfig(type="HogQLAlertConfig", evaluation=evaluation, column="value")
