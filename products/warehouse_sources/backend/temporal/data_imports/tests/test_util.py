@@ -5,6 +5,7 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import botocore.exceptions
+import deltalake.exceptions
 from parameterized import parameterized
 
 from posthog.temporal.common.errors import NonReportableError
@@ -125,6 +126,36 @@ class TestPrepareS3FilesForQuerying:
 
         assert refresh_file_uris.await_count == 2
         assert cp_file.await_args_list[-1].args[0] == "s3://bucket/job/my_table/part-2.parquet"
+
+    async def test_retries_when_refresh_file_uris_hits_the_same_table_race(self):
+        # `refresh_file_uris` reopens the same Delta table it's re-listing, so it can lose the same
+        # compact/vacuum race the copy above did - delta-rs raises that as `TableNotFoundError`
+        # ("No files in log segment"), not `FileNotFoundError`/`OSError`, so it used to escape this
+        # loop uncaught on the very first unlucky refresh instead of being retried like the race above.
+        vanished_file = "s3://bucket/job/my_table/part-0.parquet"
+        cp_file = AsyncMock(side_effect=[FileNotFoundError(vanished_file), FileNotFoundError(vanished_file), None])
+        s3 = _fake_s3(_cp_file=cp_file)
+        refresh_file_uris = AsyncMock(
+            side_effect=[
+                deltalake.exceptions.TableNotFoundError("Generic delta kernel error: No files in log segment"),
+                [vanished_file],
+            ]
+        )
+
+        with (
+            patch.object(util_module, "aget_s3_client", return_value=_FakeS3CM(s3)),
+            patch("asyncio.sleep", new_callable=AsyncMock),
+        ):
+            await prepare_s3_files_for_querying(
+                folder_path="job",
+                table_name="my_table",
+                file_uris=[vanished_file],
+                delete_existing=False,
+                refresh_file_uris=refresh_file_uris,
+            )
+
+        assert refresh_file_uris.await_count == 2
+        assert cp_file.await_count == 3
 
     async def test_gives_up_after_max_attempts_exhausted(self):
         # The retry loop is bounded: a source file that keeps vanishing on every attempt must

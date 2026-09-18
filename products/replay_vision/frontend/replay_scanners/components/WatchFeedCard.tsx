@@ -1,5 +1,5 @@
 import { useActions } from 'kea'
-import { router } from 'kea-router'
+import { combineUrl, router } from 'kea-router'
 
 import { IconPlay } from '@posthog/icons'
 import { LemonButton, LemonDivider, Link, Tooltip } from '@posthog/lemon-ui'
@@ -13,6 +13,7 @@ import { urls } from 'scenes/urls'
 import { CitedText, ObservationResultSummary, readResult } from '../../components/ObservationCard'
 import { ScannerTypeBadge } from '../../components/ScannerTypeBadge'
 import type { ReplayObservationApi, WatchFeedItemApi, WatchFeedReasonApi } from '../../generated/api.schemas'
+import { OBSERVATION_ORIGIN_PARAM, WATCH_FEED_ORIGIN } from '../../utils/breadcrumbs'
 import { citedTimestampRange } from '../../utils/citations'
 import { ScannerType } from '../types'
 
@@ -103,8 +104,12 @@ export function WatchFeedCard({ item, position }: WatchFeedCardProps): JSX.Eleme
         scannerType !== 'summarizer' && typeof result?.reasoning === 'string'
             ? { text: result.reasoning, segments: result.reasoning_segments }
             : null
-    // t=0 when nothing is cited, so the observation page still opens with the player expanded.
-    const observationUrl = `${urls.replayVisionObservation(observation.id)}?t=${clip ? Math.floor(clip.startMs / 1000) : 0}`
+    // t=0 when nothing is cited, so the observation page still opens with the player expanded. `from`
+    // marks the feed as the origin, so the observation's back button returns here rather than the scanner.
+    const observationUrl = combineUrl(urls.replayVisionObservation(observation.id), {
+        t: clip ? Math.floor(clip.startMs / 1000) : 0,
+        [OBSERVATION_ORIGIN_PARAM]: WATCH_FEED_ORIGIN,
+    }).url
     const capture = (target: 'clip_modal' | 'observation'): void => {
         posthog.capture('replay_vision_watch_clip_clicked', {
             scanner_id: observation.scanner_id,

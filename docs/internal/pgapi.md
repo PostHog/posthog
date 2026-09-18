@@ -8,12 +8,12 @@ contract.
 
 ## Surfaces
 
-| path                              | what                                                                                                                                                           | auth              |
-| --------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------- |
-| `/api/v1/*`                       | JSON API: servers, overview, queries, query tags, activity, tables, indexes, vacuum, events, logs, system, schema, settings, collector health, guarded raw SQL | identity required |
-| `/mcp`                            | MCP streamable HTTP, 18 read-only tools over the same query layer                                                                                              | identity required |
-| `/`                               | embedded UI over `/api/v1`                                                                                                                                     | identity required |
-| `/healthz`, `/readyz`, `/metrics` | probes and Prometheus                                                                                                                                          | none              |
+| path                              | what                                                                                                                                                                            | auth              |
+| --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------- |
+| `/api/v1/*`                       | JSON API: servers, overview, queries, query tags, activity, locks, sessions, tables, indexes, vacuum, events, logs, system, schema, settings, collector health, guarded raw SQL | identity required |
+| `/mcp`                            | MCP streamable HTTP, 19 read-only tools over the same query layer                                                                                                               | identity required |
+| `/`                               | embedded UI over `/api/v1`                                                                                                                                                      | identity required |
+| `/healthz`, `/readyz`, `/metrics` | probes and Prometheus                                                                                                                                                           | none              |
 
 ## Query tags
 
@@ -23,6 +23,27 @@ per code path; `GET /servers/{id}/queries?tags=key=value` filters the
 `pg_stat_statements` list to queries seen with a tag; query detail lists the
 `callers` seen while the query ran. The tag format and key vocabulary are in
 [`rust/pgcollector/docs/query-tags.md`](../../rust/pgcollector/docs/query-tags.md).
+
+## Charts
+
+The UI draws its charts from bucketed endpoints. `GET /servers/{id}/load?bucket=1m`
+gives average active sessions per bucket by wait event type, summed over instances,
+with the host core count; it is the Overview page's database load chart. Every ranged
+endpoint accepts `since` or absolute `from`/`to`, which is how a range dragged on a
+chart is fetched. `GET /servers/{id}/events?exclude=pgss_dealloc,log_cancel,log_lock%`
+leaves out routine kinds before the limit, so event markers show the rare kinds.
+
+## Lock waits
+
+`GET /servers/{id}/locks` (MCP `lock_waits`) answers "who waited for whom" over a
+range from the 10 s blocking-graph samples: sessions waiting per bucket by lock type,
+(blocker statement, waiter statement) pairs with waiter-seconds and how often the
+blocker sat idle in transaction, blocking episodes (consecutive samples of one waiter
+and blocker pair) with the blocker's transaction age, and deadlocks from the log.
+`GET /servers/{id}/sessions/{pid}?instance=writer&from=&to=&backend_start=` returns one
+backend's long-session samples, which the Locks page uses to show what a blocker ran before
+it went idle. `backend_start` tells a reused pid apart; without it the backend sampled
+nearest to `at` is returned.
 
 ## Identity and authorization
 

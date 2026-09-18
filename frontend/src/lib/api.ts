@@ -5365,10 +5365,11 @@ const api = {
                     // only on a first connect (no resume cursor); the Last-Event-ID header, when
                     // present, takes precedence and an exact resume ignores `start`.
                     const base = options.proxyTarget.baseUrl.replace(/\/+$/, '')
-                    const url =
-                        !options.lastEventId && options.startLatest
-                            ? `${base}/v1/runs/${runId}/stream?start=latest`
-                            : `${base}/v1/runs/${runId}/stream`
+                    const params = new URLSearchParams({ resync: '1' })
+                    if (!options.lastEventId && options.startLatest) {
+                        params.set('start', 'latest')
+                    }
+                    const url = `${base}/v1/runs/${runId}/stream?${params.toString()}`
                     headers['Authorization'] = `Bearer ${options.proxyTarget.token}`
                     return api.getResponse(url, { signal: options.signal, headers })
                 }
@@ -6601,10 +6602,13 @@ const api = {
             // `stage_draft` routes content edits on an active workflow into its staged draft instead of
             // the live config; publish promotes them. Ignored on non-active workflows.
             // `base_live_updated_at` fences a staged save's live metadata write the same way.
+            // `includes_staged_draft` marks a full save on a non-active workflow that carries its staged
+            // draft, so the server clears that draft.
             data: Partial<HogFlow> & {
                 base_updated_at?: string | null
                 stage_draft?: boolean
                 base_live_updated_at?: string | null
+                includes_staged_draft?: boolean
             }
         ): Promise<HogFlow> {
             return await new ApiRequest().hogFlow(hogFlowId).update({ data })

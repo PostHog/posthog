@@ -45,6 +45,9 @@ func syntheticCatalog() catalogPublication {
 		demoTable("demo_customers", "data_warehouse", map[string]string{
 			"id": "integer", "email": "string", "plan": "string", "billing address": "string", "café": "string",
 		}),
+		demoTable("demo_rules", "data_warehouse", map[string]string{
+			"active_day": "date", "display_name": "string", "is_enabled": "boolean", "is_archived": "boolean",
+		}),
 	} {
 		tables[table.Name] = table
 	}
@@ -68,5 +71,5 @@ func syntheticCatalog() catalogPublication {
 	for index := range 35 {
 		properties["event"] = append(properties["event"], catalog.Property{Name: fmt.Sprintf("demo_property_%02d", index), ValueType: "String"})
 	}
-	return catalogPublication{Revision: "synthetic-demo-v1", Catalog: catalog.Catalog{Tables: tables, Properties: properties}}
+	return catalogPublication{Revision: "synthetic-demo-v2", Catalog: catalog.Catalog{Tables: tables, Properties: properties}}
 }
