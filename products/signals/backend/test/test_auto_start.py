@@ -781,8 +781,10 @@ def test_autostart_description_opens_the_pr_before_the_simplify_pass():
     )
 
     open_pr = description.index("open the draft PR")
+    fork_push = description.index("push the branch to the user's fork instead")
     simplify = description.index("`/simplify`")
     assert open_pr < simplify
+    assert fork_push < simplify
     assert "skip this polish pass" in description
 
 
