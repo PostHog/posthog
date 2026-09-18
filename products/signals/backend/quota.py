@@ -137,7 +137,7 @@ def notify_scout_quota_paused(team: "Team") -> None:
     The quota gate skips runs with no run row and no visible state, so without this a team's
     scouts read as silently dead until the next billing period. Idempotent per limiting episode:
     the key carries the org's `quota_limited_until`, so a new episode (period rollover, a raised
-    limit) notifies again. Best-effort — a failed send must never fail the gate that called it.
+    limit) notifies again. Best-effort: a failed send must never fail the gate that called it.
     Requires `team.organization` to be loaded.
     """
     try:
