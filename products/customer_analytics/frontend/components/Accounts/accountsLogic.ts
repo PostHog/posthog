@@ -532,9 +532,6 @@ export interface accountsLogicActions {
     setAssignedToFilter: (value: RoleFilterValue) => {
         value: RoleFilterValue
     }
-    setIncludeChurnedAndIgnored: (include: boolean) => {
-        include: boolean
-    }
     setAssignmentStatus: (status: AssignmentStatus) => {
         status: AssignmentStatus
     }
@@ -552,6 +549,9 @@ export interface accountsLogicActions {
     }
     setDraftRestored: (restored: boolean) => {
         restored: boolean
+    }
+    setIncludeChurnedAndIgnored: (include: boolean) => {
+        include: boolean
     }
     setRelationshipOverride: (
         accountId: string,
