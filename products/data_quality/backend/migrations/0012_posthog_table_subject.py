@@ -2,14 +2,12 @@
 
 from django.db import migrations, models
 
-from posthog.migration_helpers import AddConstraintNotValid, CreateIndexConcurrently, SafeAddIndexConcurrently
+from posthog.migration_helpers import AddConstraintNotValid
 
 import products.data_quality.backend.facade.enums
 
 
 class Migration(migrations.Migration):
-    atomic = False
-
     dependencies = [("data_quality", "0011_metric_subject_index")]
 
     operations = [
@@ -33,36 +31,6 @@ class Migration(migrations.Migration):
                 "Kept so orphaned checks stay readable.",
                 max_length=32,
             ),
-        ),
-        SafeAddIndexConcurrently(
-            model_name="dataqualitycheck",
-            index=models.Index(
-                fields=["team", "posthog_table"],
-                condition=~models.Q(posthog_table=""),
-                name="quality_check_ph_table_idx",
-            ),
-        ),
-        migrations.SeparateDatabaseAndState(
-            database_operations=[
-                CreateIndexConcurrently(
-                    index_name="unique_quality_check_fp_posthog_table",
-                    table_name="data_quality_dataqualitycheck",
-                    columns="(team_id, posthog_table, fingerprint)",
-                    unique=True,
-                    where="WHERE posthog_table <> '' AND (NOT deleted OR deleted IS NULL)",
-                ),
-            ],
-            state_operations=[
-                migrations.AddConstraint(
-                    model_name="dataqualitycheck",
-                    constraint=models.UniqueConstraint(
-                        condition=~models.Q(posthog_table="")
-                        & (models.Q(deleted=False) | models.Q(deleted__isnull=True)),
-                        fields=("team", "posthog_table", "fingerprint"),
-                        name="unique_quality_check_fp_posthog_table",
-                    ),
-                ),
-            ],
         ),
         migrations.RemoveConstraint(
             model_name="dataqualitycheck",
