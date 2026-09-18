@@ -15,7 +15,7 @@ import { examples } from '~/queries/examples'
 import { DashboardFilter, HogQLVariable, InsightVizNode, NodeKind, ProductKey } from '~/queries/schema/schema-general'
 import { setLatestVersionsOnQuery } from '~/queries/utils'
 import { initKeaTests } from '~/test/init'
-import { ActivityScope, InsightShortId, InsightType, ItemMode } from '~/types'
+import { ActivityScope, ChartDisplayType, InsightShortId, InsightType, ItemMode } from '~/types'
 
 const Insight12 = '12' as InsightShortId
 const Insight42 = '42' as InsightShortId
@@ -216,6 +216,31 @@ describe('insightSceneLogic', () => {
         const query = logic.values.insightLogicRef?.logic.values.insight.query as any
         expect(query.kind).toEqual(NodeKind.DataTableNode)
         expect(query.source?.tags?.productKey).toEqual(ProductKey.PRODUCT_ANALYTICS)
+    })
+
+    it('repairs a legacy #q= query on cold load', async () => {
+        // Links built outside the insight editor put the breakdown on the series and use a short
+        // display name. The API rejects the whole query for either, so the scene repairs them first.
+        const legacyQuery = setLatestVersionsOnQuery({
+            kind: NodeKind.InsightVizNode,
+            source: {
+                kind: NodeKind.TrendsQuery,
+                series: [
+                    { kind: NodeKind.EventsNode, event: '$pageview', breakdown: '$browser', breakdown_type: 'event' },
+                ],
+                trendsFilter: { display: 'Line' },
+            },
+        })
+
+        router.actions.push(urls.insightNew({ query: legacyQuery as any }))
+        logic = insightSceneLogic()
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['upgradeQuery']).toFinishAllListeners()
+
+        const query = logic.values.insightLogicRef?.logic.values.insight.query as any
+        expect(query.source.series).toEqual([{ kind: NodeKind.EventsNode, event: '$pageview' }])
+        expect(query.source.breakdownFilter).toEqual({ breakdown: '$browser', breakdown_type: 'event' })
+        expect(query.source.trendsFilter.display).toEqual(ChartDisplayType.ActionsLineGraph)
     })
 
     it("applies a shared link's #q= query to a saved insight on in-app navigation", async () => {
