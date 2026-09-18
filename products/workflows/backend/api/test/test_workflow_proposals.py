@@ -1,5 +1,3 @@
-from types import SimpleNamespace
-
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
@@ -543,8 +541,8 @@ class TestWorkflowProposals(APIBaseTest):
         self.client.post(f"/api/projects/{self.team.id}/hog_flows/{flow_id}/proposals/{proposal['id']}/approve/", {})
         self._publish(flow_id)
 
-        with patch("products.workflows.backend.api.hog_flow.fetch_app_metric_totals") as mock_totals:
-            mock_totals.return_value = SimpleNamespace(totals={})
+        with patch("products.workflows.backend.api.hog_flow.fetch_app_metric_totals_by_source") as mock_totals:
+            mock_totals.return_value = {}
             response = self.client.get(
                 f"/api/projects/{self.team.id}/hog_flows/{flow_id}/proposals/{proposal['id']}/outcome"
             )
@@ -574,6 +572,47 @@ class TestWorkflowProposals(APIBaseTest):
             "bounce rate",
         ]
         assert body["unavailable_guardrails"] == ["unsubscribe rate"]
+
+    def test_the_after_side_runs_on_until_someone_changes_what_the_suggestion_changed(self, _mock_flag):
+        flow_id = self._create_active_flow()
+        proposal = self._propose(flow_id)
+        self.client.post(f"/api/projects/{self.team.id}/hog_flows/{flow_id}/proposals/{proposal['id']}/approve/", {})
+        self._publish(flow_id)
+
+        self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/graph",
+            {"operations": [{"op": "update_action", "id": "trigger_node", "patch": {"name": "renamed"}}]},
+            HTTP_X_POSTHOG_CLIENT="mcp",
+        )
+        self._publish(flow_id)
+
+        outcome = self.client.get(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/proposals/{proposal['id']}/outcome"
+        ).json()
+        assert outcome["after"]["versions"] == [2, 3]
+        assert outcome["change_ended_at_version"] is None
+        assert outcome["before"]["versions"] == [1]
+
+        self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/graph",
+            {
+                "operations": [
+                    {
+                        "op": "update_action",
+                        "id": "action_1",
+                        "patch": {"config": {"inputs": {"url": {"value": "https://someone-else.example.com"}}}},
+                    }
+                ]
+            },
+            HTTP_X_POSTHOG_CLIENT="mcp",
+        )
+        self._publish(flow_id)
+
+        outcome = self.client.get(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/proposals/{proposal['id']}/outcome"
+        ).json()
+        assert outcome["after"]["versions"] == [2, 3]
+        assert outcome["change_ended_at_version"] == 4
 
     def test_an_api_key_can_read_the_outcome_of_what_it_proposed(self, _mock_flag):
         flow_id = self._create_active_flow()

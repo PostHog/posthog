@@ -1,6 +1,6 @@
 import { LemonTag, Tooltip } from '@posthog/lemon-ui'
 
-import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { Sparkline } from 'lib/components/Sparkline'
 
 import type {
     WorkflowProposalApi,
@@ -8,7 +8,7 @@ import type {
     WorkflowProposalOutcomeApi,
     WorkflowProposalVersionOutcomeApi,
 } from '../generated/api.schemas'
-import { MIN_EVIDENCE_SAMPLE, describeWindow, formatValue } from './suggestionEvidence'
+import { MIN_EVIDENCE_SAMPLE, formatValue } from './suggestionEvidence'
 
 const ROW_LABELS: Record<string, string> = {
     'email open rate': 'Opened',
@@ -18,47 +18,19 @@ const ROW_LABELS: Record<string, string> = {
     'unsubscribe rate': 'Unsubscribed',
 }
 
-type OutcomeRow =
-    | { key: 'sent'; kind: 'sent'; label: string }
-    | {
-          key: string
-          kind: 'rate'
-          label: string
-          before: WorkflowProposalMetricApi | null
-          after: WorkflowProposalMetricApi | null
-      }
-
-function readings(side: WorkflowProposalVersionOutcomeApi | null): WorkflowProposalMetricApi[] {
-    return side ? [side.target, side.click_through, ...side.guardrails] : []
+function percent(reading: WorkflowProposalMetricApi | undefined): number {
+    return reading?.value ? Math.round(reading.value * 1000) / 10 : 0
 }
 
-function SentCell({ side }: { side: WorkflowProposalVersionOutcomeApi | null }): JSX.Element {
-    if (!side) {
-        return <span className="text-secondary">No data</span>
-    }
-    // Every send counts toward the guardrails; opens and clicks only count sends with tracking on.
-    const all = side.guardrails[0]?.n ?? side.target.n
-    const tracked = side.target.n
+function Reading({ label, reading }: { label: string; reading: WorkflowProposalMetricApi | undefined }): JSX.Element {
     return (
-        <span className="flex items-center gap-1 flex-wrap">
-            {all}
-            {tracked !== all && (
-                <Tooltip title="Sends with tracking off cannot record an open or a click, so those rates read against the tracked sends only.">
-                    <span className="text-secondary">({tracked} tracked)</span>
-                </Tooltip>
-            )}
-            {side.target.below_minimum_sample && (
-                <Tooltip title={`Under ${MIN_EVIDENCE_SAMPLE} sends. Not enough for the rates to mean anything.`}>
-                    <LemonTag type="warning">Too little data</LemonTag>
-                </Tooltip>
-            )}
+        <span className="flex items-baseline gap-1">
+            <span className="text-secondary">{label}</span>
+            <span className="font-semibold">
+                {reading ? (formatValue(reading.value, 'rate') ?? 'No data') : 'No data'}
+            </span>
         </span>
     )
-}
-
-function RateCell({ reading }: { reading: WorkflowProposalMetricApi | null }): JSX.Element {
-    const value = reading ? formatValue(reading.value, 'rate') : null
-    return value ? <span>{value}</span> : <span className="text-secondary">No data</span>
 }
 
 export function WorkflowAppliedOutcome({
@@ -68,56 +40,90 @@ export function WorkflowAppliedOutcome({
     proposal: WorkflowProposalApi
     outcome: WorkflowProposalOutcomeApi
 }): JSX.Element {
-    const beforeByMetric = new Map(readings(outcome.before).map((reading) => [reading.metric, reading]))
-    const afterByMetric = new Map(readings(outcome.after).map((reading) => [reading.metric, reading]))
-    const metrics = [...new Set([...beforeByMetric.keys(), ...afterByMetric.keys()])]
-    const rows: OutcomeRow[] = [
-        { key: 'sent', kind: 'sent', label: 'Emails sent' },
-        ...metrics.map(
-            (metric): OutcomeRow => ({
-                key: metric,
-                kind: 'rate',
-                label: ROW_LABELS[metric] ?? metric,
-                before: beforeByMetric.get(metric) ?? null,
-                after: afterByMetric.get(metric) ?? null,
-            })
-        ),
-    ]
-
-    const sideColumn = (side: 'before' | 'after'): LemonTableColumns<OutcomeRow>[number] => {
-        const version = outcome[side]
-        const label = side === 'before' ? 'Before' : 'After'
-        return {
-            title: version ? `${label} (v${version.version})` : label,
-            key: side,
-            width: '33%',
-            render: (_, row) => (row.kind === 'sent' ? <SentCell side={version} /> : <RateCell reading={row[side]} />),
-        }
-    }
-
-    const columns: LemonTableColumns<OutcomeRow> = [
-        { title: 'Metric', key: 'label', width: '34%', render: (_, row) => <span>{row.label}</span> },
-        sideColumn('before'),
-        sideColumn('after'),
-    ]
+    // Only versions that sent something can carry a rate, and a zero bar for one that never ran reads as a drop.
+    const charted = (outcome.versions ?? []).filter((version) => version.guardrails[0]?.n || version.target.n)
+    const latest: WorkflowProposalVersionOutcomeApi | undefined = charted[charted.length - 1]
+    const labels = charted.map((version) => `v${version.version}${version.applied ? ' (applied)' : ''}`)
 
     return (
         <div className="border rounded p-3 bg-surface-primary flex flex-col gap-2">
             <div className="flex items-center gap-2 flex-wrap">
                 <span className="font-semibold">{proposal.title}</span>
                 <LemonTag type="success">Applied as version {proposal.applied_version}</LemonTag>
+                {outcome.change_ended_at_version !== null && outcome.change_ended_at_version !== undefined && (
+                    <Tooltip
+                        title={`Version ${outcome.change_ended_at_version} changed this again, so later versions are measuring something else.`}
+                    >
+                        <LemonTag type="warning">Changed again in v{outcome.change_ended_at_version}</LemonTag>
+                    </Tooltip>
+                )}
             </div>
-            <p className="mb-0 text-secondary text-sm">
-                Measured over {describeWindow(outcome.window)}, before and after. Different periods, so treat a
-                difference as a signal to look closer, not as proof.
-            </p>
-            <LemonTable
-                size="small"
-                columns={columns}
-                dataSource={rows}
-                rowKey="key"
-                data-attr="workflow-suggestion-outcome"
-            />
+            {charted.length === 0 ? (
+                <p className="mb-0 text-secondary text-sm">
+                    No sends recorded on this step yet, so there is nothing to compare.
+                </p>
+            ) : (
+                <>
+                    <p className="mb-0 text-secondary text-sm">
+                        Open rate of this step on each published version, over the time that version was live. Other
+                        edits ship in these versions too, so read a move as a signal to look closer, not as proof.
+                    </p>
+                    <div data-attr="workflow-suggestion-outcome" className="flex flex-col gap-1">
+                        <Sparkline
+                            className="w-full h-28"
+                            type="bar"
+                            labels={labels}
+                            data={[
+                                {
+                                    name: 'Opened',
+                                    values: charted.map((version) => percent(version.target)),
+                                    color: 'success',
+                                },
+                            ]}
+                            renderTooltipValue={(value) => `${value}%`}
+                            // From zero, so a bar's height is the rate rather than its distance from the lowest version.
+                            valueDomain={{ min: 0 }}
+                        />
+                        <div className="flex">
+                            {charted.map((version) => (
+                                <span key={version.version} className="flex-1 flex flex-col items-center text-xs">
+                                    <span className="font-semibold">
+                                        {formatValue(version.target.value, 'rate') ?? 'No data'}
+                                    </span>
+                                    <span className="text-secondary">
+                                        v{version.version}
+                                        {version.applied ? ' · applied' : ''}
+                                    </span>
+                                </span>
+                            ))}
+                        </div>
+                    </div>
+                    {latest && (
+                        <div className="flex items-center gap-4 flex-wrap text-sm">
+                            <span className="text-secondary">v{latest.version}:</span>
+                            <Reading label={ROW_LABELS['email open rate']} reading={latest.target} />
+                            <Reading label={ROW_LABELS['click rate']} reading={latest.click_through} />
+                            {latest.guardrails.map((guardrail) => (
+                                <Reading
+                                    key={guardrail.metric}
+                                    label={ROW_LABELS[guardrail.metric] ?? guardrail.metric}
+                                    reading={guardrail}
+                                />
+                            ))}
+                            <span className="text-secondary">
+                                on {latest.guardrails[0]?.n ?? latest.target.n} sends
+                            </span>
+                            {latest.target.below_minimum_sample && (
+                                <Tooltip
+                                    title={`Under ${MIN_EVIDENCE_SAMPLE} sends. Not enough for the rates to mean anything.`}
+                                >
+                                    <LemonTag type="warning">Too little data</LemonTag>
+                                </Tooltip>
+                            )}
+                        </div>
+                    )}
+                </>
+            )}
             {outcome.unavailable_guardrails.length > 0 && (
                 <span className="text-xs text-secondary">
                     Not measured:{' '}

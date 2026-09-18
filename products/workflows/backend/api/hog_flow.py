@@ -4,6 +4,7 @@ import json
 import uuid as uuid_mod
 import hashlib
 import dataclasses
+from collections.abc import Mapping, Sequence
 from copy import deepcopy
 from datetime import datetime, timedelta
 from time import monotonic
@@ -4012,6 +4013,18 @@ class WorkflowProposalMetricSerializer(serializers.Serializer):
 
 class WorkflowProposalVersionOutcomeSerializer(serializers.Serializer):
     version = serializers.IntegerField(help_text="Workflow version these numbers belong to.")
+    applied = serializers.BooleanField(required=False, help_text="Whether the suggestion went live as this version.")
+    proposed_against = serializers.BooleanField(
+        required=False, help_text="Whether the suggestion was written against this version."
+    )
+    carries_change = serializers.BooleanField(
+        required=False, help_text="Whether this version still holds what the suggestion changed."
+    )
+    versions = serializers.ListField(
+        child=serializers.IntegerField(),
+        required=False,
+        help_text="Every version summed into these numbers. The after side runs on while later versions keep the change.",
+    )
     target = WorkflowProposalMetricSerializer(help_text="The metric the suggestion aimed at.")
     click_through = WorkflowProposalMetricSerializer(
         help_text="Click-through rate over the same window and denominator, since opens alone can move without clicks."
@@ -4022,12 +4035,22 @@ class WorkflowProposalVersionOutcomeSerializer(serializers.Serializer):
 
 
 class WorkflowProposalOutcomeSerializer(serializers.Serializer):
-    window = serializers.CharField(help_text="Relative window both sides were measured over.")
+    versions = WorkflowProposalVersionOutcomeSerializer(
+        many=True,
+        help_text=(
+            "Every published version around the change, each read over its own time live, so a later edit shows up "
+            "as its own point rather than ending the comparison."
+        ),
+    )
     before = WorkflowProposalVersionOutcomeSerializer(
         allow_null=True, help_text="The version the change was proposed against."
     )
     after = WorkflowProposalVersionOutcomeSerializer(
-        allow_null=True, help_text="The version it went live as. Null until the proposal is applied."
+        allow_null=True, help_text="The versions that carried the change. Null until the proposal is applied."
+    )
+    change_ended_at_version = serializers.IntegerField(
+        allow_null=True,
+        help_text="The version that changed what the suggestion changed, which is where the after side stops. Null while the change is still live.",
     )
     unavailable_guardrails = serializers.ListField(
         child=serializers.CharField(),
@@ -4074,6 +4097,9 @@ class ProposalOutOfDateError(exceptions.APIException):
 # Fields a proposal replaces wholesale. `actions` merges per step instead, since steps carry stable
 # ids; edges have no id, and a variable list is short enough to carry whole.
 PROPOSAL_WHOLE_LIST_FIELDS = ("edges", "variables")
+
+# How far past the applied version the after side will look for versions that kept the change.
+OUTCOME_VERSION_LIMIT = 20
 
 PROPOSAL_MERGE_BY_ID_FIELDS = ("actions",)
 
@@ -4213,6 +4239,45 @@ def proposal_changes(proposal: WorkflowProposal, base_content: dict | None) -> d
 
 
 _ABSENT = object()
+
+
+def _outcome_from_totals(totals: Mapping[str, float], version: int) -> dict:
+    sends = int(totals.get(TARGET_SEND_METRIC, 0))
+    # Untracked sends can never record an open, so opens read against tracked sends; guardrails keep every send.
+    tracked_sends = max(0, sends - int(totals.get(TARGET_UNTRACKED_METRIC, 0)))
+
+    def rate(count: int, label: str, denominator: int) -> dict:
+        return {
+            "metric": label,
+            "value": (count / denominator) if denominator else None,
+            "n": denominator,
+            "below_minimum_sample": denominator < MIN_EVIDENCE_SAMPLE,
+        }
+
+    return {
+        "version": version,
+        "versions": [version],
+        "target": rate(int(totals.get(TARGET_OPEN_METRIC, 0)), "email open rate", tracked_sends),
+        # Same denominator as opens: a send with tracking off can record neither.
+        "click_through": rate(int(totals.get(TARGET_CLICK_METRIC, 0)), "click rate", tracked_sends),
+        "guardrails": [rate(int(totals.get(name, 0)), GUARDRAIL_LABELS[name], sends) for name in GUARDRAIL_METRICS],
+    }
+
+
+def carries_proposal_change(content: dict, changes: dict) -> bool:
+    """Whether this published content still holds every value the proposal set."""
+    steps = {_item_id(item): item for item in content.get("actions") or []}
+    for item in changes.get("actions") or []:
+        step = steps.get(_item_id(item))
+        patch = {key: value for key, value in item.items() if key != "id"}
+        if step is None or _changed_leaves(step, patch) is not _ABSENT:
+            return False
+    for field, value in changes.items():
+        if field in PROPOSAL_MERGE_BY_ID_FIELDS:
+            continue
+        if _changed_leaves(content.get(field), value) is not _ABSENT:
+            return False
+    return True
 
 
 def _changed_leaves(base: Any, patch: Any) -> Any:
@@ -5803,21 +5868,91 @@ class HogFlowViewSet(
         self._require_self_optimising_enabled()
         instance = self.get_object()
         proposal = self._get_proposal_or_404(instance, proposal_id)
-        window = request.query_params.get("window") or "-7d"
-        after_date, _, _ = relative_date_parse_with_delta_mapping(window, self.team.timezone_info)
-        # Both reads below go to ClickHouse, which refuses an untagged query.
+        # The read below goes to ClickHouse, which refuses an untagged query.
         tag_queries(product=ProductKey.WORKFLOWS, feature=Feature.QUERY)
+        carrying, ended_at = self._versions_carrying_change(instance, proposal)
+        totals = self._version_totals(instance, self._outcome_versions(instance, proposal), proposal.step_id)
+        versions = [
+            {
+                **_outcome_from_totals(counts, version),
+                "applied": version == proposal.applied_version,
+                "proposed_against": version == proposal.base_version,
+                "carries_change": version in carrying,
+            }
+            for version, counts in sorted(totals.items())
+        ]
+        after_totals: dict[str, float] = {}
+        for version in carrying:
+            for name, count in totals.get(version, {}).items():
+                after_totals[name] = after_totals.get(name, 0) + count
 
         return Response(
             WorkflowProposalOutcomeSerializer(
                 {
-                    "window": window,
-                    "before": self._version_outcome(instance, proposal.base_version, after_date, proposal.step_id),
-                    "after": self._version_outcome(instance, proposal.applied_version, after_date, proposal.step_id),
+                    "versions": versions,
+                    "before": _outcome_from_totals(totals.get(proposal.base_version, {}), proposal.base_version),
+                    "after": (
+                        {**_outcome_from_totals(after_totals, carrying[0]), "versions": carrying} if carrying else None
+                    ),
+                    "change_ended_at_version": ended_at,
                     "unavailable_guardrails": list(UNAVAILABLE_GUARDRAILS),
                 }
             ).data
         )
+
+    def _outcome_versions(self, hog_flow: HogFlow, proposal: WorkflowProposal) -> list[int]:
+        """The versions the card charts: the one the suggestion was written against, the one it went
+        live as, and everything published since, so a later edit is visible as its own point."""
+        newest = hog_flow.version or proposal.base_version
+        oldest = min(proposal.base_version, proposal.applied_version or proposal.base_version)
+        return sorted({*range(max(oldest, newest - OUTCOME_VERSION_LIMIT + 1), newest + 1), oldest})
+
+    def _version_totals(self, hog_flow: HogFlow, versions: list[int], step_id: Optional[str]) -> dict[int, dict]:
+        """Raw metric counts per version, in one grouped query. Each version's series only ever
+        collects while that version is live, so there is no window to choose."""
+        by_source = fetch_app_metric_totals_by_source(
+            team_id=self.team_id,
+            app_source=HOG_FLOW_VERSION_APP_SOURCE,
+            app_source_ids=[f"{hog_flow.id}/{version}" for version in versions],
+            # Scoped to the step the suggestion names; several email steps would otherwise share one denominator.
+            instance_id=step_id or None,
+            name=[
+                TARGET_SEND_METRIC,
+                TARGET_OPEN_METRIC,
+                TARGET_CLICK_METRIC,
+                TARGET_UNTRACKED_METRIC,
+                *GUARDRAIL_METRICS,
+            ],
+        )
+        return {version: by_source.get(f"{hog_flow.id}/{version}", {}) for version in versions}
+
+    def _versions_carrying_change(
+        self, hog_flow: HogFlow, proposal: WorkflowProposal
+    ) -> tuple[list[int], Optional[int]]:
+        """The versions the change ran on, and the version that ended it.
+
+        A later publish keeps the change unless it touches what the suggestion set, so the after side
+        runs on across those versions. The first version that sets one of those values to something
+        else ends the comparison: what shipped after that is a different change, not this one.
+        """
+        applied = proposal.applied_version
+        if applied is None:
+            return [], None
+        changes = proposal_changes(proposal, base_content_of(hog_flow, proposal))
+        contents: dict[int, dict] = {
+            revision.version: revision.content
+            for revision in HogFlowRevision.objects.filter(hog_flow=hog_flow, version__gte=applied).order_by("version")[
+                :OUTCOME_VERSION_LIMIT
+            ]
+        }
+        if hog_flow.version >= applied:
+            contents.setdefault(hog_flow.version, snapshot_flow_content(hog_flow))
+        carrying: list[int] = []
+        for version in sorted(contents):
+            if not carries_proposal_change(contents[version], changes):
+                return carrying or [applied], version
+            carrying.append(version)
+        return carrying or [applied], None
 
     def _measure_evidence(
         self, hog_flow: HogFlow, base_version: int, step_id: Optional[str], evidence: dict
@@ -5833,7 +5968,7 @@ class HogFlowViewSet(
         try:
             after_date, _, _ = relative_date_parse_with_delta_mapping(window, self.team.timezone_info)
             tag_queries(product=ProductKey.WORKFLOWS, feature=Feature.QUERY)
-            reading = self._version_outcome(hog_flow, base_version, after_date, step_id)
+            reading = self._version_outcome(hog_flow, [base_version], after_date, step_id)
         except Exception:
             logger.exception("workflow_proposal: could not measure evidence", extra={"hog_flow_id": str(hog_flow.id)})
             return None
@@ -5842,45 +5977,32 @@ class HogFlowViewSet(
         return {**reading, "window": window}
 
     def _version_outcome(
-        self, hog_flow: HogFlow, version: Optional[int], after: Any, step_id: Optional[str] = None
+        self, hog_flow: HogFlow, versions: Sequence[Optional[int]], after: Any, step_id: Optional[str] = None
     ) -> Optional[dict]:
-        if version is None:
+        read = [version for version in versions if version is not None]
+        if not read:
             return None
-        # Scoped to the step the suggestion names; several email steps would otherwise share one denominator.
-        totals = fetch_app_metric_totals(
-            team_id=self.team_id,
-            app_source=HOG_FLOW_VERSION_APP_SOURCE,
-            app_source_id=f"{hog_flow.id}/{version}",
-            breakdown_by="name",
-            after=after,
-            instance_id=step_id or None,
-            name=[
-                TARGET_SEND_METRIC,
-                TARGET_OPEN_METRIC,
-                TARGET_CLICK_METRIC,
-                TARGET_UNTRACKED_METRIC,
-                *GUARDRAIL_METRICS,
-            ],
-        ).totals
-        sends = int(totals.get(TARGET_SEND_METRIC, 0))
-        # Untracked sends can never record an open, so opens read against tracked sends; guardrails keep every send.
-        tracked_sends = max(0, sends - int(totals.get(TARGET_UNTRACKED_METRIC, 0)))
-
-        def rate(count: int, label: str, denominator: int) -> dict:
-            return {
-                "metric": label,
-                "value": (count / denominator) if denominator else None,
-                "n": denominator,
-                "below_minimum_sample": denominator < MIN_EVIDENCE_SAMPLE,
-            }
-
-        return {
-            "version": version,
-            "target": rate(int(totals.get(TARGET_OPEN_METRIC, 0)), "email open rate", tracked_sends),
-            # Same denominator as opens: a send with tracking off can record neither.
-            "click_through": rate(int(totals.get(TARGET_CLICK_METRIC, 0)), "click rate", tracked_sends),
-            "guardrails": [rate(int(totals.get(name, 0)), GUARDRAIL_LABELS[name], sends) for name in GUARDRAIL_METRICS],
-        }
+        totals: dict[str, float] = {}
+        for version in read:
+            # Scoped to the step the suggestion names; several email steps would otherwise share one denominator.
+            version_totals = fetch_app_metric_totals(
+                team_id=self.team_id,
+                app_source=HOG_FLOW_VERSION_APP_SOURCE,
+                app_source_id=f"{hog_flow.id}/{version}",
+                breakdown_by="name",
+                after=after,
+                instance_id=step_id or None,
+                name=[
+                    TARGET_SEND_METRIC,
+                    TARGET_OPEN_METRIC,
+                    TARGET_CLICK_METRIC,
+                    TARGET_UNTRACKED_METRIC,
+                    *GUARDRAIL_METRICS,
+                ],
+            ).totals
+            for name, count in version_totals.items():
+                totals[name] = totals.get(name, 0) + count
+        return {**_outcome_from_totals(totals, read[0]), "versions": read}
 
     @extend_schema(
         parameters=[

@@ -94952,6 +94952,14 @@ export namespace Schemas {
     export interface WorkflowProposalVersionOutcome {
       /** Workflow version these numbers belong to. */
       version: number;
+      /** Whether the suggestion went live as this version. */
+      applied?: boolean;
+      /** Whether the suggestion was written against this version. */
+      proposed_against?: boolean;
+      /** Whether this version still holds what the suggestion changed. */
+      carries_change?: boolean;
+      /** Every version summed into these numbers. The after side runs on while later versions keep the change. */
+      versions?: number[];
       /** The metric the suggestion aimed at. */
       target: WorkflowProposalMetric;
       /** Click-through rate over the same window and denominator, since opens alone can move without clicks. */
@@ -94961,12 +94969,17 @@ export namespace Schemas {
     }
 
     export interface WorkflowProposalOutcome {
-      /** Relative window both sides were measured over. */
-      window: string;
+      /** Every published version around the change, each read over its own time live, so a later edit shows up as its own point rather than ending the comparison. */
+      versions: WorkflowProposalVersionOutcome[];
       /** The version the change was proposed against. */
       before: WorkflowProposalVersionOutcome | null;
-      /** The version it went live as. Null until the proposal is applied. */
+      /** The versions that carried the change. Null until the proposal is applied. */
       after: WorkflowProposalVersionOutcome | null;
+      /**
+         * The version that changed what the suggestion changed, which is where the after side stops. Null while the change is still live.
+         * @nullable
+         */
+      change_ended_at_version: number | null;
       /** Counter-metrics that cannot be read yet, named so their absence is not read as zero. */
       unavailable_guardrails: string[];
     }
