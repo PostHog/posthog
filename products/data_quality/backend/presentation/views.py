@@ -49,6 +49,7 @@ from .serializers import (
     DataQualityOverviewCheckSerializer,
     DataQualityRunRequestSerializer,
     DataQualitySubjectRefSerializer,
+    DataQualitySubjectScheduleSerializer,
     DataQualitySubjectSerializer,
     DataQualitySuiteRunSerializer,
     SubjectHealthSerializer,
@@ -391,7 +392,7 @@ class DataQualityCheckViewSet(_ProjectQualityViewSet, viewsets.ModelViewSet):
             "metric_subjects",
         }
     )
-    SUBJECT_FILTERED_ACTIONS = frozenset({"list", "health"})
+    SUBJECT_FILTERED_ACTIONS = frozenset({"list", "health", "schedules"})
     serializer_class = DataQualityCheckSerializer
     queryset = DataQualityCheck.objects.unscoped()
 
@@ -746,6 +747,26 @@ class DataQualityCheckViewSet(_ProjectQualityViewSet, viewsets.ModelViewSet):
         except api.ScheduleUnavailableError as error:
             raise ScheduleUnavailableAPIError() from error
         return Response(DataQualityCheckScheduleSerializer(schedule).data)
+
+    @extend_schema(
+        description="The schedule of every subject in the project whose checks run on one, for the checks "
+        "the caller may read. One request for the overview instead of one per subject.",
+        request=None,
+        responses={200: DataQualitySubjectScheduleSerializer(many=True)},
+    )
+    @action(methods=["GET"], detail=False, pagination_class=None)
+    def schedules(self, request: Request, **kwargs) -> Response:
+        scheduled_kinds = [kind for kind in SubjectType if api.runs_on_a_schedule(kind)]
+        checks = self.filter_queryset(self.get_queryset()).filter(subject_type__in=scheduled_kinds)
+        subjects = sorted(
+            {(SubjectType(check.subject_type), check.subject_uuid) for check in checks if check.subject_uuid}
+        )
+        authorization_context = self._denial_context() if self._can_be_object_denied() else None
+        try:
+            schedules = api.list_schedules_with_history(self.team_id, subjects, authorization_context)
+        except api.ScheduleUnavailableError as error:
+            raise ScheduleUnavailableAPIError() from error
+        return Response(DataQualitySubjectScheduleSerializer(schedules, many=True).data)
 
     def _scheduled_checks(self, subject: api.SubjectIdentity) -> QuerySet[DataQualityCheck]:
         return api.checks_for_subject(self.team_id, subject.subject_type, subject.subject_uuid, include_deleted=True)
