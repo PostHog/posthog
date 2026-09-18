@@ -465,16 +465,16 @@
     for (const r of d.series) (byType[r.locktype] ||= []).push([new Date(r.bucket), r.avg_waiting_sessions]);
     const series = Object.entries(byType).sort(([a], [b]) => a.localeCompare(b)).map(([k, pts], i) => ({ name: k, color: COLORS[(i + 3) % COLORS.length], points: pts }));
     const per = BUCKET_LABEL[bucket] || bucket;
-    // A selected episode (instance:pid:from:to) shows what the blocker was doing across its transaction.
-    const sel = state.params.session ? state.params.session.split(':') : null;
+    // A selected episode (instance:pid:from:to:backend_start:at) shows what the blocker was doing across its transaction.
+    const sel = state.params.session ? state.params.session.split(':').map(decodeURIComponent) : null;
     // The history is a drill-down, so a failed fetch shows in its own panel instead of replacing the page.
-    const history = sel ? await api(`/servers/${state.server}/sessions/${sel[1]}`, { instance: sel[0], from: decodeURIComponent(sel[2]), to: decodeURIComponent(sel[3]) }).catch(e => ({ error: String(e.message || e) })) : null;
+    const history = sel ? await api(`/servers/${state.server}/sessions/${sel[1]}`, { instance: sel[0], from: sel[2], to: sel[3], backend_start: sel[4] || null, at: sel[5] || null }).catch(e => ({ error: String(e.message || e) })) : null;
     const clearSel = () => { const p = { ...state.params }; delete p.session; go('locks', p); };
     return [
       el('h1', {}, 'Locks', el('span', { class: 'sub' }, 'who waited for whom, from 10 s samples of blocked sessions')),
       panel(`Sessions waiting on locks per ${per}, by lock type`, chart(series, { stacked: true, yfmt: v => fmt.dec(v, 2) })),
       history ? el('div', { style: 'margin-top:12px' }, panel(null,
-        el('div', { class: 'toolbar' }, el('h2', { style: 'margin:0' }, `Blocker pid ${sel[1]} on ${sel[0]}`), el('span', { class: 'muted' }, `${fmt.ts(decodeURIComponent(sel[2]))} to ${fmt.ts(decodeURIComponent(sel[3]))}`), el('button', { onclick: clearSel }, '✕ close')),
+        el('div', { class: 'toolbar' }, el('h2', { style: 'margin:0' }, `Blocker pid ${sel[1]} on ${sel[0]}`), el('span', { class: 'muted' }, `${fmt.ts(sel[2])} to ${fmt.ts(sel[3])}`), el('button', { onclick: clearSel }, '✕ close')),
         history.error ? el('div', { class: 'error-box' }, `Couldn't load the session history: ${history.error}. Try again, and if it keeps happening check the API logs.`) : table(sessionSpans(history), [
           { key: 'first', label: 'from', fmt: fmt.time }, { key: 'last', label: 'to', fmt: fmt.time },
           { key: 'state', label: 'state', render: r => el('span', { class: r.state === 'idle in transaction' ? 'warn' : '' }, r.state) },
@@ -498,7 +498,7 @@
         { key: 'locktype', label: 'lock', render: lockCell },
         { key: 'blocker_pid', label: 'blocker', render: r => el('span', { class: 'nowrap' }, pidCell(r.blocker_pid, r.blocker_usename, r.blocker_application_name), el('br'), el('span', { class: (r.blocker_state === 'idle in transaction' ? 'warn' : '') + ' small' }, r.blocker_state), el('span', { class: 'muted small' }, ` · txn ${secs(r.blocker_xact_age_s)}`)) },
         { key: 'blocker_query', label: 'blocker last ran', render: r => queryCell(r.blocker_query) },
-      ], { onRow: r => { const from = new Date(+new Date(r.first_seen) - (r.blocker_xact_age_at_start_s || 0) * 1000 - 60e3).toISOString(), to = new Date(+new Date(r.last_seen) + 60e3).toISOString(); go('locks', { ...state.params, session: `${r.instance}:${r.blocker_pid}:${encodeURIComponent(from)}:${encodeURIComponent(to)}` }); }, empty: 'no blocked sessions sampled in this range' })), { className: 'panel tight' })),
+      ], { onRow: r => { const from = new Date(+new Date(r.first_seen) - (r.blocker_xact_age_at_start_s || 0) * 1000 - 60e3).toISOString(), to = new Date(+new Date(r.last_seen) + 60e3).toISOString(); go('locks', { ...state.params, session: [r.instance, r.blocker_pid, from, to, r.blocker_backend_start || '', r.last_seen].map(encodeURIComponent).join(':') }); }, empty: 'no blocked sessions sampled in this range' })), { className: 'panel tight' })),
       el('div', { style: 'margin-top:12px' }, panel('Deadlocks (from the log)', d.deadlocks.length ? d.deadlocks.map(e => el('details', { open: '' }, el('summary', {}, `${fmt.ts(e.at)} · ${e.datname || ''} · ${e.subject || ''}`), el('pre', {}, (e.after && (e.after.detail || e.after.message)) || JSON.stringify(e.after, null, 2)))) : el('div', { class: 'empty' }, 'none in range (needs log_lock_waits or deadlock logging and the logs collector)'))),
     ];
   };

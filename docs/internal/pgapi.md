@@ -40,9 +40,10 @@ range from the 10 s blocking-graph samples: sessions waiting per bucket by lock 
 (blocker statement, waiter statement) pairs with waiter-seconds and how often the
 blocker sat idle in transaction, blocking episodes (consecutive samples of one waiter
 and blocker pair) with the blocker's transaction age, and deadlocks from the log.
-`GET /servers/{id}/sessions/{pid}?instance=writer&from=&to=` returns one backend's
-long-session samples, which the Locks page uses to show what a blocker ran before it
-went idle.
+`GET /servers/{id}/sessions/{pid}?instance=writer&from=&to=&backend_start=` returns one
+backend's long-session samples, which the Locks page uses to show what a blocker ran before
+it went idle. `backend_start` tells a reused pid apart; without it the backend sampled
+nearest to `at` is returned.
 
 ## Identity and authorization
 

@@ -633,12 +633,19 @@ pub async fn lock_waits(
          GROUP BY 1, 2, 3, 4, 5 ORDER BY waited_s DESC LIMIT $4", &[&server, &from, &to, &limit]).await?;
     // Consecutive samples of one (waiter, blocker) pair are one episode; a gap over 30 s (three
     // missed samples) starts a new one, which is what a waiter that timed out and retried looks like.
+    // A backend is its pid plus backend_start, so a reused pid is a different backend. The two
+    // backend_start columns arrive with a newer collector, and pgapi can deploy first, so they are
+    // read through to_jsonb rather than named, which parses whether or not the columns exist. Rows
+    // without them fall back to a transaction age or wait time that went backwards as the sign of
+    // a new transaction or a new backend.
     let episodes = opt(db, "WITH w AS (
-            SELECT *, CASE WHEN lag(collected_at) OVER pair IS NULL OR collected_at - lag(collected_at) OVER pair > interval '30 seconds' THEN 1 ELSE 0 END AS starts
-            FROM ts_lock_waits WHERE server_id = $1 AND collected_at >= $2 AND collected_at < $3
-            WINDOW pair AS (PARTITION BY instance, waiter_pid, blocker_pid ORDER BY collected_at)),
-         e AS (SELECT *, sum(starts) OVER (PARTITION BY instance, waiter_pid, blocker_pid ORDER BY collected_at) AS episode FROM w)
-         SELECT instance, datname, waiter_pid, blocker_pid, min(collected_at) AS first_seen, max(collected_at) AS last_seen,
+            SELECT l.*, (to_jsonb(l) ->> 'waiter_backend_start') AS waiter_backend_start, (to_jsonb(l) ->> 'blocker_backend_start') AS blocker_backend_start,
+                   CASE WHEN lag(collected_at) OVER pair IS NULL OR collected_at - lag(collected_at) OVER pair > interval '30 seconds'
+                             OR blocker_xact_age_s < lag(blocker_xact_age_s) OVER pair OR waiting_s < lag(waiting_s) OVER pair THEN 1 ELSE 0 END AS starts
+            FROM ts_lock_waits l WHERE server_id = $1 AND collected_at >= $2 AND collected_at < $3
+            WINDOW pair AS (PARTITION BY instance, waiter_pid, (to_jsonb(l) ->> 'waiter_backend_start'), blocker_pid, (to_jsonb(l) ->> 'blocker_backend_start') ORDER BY collected_at)),
+         e AS (SELECT *, sum(starts) OVER (PARTITION BY instance, waiter_pid, waiter_backend_start, blocker_pid, blocker_backend_start ORDER BY collected_at) AS episode FROM w)
+         SELECT instance, datname, waiter_pid, waiter_backend_start, blocker_pid, blocker_backend_start, min(collected_at) AS first_seen, max(collected_at) AS last_seen,
                 count(*)::bigint AS samples, round(sum(interval_seconds)::numeric, 0)::float8 AS waited_s, max(waiting_s)::float8 AS max_waiting_s,
                 max(blocker_xact_age_s)::float8 AS blocker_xact_age_s, min(blocker_xact_age_s)::float8 AS blocker_xact_age_at_start_s,
                 (array_agg(blocker_state ORDER BY collected_at DESC))[1] AS blocker_state,
@@ -647,7 +654,7 @@ pub async fn lock_waits(
                 (array_agg(waiter_query ORDER BY collected_at DESC))[1] AS waiter_query, (array_agg(blocker_query ORDER BY collected_at DESC))[1] AS blocker_query,
                 max(usename) AS usename, max(application_name) AS application_name,
                 max(blocker_usename) AS blocker_usename, max(blocker_application_name) AS blocker_application_name
-         FROM e GROUP BY instance, datname, waiter_pid, blocker_pid, episode ORDER BY first_seen DESC LIMIT $4", &[&server, &from, &to, &limit]).await?;
+         FROM e GROUP BY instance, datname, waiter_pid, waiter_backend_start, blocker_pid, blocker_backend_start, episode ORDER BY first_seen DESC LIMIT $4", &[&server, &from, &to, &limit]).await?;
     let deadlocks = opt(db, "SELECT id, at, instance, datname, subject, after FROM events WHERE server_id = $1 AND at >= $2 AND at < $3 AND kind = 'log_deadlock' ORDER BY at DESC LIMIT 50", &[&server, &from, &to]).await?;
     Ok(
         json!({ "bucket": bucket_interval(bucket), "series": series, "pairs": pairs, "episodes": episodes, "deadlocks": deadlocks }),
@@ -656,19 +663,38 @@ pub async fn lock_waits(
 
 /// Backends are only sampled once active for 5 s or idle in transaction for 60 s, so a short
 /// transaction leaves no rows. The newest rows win when the window holds more than the limit.
+/// A pid can be reused inside the window, so rows are kept only for the backend that started at
+/// `backend_start`; when the caller has no start time, the backend sampled nearest to `at` is used.
+pub struct SessionWindow {
+    pub from: Ts,
+    pub to: Ts,
+    pub backend_start: Option<Ts>,
+    pub at: Option<Ts>,
+}
+
 pub async fn session_history(
     db: &Db,
     server: &str,
     instance: &str,
     pid: i64,
-    from: Ts,
-    to: Ts,
+    w: SessionWindow,
 ) -> Result<Value> {
-    Ok(json!(opt(db, "SELECT * FROM (
+    let SessionWindow {
+        from,
+        to,
+        backend_start,
+        at,
+    } = w;
+    let at = at.unwrap_or(to);
+    Ok(json!(opt(db, "WITH rows AS (
             SELECT collected_at, datname, usename, application_name, client_addr, backend_start, state, wait_event_type, wait_event, blocked_by,
                    xact_start, xact_age_s, query_start, query_age_s, query_id, query, tags, trace_id
-            FROM ts_activity_sessions WHERE server_id = $1 AND instance = $2 AND pid = $3 AND collected_at >= $4 AND collected_at < $5
-            ORDER BY collected_at DESC LIMIT 2000) newest ORDER BY collected_at", &[&server, &instance, &pid, &from, &to]).await?))
+            FROM ts_activity_sessions WHERE server_id = $1 AND instance = $2 AND pid = $3 AND collected_at >= $4 AND collected_at < $5),
+         backend AS (
+            SELECT coalesce($6::timestamptz, (SELECT backend_start FROM rows ORDER BY abs(extract(epoch FROM collected_at - $7::timestamptz)) LIMIT 1)) AS started)
+         SELECT * FROM (
+            SELECT rows.* FROM rows, backend WHERE rows.backend_start IS NOT DISTINCT FROM backend.started
+            ORDER BY collected_at DESC LIMIT 2000) newest ORDER BY collected_at", &[&server, &instance, &pid, &from, &to, &backend_start, &at]).await?))
 }
 
 pub async fn current_activity(db: &Db, server: &str) -> Result<Value> {

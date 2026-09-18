@@ -12,6 +12,7 @@ use axum::{
     routing::get,
     Router,
 };
+use chrono::{DateTime, Utc};
 use serde::Deserialize;
 use std::sync::Arc;
 
@@ -205,6 +206,10 @@ struct SessionQ {
     range: Range,
     #[serde(default = "d_instance")]
     instance: String,
+    /// The backend's start time, which tells a reused pid apart from the one asked about.
+    backend_start: Option<DateTime<Utc>>,
+    /// Without `backend_start`, the backend sampled nearest to this time is the one returned.
+    at: Option<DateTime<Utc>>,
 }
 fn d_instance() -> String {
     "writer".into()
@@ -216,7 +221,19 @@ async fn session_history(
 ) -> R {
     let (f, t) = p.range.resolve()?;
     Ok(Json(
-        q::session_history(&s.db, &server, &p.instance, pid, f, t).await?,
+        q::session_history(
+            &s.db,
+            &server,
+            &p.instance,
+            pid,
+            q::SessionWindow {
+                from: f,
+                to: t,
+                backend_start: p.backend_start,
+                at: p.at,
+            },
+        )
+        .await?,
     ))
 }
 async fn activity(State(s): S, Path(server): Path<String>) -> R {
