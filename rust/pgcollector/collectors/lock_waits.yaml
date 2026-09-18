@@ -7,12 +7,14 @@ scope: cluster
 kind: gauge
 query: |
   SELECT w.pid            AS waiter_pid,
+         w.backend_start  AS waiter_backend_start,
          w.datname, w.usename, w.application_name,
          extract(epoch FROM now() - w.query_start)::float8 AS waiting_s,
          l.locktype, l.mode AS wanted_mode, l.relation::bigint AS relation_oid,
          CASE WHEN l.relation IS NOT NULL AND w.datname = current_database() THEN l.relation::regclass::text END AS relation,
          regexp_replace(left(w.query, 2000), $$'(?:[^']|'')*'$$, '''?''', 'g') AS waiter_query,
          b.pid            AS blocker_pid,
+         b.backend_start  AS blocker_backend_start,
          b.usename        AS blocker_usename,
          b.application_name AS blocker_application_name,
          b.state          AS blocker_state,

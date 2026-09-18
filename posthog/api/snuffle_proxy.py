@@ -24,10 +24,15 @@ from rest_framework.parsers import FormParser
 from rest_framework.request import Request
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.permissions import PostHogFeatureFlagPermission
 from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
 from posthog.security.outbound_proxy import internal_requests
 
 logger = structlog.get_logger(__name__)
+
+# This private-alpha flag gates all Snuffle proxy endpoints.
+# New subclasses use the flag by default.
+SNUFFLE_API_FEATURE_FLAG = "logs-metrics-snuffle-api"
 
 TEAM_ID_HEADER = "X-Team-ID"
 # Snuffle also accepts the tenant as a `team_id` parameter, with lower precedence than the header;
@@ -63,6 +68,8 @@ class SnuffleProxyViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     allowed_paths: ClassVar[tuple[re.Pattern[str], ...]]
 
     scope_object_read_actions = ["proxy"]
+    posthog_feature_flag = SNUFFLE_API_FEATURE_FLAG
+    permission_classes = [PostHogFeatureFlagPermission]
     # The Prometheus and Loki APIs take POST bodies as form fields, the same shape as the query string.
     parser_classes = [FormParser]
     throttle_classes = [ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle]

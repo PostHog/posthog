@@ -534,7 +534,7 @@ class VisionAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 ReplayScanner.objects.filter(team_id=self.team_id)
             )
             queryset = queryset.filter(scanner_id__in=accessible_scanners.values_list("id", flat=True))
-        return queryset.filter(team_id=self.team_id).select_related("created_by", "scanner")
+        return queryset.filter(team_id=self.team_id).select_related("created_by", "scanner", "team")
 
     def safely_get_object(self, queryset: QuerySet) -> VisionAlertConfiguration:
         alert = get_object_or_404(

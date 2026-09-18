@@ -848,6 +848,7 @@ doesn't conflict with concurrent PRs.
 - amazon_selling_partner
 - amazon_sns
 - amazon_sqs
+- amplemarket
 - anodot_cost
 - anomalo
 - anvil
@@ -1004,6 +1005,7 @@ doesn't conflict with concurrent PRs.
 - dwolla
 - e2b
 - ebay
+- electricity_maps
 - eloqua
 - emarsys
 - embrace
@@ -1108,6 +1110,7 @@ doesn't conflict with concurrent PRs.
 - heap
 - hetzner
 - heygen
+- heyreach
 - hibob
 - high_level
 - hivebrite
@@ -1208,6 +1211,7 @@ doesn't conflict with concurrent PRs.
 - miro
 - missive
 - mode
+- moengage
 - moesif
 - moneybird
 - mono
@@ -1296,6 +1300,7 @@ doesn't conflict with concurrent PRs.
 - qonto
 - quay
 - quickbooks
+- quo
 - railz
 - raisely
 - raken

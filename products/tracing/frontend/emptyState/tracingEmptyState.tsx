@@ -23,7 +23,7 @@ export const tracingEmptyState: SceneProductEmptyState = {
         text: {
             'needs-setup': {
                 headline: 'See where every request spends its time',
-                lead: 'Send spans from any OpenTelemetry-compatible client over OTLP. No PostHog-specific packages needed. Follow a request across services, find the span that slows it down, and watch latency over time.',
+                lead: 'Send spans from the PostHog Node.js SDK, or from any OpenTelemetry-compatible client over OTLP. Follow a request across services, find the span that slows it down, and watch latency over time.',
             },
         },
         docsUrl: 'https://posthog.com/docs/tracing',

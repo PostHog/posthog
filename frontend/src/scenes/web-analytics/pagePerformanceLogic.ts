@@ -1,4 +1,7 @@
 import {
+    LogicWrapper,
+    key,
+    props,
     MakeLogicType,
     actions,
     afterMount,
@@ -64,6 +67,7 @@ import {
 import { getDashboardItemId } from './insightsUtils'
 import { webAnalyticsLogic } from './webAnalyticsLogic'
 import type { DateFilterState } from './webAnalyticsLogic'
+import { WebAnalyticsLogicProps } from './webAnalyticsLogicProps'
 
 const PAGE_PERFORMANCE_EVENTS = "('$pageview', '$screen', '$http_log')"
 
@@ -803,16 +807,18 @@ export interface pagePerformanceLogicMeta {
 export type pagePerformanceLogicType = MakeLogicType<
     pagePerformanceLogicValues,
     pagePerformanceLogicActions,
-    Record<string, any>,
+    WebAnalyticsLogicProps,
     pagePerformanceLogicMeta
 >
 
-export const pagePerformanceLogic = kea<pagePerformanceLogicType>([
-    path(['scenes', 'webAnalytics', 'pagePerformanceLogic']),
-    connect(() => ({
+export const pagePerformanceLogic: LogicWrapper<pagePerformanceLogicType> = kea<pagePerformanceLogicType>([
+    props({} as WebAnalyticsLogicProps),
+    key((props) => props.context ?? 'web-analytics'),
+    path((key) => ['scenes', key === 'page-visibility' ? 'pageVisibility' : 'webAnalytics', 'pagePerformanceLogic']),
+    connect((props: WebAnalyticsLogicProps) => ({
         actions: [dataNodeCollectionLogic({ key: WEB_ANALYTICS_DATA_COLLECTION_NODE_ID }), ['reloadAll']],
         values: [
-            webAnalyticsLogic,
+            webAnalyticsLogic(props),
             [
                 'dateFilter',
                 'shouldFilterTestAccounts as filterTestAccounts',

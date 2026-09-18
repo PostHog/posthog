@@ -177,14 +177,15 @@ describe('Notebooks', { concurrent: false }, () => {
         const retrieveTool = getToolByName('notebooks-retrieve')
         const editTool = getToolByName('notebook-edit')
 
-        it('should replace a paragraph by value and bump the version', async () => {
+        // notebooks-create stores rich-text content as a markdown notebook, so these edits target its markdown.
+        it('should replace a paragraph and bump the version', async () => {
             const createResult = await createTool.handler(context, {
                 title: generateUniqueKey('Edit Test Notebook'),
                 content: {
                     type: 'doc',
                     content: [
                         { type: 'heading', attrs: { level: 1 }, content: [{ type: 'text', text: 'Heading' }] },
-                        { type: 'paragraph', content: [{ type: 'text', text: 'Original paragraph.' }] },
+                        { type: 'paragraph', content: [{ type: 'text', text: 'Original paragraph' }] },
                     ],
                 },
             })
@@ -193,16 +194,16 @@ describe('Notebooks', { concurrent: false }, () => {
 
             const editResult = await editTool.handler(context, {
                 short_id: created.short_id,
-                old_value: { type: 'paragraph', content: [{ type: 'text', text: 'Original paragraph.' }] },
-                new_value: { type: 'paragraph', content: [{ type: 'text', text: 'Edited paragraph.' }] },
+                old_markdown: 'Original paragraph',
+                new_markdown: 'Edited paragraph',
             })
             const edited = parseToolResponse(editResult)
 
             expect(edited.short_id).toBe(created.short_id)
             expect(edited.version).toBe(created.version + 1)
             const serialized = JSON.stringify(edited.content)
-            expect(serialized).toContain('Edited paragraph.')
-            expect(serialized).not.toContain('Original paragraph.')
+            expect(serialized).toContain('Edited paragraph')
+            expect(serialized).not.toContain('Original paragraph')
         })
 
         it('should replace every occurrence when replace_all is true', async () => {
@@ -221,18 +222,18 @@ describe('Notebooks', { concurrent: false }, () => {
 
             const editResult = await editTool.handler(context, {
                 short_id: created.short_id,
-                old_value: { type: 'text', text: 'duplicate' },
-                new_value: { type: 'text', text: 'unique' },
+                old_markdown: 'duplicate',
+                new_markdown: 'unique',
                 replace_all: true,
             })
             const edited = parseToolResponse(editResult)
 
             const serialized = JSON.stringify(edited.content)
-            expect(serialized).not.toContain('"text":"duplicate"')
-            expect((serialized.match(/"text":"unique"/g) || []).length).toBe(2)
+            expect(serialized).not.toContain('duplicate')
+            expect((serialized.match(/unique/g) || []).length).toBe(2)
         })
 
-        it('should error when old_value matches multiple places without replace_all', async () => {
+        it('should error when old_markdown matches multiple places without replace_all', async () => {
             const createResult = await createTool.handler(context, {
                 title: generateUniqueKey('Edit Ambiguous Notebook'),
                 content: {
@@ -249,8 +250,8 @@ describe('Notebooks', { concurrent: false }, () => {
             await expect(
                 editTool.handler(context, {
                     short_id: created.short_id,
-                    old_value: { type: 'text', text: 'duplicate' },
-                    new_value: { type: 'text', text: 'unique' },
+                    old_markdown: 'duplicate',
+                    new_markdown: 'unique',
                 })
             ).rejects.toThrow(/matches 2 places/)
 
@@ -260,7 +261,7 @@ describe('Notebooks', { concurrent: false }, () => {
             expect(retrieved.version).toBe(created.version)
         })
 
-        it('should error when old_value is not found', async () => {
+        it('should error when old_markdown is not found', async () => {
             const createResult = await createTool.handler(context, {
                 title: generateUniqueKey('Edit Missing Notebook'),
                 content: {
@@ -274,8 +275,8 @@ describe('Notebooks', { concurrent: false }, () => {
             await expect(
                 editTool.handler(context, {
                     short_id: created.short_id,
-                    old_value: { type: 'text', text: 'Nope' },
-                    new_value: { type: 'text', text: 'Something' },
+                    old_markdown: 'Nope',
+                    new_markdown: 'Something',
                 })
             ).rejects.toThrow(/was not found/)
         })

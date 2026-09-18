@@ -13,10 +13,11 @@ from datetime import timedelta
 import pytest
 from unittest.mock import patch
 
+from django.core.cache import cache
 from django.utils import timezone
 
 from posthog.models import Organization, Team
-from posthog.models.github_integration_base import GitHubCommitAttribution, GitHubCommitAuthor
+from posthog.models.github_integration_base import GitHubAuthorLastCommit, GitHubCommitAttribution, GitHubCommitAuthor
 
 from products.signals.backend.report_generation.repo_activity import rebuild_repository_activity
 from products.signals.backend.report_generation.resolve_reviewers import (
@@ -79,6 +80,16 @@ BLAME = {
 }
 
 
+# What GitHub answers when asked for each persona's last commit anywhere in the repository.
+# The founder's is years old, which is what marks them as gone rather than merely quiet.
+LAST_COMMIT_DAYS_AGO = {
+    FOUNDER[0].lower(): 1200,
+    MAINTAINER[0].lower(): 1,
+    NEW_JOINER[0].lower(): 2,
+    NEIGHBOUR[0].lower(): 1,
+}
+
+
 class FakeBlameGitHub:
     def get_commit_author_info(self, repository, sha):
         login, _email = BLAME[sha]
@@ -89,6 +100,18 @@ class FakeBlameGitHub:
             file_paths=(AREA_PATH,),
             is_bot=login.endswith("[bot]"),
         )
+
+    def get_author_last_commit(self, repository, login):
+        days_ago = LAST_COMMIT_DAYS_AGO.get(login.lower())
+        if days_ago is None:
+            return GitHubAuthorLastCommit(last_commit_at=None)
+        return GitHubAuthorLastCommit(last_commit_at=timezone.now() - timedelta(days=days_ago))
+
+
+@pytest.fixture(autouse=True)
+def clear_caches():
+    # The resolver caches its author-activity verdicts, which would otherwise carry between tests.
+    cache.clear()
 
 
 @pytest.fixture
@@ -139,13 +162,14 @@ def _resolve(team, blame_shas: list[str]):
 
 @pytest.mark.django_db
 class TestReviewerScenarios:
-    def test_active_maintainer_outranks_departed_founder(self, seeded_team):
+    def test_departed_founder_is_not_suggested(self, seeded_team):
         reviewers = _resolve(seeded_team, ["f" * 40, "e" * 40, "d" * 40])
 
         logins = [r.login for r in reviewers]
-        # The founder owns the two strongest blame commits but left months ago; the
-        # maintainer holds weaker blame and current area activity.
-        assert logins.index("mariusandra") < logins.index("departedfounder")
+        # The founder owns the two strongest blame commits, but their last commit anywhere in
+        # the repository is years old, so they cannot act on the report at all.
+        assert "departedfounder" not in logins
+        assert "mariusandra" in logins
 
     def test_mixed_case_blame_login_is_one_active_candidate(self, seeded_team):
         reviewers = _resolve(seeded_team, ["d" * 40])
@@ -163,8 +187,7 @@ class TestReviewerScenarios:
         # Everyone in blame is gone; the area's actual current contributors fill in.
         assert "mariusandra" in logins
         assert "new-joiner" in logins
-        if "departedfounder" in logins:
-            assert logins.index("mariusandra") < logins.index("departedfounder")
+        assert "departedfounder" not in logins
 
     def test_bots_never_suggested(self, seeded_team):
         # The bot is both the busiest area committer and a blame author.

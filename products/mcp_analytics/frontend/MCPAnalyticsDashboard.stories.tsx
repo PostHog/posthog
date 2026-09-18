@@ -1,3 +1,5 @@
+import { MOCK_DEFAULT_USER } from '~/lib/api.mock'
+
 import { Meta, StoryObj } from '@storybook/react'
 
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -6,6 +8,8 @@ import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
+
+import { MCPAnalyticsDashboardOverview } from './MCPAnalyticsDashboardOverview'
 
 const KPI_RESULTS = [
     ['2026-05-25', 320, 4100, 120, 1900, false],
@@ -651,6 +655,10 @@ const meta: Meta = {
     component: App,
     title: 'Scenes-App/MCP Analytics',
     decorators: [
+        (Story, context) =>
+            mswDecorator({
+                get: { '/api/users/@me/': { ...MOCK_DEFAULT_USER, theme_mode: context.globals.theme ?? 'light' } },
+            })(Story, context),
         mswDecorator({
             get: {
                 '/api/projects/:team_id/mcp_analytics/intent_clusters/': CLUSTER_SNAPSHOT,
@@ -675,6 +683,23 @@ const meta: Meta = {
                     const query: string = body?.query?.query ?? ''
                     // The harness tile sends a typed MCPHarnessBreakdownQuery node (the runner
                     // resolves the harness server-side) — match on its kind, not a SQL string.
+                    if (body?.query?.kind === 'MCPModelBreakdownQuery') {
+                        return [
+                            200,
+                            {
+                                results: [
+                                    { model: 'example-provider/model-with-a-long-version-name', total_calls: 4200 },
+                                    { model: 'example-fast', total_calls: 3100 },
+                                    { model: 'example-balanced', total_calls: 1800 },
+                                    { model: 'example-model-d', total_calls: 500 },
+                                    { model: 'example-model-e', total_calls: 200 },
+                                    { model: 'example-model-f', total_calls: 1 },
+                                    { model: 'Other', total_calls: 179 },
+                                    { model: 'Unknown', total_calls: 600 },
+                                ],
+                            },
+                        ]
+                    }
                     if (body?.query?.kind === 'MCPHarnessBreakdownQuery') {
                         return [200, { results: HARNESS_RESULTS }]
                     }
@@ -808,7 +833,18 @@ export default meta
 
 type Story = StoryObj<{}>
 
-export const Dashboard: Story = {}
+export const Dashboard: Story = {
+    parameters: { testOptions: { viewportWidths: ['medium', 'wide'] } },
+}
+
+export const DashboardNarrow: Story = {
+    parameters: { layout: 'padded' },
+    render: () => (
+        <div className="w-[520px]">
+            <MCPAnalyticsDashboardOverview />
+        </div>
+    ),
+}
 
 // Re-list MCP_ANALYTICS — per-story featureFlags replace meta's, not merge with it.
 export const DashboardWithMenuBar: Story = {

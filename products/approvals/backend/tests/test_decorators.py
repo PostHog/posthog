@@ -1,11 +1,15 @@
 from contextlib import suppress
+from datetime import datetime, timedelta
 from typing import Any
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
+from django.utils import timezone
+
 from posthog.api.utils import ServiceRequest
 
+from products.approvals.backend.decorators import _create_change_request
 from products.approvals.backend.exceptions import ApprovalRequired
 from products.approvals.backend.models import ApprovalPolicy, ChangeRequest
 from products.feature_flags.backend.api.feature_flag import FeatureFlagSerializer
@@ -155,3 +159,39 @@ class TestApprovalGateFailsClosed(APIBaseTest):
 
         flag.refresh_from_db()
         assert flag.active is False
+
+
+class TestChangeRequestIntentIsJsonSafe(APIBaseTest):
+    """`intent` holds the endpoint serializer's validated_data, which carries native Python
+    objects for typed fields. A `datetime` in there used to abort the INSERT inside psycopg and
+    surface as an opaque "Failed to create approval request", blocking every gated save."""
+
+    def _create_change_request(self, intent: dict[str, Any]) -> ChangeRequest:
+        action_class = MagicMock()
+        action_class.key = "feature_flag.update"
+        action_class.version = 1
+        action_class.resource_type = "feature_flag"
+
+        return _create_change_request(
+            action_class=action_class,
+            team=self.team,
+            organization=self.organization,
+            resource_id="1",
+            intent_data=intent,
+            display_data={},
+            policy_snapshot={},
+            user=self.user,
+            expires_at=timezone.now() + timedelta(days=14),
+        )
+
+    def test_datetime_in_intent_is_stored_as_an_iso_string(self):
+        called_at = timezone.now()
+
+        change_request = self._create_change_request(
+            {"full_request_data": {"key": "test-flag", "last_called_at": called_at}}
+        )
+
+        change_request.refresh_from_db()
+        stored = change_request.intent["full_request_data"]["last_called_at"]
+        assert isinstance(stored, str), "the datetime must be rendered, not handed to psycopg as-is"
+        assert abs(datetime.fromisoformat(stored) - called_at) < timedelta(milliseconds=1)

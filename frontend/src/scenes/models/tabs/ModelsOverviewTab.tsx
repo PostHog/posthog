@@ -1,16 +1,17 @@
 import { useActions, useValues } from 'kea'
 
 import { IconCheckCircle } from '@posthog/icons'
-import { LemonBanner, LemonTable, LemonTableColumns, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
+import { LemonBanner, LemonTableColumns, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
-import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { humanFriendlyDuration } from 'lib/utils/durations'
 import { pluralize } from 'lib/utils/strings'
 import { CADENCE_LABELS } from 'scenes/data-warehouse/saved_queries/SyncFrequencySelect'
 import { urls } from 'scenes/urls'
 
 import { BehindScheduleModel } from 'products/data_modeling/frontend/freshness'
+import { ModelNameLink } from 'products/data_modeling/frontend/ModelNameLink'
+import { ModelsOverviewTable } from 'products/data_modeling/frontend/ModelsOverviewTable'
 import { checkDisplayName } from 'products/data_quality/frontend/checksConstants'
 import { CheckStatusCell } from 'products/data_quality/frontend/CheckStatusCell'
 import { DataQualityOverviewCheckApi } from 'products/data_quality/frontend/generated/api.schemas'
@@ -68,7 +69,7 @@ const ATTENTION_COLUMNS: LemonTableColumns<AttentionModel> = [
     {
         title: 'Model',
         key: 'name',
-        render: (_, row) => <LemonTableLink to={urls.nodeDetail(row.node.id)} title={row.node.name} />,
+        render: (_, row) => <ModelNameLink node={row.node} />,
     },
     {
         title: 'Problem',
@@ -104,7 +105,7 @@ const BEHIND_COLUMNS: LemonTableColumns<BehindScheduleModel> = [
     {
         title: 'Model',
         key: 'name',
-        render: (_, row) => <LemonTableLink to={urls.nodeDetail(row.node.id)} title={row.node.name} />,
+        render: (_, row) => <ModelNameLink node={row.node} />,
     },
     {
         title: 'Behind by',
@@ -214,7 +215,7 @@ function OverviewBody({
                         </Link>
                     }
                 >
-                    <LemonTable
+                    <ModelsOverviewTable
                         columns={ATTENTION_COLUMNS}
                         dataSource={attentionModels}
                         loading={nodesLoading}
@@ -229,8 +230,9 @@ function OverviewBody({
                     title="Models behind schedule"
                     description="Each of these declares how fresh it should be, but has gone more than twice that long without finishing a run. Nothing reported a failure, so they may have stopped quietly."
                 >
-                    <LemonTable
+                    <ModelsOverviewTable
                         columns={BEHIND_COLUMNS}
+                        maxHeaderWidth="7rem"
                         dataSource={behindSchedule}
                         rowKey={(row) => row.node.id}
                         size="small"
@@ -257,7 +259,7 @@ function OverviewBody({
                         </Link>
                     }
                 >
-                    <LemonTable
+                    <ModelsOverviewTable
                         columns={CHECK_COLUMNS}
                         dataSource={failingChecks}
                         loading={checksLoading}

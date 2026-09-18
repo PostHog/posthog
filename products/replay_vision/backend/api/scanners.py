@@ -53,7 +53,7 @@ from posthog.models.tag import tagify
 from posthog.models.tagged_item import TaggedItem
 from posthog.models.team import Team
 from posthog.models.user import User
-from posthog.permissions import get_authenticator_scopes
+from posthog.permissions import get_authenticator_scopes, is_scout_sandbox_request
 from posthog.ph_client import get_feature_flag_or_none
 from posthog.rate_limit import (
     AIBurstRateThrottle,
@@ -127,6 +127,7 @@ from products.replay_vision.backend.quota import (
     compute_scanner_budgets,
     credits_used_by_scanner,
     current_period_bounds,
+    quota_state,
     spend_projection,
 )
 from products.replay_vision.backend.scanner_access import (
@@ -146,6 +147,11 @@ from products.replay_vision.backend.scanning import (
     run_inline_scan,
     scan_existing_scanner,
     scan_outcome_counts,
+)
+from products.replay_vision.backend.scout_writes import (
+    check_scout_scanner_credit_limit,
+    refuse_scout_scanner_delete,
+    refuse_scout_scanner_scan,
 )
 from products.replay_vision.backend.search import parse_date_bound
 from products.replay_vision.backend.session_limits import MAX_SESSION_ID_LENGTH
@@ -216,6 +222,12 @@ def _goal_flow_variant(user: User, team: Team) -> str | None:
         GOAL_FLOW_FLAG,
         str(user.distinct_id),
         groups={"organization": str(team.organization_id), "project": str(team.id)},
+        # Local evaluation cannot look up stored person properties, so every person property the
+        # flag's conditions read must be passed here. Without the email, an email-based variant
+        # override falls through to the rollout hash: the browser (which evaluates via /flags with
+        # the stored person) shows the goal-based UI while this returns control, and the request
+        # silently degrades to the legacy draft.
+        person_properties={"email": user.email},
         group_properties={"organization": {"id": str(team.organization_id)}},
         send_feature_flag_events=False,
     )
@@ -737,6 +749,15 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
         self._validate_scanner_config(attrs)
         self._validate_and_strip_query(attrs)
         self._drop_redacted_targeting_clear(attrs)
+        scout_caller = bool(self.context.get("scout_sandbox_caller"))
+        check_scout_scanner_credit_limit(
+            scout_caller,
+            instance=self.instance,
+            attrs=attrs,
+            max_credit_limit=quota_state(self.context["get_team"]().organization_id).credit_limit
+            if scout_caller
+            else None,
+        )
         return attrs
 
     def _drop_redacted_targeting_clear(self, attrs: dict[str, Any]) -> None:
@@ -1373,6 +1394,7 @@ WATCH_FEED_PER_SCANNER_CAP = 100
 class WatchFeedReason(models.TextChoices):
     SIGNAL_EMITTED = "signal_emitted"
     UNUSUAL_VERDICT = "unusual_verdict"
+    NOTABLE = "notable"
     VERDICT_YES = "verdict_yes"
     OUTLIER_SCORE = "outlier_score"
     RARE_TAG = "rare_tag"
@@ -1410,6 +1432,21 @@ class WatchFeedQuerySerializer(serializers.Serializer):
         choices=ScannerType.choices,
         help_text="Restrict the feed to observations from scanners of this type.",
     )
+    tags = serializers.CharField(
+        required=False,
+        help_text=(
+            "Comma-separated scanner tags to restrict the feed to. A team with many scanners uses these to "
+            "follow one area without naming every scanner in it."
+        ),
+    )
+    search = serializers.CharField(
+        required=False,
+        help_text=(
+            "Case-insensitive text to match against the scan's own words (title, summary, reasoning, and the "
+            "notability sentence) and the scanner's name. Applied before ranking, so it searches the whole "
+            "window rather than the items that would have surfaced without it."
+        ),
+    )
     limit = serializers.IntegerField(
         required=False,
         default=WATCH_FEED_DEFAULT_LIMIT,
@@ -1417,6 +1454,9 @@ class WatchFeedQuerySerializer(serializers.Serializer):
         max_value=WATCH_FEED_MAX_LIMIT,
         help_text=f"Feed items to return, at most {WATCH_FEED_MAX_LIMIT}. The feed is bounded, not paginated.",
     )
+
+    def validate_tags(self, value: str) -> list[str]:
+        return [tagify(tag) for tag in split_csv(value)]
 
     def validate_scanner_ids(self, value: str) -> list[UUID]:
         raw_ids = split_csv(value)
@@ -1439,9 +1479,9 @@ class WatchFeedReasonSerializer(serializers.Serializer):
             "`verdict_yes` (a monitor hit, when the window is too thin to know which answer is unusual), "
             "`outlier_score` (far from the scanner's window average), "
             "`rare_tag` (a tag uncommon for the scanner this window), `novel_summary` (a summary that "
-            "reads unlike the scanner's other sessions this window), `friction` (the scan describes "
-            "errors, retries, or dead ends), `unviewed_recent` (new to you), "
-            "`recent` (nothing special, newest available)."
+            "reads unlike the scanner's other sessions this window), `notable` (the scan itself judged the "
+            "session worth watching), `friction` (the scan describes errors, retries, or dead ends), "
+            "`unviewed_recent` (new to you), `recent` (nothing special, newest available)."
         ),
     )
     signals_count = serializers.IntegerField(
@@ -1454,6 +1494,20 @@ class WatchFeedReasonSerializer(serializers.Serializer):
         required=False,
         allow_null=True,
         help_text="Share (0-1) of the scanner's window observations with this answer, for `unusual_verdict`.",
+    )
+    notability = serializers.FloatField(
+        required=False,
+        allow_null=True,
+        help_text="The scan's own 0-1 judgment of how much a team would benefit from watching, for `notable`.",
+    )
+    notability_reason = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "The scan's own sentence naming why the session is worth watching. Present only on the `notable` "
+            "reason kind, and preferred over copy derived from the reason kind. Absent on observations "
+            "scanned before notability shipped."
+        ),
     )
     score = serializers.FloatField(
         required=False, allow_null=True, help_text="The observation's score, for `outlier_score`."
@@ -1485,7 +1539,8 @@ class WatchFeedResponseSerializer(serializers.Serializer):
         many=True,
         help_text=(
             "Succeeded observations in the window worth watching, most interesting first: signal emitters, "
-            "then type-specific hits, then unviewed before viewed, then newest."
+            "then type-specific hits, then unviewed before viewed, then the scan's own notability judgment, "
+            "then prose that reads as friction, then newest."
         ),
     )
 
@@ -1869,10 +1924,25 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
 
     def initial(self, request: Request, *args: Any, **kwargs: Any) -> None:
         super().initial(request, *args, **kwargs)
+        if self.action in {"observe", "bulk_observe", "inline_scan"}:
+            refuse_scout_scanner_scan(is_scout_sandbox_request(request))
         if self.action in self._CONFIG_ACTIONS and not self.user_access_control.check_access_level_for_resource(
             "session_recording", required_level="viewer"
         ):
             raise PermissionDenied("Configuring a Replay Vision scanner requires session_recording read access.")
+
+    def get_serializer_context(self) -> dict[str, Any]:
+        context = super().get_serializer_context()
+        # The credit limit rule runs in the serializer, because only a serializer error keys its
+        # message to the `credit_limit` field.
+        context["scout_sandbox_caller"] = is_scout_sandbox_request(self.request)
+        return context
+
+    def destroy(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        # The per-scout grant excludes deletion, and one scope object covers the whole scanner
+        # surface, so this is where that exclusion lives.
+        refuse_scout_scanner_delete(is_scout_sandbox_request(request))
+        return super().destroy(request, *args, **kwargs)
 
     def safely_get_queryset(self, queryset: QuerySet[ReplayScanner]) -> QuerySet[ReplayScanner]:
         # `queryset` comes off the fail-closed default manager, so every action here — list, retrieve,
@@ -1880,7 +1950,7 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
         # viewset is concerned; its results are read through the observations endpoint instead.
         return (
             queryset.filter(team_id=self.team_id)
-            .select_related("created_by")
+            .select_related("created_by", "team")
             # prefetched_tags feeds the tags in to_representation; without it list serialization is N+1.
             .prefetch_related(
                 Prefetch(
@@ -1945,6 +2015,13 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
         if not self.user_access_control.check_access_level_for_resource("replay_scanner", required_level="editor"):
             raise PermissionDenied("Duplicating a scanner requires editor access to Replay Vision scanners.")
         source = self.get_object()
+        scout_caller = is_scout_sandbox_request(request)
+        check_scout_scanner_credit_limit(
+            scout_caller,
+            instance=None,
+            attrs={"credit_limit": source.credit_limit},
+            max_credit_limit=quota_state(self.team.organization_id).credit_limit if scout_caller else None,
+        )
         if not self.team.organization.is_ai_data_processing_approved:
             raise serializers.ValidationError(
                 "Your organization needs to allow AI analysis before you can create a Replay Vision scanner."
@@ -2070,6 +2147,17 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
         if params.get("scanner_ids"):
             requested = set(params["scanner_ids"])
             allowed_ids = [scanner_id for scanner_id in allowed_ids if scanner_id in requested]
+        if params.get("tags"):
+            # Narrow by tag through the scanner rows rather than the observations: a snapshot records the
+            # scanner's config at scan time, not its tags, and a retag should take effect immediately.
+            tagged_ids = set(
+                ReplayScanner.objects.filter(
+                    team_id=self.team_id, id__in=allowed_ids, tagged_items__tag__name__in=params["tags"]
+                )
+                .distinct()
+                .values_list("id", flat=True)
+            )
+            allowed_ids = [scanner_id for scanner_id in allowed_ids if scanner_id in tagged_ids]
         candidates = ReplayObservation.objects.filter(
             team_id=self.team_id,
             scanner_id__in=allowed_ids,
@@ -2080,6 +2168,18 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
             candidates = candidates.filter(created_at__lte=date_to)
         if params.get("scanner_type"):
             candidates = candidates.filter(scanner_snapshot__scanner_type=params["scanner_type"])
+        if params.get("search"):
+            # Applied before ranking so the box searches the whole window, not the slice that would have
+            # surfaced anyway. Unindexed, but the candidate query is already bounded by team, readable
+            # scanners, succeeded status and the date window. Lookup keys are literals, not caller input.
+            term = params["search"]
+            candidates = candidates.filter(
+                Q(scanner_result__model_output__reasoning__icontains=term)
+                | Q(scanner_result__model_output__summary__icontains=term)
+                | Q(scanner_result__model_output__title__icontains=term)
+                | Q(scanner_result__model_output__notability_reason__icontains=term)
+                | Q(scanner_snapshot__name__icontains=term)
+            )
         # Row-gate on each row's snapshot experiment before ranking, so a restricted row can't take a slot.
         candidates = accessible_observations(self.user_access_control, self.team_id, candidates)
         viewer_id = cast(User, request.user).id

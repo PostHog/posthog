@@ -1,0 +1,45 @@
+rules:
+    - id: user-email-lookups-use-the-shared-fold
+      message: |
+          Resolve a `User` by address through `EmailLookupHandler`, not `email__iexact`.
+
+          Django compiles `email__iexact` to Postgres `UPPER`, and every account lookup
+          resolves on `LOWER`. The two folds disagree: `UPPER` maps `ı` (U+0131) to `I` and
+          `ſ` (U+017F) to `S`, while `LOWER` leaves both alone and maps `İ` (U+0130) to a
+          plain `i`. A gate that reads one fold therefore admits an address that the login
+          lookup later resolves onto somebody else's account.
+
+          Use `EmailLookupHandler.get_user_by_email(...)` for one account, or
+          `EmailLookupHandler.users_matching_email(...)` for the queryset. Both fold the
+          way the lookups do, and the `posthog_user_lower_email_idx` index serves them.
+
+          Invites are not in scope: `target_email__iexact` has its own `UPPER` index.
+
+          Suppress a legitimate exception with
+          `# nosemgrep: user-email-lookups-use-the-shared-fold -- <reason>`.
+      languages: [python]
+      severity: ERROR
+      patterns:
+          - pattern-either:
+                - pattern: User.objects.filter(..., email__iexact=$VALUE, ...)
+                - pattern: User.objects.get(..., email__iexact=$VALUE, ...)
+                - pattern: User.objects.filter(..., email=$VALUE, ...)
+                - pattern: User.objects.get(..., email=$VALUE, ...)
+                - pattern: $QS.filter(..., email__iexact=$VALUE, ...)
+                - pattern: $QS.exclude(..., email__iexact=$VALUE, ...)
+      paths:
+          # The paths where an address decides which account a request reaches.
+          include:
+              - /ee/api/agentic_provisioning/**/*.py
+              - /ee/api/authentication.py
+              - /ee/api/scim/**/*.py
+              - /ee/partners/stripe/api/provisioning/**/*.py
+              - /posthog/api/authentication.py
+              - /posthog/api/id_jag.py
+              - /posthog/api/signup.py
+              - /posthog/api/user.py
+              - /posthog/api/webauthn.py
+              - /posthog/models/user.py
+          exclude:
+              - '**/test_*.py'
+              - '**/tests/**'
