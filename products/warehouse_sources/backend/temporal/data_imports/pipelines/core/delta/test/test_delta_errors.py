@@ -1,3 +1,5 @@
+import errno
+
 from django.db import InterfaceError, InternalError, OperationalError
 
 import deltalake
@@ -48,6 +50,26 @@ class TestIsTransientObjectStoreError:
                 "bare_no_credentials_error",
                 botocore.exceptions.NoCredentialsError(),
                 True,
+            ),
+            (
+                # aiobotocore's session bootstrap (e.g. inside `aget_s3_client`) opens botocore's own
+                # bundled endpoints.json before any network call is made - a full fd table fails that
+                # local open the same way it fails a socket connect, so it needs the same transient
+                # classification as the postgres connect-path EMFILE/ENFILE case.
+                "fd_table_full_emfile",
+                OSError(errno.EMFILE, "Too many open files"),
+                True,
+            ),
+            (
+                "fd_table_full_enfile",
+                OSError(errno.ENFILE, "Too many open files in system"),
+                True,
+            ),
+            (
+                # A different errno must not be swept up by the fd-exhaustion check.
+                "unrelated_os_error_with_errno",
+                OSError(errno.ENOENT, "No such file or directory"),
+                False,
             ),
             ("unrelated_exception_type", ValueError("some other unrelated failure"), False),
             # `get_delta_table` re-raises a recognized transient blip as this wrapper (see

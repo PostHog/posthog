@@ -1,3 +1,5 @@
+import errno
+
 from django.db import InterfaceError, InternalError, OperationalError
 
 import psycopg.errors
@@ -47,12 +49,21 @@ def is_transient_object_store_error(error: BaseException) -> bool:
     `object_store` crate. `NoCredentialsError`'s message is a fixed, generic string (no needle to
     match), but hitting our own instance-role-authenticated bucket always means the same transient
     resolution hiccup, so it's recognized by type rather than by message.
+
+    A bare `OSError` with errno `EMFILE`/`ENFILE` means this worker's (or the system's) file
+    descriptor table is full — e.g. `aget_s3_client`'s aiobotocore session bootstrap opening
+    botocore's own bundled `endpoints.json` fails with this errno before any network call is even
+    made. Same transient-capacity class already recognized on the postgres connect path
+    (`_is_too_many_open_files_error`): a descriptor frees the moment another connection/client in
+    this worker closes, so it's fd pressure on our side, never an object-store or customer problem.
     """
     if isinstance(error, TransientObjectStoreError | botocore.exceptions.NoCredentialsError):
         # Already classified and wrapped by a prior call to this same function (see
         # `_capture_unless_transient`) — a caller further up the stack that catches broadly and
         # re-runs this classifier on the wrapper, rather than the original OSError/DeltaError it
         # wraps, must still treat it as transient.
+        return True
+    if isinstance(error, OSError) and error.errno in (errno.EMFILE, errno.ENFILE):
         return True
     return isinstance(error, OSError | deltalake.exceptions.DeltaError) and any(
         needle in str(error) for needle in TRANSIENT_OBJECT_STORE_ERRORS
