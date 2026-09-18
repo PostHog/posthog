@@ -439,6 +439,7 @@ vi.mock("@posthog/core/sessions/sessionEvents", async () => {
     normalizePromptToBlocks: vi.fn((p) =>
       typeof p === "string" ? [{ type: "text", text: p }] : p,
     ),
+    promptAttachmentCount: actual.promptAttachmentCount,
     promptReferencesAbsoluteFolder: actual.promptReferencesAbsoluteFolder,
     selectEchoedOptimisticItemIds: actual.selectEchoedOptimisticItemIds,
     selectUnseededPendingFollowups: actual.selectUnseededPendingFollowups,
@@ -7144,6 +7145,7 @@ describe("SessionService", () => {
         "task-123",
         "wake me up",
         prompt,
+        [],
       );
       expect(mockTrpcCloudTask.sendCommand.mutate).not.toHaveBeenCalled();
     });
@@ -7306,6 +7308,7 @@ describe("SessionService", () => {
         "task-123",
         "hold this",
         prompt,
+        [],
       );
       expect(mockTrpcCloudTask.sendCommand.mutate).not.toHaveBeenCalled();
     });
@@ -7452,6 +7455,7 @@ describe("SessionService", () => {
         "task-123",
         "before boot",
         prompt,
+        [],
       );
       const wroteIsPromptPendingTrue =
         mockSessionStoreSetters.updateSession.mock.calls.some(
@@ -7487,6 +7491,7 @@ describe("SessionService", () => {
         "task-123",
         "read this\n\nAttached files: test.txt",
         prompt,
+        [{ id: "file:///tmp/test.txt", label: "test.txt" }],
       );
     });
 
@@ -7572,6 +7577,9 @@ describe("SessionService", () => {
         expect.objectContaining({
           type: "user_message",
           content: "read this\n\nAttached files: test.txt",
+          // Carried up front so the chip renders now, not when the sandbox
+          // echoes the prompt back.
+          attachments: [{ id: "file:///tmp/test.txt", label: "test.txt" }],
           pinToTop: false,
         }),
       );

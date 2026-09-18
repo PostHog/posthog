@@ -99,6 +99,19 @@ describe("QueuedMessageView", () => {
     expect(handlers.onRemove).toHaveBeenCalledTimes(1);
   });
 
+  it("renders a queued cloud attachment as a chip instead of the summary line", () => {
+    renderView({
+      message: {
+        ...MESSAGE,
+        content: "queued body\n\nAttached files: notes.txt",
+        attachments: [{ id: "file:///tmp/notes.txt", label: "notes.txt" }],
+      },
+    });
+
+    expect(screen.getByText("notes.txt")).toBeInTheDocument();
+    expect(screen.queryByText(/Attached files:/)).not.toBeInTheDocument();
+  });
+
   it("forwards the drag handle ref to the grip button", () => {
     const dragHandleRef = vi.fn();
     renderView({ dragHandleRef });
