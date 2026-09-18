@@ -570,15 +570,37 @@ export function doesSurveyRepeatOnEveryEvent(survey: Pick<Survey, 'conditions'>)
 }
 
 export interface RecurringSurveyScheduleInfo {
-    /** Total number of days the survey runs from its launch date before auto-closing. */
+    /** Total number of days the survey runs from its schedule anchor before auto-closing. */
     totalDurationDays: number
     /** The date the survey will automatically close, or null if it hasn't been launched yet. */
     autoCloseDate: dayjs.Dayjs | null
 }
 
+type RecurringScheduleSurvey = Pick<
+    Survey,
+    'schedule' | 'iteration_count' | 'iteration_frequency_days' | 'start_date' | 'end_date' | 'iteration_anchor_date'
+>
+
+function getProjectedAutoCloseDate(survey: RecurringScheduleSurvey, totalDurationDays: number): dayjs.Dayjs | null {
+    // A resume re-anchors the repeats, so the schedule runs from the anchor rather than from the launch date.
+    const anchor = survey.iteration_anchor_date ?? survey.start_date
+    return anchor ? dayjs.utc(anchor).add(totalDurationDays, 'day') : null
+}
+
+function getScheduleDurationDays(survey: RecurringScheduleSurvey): number | null {
+    const count = survey.iteration_count
+    const frequency = survey.iteration_frequency_days
+    if (survey.schedule !== SurveySchedule.Recurring || !count || !frequency || count < 1 || frequency < 1) {
+        return null
+    }
+    // The backend caps the generated iteration windows at MAX_ITERATION_COUNT, so anything above that never
+    // extends the schedule — mirror the cap here to match the real close date.
+    return Math.min(count, MAX_ITERATION_COUNT) * frequency
+}
+
 /**
  * A recurring survey ("Repeat on a schedule") auto-closes once its final iteration window has passed.
- * The last iteration starts on `start_date + (count - 1) * frequency` days and lasts `frequency` more days,
+ * The last iteration starts `(count - 1) * frequency` days after the anchor and lasts `frequency` more days,
  * so the survey runs for `count * frequency` days total and closes at the end of that span.
  * Mirrors the backend logic in posthog/tasks/update_survey_iteration.py, which computes iteration windows
  * on the UTC calendar day — so we do the arithmetic in UTC too.
@@ -586,27 +608,26 @@ export interface RecurringSurveyScheduleInfo {
  * Returns null once the survey has already ended: it then shows its real end date, so a projected one would
  * only contradict it.
  */
-export function getRecurringSurveyScheduleInfo(
-    survey: Pick<Survey, 'schedule' | 'iteration_count' | 'iteration_frequency_days' | 'start_date' | 'end_date'>
-): RecurringSurveyScheduleInfo | null {
-    const count = survey.iteration_count
-    const frequency = survey.iteration_frequency_days
-    if (
-        survey.schedule !== SurveySchedule.Recurring ||
-        survey.end_date ||
-        !count ||
-        !frequency ||
-        count < 1 ||
-        frequency < 1
-    ) {
+export function getRecurringSurveyScheduleInfo(survey: RecurringScheduleSurvey): RecurringSurveyScheduleInfo | null {
+    const totalDurationDays = getScheduleDurationDays(survey)
+    if (totalDurationDays === null || survey.end_date) {
         return null
     }
-    // The backend caps the generated iteration windows at MAX_ITERATION_COUNT, so anything above that never
-    // extends the schedule — mirror the cap here to match the real close date.
-    const effectiveCount = Math.min(count, MAX_ITERATION_COUNT)
-    const totalDurationDays = effectiveCount * frequency
-    const autoCloseDate = survey.start_date ? dayjs.utc(survey.start_date).add(totalDurationDays, 'day') : null
-    return { totalDurationDays, autoCloseDate }
+    return { totalDurationDays, autoCloseDate: getProjectedAutoCloseDate(survey, totalDurationDays) }
+}
+
+/**
+ * Whether a recurring survey stopped because it reached the end of its repeat schedule, rather than because
+ * somebody stopped it. Without this the survey just reads as Complete, and the owner has no way to tell that
+ * PostHog closed it.
+ */
+export function didRecurringSurveyCloseOnSchedule(survey: RecurringScheduleSurvey): boolean {
+    const totalDurationDays = getScheduleDurationDays(survey)
+    if (totalDurationDays === null || !survey.end_date) {
+        return false
+    }
+    const autoCloseDate = getProjectedAutoCloseDate(survey, totalDurationDays)
+    return !!autoCloseDate && dayjs.utc(survey.end_date).isSameOrAfter(autoCloseDate)
 }
 
 export function doesSurveyHaveDisplayConditions(survey: Survey | NewSurvey): boolean {
