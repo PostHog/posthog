@@ -2,6 +2,7 @@ from collections.abc import Callable, Sequence
 from typing import TYPE_CHECKING, Any, Literal
 
 from django.contrib.postgres.fields import ArrayField
+from django.contrib.postgres.indexes import GinIndex
 from django.db import models
 from django.db.models import Exists, OuterRef, QuerySet
 from django.utils import timezone
@@ -159,6 +160,19 @@ class Experiment(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.
 
     class Meta:
         db_table = "posthog_experiment"
+        indexes = [
+            # The `?event=` list filter matches an event reference anywhere in the metric JSON with
+            # a jsonpath `@?` predicate. Only a jsonb_ops GIN index can answer that predicate, and
+            # without one Postgres reads and decompresses the metric columns of every experiment in
+            # the project. A jsonb_path_ops index is not a substitute, because it cannot serve a
+            # `$.**` path.
+            #
+            # `fastupdate` is off because a read must scan the whole pending list, and the planner
+            # prices that scan high enough to fall back to a sequential scan. An experiment is read
+            # far more often than it is written, so the direct index insert is the cheaper trade.
+            GinIndex(fields=["metrics"], name="exp_metrics_gin", fastupdate=False),
+            GinIndex(fields=["metrics_secondary"], name="exp_metrics_secondary_gin", fastupdate=False),
+        ]
         constraints = [
             # Rule IDs are UUIDs that no later experiment may reuse, so uniqueness is global, not per team.
             models.UniqueConstraint(

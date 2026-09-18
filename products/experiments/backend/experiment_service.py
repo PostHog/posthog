@@ -2,7 +2,6 @@
 
 import json
 import time
-from collections import defaultdict
 from collections.abc import Iterable, Mapping
 from copy import deepcopy
 from datetime import date, datetime, timedelta
@@ -69,7 +68,11 @@ from products.experiments.backend.hogql_queries.exposure_query_logic import (
     resolve_default_exposure_event,
 )
 from products.experiments.backend.hogql_queries.funnel_validation import FunnelDWValidator
-from products.experiments.backend.metric_utils import filter_metric_group_ids_by_event
+from products.experiments.backend.metric_utils import (
+    actions_firing_event,
+    jsonb_matches_jsonpath,
+    metric_event_reference_jsonpath,
+)
 from products.experiments.backend.models.experiment import (
     EXPOSURE_FROZEN_COHORT_KEY,
     EXPOSURE_FROZEN_GROUP_KEY,
@@ -4402,31 +4405,43 @@ class ExperimentService:
     # Experiment list/querying
     # ------------------------------------------------------------------
 
-    def _experiments_matching_event(self, queryset: QuerySet[Experiment], event: str) -> list[int]:
-        """Return PKs of experiments whose metrics reference the given event.
+    def _filter_by_metric_event(self, queryset: QuerySet[Experiment], event: str) -> QuerySet[Experiment]:
+        """Narrow the queryset to experiments whose metrics reference ``event``.
 
-        Reads only the metric columns — no model hydration or prefetches, so the
-        caller's prefetch-heavy queryset isn't materialized twice — and resolves
-        every referenced action in a single batched query to avoid an N+1.
+        Postgres does the whole match. A Python match instead makes every non-archived experiment
+        in the project pay to have its metric JSON detoasted, transferred and parsed on each
+        request, although only a few rows can match.
+
+        The actions that fire the event are resolved first, so the jsonpath can name their ids and
+        match an action-based metric without a second pass.
         """
-        inline_metrics = list(queryset.values_list("pk", "metrics", "metrics_secondary"))
-        pks = [pk for pk, _, _ in inline_metrics]
-
-        saved_queries_by_experiment: dict[int, list[dict[str, Any]]] = defaultdict(list)
-        for experiment_id, query in ExperimentToSavedMetric.objects.filter(experiment_id__in=pks).values_list(
-            "experiment_id", "saved_metric__query"
-        ):
-            if query:
-                saved_queries_by_experiment[experiment_id].append(query)
-
-        metric_groups: list[tuple[int, list[dict[str, Any]]]] = [
-            (
-                pk,
-                [*(metrics or []), *(metrics_secondary or []), *saved_queries_by_experiment.get(pk, [])],
+        jsonpath = metric_event_reference_jsonpath(event, actions_firing_event(event, self.team))
+        # The saved-metric branch is read as a list of ids, not left as a nested queryset, for two
+        # reasons. Django renames the outer table of a nested queryset, which breaks the
+        # table-qualified column reference in the predicate. And a subquery inside the OR leaves
+        # the planner no bitmap path for the other two branches, so it falls back to a sequential
+        # scan that decompresses the metric columns of every experiment in the project.
+        saved_metric_ids = list(
+            ExperimentSavedMetric.objects.filter(team__project_id=self.team.project_id)
+            .annotate(_references_event=jsonb_matches_jsonpath("posthog_experimentsavedmetric", "query", jsonpath))
+            .filter(_references_event=True)
+            .values_list("pk", flat=True)
+        )
+        experiment_ids_with_matching_saved_metric = list(
+            ExperimentToSavedMetric.objects.filter(saved_metric_id__in=saved_metric_ids).values_list(
+                "experiment_id", flat=True
             )
-            for pk, metrics, metrics_secondary in inline_metrics
-        ]
-        return filter_metric_group_ids_by_event(metric_groups, event, self.team)
+        )
+        return queryset.annotate(
+            _metrics_reference_event=jsonb_matches_jsonpath("posthog_experiment", "metrics", jsonpath),
+            _secondary_metrics_reference_event=jsonb_matches_jsonpath(
+                "posthog_experiment", "metrics_secondary", jsonpath
+            ),
+        ).filter(
+            Q(_metrics_reference_event=True)
+            | Q(_secondary_metrics_reference_event=True)
+            | Q(pk__in=experiment_ids_with_matching_saved_metric)
+        )
 
     def filter_experiments_queryset(
         self,
@@ -4530,9 +4545,7 @@ class ExperimentService:
 
             event = query_params.get("event")
             if event:
-                # Event references live deep in the metrics JSON, so filter in Python and
-                # narrow the queryset by primary key to preserve ordering and pagination.
-                queryset = queryset.filter(pk__in=self._experiments_matching_event(queryset, event))
+                queryset = self._filter_by_metric_event(queryset, event)
 
             tags = _parse_tag_names(query_params.get("tags"))
             if tags:
