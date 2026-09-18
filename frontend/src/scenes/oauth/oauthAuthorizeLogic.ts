@@ -544,8 +544,6 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
                 setIsMcpResource: (_, { isMcpResource }) => isMcpResource,
             },
         ],
-        // The server sets this flag once for the page. The function reads it when the logic mounts.
-        accessControlsApply: [(): boolean => getAppContext()?.oauth_consent_access_controls_apply ?? false, {}],
         isCanceling: [
             false,
             {
@@ -708,6 +706,8 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
         },
     })),
     selectors(() => ({
+        // The server sets this flag once for the page, so no action changes it.
+        accessControlsApply: [() => [], (): boolean => getAppContext()?.oauth_consent_access_controls_apply === true],
         allOrganizations: [
             (s) => [s.user],
             (user: UserType): OrganizationBasicType[] => {
