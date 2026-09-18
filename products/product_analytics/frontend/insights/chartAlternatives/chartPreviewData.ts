@@ -78,6 +78,8 @@ function canSumBuckets(source: TrendsQuery, results: TrendResult[]): boolean {
     return (
         !hasTrendsFormula(source.trendsFilter) &&
         (source.trendsFilter?.smoothingIntervals ?? 1) <= 1 &&
+        // The backend rounds each sampled bucket, so their sum can differ from a sampled total.
+        (source.samplingFactor ?? 1) === 1 &&
         results.every((result) => result.action != null && SUMMABLE_MATHS.has(result.action.math ?? 'total'))
     )
 }

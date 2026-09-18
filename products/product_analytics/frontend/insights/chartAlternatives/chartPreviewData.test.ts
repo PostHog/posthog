@@ -65,6 +65,7 @@ describe('deriveChartPreview', () => {
         ['percentile', 'p90', {}],
         ['formula', 'total', { trendsFilter: { formula: 'A / B' } }],
         ['smoothed buckets', 'total', { trendsFilter: { smoothingIntervals: 2 } }],
+        ['sampled buckets', 'total', { samplingFactor: 0.1 }],
     ])('does not reconstruct a total from %s', (_, math, queryOverrides) => {
         expect(
             deriveChartPreview(
