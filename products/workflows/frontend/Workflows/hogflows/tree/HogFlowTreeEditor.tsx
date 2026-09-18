@@ -230,6 +230,7 @@ export function HogFlowTreeEditor(): JSX.Element {
                             draggedActionIdRef={draggedActionIdRef}
                             onDragEnd={onDragEnd}
                             edge={focused.branch.sequence.trailingEdge}
+                            alwaysVisible={focused.branch.sequence.nodes.length === 0}
                             insertionLabel={`Add step to ${focused.branch.label}`}
                         />
                     )}
