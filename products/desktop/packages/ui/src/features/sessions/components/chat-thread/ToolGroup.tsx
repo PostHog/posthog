@@ -15,7 +15,13 @@ import {
 } from "@posthog/shared";
 import type { ToolCall } from "@posthog/ui/features/sessions/types";
 import { Spinner } from "@posthog/ui/primitives/Spinner";
-import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
+import {
+  AnimatePresence,
+  domAnimation,
+  LazyMotion,
+  m,
+  useReducedMotion,
+} from "framer-motion";
 import { memo, useMemo } from "react";
 import type { ConversationItem } from "../buildConversationItems";
 import { summarizeMemo } from "../new-thread/buildThreadGroups";
@@ -246,31 +252,33 @@ export const ToolGroup = memo(function ToolGroup({
       >
         {/* `mode="wait"` so the outgoing label clears before the next fades in. Overlapping them
             on a single line reads as a flicker rather than a change. */}
-        <AnimatePresence mode="wait" initial={false}>
-          <motion.span
-            key={labelKey}
-            className="flex min-w-0 items-center gap-1.5"
-            initial={reduceMotion ? false : LABEL_MOTION.initial}
-            animate={reduceMotion ? undefined : LABEL_MOTION.animate}
-            exit={reduceMotion ? undefined : LABEL_MOTION.exit}
-            transition={reduceMotion ? undefined : LABEL_MOTION.transition}
-          >
-            {showSummary ? (
-              <span className="truncate">{summary.doneLabel}</span>
-            ) : thinking || !currentName ? (
-              <span className="shrink-0 font-medium">Thinking…</span>
-            ) : (
-              <>
-                <span className="shrink-0 font-medium">{currentName}</span>
-                {currentContext ? (
-                  <span className="truncate text-muted-foreground/70">
-                    {currentContext}
-                  </span>
-                ) : null}
-              </>
-            )}
-          </motion.span>
-        </AnimatePresence>
+        <LazyMotion features={domAnimation}>
+          <AnimatePresence mode="wait" initial={false}>
+            <m.span
+              key={labelKey}
+              className="flex min-w-0 items-center gap-1.5"
+              initial={reduceMotion ? false : LABEL_MOTION.initial}
+              animate={reduceMotion ? undefined : LABEL_MOTION.animate}
+              exit={reduceMotion ? undefined : LABEL_MOTION.exit}
+              transition={reduceMotion ? undefined : LABEL_MOTION.transition}
+            >
+              {showSummary ? (
+                <span className="truncate">{summary.doneLabel}</span>
+              ) : thinking || !currentName ? (
+                <span className="shrink-0 font-medium">Thinking…</span>
+              ) : (
+                <>
+                  <span className="shrink-0 font-medium">{currentName}</span>
+                  {currentContext ? (
+                    <span className="truncate text-muted-foreground/70">
+                      {currentContext}
+                    </span>
+                  ) : null}
+                </>
+              )}
+            </m.span>
+          </AnimatePresence>
+        </LazyMotion>
       </ChatMarkerContent>
     </ChatMarker>
   );
