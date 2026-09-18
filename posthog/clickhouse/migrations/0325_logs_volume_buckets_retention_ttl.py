@@ -23,9 +23,12 @@ ALTER TABLE {DB}.logs_volume_buckets
     MODIFY ORDER BY (team_id, time_bucket, service_name, namespace, environment, severity_text, retention_days)
 """
 
+# The TTL materialization is skipped: it rewrites every existing part to reach
+# the same 42 day expiry those rows already carry.
 MODIFY_TTL = f"""
 ALTER TABLE {DB}.logs_volume_buckets
     MODIFY TTL time_bucket + toIntervalDay(greatest(42, retention_days))
+    SETTINGS materialize_ttl_after_modify = 0
 """
 
 ADD_RETENTION_DAYS_DISTRIBUTED = f"""
