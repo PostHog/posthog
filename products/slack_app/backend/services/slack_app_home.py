@@ -2373,6 +2373,10 @@ def _accessible_integrations(integration: Integration, slack_user_id: str) -> li
     build plus three queries, and all three cards want the same answer. It is also the
     authorization boundary for the whole tab, so it should have exactly one definition.
     """
+    # Deliberately not health-filtered, unlike the mention path. There, dropping an
+    # install with a dead token lets resolution fall through to the next candidate; here
+    # it would blank the whole tab whenever `auth.test` is unreachable, since every card
+    # hangs off this list.
     return _filter_accessible_integrations(
         integration, slack_user_id, _workspace_integrations(integration.integration_id)
     )
@@ -2466,23 +2470,23 @@ def _resolve_project_state(
 def _filter_accessible_integrations(
     integration: Integration, slack_user_id: str, candidates: list[Integration]
 ) -> list[Integration]:
-    # Falls back to the full candidate list when we can't identify the user —
-    # hiding the picker would mean an unidentified user has no way to change
-    # their routing at all.
-    profile = SlackUserProfileCache.objects.filter(integration_id=integration.id, slack_user_id=slack_user_id).first()
-    if profile is None or not profile.email:
-        return candidates
-    membership = (
-        OrganizationMembership.objects.filter(
-            user__email=profile.email,
-            organization_id__in={c.team.organization_id for c in candidates},
-        )
-        .select_related("user")
-        .first()
-    )
-    if membership is None:
-        return candidates
-    permissions = UserPermissions(user=membership.user)
+    """The candidates this Slack identity can reach.
+
+    A viewer we cannot identify is narrowed to the one project the tab is already being
+    rendered for, rather than shown the whole list. A Slack workspace can carry several
+    organizations, so the old behaviour of returning every candidate published the
+    project and organization names of orgs the viewer has no membership in to anyone in
+    the workspace. Narrowing keeps every card working and the routing picker usable,
+    which is what returning the full list was protecting, without that disclosure.
+
+    `_apply_project_pick` gates on this too, so the same narrowing stops an unidentified
+    viewer saving a personal default for any team in the workspace, which the old
+    behaviour allowed. Such a default is rejected on the mention path anyway.
+    """
+    user = _resolve_home_user(integration, slack_user_id)
+    if user is None:
+        return [c for c in candidates if c.id == integration.id]
+    permissions = UserPermissions(user=user)
     return [c for c in candidates if permissions.team(c.team).effective_membership_level is not None]
 
 
