@@ -21,6 +21,8 @@ from common.hogvm.python.stl import _MAX_SEQUENCE_LENGTH, STL, _guard_sequence_l
 from common.hogvm.python.utils import (
     COST_PER_UNIT,
     MAX_MEMORY,
+    MAX_REGEX_INPUT_LENGTH,
+    MAX_REGEX_PATTERN_LENGTH,
     HogVMException,
     HogVMMemoryExceededException,
     UncaughtHogVMException,
@@ -123,6 +125,8 @@ class TestBytecodeExecute:
     @parameterized.expand(
         [
             ("function_list_input", "match(['tool_call'], 'tool')", {}, "Function match requires input"),
+            ("like_list_input", "like(['label'], 'label')", {}, "Function like requires input"),
+            ("like_list_pattern", "like('label', ['label'])", {}, "Function like requires pattern"),
             ("function_invalid_pattern", "match('tool_call', '[')", {}, "Invalid regex pattern"),
             ("function_lookbehind_unsupported", "match('ab', '(?<=a)b')", {}, "Invalid regex pattern"),
             ("operator_list_input", "['tool_call'] =~ 'tool'", {}, "Function match requires input"),
@@ -142,6 +146,46 @@ class TestBytecodeExecute:
             execute_bytecode(bytecode, globals_dict)
 
         assert expected_message in str(exc_info.value)
+
+    @pytest.mark.parametrize(
+        "expression",
+        [
+            "match(input, pattern)",
+            "extractRegex(input, pattern)",
+            "like(input, pattern)",
+            "ilike(input, pattern)",
+            "notLike(input, pattern)",
+            "notILike(input, pattern)",
+            "input like pattern",
+            "input ilike pattern",
+            "input not like pattern",
+            "input not ilike pattern",
+            "input =~ pattern",
+            "input !~ pattern",
+            "input =~* pattern",
+            "input !~* pattern",
+        ],
+    )
+    @pytest.mark.parametrize("oversized", ["input", "pattern"])
+    def test_regex_input_limits(self, expression: str, oversized: str) -> None:
+        bytecode = create_bytecode(parse_expr(expression)).bytecode
+        limit = MAX_REGEX_INPUT_LENGTH if oversized == "input" else MAX_REGEX_PATTERN_LENGTH
+        globals_dict = {"input": "z", "pattern": "z", oversized: "z" * (limit + 1)}
+
+        with pytest.raises(HogVMException, match=f"exceeds {limit} characters"):
+            execute_bytecode(bytecode, globals_dict, timeout=60)
+
+    @pytest.mark.parametrize("function_name", ["match", "extractRegex", "like", "ilike"])
+    @pytest.mark.parametrize("bounded", ["input", "pattern"])
+    def test_regex_input_limits_are_inclusive(self, function_name: str, bounded: str) -> None:
+        bytecode = create_bytecode(parse_expr(f"{function_name}(input, pattern)")).bytecode
+        limit = MAX_REGEX_INPUT_LENGTH if bounded == "input" else MAX_REGEX_PATTERN_LENGTH
+        subject = "z" * limit if bounded == "input" else "z"
+        pattern = "z" if bounded == "input" else "z" * limit
+        result = execute_bytecode(bytecode, {"input": subject, "pattern": pattern}, timeout=60).result
+
+        expected = ("z" if bounded == "input" else "") if function_name == "extractRegex" else bounded == "input"
+        assert result == expected
 
     def test_nested_value(self):
         my_dict = {

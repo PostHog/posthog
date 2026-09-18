@@ -47,6 +47,17 @@ Few things to note:
 - Placeholders like `{where}` are just nodes of type `ast.Placeholder(field='where')`. You can leave them in, and call `stmt = replace_placeholders(stmt, { where: parse_expr('1') })` later.
 - We wrote one AST node ourselves: `ast.Constant(value=num_last_days)`. We did it to sanitize the value by make sure it's treated as a constant. We might simplify constants further (e.g. `parse_const` or just `{days: 2}`), but we're not there yet.
 
+## Pattern matching during query preparation
+
+Expressions inside HogQL placeholders execute in the Python HogVM.
+Its regex and LIKE functions and operators accept patterns up to 16,384 characters and input strings up to 1,048,576 characters.
+Larger values raise a `HogVMException`; shorten the pattern or input before matching.
+These limits also apply to `extractRegex`, which still returns an empty string for invalid regex syntax.
+Regex matching uses RE2 syntax, so backreferences and lookaround are unsupported.
+
+SQL LIKE and ILIKE patterns sent to ClickHouse are not subject to these VM limits.
+For non-nullable materialized columns, patterns above 16,384 characters skip the optional sentinel-based rewrite and use the normal property read.
+
 ## AST nodes
 
 If you want more control, you can build the AST nodes directly. The same query above can be written as:

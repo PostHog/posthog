@@ -10,6 +10,8 @@ _CASE_INSENSITIVE_OPTS.case_sensitive = False
 
 COST_PER_UNIT = 8
 MAX_MEMORY = 64 * 1024 * 1024  # 64 MB
+MAX_REGEX_PATTERN_LENGTH = 16 * 1024
+MAX_REGEX_INPUT_LENGTH = 1024 * 1024
 
 
 def _temporal_seconds(value: Any) -> float | None:
@@ -71,6 +73,14 @@ def _format_regex_error(error: Exception) -> str:
     return str(error)
 
 
+def _validate_regex_inputs(string: str, pattern: str) -> None:
+    # The VM checks its time budget between opcodes, so each matching call must also bound its inputs.
+    if len(pattern) > MAX_REGEX_PATTERN_LENGTH:
+        raise HogVMException(f"Pattern exceeds {MAX_REGEX_PATTERN_LENGTH} characters. Use a shorter pattern.")
+    if len(string) > MAX_REGEX_INPUT_LENGTH:
+        raise HogVMException(f"Matching input exceeds {MAX_REGEX_INPUT_LENGTH} characters. Use a shorter input.")
+
+
 def _compile_regex(pattern: str, case_insensitive: bool = False) -> Any:
     # re2 matches in linear time, unlike Python's backtracking re engine. It also makes the character
     # classes ASCII-only, so `\w+` extracts "caf" from "café" and `^\w+$` does not match "Müller".
@@ -87,6 +97,7 @@ def regex_match(string: Any, pattern: Any, case_insensitive: bool = False) -> bo
 
     string = _require_string(string, "input", "match")
     pattern = _require_string(pattern, "pattern", "match")
+    _validate_regex_inputs(string, pattern)
     return _compile_regex(pattern, case_insensitive).search(string) is not None
 
 
@@ -96,8 +107,10 @@ def regex_extract(string: Any, pattern: Any) -> str:
     if string is None or pattern is None:
         return ""
     haystack = str(string)
+    pattern = str(pattern)
+    _validate_regex_inputs(haystack, pattern)
     try:
-        compiled = _compile_regex(str(pattern))
+        compiled = _compile_regex(pattern)
     except HogVMException:
         return ""
     found = compiled.search(haystack)
@@ -112,6 +125,9 @@ def regex_extract(string: Any, pattern: Any) -> str:
 
 
 def like(string: Any, pattern: Any, case_insensitive: bool = False) -> bool:
+    string = _require_string(string, "input", "like")
+    pattern = _require_string(pattern, "pattern", "like")
+    _validate_regex_inputs(string, pattern)
     pattern = re2.escape(pattern).replace("%", ".*").replace("_", ".")
     re_pattern = re2.compile(pattern, options=_CASE_INSENSITIVE_OPTS) if case_insensitive else re2.compile(pattern)
     return re_pattern.search(string) is not None
