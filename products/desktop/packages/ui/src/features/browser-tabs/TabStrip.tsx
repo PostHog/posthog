@@ -5,6 +5,7 @@ import {
   PlusIcon,
   PushPinIcon,
   SplitHorizontalIcon,
+  SquareSplitHorizontalIcon,
   XIcon,
 } from "@phosphor-icons/react";
 import {
@@ -196,7 +197,7 @@ function SplitTooltip({ split }: { split: SplitView }) {
     <div className="flex min-w-44 flex-col gap-1.5 py-0.5">
       <div className="flex items-center justify-between gap-3 text-muted">
         <span className="flex items-center gap-1.5">
-          <SplitHorizontalIcon size={12} />
+          <SquareSplitHorizontalIcon size={12} />
           {split.name ?? "Split"}
         </span>
         <span>{split.members.length} tabs</span>
@@ -220,25 +221,6 @@ function SplitTooltip({ split }: { split: SplitView }) {
         })}
       </div>
     </div>
-  );
-}
-
-function MemberCluster({ members }: { members: SplitMember[] }) {
-  return (
-    <span aria-hidden className="-space-x-px flex shrink-0 items-center">
-      {members.slice(0, 4).map((member) => (
-        <span
-          key={member.id}
-          className="flex size-3.5 items-center justify-center [&>span>svg]:size-3 [&>svg]:size-3"
-        >
-          {member.icon ?? (
-            <span className="flex size-3 items-center justify-center rounded-xs bg-foreground/10 font-medium text-[8px] uppercase leading-none">
-              {member.label.trim().charAt(0) || "?"}
-            </span>
-          )}
-        </span>
-      ))}
-    </span>
   );
 }
 
@@ -351,7 +333,9 @@ function SortableTabPill({
           } ${isActive ? "" : "opacity-60 hover:opacity-100"}`}
         >
           {split ? (
-            <MemberCluster members={split.members} />
+            <span className="flex shrink-0 items-center [&>svg]:size-3.5">
+              <SquareSplitHorizontalIcon size={14} />
+            </span>
           ) : tab.icon || tab.pinned ? (
             <span className="flex shrink-0 items-center [&>svg]:size-3.5">
               {tab.icon ?? <PushPinIcon size={14} weight="fill" />}
