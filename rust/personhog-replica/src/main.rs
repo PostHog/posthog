@@ -42,12 +42,17 @@ async fn create_storage(config: &Config) -> Arc<PostgresStorage> {
                 ..primary_pool_config.clone()
             };
 
+            // The bulk pools serve rare, large statements, so an idle connection can outlive a
+            // pgbouncer restart and the next caller is the first to learn it is dead. The ping is
+            // one round trip per acquire, which is nothing next to a bulk statement, and it makes
+            // sqlx discard the dead connection instead of failing the request with it.
             let bulk_primary_pool_config = PoolConfig {
                 min_connections: config
                     .min_pg_connections
                     .min(config.bulk_max_pg_connections),
                 max_connections: config.bulk_max_pg_connections,
                 acquire_timeout: config.bulk_acquire_timeout(),
+                test_before_acquire: true,
                 statement_timeout_ms: config.bulk_statement_timeout(),
                 pool_name: Some("bulk_primary".to_string()),
                 ..primary_pool_config.clone()
