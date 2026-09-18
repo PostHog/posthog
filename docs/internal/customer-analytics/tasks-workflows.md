@@ -29,7 +29,7 @@ Those legacy runs create at most one task per action, including across loop visi
 Start a new workflow run to use per-visit task creation.
 
 Task tokens retain their own `posthog:customer-tasks:create` audience. Account tokens cannot call the task endpoint.
-The shared key couples service access and rotation for both surfaces. See [Workflow task signing key](../../products/customer_analytics/backend/COMPROMISES.md#workflow-task-signing-key).
+The shared key couples service access and rotation for both surfaces. See [Workflow task signing key](../../../products/customer_analytics/backend/COMPROMISES.md#workflow-task-signing-key).
 Task creation fails when the shared key is missing. Unlike account actions, it has no fallback to the project secret API token.
 
 The worker calls `POST /api/projects/{team_id}/workflow_customer_tasks/` through `INTERNAL_API_BASE_URL`, with a short-lived service token scoped to the project, workflow, and invocation/action key. The call goes directly to the backend, avoiding login redirects on the public app URL. Redirects and responses without a valid task UUID fail the workflow step. User API credentials and tokens for other actions cannot call this endpoint. No database migration is required.
@@ -79,3 +79,32 @@ The user-config API stores preferences in `UserCustomerAnalyticsConfig.propertie
 Omitted fields retain their stored values, including fields within `task_digest`.
 Missing preferences return disabled, 09:00, and weekdays without changing other stored settings.
 Scheduling and email delivery are implemented separately.
+
+## Task digest delivery
+
+The `customer-analytics-task-digest` feature flag controls scheduled digest emails independently of Tasks and the event stream.
+Enable it only for the initial rollout's recipients after verifying delivery in staging.
+Disabling it stops both new scheduled sends and worker retries.
+
+Every five minutes, the scheduler reads opted-in users in batches of 100 and enqueues users whose selected time has passed in the project timezone.
+Each worker rereads preferences, membership, task permissions, and current assignments before rendering the digest.
+Weekday cadence excludes Saturday and Sunday; every-day cadence includes them.
+Daylight-saving changes follow the project timezone: a nonexistent time moves forward by the clock change, and a repeated time produces one digest for that local date.
+Delayed work can catch up during that date, but does not send an older date's digest.
+
+Digests use the checked-in `email/customer_task_digest.html` template through SMTP.
+Configure `EMAIL_ENABLED`, the SMTP host, port, authentication, TLS settings, sender, timeout, and `SITE_URL` before enabling the flag.
+Customer.io configuration alone is insufficient; there is no Customer.io template dependency for this email.
+Missing SMTP configuration records a failed occurrence instead of reporting success.
+
+The worker sends synchronously and checks `MessagingRecord.sent_at` for provider acceptance.
+The campaign key contains the project ID, user ID, and local digest date.
+Confirmed sends are skipped by repeated scheduler runs and worker retries.
+`MessagingRecord.campaign_count` caps this occurrence at four attempts; permanent rejection marks the remaining attempts unavailable.
+Temporary SMTP failures retry with backoff. A provider accepting a message does not prove inbox delivery, and a process failure between acceptance and committing the record can still duplicate a message.
+
+`customer_analytics.task_digest.delivery` records acceptance, temporary failure, retry exhaustion, permanent rejection, and missing configuration.
+`customer_analytics.task_digest.send_delay` measures the delay from the configured time to acceptance.
+These metrics have no task content, account names, or recipient email labels.
+Before a limited rollout, use test users in staging to verify a received email, current permission and opt-out checks, duplicate suppression, and the flag's kill switch.
+No production verification is implied by local tests.
