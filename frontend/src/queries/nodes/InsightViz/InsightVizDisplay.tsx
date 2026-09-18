@@ -101,9 +101,19 @@ function DashboardInsightRefreshHintOrLoading({
     return <InsightRefreshDataHint onRetry={onRetry} insightProps={insightProps} />
 }
 
+function isNonEmptyResult(rows: unknown): boolean {
+    return Array.isArray(rows) ? rows.length > 0 : rows != null
+}
+
+/** A settled query came back with rows. An empty success is `result: []`, so presence alone is not enough. */
+export function hasResultRows(insightData: Record<string, any> | null | undefined): boolean {
+    return isNonEmptyResult(insightData?.result) || isNonEmptyResult(insightData?.results)
+}
+
 /**
  * The "PostHog AI" section offers to explain the insight, so it only belongs next to results worth explaining.
- * It stays up while the query is in flight so it doesn't appear only once the chart draws.
+ * It stays up while the query is in flight so it doesn't appear only once the chart draws. A query that
+ * returned rows keeps it, even when the chart reads as empty, since that is what people ask PostHog AI about.
  */
 export function shouldShowAIAnalysisSection({
     editMode,
@@ -112,7 +122,7 @@ export function shouldShowAIAnalysisSection({
     hasQuerySource,
     insightDataLoading,
     hasBlockingEmptyState,
-    hasRenderableResults,
+    hasResults,
 }: {
     editMode?: boolean
     embedded?: boolean
@@ -120,7 +130,7 @@ export function shouldShowAIAnalysisSection({
     hasQuerySource: boolean
     insightDataLoading: boolean
     hasBlockingEmptyState: boolean
-    hasRenderableResults: boolean
+    hasResults: boolean
 }): boolean {
     if (editMode || embedded || inSharedMode || !hasQuerySource) {
         return false
@@ -128,7 +138,7 @@ export function shouldShowAIAnalysisSection({
     if (insightDataLoading) {
         return true
     }
-    return !hasBlockingEmptyState && hasRenderableResults
+    return !hasBlockingEmptyState && hasResults
 }
 
 /** Dashboard tile: show refresh when merged `result` is still nullish (empty success is `[]`, not `null`). */
@@ -513,7 +523,7 @@ export function InsightVizDisplay({
             hasQuerySource: !!querySource,
             insightDataLoading,
             hasBlockingEmptyState: !!BlockingEmptyState,
-            hasRenderableResults,
+            hasResults: hasResultRows(insightData),
         }) ? (
             <InsightAIAnalysis />
         ) : null
