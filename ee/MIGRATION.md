@@ -58,9 +58,35 @@ The same PR deletes `ee/session_recordings`.
 It held one snapshot file whose test class lives in `posthog/session_recordings/queries/test/listing_recordings/`.
 All 41 of its snapshots are a subset of the 287 in that directory's own file, so it was a stale copy.
 
-## What moves next
+## What is in flight
 
-Each row is one PR, landed as a stack on top of the `hogai` move.
+The eight batches that carry no model and needed no new product are open as stack #102736, based on `master` rather than on this branch.
+They touch none of the files this PR moves, so the two land in parallel and in either order.
+
+| PR                                                        | Batch                                            | Destination                   |
+| --------------------------------------------------------- | ------------------------------------------------ | ----------------------------- |
+| [#102727](https://github.com/PostHog/posthog/pull/102727) | `ee/clickhouse/materialized_columns`             | `products/analytics_platform` |
+| [#102728](https://github.com/PostHog/posthog/pull/102728) | `ee/tasks/subscriptions`                         | `products/exports`            |
+| [#102729](https://github.com/PostHog/posthog/pull/102729) | `ee/clickhouse/views` experiment views and tests | `products/experiments`        |
+| [#102730](https://github.com/PostHog/posthog/pull/102730) | `ee/surveys`                                     | `products/surveys`            |
+| [#102732](https://github.com/PostHog/posthog/pull/102732) | `ee/admin`                                       | `posthog/admin`               |
+| [#102733](https://github.com/PostHog/posthog/pull/102733) | `ee/api/rbac`                                    | `products/access_control`     |
+| [#102734](https://github.com/PostHog/posthog/pull/102734) | `ee/support_sidebar_max`                         | `posthog/support_sidebar_max` |
+| [#102735](https://github.com/PostHog/posthog/pull/102735) | `ee/benchmarks`                                  | `tools/benchmarks`            |
+
+Those eight remove `ee/surveys`, `ee/api/rbac`, `ee/support_sidebar_max`, `ee/admin` and `ee/benchmarks` from the directory outright.
+
+Three corrections to this plan came out of them:
+
+- **`ee/tasks/subscriptions` goes to `products/exports`, not `products/product_analytics`.** That product is isolated, so the batch needs a facade entry per exposed symbol, and `tach check --interfaces` reports 70. `products/exports` is not isolated, already holds the `Subscription` model and every delivery caller, and needs one `depends_on` line. Ownership does not change: `products/exports` is team-product-analytics too.
+- **An `EE_AVAILABLE` guard whose only reason is the directory comes out with the batch.** Materialized columns and the experiments route surface were both gated that way, so a build without the package silently lost them. Removing the guard is a behavior change, not a refactor, and it belongs in the batch's own PR where a reviewer can see it.
+- **A setting the batch reads has to move with it.** `MATERIALIZE_COLUMNS_*` and `ANTHROPIC_API_KEY` only resolved while `ee/settings.py` was merged into Django settings, so core code reading them after the move needed them in `posthog/settings/`.
+
+`ee/admin`'s URL block is the one part of a listed batch that did not move. It needs `ADMIN_PORTAL_ENABLED` and `ee/middleware.admin_oauth2_callback`, so it waits on `ee/middleware.py`.
+
+## What moves after that
+
+Each remaining row is one PR, landed as a stack.
 "Import sites" counts the lines outside `ee/` that import the batch today.
 It measures the width of the rewrite rather than the size of the batch, so a small directory can still be a wide change.
 "Core" means `posthog/`, the MIT tree outside `products/`.
@@ -68,28 +94,17 @@ The owning team for each batch is in `ee/owners.yaml`, and for a product destina
 
 ### Batches that carry no model
 
-| Batch                                            | Files | Import sites | Destination                   |
-| ------------------------------------------------ | ----- | ------------ | ----------------------------- |
-| `ee/surveys`                                     | 2     | 1            | `products/surveys`            |
-| `ee/api/rbac`                                    | 1     | 0            | `products/access_control`     |
-| `ee/support_sidebar_max`                         | 5     | 0            | core                          |
-| `ee/admin`                                       | 2     | 2            | core                          |
-| `ee/clickhouse/materialized_columns`             | 7     | 55           | `products/analytics_platform` |
-| `ee/clickhouse/views` experiment views and tests | ~10   | 9            | `products/experiments`        |
-| `ee/tasks/subscriptions`                         | 8     | 22           | `products/product_analytics`  |
-| `ee/benchmarks`                                  | 6     | 0            | `tools/`                      |
-| `ee/partners` (Stripe provisioning)              | 31    | 0            | `products/partners`           |
-| `ee/vercel`, `ee/api/vercel`                     | 34    | 6            | `products/partners`           |
-| `ee/api/agentic_provisioning`                    | 47    | 3            | `products/provisioning`       |
+| Batch                               | Files | Import sites | Destination             |
+| ----------------------------------- | ----- | ------------ | ----------------------- |
+| `ee/partners` (Stripe provisioning) | 31    | 0            | `products/partners`     |
+| `ee/vercel`, `ee/api/vercel`        | 34    | 6            | `products/partners`     |
+| `ee/api/agentic_provisioning`       | 47    | 3            | `products/provisioning` |
 
 Notes that decide how a row lands:
 
-- `ee/clickhouse/materialized_columns` has 55 import sites against 7 files. It is a cheap move that touches many call sites, so land it alone.
-- `ee/tasks/subscriptions` goes to `products/product_analytics`, which owns it. Its callers do not live there: 8 of the 9 import sites are in `products/exports`, so that product's imports change in the same PR.
-- `ee/benchmarks` has to still run after the move. It is an asv suite, and `asv.conf.json`, `measure.sh` and the benchmark discovery paths all name the current location.
 - Neither `products/partners` nor `products/provisioning` exists yet. Create both with `hogli product:bootstrap`, which scaffolds them already isolated.
 - Stripe provisioning and non-Stripe provisioning stay apart. `ee/partners/stripe/api/provisioning` and `ee/api/agentic_provisioning` carry matching module names, and that is not duplication to collapse. Land them as separate batches into separate products.
-- `ee/management/commands` is not one batch. Each command rides with the code it drives: the two `materialize_columns` commands with materialized columns, `backfill_vercel_secrets` with Vercel, `backfill_scim_request_log_config` with SCIM, and `consume_sqs` with billing. Anything left over goes to core.
+- `ee/management/commands` is not one batch. Each command rides with the code it drives: `backfill_vercel_secrets` with Vercel, `backfill_scim_request_log_config` with SCIM, and `consume_sqs` with billing. The two `materialize_columns` commands already left with #102727. Anything left over goes to core.
 
 ### Batches that carry a model
 
