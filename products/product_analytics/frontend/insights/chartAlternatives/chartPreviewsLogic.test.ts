@@ -42,30 +42,13 @@ function trendsQuery(display: ChartDisplayType): TrendsQuery {
 
 describe('chartPreviewsLogic', () => {
     let refreshModes: string[]
-    let cacheHit: boolean
-    let cacheLastRefresh: string
-    let deferCache: boolean
-    let deferredCacheResponses: ((response: Record<string, unknown>) => void)[]
 
     beforeEach(() => {
         refreshModes = []
-        cacheHit = true
-        cacheLastRefresh = FIRST_REFRESH
-        deferCache = false
-        deferredCacheResponses = []
         const queryMock = async ({ request }: { request: Request }): Promise<Record<string, unknown>> => {
             const body = (await request.json()) as { refresh?: string }
             refreshModes.push(body.refresh ?? '')
-            if (body.refresh !== 'force_cache') {
-                return { results: [timeSeriesRow], last_refresh: FIRST_REFRESH }
-            }
-            if (!cacheHit) {
-                return { cache_key: 'x' }
-            }
-            if (deferCache) {
-                return new Promise((resolve) => deferredCacheResponses.push(resolve))
-            }
-            return { results: [timeSeriesRow], last_refresh: cacheLastRefresh }
+            return { results: [timeSeriesRow], last_refresh: FIRST_REFRESH }
         }
         useMocks({
             get: { '/api/environments/:team_id/insights/': { results: [{}] } },
@@ -91,12 +74,8 @@ describe('chartPreviewsLogic', () => {
         chartAlternativesLogic(logicProps).unmount()
     })
 
-    function load(display: ChartDisplayType, row: Record<string, unknown>, lastRefresh = FIRST_REFRESH): void {
-        insightVizDataLogic(insightProps).actions.updateQuerySource(trendsQuery(display))
-        insightDataLogic(insightProps).actions.setInsightData({ results: [row], last_refresh: lastRefresh })
-    }
-
-    function refresh(row: Record<string, unknown>, lastRefresh = FIRST_REFRESH): void {
+    function load(query: TrendsQuery, row: Record<string, unknown>, lastRefresh = FIRST_REFRESH): void {
+        insightVizDataLogic(insightProps).actions.updateQuerySource(query)
         insightDataLogic(insightProps).actions.setInsightData({ results: [row], last_refresh: lastRefresh })
     }
 
@@ -106,95 +85,32 @@ describe('chartPreviewsLogic', () => {
         )
     }
 
-    it.each(['openGallery', 'toggleGallery'] as const)(
-        'asks the server cache once when a total value gallery opens through %s',
-        async (openAction) => {
-            load(ChartDisplayType.ActionsPie, totalValueRow)
-            chartAlternativesLogic(logicProps).actions[openAction]()
-            await waitFor(() => expect(lineTile()?.response).toMatchObject({ results: [timeSeriesRow] }))
-            expect(refreshModes.filter((mode) => mode === 'force_cache')).toHaveLength(1)
-
-            chartAlternativesLogic(logicProps).actions.closeGallery()
-            chartAlternativesLogic(logicProps).actions[openAction]()
-            expect(refreshModes.filter((mode) => mode === 'force_cache')).toHaveLength(1)
-        }
-    )
-
-    it('shows no chart and does not retry after a cache miss', async () => {
-        cacheHit = false
-        load(ChartDisplayType.ActionsPie, totalValueRow)
-        chartAlternativesLogic(logicProps).actions.openGallery()
-
-        await waitFor(() => expect(chartPreviewsLogic(logicProps).values.cachedTimeSeriesLoading).toBe(false))
-        await waitFor(() => expect(refreshModes).toContain('force_cache'))
-        expect(lineTile()).toMatchObject({ response: null, loading: false })
-
-        chartAlternativesLogic(logicProps).actions.closeGallery()
-        chartAlternativesLogic(logicProps).actions.openGallery()
-        expect(refreshModes.filter((mode) => mode === 'force_cache')).toHaveLength(1)
-    })
-
-    it('retries a cache miss after the insight refreshes', async () => {
-        cacheHit = false
-        load(ChartDisplayType.ActionsPie, totalValueRow)
-        chartAlternativesLogic(logicProps).actions.openGallery()
-        await waitFor(() => expect(refreshModes.filter((mode) => mode === 'force_cache')).toHaveLength(1))
-
-        cacheHit = true
-        cacheLastRefresh = SECOND_REFRESH
-        refresh(totalValueRow, SECOND_REFRESH)
-
-        await waitFor(() => expect(lineTile()?.response).toMatchObject({ last_refresh: SECOND_REFRESH }))
-        expect(refreshModes.filter((mode) => mode === 'force_cache')).toHaveLength(2)
-    })
-
-    it('ignores a stale cache response that resolves after a refreshed lookup starts', async () => {
-        deferCache = true
-        load(ChartDisplayType.ActionsPie, totalValueRow)
-        chartAlternativesLogic(logicProps).actions.openGallery()
-        await waitFor(() => expect(refreshModes.filter((mode) => mode === 'force_cache')).toHaveLength(1))
-
-        refresh(totalValueRow, SECOND_REFRESH)
-        await waitFor(() => expect(refreshModes.filter((mode) => mode === 'force_cache')).toHaveLength(2))
-
-        deferredCacheResponses[1]({
-            results: [{ ...timeSeriesRow, data: [4, 5, 6] }],
-            last_refresh: SECOND_REFRESH,
-        })
-        await waitFor(() =>
-            expect(lineTile()?.response).toMatchObject({ results: [expect.objectContaining({ data: [4, 5, 6] })] })
-        )
-
-        await expectLogic(chartPreviewsLogic(logicProps), () => {
-            deferredCacheResponses[0]({
-                results: [{ ...timeSeriesRow, data: [1, 1, 1] }],
-                last_refresh: FIRST_REFRESH,
-            })
-        }).toFinishAllListeners()
-        expect(lineTile()?.response).toMatchObject({ results: [expect.objectContaining({ data: [4, 5, 6] })] })
-    })
-
-    it.each([false, true])('rejects stale remembered and cached responses (cache hit: %s)', async (hasCacheHit) => {
-        cacheHit = hasCacheHit
-        load(ChartDisplayType.ActionsLineGraph, timeSeriesRow)
-        await waitFor(() => expect(chartPreviewsLogic(logicProps).values.rememberedTimeSeries).not.toBeNull())
-        load(ChartDisplayType.ActionsPie, totalValueRow, SECOND_REFRESH)
-        chartAlternativesLogic(logicProps).actions.openGallery()
-
-        expect(lineTile()?.response).toBeNull()
-        await waitFor(() => expect(refreshModes).toContain('force_cache'))
-        await waitFor(() => expect(lineTile()).toMatchObject({ response: null, loading: false }))
-    })
-
-    it('reuses the time series it saw before the chart became a total value when it is still fresh', async () => {
-        load(ChartDisplayType.ActionsLineGraph, timeSeriesRow)
-        await waitFor(() => expect(chartPreviewsLogic(logicProps).values.rememberedTimeSeries).not.toBeNull())
-        load(ChartDisplayType.ActionsPie, totalValueRow)
+    it('reuses the time series it saw before the chart became a total value, even when the total loaded later', async () => {
+        load(trendsQuery(ChartDisplayType.ActionsLineGraph), timeSeriesRow)
+        load(trendsQuery(ChartDisplayType.ActionsPie), totalValueRow, SECOND_REFRESH)
         chartAlternativesLogic(logicProps).actions.openGallery()
 
         await waitFor(() =>
             expect(lineTile()?.response).toMatchObject({ results: [expect.objectContaining({ data: [1, 2, 3] })] })
         )
-        expect(refreshModes).not.toContain('force_cache')
+    })
+
+    it('does not reuse a time series remembered for a different query', async () => {
+        load(trendsQuery(ChartDisplayType.ActionsLineGraph), timeSeriesRow)
+        load({ ...trendsQuery(ChartDisplayType.ActionsPie), filterTestAccounts: true }, totalValueRow)
+        chartAlternativesLogic(logicProps).actions.openGallery()
+
+        await expectLogic(chartPreviewsLogic(logicProps)).toFinishAllListeners()
+        expect(lineTile()).toMatchObject({ response: null, loading: false })
+    })
+
+    it('shows no time series preview, and queries nothing, when a total value chart has none remembered', async () => {
+        load(trendsQuery(ChartDisplayType.ActionsPie), totalValueRow)
+        const queriesBeforeOpen = refreshModes.length
+        chartAlternativesLogic(logicProps).actions.openGallery()
+
+        await expectLogic(chartPreviewsLogic(logicProps)).toFinishAllListeners()
+        expect(lineTile()).toMatchObject({ response: null, loading: false })
+        expect(refreshModes).toHaveLength(queriesBeforeOpen)
     })
 })

@@ -3,6 +3,8 @@ import { useRef } from 'react'
 
 import { LemonButton, Popover } from '@posthog/lemon-ui'
 
+import { ChartFilter } from 'lib/components/ChartFilter'
+
 import type { InsightLogicProps } from '~/types'
 
 import { chartAlternativesLogic } from './chartAlternativesLogic'
@@ -23,7 +25,7 @@ export function ChartAlternatives({
     embedded: boolean
     inSharedMode?: boolean
     insightProps: InsightLogicProps
-}): JSX.Element | null {
+}): JSX.Element {
     const logicProps = { editMode, embedded, inSharedMode, ...insightProps }
     const logic = useMountedLogic(chartAlternativesLogic(logicProps))
     useMountedLogic(chartPreviewsLogic(logicProps))
@@ -32,7 +34,7 @@ export function ChartAlternatives({
     const triggerRef = useRef<HTMLButtonElement>(null)
 
     if (!canShowAlternatives) {
-        return null
+        return <ChartFilter />
     }
 
     return (

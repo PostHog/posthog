@@ -46,7 +46,6 @@ import {
 } from '~/types'
 
 import { ChartAlternatives } from 'products/product_analytics/frontend/insights/chartAlternatives/ChartAlternatives'
-import { chartAlternativesLogic } from 'products/product_analytics/frontend/insights/chartAlternatives/chartAlternativesLogic'
 import { Funnel } from 'products/product_analytics/frontend/insights/funnels/Funnel'
 import { FunnelCanvasLabel } from 'products/product_analytics/frontend/insights/funnels/FunnelCanvasLabel'
 import { FunnelCorrelation } from 'products/product_analytics/frontend/insights/funnels/FunnelCorrelation/FunnelCorrelation'
@@ -333,15 +332,12 @@ export function InsightVizDisplay({
     // don't render two legends. The slope graph always does; trends/stickiness/lifecycle charts
     // (including pie) do when the quill in-chart legend is on (`usesInChartLegend`).
     const chartDrawsOwnLegend = display === ChartDisplayType.SlopeGraph || usesInChartLegend
-    const { canShowAlternatives } = useValues(
-        chartAlternativesLogic({ ...insightProps, editMode, embedded, inSharedMode })
-    )
     const showSideLegend = supportsDisplay && showLegend && !chartDrawsOwnLegend
 
     function renderActiveView(): JSX.Element | null {
         switch (activeView) {
-            case InsightType.TRENDS: {
-                const trends = (
+            case InsightType.TRENDS:
+                return (
                     <TrendInsight
                         view={InsightType.TRENDS}
                         editMode={editMode}
@@ -350,8 +346,6 @@ export function InsightVizDisplay({
                         inSharedMode={inSharedMode}
                     />
                 )
-                return trends
-            }
             case InsightType.STICKINESS:
                 return (
                     <TrendInsight
@@ -501,21 +495,6 @@ export function InsightVizDisplay({
         return <InsightAIAnalysis />
     }
 
-    function renderHeader(): JSX.Element | null {
-        if (disableHeader) {
-            return null
-        }
-        const chartAlternatives = (
-            <ChartAlternatives
-                insightProps={insightProps}
-                editMode={editMode}
-                embedded={embedded}
-                inSharedMode={inSharedMode}
-            />
-        )
-        return <InsightDisplayConfig chartTypeControl={canShowAlternatives ? chartAlternatives : undefined} />
-    }
-
     const showComputationMetadata = !disableLastComputation || !!samplingFactor
 
     // Web Analytics insights don't use themes, so allow them to render without waiting for theme to load
@@ -541,7 +520,18 @@ export function InsightVizDisplay({
                 )}
                 data-attr={INSIGHT_GRAPH_DATA_ATTR}
             >
-                {renderHeader()}
+                {disableHeader ? null : (
+                    <InsightDisplayConfig
+                        chartTypeControl={
+                            <ChartAlternatives
+                                insightProps={insightProps}
+                                editMode={editMode}
+                                embedded={embedded}
+                                inSharedMode={inSharedMode}
+                            />
+                        }
+                    />
+                )}
                 {showingResults && (
                     <>
                         {!embedded &&
