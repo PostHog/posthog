@@ -100,7 +100,12 @@ const TZLabelPopoverContent = React.memo(function TZLabelPopoverContent({
     return (
         <div className={clsx('TZLabelPopover', showSeconds && 'TZLabelPopover--seconds')}>
             <div className="flex justify-between items-center border-b-1 p-1">
-                <h4 className="mb-0 px-1">{title || 'Timezone conversion'}</h4>
+                <div className="px-1">
+                    <h4 className="mb-0">{title || 'Timezone conversion'}</h4>
+                    {/* Repeat the relative time the cell can show. Without it a reader compares a
+                        relative label against absolute rows and reads the offset as an error. */}
+                    <div className="text-xs text-secondary">{time.fromNow()}</div>
+                </div>
                 <LemonButton
                     icon={<IconGear />}
                     size="xsmall"
