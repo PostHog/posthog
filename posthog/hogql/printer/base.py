@@ -118,7 +118,7 @@ class BasePrinter(Visitor[str]):
         # user reaches this gate with a query that parses and must be told the dialect refuses it.
         raise QueryError(
             f"WITH RECURSIVE is not supported in the '{self.DIALECT_NAME}' dialect. "
-            "Recursive CTEs only work when the query runs against a Postgres source. "
+            "Recursive CTEs only work on a direct connection whose SQL dialect supports them. "
             "Rewrite the query without recursion, for example with one join per level."
         )
 
