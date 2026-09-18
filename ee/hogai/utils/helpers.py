@@ -43,6 +43,7 @@ from posthog.event_usage import EventSource
 from posthog.hogql_queries.ai.team_taxonomy_query_runner import LOOKBACK_DAYS, TeamTaxonomyQueryRunner
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import Team, User
+from posthog.security.llm_prompt_sanitization import sanitize_user_text
 from posthog.settings import EE_AVAILABLE
 from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP, is_hidden_from_assistant
 
@@ -78,6 +79,9 @@ _CONTROL_CHARS_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
 # Descriptions are an unbounded TextField; cap each one so a single oversized description can't
 # blow up every team member's prompt. The taxonomy already bounds the number of events per prompt.
 MAX_EVENT_DESCRIPTION_LENGTH = 500
+
+# Matches CAPTURE_V1_MAX_EVENT_NAME_LENGTH in rust/capture, which rejects a longer name at ingestion.
+MAX_EVENT_NAME_LENGTH = 200
 
 NOT_SEEN_RECENTLY_MARKER = f"(not seen in the last {LOOKBACK_DAYS} days)"
 NOT_SEEN_RECENTLY_LEGEND = (
@@ -274,7 +278,13 @@ def _process_events_data(
 
     processed_events = []
     for event_name in events:
-        event_data: dict[str, Any] = {"name": event_name}
+        # A project's write token is public, so a captured name is untrusted: left raw, one holding
+        # a line break writes its own `#` legend line into the listing `format_events_yaml` builds.
+        safe_name = sanitize_user_text(event_name, MAX_EVENT_NAME_LENGTH)
+        if not safe_name:
+            continue
+
+        event_data: dict[str, Any] = {"name": safe_name}
         if event_name in not_seen_recently:
             event_data["not_seen_recently"] = True
 

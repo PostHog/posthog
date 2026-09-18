@@ -6,6 +6,18 @@ PropertyScope = Literal["person", "event"]
 
 
 @frozen
+class DynamicPropertyVariant:
+    """A longer form of a name, set in place of the base form under some configurations.
+
+    The base form is then never set, so an agent that builds it reads an empty result and reports
+    that the thing never happened. Naming the variant is what stops that silent wrong answer.
+    """
+
+    suffix_placeholder: str
+    condition: str
+
+
+@frozen
 class DynamicPropertyPattern:
     """A property whose name ends in an id, so it never gets a `PropertyDefinition` row.
 
@@ -20,11 +32,21 @@ class DynamicPropertyPattern:
     scope: PropertyScope
     value_type: str
     description: str
+    variants: tuple[DynamicPropertyVariant, ...] = ()
 
     @property
     def pattern(self) -> str:
         return f"{self.prefix}{{{self.placeholder}}}"
 
+    def variant_pattern(self, variant: DynamicPropertyVariant) -> str:
+        return f"{self.pattern}/{{{variant.suffix_placeholder}}}"
+
+
+# Built by `_add_user_survey_interacted_filters` in `products/surveys/backend/api/survey.py`.
+SURVEY_ITERATION_VARIANT = DynamicPropertyVariant(
+    suffix_placeholder="iteration",
+    condition="the survey repeats on a schedule",
+)
 
 DYNAMIC_PROPERTY_PATTERNS: tuple[DynamicPropertyPattern, ...] = (
     DynamicPropertyPattern(
@@ -40,6 +62,7 @@ DYNAMIC_PROPERTY_PATTERNS: tuple[DynamicPropertyPattern, ...] = (
         scope="person",
         value_type="Boolean",
         description="survey dismiss tracking",
+        variants=(SURVEY_ITERATION_VARIANT,),
     ),
     DynamicPropertyPattern(
         prefix="$survey_responded/",
@@ -47,6 +70,7 @@ DYNAMIC_PROPERTY_PATTERNS: tuple[DynamicPropertyPattern, ...] = (
         scope="person",
         value_type="Boolean",
         description="survey response tracking",
+        variants=(SURVEY_ITERATION_VARIANT,),
     ),
     DynamicPropertyPattern(
         prefix="$feature_enrollment/",
@@ -103,5 +127,8 @@ def format_dynamic_property_lines(patterns: tuple[DynamicPropertyPattern, ...]) 
     lines = []
     for pattern in patterns:
         scope = f"{pattern.scope} property, " if show_scope else ""
-        lines.append(f"- `{pattern.pattern}` ({scope}{pattern.value_type}): {pattern.description}")
+        line = f"- `{pattern.pattern}` ({scope}{pattern.value_type}): {pattern.description}"
+        for variant in pattern.variants:
+            line += f". When {variant.condition}, the name is `{pattern.variant_pattern(variant)}` instead"
+        lines.append(line)
     return "\n".join(lines)

@@ -127,6 +127,7 @@ class TestReadTaxonomyTool(NonAtomicBaseTest):
         self.assertIn("$survey_dismissed", result)
         self.assertIn("$feature_enrollment", result)
         self.assertIn("$product_tour_dismissed", result)
+        self.assertIn("$survey_responded/{survey_id}/{iteration}", result)
 
     @patch("ee.hogai.tools.read_taxonomy.core.TaxonomyAgentToolkit")
     def test_non_person_entity_properties_exclude_dynamic_hint(self, mock_toolkit_class):
