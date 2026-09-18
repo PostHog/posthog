@@ -235,6 +235,12 @@ def _resolve_rows(
     candidates = _list_candidates(data)
     same_key = [found for found in candidates if found.path.rsplit(".", 1)[-1] == config.data_key]
     row_like = [found for found in candidates if _looks_like_rows(config, found.items)]
+    if any(not found.items for found in candidates):
+        # An empty list reads the same as a renamed key that returned no rows, so the primary
+        # keys stop separating the two readings. Most keyed endpoints key on `id`, which any
+        # sibling list of objects carries, and a full refresh would replace the table with
+        # that list. A name match is unaffected: there the response names the rows.
+        row_like = []
     # A list qualifies on its name or on the endpoint's primary keys. Being the envelope's
     # only list is not evidence: "the only list" also describes a list of warnings, and
     # reading that one imports metadata as rows. Anything that leaves more than one

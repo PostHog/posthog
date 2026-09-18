@@ -753,6 +753,7 @@ class TestArticleTables:
         [
             ("two_lists_that_both_look_like_rows", {"drafts": [{"id": 1}], "published": [{"id": 2}], "total": 2}),
             ("a_later_item_without_the_primary_key", {"items": [{"id": 1}, {"slug": "x"}], "tags": [], "total": 2}),
+            ("an_empty_list_beside_a_list_carrying_the_primary_key", {"data": [], "tags": [{"id": 7}], "total": 0}),
             ("the_only_list_carrying_no_primary_key", {"warnings": [{"message": "partial"}], "total": 2}),
             ("one_list_one_level_down_carrying_no_primary_key", {"meta": {"warnings": [{"m": 1}]}, "total": 2}),
         ]
@@ -760,8 +761,9 @@ class TestArticleTables:
     def test_an_ambiguous_envelope_fails_rather_than_guessing_a_list(self, _name: str, body: dict[str, Any]) -> None:
         # Picking one of these would import the wrong table silently, or pick a list whose
         # later rows have no primary key and crash the deduplicator. Being the envelope's
-        # only list is not evidence either: a list of warnings fits that description. The
-        # walk keeps nothing and the contract guard fails the sync instead.
+        # only list is not evidence either: a list of warnings fits that description. An
+        # empty list is a second reading of its own, because the renamed rows can be the
+        # empty one. The walk keeps nothing and the contract guard fails the sync instead.
         manager = _fresh_manager()
 
         with pytest.raises(DecagonContractError):
