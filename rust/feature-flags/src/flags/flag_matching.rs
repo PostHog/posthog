@@ -13,8 +13,9 @@ use crate::flags::flag_group_type_mapping::{
 use crate::flags::flag_match_reason::FeatureFlagMatchReason;
 use crate::flags::flag_matching_utils::{
     calculate_hash, fetch_and_locally_cache_all_relevant_properties,
-    get_feature_flag_hash_key_overrides, match_flag_value_to_flag_filter,
-    populate_missing_initial_properties, populate_os_aliases, set_feature_flag_hash_key_overrides,
+    get_feature_flag_hash_key_overrides, is_initial_person_property,
+    match_flag_value_to_flag_filter, populate_missing_initial_properties, populate_os_aliases,
+    populate_row_owned_initial_properties, set_feature_flag_hash_key_overrides,
     should_write_hash_key_override,
 };
 use crate::flags::flag_models::{
@@ -2048,12 +2049,24 @@ impl FeatureFlagMatcher {
             HashMap::new()
         } else {
             // Start with DB properties (clone only when we need a mutable copy)
-            self.get_person_properties_from_evaluation_state()
+            let mut db_properties = self
+                .get_person_properties_from_evaluation_state()
                 .cloned()
-                .unwrap_or_default()
+                .unwrap_or_default();
+
+            // Derive the row's own $initial_ values before any override joins the map, so a
+            // request can never manufacture an initial value the person row does not support.
+            // A counterpart the row holds as null answers nothing, so it derives nothing.
+            populate_os_aliases(&mut db_properties);
+            populate_row_owned_initial_properties(&mut db_properties);
+            db_properties
         };
 
-        // Merge in overrides (overrides take precedence).
+        // Merge in overrides (overrides take precedence), except for an `$initial_` key the row
+        // answered above — see `is_initial_person_property`. A request `$initial_` value still
+        // lands when the row answered nothing, which is the first session, before ingestion has
+        // written the row. posthog-js sends these keys without their non-initial counterparts,
+        // so dropping them outright would leave that session with no value at all.
         //
         // PersonMetadata fields are stored under sentinel-prefixed keys (see
         // `lookup_key_for` in property_matching.rs). A caller could override the canonical
@@ -2062,7 +2075,18 @@ impl FeatureFlagMatcher {
         // production, and overrides are caller-trusted by design. If we ever need to lock
         // metadata fields to the DB value, filter the prefixed keys out here.
         if let Some(overrides) = property_overrides {
-            merged_properties.extend(overrides.iter_owned());
+            for (key, value) in overrides.iter_owned() {
+                match merged_properties.get(&key) {
+                    Some(stored) if is_initial_person_property(&key) => {
+                        if *stored != value {
+                            with_canonical_log(|log| log.initial_person_properties_from_row = true);
+                        }
+                    }
+                    _ => {
+                        merged_properties.insert(key, value);
+                    }
+                }
+            }
         }
 
         // Mirror $os <-> $os_name so a condition keyed on either matches when the
@@ -2070,9 +2094,9 @@ impl FeatureFlagMatcher {
         // Runs before initial-property population so an aliased $os can backfill $initial_os.
         populate_os_aliases(&mut merged_properties);
 
-        // Populate missing $initial_ properties from their non-initial counterparts.
-        // DB $initial_ values are preserved; this only fills in missing ones from
-        // the merged properties (which may come from DB or request overrides).
+        // Populate the $initial_ properties still missing after the merge. The person row
+        // had no counterpart for these, so the request's value is the only one available —
+        // this is the first-session case, before ingestion has written the row.
         populate_missing_initial_properties(&mut merged_properties);
 
         Ok(merged_properties)
