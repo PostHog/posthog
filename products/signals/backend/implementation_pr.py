@@ -4,6 +4,8 @@ import re
 from collections.abc import Callable
 from dataclasses import replace
 from datetime import datetime
+from functools import reduce
+from operator import or_
 from typing import TYPE_CHECKING, Literal
 from uuid import NAMESPACE_URL, uuid5
 
@@ -44,35 +46,46 @@ _FINISHED_REPORT_STATUSES = frozenset(
     {SignalReport.Status.RESOLVED, SignalReport.Status.SUPPRESSED, SignalReport.Status.DELETED}
 )
 
-_PULL_REQUEST_URL_BODY = (
-    r"[A-Za-z][A-Za-z0-9+.-]*://(www\.)?github\.com/+[^/?#]+/+[^/?#]+/+pull/+[+-]?[ \t\r\n\f\v]*[0-9]+"
-)
-_PULL_REQUEST_URL_PATTERN = rf"^{_PULL_REQUEST_URL_BODY}([/?#].*)?$"
-_PULL_REQUEST_URL_ARRAY_PATTERN = rf'"{_PULL_REQUEST_URL_BODY}([/?#][^"]*)?"'
+# A task run's `output.pr_url` is GitHub's `html_url`, so the host prefix is the whole test. The
+# billing path applies the same rule to the same field.
+_GITHUB_PR_URL_PREFIX = "https://github.com/"
+
+# One write funnel (`model_dump_json`) produces every `task_run` content, so its JSON is compact and
+# a plain substring is enough to read the `(product, type)` pair out of it.
+_SIGNALS_PRODUCT_NEEDLE = f'"product":"{SIGNALS_PRODUCT}"'
+_NON_PR_BEARING_TYPE_NEEDLES = tuple(f'"type":"{run_type}"' for run_type in sorted(NON_PR_BEARING_TASK_RUN_TYPES))
 _PR_BEARING_LEGACY_TASK_RELATIONSHIPS = (TASK_RUN_TYPE_IMPLEMENTATION, TASK_RUN_TYPE_DISCUSSION)
 
 
 def implementation_pr_report_filter(*, team_id: int, active_only: bool = False) -> Q:
-    assignment_pr = Q(assignment__team_id=team_id, assignment__pr_url__regex=_PULL_REQUEST_URL_PATTERN)
+    # `repository` and `pr_number` are written from the parsed `pr_url`, so "this assignment holds a
+    # GitHub PR" is the same question as "both identity columns are set". That pair is indexed, and
+    # the URL itself only needs a presence check — this filter runs against every candidate report.
+    assignment_pr = Q(
+        assignment__team_id=team_id,
+        assignment__repository__isnull=False,
+        assignment__pr_number__isnull=False,
+        assignment__pr_url__isnull=False,
+    ) & ~Q(assignment__pr_url="")
+    # A `SignalReportPullRequest` row only exists for a URL that already parsed as a GitHub PR.
     pull_request_links = SignalReportArtefact.objects.filter(
         team_id=team_id,
         type=SignalReportArtefact.ArtefactType.PULL_REQUEST,
         pull_request__team_id=team_id,
-        pull_request__url__regex=_PULL_REQUEST_URL_PATTERN,
     )
     task_ids = tasks_facade.task_ids_with_pr_url_subquery(
         team_id,
         pr_bearing_task_run_filter(),
-        Q(output__pr_url__regex=_PULL_REQUEST_URL_PATTERN) | Q(output__pr_urls__regex=_PULL_REQUEST_URL_ARRAY_PATTERN),
+        Q(output__pr_url__startswith=_GITHUB_PR_URL_PREFIX) | Q(output__pr_urls__0__startswith=_GITHUB_PR_URL_PREFIX),
     )
     task_run_artefacts = (
         SignalReportArtefact.objects.filter(
             team_id=team_id,
             type=SignalReportArtefact.ArtefactType.TASK_RUN,
             task_id__in=task_ids,
-            content__regex=rf'"product"\s*:\s*"{SIGNALS_PRODUCT}"',
+            content__contains=_SIGNALS_PRODUCT_NEEDLE,
         )
-        .exclude(content__regex=rf'"type"\s*:\s*"({"|".join(sorted(NON_PR_BEARING_TASK_RUN_TYPES))})"')
+        .exclude(reduce(or_, (Q(content__contains=needle) for needle in _NON_PR_BEARING_TYPE_NEEDLES)))
         .values("report_id")
     )
     legacy_tasks = SignalReportTask.objects.filter(
