@@ -14,7 +14,12 @@ from posthog.hogql.database.database import Database
 from posthog.models import Team
 from posthog.models.scoping import team_scope
 
-from products.data_catalog.backend.logic.lineage import dependency_names, has_executable_definition, sync_metric_lineage
+from products.data_catalog.backend.logic.lineage import (
+    LineageSyncOutcome,
+    dependency_names,
+    has_executable_definition,
+    sync_metric_lineage,
+)
 from products.data_catalog.backend.logic.metrics import (
     bulk_soft_delete_metrics,
     soft_delete_metric,
@@ -170,6 +175,19 @@ class TestSyncMetricLineage(BaseTest):
         bulk_soft_delete_metrics([first, second], self.user)
 
         assert not Node.objects.filter(team=self.team, type=NodeType.METRIC).exists()
+
+    def test_a_sync_that_lands_after_a_delete_leaves_no_node(self) -> None:
+        metric = self._upsert("mrr", definition=_HOGQL_EVENTS)
+        self._sync(metric)
+        assert self._node(metric) is not None
+        with team_scope(self.team.id):
+            in_flight = Metric.objects.for_team(self.team.id).select_related("team").get(pk=metric.pk)
+
+        soft_delete_metric(metric, self.user)
+        outcome = sync_metric_lineage(in_flight)
+
+        assert outcome == LineageSyncOutcome.REMOVED
+        assert self._node(metric) is None
 
     def test_a_write_dispatches_the_sync_only_when_it_can_change_the_lineage(self) -> None:
         with patch("products.data_catalog.backend.logic.metrics.sync_metric_lineage_task") as task:
