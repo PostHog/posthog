@@ -94,6 +94,11 @@ export function WorkflowAppliedOutcome({
                                         v{version.version}
                                         {version.applied ? ' · applied' : ''}
                                     </span>
+                                    {version.other_changes && (
+                                        <Tooltip title="This version changed other things too, so its numbers hold more than this suggestion.">
+                                            <span className="text-secondary">+ other edits</span>
+                                        </Tooltip>
+                                    )}
                                 </span>
                             ))}
                         </div>

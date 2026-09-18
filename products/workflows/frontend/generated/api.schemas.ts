@@ -1347,6 +1347,8 @@ export interface WorkflowProposalVersionOutcomeApi {
     proposed_against?: boolean
     /** Whether this version still holds what the suggestion changed. */
     carries_change?: boolean
+    /** Whether this version also changed something the suggestion did not, which the numbers cannot separate. */
+    other_changes?: boolean
     /** Every version summed into these numbers. The after side runs on while later versions keep the change. */
     versions?: number[]
     /** The metric the suggestion aimed at. */

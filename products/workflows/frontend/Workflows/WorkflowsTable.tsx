@@ -202,7 +202,7 @@ export function WorkflowsTable(): JSX.Element {
                                             }}
                                         >
                                             {!item.pending_suggestions
-                                                ? 'Suggestions on'
+                                                ? 'Self-driving'
                                                 : item.pending_suggestions === 1
                                                   ? '1 suggestion'
                                                   : `${item.pending_suggestions} suggestions`}

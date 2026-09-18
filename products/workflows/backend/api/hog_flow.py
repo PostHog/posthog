@@ -4020,6 +4020,10 @@ class WorkflowProposalVersionOutcomeSerializer(serializers.Serializer):
     carries_change = serializers.BooleanField(
         required=False, help_text="Whether this version still holds what the suggestion changed."
     )
+    other_changes = serializers.BooleanField(
+        required=False,
+        help_text="Whether this version also changed something the suggestion did not, which the numbers cannot separate.",
+    )
     versions = serializers.ListField(
         child=serializers.IntegerField(),
         required=False,
@@ -4100,6 +4104,9 @@ PROPOSAL_WHOLE_LIST_FIELDS = ("edges", "variables")
 
 # How far past the applied version the after side will look for versions that kept the change.
 OUTCOME_VERSION_LIMIT = 20
+
+# Written by the serializer on publish, not by whoever edited the workflow.
+DERIVED_STEP_KEYS = frozenset({"bytecode", "order", "transpiled"})
 
 PROPOSAL_MERGE_BY_ID_FIELDS = ("actions",)
 
@@ -4607,7 +4614,7 @@ class HogFlowViewSet(
         if self.action == "list":
             # `id` breaks ties so LIMIT/OFFSET paging stays stable: rows sharing an updated_at can
             # otherwise repeat on one page and never appear on another.
-            queryset = queryset.order_by("-updated_at", "-id")
+
             pending = (
                 WorkflowProposal.objects.filter(hog_flow=OuterRef("pk"), status=WorkflowProposal.Status.SUGGESTED)
                 .order_by()
@@ -4621,6 +4628,10 @@ class HogFlowViewSet(
                     HogFlowOptimisation.objects.filter(hog_flow=OuterRef("pk"), enabled=True).values("pk")
                 ),
             )
+            # A suggestion waits on a person, so it sorts above recency rather than under it.
+            # `id` breaks ties so LIMIT/OFFSET paging stays stable: rows sharing an updated_at can
+            # otherwise repeat on one page and never appear on another.
+            queryset = queryset.order_by("-pending_suggestions", "-updated_at", "-id")
 
             search = self.request.GET.get("search")
             if search is not None:
@@ -5871,13 +5882,16 @@ class HogFlowViewSet(
         # The read below goes to ClickHouse, which refuses an untagged query.
         tag_queries(product=ProductKey.WORKFLOWS, feature=Feature.QUERY)
         carrying, ended_at = self._versions_carrying_change(instance, proposal)
-        totals = self._version_totals(instance, self._outcome_versions(instance, proposal), proposal.step_id)
+        charted = self._outcome_versions(instance, proposal)
+        totals = self._version_totals(instance, charted, proposal.step_id)
+        other_changes = self._versions_with_other_changes(instance, proposal, charted)
         versions = [
             {
                 **_outcome_from_totals(counts, version),
                 "applied": version == proposal.applied_version,
                 "proposed_against": version == proposal.base_version,
                 "carries_change": version in carrying,
+                "other_changes": version in other_changes,
             }
             for version, counts in sorted(totals.items())
         ]
@@ -5906,6 +5920,51 @@ class HogFlowViewSet(
         newest = hog_flow.version or proposal.base_version
         oldest = min(proposal.base_version, proposal.applied_version or proposal.base_version)
         return sorted({*range(max(oldest, newest - OUTCOME_VERSION_LIMIT + 1), newest + 1), oldest})
+
+    def _versions_with_other_changes(
+        self, hog_flow: HogFlow, proposal: WorkflowProposal, versions: list[int]
+    ) -> set[int]:
+        """Versions that changed something the suggestion did not.
+
+        Their numbers hold more than one change, and no window separates the two. Saying so is the
+        honest half of a comparison that is two periods rather than two arms.
+        """
+        if not versions:
+            return set()
+        contents = self._version_contents(hog_flow, range(min(versions) - 1, max(versions) + 1))
+        changed_paths = {
+            (_item_id(item), path)
+            for item in proposal_changes(proposal, base_content_of(hog_flow, proposal)).get("actions") or []
+            for path in _patch_paths({key: value for key, value in item.items() if key != "id"})
+        }
+        noisy: set[int] = set()
+        # Publishing recompiles inputs, so a version differs from the one before it in derived keys
+        # that nobody edited. Comparing those would flag every version as carrying another change.
+        for version in versions:
+            previous, current = contents.get(version - 1), contents.get(version)
+            if previous is None or current is None:
+                continue
+            for step in current.get("actions") or []:
+                was = next((item for item in previous.get("actions") or [] if _item_id(item) == _item_id(step)), None)
+                if was is None:
+                    noisy.add(version)
+                    break
+                for path in _patch_paths({key: value for key, value in step.items() if key != "id"}):
+                    if (_item_id(step), path) in changed_paths or path[-1] in DERIVED_STEP_KEYS:
+                        continue
+                    if _leaf(step, path) != _leaf(was, path):
+                        noisy.add(version)
+                        break
+        return noisy
+
+    def _version_contents(self, hog_flow: HogFlow, versions: Any) -> dict[int, dict]:
+        contents = {
+            revision.version: revision.content
+            for revision in HogFlowRevision.objects.filter(hog_flow=hog_flow, version__in=list(versions))
+        }
+        if hog_flow.version in versions:
+            contents.setdefault(hog_flow.version, snapshot_flow_content(hog_flow))
+        return contents
 
     def _version_totals(self, hog_flow: HogFlow, versions: list[int], step_id: Optional[str]) -> dict[int, dict]:
         """Raw metric counts per version, in one grouped query. Each version's series only ever
@@ -5939,14 +5998,7 @@ class HogFlowViewSet(
         if applied is None:
             return [], None
         changes = proposal_changes(proposal, base_content_of(hog_flow, proposal))
-        contents: dict[int, dict] = {
-            revision.version: revision.content
-            for revision in HogFlowRevision.objects.filter(hog_flow=hog_flow, version__gte=applied).order_by("version")[
-                :OUTCOME_VERSION_LIMIT
-            ]
-        }
-        if hog_flow.version >= applied:
-            contents.setdefault(hog_flow.version, snapshot_flow_content(hog_flow))
+        contents = self._version_contents(hog_flow, range(applied, (hog_flow.version or applied) + 1))
         carrying: list[int] = []
         for version in sorted(contents):
             if not carries_proposal_change(contents[version], changes):

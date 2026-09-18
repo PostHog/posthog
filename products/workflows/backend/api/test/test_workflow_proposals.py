@@ -265,6 +265,8 @@ class TestWorkflowProposals(APIBaseTest):
         self.client.post(f"/api/projects/{self.team.id}/hog_flows/{flow_id}/proposals/{rejected['id']}/reject/", {})
 
         listed = self.client.get(f"/api/projects/{self.team.id}/hog_flows/").json()["results"]
+        # Something waiting on a person sorts above the workflow edited most recently.
+        assert listed[0]["id"] == flow_id
         counts = {item["id"]: item["pending_suggestions"] for item in listed}
         assert counts[flow_id] == 2
         assert counts[other_id] == 0
@@ -592,6 +594,8 @@ class TestWorkflowProposals(APIBaseTest):
         assert outcome["after"]["versions"] == [2, 3]
         assert outcome["change_ended_at_version"] is None
         assert outcome["before"]["versions"] == [1]
+        # v3 renamed the trigger on top of the suggestion, so its numbers hold both changes.
+        assert [version["version"] for version in outcome["versions"] if version["other_changes"]] == [3]
 
         self.client.patch(
             f"/api/projects/{self.team.id}/hog_flows/{flow_id}/graph",
