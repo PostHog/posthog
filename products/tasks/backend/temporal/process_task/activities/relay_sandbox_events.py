@@ -33,7 +33,6 @@ from products.tasks.backend.logic.services.permission_broker import (
 from products.tasks.backend.logic.services.workflow_step_resume import resume_workflow_step_after_final_message
 from products.tasks.backend.logic.stream.agent_events import is_agent_command_dispatched, is_agent_generation_event
 from products.tasks.backend.logic.stream.redis_stream import TaskRunRedisStream, get_task_run_stream_key
-from products.tasks.backend.logic.stream.turn_completion import turn_completed_successfully
 from products.tasks.backend.models import (
     Task as TaskModel,
     TaskRun as TaskRunModel,
@@ -54,6 +53,7 @@ from ee.hogai.sandbox import (
     is_turn_complete,
     pi_turn_error,
     turn_complete_trace_id,
+    turn_completed_successfully,
 )
 
 logger = structlog.get_logger(__name__)

@@ -32,16 +32,6 @@ def mark_pr_ready(input: MarkPrReadyInput) -> bool:
         try:
             if not context.has_github_credentials or not input.snapshot.can_mark_ready:
                 return False
-            enabled = posthoganalytics.feature_enabled(
-                AUTO_READY_FEATURE_FLAG,
-                distinct_id=context.distinct_id,
-                groups={"organization": context.organization_id},
-                group_properties={"organization": {"id": context.organization_id}},
-                only_evaluate_locally=False,
-                send_feature_flag_events=False,
-            )
-            if enabled is not True:
-                return False
 
             run = TaskRun.objects.filter(id=context.run_id, team_id=context.team_id).first()
             if (
@@ -53,8 +43,20 @@ def mark_pr_ready(input: MarkPrReadyInput) -> bool:
                 return False
 
             parsed = GitHubIntegration.parse_pull_request_url(input.snapshot.pr_url)
-            if parsed is None or f"{parsed.owner}/{parsed.repo}".casefold() != (context.repository or "").casefold():
+            if parsed is None or parsed.repository.casefold() != (context.repository or "").casefold():
                 return False
+
+            enabled = posthoganalytics.feature_enabled(
+                AUTO_READY_FEATURE_FLAG,
+                distinct_id=context.distinct_id,
+                groups={"organization": context.organization_id},
+                group_properties={"organization": {"id": context.organization_id}},
+                only_evaluate_locally=False,
+                send_feature_flag_events=False,
+            )
+            if enabled is not True:
+                return False
+
             github = (
                 get_github_integration(context.github_integration_id)
                 if context.github_integration_id
@@ -76,7 +78,7 @@ def mark_pr_ready(input: MarkPrReadyInput) -> bool:
                 return False
 
             result = github.mark_pull_request_ready_for_review(
-                f"{parsed.owner}/{parsed.repo}",
+                parsed.repository,
                 parsed.number,
                 skip_labels=KEEP_DRAFT_LABELS,
                 expected_head_sha=current.head_sha,
@@ -84,7 +86,7 @@ def mark_pr_ready(input: MarkPrReadyInput) -> bool:
             if result.get("success") is not True:
                 activity.logger.warning("task_pr_auto_ready_rejected", extra={"run_id": context.run_id})
                 return False
-            changed = result.get("success") is True and result.get("changed") is True
+            changed = result.get("changed") is True
             activity.logger.info(
                 "task_pr_auto_ready_evaluated",
                 extra={"run_id": context.run_id, "changed": changed, "reason": result.get("reason")},

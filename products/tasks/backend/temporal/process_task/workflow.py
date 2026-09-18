@@ -1109,6 +1109,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 self._last_turn_succeeded
                 and self._end_of_turn_received is True
                 and self._agent_active is False
+                and self._pending_followup is None
                 and not self._pending_followups
                 and not self._task_completed
                 and snapshot.can_mark_ready
