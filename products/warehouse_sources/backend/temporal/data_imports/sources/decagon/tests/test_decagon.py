@@ -756,13 +756,14 @@ class TestArticleTables:
             ("one_list_one_level_down", {"result": {"warnings": [{"message": "partial"}]}}),
         ]
     )
-    def test_a_keyless_table_does_not_read_rows_from_a_guessed_list(self, _name: str, body: dict[str, Any]) -> None:
+    def test_a_keyless_table_fails_rather_than_reading_a_guessed_list(self, _name: str, body: dict[str, Any]) -> None:
         # article_usage appends without a merge, so a guessed list lands rows no later sync
-        # can clean up. With no primary key to recognize rows by, no list qualifies.
+        # can clean up. With no primary key to recognize rows by, no list qualifies, and the
+        # endpoint reports no total, so completing would replace the table with nothing.
         manager = _fresh_manager()
-        _, batches = _drive_rows(manager, [_make_response(body)], endpoint="article_usage")
 
-        assert batches == []
+        with pytest.raises(DecagonContractError):
+            _drive_rows(manager, [_make_response(body)], endpoint="article_usage")
 
     def test_no_rows_against_a_nonzero_total_fails_the_sync(self) -> None:
         # The endpoint reports articles and the walk kept none, so the config no longer
@@ -807,6 +808,21 @@ class TestArticleTables:
         _, batches = _drive_rows(manager, responses, endpoint="articles")
 
         assert batches == []
+
+    def test_a_table_without_a_total_also_fails_on_an_unreadable_envelope(self) -> None:
+        # /tag/all reports no total, so the contract check that covers articles cannot see
+        # this failure. The table is full refresh, and the pipeline clears it before the walk
+        # runs, so completing with no rows leaves the tag dimension empty and the job green.
+        manager = _fresh_manager()
+        responses = [_make_response({"drafts": [{"slug": "a"}], "published": [{"slug": "b"}]})]
+
+        with pytest.raises(DecagonContractError) as excinfo:
+            _drive_rows(manager, responses, endpoint="tags")
+
+        # Unclassified, this identical request repeats for the whole attempt budget and the
+        # schema stays enabled to repeat it on the next schedule.
+        assert error_message_matches(str(excinfo.value), DecagonSource().get_non_retryable_errors())
+        assert "drafts: list[1]" in str(excinfo.value)
 
     def test_article_usage_is_a_single_request_pinned_to_utc(self) -> None:
         # The timezone param changes how usage is bucketed; leaving it to the account

@@ -59,6 +59,11 @@ class DecagonRetryableError(Exception):
 # fragment to match the failure on.
 CONTRACT_MISMATCH_ERROR = "Decagon imported no rows against a nonzero reported total"
 
+# Stable opening of the failure raised when the response holds lists but the config can
+# identify none of them as rows. Classified apart from the mismatch above because only two
+# endpoints report a total, so that guard cannot see this failure for the other six.
+UNREADABLE_ENVELOPE_ERROR = "Decagon sent lists this table's config cannot read as rows"
+
 
 class DecagonContractError(Exception):
     """The response does not match the contract the endpoint is configured against."""
@@ -220,7 +225,8 @@ def _resolve_rows(
     export alone documents three names for one cursor field), and a lookup that misses
     reads as an empty page, which fails the walk against the reported total. So search the
     envelope for the list the rows moved to: the same key one object down, or the only
-    list whose items carry this endpoint's primary keys.
+    list whose items carry this endpoint's primary keys. A response holding lists that
+    match neither fails the sync rather than reading as an empty page.
     """
     items = data.get(config.data_key)
     if isinstance(items, list):
@@ -242,8 +248,21 @@ def _resolve_rows(
             )
             return found
 
+    if candidates:
+        # Only `articles` and `admin_logs` report a total, so for every other endpoint the
+        # contract check has nothing to fail on and this would complete as an empty sync.
+        # A full refresh clears the table before extraction, so the populated table would
+        # be gone and the job green. The rows are in one of these lists, so fail instead.
+        raise DecagonContractError(
+            f"{UNREADABLE_ENVELOPE_ERROR}: {endpoint} carries {len(candidates)} list(s) and none of them is "
+            f"named '{config.data_key}' or carries this endpoint's primary keys "
+            f"(response shape: {_describe_shape(data)})."
+        )
+
+    # No list anywhere can be an endpoint that omits its key instead of sending it empty,
+    # so an empty page stays a warning rather than a failed sync.
     logger.warning(
-        f"Decagon: {endpoint} response carries no readable '{config.data_key}' list "
+        f"Decagon: {endpoint} response carries no '{config.data_key}' list and no list to read it from "
         f"(response shape: {_describe_shape(data)})"
     )
     return _ListCandidate(path=config.data_key, items=[], parent=data)
