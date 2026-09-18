@@ -90,6 +90,10 @@ class RasterizationActivityOutput(BaseModel, frozen=True):
     truncated: bool = False
     inactivity_periods: list[InactivityPeriod] = []
     file_size_bytes: int = 0
+    # Page stylesheets the renderer could not fetch. Above zero means parts of the video painted
+    # unstyled, so a consumer must not read the appearance of those frames as the product's own.
+    # Defaults to 0 so a render from a release before this field existed still deserializes.
+    stylesheet_failures: int = 0
     timings: ActivityTimings = ActivityTimings()
 
 

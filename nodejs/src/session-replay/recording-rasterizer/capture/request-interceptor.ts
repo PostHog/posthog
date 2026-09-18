@@ -21,11 +21,14 @@ const NONCE_PLACEHOLDER = '__CSP_NONCE__'
  * stylesheets, and aborts sub-frame media to prevent beginFrame deadlocks.
  *
  * {@link waitForSettled} gates beginFrame until proxied stylesheets resolve.
+ * {@link stylesheetFailures} counts the page stylesheets that never arrived, because a render that
+ * lost them paints an unstyled page that downstream consumers must not read as the real product.
  */
 export class RequestInterceptor {
     private tracked = new Set<HTTPRequest>()
     private onSettled: (() => void) | null = null
     private mainFrame: Frame
+    private failedStylesheets = 0
 
     constructor(
         private capturePage: CapturePage,
@@ -42,6 +45,11 @@ export class RequestInterceptor {
         page.on('requestfailed', (req) => this.removeTracked(req))
         await page.setRequestInterception(true)
         page.on('request', (request) => this.handleRequest(request))
+    }
+
+    /** Page stylesheets that resolved to an empty body, so the replay painted without them. */
+    get stylesheetFailures(): number {
+        return this.failedStylesheets
     }
 
     /** Resolves when all tracked stylesheet requests have a response. */
@@ -62,21 +70,28 @@ export class RequestInterceptor {
             return
         }
 
-        let path: string
+        let parsed: URL
         try {
-            path = new URL(url).pathname
+            parsed = new URL(url)
         } catch {
             void request.continue()
             return
         }
-        if (path.startsWith(BLOCK_REQUEST_PREFIX)) {
-            void this.blockProxy.handleRequest(request, path)
+        if (parsed.pathname.startsWith(BLOCK_REQUEST_PREFIX)) {
+            void this.blockProxy.handleRequest(request, parsed.pathname)
             return
         }
 
         if (request.frame() !== this.mainFrame) {
             const type = request.resourceType()
             if (type === 'stylesheet') {
+                // Only http(s) stylesheets belong to the recorded page. A chrome-extension URL comes
+                // from an extension the visitor had installed, is unreachable from the pod, and would
+                // otherwise fail on every render and make the failure count meaningless.
+                if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+                    void request.abort()
+                    return
+                }
                 this.tracked.add(request)
                 void this.proxyStylesheet(request)
                 return
@@ -165,19 +180,30 @@ export class RequestInterceptor {
                 }
             }
             const resp = await fetch(url, { headers, timeoutMs: PROXY_TIMEOUT_MS })
-            const body = await resp.text()
+            if (resp.status >= 400) {
+                // An error response body is an HTML page or a JSON blob, never CSS, so forwarding it
+                // verbatim leaves the browser with nothing to apply anyway.
+                this.log.warn({ url, status: resp.status }, 'stylesheet proxy got an error status, responding empty')
+                await this.respondEmpty(request)
+                return
+            }
             await request.respond({
                 status: resp.status,
                 contentType: resp.headers['content-type'] || 'text/css',
-                body,
+                body: await resp.text(),
             })
         } catch (err) {
             this.log.warn({ url, err: (err as Error)?.message }, 'stylesheet proxy failed, responding empty')
-            try {
-                await request.respond({ status: 200, contentType: 'text/css', body: '' })
-            } catch {
-                this.removeTracked(request)
-            }
+            await this.respondEmpty(request)
+        }
+    }
+
+    private async respondEmpty(request: HTTPRequest): Promise<void> {
+        this.failedStylesheets++
+        try {
+            await request.respond({ status: 200, contentType: 'text/css', body: '' })
+        } catch {
+            this.removeTracked(request)
         }
     }
 }

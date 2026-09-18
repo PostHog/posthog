@@ -83,6 +83,19 @@ export class RasterizationMetrics {
         help: 'Total number of frames captured across all activities',
     })
 
+    // Two counters because one cannot separate a single render that lost fifty stylesheets from fifty
+    // renders that each lost one. Against activities_total the second gives the rate of renders that
+    // painted unstyled.
+    private static readonly stylesheetFailuresTotal = new Counter({
+        name: 'recording_rasterizer_stylesheet_failures_total',
+        help: 'Page stylesheets that failed to load during a render, so the replay painted without them',
+    })
+
+    private static readonly rendersWithStylesheetFailuresTotal = new Counter({
+        name: 'recording_rasterizer_renders_with_stylesheet_failures_total',
+        help: 'Renders that lost at least one page stylesheet',
+    })
+
     private static readonly recordingDuration = new Summary({
         name: 'recording_rasterizer_recording_duration_seconds',
         help: 'Total real-world duration of the recording including inactive periods',
@@ -161,6 +174,13 @@ export class RasterizationMetrics {
         this.videoDuration.observe(durationS)
         this.videoFileSize.observe(fileSizeBytes)
         this.videoFramesTotal.inc(frameCount)
+    }
+
+    public static observeStylesheetFailures(count: number): void {
+        if (count > 0) {
+            this.stylesheetFailuresTotal.inc(count)
+            this.rendersWithStylesheetFailuresTotal.inc()
+        }
     }
 
     public static observeRecordingDuration(seconds: number): void {

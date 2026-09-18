@@ -153,6 +153,7 @@ export async function rasterizeRecording(
             frame_session_ms: captureResult.frame_session_ms,
             pre_roll_frames: captureResult.pre_roll_frames,
             output_fps: captureConfig.outputFps,
+            stylesheet_failures: player.stylesheetFailures,
             timings: { setup_s: setupS, capture_s: captureResult.timings.capture_s },
         }
     } finally {

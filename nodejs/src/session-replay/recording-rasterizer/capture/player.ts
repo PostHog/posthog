@@ -170,6 +170,11 @@ export class PlayerController {
         return this.interceptor.waitForSettled()
     }
 
+    /** Page stylesheets that never arrived, so the replay painted without them. */
+    get stylesheetFailures(): number {
+        return this.interceptor.stylesheetFailures
+    }
+
     /**
      * Install CDP guards that override screenshot format and gate
      * beginFrame on pending stylesheet requests. Must be called

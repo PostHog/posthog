@@ -193,6 +193,10 @@ def _try_synthesize_cached_output(
         truncated=bool(ctx["truncated"]),
         inactivity_periods=inactivity_periods,
         file_size_bytes=int(ctx["file_size_bytes"]),
+        # Absent on an asset rendered before the renderer counted these, which reads the same as a
+        # clean render. Not in _PERSISTED_OUTPUT_FIELDS for that reason: requiring it would
+        # invalidate every cached asset and re-render it to learn nothing.
+        stylesheet_failures=int(ctx.get("stylesheet_failures") or 0),
     )
 
 
@@ -224,6 +228,7 @@ def finalize_rasterization(inputs: FinalizeRasterizationInput) -> None:
                     "truncated",
                     "file_size_bytes",
                     "inactivity_periods",
+                    "stylesheet_failures",
                 }
             )
         )
@@ -241,6 +246,7 @@ def finalize_rasterization(inputs: FinalizeRasterizationInput) -> None:
         content_location=asset.content_location,
         video_duration_s=result.video_duration_s,
         file_size_bytes=result.file_size_bytes,
+        stylesheet_failures=result.stylesheet_failures,
         render_fingerprint=inputs.render_fingerprint,
     )
 

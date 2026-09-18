@@ -161,6 +161,7 @@ async function rasterizeRecordingActivity(
             .filter((p) => !p.active && p.ts_to_s != null)
             .reduce((sum, p) => sum + (p.ts_to_s! - p.ts_from_s), 0)
         RasterizationMetrics.observeRecordingDuration(activeSessionS + skippedS)
+        RasterizationMetrics.observeStylesheetFailures(result.stylesheet_failures)
 
         const output: RasterizeRecordingOutput = {
             s3_uri: s3Uri,
@@ -170,6 +171,7 @@ async function rasterizeRecordingActivity(
             truncated: result.truncated,
             inactivity_periods: periods,
             file_size_bytes: stat.size,
+            stylesheet_failures: result.stylesheet_failures,
             timings,
         }
 
@@ -179,6 +181,7 @@ async function rasterizeRecordingActivity(
                 video_duration_s: output.video_duration_s,
                 playback_speed: output.playback_speed,
                 file_size_bytes: output.file_size_bytes,
+                stylesheet_failures: output.stylesheet_failures,
                 timings: output.timings,
             },
             'activity complete'

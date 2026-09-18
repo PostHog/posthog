@@ -123,6 +123,16 @@ class TestPreamble:
         assert ("get_network_around" in rendered) is describes_tool
         assert ("none of them failed" in rendered) is describes_clean
 
+    @parameterized.expand([("a render that lost stylesheets", True), ("a faithful render", False)])
+    def test_preamble_warns_about_an_unstyled_render_only_when_the_render_lost_stylesheets(
+        self, _label: str, render_unstyled: bool
+    ) -> None:
+        # An unstyled render paints oversized icons and unformatted text, which reads as a crashed app and
+        # produced false crash findings. The warning must not appear on a faithful render, where a broken
+        # appearance is the product's own.
+        rendered = scanner_from_db(_build_replay_scanner()).preamble(team_name="Acme", render_unstyled=render_unstyled)
+        assert ("<render_quality>" in rendered) is render_unstyled
+
     def test_preamble_escapes_left_angle_in_team_name(self) -> None:
         # The team admin who set the name could theoretically forge a closing tag — defense in depth.
         scanner = scanner_from_db(_build_replay_scanner())

@@ -192,9 +192,20 @@ async def _call_scanner_provider(inputs: CallScannerProviderInputs) -> ScannerCa
         )
     scanner: BaseScanner = scanner_from_snapshot(snapshot)
     scanner = await _inject_known_freeform_tags(scanner, inputs)
-    video_clock = await sync_to_async(_load_video_clock)(
-        inputs.team_id, inputs.exported_asset_id, llm_inputs.metadata.duration_seconds
+    asset = await sync_to_async(_load_asset)(inputs.team_id, inputs.exported_asset_id)
+    video_clock = _video_clock_from_asset(
+        asset, inputs.team_id, inputs.exported_asset_id, llm_inputs.metadata.duration_seconds
     )
+    stylesheet_failures = _stylesheet_failures(asset)
+    if stylesheet_failures:
+        # Greppable per observation, so a reviewer who doubts a visual claim can tell whether the
+        # model was looking at the product or at an unstyled render of it.
+        logger.warning(
+            "replay_vision.render.unstyled",
+            observation_id=str(inputs.observation_id),
+            exported_asset_id=inputs.exported_asset_id,
+            stylesheet_failures=stylesheet_failures,
+        )
     return await run_scan(
         snapshot=snapshot,
         scanner=scanner,
@@ -204,6 +215,7 @@ async def _call_scanner_provider(inputs: CallScannerProviderInputs) -> ScannerCa
         mime_type=inputs.mime_type,
         team_id=inputs.team_id,
         video_clock=video_clock,
+        stylesheet_failures=stylesheet_failures,
         network_payload=network_payload,
         trace_id=_scan_trace_id(inputs),
     )
@@ -213,7 +225,21 @@ async def _call_scanner_provider(inputs: CallScannerProviderInputs) -> ScannerCa
 _UNCUT_TOLERANCE_S = 2.0
 
 
-def _load_video_clock(team_id: int, exported_asset_id: int, session_duration_s: float | None) -> VideoClock:
+def _load_asset(team_id: int, exported_asset_id: int) -> ExportedAsset | None:
+    """The rendered asset this scan reads, loaded once for every render property the scan needs."""
+    return ExportedAsset.objects.filter(team_id=team_id, pk=exported_asset_id).first()
+
+
+def _stylesheet_failures(asset: ExportedAsset | None) -> int:
+    """Page stylesheets the render lost. Absent on an asset rendered before the renderer counted them,
+    which reads as a clean render rather than an unknown one, because that is what the scan assumed
+    before this signal existed."""
+    return int((asset.export_context or {}).get("stylesheet_failures") or 0) if asset else 0
+
+
+def _video_clock_from_asset(
+    asset: ExportedAsset | None, team_id: int, exported_asset_id: int, session_duration_s: float | None
+) -> VideoClock:
     """The clock for the video this scan is about to read, from the asset the rasterizer rendered.
 
     An asset predating the cut map leaves the clock unknown. The model cites video seconds, so assuming
@@ -221,7 +247,6 @@ def _load_video_clock(team_id: int, exported_asset_id: int, session_duration_s: 
     exists to prevent and an invisible one. The durations settle it: a video as long as its session lost
     nothing. Refuse rather than emit timestamps we know we cannot place.
     """
-    asset = ExportedAsset.objects.filter(team_id=team_id, pk=exported_asset_id).first()
     clock = video_clock_from_export_context(asset.export_context if asset else None)
     if clock is not None:
         return clock
@@ -277,6 +302,7 @@ async def run_scan(
     mime_type: str,
     team_id: int,
     video_clock: VideoClock,
+    stylesheet_failures: int = 0,
     network_payload: SessionNetworkPayload | None = None,
     trace_id: str | None = None,
 ) -> ScannerCallOutput:
@@ -304,6 +330,7 @@ async def run_scan(
         event_descriptions=llm_inputs.event_descriptions,
         tool_budget=_tool_budget(snapshot.model),
         network_state=network_index.state(),
+        render_unstyled=stylesheet_failures > 0,
     )
     video_part = types.Part(file_data=types.FileData(file_uri=file_uri, mime_type=mime_type))
 

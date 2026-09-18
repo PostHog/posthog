@@ -224,6 +224,22 @@ describe('RequestInterceptor', () => {
             })
         })
 
+        it('aborts a sub-frame extension stylesheet instead of counting it as a lost page style', async () => {
+            // An extension stylesheet is unreachable from the render pod and belongs to the visitor's
+            // browser, not the page, so proxying it would fail on nearly every render and make the
+            // failure count useless as a render-quality signal.
+            const { interceptor, page } = await createInterceptor()
+            const handler = getRequestHandler(page.page)
+            const req = mockRequest('stylesheet', subFrame, 'chrome-extension://abcdef/content.css')
+
+            handler(req)
+            await new Promise(process.nextTick)
+
+            expect(req.abort).toHaveBeenCalled()
+            expect(mockFetch).not.toHaveBeenCalled()
+            expect(interceptor.stylesheetFailures).toBe(0)
+        })
+
         it('aborts sub-frame media requests immediately', async () => {
             const { page } = await createInterceptor()
             const handler = getRequestHandler(page.page)
@@ -303,10 +319,10 @@ describe('RequestInterceptor', () => {
             expect(req.respond).toHaveBeenCalledWith(expect.objectContaining({ contentType: 'text/css' }))
         })
 
-        it('responds with empty CSS on fetch failure', async () => {
+        it('responds with empty CSS on fetch failure and counts the lost stylesheet', async () => {
             mockFetch.mockRejectedValue(new Error('ETIMEDOUT'))
 
-            const { page } = await createInterceptor()
+            const { interceptor, page } = await createInterceptor()
             const handler = getRequestHandler(page.page)
             const req = mockRequest('stylesheet')
 
@@ -322,6 +338,47 @@ describe('RequestInterceptor', () => {
                 expect.objectContaining({ err: 'ETIMEDOUT' }),
                 'stylesheet proxy failed, responding empty'
             )
+            // Without the count the render looks faithful, so a consumer reads an unstyled page as
+            // the product itself.
+            expect(interceptor.stylesheetFailures).toBe(1)
+        })
+
+        it('responds with empty CSS on an error status rather than serving the error body as CSS', async () => {
+            mockFetch.mockResolvedValue({
+                status: 404,
+                headers: { 'content-type': 'text/html' },
+                text: jest.fn().mockResolvedValue('<html>not found</html>'),
+            })
+
+            const { interceptor, page } = await createInterceptor()
+            const handler = getRequestHandler(page.page)
+            const req = mockRequest('stylesheet')
+
+            handler(req)
+            await new Promise(process.nextTick)
+
+            expect(req.respond).toHaveBeenCalledWith({
+                status: 200,
+                contentType: 'text/css',
+                body: '',
+            })
+            expect(interceptor.stylesheetFailures).toBe(1)
+        })
+
+        it('counts nothing when every stylesheet arrives', async () => {
+            mockFetch.mockResolvedValue({
+                status: 200,
+                headers: { 'content-type': 'text/css' },
+                text: jest.fn().mockResolvedValue('body { color: red }'),
+            })
+
+            const { interceptor, page } = await createInterceptor()
+            const handler = getRequestHandler(page.page)
+
+            handler(mockRequest('stylesheet'))
+            await new Promise(process.nextTick)
+
+            expect(interceptor.stylesheetFailures).toBe(0)
         })
 
         it('removes request from tracked when fallback respond also fails', async () => {

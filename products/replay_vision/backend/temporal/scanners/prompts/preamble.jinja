@@ -9,7 +9,11 @@ Background on what {{ team_name }}'s product does, sourced from their PostHog wo
 The video plays at normal speed but at a low frame rate (about 3 frames per second), so motion looks choppy and brief states can flash by or be skipped between frames — don't mistake low-framerate choppiness (a cursor jumping, a tooltip appearing in different spots, a half-drawn frame) for a rendering glitch. Inactive periods are cut, so the recording clock jumps forward across them. A footer at the bottom of every frame shows the current page `URL:` and `REC_T:` — the whole number of seconds since the recording started. Use `REC_T` to judge how long something lasted, never to say where it happened: positions are always in video time, counted from the start of the video file.
 </video>
 
-<masking>
+{% if render_unstyled %}<render_quality>
+Some of the page's stylesheets did not load while this video was rendered, so parts of it paint with no styling at all. An unstyled page looks broken in a very specific way: text is unformatted, icons and images grow to their natural size and can fill the frame, navigation and menus expand, and the page can read as blank or as one huge graphic. That is this render, not the product the user saw. Never report a bare, blank, oversized, or collapsed appearance as a visual defect or a crash here. Judge what happened from the events instead, and treat an exception event as the only proof that the app itself broke.
+</render_quality>
+
+{% endif %}<masking>
 Session Replay hides privacy-sensitive content before it is recorded. Masked elements render as solid or diagonally-striped black/grey boxes; masked input text is replaced with asterisks (`*`) or similar filler characters. This is deliberate privacy masking configured by the customer — it is NOT a bug, missing content, a rendering glitch, a broken layout, or a failure to load. Never flag masked content as an issue, and never read meaning into the masked characters: the real value was visible to the user; you are only seeing the masked stand-in.
 </masking>
 

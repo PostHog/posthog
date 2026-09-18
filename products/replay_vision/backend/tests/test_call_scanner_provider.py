@@ -12,11 +12,13 @@ from django.utils import timezone
 import httpx
 from google.genai import types
 from google.genai.errors import APIError
+from parameterized import parameterized
 from pydantic import BaseModel
 from temporalio.testing import ActivityEnvironment
 
 from posthog.dataclasses import frozen
 
+from products.exports.backend.models.exported_asset import ExportedAsset
 from products.replay_vision.backend.models.replay_scanner import ScannerType
 from products.replay_vision.backend.temporal.activities.call_scanner_provider import (
     _maybe_create_video_cache,
@@ -27,6 +29,7 @@ from products.replay_vision.backend.temporal.activities.call_scanner_provider im
     _run_pass,
     _run_steps,
     _step_config,
+    _stylesheet_failures,
 )
 from products.replay_vision.backend.temporal.errors import FailureKind, ScannerFailureError
 from products.replay_vision.backend.temporal.events_tool import events_tool
@@ -821,6 +824,24 @@ class TestVerifyPositives:
             {"steps": ["core_verify_2"], "cache_name": "caches/abc"},
             "delete_cache",
         ]
+
+
+class TestStylesheetFailures:
+    @parameterized.expand(
+        [
+            ("the render lost stylesheets", {"stylesheet_failures": 3}, 3),
+            ("the render kept every stylesheet", {"stylesheet_failures": 0}, 0),
+            ("rendered before the renderer counted them", {"video_duration_s": 10.0}, 0),
+            ("no export context at all", None, 0),
+        ]
+    )
+    def test_it_reads_the_count_off_the_rendered_asset(
+        self, _label: str, export_context: dict | None, expected: int
+    ) -> None:
+        assert _stylesheet_failures(ExportedAsset(export_context=export_context)) == expected
+
+    def test_a_missing_asset_reads_as_a_clean_render(self) -> None:
+        assert _stylesheet_failures(None) == 0
 
 
 class TestStepConfig:

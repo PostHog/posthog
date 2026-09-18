@@ -8,7 +8,8 @@ from parameterized import parameterized
 from products.exports.backend.models.exported_asset import ExportedAsset
 from products.replay_vision.backend.temporal.activities.call_scanner_provider import (
     _extract_segments,
-    _load_video_clock,
+    _load_asset,
+    _video_clock_from_asset,
 )
 from products.replay_vision.backend.temporal.errors import ScannerFailureError
 from products.replay_vision.backend.temporal.scanners.base import ChipSegment
@@ -72,14 +73,14 @@ class TestVideoClock:
 
 
 class TestMissingCutMapIsRefusedUnlessProvablyUncut:
-    """`_load_video_clock` falls back to identity only when the durations prove nothing was cut."""
+    """`_video_clock_from_asset` falls back to identity only when the durations prove nothing was cut."""
 
     def _load(self, export_context: dict | None, session_duration_s: float | None) -> VideoClock:
         with patch.object(ExportedAsset, "objects") as objects:
             objects.filter.return_value.first.return_value = (
                 SimpleNamespace(export_context=export_context) if export_context is not None else None
             )
-            return _load_video_clock(1, 7, session_duration_s)
+            return _video_clock_from_asset(_load_asset(1, 7), 1, 7, session_duration_s)
 
     def test_a_video_as_long_as_its_session_lost_nothing_so_identity_is_exact(self) -> None:
         assert self._load({"video_duration_s": 199.0}, 200.0).is_identity

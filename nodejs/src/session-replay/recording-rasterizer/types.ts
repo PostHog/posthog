@@ -62,6 +62,10 @@ export interface RasterizeRecordingOutput {
     truncated: boolean // true when max_virtual_time stopped the recording early
     inactivity_periods: InactivityPeriod[]
     file_size_bytes: number
+    // Page stylesheets that failed to load during the render. Above zero means parts of the video
+    // painted unstyled, so a consumer judging the recorded product by how it looks is reading the
+    // render instead.
+    stylesheet_failures: number
     timings: ActivityTimings
 }
 
@@ -89,5 +93,6 @@ export interface RecordingResult {
     frame_session_ms: number[] // session time at each captured frame, measured during capture
     pre_roll_frames: number // frames captured before playback started, which carry no sample
     output_fps: number // frames per second of the rendered file, so a frame index is a video position
+    stylesheet_failures: number // page stylesheets that never arrived, so the replay painted without them
     timings: Pick<ActivityTimings, 'setup_s' | 'capture_s'>
 }

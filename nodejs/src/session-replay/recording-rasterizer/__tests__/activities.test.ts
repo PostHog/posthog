@@ -77,6 +77,7 @@ function baseRecordingResult(_videoPath: string, overrides: Partial<RecordingRes
         frame_session_ms: [],
         pre_roll_frames: 0,
         output_fps: 3,
+        stylesheet_failures: 0,
         timings: { setup_s: 1.5, capture_s: 3.2 },
         ...overrides,
     }
