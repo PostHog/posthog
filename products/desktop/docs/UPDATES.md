@@ -34,6 +34,7 @@ Remote announcements can drive this flow: a `required-update` announcement block
 - The title bar shows a compact chip for the same states while the sidebar is collapsed, peeked away or absent, so only one copy is on screen at a time.
 - Both surfaces open the update modal, which shows the release notes and holds the Download and Restart actions. The sidebar card also has its own Restart button for a staged update.
 - "Check for Updates..." in the app menu runs a check. It shows a toast when the app is up to date or the check fails, and opens the update modal when the check finds an available, downloading or staged update.
+- Manual update results remain visible when toast notifications are disabled, including in Command Center. Background notifications still follow that setting.
 - The modal is mounted in the app shell above the router, so it also opens from the sign-in, access and consent screens.
 
 ## How it works
