@@ -244,6 +244,98 @@ func TestCompletesTablesAfterFrom(t *testing.T) {
 	}
 }
 
+func TestCompletesDottedTablePaths(t *testing.T) {
+	prepared := catalog.Prepare(&catalog.Catalog{
+		Tables: map[string]catalog.Table{
+			"postgres.demo.orders":       {Type: "data_warehouse", Fields: map[string]catalog.Field{}},
+			"postgres.demo.order items":  {Type: "data_warehouse", Fields: map[string]catalog.Field{}},
+			"events.properties.archive":  {Type: "data_warehouse", Fields: map[string]catalog.Field{}},
+			"persons.properties.archive": {Type: "data_warehouse", Fields: map[string]catalog.Field{}},
+		},
+		TableAliases: map[string]string{"POSTGRES.demo.orders": "postgres.demo.orders"},
+		Properties: map[string][]catalog.Property{
+			"event":  {{Name: "$browser", ValueType: "String"}},
+			"person": {{Name: "email", ValueType: "String"}},
+		},
+	})
+	for _, test := range []struct {
+		name     string
+		source   string
+		encoding PositionEncoding
+		expected *Suggestion
+	}{
+		{name: "namespace", source: "SELECT * FROM postgres.|", expected: &Suggestion{Label: "postgres.demo.orders", Detail: "data_warehouse", InsertText: "demo.orders"}},
+		{name: "leaf", source: "SELECT * FROM postgres.demo.or|", expected: &Suggestion{Label: "postgres.demo.orders", Detail: "data_warehouse", InsertText: "orders"}},
+		{name: "join", source: "SELECT * FROM events JOIN postgres.demo.or| ON 1 = 1", expected: &Suggestion{Label: "postgres.demo.orders", Detail: "data_warehouse", InsertText: "orders"}},
+		{name: "alias exact namespace case", source: "SELECT * FROM POSTGRES.demo.or|", expected: &Suggestion{Label: "POSTGRES.demo.orders", Detail: "postgres.demo.orders", InsertText: "orders"}},
+		{name: "leaf prefix case is replaced", source: "SELECT * FROM postgres.demo.OR|", expected: &Suggestion{Label: "postgres.demo.orders", Detail: "data_warehouse", InsertText: "orders"}},
+		{name: "wrong namespace case", source: "SELECT * FROM postgres.DEMO.or|"},
+		{name: "comma source remains unsupported", source: "SELECT * FROM events, postgres.demo.or|"},
+		{name: "event property spelling remains table context", source: "SELECT * FROM events.properties.|", expected: &Suggestion{Label: "events.properties.archive", Detail: "data_warehouse", InsertText: "archive"}},
+		{name: "person property spelling remains table context", source: "SELECT * FROM persons.properties.|", expected: &Suggestion{Label: "persons.properties.archive", Detail: "data_warehouse", InsertText: "archive"}},
+		{name: "unicode utf16", source: "SELECT '😀'; SELECT * FROM postgres.demo.or|", encoding: PositionEncodingUTF16, expected: &Suggestion{Label: "postgres.demo.orders", Detail: "data_warehouse", InsertText: "orders"}},
+		{name: "midword server cursor", source: "SELECT * FROM postgres.demo.or|suffix", expected: &Suggestion{Label: "postgres.demo.orders", Detail: "data_warehouse", InsertText: "orders"}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			bytePosition := strings.IndexByte(test.source, '|')
+			query := strings.Replace(test.source, "|", "", 1)
+			position := bytePosition
+			if test.encoding == "" {
+				test.encoding = PositionEncodingUTF8
+			}
+			if test.encoding == PositionEncodingUTF16 {
+				position = len(utf16.Encode([]rune(query[:bytePosition])))
+			}
+			result, err := Complete(prepared, query, position, test.encoding, "")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if test.expected == nil {
+				if len(result.Suggestions) != 0 {
+					t.Fatalf("result = %#v", result)
+				}
+				return
+			}
+			if len(result.Suggestions) != 1 {
+				t.Fatalf("result = %#v", result)
+			}
+			actual := result.Suggestions[0]
+			if actual.Label != test.expected.Label || actual.Detail != test.expected.Detail || actual.InsertText != test.expected.InsertText {
+				t.Fatalf("suggestion = %#v, want %#v", actual, *test.expected)
+			}
+		})
+	}
+
+	quotedCanonical := catalog.Prepare(&catalog.Catalog{
+		Tables: map[string]catalog.Table{
+			"postgres.demo.order items": {Type: "data_warehouse", Fields: map[string]catalog.Field{}},
+		},
+		TableAliases: map[string]string{"postgres.demo.order_items": "postgres.demo.order items"},
+		Properties:   map[string][]catalog.Property{},
+	})
+	query := "SELECT * FROM postgres.demo.order"
+	result, err := Complete(quotedCanonical, query, len(query), PositionEncodingUTF8, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Suggestions) != 1 || result.Suggestions[0].Label != "postgres.demo.order_items" || result.Suggestions[0].InsertText != "order_items" {
+		t.Fatalf("quoted canonical alias result = %#v", result)
+	}
+
+	cteCatalog := catalog.Prepare(&catalog.Catalog{Tables: map[string]catalog.Table{
+		"postgres.demo.orders":        {Type: "data_warehouse", Fields: map[string]catalog.Field{}},
+		"postgres.demo.catalog_table": {Type: "data_warehouse", Fields: map[string]catalog.Field{}},
+	}})
+	cteQuery := "WITH `postgres.demo.cte` AS (SELECT 1), `postgres.demo.orders` AS (SELECT 2) SELECT * FROM postgres.demo."
+	cteResult, err := Complete(cteCatalog, cteQuery, len(cteQuery), PositionEncodingUTF8, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cteResult.Suggestions) != 1 || cteResult.Suggestions[0].Label != "postgres.demo.catalog_table" || cteResult.Suggestions[0].InsertText != "catalog_table" {
+		t.Fatalf("dotted CTE result = %#v", cteResult)
+	}
+}
+
 func TestCompletesOneSpellingPerAliasedTableAndHonorsExactCTEShadowing(t *testing.T) {
 	prepared := catalog.Prepare(&catalog.Catalog{
 		Tables: map[string]catalog.Table{
@@ -1054,6 +1146,9 @@ func TestCompletionReturnsNoSuggestionsInsideStringOrComment(t *testing.T) {
 	for _, query := range []string{
 		"-- sel",
 		"/* wi",
+		"-- FROM postgres.demo.or",
+		"/* FROM postgres.demo.or",
+		"SELECT 'FROM postgres.demo.or",
 		"SELECT * FROM orders WHERE order_id = 'cou",
 		"SELECT * FROM orders -- cou",
 		"SELECT * FROM orders /* cou",
@@ -1118,12 +1213,12 @@ func TestAliasCompletionPagesWithoutRepeatingCanonicalTargets(t *testing.T) {
 	value := &catalog.Catalog{Tables: map[string]catalog.Table{}, TableAliases: map[string]string{}, Properties: map[string][]catalog.Property{}}
 	for index := range 30 {
 		canonical := fmt.Sprintf("postgres.demo.table_%02d", index)
-		alias := fmt.Sprintf("demo_postgres_table_%02d", index)
+		alias := fmt.Sprintf("legacy.demo.table_%02d", index)
 		value.Tables[canonical] = catalog.Table{Type: "data_warehouse", Fields: map[string]catalog.Field{}}
 		value.TableAliases[alias] = canonical
 	}
 	prepared := catalog.Prepare(value)
-	query := "SELECT * FROM demo_postgres_table_"
+	query := "SELECT * FROM legacy.demo.table_"
 	first, err := Complete(prepared, query, len(query), PositionEncodingUTF8, "")
 	if err != nil {
 		t.Fatal(err)
@@ -1137,9 +1232,10 @@ func TestAliasCompletionPagesWithoutRepeatingCanonicalTargets(t *testing.T) {
 		t.Fatalf("pages = %#v, %#v", first, second)
 	}
 	for index, suggestion := range all {
-		expectedAlias := fmt.Sprintf("demo_postgres_table_%02d", index)
+		expectedAlias := fmt.Sprintf("legacy.demo.table_%02d", index)
 		expectedCanonical := fmt.Sprintf("postgres.demo.table_%02d", index)
-		if suggestion.Label != expectedAlias || suggestion.Detail != expectedCanonical {
+		expectedInsertText := fmt.Sprintf("table_%02d", index)
+		if suggestion.Label != expectedAlias || suggestion.Detail != expectedCanonical || suggestion.InsertText != expectedInsertText {
 			t.Fatalf("suggestion %d = %#v", index, suggestion)
 		}
 	}

@@ -158,6 +158,7 @@ func BenchmarkCompleteLargeCatalog(b *testing.B) {
 	cases := []completionCase{
 		{name: "table broad prefix", query: "SELECT * FROM warehouse_table_", position: len("SELECT * FROM warehouse_table_")},
 		{name: "alias broad prefix", query: "SELECT * FROM legacy_warehouse_table_", position: len("SELECT * FROM legacy_warehouse_table_")},
+		{name: "dotted alias broad prefix", query: "SELECT * FROM legacy.warehouse.table_", position: len("SELECT * FROM legacy.warehouse.table_")},
 		{name: "field broad prefix", query: "SELECT w. FROM warehouse_table_2048 AS w", position: len("SELECT w.")},
 		{name: "event property broad prefix", query: "SELECT properties.$event_property_ FROM events", position: len("SELECT properties.$event_property_")},
 		{name: "event property selective prefix", query: "SELECT properties.$event_property_249 FROM events", position: len("SELECT properties.$event_property_249")},
@@ -253,6 +254,7 @@ func TestLargeCatalogSupportedScale(t *testing.T) {
 	}{
 		{query: "SELECT * FROM warehouse_table_", total: syntheticTableCount - 3},
 		{query: "SELECT * FROM legacy_warehouse_table_", total: syntheticTableCount - 3},
+		{query: "SELECT * FROM legacy.warehouse.table_", total: syntheticTableCount - 3},
 		{query: "SELECT w. FROM warehouse_table_2048 AS w", position: len("SELECT w."), total: syntheticFieldsPerTable},
 		{query: "SELECT properties.$event_property_ FROM events", position: len("SELECT properties.$event_property_"), total: syntheticPropertyCount},
 	} {
@@ -286,7 +288,7 @@ func TestLargeCatalogSupportedScale(t *testing.T) {
 	}
 
 	for _, query := range []string{
-		"SELECT column_24 FROM legacy_warehouse_table_2048",
+		"SELECT column_24 FROM legacy.warehouse.table_2048",
 		"SELECT properties.$event_property_119999 FROM events",
 	} {
 		if result := validation.Validate(prepared, query); !result.Valid {
@@ -420,7 +422,7 @@ func queryAndPosition(marked string) (string, int) {
 
 func largeSyntheticCatalog() *catalog.Catalog {
 	tables := make(map[string]catalog.Table, syntheticTableCount)
-	tableAliases := make(map[string]string, syntheticTableCount-3)
+	tableAliases := make(map[string]string, 2*(syntheticTableCount-3))
 	for tableIndex := 0; tableIndex < syntheticTableCount-3; tableIndex++ {
 		fields := make(map[string]catalog.Field, syntheticFieldsPerTable)
 		for fieldIndex := 0; fieldIndex < syntheticFieldsPerTable; fieldIndex++ {
@@ -430,6 +432,7 @@ func largeSyntheticCatalog() *catalog.Catalog {
 		name := fmt.Sprintf("warehouse_table_%04d", tableIndex)
 		tables[name] = catalog.Table{ID: fmt.Sprintf("table-%04d", tableIndex), Name: name, Type: "data_warehouse", Fields: fields}
 		tableAliases[fmt.Sprintf("legacy_warehouse_table_%04d", tableIndex)] = name
+		tableAliases[fmt.Sprintf("legacy.warehouse.table_%04d", tableIndex)] = name
 	}
 	tables["events"] = catalog.Table{Name: "events", Type: "posthog", Fields: scaleFields(
 		"distinct_id", "event", "person_id", "properties", "session_id", "timestamp", "uuid",
