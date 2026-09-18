@@ -294,33 +294,6 @@ const PersonPropertyFilter = z.object({
     value: PropertyFilterValue.optional(),
 })
 
-const PersonMetadataPropertyFilter = z.object({
-    key: z.string(),
-    label: z.string().optional(),
-    operator: PropertyOperator,
-    type: z
-        .literal('person_metadata')
-        .describe('Top-level columns on the persons table (e.g. created_at), not properties JSON')
-        .default('person_metadata'),
-    value: PropertyFilterValue.optional(),
-})
-
-const ElementPropertyFilter = z.object({
-    key: z.enum(['tag_name', 'text', 'href', 'selector']),
-    label: z.string().optional(),
-    operator: PropertyOperator,
-    type: z.literal('element').default('element'),
-    value: PropertyFilterValue.optional(),
-})
-
-const EventMetadataPropertyFilter = z.object({
-    key: z.string(),
-    label: z.string().optional(),
-    operator: PropertyOperator,
-    type: z.literal('event_metadata').default('event_metadata'),
-    value: PropertyFilterValue.optional(),
-})
-
 const SessionPropertyFilter = z.object({
     key: z.string(),
     label: z.string().optional(),
@@ -329,240 +302,13 @@ const SessionPropertyFilter = z.object({
     value: PropertyFilterValue.optional(),
 })
 
-const CohortPropertyFilter = z.object({
-    cohort_name: z.string().optional(),
-    key: z.literal('id').default('id'),
-    label: z.string().optional(),
-    operator: PropertyOperator.default('in'),
-    type: z.literal('cohort').default('cohort'),
-    value: z.coerce.number().int(),
-})
-
-const DurationType = z.enum(['duration', 'active_seconds', 'inactive_seconds'])
-
-const RecordingPropertyFilter = z.object({
-    key: z.union([
-        DurationType,
-        z.literal('snapshot_source'),
-        z.literal('visited_page'),
-        z.literal('comment_text'),
-        z.literal('click_count'),
-        z.literal('keypress_count'),
-        z.literal('mouse_activity_count'),
-    ]),
-    label: z.string().optional(),
-    operator: PropertyOperator,
-    type: z.literal('recording').default('recording'),
-    value: PropertyFilterValue.optional(),
-})
-
-const LogEntryPropertyFilter = z.object({
-    key: z.string(),
-    label: z.string().optional(),
-    operator: PropertyOperator,
-    type: z.literal('log_entry').default('log_entry'),
-    value: PropertyFilterValue.optional(),
-})
-
-const GroupPropertyFilter = z.object({
-    group_key_names: z.record(z.string(), z.string()).optional(),
-    group_type_index: z.union([z.number().int(), z.null()]).optional(),
-    key: z.string(),
-    label: z.string().optional(),
-    operator: PropertyOperator,
-    type: z.literal('group').default('group'),
-    value: PropertyFilterValue.optional(),
-})
-
-const FeaturePropertyFilter = z.object({
-    key: z.string(),
-    label: z.string().optional(),
-    operator: PropertyOperator,
-    type: z.literal('feature').describe('Event property with "$feature/" prepended').default('feature'),
-    value: PropertyFilterValue.optional(),
-})
-
-const FlagPropertyFilter = z.object({
-    key: z.string().describe('The key should be the flag ID'),
-    label: z.string().optional(),
-    operator: z
-        .literal('flag_evaluates_to')
-        .describe('Only flag_evaluates_to operator is allowed for flag dependencies')
-        .default('flag_evaluates_to'),
-    type: z.literal('flag').describe('Feature flag dependency').default('flag'),
-    value: z.union([z.boolean(), z.string()]).describe('The value can be true, false, or a variant name'),
-})
-
-const HogQLPropertyFilter = z.object({
-    key: z.string(),
-    label: z.string().optional(),
-    type: z.literal('hogql').default('hogql'),
-    value: PropertyFilterValue.optional(),
-})
-
-const EmptyPropertyFilter = z.object({
-    type: z.literal('empty').default('empty').optional(),
-})
-
-const DataWarehousePropertyFilter = z.object({
-    key: z.string(),
-    label: z.string().optional(),
-    operator: PropertyOperator,
-    type: z.literal('data_warehouse').default('data_warehouse'),
-    value: PropertyFilterValue.optional(),
-})
-
-const DataWarehousePersonPropertyFilter = z.object({
-    key: z.string(),
-    label: z.string().optional(),
-    operator: PropertyOperator,
-    type: z.literal('data_warehouse_person_property').default('data_warehouse_person_property'),
-    value: PropertyFilterValue.optional(),
-})
-
-const ErrorTrackingIssueFilter = z.object({
-    key: z.string(),
-    label: z.string().optional(),
-    operator: PropertyOperator,
-    type: z.literal('error_tracking_issue').default('error_tracking_issue'),
-    value: PropertyFilterValue.optional(),
-})
-
-const LogPropertyFilterType = z.enum(['log', 'log_attribute', 'log_resource_attribute'])
-
-const LogPropertyFilter = z.object({
-    key: z.string(),
-    label: z.string().optional(),
-    operator: PropertyOperator,
-    type: LogPropertyFilterType,
-    value: PropertyFilterValue.optional(),
-})
-
-const MetricPropertyFilter = z.object({
-    key: z.string(),
-    label: z.string().optional(),
-    operator: PropertyOperator,
-    type: z.literal('metric_attribute').default('metric_attribute'),
-    value: PropertyFilterValue.optional(),
-})
-
-const SpanPropertyFilterType = z.enum(['span', 'span_attribute', 'span_resource_attribute'])
-
-const SpanPropertyFilter = z.object({
-    key: z.string(),
-    label: z.string().optional(),
-    operator: PropertyOperator,
-    type: SpanPropertyFilterType,
-    value: PropertyFilterValue.optional(),
-})
-
-const RevenueAnalyticsPropertyFilter = z.object({
-    key: z.string(),
-    label: z.string().optional(),
-    operator: PropertyOperator,
-    type: z.literal('revenue_analytics').default('revenue_analytics'),
-    value: PropertyFilterValue.optional(),
-})
-
-const AccountCustomPropertyFilter = z.object({
-    key: z.string(),
-    label: z.string().optional(),
-    operator: PropertyOperator,
-    type: z
-        .literal('account_custom_property')
-        .describe('Customer analytics account custom property — the key is the property definition id')
-        .default('account_custom_property'),
-    value: PropertyFilterValue.optional(),
-})
-
-const WorkflowVariablePropertyFilter = z.object({
-    key: z.string(),
-    label: z.string().optional(),
-    operator: PropertyOperator,
-    type: z.literal('workflow_variable').default('workflow_variable'),
-    value: PropertyFilterValue.optional(),
-})
-
-const BehavioralEventSource = z.enum(['events', 'actions'])
-
-const TimeUnitType = z.enum(['day', 'week', 'month', 'year'])
-
-const InlineBehavioralType = z.enum(['performed_event', 'performed_event_multiple'])
-
-const BehavioralPropertyFilter = z.object({
-    event_filters: z
-        .array(
-            z.union([
-                EventPropertyFilter,
-                PersonPropertyFilter,
-                ElementPropertyFilter,
-                FeaturePropertyFilter,
-                HogQLPropertyFilter,
-            ])
-        )
-        .describe(
-            'Extra property filters the matching events must satisfy. Deliberately excludes nested behavioral/cohort filters and groups'
-        )
-        .optional(),
-    event_type: BehavioralEventSource,
-    explicit_datetime: z
-        .string()
-        .describe('Absolute or relative (e.g. -30d) lower date bound — alternative to time_value/time_interval')
-        .optional(),
-    explicit_datetime_to: z.string().optional(),
-    key: z.string().describe("Event name, or action id when event_type is 'actions'"),
-    label: z.string().optional(),
-    negation: z.coerce
-        .boolean()
-        .describe(
-            'Match persons who did NOT satisfy the criterion. Not the same as a low count — zero-occurrence persons never match count operators'
-        )
-        .optional(),
-    operator: PropertyOperator.describe('Count comparison for performed_event_multiple, defaults to exact').optional(),
-    operator_value: z.coerce.number().int().describe('Count threshold for performed_event_multiple').optional(),
-    time_interval: TimeUnitType.optional(),
-    time_value: z.coerce.number().int().describe('Relative time window size, paired with time_interval').optional(),
-    type: z
-        .literal('behavioral')
-        .describe(
-            "Person performed (or didn't perform) an event in a time window. ClickHouse-only — not evaluable by flags or CDP"
-        )
-        .default('behavioral'),
-    value: InlineBehavioralType,
-})
-
-const AnyPropertyFilter = z.union([
-    EventPropertyFilter,
-    PersonPropertyFilter,
-    PersonMetadataPropertyFilter,
-    ElementPropertyFilter,
-    EventMetadataPropertyFilter,
-    SessionPropertyFilter,
-    CohortPropertyFilter,
-    RecordingPropertyFilter,
-    LogEntryPropertyFilter,
-    GroupPropertyFilter,
-    FeaturePropertyFilter,
-    FlagPropertyFilter,
-    HogQLPropertyFilter,
-    EmptyPropertyFilter,
-    DataWarehousePropertyFilter,
-    DataWarehousePersonPropertyFilter,
-    ErrorTrackingIssueFilter,
-    LogPropertyFilter,
-    MetricPropertyFilter,
-    SpanPropertyFilter,
-    RevenueAnalyticsPropertyFilter,
-    AccountCustomPropertyFilter,
-    WorkflowVariablePropertyFilter,
-    BehavioralPropertyFilter,
-])
+const MCPAnalyticsPropertyFilter = z.union([EventPropertyFilter, PersonPropertyFilter, SessionPropertyFilter])
 
 const MCPHarnessBreakdownQuery = z.object({
     dateRange: DateRange.optional(),
     filterTestAccounts: z.coerce.boolean().optional(),
     kind: z.literal('MCPHarnessBreakdownQuery').default('MCPHarnessBreakdownQuery'),
-    properties: z.array(AnyPropertyFilter).optional(),
+    properties: z.array(MCPAnalyticsPropertyFilter).optional(),
     toolName: z
         .string()
         .describe('When set, scope to a single effective tool\'s new-SDK calls (the per-tool "By harness" table).')
@@ -573,7 +319,7 @@ const MCPToolStatsQuery = z.object({
     dateRange: DateRange.optional(),
     filterTestAccounts: z.coerce.boolean().optional(),
     kind: z.literal('MCPToolStatsQuery').default('MCPToolStatsQuery'),
-    properties: z.array(AnyPropertyFilter).optional(),
+    properties: z.array(MCPAnalyticsPropertyFilter).optional(),
     toolName: z
         .string()
         .describe('The effective tool name to scope to (matched against the single-exec-resolved tool name).'),
@@ -588,7 +334,7 @@ const MCPToolDailyStatsQuery = z.object({
         'Bucket granularity for the series. The frontend passes getDefaultInterval so a sub-day window buckets by hour/minute instead of collapsing to a single day point. Defaults to day.'
     ).optional(),
     kind: z.literal('MCPToolDailyStatsQuery').default('MCPToolDailyStatsQuery'),
-    properties: z.array(AnyPropertyFilter).optional(),
+    properties: z.array(MCPAnalyticsPropertyFilter).optional(),
     toolName: z
         .string()
         .describe('The effective tool name to scope to (matched against the single-exec-resolved tool name).'),
@@ -598,7 +344,7 @@ const MCPToolFailuresQuery = z.object({
     dateRange: DateRange.optional(),
     filterTestAccounts: z.coerce.boolean().optional(),
     kind: z.literal('MCPToolFailuresQuery').default('MCPToolFailuresQuery'),
-    properties: z.array(AnyPropertyFilter).optional(),
+    properties: z.array(MCPAnalyticsPropertyFilter).optional(),
     toolName: z
         .string()
         .describe('The effective tool name to scope to (matched against the single-exec-resolved tool name).'),
@@ -615,7 +361,7 @@ const MCPToolFailureOccurrencesQuery = z.object({
         .describe('Raw $mcp_error_type bucket; "unknown" selects errored events without an error type.'),
     filterTestAccounts: z.coerce.boolean().optional(),
     kind: z.literal('MCPToolFailureOccurrencesQuery').default('MCPToolFailureOccurrencesQuery'),
-    properties: z.array(AnyPropertyFilter).optional(),
+    properties: z.array(MCPAnalyticsPropertyFilter).optional(),
     toolName: z
         .string()
         .describe('The effective tool name to scope to (matched against the single-exec-resolved tool name).'),
@@ -625,7 +371,7 @@ const MCPToolTopUsersQuery = z.object({
     dateRange: DateRange.optional(),
     filterTestAccounts: z.coerce.boolean().optional(),
     kind: z.literal('MCPToolTopUsersQuery').default('MCPToolTopUsersQuery'),
-    properties: z.array(AnyPropertyFilter).optional(),
+    properties: z.array(MCPAnalyticsPropertyFilter).optional(),
     toolName: z
         .string()
         .describe('The effective tool name to scope to (matched against the single-exec-resolved tool name).'),
@@ -638,7 +384,7 @@ const MCPToolNeighborsQuery = z.object({
     neighborDirection: z
         .enum(['before', 'after'])
         .describe('Whether to count tools called immediately before or after the target tool.'),
-    properties: z.array(AnyPropertyFilter).optional(),
+    properties: z.array(MCPAnalyticsPropertyFilter).optional(),
     toolName: z
         .string()
         .describe('The effective tool name to scope to (matched against the single-exec-resolved tool name).'),
@@ -648,7 +394,7 @@ const MCPToolSampleIntentsQuery = z.object({
     dateRange: DateRange.optional(),
     filterTestAccounts: z.coerce.boolean().optional(),
     kind: z.literal('MCPToolSampleIntentsQuery').default('MCPToolSampleIntentsQuery'),
-    properties: z.array(AnyPropertyFilter).optional(),
+    properties: z.array(MCPAnalyticsPropertyFilter).optional(),
     toolName: z
         .string()
         .describe('The effective tool name to scope to (matched against the single-exec-resolved tool name).'),
@@ -658,7 +404,7 @@ const MCPToolDescriptionsQuery = z.object({
     dateRange: DateRange.optional(),
     filterTestAccounts: z.coerce.boolean().optional(),
     kind: z.literal('MCPToolDescriptionsQuery').default('MCPToolDescriptionsQuery'),
-    properties: z.array(AnyPropertyFilter).optional(),
+    properties: z.array(MCPAnalyticsPropertyFilter).optional(),
     toolName: z
         .string()
         .describe('The effective tool name to scope to (matched against the single-exec-resolved tool name).'),

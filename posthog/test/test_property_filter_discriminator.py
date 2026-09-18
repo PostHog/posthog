@@ -299,17 +299,31 @@ class TestPropertyFilterDiscriminator(SimpleTestCase):
     def test_mcp_analytics_properties_use_the_discriminated_filter(
         self, kind: str, model: type[BaseModel], extra_fields: dict
     ) -> None:
-        query = model.model_validate(
-            {
-                "kind": kind,
-                "properties": [{"type": "event", "key": "$mcp_llm_model", "operator": "exact"}],
-                **extra_fields,
-            }
-        )
+        for property_type, expected in [
+            ("event", EventPropertyFilter),
+            ("person", PersonPropertyFilter),
+            ("session", SessionPropertyFilter),
+        ]:
+            query = model.model_validate(
+                {
+                    "kind": kind,
+                    "properties": [{"type": property_type, "key": "k", "operator": "exact"}],
+                    **extra_fields,
+                }
+            )
+            properties = query.properties  # type: ignore[attr-defined]
+            assert properties is not None
+            assert type(properties[0]) is expected
 
-        properties = query.properties  # type: ignore[attr-defined]
-        assert properties is not None
-        assert type(properties[0]) is EventPropertyFilter
+        for property_type in ["cohort", "hogql"]:
+            with self.assertRaises(ValidationError):
+                model.model_validate(
+                    {
+                        "kind": kind,
+                        "properties": [{"type": property_type, "key": "k", "operator": "exact"}],
+                        **extra_fields,
+                    }
+                )
 
     def test_serialization_round_trip_is_stable(self) -> None:
         node = EventsNode(

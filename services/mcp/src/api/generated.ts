@@ -49034,7 +49034,7 @@ export namespace Schemas {
       kind?: 'MCPToolCallBreakdownQuery';
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
-      properties?: (EventPropertyFilter | PersonPropertyFilter | PersonMetadataPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | MetricPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | AccountCustomPropertyFilter | WorkflowVariablePropertyFilter | BehavioralPropertyFilter)[] | null;
+      properties?: (EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter)[] | null;
       response?: MCPToolCallBreakdownQueryResponse | null;
       tags?: QueryLogTags | null;
       /** version of the node, used for schema migrations */
@@ -49078,7 +49078,7 @@ export namespace Schemas {
       kind?: 'MCPToolCallsAndErrorsQuery';
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
-      properties?: (EventPropertyFilter | PersonPropertyFilter | PersonMetadataPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | MetricPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | AccountCustomPropertyFilter | WorkflowVariablePropertyFilter | BehavioralPropertyFilter)[] | null;
+      properties?: (EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter)[] | null;
       response?: MCPToolCallsAndErrorsQueryResponse | null;
       tags?: QueryLogTags | null;
       /** version of the node, used for schema migrations */
@@ -49122,7 +49122,7 @@ export namespace Schemas {
       kind?: 'MCPHarnessBreakdownQuery';
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
-      properties?: (EventPropertyFilter | PersonPropertyFilter | PersonMetadataPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | MetricPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | AccountCustomPropertyFilter | WorkflowVariablePropertyFilter | BehavioralPropertyFilter)[] | null;
+      properties?: (EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter)[] | null;
       response?: MCPHarnessBreakdownQueryResponse | null;
       tags?: QueryLogTags | null;
       /** When set, scope to a single effective tool's new-SDK calls (the per-tool "By harness" table). */
@@ -49172,7 +49172,7 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** Number of individual models to skip when includeAllModels is enabled. */
       offset?: number | null;
-      properties?: (EventPropertyFilter | PersonPropertyFilter | PersonMetadataPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | MetricPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | AccountCustomPropertyFilter | WorkflowVariablePropertyFilter | BehavioralPropertyFilter)[] | null;
+      properties?: (EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter)[] | null;
       response?: MCPModelBreakdownQueryResponse | null;
       tags?: QueryLogTags | null;
       /** version of the node, used for schema migrations */
@@ -49219,7 +49219,7 @@ export namespace Schemas {
       kind?: 'MCPToolTopUsersQuery';
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
-      properties?: (EventPropertyFilter | PersonPropertyFilter | PersonMetadataPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | MetricPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | AccountCustomPropertyFilter | WorkflowVariablePropertyFilter | BehavioralPropertyFilter)[] | null;
+      properties?: (EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter)[] | null;
       response?: MCPToolTopUsersQueryResponse | null;
       tags?: QueryLogTags | null;
       /** The effective tool name to scope to (matched against the single-exec-resolved tool name). */
@@ -49269,7 +49269,7 @@ export namespace Schemas {
       kind?: 'MCPToolFailuresQuery';
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
-      properties?: (EventPropertyFilter | PersonPropertyFilter | PersonMetadataPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | MetricPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | AccountCustomPropertyFilter | WorkflowVariablePropertyFilter | BehavioralPropertyFilter)[] | null;
+      properties?: (EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter)[] | null;
       response?: MCPToolFailuresQueryResponse | null;
       tags?: QueryLogTags | null;
       /** The effective tool name to scope to (matched against the single-exec-resolved tool name). */
@@ -49325,7 +49325,7 @@ export namespace Schemas {
       kind?: 'MCPToolFailureOccurrencesQuery';
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
-      properties?: (EventPropertyFilter | PersonPropertyFilter | PersonMetadataPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | MetricPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | AccountCustomPropertyFilter | WorkflowVariablePropertyFilter | BehavioralPropertyFilter)[] | null;
+      properties?: (EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter)[] | null;
       response?: MCPToolFailureOccurrencesQueryResponse | null;
       tags?: QueryLogTags | null;
       /** The effective tool name to scope to (matched against the single-exec-resolved tool name). */
@@ -49374,7 +49374,7 @@ export namespace Schemas {
       kind?: 'MCPToolStatsQuery';
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
-      properties?: (EventPropertyFilter | PersonPropertyFilter | PersonMetadataPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | MetricPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | AccountCustomPropertyFilter | WorkflowVariablePropertyFilter | BehavioralPropertyFilter)[] | null;
+      properties?: (EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter)[] | null;
       response?: MCPToolStatsQueryResponse | null;
       tags?: QueryLogTags | null;
       /** The effective tool name to scope to (matched against the single-exec-resolved tool name). */
@@ -49423,7 +49423,7 @@ export namespace Schemas {
       kind?: 'MCPToolDailyStatsQuery';
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
-      properties?: (EventPropertyFilter | PersonPropertyFilter | PersonMetadataPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | MetricPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | AccountCustomPropertyFilter | WorkflowVariablePropertyFilter | BehavioralPropertyFilter)[] | null;
+      properties?: (EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter)[] | null;
       response?: MCPToolDailyStatsQueryResponse | null;
       tags?: QueryLogTags | null;
       /** The effective tool name to scope to (matched against the single-exec-resolved tool name). */
@@ -49504,7 +49504,7 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** Number of matching tools to skip. */
       offset?: number | null;
-      properties?: (EventPropertyFilter | PersonPropertyFilter | PersonMetadataPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | MetricPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | AccountCustomPropertyFilter | WorkflowVariablePropertyFilter | BehavioralPropertyFilter)[] | null;
+      properties?: (EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter)[] | null;
       response?: MCPToolQualityRowsQueryResponse | null;
       /** Case-insensitive substring search on the effective tool name. */
       search?: string | null;
@@ -49558,7 +49558,7 @@ export namespace Schemas {
       kind?: 'MCPToolQualityDailyStatsQuery';
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
-      properties?: (EventPropertyFilter | PersonPropertyFilter | PersonMetadataPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | MetricPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | AccountCustomPropertyFilter | WorkflowVariablePropertyFilter | BehavioralPropertyFilter)[] | null;
+      properties?: (EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter)[] | null;
       response?: MCPToolQualityDailyStatsQueryResponse | null;
       tags?: QueryLogTags | null;
       /** Restrict to a single $mcp_tool_name; omitted means the aggregate across all tools. */
@@ -49600,7 +49600,7 @@ export namespace Schemas {
       kind?: 'MCPToolCategoryCountsQuery';
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
-      properties?: (EventPropertyFilter | PersonPropertyFilter | PersonMetadataPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | MetricPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | AccountCustomPropertyFilter | WorkflowVariablePropertyFilter | BehavioralPropertyFilter)[] | null;
+      properties?: (EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter)[] | null;
       response?: MCPToolCategoryCountsQueryResponse | null;
       tags?: QueryLogTags | null;
       /** version of the node, used for schema migrations */
@@ -49639,7 +49639,7 @@ export namespace Schemas {
       kind?: 'MCPToolCategoriesQuery';
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
-      properties?: (EventPropertyFilter | PersonPropertyFilter | PersonMetadataPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | MetricPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | AccountCustomPropertyFilter | WorkflowVariablePropertyFilter | BehavioralPropertyFilter)[] | null;
+      properties?: (EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter)[] | null;
       response?: MCPToolCategoriesQueryResponse | null;
       tags?: QueryLogTags | null;
       /** version of the node, used for schema migrations */
@@ -49717,7 +49717,7 @@ export namespace Schemas {
       kind?: 'MCPToolDescriptionsQuery';
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
-      properties?: (EventPropertyFilter | PersonPropertyFilter | PersonMetadataPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | MetricPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | AccountCustomPropertyFilter | WorkflowVariablePropertyFilter | BehavioralPropertyFilter)[] | null;
+      properties?: (EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter)[] | null;
       response?: MCPToolDescriptionsQueryResponse | null;
       tags?: QueryLogTags | null;
       /** The effective tool name to scope to (matched against the single-exec-resolved tool name). */
@@ -49763,7 +49763,7 @@ export namespace Schemas {
       kind?: 'MCPToolSampleIntentsQuery';
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
-      properties?: (EventPropertyFilter | PersonPropertyFilter | PersonMetadataPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | MetricPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | AccountCustomPropertyFilter | WorkflowVariablePropertyFilter | BehavioralPropertyFilter)[] | null;
+      properties?: (EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter)[] | null;
       response?: MCPToolSampleIntentsQueryResponse | null;
       tags?: QueryLogTags | null;
       /** The effective tool name to scope to (matched against the single-exec-resolved tool name). */
@@ -49815,7 +49815,7 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** Whether to count tools called immediately before or after the target tool. */
       neighborDirection: NeighborDirection;
-      properties?: (EventPropertyFilter | PersonPropertyFilter | PersonMetadataPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | MetricPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | AccountCustomPropertyFilter | WorkflowVariablePropertyFilter | BehavioralPropertyFilter)[] | null;
+      properties?: (EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter)[] | null;
       response?: MCPToolNeighborsQueryResponse | null;
       tags?: QueryLogTags | null;
       /** The effective tool name to scope to (matched against the single-exec-resolved tool name). */

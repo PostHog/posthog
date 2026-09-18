@@ -31542,6 +31542,19 @@
             "required": ["type"],
             "type": "object"
         },
+        "MCPAnalyticsPropertyFilter": {
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/EventPropertyFilter"
+                },
+                {
+                    "$ref": "#/definitions/PersonPropertyFilter"
+                },
+                {
+                    "$ref": "#/definitions/SessionPropertyFilter"
+                }
+            ]
+        },
         "MCPHarnessBreakdownItem": {
             "additionalProperties": false,
             "description": "One row of the MCP harness (client) breakdown: a resolved customer label and its activity.",
@@ -31586,7 +31599,7 @@
                 },
                 "properties": {
                     "items": {
-                        "$ref": "#/definitions/AnyPropertyFilter"
+                        "$ref": "#/definitions/MCPAnalyticsPropertyFilter"
                     },
                     "type": "array"
                 },
@@ -31862,7 +31875,7 @@
                 },
                 "properties": {
                     "items": {
-                        "$ref": "#/definitions/AnyPropertyFilter"
+                        "$ref": "#/definitions/MCPAnalyticsPropertyFilter"
                     },
                     "type": "array"
                 },
@@ -31991,7 +32004,7 @@
                 },
                 "properties": {
                     "items": {
-                        "$ref": "#/definitions/AnyPropertyFilter"
+                        "$ref": "#/definitions/MCPAnalyticsPropertyFilter"
                     },
                     "type": "array"
                 },
@@ -32116,7 +32129,7 @@
                 },
                 "properties": {
                     "items": {
-                        "$ref": "#/definitions/AnyPropertyFilter"
+                        "$ref": "#/definitions/MCPAnalyticsPropertyFilter"
                     },
                     "type": "array"
                 },
@@ -32219,7 +32232,7 @@
                 },
                 "properties": {
                     "items": {
-                        "$ref": "#/definitions/AnyPropertyFilter"
+                        "$ref": "#/definitions/MCPAnalyticsPropertyFilter"
                     },
                     "type": "array"
                 },
@@ -32336,7 +32349,7 @@
                 },
                 "properties": {
                     "items": {
-                        "$ref": "#/definitions/AnyPropertyFilter"
+                        "$ref": "#/definitions/MCPAnalyticsPropertyFilter"
                     },
                     "type": "array"
                 },
@@ -32591,7 +32604,7 @@
                 },
                 "properties": {
                     "items": {
-                        "$ref": "#/definitions/AnyPropertyFilter"
+                        "$ref": "#/definitions/MCPAnalyticsPropertyFilter"
                     },
                     "type": "array"
                 },
@@ -32712,7 +32725,7 @@
                 },
                 "properties": {
                     "items": {
-                        "$ref": "#/definitions/AnyPropertyFilter"
+                        "$ref": "#/definitions/MCPAnalyticsPropertyFilter"
                     },
                     "type": "array"
                 },
@@ -32902,7 +32915,7 @@
                 },
                 "properties": {
                     "items": {
-                        "$ref": "#/definitions/AnyPropertyFilter"
+                        "$ref": "#/definitions/MCPAnalyticsPropertyFilter"
                     },
                     "type": "array"
                 },
@@ -33009,7 +33022,7 @@
                 },
                 "properties": {
                     "items": {
-                        "$ref": "#/definitions/AnyPropertyFilter"
+                        "$ref": "#/definitions/MCPAnalyticsPropertyFilter"
                     },
                     "type": "array"
                 },
@@ -33135,7 +33148,7 @@
                 },
                 "properties": {
                     "items": {
-                        "$ref": "#/definitions/AnyPropertyFilter"
+                        "$ref": "#/definitions/MCPAnalyticsPropertyFilter"
                     },
                     "type": "array"
                 },
@@ -33279,7 +33292,7 @@
                 },
                 "properties": {
                     "items": {
-                        "$ref": "#/definitions/AnyPropertyFilter"
+                        "$ref": "#/definitions/MCPAnalyticsPropertyFilter"
                     },
                     "type": "array"
                 },
@@ -33454,7 +33467,7 @@
                 },
                 "properties": {
                     "items": {
-                        "$ref": "#/definitions/AnyPropertyFilter"
+                        "$ref": "#/definitions/MCPAnalyticsPropertyFilter"
                     },
                     "type": "array"
                 },
@@ -33612,7 +33625,7 @@
                 },
                 "properties": {
                     "items": {
-                        "$ref": "#/definitions/AnyPropertyFilter"
+                        "$ref": "#/definitions/MCPAnalyticsPropertyFilter"
                     },
                     "type": "array"
                 },
@@ -33749,7 +33762,7 @@
                 },
                 "properties": {
                     "items": {
-                        "$ref": "#/definitions/AnyPropertyFilter"
+                        "$ref": "#/definitions/MCPAnalyticsPropertyFilter"
                     },
                     "type": "array"
                 },
@@ -33899,7 +33912,7 @@
                 },
                 "properties": {
                     "items": {
-                        "$ref": "#/definitions/AnyPropertyFilter"
+                        "$ref": "#/definitions/MCPAnalyticsPropertyFilter"
                     },
                     "type": "array"
                 },
