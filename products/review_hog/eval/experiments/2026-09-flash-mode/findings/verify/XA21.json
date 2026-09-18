@@ -1,0 +1,27 @@
+{
+    "letter": "XA",
+    "id": "XA21",
+    "cluster": 76,
+    "is_real": false,
+    "severity": null,
+    "votes": [
+        {
+            "is_real": false,
+            "severity": null,
+            "evidence": "/tmp/frozen-75215/products/review_hog/backend/models.py:311-314 does use the normal ORM route, but that route is not automatically a replica. products/db_routing.yaml:1-9 routes stamphog, visual_review, warehouse_sources_queue, and agent_platform only; ReviewUserSettings and SignalReportArtefact are not in those product routes. The main ReplicaRouter explicitly returns default unless the model name is opted in (posthog/dbrouter.py:22-31), and writes also return default at 33-37. posthog/settings/data_stores.py:124-127 only installs this router when a read host exists, while 271-272 initializes its model allowlist from an environment variable defaulting to empty. No frozen configuration opts ReviewUserSettings or SignalReportArtefact into that replica route. Thus the cited calls at review_hog/receivers.py:114,154 read the writer in the shown default configuration.",
+            "refutation": "I first followed the router rather than assuming every unpinned queryset uses a replica. That assumption is true for Stamphog's separately routed product models, but false for these main-database settings/assignment models. A replica host alone is insufficient; the model must additionally appear in READ_REPLICA_OPT_IN or an explicit ALL_MODELS_USE_READ_REPLICA override. The claim supplies no evidence of either configuration for these classes. Pinning could protect a future/externally changed routing policy, but the alleged stale-toggle shipping path is not proved by the frozen source and defaults."
+        },
+        {
+            "is_real": false,
+            "severity": null,
+            "evidence": "The premise that these normal reads use the main replica is not established. /tmp/frozen-75215/products/review_hog/backend/models.py:268 defines ReviewUserSettings as a main-DB TeamScopedRootMixin model, not a product-DB model; products/db_routing.yaml:1-9 has no review_hog or signals route. /tmp/frozen-75215/posthog/dbrouter.py:22-31 sends a model to replica only when its class name is explicitly opted in (or the ALL_MODELS override is set), otherwise to default, the same database used for writes at :33-37. settings/data_stores.py:271-272 defaults the opt-in list to empty. No frozen configuration opts ReviewUserSettings or SignalReportArtefact into replica reads.",
+            "refutation": "First inspected the actual router and configuration instead of transferring Stamphog's product-reader behavior to ReviewHog's main-database preferences. posthog/test/test_dbrouter.py:8-15 explicitly verifies that a non-opted-in model reads from default. receivers.py:144-155 re-resolves the current acting reviewer and reloads their current toggle on each webhook, while models.py:311-314 has no cache that could independently stale it. A deployment that deliberately opts these side-effect-sensitive models into lagged reads could create the claimed behavior, but the finding supplies no evidence of that configuration and frozen source defaults to the writer. An explicit writer pin would be defensive hardening under an unproved alternate configuration."
+        },
+        {
+            "is_real": false,
+            "severity": null,
+            "evidence": "ReviewUserSettings.load is indeed an ordinary first() query at products/review_hog/backend/models.py:311-314, but ReviewHog is not a separately routed product database (products/db_routing.yaml:1-9). Main-database reads are not automatically replica-routed: posthog/settings/data_stores.py:124-127 installs ReplicaRouter only with POSTHOG_POSTGRES_READ_HOST, and its READ_REPLICA_OPT_IN defaults to an empty list at 271-272. ReplicaRouter returns default unless the model name or ALL_MODELS_USE_READ_REPLICA is explicitly opted in (posthog/dbrouter.py:22-31). No frozen production configuration opts ReviewUserSettings into the replica. The claimed unconditional read-replica premise is therefore unproved; under the supplied configuration the toggle is read from the writer.",
+            "refutation": "I traced both the settings manager and actual router instead of equating an unpinned read with a replica read. The new Stamphog product does use a reader by default, but the ReviewUserSettings and reviewer-assignment models remain on the separately opt-in main-database routing policy. A deployment could introduce the hypothesized stale read by explicitly opting these models or all models into a replica, but the source provides no such production setting. Without that missing configuration fact, adding writer pinning is preventative hardening for a speculative trigger rather than a proved shipped opt-out bypass."
+        }
+    ]
+}
