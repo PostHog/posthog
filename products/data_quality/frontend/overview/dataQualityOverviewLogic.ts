@@ -16,6 +16,7 @@ import type {
     DataQualityCheckRunApi,
     DataQualityOverviewCheckApi,
     DataQualitySubjectHealthApi,
+    DataQualitySubjectScheduleApi,
     DataQualitySuiteRunApi,
 } from 'products/data_quality/frontend/generated/api.schemas'
 import { SubjectTypeEnumApi } from 'products/data_quality/frontend/generated/api.schemas'
@@ -160,10 +161,13 @@ export interface dataQualityOverviewLogicValues {
     runTarget: OverviewRunTarget | null
     runningSubjectKey: string | null
     runsLoadingByCheckId: Record<string, boolean>
+    scheduleBySubjectKey: Record<string, DataQualitySubjectScheduleApi>
     snapshotLoaded: boolean
     startingRun: boolean
     subjectGroups: SubjectGroup[]
     subjectHealth: DataQualitySubjectHealthApi[]
+    subjectSchedules: DataQualitySubjectScheduleApi[]
+    subjectSchedulesLoading: boolean
     unhealthySubjectKeys: string[]
 }
 
@@ -197,6 +201,21 @@ export interface dataQualityOverviewLogicActions {
             checks: DataQualityOverviewCheckApi[]
             health: DataQualitySubjectHealthApi[]
         }
+        payload?: any
+    }
+    loadSubjectSchedules: () => any
+    loadSubjectSchedulesFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadSubjectSchedulesSuccess: (
+        subjectSchedules: DataQualitySubjectScheduleApi[],
+        payload?: any
+    ) => {
+        subjectSchedules: DataQualitySubjectScheduleApi[]
         payload?: any
     }
     openFailingRows: (check: DataQualityOverviewCheckApi) => {
@@ -270,6 +289,9 @@ export interface dataQualityOverviewLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         checks: (overview: OverviewSnapshot | null) => DataQualityOverviewCheckApi[]
         subjectHealth: (overview: OverviewSnapshot | null) => DataQualitySubjectHealthApi[]
+        scheduleBySubjectKey: (
+            subjectSchedules: DataQualitySubjectScheduleApi[]
+        ) => Record<string, DataQualitySubjectScheduleApi>
         healthBySubjectKey: (subjectHealth: DataQualitySubjectHealthApi[]) => {
             [k: string]: DataQualitySubjectHealthApi
         }
@@ -345,6 +367,12 @@ export const dataQualityOverviewLogic = kea<dataQualityOverviewLogicType>([
                     ])
                     return { checks: checks.results, health }
                 },
+            },
+        ],
+        subjectSchedules: [
+            [] as DataQualitySubjectScheduleApi[],
+            {
+                loadSubjectSchedules: async () => checksApi.schedules(),
             },
         ],
     })),
@@ -450,6 +478,16 @@ export const dataQualityOverviewLogic = kea<dataQualityOverviewLogicType>([
     selectors({
         checks: [(s) => [s.overview], (overview: OverviewSnapshot | null) => overview?.checks ?? []],
         subjectHealth: [(s) => [s.overview], (overview: OverviewSnapshot | null) => overview?.health ?? []],
+        scheduleBySubjectKey: [
+            (s) => [s.subjectSchedules],
+            (subjectSchedules: DataQualitySubjectScheduleApi[]): Record<string, DataQualitySubjectScheduleApi> =>
+                Object.fromEntries(
+                    subjectSchedules.map((schedule) => [
+                        subjectKeyOf(schedule.subject_type, schedule.subject_uuid),
+                        schedule,
+                    ])
+                ),
+        ],
         healthBySubjectKey: [
             (s) => [s.subjectHealth],
             (subjectHealth: DataQualitySubjectHealthApi[]) =>
@@ -591,6 +629,9 @@ export const dataQualityOverviewLogic = kea<dataQualityOverviewLogicType>([
             setActiveSuiteRun: poll.setActiveSuiteRun,
             scheduleSuiteRunPoll: poll.scheduleSuiteRunPoll,
             pollActiveSuiteRun: poll.pollActiveSuiteRun,
+            loadOverview: () => {
+                actions.loadSubjectSchedules()
+            },
             loadOverviewSuccess: () => {
                 if (!values.expansionInitialized) {
                     actions.setExpandedSubjects(values.unhealthySubjectKeys)

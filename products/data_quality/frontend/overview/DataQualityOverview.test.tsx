@@ -42,6 +42,7 @@ jest.mock('products/data_quality/frontend/generated/api', () => ({
     dataQualityChecksPartialUpdate: jest.fn(),
     dataQualityChecksScheduleRetrieve: jest.fn(),
     dataQualityChecksSchedulePartialUpdate: jest.fn(),
+    dataQualityChecksSchedulesList: jest.fn(() => Promise.resolve([])),
     dataQualityChecksSubjectsList: jest.fn(),
 }))
 

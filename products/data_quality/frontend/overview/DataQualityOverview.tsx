@@ -242,8 +242,16 @@ export function DataQualityOverview(): JSX.Element {
 const SCHEDULED_SUBJECT_TYPES: string[] = [SubjectTypeEnumApi.Metric, SubjectTypeEnumApi.PosthogTable]
 
 function SubjectSection({ group }: { group: SubjectGroup }): JSX.Element {
-    const { expandedSubjectKeys, startingRun, isRunning, runningSubjectKey, runTarget, runError, pollTimedOut } =
-        useValues(dataQualityOverviewLogic)
+    const {
+        expandedSubjectKeys,
+        startingRun,
+        isRunning,
+        runningSubjectKey,
+        runTarget,
+        runError,
+        pollTimedOut,
+        scheduleBySubjectKey,
+    } = useValues(dataQualityOverviewLogic)
     const { toggleSubjectExpanded, runChecks, loadOverview } = useActions(dataQualityOverviewLogic)
 
     const subjectType = SUBJECT_TYPE_TAGS[group.subjectType]
@@ -341,7 +349,12 @@ function SubjectSection({ group }: { group: SubjectGroup }): JSX.Element {
                 <div id={regionId} className="overflow-x-auto">
                     {SCHEDULED_SUBJECT_TYPES.includes(group.subjectType) && group.subjectUuid ? (
                         <div className="px-2 pt-2">
-                            <DataQualitySchedule subjectType={group.subjectType} subjectId={group.subjectUuid} />
+                            <DataQualitySchedule
+                                subjectType={group.subjectType}
+                                subjectId={group.subjectUuid}
+                                initialSchedule={scheduleBySubjectKey[group.subjectKey] ?? null}
+                                poll={false}
+                            />
                         </div>
                     ) : null}
                     <SubjectChecks group={group} />
