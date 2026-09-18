@@ -3,6 +3,7 @@ from __future__ import annotations
 import uuid
 from datetime import timedelta
 
+import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
@@ -27,6 +28,7 @@ from products.conversations.backend.temporal.ticket_patterns.schemas import Dete
 
 COORD_MODULE = "products.conversations.backend.temporal.ticket_patterns.coordinator"
 ELIGIBILITY_MODULE = "products.conversations.backend.temporal.ticket_patterns.eligibility"
+SCHEDULE_MODULE = "products.conversations.backend.temporal.ticket_patterns.schedule"
 
 TEST_TEAM_UUID = uuid.UUID("11111111-1111-4111-8111-111111111111")
 TEST_ORG_UUID = uuid.UUID("22222222-2222-4222-8222-222222222222")
@@ -55,6 +57,28 @@ def _settings(min_tickets: int = 3, min_requesters: int = 3) -> DetectionSetting
 
 def _requesters(*pairs: tuple[str, str]) -> dict[str, str]:
     return dict(pairs)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("already_exists", [False, True])
+async def test_a_coordinator_run_cannot_outlive_its_own_interval(already_exists: bool) -> None:
+    # Without a bound, one team whose detect activity sits out its retries holds the tick open
+    # and the overlap policy drops the next ticks for every other team.
+    from products.conversations.backend.temporal.ticket_patterns.schedule import (
+        create_ticket_patterns_coordinator_schedule,
+    )
+
+    with (
+        patch(f"{SCHEDULE_MODULE}.a_schedule_exists", return_value=already_exists),
+        patch(f"{SCHEDULE_MODULE}.a_create_schedule") as create,
+        patch(f"{SCHEDULE_MODULE}.a_update_schedule") as update,
+    ):
+        await create_ticket_patterns_coordinator_schedule(MagicMock())
+
+    schedule = (update if already_exists else create).await_args.args[2]
+    interval = schedule.spec.intervals[0].every
+    assert schedule.action.execution_timeout is not None
+    assert schedule.action.execution_timeout < interval
 
 
 class TestCollectEligibleTeams(SimpleTestCase):
