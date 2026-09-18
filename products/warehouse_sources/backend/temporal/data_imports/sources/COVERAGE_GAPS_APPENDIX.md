@@ -1536,12 +1536,12 @@ Note: Static endpoint config, no dynamic table discovery. Excluded settings, bra
 
 ## Clari — gaps
 
-Today (2): `audit_events`, `forecast`
+Today (3): `activity`, `audit_events`, `forecast`
 
 Diffed against: <https://developer.clari.com/default/documentation/external_spec>
 
-- [ ] `/opportunity` — opportunity-level revenue records - the core analytical object behind every forecast number (high)
-- [ ] `/export/activity` — rep activity export (calls, emails, meetings) driving engagement-vs-outcome analysis (high)
+- [ ] `/opportunity` — skipped: `oppId` is a required query parameter (max 100 per call) and the API publishes no endpoint that lists opportunity IDs, so there is nothing to enumerate into a table. It is a point lookup for IDs a caller already holds, not a collection. The only place the API surfaces opportunity IDs is the `opportunities[]` array on activity export rows, which covers just the opportunities touched by an activity in the exported window.
+- [x] `/export/activity` — rep activity export (calls, emails, meetings) driving engagement-vs-outcome analysis (high) — added as `activity`, incremental on the epoch-millisecond `date` field via the export's `startDate`.
 
 Note: The public Clari API v5 spec is small: forecast export, export jobs, audit events, opportunity, activity export, admin limits, plus write-only ingest endpoints. /admin/limits was excluded as quota config and /ingest/\* as write plumbing, so opportunity and activity are the only real gaps. Clari Copilot (formerly Wingman) has a separate API host not covered by this spec.
 
