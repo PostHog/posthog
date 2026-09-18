@@ -42,9 +42,12 @@ class BatchExportDetail:
 
     The destination's stored config is deliberately absent. It decrypts on read, so it
     holds that destination's credentials: passwords, private keys, tokens. Only the two
-    event filters a consumer reads are lifted out of it. A consumer that needs more of
-    the config gets a redacted read of its own rather than this contract widened, and
-    the redaction has to recurse - Redshift nests credentials under ``copy_inputs``.
+    event filters a consumer reads are lifted out of it.
+
+    Do not put the config back on this contract. A consumer that needs another key from
+    it gets a separate facade function, one that first drops every field named in
+    ``BatchExportDestination.secret_fields``. That drop has to descend into nested
+    dictionaries, because Redshift keeps credentials inside ``copy_inputs``.
     """
 
     id: UUID
