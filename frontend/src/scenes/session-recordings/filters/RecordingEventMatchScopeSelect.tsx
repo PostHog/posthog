@@ -1,10 +1,16 @@
-import { LemonSelect } from '@posthog/lemon-ui'
+import { IconInfo } from '@posthog/icons'
+import { LemonSelect, Tooltip } from '@posthog/lemon-ui'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 
 import { RecordingUniversalFilters } from '~/types'
 
 type EventMatchScope = NonNullable<RecordingUniversalFilters['event_match_scope']>
+
+const WHOLE_SESSION_DESCRIPTION =
+    'Events count wherever they happen in the session, including before the recording started or after it ended.'
+const ONLY_DURING_RECORDING_DESCRIPTION =
+    'Events count only while the recording was capturing, so the matched moment is in the video.'
 
 function ScopeOption({ title, description }: { title: string; description: string }): JSX.Element {
     return (
@@ -15,6 +21,7 @@ function ScopeOption({ title, description }: { title: string; description: strin
     )
 }
 
+/** Completes the "Match all filters" sentence: "Match all filters only during recording". */
 export function RecordingEventMatchScopeSelect({
     filters,
     setFilters,
@@ -31,21 +38,17 @@ export function RecordingEventMatchScopeSelect({
 
     return (
         <div className="flex items-center font-medium">
-            <span className="ml-2">Match</span>
             <LemonSelect<EventMatchScope>
-                className="mx-2"
+                className="mr-1"
                 size="small"
                 value={value}
                 onChange={(scope) => setFilters({ event_match_scope: scope === 'recording' ? 'recording' : undefined })}
                 options={[
                     {
-                        label: 'the whole session',
+                        label: 'in the whole session',
                         value: 'session',
                         labelInMenu: (
-                            <ScopeOption
-                                title="The whole session"
-                                description="Events count wherever they happen in the session, including before the recording started or after it ended"
-                            />
+                            <ScopeOption title="In the whole session" description={WHOLE_SESSION_DESCRIPTION} />
                         ),
                     },
                     {
@@ -54,7 +57,7 @@ export function RecordingEventMatchScopeSelect({
                         labelInMenu: (
                             <ScopeOption
                                 title="Only during recording"
-                                description="Events count only while the recording was capturing, so the matched moment is in the video"
+                                description={ONLY_DURING_RECORDING_DESCRIPTION}
                             />
                         ),
                     },
@@ -63,6 +66,20 @@ export function RecordingEventMatchScopeSelect({
                 dropdownMatchSelectWidth={false}
                 data-attr="session-recordings-event-match-scope"
             />
+            <Tooltip
+                title={
+                    <div className="space-y-1">
+                        <p className="mb-0">
+                            <strong>In the whole session:</strong> {WHOLE_SESSION_DESCRIPTION}
+                        </p>
+                        <p className="mb-0">
+                            <strong>Only during recording:</strong> {ONLY_DURING_RECORDING_DESCRIPTION}
+                        </p>
+                    </div>
+                }
+            >
+                <IconInfo className="text-secondary text-base" />
+            </Tooltip>
         </div>
     )
 }
