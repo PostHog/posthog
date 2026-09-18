@@ -82,7 +82,11 @@ function setServerStatus(connected) {
     const status = byId('server-status')
     status.classList.toggle('connected', connected)
     status.classList.toggle('disconnected', !connected)
-    byId('server-status-text').textContent = connected ? 'Server connected' : 'Server disconnected'
+    const statusText = byId('server-status-text')
+    const nextStatusText = connected ? 'Server connected' : 'Server disconnected'
+    if (statusText.textContent !== nextStatusText) {
+        statusText.textContent = nextStatusText
+    }
 }
 
 function stopHealthChecks() {
