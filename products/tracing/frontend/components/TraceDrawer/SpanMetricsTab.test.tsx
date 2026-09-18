@@ -81,7 +81,7 @@ describe('SpanMetricsTab', () => {
             </Provider>
         )
 
-        const href = screen.getAllByRole('link', { name: 'View metrics' }).at(-1)?.getAttribute('href')
+        const href = screen.getAllByText('View metrics').at(-1)?.closest('a')?.getAttribute('href')
         expect(href).toContain('billing-worker')
         // Same ±1h window the samples query uses, so the chart and the samples agree.
         expect(href).toContain('dateFrom=2026-06-11T07%3A00%3A00.000Z')
@@ -107,7 +107,7 @@ describe('SpanMetricsTab', () => {
             </Provider>
         )
 
-        const href = screen.getAllByRole('link', { name: 'View metrics' }).at(-1)?.getAttribute('href')
+        const href = screen.getAllByText('View metrics').at(-1)?.closest('a')?.getAttribute('href')
         expect(href).toContain('billing-api')
         // The window follows the newly selected span, not the first span's.
         expect(href).toContain('dateFrom=2026-06-11T19%3A00%3A00.000Z')
