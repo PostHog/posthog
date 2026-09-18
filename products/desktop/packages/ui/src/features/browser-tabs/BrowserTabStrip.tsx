@@ -45,12 +45,12 @@ import { useDraftStore } from "@posthog/ui/features/message-editor/draftStore";
 import { useTabSession } from "@posthog/ui/features/navigation/useActiveSession";
 import { usePanelLayoutStore } from "@posthog/ui/features/panels/panelLayoutStore";
 import { getLeafPanel } from "@posthog/ui/features/panels/panelStoreHelpers";
+import { useTileLayoutStore } from "@posthog/ui/features/tab-tiling/tileLayoutStore";
 import {
   groupForTab,
   lastActiveIn,
   tabIdsIn,
-} from "@posthog/ui/features/tab-tiling/tileLayout";
-import { useTileLayoutStore } from "@posthog/ui/features/tab-tiling/tileLayoutStore";
+} from "@posthog/ui/features/tab-tiling/tileTree";
 import { getTaskInputSessionId } from "@posthog/ui/features/task-detail/taskInputSession";
 import { taskDetailQuery } from "@posthog/ui/features/tasks/queries";
 import { useTasks } from "@posthog/ui/features/tasks/useTasks";

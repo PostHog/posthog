@@ -3,7 +3,7 @@ import {
   groupForTab,
   type TileGroup,
   tabIdsIn,
-} from "@posthog/ui/features/tab-tiling/tileLayout";
+} from "@posthog/ui/features/tab-tiling/tileTree";
 
 export function collapseSplits(
   displayIds: string[],

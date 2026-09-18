@@ -4,11 +4,11 @@ import { useService } from "@posthog/di/react";
 import { primaryWindow, setTabOrder } from "@posthog/shared";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import { isTileDropData } from "@posthog/ui/features/tab-tiling/TileDropZones";
+import { useTileLayoutStore } from "@posthog/ui/features/tab-tiling/tileLayoutStore";
 import {
   groupForTab,
   tabIdsIn,
-} from "@posthog/ui/features/tab-tiling/tileLayout";
-import { useTileLayoutStore } from "@posthog/ui/features/tab-tiling/tileLayoutStore";
+} from "@posthog/ui/features/tab-tiling/tileTree";
 import { track } from "@posthog/ui/shell/analytics";
 import { type ReactNode, useRef } from "react";
 import {

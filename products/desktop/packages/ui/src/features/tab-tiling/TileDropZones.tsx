@@ -1,7 +1,7 @@
 import { useDroppable } from "@dnd-kit/react";
 import { cn } from "@posthog/quill";
 import type { CSSProperties } from "react";
-import type { TileEdge } from "./tileLayout";
+import type { TileEdge } from "./tileTree";
 
 export const TILE_DROP_TYPE = "tile-drop";
 

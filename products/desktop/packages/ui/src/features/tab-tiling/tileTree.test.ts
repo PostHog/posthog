@@ -11,7 +11,7 @@ import {
   type TileNode,
   tileTab,
   untileTab,
-} from "./tileLayout";
+} from "./tileTree";
 
 function ids(): () => string {
   let n = 0;
@@ -39,7 +39,7 @@ function build(steps: [string, string, TileEdge][]): TileGroup[] {
   );
 }
 
-describe("tileLayout", () => {
+describe("tileTree", () => {
   it.each<{ edge: TileEdge; expected: TileNode }>([
     {
       edge: "right",

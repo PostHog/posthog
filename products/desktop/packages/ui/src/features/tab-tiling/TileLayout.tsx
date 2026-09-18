@@ -17,14 +17,14 @@ import {
 import { Panel, PanelGroup, PanelResizeHandle } from "react-resizable-panels";
 import { TabTile } from "./TabTile";
 import { TileDropZones } from "./TileDropZones";
+import { useTileLayoutStore } from "./tileLayoutStore";
 import {
   groupForTab,
   MAX_TILES_PER_GROUP,
   nodeId,
   type TileNode,
   tabIdsIn,
-} from "./tileLayout";
-import { useTileLayoutStore } from "./tileLayoutStore";
+} from "./tileTree";
 
 const MIN_TILE_PERCENT = 15;
 

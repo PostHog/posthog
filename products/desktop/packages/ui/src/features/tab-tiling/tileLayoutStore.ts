@@ -9,7 +9,7 @@ import {
   type TileGroup,
   tileTab,
   untileTab,
-} from "./tileLayout";
+} from "./tileTree";
 
 const STORAGE_KEY = "browser-tabs-tiling-storage";
 

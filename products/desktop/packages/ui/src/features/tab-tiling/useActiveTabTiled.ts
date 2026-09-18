@@ -1,6 +1,6 @@
 import { useActiveTabId } from "@posthog/ui/features/browser-tabs/useActiveTabId";
-import { groupForTab } from "./tileLayout";
 import { useTileLayoutStore } from "./tileLayoutStore";
+import { groupForTab } from "./tileTree";
 
 export function useActiveTabTiled(): boolean {
   const groups = useTileLayoutStore((s) => s.groups);
