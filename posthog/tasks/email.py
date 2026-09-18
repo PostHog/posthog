@@ -760,6 +760,50 @@ def send_hog_function_disabled(hog_function_id: str) -> None:
     message.send()
 
 
+@shared_task(**EMAIL_TASK_KWARGS)
+def send_hog_function_filters_uncompilable(hog_function_id: str) -> None:
+    """
+    Tell a project that a destination's filters cannot be compiled, so it delivers nothing.
+
+    Deliberately not gated by the pipeline-error notification settings, matching
+    send_email_sending_suspended: the destination is silently sending nothing until someone edits
+    it, and a muted notification would leave that indefinitely. Recipients are the project admins,
+    who can act on it, plus whoever created the destination, who knows what it was for.
+    """
+    if not is_email_available(with_absolute_urls=True):
+        return
+    hog_function: HogFunction = HogFunction.objects.prefetch_related("team", "created_by").get(id=hog_function_id)
+    team = hog_function.team
+    bytecode_error = (hog_function.filters or {}).get("bytecode_error")
+    if not bytecode_error:
+        return
+
+    recipients = {membership.user for membership in _get_project_admins_to_notify_of_email_sending_suspension(team)}
+    # The creator may have left the organization, in which case the admins are the whole audience.
+    if (
+        hog_function.created_by
+        and OrganizationMembership.objects.filter(
+            organization_id=team.organization_id, user=hog_function.created_by
+        ).exists()
+    ):
+        recipients.add(hog_function.created_by)
+    if not recipients:
+        return
+
+    # Keyed on the error as well as the function: a second, different breakage is worth a second
+    # email, while a re-run of the command over the same breakage is not.
+    campaign_key: str = f"hog_function_filters_uncompilable_{hog_function_id}_{hash(bytecode_error)}"
+    message = EmailMessage(
+        campaign_key=campaign_key,
+        subject=f"[Action required] Destination '{hog_function.name}' in project '{team}' is not delivering events",
+        template_name="hog_function_filters_uncompilable",
+        template_context={"hog_function": hog_function, "team": team, "bytecode_error": bytecode_error},
+    )
+    for user in recipients:
+        message.add_user_recipient(user)
+    message.send()
+
+
 def _get_project_admins_to_notify_of_email_sending_suspension(team: Team) -> list[OrganizationMembership]:
     # Admin+ only: they're the ones who can act on the issue (contact support, clean up lists).
     # Everyone else with project access still sees the persistent in-app banner. No

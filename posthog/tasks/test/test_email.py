@@ -36,6 +36,7 @@ from posthog.tasks.email import (
     send_external_data_failure_digest,
     send_fatal_plugin_error,
     send_hog_function_disabled,
+    send_hog_function_filters_uncompilable,
     send_hog_functions_daily_digest,
     send_hog_functions_digest_email,
     send_invite,
@@ -1105,6 +1106,45 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         assert mocked_email_messages[0].to == [
             {"recipient": "test2@posthog.com", "raw_email": "test2@posthog.com", "distinct_id": str(user2.distinct_id)}
         ]
+
+    def test_send_hog_function_filters_uncompilable_reaches_admins_and_the_creator(
+        self, MockEmailMessage: MagicMock
+    ) -> None:
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        # A plain member who happens to have created the destination. The admins get it because
+        # they can act on it; the creator gets it because they know what it was for.
+        creator = self._create_user("creator@posthog.com")
+        creator_membership = OrganizationMembership.objects.get(user=creator, organization=self.organization)
+        creator_membership.level = OrganizationMembership.Level.MEMBER
+        creator_membership.save()
+        hog_function = HogFunction.objects.create(
+            team=self.team, name="Broken destination", enabled=True, created_by=creator
+        )
+        # Written past save(), which recompiles the filters and would clear the error again. This is
+        # also the shape the row has in the database: a null bytecode beside the reason.
+        HogFunction.objects.filter(id=hog_function.id).update(
+            filters={"bytecode": None, "bytecode_error": "Cohort membership can't be evaluated"}
+        )
+
+        send_hog_function_filters_uncompilable(str(hog_function.id))
+
+        recipients = {entry["recipient"] for entry in mocked_email_messages[0].to}
+        assert "creator@posthog.com" in recipients
+        assert self.user.email in recipients
+
+    def test_send_hog_function_filters_uncompilable_sends_nothing_without_an_error(
+        self, MockEmailMessage: MagicMock
+    ) -> None:
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+        hog_function = HogFunction.objects.create(
+            team=self.team, name="Healthy destination", enabled=True, filters={"bytecode": ["_H", 1]}
+        )
+
+        send_hog_function_filters_uncompilable(str(hog_function.id))
+
+        assert mocked_email_messages == []
 
     def test_send_batch_export_run_failure_per_pipeline_opt_out(self, MockEmailMessage: MagicMock) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)
