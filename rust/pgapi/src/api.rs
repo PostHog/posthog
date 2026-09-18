@@ -7,12 +7,21 @@ use crate::AppState;
 use axum::{
     extract::{Extension, Path, Query, State},
     http::StatusCode,
+    middleware::map_response,
     response::{IntoResponse, Json, Response},
     routing::get,
     Router,
 };
 use serde::Deserialize;
 use std::sync::Arc;
+
+/// A page left open across a deploy sees a new token on its next API call and reloads,
+/// instead of running the old script against the new API.
+async fn stamp_build(mut res: Response) -> Response {
+    res.headers_mut()
+        .insert("x-pgapi-build", crate::ui::BUILD_TOKEN.clone());
+    res
+}
 
 type S = State<Arc<AppState>>;
 
@@ -40,6 +49,7 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/me", get(me))
         .route("/servers", get(servers))
         .route("/servers/:server/overview", get(overview))
+        .route("/servers/:server/load", get(load))
         .route("/servers/:server/queries", get(top_queries))
         .route("/servers/:server/queries/:queryid", get(query_detail))
         .route("/servers/:server/tags", get(tags))
@@ -56,6 +66,7 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/collector/health", get(collector_health))
         .route("/sql", get(sql))
         .route("/stats-schema", get(stats_schema))
+        .layer(map_response(stamp_build))
 }
 
 async fn me(Extension(p): Extension<Principal>) -> R {
@@ -163,6 +174,10 @@ async fn query_detail(
         .await?,
     ))
 }
+async fn load(State(s): S, Path(server): Path<String>, Query(p): Query<BucketQ>) -> R {
+    let (f, t) = p.range.resolve()?;
+    Ok(Json(q::db_load(&s.db, &server, f, t, &p.bucket).await?))
+}
 async fn waits(State(s): S, Path(server): Path<String>, Query(p): Query<BucketQ>) -> R {
     let (f, t) = p.range.resolve()?;
     Ok(Json(q::wait_events(&s.db, &server, f, t, &p.bucket).await?))
@@ -195,6 +210,8 @@ struct OptDbQ {
     range: Range,
     datname: Option<String>,
     kind: Option<String>,
+    /// Comma-separated `LIKE` patterns of event kinds to leave out, applied before the limit.
+    exclude: Option<String>,
     relname: Option<String>,
     #[serde(default = "d_limit")]
     limit: i64,
@@ -216,6 +233,7 @@ async fn events(State(s): S, Path(server): Path<String>, Query(p): Query<OptDbQ>
             f,
             t,
             p.kind.as_deref(),
+            &q::split_list(p.exclude.as_deref()),
             p.limit.clamp(1, 1000),
         )
         .await?,

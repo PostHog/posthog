@@ -12,6 +12,7 @@ PGAPI_DEV_MODE=1 PGAPI_DEV_USER=you@posthog.com \
 curl localhost:3400/api/v1/servers
 curl "localhost:3400/api/v1/servers/<id>/queries?since=1h&order=total_exec_time"
 curl "localhost:3400/api/v1/servers/<id>/tags?since=1h&key=operation"        # load per code path (query tags)
+curl "localhost:3400/api/v1/servers/<id>/load?since=1h&bucket=1m"            # active sessions by wait type, per bucket
 ```
 
 MCP client config (Claude Code / Desktop): `{"type": "http", "url": "http://localhost:3400/mcp"}`.
@@ -81,4 +82,5 @@ src/queries.rs   every question the API can answer, as SQL → JSON (shared by R
 src/api.rs       REST routes
 src/mcp.rs       MCP tools
 src/db.rs        read-only pool, row → JSON
+src/ui/          embedded browser UI (charts use uPlot, loaded from jsDelivr with a pinned version and integrity hash)
 ```
