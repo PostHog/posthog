@@ -42,16 +42,13 @@ function RecalculationReloadAction({ experiment }: { experiment: Experiment }): 
     const { refreshExperimentResults, reportExperimentMetricsRefreshed } = useActions(experimentLogic)
 
     const reload = (intent?: 'full_results_refresh'): void => {
-        if (!intent) {
-            metricsLogic.actions.triggerRecalculation()
-        }
         reportExperimentMetricsRefreshed(experiment, true, {
-            triggered_by: 'manual',
+            triggered_by: intent ? 'manual' : 'auto-refresh',
             auto_refresh_enabled: autoRefresh.enabled,
             auto_refresh_interval: autoRefresh.interval,
             ...previousRefreshAnalytics(currentRefresh),
         })
-        refreshExperimentResults(true, 'manual', false, intent)
+        refreshExperimentResults(true, intent ? 'manual' : 'auto_refresh', false, intent)
     }
 
     return (
@@ -73,12 +70,12 @@ function LegacyReloadAction({ experiment, lastRefresh }: { experiment: Experimen
 
     const reload = (intent?: 'full_results_refresh'): void => {
         reportExperimentMetricsRefreshed(experiment, true, {
-            triggered_by: 'manual',
+            triggered_by: intent ? 'manual' : 'auto-refresh',
             auto_refresh_enabled: autoRefresh.enabled,
             auto_refresh_interval: autoRefresh.interval,
             ...previousRefreshAnalytics(currentRefresh),
         })
-        refreshExperimentResults(true, 'manual', false, intent)
+        refreshExperimentResults(true, intent ? 'manual' : 'auto_refresh', false, intent)
     }
 
     return (

@@ -73,6 +73,7 @@ describe('experiment refresh control intent', () => {
     let queries: string[]
     let creates: jest.Mock
     let trigger: jest.SpyInstance
+    let report: jest.SpyInstance
 
     async function setup(recalculation: boolean, enrolled: boolean): Promise<void> {
         localStorage.clear()
@@ -118,6 +119,7 @@ describe('experiment refresh control intent', () => {
         metricsLogic = experimentMetricsLogic({ experiment })
         metricsLogic.mount()
         await expectLogic(metricsLogic).toFinishAllListeners()
+        report = jest.spyOn(logic.actions, 'reportExperimentMetricsRefreshed')
         const original = metricsLogic.actions.triggerRecalculation
         trigger = jest.spyOn(metricsLogic.actions, 'triggerRecalculation').mockImplementation((...args) => {
             events.push('dispatch')
@@ -140,6 +142,7 @@ describe('experiment refresh control intent', () => {
         jest.mocked(startCustomerJourney).mockReset()
         cleanup()
         trigger?.mockRestore()
+        report?.mockRestore()
         metricsLogic?.unmount()
         logic?.unmount()
         featureFlagLogic.unmount()
@@ -211,6 +214,11 @@ describe('experiment refresh control intent', () => {
                 expect(startCustomerJourney).not.toHaveBeenCalled()
             } else {
                 expect(startCustomerJourney).toHaveBeenCalledTimes(1)
+                expect(report).toHaveBeenCalledWith(
+                    experiment,
+                    true,
+                    expect.objectContaining({ triggered_by: 'manual' })
+                )
                 if (enrolled && recalculation) {
                     expect(events.filter((event) => !event.startsWith('Experiment'))).toEqual([
                         'journey',
@@ -267,8 +275,13 @@ describe('experiment refresh control intent', () => {
             expect(trigger).toHaveBeenCalledTimes(recalculation ? 1 : 0)
             expect(creates).toHaveBeenCalledTimes(recalculation ? 1 : 0)
             if (recalculation) {
-                expect(trigger).toHaveBeenCalledWith()
+                expect(trigger).toHaveBeenCalledWith('auto_refresh', undefined)
             }
+            expect(report).toHaveBeenCalledWith(
+                experiment,
+                true,
+                expect.objectContaining({ triggered_by: 'auto-refresh' })
+            )
             expect(queries.sort()).toEqual(
                 recalculation ? ['ExperimentExposureQuery'] : ['ExperimentExposureQuery', 'ExperimentQuery']
             )
