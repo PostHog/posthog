@@ -7,10 +7,16 @@ previous=''
 for argument in "$@"; do
     original="$argument"
     case "$argument" in
-        @*) argument=$(cat "$(printf '%s' "$argument" | cut -c2-)") ;;
-        -) if [ "$previous" = '--json' ]; then argument=$(cat); fi ;;
+        @*) args=$(jq -nc --argjson args "$args" --rawfile value "$(printf '%s' "$argument" | cut -c2-)" '$args + [$value]') ;;
+        -)
+            if [ "$previous" = '--json' ]; then
+                args=$(jq -Rsc --argjson args "$args" '$args + [.]')
+            else
+                args=$(jq -nc --argjson args "$args" --arg value "$argument" '$args + [$value]')
+            fi
+            ;;
+        *) args=$(jq -nc --argjson args "$args" --arg value "$argument" '$args + [$value]') ;;
     esac
-    args=$(jq -nc --argjson args "$args" --arg value "$argument" '$args + [$value]')
     previous="$original"
 done
 request=$(jq -nc --argjson argv "$args" --arg cwd "$PWD" '{argv: $argv, cwd: $cwd}')

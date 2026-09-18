@@ -32,6 +32,12 @@ describe('PostHog terminal commands', () => {
     let commands: PosthogCommands
     let filesystem: PosthogFilesystem
     const cwd = '/posthog/files/Research'
+    const author = {
+        id: 1,
+        uuid: '01900000-0000-7000-8000-000000000001',
+        email: 'author@example.com',
+        hedgehog_config: null,
+    }
 
     beforeEach(async () => {
         jest.clearAllMocks()
@@ -59,9 +65,9 @@ describe('PostHog terminal commands', () => {
                     deleted: false,
                     user_access_level: 'editor',
                     created_at: '2026-01-01T00:00:00Z',
-                    created_by: null,
+                    created_by: author,
                     last_modified_at: '2026-01-01T00:00:00Z',
-                    last_modified_by: null,
+                    last_modified_by: author,
                 },
             ],
         })
