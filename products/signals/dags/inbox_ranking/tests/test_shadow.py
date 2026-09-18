@@ -42,6 +42,7 @@ from products.signals.dags.inbox_ranking.shadow.queries import IMPRESSION_LISTS_
 from products.signals.dags.inbox_ranking.shadow.telemetry import (
     SHADOW_RANKING_GRADED_EVENT,
     SHADOW_RUN_COMPLETED_EVENT,
+    SHADOW_SCORED_RANKING_GRADED_EVENT,
     shadow_grade_events,
 )
 from products.signals.dags.inbox_ranking.training.unseen import UNSEEN_SCORES_TABLE
@@ -282,7 +283,7 @@ def test_a_grade_carries_its_own_score_coverage_not_the_run_s():
     )
     scored = {"model_name": "tabular_xgb", "model_version": "2026-09-09", "score": 0.5}
     joined = pd.concat(
-        [_joined(served, **scored), _joined(served.head(2), head="action", **scored)],
+        [_joined(served, head="open", **scored), _joined(served.head(2), head="action", **scored)],
         ignore_index=True,
     )
 
@@ -594,9 +595,19 @@ def test_a_day_that_graded_nothing_still_reports_a_run():
         "grades": 0,
         "reason": "no_available_scores",
     }
-    # The run event rides alongside the three orders, never instead of them.
-    # Three orders under each of the two grading scopes, and the run event beside them.
-    assert [event.event for event in graded] == [SHADOW_RUN_COMPLETED_EVENT, *[SHADOW_RANKING_GRADED_EVENT] * 6]
+    assert [event.event for event in graded] == [
+        SHADOW_RUN_COMPLETED_EVENT,
+        *[SHADOW_RANKING_GRADED_EVENT] * 3,
+        *[SHADOW_SCORED_RANKING_GRADED_EVENT] * 3,
+    ]
+    assert graded[0].properties["grades"] == 6
+    for event_name, scope in (
+        (SHADOW_RANKING_GRADED_EVENT, ALL_ROWS_SCOPE),
+        (SHADOW_SCORED_RANKING_GRADED_EVENT, SCORED_ROWS_SCOPE),
+    ):
+        events = [event for event in graded if event.event == event_name]
+        assert {event.properties["grading_scope"] for event in events} == {scope}
+        assert {event.properties["ranking_order"] for event in events} == {MODEL_ORDER, HEURISTIC_ORDER, RANDOM_ORDER}
 
 
 def test_grade_rows_match_the_parquet_schema_exactly():

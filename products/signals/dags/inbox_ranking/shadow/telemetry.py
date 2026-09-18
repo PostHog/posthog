@@ -3,8 +3,8 @@
 The Parquet is the durable record, but a daily object in S3 cannot be charted. One event per
 (model, outcome, order, grading scope) makes the three lines a trends insight with a
 `ranking_order` breakdown, so "does the model order better than the list people get" is one chart.
-Pick one `grading_scope` per chart: `scored_rows` is the like-for-like read, `all_rows` keeps the
-older series and carries the part-scored handicap with it.
+The existing event contains only `all_rows` grades, so existing charts do not mix scopes.
+The scored event contains only `scored_rows` grades for comparisons on the same scored reports.
 
 A run event rides alongside them, one per partition whether or not anything was graded, so an
 alert can tell a quiet day from a run that never finished. The capture plumbing is the training
@@ -13,10 +13,11 @@ dag's, shared rather than duplicated.
 
 from collections.abc import Sequence
 
-from products.signals.dags.inbox_ranking.shadow.metrics import RankingGrade
+from products.signals.dags.inbox_ranking.shadow.metrics import ALL_ROWS_SCOPE, RankingGrade
 from products.signals.dags.inbox_ranking.training.telemetry import TrainingEvent
 
 SHADOW_RANKING_GRADED_EVENT = "inbox_ranking_shadow_ranking_graded"
+SHADOW_SCORED_RANKING_GRADED_EVENT = "inbox_ranking_shadow_scored_ranking_graded"
 SHADOW_RUN_COMPLETED_EVENT = "inbox_ranking_shadow_run_completed"
 
 
@@ -57,5 +58,13 @@ def shadow_grade_events(
     }
     return [
         TrainingEvent(event=SHADOW_RUN_COMPLETED_EVENT, properties={**run, "grades": len(grades), "reason": reason}),
-        *(TrainingEvent(event=SHADOW_RANKING_GRADED_EVENT, properties={**grade.as_dict(), **run}) for grade in grades),
+        *(
+            TrainingEvent(
+                event=SHADOW_RANKING_GRADED_EVENT
+                if grade.grading_scope == ALL_ROWS_SCOPE
+                else SHADOW_SCORED_RANKING_GRADED_EVENT,
+                properties={**grade.as_dict(), **run},
+            )
+            for grade in grades
+        ),
     ]
