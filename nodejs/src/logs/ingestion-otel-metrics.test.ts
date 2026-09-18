@@ -55,8 +55,8 @@ describe('ingestion-otel-metrics', () => {
         [
             'recordJsonEnrichmentSkipped',
             'logs_ingestion_json_enrichment_skipped_total',
-            () => recordJsonEnrichmentSkipped('output_size'),
-            { reason: 'output_size' },
+            () => recordJsonEnrichmentSkipped('output_size', 'selected_attribute'),
+            { reason: 'output_size', source: 'selected_attribute' },
             1,
         ],
         [
@@ -143,6 +143,7 @@ describe('ingestion-otel-metrics', () => {
                 recordLogProcessingDuration(0.02, {
                     json_parse_enabled: 'true',
                     pii_scrub_enabled: 'false',
+                    attribute_extraction_enabled: 'false',
                     compression_codec: 'snappy',
                 }),
         ],
@@ -169,7 +170,12 @@ describe('ingestion-otel-metrics', () => {
     )
 
     it('records processing duration with the prom bucket ladder and pipeline attributes', async () => {
-        const attributes = { json_parse_enabled: 'true', pii_scrub_enabled: 'false', compression_codec: 'snappy' }
+        const attributes = {
+            json_parse_enabled: 'true',
+            pii_scrub_enabled: 'false',
+            attribute_extraction_enabled: 'true',
+            compression_codec: 'snappy',
+        }
         recordLogProcessingDuration(0.02, attributes)
 
         await reader.forceFlush()
