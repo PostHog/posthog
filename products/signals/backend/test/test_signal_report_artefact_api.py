@@ -1030,10 +1030,13 @@ class TestSignalReportArtefactLogWriteViewSet(APIBaseTest):
                 {"repository": "PostHog/posthog", "branch": "fix/foo", "commit_sha": "abc123f", "message": "fix"},
             ),
             ("note", {"note": "a free-form note"}),
+            ("report_link", None),
         ]
     )
     def test_post_accepts_each_log_type(self, artefact_type, content):
         report = self._create_report()
+        if artefact_type == "report_link":
+            content = {"kind": "depends_on", "report_id": str(self._create_report().id), "reason": None}
         response = self.client.post(
             self._list_url(str(report.id)),
             data=json.dumps({"artefact_type": artefact_type, "content": content}),
@@ -1041,6 +1044,29 @@ class TestSignalReportArtefactLogWriteViewSet(APIBaseTest):
         )
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         assert response.json()["type"] == artefact_type
+
+    @parameterized.expand([("self_link",), ("cross_team",)])
+    def test_post_report_link_rejects_an_unwritable_target_with_400(self, case):
+        # A `report_link`'s target is checked against the database at the append, past the schema
+        # boundary the other 400s come from. Without the guard on that call the endpoint 500s.
+        report = self._create_report()
+        if case == "self_link":
+            target_id = str(report.id)
+        else:
+            other_team = Team.objects.create(organization=self.organization, name="other project")
+            target_id = str(self._create_report(team=other_team).id)
+
+        response = self.client.post(
+            self._list_url(str(report.id)),
+            data=json.dumps(
+                {"artefact_type": "report_link", "content": {"kind": "depends_on", "report_id": target_id}}
+            ),
+            content_type="application/json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert not SignalReportArtefact.objects.filter(
+            report=report, type=SignalReportArtefact.ArtefactType.REPORT_LINK
+        ).exists()
 
     def test_post_log_artefacts_accumulate(self):
         report = self._create_report()

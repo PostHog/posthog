@@ -346,6 +346,72 @@ const inboxReportsClaim = (): ToolBase<
     },
 })
 
+const InboxReportsLinkSchema = () => {
+    const SignalsReportsLinkBody = orvalSchemas.SignalsReportsLinkBody()
+    const SignalsReportsLinkParams = orvalSchemas.SignalsReportsLinkParams()
+    return SignalsReportsLinkParams.omit({ project_id: true }).extend(SignalsReportsLinkBody.shape)
+}
+
+const inboxReportsLink = (): ToolBase<
+    ReturnType<typeof InboxReportsLinkSchema>,
+    WithPostHogUrl<Schemas.SignalReportLinkResponse>
+> => ({
+    name: 'inbox-reports-link',
+    schema: InboxReportsLinkSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof InboxReportsLinkSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.kind !== undefined) {
+            body['kind'] = params.kind
+        }
+        if (params.report_id !== undefined) {
+            body['report_id'] = params.report_id
+        }
+        if (params.reason !== undefined) {
+            body['reason'] = params.reason
+        }
+        const result = await context.api.request<Schemas.SignalReportLinkResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/reports/${encodeURIComponent(String(params.id))}/link/`,
+            body,
+        })
+        return await withPostHogUrl(context, result, `/inbox/${result.id}`)
+    },
+})
+
+const InboxReportsUnlinkSchema = () => {
+    const SignalsReportsUnlinkBody = orvalSchemas.SignalsReportsUnlinkBody()
+    const SignalsReportsUnlinkParams = orvalSchemas.SignalsReportsUnlinkParams()
+    return SignalsReportsUnlinkParams.omit({ project_id: true }).extend(SignalsReportsUnlinkBody.shape)
+}
+
+const inboxReportsUnlink = (): ToolBase<
+    ReturnType<typeof InboxReportsUnlinkSchema>,
+    WithPostHogUrl<Schemas.SignalReportUnlinkResponse>
+> => ({
+    name: 'inbox-reports-unlink',
+    schema: InboxReportsUnlinkSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof InboxReportsUnlinkSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.kind !== undefined) {
+            body['kind'] = params.kind
+        }
+        if (params.report_id !== undefined) {
+            body['report_id'] = params.report_id
+        }
+        if (params.reason !== undefined) {
+            body['reason'] = params.reason
+        }
+        const result = await context.api.request<Schemas.SignalReportUnlinkResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/reports/${encodeURIComponent(String(params.id))}/unlink/`,
+            body,
+        })
+        return await withPostHogUrl(context, result, `/inbox/${result.id}`)
+    },
+})
+
 const InboxReportsListSchema = () => {
     const SignalsReportsListQueryParams = orvalSchemas.SignalsReportsListQueryParams()
     return SignalsReportsListQueryParams
@@ -1022,6 +1088,9 @@ const scoutEditReport = (): ToolBase<ReturnType<typeof ScoutEditReportSchema>, S
         }
         if (params.suggested_prompts !== undefined) {
             body['suggested_prompts'] = params.suggested_prompts
+        }
+        if (params.links !== undefined) {
+            body['links'] = params.links
         }
         if (params.supersedes_implementation !== undefined) {
             body['supersedes_implementation'] = params.supersedes_implementation
@@ -1830,6 +1899,9 @@ const signalsScoutEditReport = (): ToolBase<
         if (params.suggested_prompts !== undefined) {
             body['suggested_prompts'] = params.suggested_prompts
         }
+        if (params.links !== undefined) {
+            body['links'] = params.links
+        }
         if (params.supersedes_implementation !== undefined) {
             body['supersedes_implementation'] = params.supersedes_implementation
         }
@@ -2259,6 +2331,8 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'inbox-report-checks-retrieve': inboxReportChecksRetrieve,
     'inbox-reports-bulk-set-state': inboxReportsBulkSetState,
     'inbox-reports-claim': inboxReportsClaim,
+    'inbox-reports-link': inboxReportsLink,
+    'inbox-reports-unlink': inboxReportsUnlink,
     'inbox-reports-list': inboxReportsList,
     'inbox-reports-retrieve': inboxReportsRetrieve,
     'inbox-reports-set-state': inboxReportsSetState,

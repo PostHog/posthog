@@ -103,6 +103,35 @@ export const SignalsReportsFeedbackCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
+ * Record how this report relates to another one, as a directed link: "this report `kind` that report". Use `depends_on` when a GitHub issue specs a stack and this report's fix cannot land until the other one's does, so a reviewer reading either report can see the order the pull requests have to merge in. Nothing is written on the other report, so link from the side the sentence starts at. Links of the same kind must stay acyclic and both reports must be in this project. Linking the same pair twice records the newer link and leaves the older one in the log.
+ * @summary Link a report to another report
+ */
+export const signalsReportsLinkBodyReasonMax = 500
+
+export const SignalsReportsLinkBody = /* @__PURE__ */ zod
+    .object({
+        kind: zod
+            .enum(['depends_on', 'part_of', 'follow_up_of', 'duplicate_of', 'recurrence_of'])
+            .describe(
+                '\* `depends_on` - Depends on\n\* `part_of` - Part of\n\* `follow_up_of` - Follow-up of\n\* `duplicate_of` - Duplicate of\n\* `recurrence_of` - Recurrence of'
+            )
+            .describe(
+                "How the report in the URL relates to `report_id`. `depends_on` for work that cannot land until the other report's fix does, `part_of` for one piece of a larger report, `follow_up_of` for work the other report left behind, `duplicate_of` for the same problem filed twice, and `recurrence_of` for a problem a resolved report already covered.\n\n\* `depends_on` - Depends on\n\* `part_of` - Part of\n\* `follow_up_of` - Follow-up of\n\* `duplicate_of` - Duplicate of\n\* `recurrence_of` - Recurrence of"
+            ),
+        report_id: zod
+            .uuid()
+            .describe('Id of the report to link to. Must be a report in this project, and not the report in the URL.'),
+        reason: zod
+            .string()
+            .max(signalsReportsLinkBodyReasonMax)
+            .optional()
+            .describe('Optional one-line note on why the reports are linked this way.'),
+    })
+    .describe(
+        'Body for the report `link` and `unlink` actions.\n\nThe link reads as a sentence starting at the report in the URL: \"this report `kind` the report\nnamed by `report_id`\". `reason` is stored on the link and ignored by `unlink`, which removes\nevery link of this kind to this report.'
+    )
+
+/**
  * Post an inline review comment on the report's implementation pull request, attributed to the requesting user's own GitHub identity via their personal GitHub connection. Either replies to an existing thread (`in_reply_to`) or starts a new thread on a diff line (`path` + `line`).
  * @summary Post an inline review comment on a report's implementation PR
  */
@@ -274,6 +303,35 @@ export const SignalsReportsStateCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
+ * Remove every `kind` link from this report to `report_id`. `reason` is ignored. Removing a link that was never there is a 200 with `removed: 0`, so a caller cleaning up does not have to check first.
+ * @summary Remove a link between two reports
+ */
+export const signalsReportsUnlinkBodyReasonMax = 500
+
+export const SignalsReportsUnlinkBody = /* @__PURE__ */ zod
+    .object({
+        kind: zod
+            .enum(['depends_on', 'part_of', 'follow_up_of', 'duplicate_of', 'recurrence_of'])
+            .describe(
+                '\* `depends_on` - Depends on\n\* `part_of` - Part of\n\* `follow_up_of` - Follow-up of\n\* `duplicate_of` - Duplicate of\n\* `recurrence_of` - Recurrence of'
+            )
+            .describe(
+                "How the report in the URL relates to `report_id`. `depends_on` for work that cannot land until the other report's fix does, `part_of` for one piece of a larger report, `follow_up_of` for work the other report left behind, `duplicate_of` for the same problem filed twice, and `recurrence_of` for a problem a resolved report already covered.\n\n\* `depends_on` - Depends on\n\* `part_of` - Part of\n\* `follow_up_of` - Follow-up of\n\* `duplicate_of` - Duplicate of\n\* `recurrence_of` - Recurrence of"
+            ),
+        report_id: zod
+            .uuid()
+            .describe('Id of the report to link to. Must be a report in this project, and not the report in the URL.'),
+        reason: zod
+            .string()
+            .max(signalsReportsUnlinkBodyReasonMax)
+            .optional()
+            .describe('Optional one-line note on why the reports are linked this way.'),
+    })
+    .describe(
+        'Body for the report `link` and `unlink` actions.\n\nThe link reads as a sentence starting at the report in the URL: \"this report `kind` the report\nnamed by `report_id`\". `reason` is stored on the link and ignored by `unlink`, which removes\nevery link of this kind to this report.'
+    )
+
+/**
  * Append an artefact to a report (see artefact_type for the writable types). Everything is append-only: log entries (code reference, commit, task run, note) accumulate, while status types (safety / actionability / priority judgments, repo selection, suggested reviewers, channel assignments) are latest-wins — appending a new version supersedes the previous one as the report's canonical status. Content is validated against the type's schema.
  * @summary Append an artefact to a report
  */
@@ -286,7 +344,7 @@ export const SignalsReportArtefactsCreateBody = /* @__PURE__ */ zod
         artefact_type: zod
             .string()
             .describe(
-                "The artefact type. One of: actionability_judgment, channel_assignment, code_reference, commit, dismissal, note, priority_judgment, related_to, repo_selection, safety_judgment, signal_finding, suggested_reviewers. Log types accumulate; status types (safety_judgment, actionability_judgment, priority_judgment, repo_selection, suggested_reviewers, channel_assignment) are latest-wins — appending a new version supersedes the previous one as the report's canonical status."
+                "The artefact type. One of: actionability_judgment, channel_assignment, code_reference, commit, dismissal, note, priority_judgment, related_to, repo_selection, report_link, safety_judgment, signal_finding, suggested_reviewers. Log types accumulate; status types (safety_judgment, actionability_judgment, priority_judgment, repo_selection, suggested_reviewers, channel_assignment) are latest-wins — appending a new version supersedes the previous one as the report's canonical status."
             ),
         content: zod
             .unknown()
@@ -1320,6 +1378,10 @@ export const signalsScoutEditReportBodySuggestedPromptsItemMax = 200
 
 export const signalsScoutEditReportBodySuggestedPromptsMax = 3
 
+export const signalsScoutEditReportBodyLinksItemReasonMax = 500
+
+export const signalsScoutEditReportBodyLinksMax = 10
+
 export const SignalsScoutEditReportBody = /* @__PURE__ */ zod
     .object({
         report_id: zod.string().describe('Id of the report to edit (must belong to this project).'),
@@ -1566,6 +1628,34 @@ export const SignalsScoutEditReportBody = /* @__PURE__ */ zod
             .nullish()
             .describe(
                 "The full set of follow-up prompts (questions or next-step actions) the report should offer above its `Ask AI` box. Replaces the report's prompts rather than adding to them, so send every one you want kept. Omit the field (or send null) to leave them untouched, and send an empty list to take them down, which is what you want once a rewrite has left them pointing at the old report."
+            ),
+        links: zod
+            .array(
+                zod
+                    .object({
+                        kind: zod
+                            .enum(['depends_on', 'part_of', 'follow_up_of', 'duplicate_of', 'recurrence_of'])
+                            .describe(
+                                '\* `depends_on` - Depends on\n\* `part_of` - Part of\n\* `follow_up_of` - Follow-up of\n\* `duplicate_of` - Duplicate of\n\* `recurrence_of` - Recurrence of'
+                            )
+                            .describe(
+                                "How the edited report relates to `report_id`. `depends_on` for work that cannot land until the other report's fix does, `part_of` for one piece of a larger report, `follow_up_of` for work the other report left behind, `duplicate_of` for the same problem filed twice, and `recurrence_of` for a problem a resolved report already covered.\n\n\* `depends_on` - Depends on\n\* `part_of` - Part of\n\* `follow_up_of` - Follow-up of\n\* `duplicate_of` - Duplicate of\n\* `recurrence_of` - Recurrence of"
+                            ),
+                        report_id: zod
+                            .string()
+                            .describe('Id of the report to link to. Must be another report in this project.'),
+                        reason: zod
+                            .string()
+                            .max(signalsScoutEditReportBodyLinksItemReasonMax)
+                            .optional()
+                            .describe('Optional one-line note on why the reports are linked this way.'),
+                    })
+                    .describe('One typed, directed link to write on the report being edited.')
+            )
+            .max(signalsScoutEditReportBodyLinksMax)
+            .optional()
+            .describe(
+                "Typed, directed links from this report to others, recording how the work relates. Use `depends_on` when you split one finding into a stack and the second report's fix cannot land until the first one's does, so a reviewer reading either report sees the order. Additive: links join what the report already has rather than replacing them, and only this report gets a row, so link from the side the sentence starts at. Links of the same kind must stay acyclic and every report must be in this project."
             ),
         supersedes_implementation: zod
             .boolean()

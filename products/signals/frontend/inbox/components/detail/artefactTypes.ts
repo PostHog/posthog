@@ -67,6 +67,20 @@ export interface RelatedToContent {
     report_id?: string
 }
 
+export interface ReportLinkContent {
+    kind?: string
+    report_id?: string
+    reason?: string | null
+}
+
+export const REPORT_LINK_KIND_LABELS: Record<string, string> = {
+    depends_on: 'Depends on',
+    part_of: 'Part of',
+    follow_up_of: 'Follow-up of',
+    duplicate_of: 'Duplicate of',
+    recurrence_of: 'Recurrence of',
+}
+
 export interface CodeReviewContent {
     repository?: string
     head_sha?: string
@@ -157,6 +171,7 @@ export const ARTEFACT_TYPE_LABELS: Record<string, string> = {
     title_change: 'Title edited',
     summary_change: 'Summary edited',
     related_to: 'Related report',
+    report_link: 'Report linked',
     code_review: 'Code review',
     check_result: 'Follow-up check',
     implementation_decision: 'Open PR assessed',

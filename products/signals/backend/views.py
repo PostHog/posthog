@@ -78,6 +78,7 @@ from products.signals.backend.artefact_schemas import (
     ArtefactContentValidationError,
     ChannelAssignment,
     Dismissal,
+    ReportLink,
     SuggestedReviewers,
     SummaryChange,
     TitleChange,
@@ -97,6 +98,7 @@ from products.signals.backend.billing import (
     report_pr_is_merged,
 )
 from products.signals.backend.dismissal_notes import forward_dismissal_note
+from products.signals.backend.enums import ReportLinkKind
 from products.signals.backend.facade.api import emit_signal
 from products.signals.backend.feedback_notes import forward_feedback_note
 from products.signals.backend.implementation_pr import (
@@ -173,11 +175,14 @@ from products.signals.backend.serializers import (
     SignalReportCheckSerializer,
     SignalReportCheckWriteSerializer,
     SignalReportClaimSerializer,
+    SignalReportLinkRequestSerializer,
+    SignalReportLinkResponseSerializer,
     SignalReportListSerializer,
     SignalReportMetricRefreshRequestSerializer,
     SignalReportMetricRefreshResponseSerializer,
     SignalReportRefundSerializer,
     SignalReportSerializer,
+    SignalReportUnlinkResponseSerializer,
     SignalSourceConfigSerializer,
     SignalTeamConfigSerializer,
     SignalUserAutonomyConfigCreateSerializer,
@@ -2306,6 +2311,101 @@ class SignalReportViewSet(
         report_data = SignalReportSerializer(report, context=self._enriched_report_context(report)).data
         signals_list = fetch_signals_for_report_sync(self.team, str(report.id))
         return Response({"report": report_data, "signals": signals_list})
+
+    @staticmethod
+    def _report_link_matches(stored: str, *, kind: ReportLinkKind, target_id: str) -> bool:
+        try:
+            link = ReportLink.model_validate_json(stored)
+        except PydanticValidationError:
+            return False
+        return link.kind == kind and link.report_id == target_id
+
+    @extend_schema(
+        request=SignalReportLinkRequestSerializer,
+        responses={
+            201: OpenApiResponse(response=SignalReportLinkResponseSerializer, description="The link that was written."),
+            400: OpenApiResponse(
+                description="The target report is this report, is not in this project, or the link would close a cycle."
+            ),
+        },
+        summary="Link a report to another report",
+        description=(
+            'Record how this report relates to another one, as a directed link: "this report '
+            '`kind` that report". Use `depends_on` when a GitHub issue specs a stack and this '
+            "report's fix cannot land until the other one's does, so a reviewer reading either "
+            "report can see the order the pull requests have to merge in. Nothing is written on "
+            "the other report, so link from the side the sentence starts at. Links of the same "
+            "kind must stay acyclic and both reports must be in this project. Linking the same "
+            "pair twice records the newer link and leaves the older one in the log."
+        ),
+        operation_id="signals_reports_link",
+    )
+    @action(detail=True, methods=["post"], url_path="link", required_scopes=["task:write"])
+    def link(self, request, pk=None, **kwargs) -> Response:
+        report = cast(SignalReport, self.get_object())
+        serializer = SignalReportLinkRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        reason = (data.get("reason") or "").strip() or None
+        content = ReportLink(kind=ReportLinkKind(data["kind"]), report_id=str(data["report_id"]), reason=reason)
+        try:
+            artefact = SignalReportArtefact.add_log(
+                team_id=self.team.id,
+                report_id=str(report.id),
+                content=content,
+                attribution=self._request_attribution(),
+            )
+        except ArtefactContentValidationError as err:
+            return Response({"error": str(err)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(
+            SignalReportLinkResponseSerializer(
+                {
+                    "id": artefact.id,
+                    "report_id": report.id,
+                    "kind": content.kind.value,
+                    "linked_report_id": content.report_id,
+                    "reason": content.reason,
+                    "created_at": artefact.created_at,
+                }
+            ).data,
+            status=status.HTTP_201_CREATED,
+        )
+
+    @extend_schema(
+        request=SignalReportLinkRequestSerializer,
+        responses={
+            200: OpenApiResponse(
+                response=SignalReportUnlinkResponseSerializer, description="How many links were removed."
+            )
+        },
+        summary="Remove a link between two reports",
+        description=(
+            "Remove every `kind` link from this report to `report_id`. `reason` is ignored. "
+            "Removing a link that was never there is a 200 with `removed: 0`, so a caller "
+            "cleaning up does not have to check first."
+        ),
+        operation_id="signals_reports_unlink",
+    )
+    @action(detail=True, methods=["post"], url_path="unlink", required_scopes=["task:write"])
+    def unlink(self, request, pk=None, **kwargs) -> Response:
+        report = cast(SignalReport, self.get_object())
+        serializer = SignalReportLinkRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        kind = ReportLinkKind(data["kind"])
+        target_id = str(data["report_id"])
+        # Matched by parsed content rather than by a `content__contains` filter, so a reason that
+        # happens to quote another report's id cannot make a row match.
+        doomed = [
+            artefact.id
+            for artefact in SignalReportArtefact.objects.filter(
+                team_id=self.team.id, report_id=str(report.id), type=SignalReportArtefact.ArtefactType.REPORT_LINK
+            )
+            if self._report_link_matches(artefact.content, kind=kind, target_id=target_id)
+        ]
+        if doomed:
+            SignalReportArtefact.objects.filter(team_id=self.team.id, id__in=doomed).delete()
+        return Response(SignalReportUnlinkResponseSerializer({"removed": len(doomed)}).data)
 
     @extend_schema(
         request=SignalReportStateRequestSerializer,
@@ -4712,13 +4812,19 @@ class SignalReportArtefactViewSet(
                     return Response(
                         {"detail": "Claim is stale or belongs to another actor."}, status=status.HTTP_409_CONFLICT
                     )
-            artefact = SignalReportArtefact.append(
-                team_id=self.team.id,
-                report_id=report_id,
-                content=parsed_content,
-                attribution=attribution,
-                claim_id=str(claim_id) if claim_id else None,
-            )
+            try:
+                artefact = SignalReportArtefact.append(
+                    team_id=self.team.id,
+                    report_id=report_id,
+                    content=parsed_content,
+                    attribution=attribution,
+                    claim_id=str(claim_id) if claim_id else None,
+                )
+            except ArtefactContentValidationError as e:
+                # Some types carry invariants the schema alone cannot check, because they read the
+                # database: a `report_link` must name a live report in this team and must not close
+                # a cycle. The append path owns those, so the 400 is raised from here.
+                return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
         if isinstance(parsed_content, SuggestedReviewers):
             # on_commit so a rolled-back write emits nothing, matching every other reviewer write path.
             transaction.on_commit(

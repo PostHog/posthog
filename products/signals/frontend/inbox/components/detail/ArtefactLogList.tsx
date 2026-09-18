@@ -55,6 +55,8 @@ import {
     LineReferenceContent,
     NoteContent,
     RelatedToContent,
+    REPORT_LINK_KIND_LABELS,
+    ReportLinkContent,
     RepoSelectionContent,
     selectVisibleReportActivity,
     SignalFindingContent,
@@ -138,6 +140,7 @@ const ARTEFACT_MARKER: Record<string, ComponentType<{ className?: string }>> = {
     title_change: IconPencil,
     summary_change: IconPencil,
     related_to: IconListTreeConnected,
+    report_link: IconListTreeConnected,
     code_review: IconListCheck,
     check_result: IconCalendar,
     implementation_decision: IconRefresh,
@@ -297,6 +300,28 @@ function RelatedReportBody({ content }: { content: RelatedToContent }): JSX.Elem
         <Link to={urls.inboxReport('reports', content.report_id)} className="inline-flex items-center gap-1 text-xs">
             Open report <IconExternal className="size-3" />
         </Link>
+    )
+}
+
+function ReportLinkBody({ content }: { content: ReportLinkContent }): JSX.Element | null {
+    if (!content.report_id) {
+        return null
+    }
+    const kind = content.kind ? (REPORT_LINK_KIND_LABELS[content.kind] ?? content.kind) : null
+    return (
+        <div className="flex flex-col gap-1 text-xs">
+            <div className="flex items-center gap-2">
+                {kind ? <LemonTag type="muted">{kind}</LemonTag> : null}
+                <Link
+                    to={urls.inboxReport('reports', content.report_id)}
+                    className="inline-flex items-center gap-1"
+                    data-attr="artefact-report-link-open"
+                >
+                    Open report <IconExternal className="size-3" />
+                </Link>
+            </div>
+            {content.reason?.trim() ? <ReasoningBody text={content.reason} /> : null}
+        </div>
     )
 }
 
@@ -547,6 +572,8 @@ function renderArtefactBody({
             return <RepoSelectionBody content={content as RepoSelectionContent} />
         case 'related_to':
             return <RelatedReportBody content={content as RelatedToContent} />
+        case 'report_link':
+            return <ReportLinkBody content={content as ReportLinkContent} />
         case 'code_review':
             return <CodeReviewBody content={content as CodeReviewContent} />
         case 'check_result':

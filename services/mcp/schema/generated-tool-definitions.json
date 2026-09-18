@@ -6102,6 +6102,20 @@
             "readOnlyHint": false
         }
     },
+    "inbox-reports-link": {
+        "description": "Record how one report relates to another, as a directed link that reads as a sentence starting at the report in `id`: \"this report `kind` that report\". Use this when one finding turns into a stack of dependent changes: file or claim the second report, then link it `depends_on` the first, so a reviewer opening either report sees which pull request has to merge first instead of working it out from the diffs. The other kinds are `part_of` (one piece of a larger report), `follow_up_of` (work the other report left behind), `duplicate_of` (the same problem filed twice), and `recurrence_of` (a problem a resolved report already covered). Only the report in `id` gets a row, so link from the side the sentence starts at. Both reports must be in this project, a report cannot link to itself, and links of one kind must stay acyclic, so a link that would close a dependency loop is rejected with 400. Reading a report's links is `inbox-report-artefacts-list` filtered to type `report_link`; removing one is `inbox-reports-unlink`.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "Link a report to another report",
+        "title": "Link a report to another report",
+        "required_scopes": ["task:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "inbox-reports-list": {
         "description": "List signal reports for the current project. A signal report is a cluster of related observations (signals) that PostHog has aggregated into a single issue or trend. Reports surface in the Inbox. Supports filtering by status (potential, candidate, in_progress, pending_input, ready, resolved, failed, suppressed), free-text search across title and summary, source_product (e.g. error_tracking, session_replay), suggested_reviewers, `unclaimed`, and `assignee=me`. Claimed reports remain actionable and visible; use `unclaimed=true` to pick work that has no owner and no draft, open, or unknown PR. Some statuses are hidden by default (currently suppressed, i.e. human-dismissed); pass `include_all_statuses=true` to list reports in every status. Do this when deduplicating against the full inbox state, and read each row's `status` (plus `dismissal_reason` / `dismissal_note` on dismissed rows) before acting. For picking up work, filter to `ready` — earlier statuses are still moving through the pipeline, and `pending_input` reports are waiting on a human. Each report's full work log, including signal findings, judgments, and log entries, is readable via inbox-report-artefacts-list; read it before acting on a report. Results are paginated and ordered by '-is_suggested_reviewer,status,-updated_at' by default. To answer \"what should I look at next\", pass `view=actionable` with `use_priority_preference=true`, `sort=priority`, and `limit=10`: that returns ready, actionable reports that have no implementation PR yet, at or above the requesting user's personal PR-generation threshold, falling back to the project threshold. `use_priority_preference` selects which priorities to include, and does not order them, so pass `sort=priority` to put P0 first; the default ordering can put a recently updated P4 above an older P0. Without `limit` a page holds up to 100 reports, each with its summary. The other views are `needs_input` (waiting on a human), `monitoring` (an implementation PR is open), `resolved`, `dismissed`, `not_actionable`, and `all`. Narrow by reviewer with `scope=for_me`, or `scope=teammate` plus `teammate_uuid`; the default `scope=entire_project` searches every report. `priority`, `source_product`, and `scout` each take a comma-separated list. To find the self-driving reports for one source record — e.g. what the inbox already investigated for a specific support ticket — pass that record's id as `source_id` together with exactly one `source_product` (for a support ticket: `source_product=conversations` and the ticket's UUID as `source_id`); add `include_all_statuses=true` to include dismissed ones. Each row includes typed impact metric metadata and any accessible cached snapshot, but omits live query definitions and comparisons. Queryless legacy or malformed metrics are always redacted. Listing reports does not execute metric queries.",
         "category": "Signals",
@@ -6140,6 +6154,20 @@
         "annotations": {
             "destructiveHint": true,
             "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "inbox-reports-unlink": {
+        "description": "Remove every `kind` link from the report in `id` to `report_id`, undoing an `inbox-reports-link` call. `reason` is ignored. Removing a link that was never there is a 200 with `removed: 0`, so you do not have to check first.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "Remove a link between two reports",
+        "title": "Remove a link between two reports",
+        "required_scopes": ["task:write"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false
         }

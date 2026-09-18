@@ -46,14 +46,17 @@ from posthog.models import Team
 from posthog.sync import database_sync_to_async
 
 from products.signals.backend.artefact_schemas import (
+    MAX_REPORT_LINKS_PER_WRITE,
     ActionabilityAssessment,
     ActionabilityChoice,
     Priority,
     PriorityAssessment,
+    ReportLink,
     SafetyJudgment,
     SuggestedReviewerEntry,
     SuggestedReviewers,
 )
+from products.signals.backend.enums import ReportLinkKind
 from products.signals.backend.models import (
     MAX_SCOUT_CONTENT_REVISIONS,
     ArtefactAttribution,
@@ -98,6 +101,7 @@ from products.signals.backend.scout_report import (
     ScoutReportAlreadyEmittedError,
     ScoutReportSignal,
     append_report_evidence,
+    append_report_links,
     append_report_note,
     create_scout_report,
     emit_appended_report_evidence,
@@ -195,6 +199,15 @@ class ReportMetricInput:
 
 
 @dataclass(frozen=True)
+class ReportLinkInput:
+    """One typed, directed link the edit should write on the report: "this report `kind` that report"."""
+
+    kind: str
+    report_id: str
+    reason: str | None = None
+
+
+@dataclass(frozen=True)
 class ReviewerInput:
     """One reviewer a scout supplies to `emit_report` / `edit_report` — by `github_login`, `user_uuid`, or both.
 
@@ -279,6 +292,9 @@ class EditReportResult:
     # True when the appended note only raised the report's corroboration count instead of landing as
     # its own entry (see `append_report_note`).
     corroboration_collapsed: bool = False
+    # How many typed report-to-report links the edit wrote. Additive like `evidence_appended`, so a
+    # plain count rather than the nullable "set or untouched" the replace-semantics fields carry.
+    links_appended: int = 0
 
     @property
     def changed(self) -> bool:
@@ -300,6 +316,7 @@ class EditReportResult:
                 or self.reviewers_set
                 or self.repository_set
                 or self.evidence_appended
+                or self.links_appended
             )
             or self.charts_set is not None
             or self.metrics_set is not None
@@ -405,6 +422,31 @@ def _build_edit_charts(charts: list[ReportChartInput] | None) -> list[ReportChar
     if charts is None:
         return None
     return _build_charts(charts)
+
+
+def _build_links(links: list[ReportLinkInput] | None) -> list[ReportLink]:
+    """Turn the caller's links into content models, rejecting an unknown kind or a malformed id.
+
+    Pure and cheap, so a scout that named a kind wrong fails before the edit spends a judge call.
+    The invariants that need the database (a live target in this team, no cycle) are checked at the
+    write, in `SignalReportArtefact.add_log`.
+    """
+    if not links:
+        return []
+    if len(links) > MAX_REPORT_LINKS_PER_WRITE:
+        raise InvalidScoutReportError(f"edit_report accepts at most {MAX_REPORT_LINKS_PER_WRITE} links ({len(links)})")
+    built: list[ReportLink] = []
+    for link in links:
+        try:
+            kind = ReportLinkKind(link.kind)
+        except ValueError:
+            valid = ", ".join(choice.value for choice in ReportLinkKind)
+            raise InvalidScoutReportError(f"unknown link kind {link.kind!r}; one of: {valid}")
+        try:
+            built.append(ReportLink(kind=kind, report_id=link.report_id, reason=link.reason))
+        except ValidationError as err:
+            raise InvalidScoutReportError(f"invalid link to {link.report_id!r}: {err}")
+    return built
 
 
 def _build_metrics(metrics: list[ReportMetricInput] | None) -> list[ReportMetric]:
@@ -1259,6 +1301,7 @@ def _capture_report_edited(
     charts: list[ReportChartInput] | None = None,
     metrics: list[ReportMetricInput] | None = None,
     suggested_prompts: list[str] | None = None,
+    links: list[ReportLink] | None = None,
 ) -> _ReportForward | None:
     """Emit the scout-owned `signals_scout_report_edited` event when a scout mutates an existing report via
     `edit_report`, so edits are observable separately from fresh authorship. `updated_fields` /
@@ -1293,6 +1336,8 @@ def _capture_report_edited(
         "content_revision_count": result.content_revision_count,
         "supersedes_implementation": result.supersedes_implementation,
         "corroboration_collapsed": result.corroboration_collapsed,
+        "links_appended": result.links_appended,
+        "link_kinds": sorted({link.kind.value for link in links or []}),
         "title": _clip(title, MAX_REPORT_TITLE_LENGTH),
         "summary": _forwarded_summary(summary),
         "note": _clip(note, _MAX_TELEMETRY_TEXT_LEN),
@@ -1369,6 +1414,14 @@ def _capture_report_edited(
     # the key it already hashes to (see `_report_event_uuid` on why re-encoding it is unsafe).
     if suggested_prompts is not None:
         parts.append(f"suggested_prompts:{json.dumps(suggested_prompts, separators=(',', ':'))}")
+    # Links are a valid sole input too, so two link-only edits to one report in a run share every
+    # other part and would hash identically. Field-tagged for the reason the prompts part gives, and
+    # appended only when the edit wrote links, so every other edit keeps the uuid its shape already
+    # hashes to. Kept in the scout's order: the rows land in that order on the report.
+    appended_links = links if result.links_appended and links else None
+    if appended_links:
+        written = [[link.kind.value, link.report_id] for link in appended_links]
+        parts.append(f"links:{json.dumps(written, separators=(',', ':'))}")
     return _ReportForward(
         event_name=CUSTOMER_REPORT_EDITED_EVENT,
         distinct_id=f"signals_scout:{run.skill_name}",
@@ -1378,6 +1431,7 @@ def _capture_report_edited(
             or metrics is not None
             or suggested_prompts is not None
             or appended_evidence is not None
+            or appended_links is not None
             or result.repository_set,
         ),
         properties=properties,
@@ -1698,6 +1752,7 @@ def _do_edit_report(
     charts: list[ReportChart] | None,
     metrics: list[ReportMetric] | None,
     suggested_prompts: list[str] | None,
+    links: list[ReportLink] | None = None,
     supersedes_implementation: bool = False,
     corroboration_only: bool = False,
 ) -> EditReportResult:
@@ -1721,6 +1776,7 @@ def _do_edit_report(
     updated_fields: list[str] = []
     note_appended = False
     repository_set = False
+    links_appended = 0
     evidence_document_ids: list[str] = []
     charts_changed = False
     metrics_changed = False
@@ -1828,6 +1884,15 @@ def _do_edit_report(
                 signals=append_evidence,
                 attribution=attribution,
                 author=run.skill_name,
+            )
+        # Additive like the evidence above. A link is a fact about two reports, so a later edit
+        # adds another rather than replacing the set, and `unlink` is how one comes back off.
+        if links:
+            links_appended = append_report_links(
+                team_id=team.id,
+                report_id=report_id,
+                links=links,
+                attribution=attribution,
             )
         # Replace the report's charts, the way a summary rewrite replaces the summary. Omitting the
         # field leaves the existing ones alone, so an edit that only appends a note keeps them; an
@@ -2058,6 +2123,7 @@ def _do_edit_report(
         content_revision_count=content_revision_count,
         supersedes_implementation=supersede_recorded,
         corroboration_collapsed=corroboration_collapsed,
+        links_appended=links_appended,
     )
     return result
 
@@ -2120,6 +2186,7 @@ def _validate_edit_inputs(
     charts,
     metrics,
     suggested_prompts,
+    links=None,
 ) -> None:
     _assert_team_owns_run(team, run)
     if summary is not None and len(summary) > MAX_REPORT_SUMMARY_LENGTH:
@@ -2150,10 +2217,11 @@ def _validate_edit_inputs(
         and charts is None
         and metrics is None
         and suggested_prompts is None
+        and not links
     ):
         raise InvalidScoutReportError(
             "edit_report needs at least one of title, summary, append_note, append_evidence, "
-            "suggested_reviewers, repository, charts, metrics, suggested_prompts"
+            "suggested_reviewers, repository, charts, metrics, suggested_prompts, links"
         )
 
 
@@ -2171,6 +2239,7 @@ async def edit_report(
     charts: list[ReportChartInput] | None = None,
     metrics: list[ReportMetricInput] | None = None,
     suggested_prompts: list[str] | None = None,
+    links: list[ReportLinkInput] | None = None,
     supersedes_implementation: bool = False,
     corroboration_only: bool = False,
 ) -> EditReportResult:
@@ -2194,12 +2263,14 @@ async def edit_report(
         charts,
         metrics,
         suggested_prompts,
+        links,
     )
     # Validated up front (cheap, pure) so a malformed `owner/repo` fails before the safety-judge call.
     normalized_repository = _normalize_repository(repository)
     built_evidence = _build_signals(append_evidence) if append_evidence else None
     built_charts = _build_edit_charts(charts)
     built_prompts = _build_edit_suggested_prompts(suggested_prompts)
+    built_links = _build_links(links)
     # Off the loop because the gate reads a feature flag, which can block on the flag service.
     allowed_metrics = await database_sync_to_async(_allowed_metrics, thread_sensitive=False)(team, metrics)
     built_metrics = _build_edit_metrics(allowed_metrics)
@@ -2238,6 +2309,7 @@ async def edit_report(
         charts=built_charts,
         metrics=built_metrics,
         suggested_prompts=built_prompts,
+        links=built_links,
         supersedes_implementation=supersedes_implementation,
         corroboration_only=corroboration_only,
     )
@@ -2255,6 +2327,7 @@ async def edit_report(
         # The gated set, so the event reports what the edit wrote rather than what the scout asked for.
         metrics=allowed_metrics,
         suggested_prompts=suggested_prompts,
+        links=built_links,
     )
     await _forward_report_event_async(team, forward)
     return result
@@ -2274,6 +2347,7 @@ def edit_report_sync(
     charts: list[ReportChartInput] | None = None,
     metrics: list[ReportMetricInput] | None = None,
     suggested_prompts: list[str] | None = None,
+    links: list[ReportLinkInput] | None = None,
     supersedes_implementation: bool = False,
     corroboration_only: bool = False,
 ) -> EditReportResult:
@@ -2290,12 +2364,14 @@ def edit_report_sync(
         charts,
         metrics,
         suggested_prompts,
+        links,
     )
     # Validated up front (cheap, pure) so a malformed `owner/repo` fails before the safety-judge call.
     normalized_repository = _normalize_repository(repository)
     built_evidence = _build_signals(append_evidence) if append_evidence else None
     built_charts = _build_edit_charts(charts)
     built_prompts = _build_edit_suggested_prompts(suggested_prompts)
+    built_links = _build_links(links)
     allowed_metrics = _allowed_metrics(team, metrics)
     built_metrics = _build_edit_metrics(allowed_metrics)
     # Gates before the judge, mirroring emit: a disabled or dry-run scout must not spend an LLM call.
@@ -2329,6 +2405,7 @@ def edit_report_sync(
         charts=built_charts,
         metrics=built_metrics,
         suggested_prompts=built_prompts,
+        links=built_links,
         supersedes_implementation=supersedes_implementation,
         corroboration_only=corroboration_only,
     )
@@ -2346,6 +2423,7 @@ def edit_report_sync(
         # The gated set, so the event reports what the edit wrote rather than what the scout asked for.
         metrics=allowed_metrics,
         suggested_prompts=suggested_prompts,
+        links=built_links,
     )
     if forward is not None:
         _forward_report_event_to_team(team=team, forward=forward)
