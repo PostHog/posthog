@@ -86,3 +86,9 @@ export const postgresOpenAtShutdownCounter = new Counter({
     help: 'Transactions still open when the pools were told to close',
     labelNames: ['pool', 'tag'],
 })
+
+export const postgresClientRemovedInUseCounter = new Counter({
+    name: 'postgres_client_removed_in_use',
+    help: 'Pool removed a client while a transaction was still using it',
+    labelNames: ['pool', 'tag', 'in_flight'],
+})

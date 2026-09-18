@@ -10,6 +10,7 @@ import { createPostgresPool } from '../utils'
 import { DependencyUnavailableError } from './error'
 import {
     postgresClientErrorCounter,
+    postgresClientRemovedInUseCounter,
     postgresErrorCounter,
     postgresLongOpenTransactionCounter,
     postgresOpenAtShutdownCounter,
@@ -104,11 +105,37 @@ type OpenTransaction = { pool: string; tag: string; client: TransactionClient }
 /** Process-wide, so shutdown can name the transactions that never finished. */
 const openTransactions = new Set<OpenTransaction>()
 
+function openTransactionFor(client: PoolClient): OpenTransaction | undefined {
+    for (const open of openTransactions) {
+        if (open.client.client === client) {
+            return open
+        }
+    }
+    return undefined
+}
+
 /** Pool client churn is invisible from inside the app without these. */
-function instrumentPool(pool: Pool, poolLabel: string): Pool {
+export function instrumentPool(pool: Pool, poolLabel: string): Pool {
     pool.on('connect', () => postgresPoolClientEventsCounter.inc({ pool: poolLabel, event: 'connect' }))
     pool.on('acquire', () => postgresPoolClientEventsCounter.inc({ pool: poolLabel, event: 'acquire' }))
-    pool.on('remove', () => postgresPoolClientEventsCounter.inc({ pool: poolLabel, event: 'remove' }))
+    pool.on('remove', (client: PoolClient) => {
+        postgresPoolClientEventsCounter.inc({ pool: poolLabel, event: 'remove' })
+        // A transaction deregisters before releasing, so anything still here was torn down under.
+        const open = openTransactionFor(client)
+        if (open) {
+            postgresClientRemovedInUseCounter.inc({
+                pool: poolLabel,
+                tag: open.tag,
+                in_flight: open.client.inFlightTag,
+            })
+            logger.warn('🔌', 'Postgres pool removed a client mid-transaction', {
+                pool: poolLabel,
+                tag: open.tag,
+                inFlight: open.client.inFlightTag,
+                lastCompleted: open.client.lastCompletedTag,
+            })
+        }
+    })
     return pool
 }
 
@@ -305,7 +332,10 @@ export class PostgresRouter {
                 logger.warn('🔌', 'Postgres client error during transaction', {
                     tag: wrappedTag,
                     inFlight: transactionClient.inFlightTag,
-                    error,
+                    lastCompleted: transactionClient.lastCompletedTag,
+                    // An Error's own fields are non-enumerable, so it logs as {} unserialised.
+                    error: String(error),
+                    stack: error.stack,
                 })
             }
             client.on('error', onClientError)
@@ -325,7 +355,10 @@ export class PostgresRouter {
                     // A lost connection cannot roll back, and the server discards the transaction
                     // when it drops. Swallow it so the original error is the one thrown.
                     outcome = 'rollback_failed'
-                    logger.warn('🔌', 'Postgres ROLLBACK failed', { tag: wrappedTag, error: rollbackError })
+                    logger.warn('🔌', 'Postgres ROLLBACK failed', {
+                        tag: wrappedTag,
+                        error: String(rollbackError),
+                    })
                 }
 
                 handlePostgresError(e, usage)

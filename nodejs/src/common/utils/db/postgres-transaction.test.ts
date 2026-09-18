@@ -1,7 +1,12 @@
 import { EventEmitter } from 'events'
 
-import { postgresClientErrorCounter, postgresOpenAtShutdownCounter, postgresOpenTransactionsGauge } from './metrics'
-import { PostgresRouter, PostgresUse } from './postgres'
+import {
+    postgresClientErrorCounter,
+    postgresClientRemovedInUseCounter,
+    postgresOpenAtShutdownCounter,
+    postgresOpenTransactionsGauge,
+} from './metrics'
+import { PostgresRouter, PostgresUse, instrumentPool } from './postgres'
 
 async function metricValue(metric: { get: () => Promise<any> }, labels: Record<string, string>): Promise<number> {
     const values = (await metric.get()).values as { labels: Record<string, string>; value: number }[]
@@ -13,6 +18,7 @@ type FakeClient = EventEmitter & { query: jest.Mock; release: jest.Mock }
 
 describe('postgres transaction client failures', () => {
     let client: FakeClient
+    let pool: EventEmitter & { connect: jest.Mock; end: jest.Mock }
     let router: PostgresRouter
 
     beforeEach(() => {
@@ -21,11 +27,39 @@ describe('postgres transaction client failures', () => {
             release: jest.fn(),
         }) as FakeClient
 
+        pool = Object.assign(new EventEmitter(), {
+            connect: jest.fn().mockResolvedValue(client),
+            end: jest.fn(),
+        })
+        instrumentPool(pool as any, 'COMMON_WRITE')
+
         router = new PostgresRouter({ DATABASE_URL: 'postgres://fake', POSTGRES_CONNECTION_POOL_SIZE: 1 })
         // pg pools connect lazily, so the real ones built by the constructor never dial.
-        ;(router as any).pools = new Map([
-            [PostgresUse.COMMON_WRITE, { connect: jest.fn().mockResolvedValue(client), end: jest.fn() }],
-        ])
+        ;(router as any).pools = new Map([[PostgresUse.COMMON_WRITE, pool]])
+    })
+
+    it('flags a client the pool removed while a transaction was using it', async () => {
+        const removedInUse = (): Promise<number> =>
+            metricValue(postgresClientRemovedInUseCounter, { tag: 'removeRace' })
+        const before = await removedInUse()
+
+        await router.transaction(PostgresUse.COMMON_WRITE, 'removeRace', async (tx) => {
+            await router.query(tx, 'SELECT 1', undefined, 'claimLifecycleOp')
+            pool.emit('remove', client)
+        })
+
+        expect(await removedInUse()).toBe(before + 1)
+    })
+
+    it('does not flag a client the pool removes after its transaction finished', async () => {
+        const removedInUse = (): Promise<number> =>
+            metricValue(postgresClientRemovedInUseCounter, { tag: 'cleanRelease' })
+        const before = await removedInUse()
+
+        await router.transaction(PostgresUse.COMMON_WRITE, 'cleanRelease', () => Promise.resolve())
+        pool.emit('remove', client)
+
+        expect(await removedInUse()).toBe(before)
     })
 
     it('reports a transaction as open only while it is running', async () => {
