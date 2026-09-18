@@ -498,9 +498,13 @@ def get_context_for_template(
 
 def get_persisted_feature_flags_for_app_context() -> list[str]:
     static_keys = list(settings.PERSISTED_FEATURE_FLAGS)
-    if not is_cloud() and settings.WAREHOUSE_PERSON_PROPERTIES_ENABLED_SELF_HOSTED:
+    non_cloud = not is_cloud()
+    if non_cloud and settings.WAREHOUSE_PERSON_PROPERTIES_ENABLED_SELF_HOSTED:
         static_keys = [*static_keys, *settings.NON_CLOUD_PERSISTED_FEATURE_FLAGS]
-    return get_dynamic_persisted_feature_flags(posthoganalytics.feature_flag_definitions(), static_keys)
+    flags = get_dynamic_persisted_feature_flags(posthoganalytics.feature_flag_definitions(), static_keys)
+    if non_cloud and not settings.WAREHOUSE_PERSON_PROPERTIES_ENABLED_SELF_HOSTED:
+        return [flag for flag in flags if flag not in settings.NON_CLOUD_PERSISTED_FEATURE_FLAGS]
+    return flags
 
 
 def _build_template_context(

@@ -22,24 +22,52 @@ from products.conversations.backend.services.identity import IDENTITY_CLAIM_MAX_
 class TestPersistedFeatureFlagsForAppContext(SimpleTestCase):
     @parameterized.expand(
         [
-            ("enabled", True, ["warehouse-person-properties"]),
-            ("disabled", False, []),
+            ("enabled", True, [], [], ["warehouse-person-properties"]),
+            ("disabled", False, [], [], []),
+            ("disabled_explicit", False, ["warehouse-person-properties", "other-feature"], [], ["other-feature"]),
+            (
+                "disabled_dynamic",
+                False,
+                ["other-feature"],
+                [
+                    {
+                        "key": "warehouse-person-properties",
+                        "active": True,
+                        "filters": {"groups": [{"rollout_percentage": 100}]},
+                    }
+                ],
+                ["other-feature"],
+            ),
         ]
     )
-    @mock.patch("posthog.utils.posthoganalytics.feature_flag_definitions", return_value=[])
-    def test_self_hosted_context_respects_operator_setting(self, _name, enabled, expected, _definitions):
+    @mock.patch("posthog.utils.posthoganalytics.feature_flag_definitions")
+    def test_self_hosted_context_respects_operator_setting(
+        self, _name, enabled, static_flags, definitions, expected, mock_definitions
+    ):
+        mock_definitions.return_value = definitions
         with self.settings(
             CLOUD_DEPLOYMENT=None,
             DEBUG=False,
-            PERSISTED_FEATURE_FLAGS=[],
+            PERSISTED_FEATURE_FLAGS=static_flags,
             WAREHOUSE_PERSON_PROPERTIES_ENABLED_SELF_HOSTED=enabled,
         ):
             assert get_persisted_feature_flags_for_app_context() == expected
 
+    @parameterized.expand(
+        [
+            ("without_explicit_flag", [], []),
+            ("with_explicit_flag", ["warehouse-person-properties"], ["warehouse-person-properties"]),
+        ]
+    )
     @mock.patch("posthog.utils.posthoganalytics.feature_flag_definitions", return_value=[])
-    def test_cloud_context_does_not_include_non_cloud_persisted_flags(self, _definitions):
-        with self.settings(CLOUD_DEPLOYMENT="US", DEBUG=False, PERSISTED_FEATURE_FLAGS=[]):
-            assert get_persisted_feature_flags_for_app_context() == []
+    def test_cloud_context_does_not_include_non_cloud_persisted_flags(self, _name, static_flags, expected, _definitions):
+        with self.settings(
+            CLOUD_DEPLOYMENT="US",
+            DEBUG=False,
+            PERSISTED_FEATURE_FLAGS=static_flags,
+            WAREHOUSE_PERSON_PROPERTIES_ENABLED_SELF_HOSTED=False,
+        ):
+            assert get_persisted_feature_flags_for_app_context() == expected
 
 
 class TestGetContextForTemplate(APIBaseTest):
