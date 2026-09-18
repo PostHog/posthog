@@ -3102,6 +3102,16 @@ def update_task_run(
         handle_loop_run_terminal(run)
 
     if new_status in _TERMINAL_TASK_RUN_STATUSES and old_status != new_status:
+        if new_status == TaskRun.Status.COMPLETED:
+            run.capture_event(
+                "task_run_completed",
+                {
+                    "duration_seconds": run._duration_seconds(),
+                    "has_summary": bool(run.task_summary),
+                    "summary_update_count": run.summary_update_count,
+                    "seconds_since_summary_update": run.seconds_since_summary_update,
+                },
+            )
         if new_status == TaskRun.Status.FAILED:
             observe_agent_turn_failed(run)
             # This PATCH performed the DB transition, so it owns the task_run_failed
@@ -3214,8 +3224,9 @@ def set_task_run_summary(
     run = _get_visible_run(run_id, task_id, team_id)
     if run is None:
         return None
-    if TaskRun.record_summary_atomic(run.id, summary):
-        run.refresh_from_db()
+    changed = TaskRun.record_summary_atomic(run.id, summary)
+    run.refresh_from_db()
+    if changed:
         run.publish_stream_state_event()
     return _task_run_detail_to_dto(run, include_agent_state=include_agent_state, user_id=user_id)
 

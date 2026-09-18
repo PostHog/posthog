@@ -299,32 +299,38 @@ describe("readTaskSummary", () => {
     expect(readTaskSummary(summary)).toBe(expected);
   });
 
-  it("prefers a live summary over the task-list summary", () => {
-    const task = narrowFullTask({
-      id: "task-1",
-      title: "Review a pull request",
-      created_at: "2026-09-02T09:00:00Z",
-      updated_at: "2026-09-02T09:00:00Z",
-      latest_run: {
-        id: "run-1",
-        status: "in_progress",
-        environment: "cloud",
-        task_summary: "Reading the code",
-      },
-    });
+  it.each([
+    ["run-1", "Writing the fix"],
+    ["older-run", "Reading the code"],
+  ])(
+    "uses the summary for the latest run with session %s",
+    (taskRunId, expected) => {
+      const task = narrowFullTask({
+        id: "task-1",
+        title: "Review a pull request",
+        created_at: "2026-09-02T09:00:00Z",
+        updated_at: "2026-09-02T09:00:00Z",
+        latest_run: {
+          id: "run-1",
+          status: "in_progress",
+          environment: "cloud",
+          task_summary: "Reading the code",
+        },
+      });
 
-    const result = deriveTaskData(task, {
-      session: { taskRunId: "run-1", cloudTaskSummary: "Writing the fix" },
-      workspace: undefined,
-      timestamp: undefined,
-      pinnedIds: new Set(),
-      suspendedIds: new Set(),
-      slackTaskIds: new Set(),
-      slackThreadUrlByTaskId: new Map(),
-    });
+      const result = deriveTaskData(task, {
+        session: { taskRunId, cloudTaskSummary: "Writing the fix" },
+        workspace: undefined,
+        timestamp: undefined,
+        pinnedIds: new Set(),
+        suspendedIds: new Set(),
+        slackTaskIds: new Set(),
+        slackThreadUrlByTaskId: new Map(),
+      });
 
-    expect(result.summary).toBe("Writing the fix");
-  });
+      expect(result.summary).toBe(expected);
+    },
+  );
 });
 
 describe("sidebar action metadata", () => {

@@ -50,6 +50,7 @@ import { RunUsageAccumulator, reportRunUsage, seedRunUsage } from "./run-usage";
 import { jsonRpcRequestSchema } from "./schemas";
 import { buildStoreSkillsInstructions, syncStoreSkills } from "./store-skills";
 import type { AgentServerConfig } from "./types";
+import { retry } from "./utils/retry";
 
 const MODEL_CHANGING_RPC_COMMANDS: ReadonlySet<string> = new Set([
   "set_model",
@@ -158,7 +159,6 @@ export class PiAgentServer {
   private rtkSavingsAttempted = false;
   private runUsage = new RunUsageAccumulator();
   private modelContextWindow: number | null = null;
-  private priorRunSummary: string | null = null;
 
   constructor(private readonly config: AgentServerConfig) {
     this.posthogAPI = new PostHogAPIClient({
@@ -573,18 +573,20 @@ export class PiAgentServer {
         this.logger.debug("Failed to fetch task attribution", error);
         return null;
       }),
-      this.posthogAPI
-        .getTaskRun(payload.task_id, payload.run_id)
-        .catch((error) => {
-          this.logger.debug("Failed to fetch task run attribution", error);
-          return null;
-        }),
+      retry(() => this.posthogAPI.getTaskRun(payload.task_id, payload.run_id), {
+        maxAttempts: 3,
+        baseDelayMs: 250,
+        maxDelayMs: 1000,
+        shouldRetry: () => true,
+      }).catch((error) => {
+        this.logger.debug("Failed to fetch task run attribution", error);
+        return null;
+      }),
       this.posthogAPI.getMcpRuntimeConfiguration(this.config.mcpServers ?? []),
     ]);
     const taskSummarySupported = taskRun
       ? Object.hasOwn(taskRun, "task_summary")
       : false;
-    this.priorRunSummary = taskRun?.task_summary ?? null;
     const localTools = buildLocalToolsServer(
       { cwd },
       {
@@ -620,8 +622,16 @@ export class PiAgentServer {
     const storeSkillsInstructions = buildStoreSkillsInstructions(
       storeSkillsInstalledCount,
     );
+    const priorSummaryContext = taskRun?.task_summary
+      ? buildPriorTaskSummaryContext(taskRun.task_summary)
+      : "";
     const additionalInstructions =
-      `${configuredSystemPrompt ?? ""}${storeSkillsInstructions}` || undefined;
+      [
+        `${configuredSystemPrompt ?? ""}${storeSkillsInstructions}`,
+        priorSummaryContext,
+      ]
+        .filter(Boolean)
+        .join("\n\n") || undefined;
     // A repo-less run gets the tools to discover and clone a repository, and the
     // channel prompt that names them. Derive both from one condition so the tools
     // and the prompt that describes them can never disagree.
@@ -920,18 +930,13 @@ export class PiAgentServer {
       typeof params.content === "string" ? params.content : "",
       artifacts,
     );
-    const content = this.priorRunSummary
-      ? `${buildPriorTaskSummaryContext(this.priorRunSummary)}\n\n${message.content}`
-      : message.content;
-    const result = await this.dispatchUserMessage(
+    return this.dispatchUserMessage(
       runtime,
-      content,
+      message.content,
       message.images,
       typeof params.messageId === "string" ? params.messageId : randomUUID(),
       params.steer === true,
     );
-    this.priorRunSummary = null;
-    return result;
   }
 
   private async prepareUserMessage(

@@ -2878,10 +2878,7 @@ export class AgentServer {
 
       if (this.priorRunSummary && initialPrompt.length > 0) {
         initialPrompt = [
-          {
-            type: "text",
-            text: buildPriorTaskSummaryContext(this.priorRunSummary),
-          },
+          hiddenTextBlock(buildPriorTaskSummaryContext(this.priorRunSummary)),
           ...initialPrompt,
         ];
       }

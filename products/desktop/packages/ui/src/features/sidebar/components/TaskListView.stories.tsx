@@ -176,6 +176,25 @@ type Story = StoryObj<typeof meta>;
 
 export const Default: Story = {};
 
+export const LongSummary: Story = {
+  render: (args) => <TaskListView {...args} />,
+  args: {
+    pinnedTasks: [],
+    flatTasks: [
+      createTask(
+        "long-summary",
+        "Review the changes",
+        1_730_000_000_000,
+        false,
+        {
+          summary: `First summary line.\n${"Review the next change.\n".repeat(58)}Last summary line.`,
+          cloudPrUrl: "https://github.com/PostHog/posthog/pull/1",
+        },
+      ),
+    ],
+  },
+};
+
 export const Archiving: Story = {
   render: (args) => <ArchivingTaskList {...args} />,
 };

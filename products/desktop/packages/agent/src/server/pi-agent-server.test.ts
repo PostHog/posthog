@@ -3,7 +3,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AgentConversationEvent } from "@posthog/shared";
 import { describe, expect, it, vi } from "vitest";
+import * as localTools from "../adapters/codex-app-server/local-tools-mcp";
+import * as rpcClient from "../pi/rpc-client";
+import type { PostHogAPIClient } from "../posthog-api";
 import { PiAgentServer } from "./pi-agent-server";
+import * as storeSkills from "./store-skills";
 import type { AgentServerConfig } from "./types";
 
 function config(overrides: Partial<AgentServerConfig> = {}): AgentServerConfig {
@@ -23,6 +27,58 @@ function config(overrides: Partial<AgentServerConfig> = {}): AgentServerConfig {
 }
 
 describe("PiAgentServer", () => {
+  it("retries the run fetch and puts the prior summary in system context", async () => {
+    const server = new PiAgentServer(config()) as unknown as {
+      posthogAPI: PostHogAPIClient;
+      createSession(payload: {
+        task_id: string;
+        run_id: string;
+      }): Promise<void>;
+    };
+    vi.spyOn(server.posthogAPI, "getTaskSession").mockResolvedValue({
+      id: "session-1",
+    } as never);
+    vi.spyOn(server.posthogAPI, "downloadTaskSession").mockResolvedValue("");
+    vi.spyOn(server.posthogAPI, "getTask").mockResolvedValue({
+      id: "task-1",
+    } as never);
+    const getRun = vi
+      .spyOn(server.posthogAPI, "getTaskRun")
+      .mockRejectedValueOnce(new Error("503 temporary failure"))
+      .mockResolvedValue({
+        task_summary: "Review <changes>",
+        state: {},
+      } as never);
+    vi.spyOn(server.posthogAPI, "getMcpRuntimeConfiguration").mockResolvedValue(
+      { servers: [], policies: {} } as never,
+    );
+    vi.spyOn(storeSkills, "syncStoreSkills").mockResolvedValue(0);
+    vi.spyOn(localTools, "buildLocalToolsServer").mockReturnValue(null);
+    const createClient = vi
+      .spyOn(rpcClient, "createPiRpcClient")
+      .mockImplementation(() => {
+        throw new Error("stop before runtime starts");
+      });
+    try {
+      await expect(
+        server.createSession({ task_id: "task-1", run_id: "run-1" }),
+      ).rejects.toThrow("stop before runtime starts");
+      expect(getRun).toHaveBeenCalledTimes(2);
+      expect(createClient).toHaveBeenCalledWith(
+        expect.objectContaining({
+          taskContext: expect.objectContaining({
+            taskSummarySupported: true,
+            additionalInstructions: expect.stringContaining(
+              "Review &lt;changes&gt;",
+            ),
+          }),
+        }),
+      );
+    } finally {
+      vi.restoreAllMocks();
+    }
+  });
+
   it("logs session initialization diagnostics when setup fails", async () => {
     const payload = { task_id: "task-1", run_id: "run-1" };
     const server = new PiAgentServer(
@@ -482,38 +538,41 @@ describe("PiAgentServer", () => {
     expect(appendTaskRunLog.mock.calls[0]?.[2]).toHaveLength(100);
   });
 
-  it("uses the durable message id for an idle native Pi prompt", async () => {
-    const sendCommand = vi.fn(
-      async (_command: Record<string, unknown>) => ({}),
-    );
-    const server = new PiAgentServer(config()) as unknown as {
-      session: unknown;
-      executeCommand(
-        method: string,
-        params: Record<string, unknown>,
-      ): Promise<unknown>;
-    };
-    server.session = {
-      runtime: {
-        client: {
-          getState: vi.fn(async () => ({ isStreaming: false })),
+  it.each(["hello", "/clear", "/goal review the changes"])(
+    "preserves the text and message id for the Pi prompt %s",
+    async (content) => {
+      const sendCommand = vi.fn(
+        async (_command: Record<string, unknown>) => ({}),
+      );
+      const server = new PiAgentServer(config()) as unknown as {
+        session: unknown;
+        executeCommand(
+          method: string,
+          params: Record<string, unknown>,
+        ): Promise<unknown>;
+      };
+      server.session = {
+        runtime: {
+          client: {
+            getState: vi.fn(async () => ({ isStreaming: false })),
+          },
+          sendCommand,
         },
-        sendCommand,
-      },
-    };
+      };
 
-    await server.executeCommand("user_message", {
-      content: "hello",
-      messageId: "message-1",
-    });
+      await server.executeCommand("user_message", {
+        content,
+        messageId: "message-1",
+      });
 
-    expect(sendCommand).toHaveBeenCalledWith({
-      id: "message-1",
-      type: "prompt",
-      message: "hello",
-      images: [],
-    });
-  });
+      expect(sendCommand).toHaveBeenCalledWith({
+        id: "message-1",
+        type: "prompt",
+        message: content,
+        images: [],
+      });
+    },
+  );
 
   it("preserves the native Pi user prompt when auto-publish is enabled", async () => {
     const sendCommand = vi.fn(

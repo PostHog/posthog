@@ -2499,7 +2499,7 @@ class TaskRun(models.Model):
         with transaction.atomic():
             locked_task_run = cls.objects.select_for_update().get(id=run_id)
             state = dict(locked_task_run.state or {})
-            if state.get(TASK_RUN_SUMMARY_STATE_KEY) == summary:
+            if locked_task_run.task_summary == summary:
                 return False
             state[TASK_RUN_SUMMARY_STATE_KEY] = summary
             state[TASK_RUN_SUMMARY_UPDATE_COUNT_STATE_KEY] = locked_task_run.summary_update_count + 1
@@ -3017,6 +3017,7 @@ class TaskRun(models.Model):
             "stage": self.stage,
             "output": self.output,
             "task_summary": stream_task_summary,
+            "task_summary_redacted": self.task.origin_product == Task.OriginProduct.WORKFLOW,
             "branch": self.branch,
             "error_message": self.error_message,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,

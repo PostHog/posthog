@@ -6123,6 +6123,18 @@ class TestTaskRunAPI(BaseTaskAPITest):
         client = self._sandbox_oauth_client(task.id)
 
         initial = client.get(f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/")
+        with patch.object(TaskRun, "publish_stream_state_event") as publish:
+            unchanged = client.patch(
+                f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/set_summary/",
+                {"summary": "Reading the existing code"},
+                format="json",
+            )
+            self.assertEqual(unchanged.status_code, status.HTTP_200_OK)
+            self.assertEqual(unchanged.json()["task_summary"], "Reading the existing code")
+            publish.assert_not_called()
+        run.refresh_from_db()
+        self.assertEqual(run.summary_update_count, 0)
+        self.assertNotIn("task_summary_updated_at", run.state)
         updated = client.patch(
             f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/set_summary/",
             {"summary": "Writing the fix"},
@@ -6149,6 +6161,57 @@ class TestTaskRunAPI(BaseTaskAPITest):
 
         self.assertEqual(run.state["task_summary"], "Opening the pull request")
         self.assertEqual(run.state["task_summary_update_count"], 2)
+
+    def test_noop_summary_write_returns_the_current_run(self):
+        task = self.create_task()
+        run = TaskRun.objects.create(task=task, team=self.team, state={"task_summary": "Old summary"})
+        record_summary = TaskRun.record_summary_atomic
+
+        def concurrent_write(run_id, summary):
+            record_summary(run_id, summary)
+            return record_summary(run_id, summary)
+
+        with (
+            patch.object(TaskRun, "record_summary_atomic", side_effect=concurrent_write),
+            patch.object(TaskRun, "publish_stream_state_event") as publish,
+        ):
+            response = self.client.patch(
+                f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/set_summary/",
+                {"summary": "New summary"},
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["task_summary"], "New summary")
+        run.refresh_from_db()
+        self.assertEqual(response.json()["updated_at"], run.updated_at.isoformat().replace("+00:00", "Z"))
+        self.assertEqual(run.summary_update_count, 1)
+        publish.assert_not_called()
+
+    @patch("products.tasks.backend.models.posthoganalytics.capture")
+    @patch("products.tasks.backend.facade.api.signal_workflow_completion")
+    def test_agent_completion_captures_summary_metrics_once(self, _signal, capture):
+        task = self.create_task()
+        run = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            status=TaskRun.Status.IN_PROGRESS,
+            state={"prior_run_summary": "Ready for review", "task_summary_update_count": 2},
+        )
+        client = self._sandbox_oauth_client(task.id)
+        for _attempt in range(2):
+            response = client.patch(
+                f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/",
+                {"status": "completed"},
+                format="json",
+            )
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        completed = [call for call in capture.call_args_list if call.kwargs.get("event") == "task_run_completed"]
+        self.assertEqual(len(completed), 1)
+        self.assertTrue(completed[0].kwargs["properties"]["has_summary"])
+        self.assertEqual(completed[0].kwargs["properties"]["summary_update_count"], 2)
+        self.assertIsNone(completed[0].kwargs["properties"]["seconds_since_summary_update"])
 
     def test_unbound_sandbox_scope_does_not_bypass_task_visibility(self):
         owner = self.create_organization_user("sandbox-owner")
@@ -10360,6 +10423,7 @@ class TestTaskRunStreamAPI(BaseTaskAPITest):
         state_events = [event["data"] for event in events if event["data"].get("type") == "task_run_state"]
         self.assertTrue(state_events)
         self.assertTrue(all(event["task_summary"] is None for event in state_events))
+        self.assertTrue(all(event["task_summary_redacted"] for event in state_events))
 
     def test_stream_resumes_from_last_event_id(self):
         task = self.create_task()

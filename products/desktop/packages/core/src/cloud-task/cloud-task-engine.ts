@@ -119,6 +119,7 @@ interface TaskRunStateEvent {
   stage?: string | null;
   output?: Record<string, unknown> | null;
   task_summary?: string | null;
+  task_summary_redacted?: boolean;
   state?: Record<string, unknown> | null;
   error_message?: string | null;
   branch?: string | null;
@@ -1994,6 +1995,9 @@ export class CloudTaskEngine extends TypedEventEmitter<CloudTaskEvents> {
           });
         }
       }
+      if (event.data.task_summary_redacted) {
+        void this.refreshTaskSummary(watcher);
+      }
       return null;
     }
 
@@ -2429,6 +2433,23 @@ export class CloudTaskEngine extends TypedEventEmitter<CloudTaskEvents> {
     this.stopWatcher(key);
   }
 
+  private async refreshTaskSummary(watcher: WatcherState): Promise<void> {
+    const run = await this.fetchTaskRun(watcher);
+    if (
+      !run ||
+      this.watchers.get(watcherKey(watcher.taskId, watcher.runId)) !==
+        watcher ||
+      watcher.failed
+    )
+      return;
+    if (
+      this.applyTaskRunState(watcher, run, true) &&
+      !watcher.isBootstrapping
+    ) {
+      this.emitStatusUpdate(watcher);
+    }
+  }
+
   private applyTaskRunState(
     watcher: WatcherState,
     run:
@@ -2444,12 +2465,15 @@ export class CloudTaskEngine extends TypedEventEmitter<CloudTaskEvents> {
           | "updated_at"
         >
       | TaskRunStateEvent,
+    allowSameTimestamp = false,
   ): boolean {
     const updatedAt = run.updated_at ?? null;
     if (
       updatedAt &&
       watcher.lastStatusUpdatedAt &&
-      Date.parse(updatedAt) <= Date.parse(watcher.lastStatusUpdatedAt)
+      (Date.parse(updatedAt) < Date.parse(watcher.lastStatusUpdatedAt) ||
+        (!allowSameTimestamp &&
+          Date.parse(updatedAt) === Date.parse(watcher.lastStatusUpdatedAt)))
     ) {
       return false;
     }
@@ -2457,7 +2481,10 @@ export class CloudTaskEngine extends TypedEventEmitter<CloudTaskEvents> {
     const nextStatus = run.status ?? watcher.lastStatus;
     const nextStage = run.stage ?? null;
     const nextOutput = run.output ?? null;
-    const nextTaskSummary = run.task_summary ?? null;
+    const nextTaskSummary =
+      isTaskRunStateEvent(run) && run.task_summary_redacted
+        ? watcher.lastTaskSummary
+        : (run.task_summary ?? null);
     const nextErrorMessage = run.error_message ?? null;
     const nextBranch = run.branch ?? null;
     const sandboxAlive = extractSandboxAlive(run.state);

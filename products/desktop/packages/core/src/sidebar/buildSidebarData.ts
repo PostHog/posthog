@@ -315,7 +315,9 @@ export function deriveTaskData(
     folderPath: workspace?.folderPath ?? null,
     cloudPrUrl,
     summary: readTaskSummary(
-      session?.cloudTaskSummary ?? task.latest_run?.task_summary,
+      session?.taskRunId === task.latest_run?.id
+        ? (session?.cloudTaskSummary ?? task.latest_run?.task_summary)
+        : task.latest_run?.task_summary,
     ),
     branchName: workspace?.branchName ?? null,
     linkedBranch: workspace?.linkedBranch ?? null,

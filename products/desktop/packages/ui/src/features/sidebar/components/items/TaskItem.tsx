@@ -61,7 +61,6 @@ interface TaskItemProps {
   prState?: SidebarPrState;
   hasDiff?: boolean;
   prUrl?: string | null;
-  /** What the task is about; shown on hover. Absent on a task no run has summarized. */
   summary?: string | null;
   timestamp?: number;
   isEditing?: boolean;
@@ -231,11 +230,30 @@ export function TaskItem({
     );
   }
 
-  const row = (
+  const summaryLabel = summary ? (
+    <TooltipProvider delay={700}>
+      <QuillTooltip>
+        <TooltipTrigger render={<span />}>{label}</TooltipTrigger>
+        <TooltipContent
+          side="right"
+          align="start"
+          className="min-w-0 max-w-[min(320px,calc(100vw-32px))] text-left"
+        >
+          <div className="max-h-[min(380px,calc(100dvh-48px))] min-w-0 overflow-y-auto whitespace-pre-wrap break-words">
+            {summary}
+          </div>
+        </TooltipContent>
+      </QuillTooltip>
+    </TooltipProvider>
+  ) : (
+    label
+  );
+
+  return (
     <SidebarItem
       depth={depth}
       icon={icon}
-      label={label}
+      label={summaryLabel}
       subtitle={subtitle}
       isActive={isActive}
       isSelected={isSelected}
@@ -252,23 +270,6 @@ export function TaskItem({
       onContextMenu={isArchiving ? undefined : onContextMenu}
       endContent={endContent}
     />
-  );
-
-  if (!summary) return row;
-
-  return (
-    <TooltipProvider delay={700}>
-      <QuillTooltip>
-        <TooltipTrigger render={row} />
-        <TooltipContent
-          side="right"
-          align="start"
-          className="min-w-0 max-w-[320px] whitespace-pre-wrap break-words text-left"
-        >
-          {summary}
-        </TooltipContent>
-      </QuillTooltip>
-    </TooltipProvider>
   );
 }
 
