@@ -115,12 +115,15 @@
   const PRESET_MS = { '15m': 9e5, '1h': 36e5, '6h': 216e5, '24h': 864e5, '7d': 6048e5 };
   const spanMs = () => { const c = customRange(); return c ? new Date(c.to) - new Date(c.from) : PRESET_MS[state.range]; };
   function zoomTo(fromMs, toMs) { go(state.page, { ...state.params, from: new Date(fromMs).toISOString(), to: new Date(toMs).toISOString() }); }
+  // Doubles the custom range around its centre. It returns to the preset only when the preset is at least as
+  // wide as the doubled span, so zooming out never narrows the view (the preset is whatever the select shows,
+  // which after a reload with a custom range in the URL is just the default).
   function zoomOut() {
     const c = customRange();
     if (!c) return;
-    const from = +new Date(c.from), to = +new Date(c.to), half = (to - from) / 2;
-    const to2 = Math.min(Date.now(), to + half), from2 = to2 - (to - from) * 2;
-    if (to2 - from2 >= PRESET_MS[state.range]) go(state.page, { ...state.params, from: null, to: null });
+    const from = +new Date(c.from), to = +new Date(c.to), span = to - from;
+    const to2 = Math.min(Date.now(), to + span / 2), from2 = Math.max(to2 - span * 2, to2 - 31 * 864e5);
+    if (PRESET_MS[state.range] >= to2 - from2) go(state.page, { ...state.params, from: null, to: null });
     else zoomTo(from2, to2);
   }
 
