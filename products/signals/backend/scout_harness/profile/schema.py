@@ -107,7 +107,7 @@ class ScoutFleetEntry(_Section):
 
 
 class ScoutFleet(_Section):
-    """The other `signals-scout-*` scouts configured on this team.
+    """The other scouts configured on this team.
 
     Split on whether the scout actually runs, for the same reason `SignalSourceConfigs` splits
     on `enabled`: a scout deliberately turned off is different from a surface nobody ever

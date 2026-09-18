@@ -15,6 +15,7 @@ import { ScoutsEmptyState } from './ScoutsEmptyState'
 import { ScoutsRosterFilters } from './ScoutsRosterFilters'
 import { ScoutsRosterList } from './ScoutsRosterList'
 import { ScoutsRosterStats } from './ScoutsRosterStats'
+import { ScoutSuggestionsStrip } from './ScoutSuggestionsStrip'
 
 // The same centered column as the Reports tab, so the two tabs line up when switching between them.
 const ROSTER_COLUMN_CLASS = '@container mx-auto flex w-full max-w-4xl flex-col gap-4 px-6 py-3'
@@ -105,6 +106,7 @@ export function ScoutsRoster(): JSX.Element {
     return (
         <div className={ROSTER_COLUMN_CLASS}>
             <ScoutAlphaBanner />
+            <ScoutSuggestionsStrip />
             <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
                 <ScoutsRosterFilters />
                 <ScoutsRosterStats />
@@ -114,8 +116,7 @@ export function ScoutsRoster(): JSX.Element {
                 <span className="text-xs text-muted">
                     The totals above cover the {SCOUT_ROSTER_WINDOW_LABEL}. Each scout's run strip shows its{' '}
                     {SCOUT_RUNS_PER_SCOUT_LABEL}, so scouts on different schedules stay comparable. New scouts are
-                    created as <span className="font-mono text-[11px]">signals-scout-*</span> skills in your PostHog
-                    project.{' '}
+                    created as skills in your PostHog project, under the name you give them.{' '}
                     <Link to={urls.inboxRuns()} data-attr="inbox-open-runs">
                         See every recent run
                     </Link>

@@ -30,8 +30,10 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
 from functools import partial
+from typing import TYPE_CHECKING, Literal
 
-from django.db import transaction
+from django.db import IntegrityError, transaction
+from django.db.models import F
 from django.utils import timezone
 
 from pydantic import ValidationError
@@ -39,11 +41,14 @@ from pydantic import ValidationError
 from posthog.schema import EmbeddingModelName
 
 from posthog.api.embedding_worker import emit_embedding_request
+from posthog.dataclasses import frozen
 
 from products.signals.backend.artefact_schemas import (
     SIGNALS_PRODUCT,
     TASK_RUN_TYPE_SCOUT,
     ActionabilityAssessment,
+    ImplementationDecision,
+    ImplementationDispatch,
     NoteArtefact,
     PriorityAssessment,
     SafetyJudgment,
@@ -53,12 +58,26 @@ from products.signals.backend.artefact_schemas import (
     TaskRunArtefact,
     TitleChange,
 )
-from products.signals.backend.models import ArtefactAttribution, SignalReport, SignalReportArtefact, SignalScoutRun
+from products.signals.backend.models import (
+    MAX_SCOUT_CONTENT_REVISIONS,
+    MAX_SCOUT_REPORT_NOTES,
+    ArtefactAttribution,
+    SignalReport,
+    SignalReportArtefact,
+    SignalScoutRun,
+)
+from products.signals.backend.repo_corrections import SCOUT_REPOSITORY_REASON
 from products.signals.backend.report_charts import ReportChart, chart_batch_error
+from products.signals.backend.report_generation.resolve_reviewers import ReviewerPayloadIndex, bounded_reviewer_reason
 from products.signals.backend.report_generation.reviewer_telemetry import capture_suggested_reviewers_resolved
-from products.signals.backend.report_generation.select_repo import RepoSelectionResult
+from products.signals.backend.report_generation.select_repo import RepoSelectionResult, persisted_repo_selection
+from products.signals.backend.report_metrics import ReportMetric, metric_batch_error
 from products.signals.backend.report_prompts import normalize_suggested_prompts, suggested_prompts_batch_error
 from products.signals.backend.scout_harness.tools.emit import SCOUT_SIGNAL_WEIGHT, SOURCE_PRODUCT, SOURCE_TYPE
+from products.signals.backend.supersession import NO_IMPLEMENTATION_CONTEXT, research_implementation_context
+
+if TYPE_CHECKING:
+    from products.signals.backend.supersession import ImplementationResearchContext
 
 logger = logging.getLogger(__name__)
 
@@ -80,6 +99,26 @@ MAX_REPORT_SIGNALS = 50
 
 class InvalidScoutReportError(ValueError):
     """The caller tried to author/edit a report with an invalid shape (empty title, no signals, ...)."""
+
+
+@dataclass(frozen=True)
+class ExistingScoutReport:
+    """A report an `idempotency_key` already resolves to, and the status it currently holds."""
+
+    report_id: str
+    status: SignalReport.Status
+
+
+class ScoutReportAlreadyEmittedError(Exception):
+    """`create_scout_report` was called with an `idempotency_key` a report already holds.
+
+    Not an error the caller has to fix: it is how the emit path learns that this emission already
+    landed, so it can return the first report instead of authoring a twin. Carries the report the key
+    resolves to."""
+
+    def __init__(self, existing: ExistingScoutReport) -> None:
+        super().__init__(f"report {existing.report_id} already holds this idempotency key")
+        self.existing = existing
 
 
 @dataclass(frozen=True)
@@ -126,9 +165,11 @@ def create_scout_report(
     priority: PriorityAssessment | None = None,
     suggested_reviewers: SuggestedReviewers | None = None,
     charts: Sequence[ReportChart] = (),
+    metrics: Sequence[ReportMetric] = (),
     suggested_prompts: Sequence[str] = (),
     emit_signals: bool = True,
     run: SignalScoutRun | None = None,
+    idempotency_key: str | None = None,
 ) -> PersistedScoutReport:
     """Author a `SignalReport` directly plus its backing signal rows, in one report-owning transaction.
 
@@ -159,6 +200,12 @@ def create_scout_report(
     inbox offers above the report's "Ask AI" box. Written on the same terms as `charts`, and for
     the same reason.
 
+    `idempotency_key`, when supplied, is stored on the report under a per-team unique index, so one
+    key can only ever author one report. A call whose key a report already holds raises
+    `ScoutReportAlreadyEmittedError` carrying that report, and writes nothing — the emit path turns
+    that into the first report's result. Callers that pass no key keep the old behavior: every call
+    authors a report.
+
     `emit_signals` gates whether the backing observations are written to `document_embeddings`. It
     defaults to True; callers pass False for a report the safety judge marked unsafe (born SUPPRESSED)
     so the adversarial-looking descriptions are never indexed — an unsafe report's signals must not
@@ -168,6 +215,8 @@ def create_scout_report(
     """
     _validate_create_inputs(title, summary, signals)
     if batch_error := chart_batch_error(charts):
+        raise InvalidScoutReportError(batch_error)
+    if batch_error := metric_batch_error(metrics):
         raise InvalidScoutReportError(batch_error)
     prompts = normalize_suggested_prompts(suggested_prompts)
     if batch_error := suggested_prompts_batch_error(prompts):
@@ -181,86 +230,109 @@ def create_scout_report(
     document_ids = [s.document_id or str(uuid.uuid4()) for s in signals]
     total_weight = sum(s.weight for s in signals)
 
-    with transaction.atomic():
-        report = SignalReport.objects.create(
-            team_id=team_id,
-            status=status,
-            title=title,
-            summary=summary,
-            signal_count=len(signals),
-            total_weight=total_weight,
-            charts=[chart.model_dump(mode="json") for chart in charts],
-            suggested_prompts=prompts,
-            # Born directly in a user-visible status without passing through transition_to (which
-            # stamps this for pipeline reports), so the daily report limit counts it from creation.
-            first_visible_at=(
-                timezone.now() if status in (SignalReport.Status.READY, SignalReport.Status.PENDING_INPUT) else None
-            ),
-        )
-        report_id = str(report.id)
-        # Provenance: every authored report carries a note marking it scout-authored, attributed to
-        # the scout's task. This keeps an agentic report auditable as NOT pipeline-generated (a
-        # concern raised by edit_report's any-report reach) and gives it a non-empty work log so it
-        # isn't evidence-less in the UI. Written in-txn with the report so the two never diverge.
-        SignalReportArtefact.append(
-            team_id=team_id,
-            report_id=report_id,
-            content=NoteArtefact(note=_provenance_note_text(run), author=_provenance_author(run)),
-            attribution=attribution,
-            reevaluate_autostart=False,
-        )
-        # Link the authoring scout run itself as a `task_run` artefact, so the report's Runs section
-        # and activity log can surface the scout's transcript — without it the run is only visible as
-        # an anonymous "by agent" byline on the rows above. Written in-txn for the same no-divergence
-        # reason as the note; skipped when the run isn't bridged to a resolvable task.
-        if run is not None and attribution.task_id is not None:
-            SignalReportArtefact.add_log(
+    try:
+        with transaction.atomic():
+            report = SignalReport.objects.create(
+                team_id=team_id,
+                status=status,
+                title=title,
+                summary=summary,
+                scout_idempotency_key=idempotency_key,
+                signal_count=len(signals),
+                total_weight=total_weight,
+                charts=[chart.model_dump(mode="json") for chart in charts],
+                metrics=[metric.model_dump(mode="json") for metric in metrics],
+                suggested_prompts=prompts,
+                # Born directly in a user-visible status without passing through transition_to (which
+                # stamps this for pipeline reports), so the daily report limit counts it from creation.
+                first_visible_at=(
+                    timezone.now() if status in (SignalReport.Status.READY, SignalReport.Status.PENDING_INPUT) else None
+                ),
+            )
+            report_id = str(report.id)
+            # Provenance: every authored report carries a note marking it scout-authored, attributed to
+            # the scout's task. This keeps an agentic report auditable as NOT pipeline-generated (a
+            # concern raised by edit_report's any-report reach) and gives it a non-empty work log so it
+            # isn't evidence-less in the UI. Written in-txn with the report so the two never diverge.
+            SignalReportArtefact.append(
                 team_id=team_id,
                 report_id=report_id,
-                content=_scout_task_run_content(run, attribution.task_id),
-                attribution=attribution,
-            )
-        # The judge verdicts that set `status`, recorded as the report's status artefacts so the
-        # decision is auditable on the report (and so the inbox derives the same actionability/safety
-        # state a pipeline report would). Written in-txn with the report for the same no-divergence reason.
-        if safety is not None:
-            SignalReportArtefact.append_status(
-                team_id=team_id, report_id=report_id, content=safety, attribution=attribution
-            )
-        if actionability is not None:
-            SignalReportArtefact.append_status(
-                team_id=team_id, report_id=report_id, content=actionability, attribution=attribution
-            )
-        # Autostart inputs (mirroring `create_custom_agent_ready_report`): the repo the fix lands in,
-        # the priority, and the suggested reviewers. The reviewers append opts out of the autostart
-        # re-eval hook — autostart is fired explicitly by the caller after commit, never in-txn.
-        if repo_selection is not None:
-            SignalReportArtefact.append_status(
-                team_id=team_id, report_id=report_id, content=repo_selection, attribution=attribution
-            )
-        if priority is not None:
-            SignalReportArtefact.append_status(
-                team_id=team_id, report_id=report_id, content=priority, attribution=attribution
-            )
-        if suggested_reviewers is not None and len(suggested_reviewers.root) > 0:
-            SignalReportArtefact.append_status(
-                team_id=team_id,
-                report_id=report_id,
-                content=suggested_reviewers,
+                content=NoteArtefact(note=_provenance_note_text(run), author=_provenance_author(run)),
                 attribution=attribution,
                 reevaluate_autostart=False,
             )
-            # on_commit, not inline: telemetry must not fire for a rolled-back report, and it must
-            # still fire when the post-commit signal emits below fail (they propagate).
-            transaction.on_commit(
-                partial(
-                    capture_suggested_reviewers_resolved,
+            # Link the authoring scout run itself as a `task_run` artefact, so the report's Runs section
+            # and activity log can surface the scout's transcript — without it the run is only visible as
+            # an anonymous "by agent" byline on the rows above. Written in-txn for the same no-divergence
+            # reason as the note; skipped when the run isn't bridged to a resolvable task.
+            if run is not None and attribution.task_id is not None:
+                SignalReportArtefact.add_log(
                     team_id=team_id,
                     report_id=report_id,
-                    github_logins=[entry.github_login for entry in suggested_reviewers.root],
-                    source="scout",
+                    content=_scout_task_run_content(run, attribution.task_id),
+                    attribution=attribution,
                 )
-            )
+            # The judge verdicts that set `status`, recorded as the report's status artefacts so the
+            # decision is auditable on the report (and so the inbox derives the same actionability/safety
+            # state a pipeline report would). Written in-txn with the report for the same no-divergence reason.
+            if safety is not None:
+                SignalReportArtefact.append_status(
+                    team_id=team_id, report_id=report_id, content=safety, attribution=attribution
+                )
+            if actionability is not None:
+                SignalReportArtefact.append_status(
+                    team_id=team_id, report_id=report_id, content=actionability, attribution=attribution
+                )
+            # Autostart inputs (mirroring `create_custom_agent_ready_report`): the repo the fix lands in,
+            # the priority, and the suggested reviewers. The reviewers append opts out of the autostart
+            # re-eval hook — autostart is fired explicitly by the caller after commit, never in-txn.
+            if repo_selection is not None:
+                SignalReportArtefact.append_status(
+                    team_id=team_id, report_id=report_id, content=repo_selection, attribution=attribution
+                )
+            if priority is not None:
+                SignalReportArtefact.append_status(
+                    team_id=team_id, report_id=report_id, content=priority, attribution=attribution
+                )
+            if suggested_reviewers is not None and len(suggested_reviewers.root) > 0:
+                SignalReportArtefact.append_status(
+                    team_id=team_id,
+                    report_id=report_id,
+                    content=suggested_reviewers,
+                    attribution=attribution,
+                    reevaluate_autostart=False,
+                )
+                # on_commit, not inline: telemetry must not fire for a rolled-back report, and it must
+                # still fire when the post-commit signal emits below fail (they propagate).
+                transaction.on_commit(
+                    partial(
+                        capture_suggested_reviewers_resolved,
+                        team_id=team_id,
+                        report_id=report_id,
+                        github_logins=[entry.github_login for entry in suggested_reviewers.root if entry.github_login],
+                        user_uuids=[
+                            entry.user_uuid
+                            for entry in suggested_reviewers.root
+                            if entry.user_uuid and not entry.github_login
+                        ],
+                        source="scout",
+                    )
+                )
+    except IntegrityError:
+        # A concurrent emit of the same emission won the race, so this transaction rolled back. Hand
+        # its report back: the loser is a retry, and it wants the twin it just avoided creating.
+        existing = (
+            find_scout_report_by_idempotency_key(team_id=team_id, idempotency_key=idempotency_key)
+            if idempotency_key is not None
+            else None
+        )
+        if existing is None:
+            raise
+        logger.info(
+            "signals_scout.emit_report: idempotency key already held",
+            extra={"team_id": team_id, "report_id": existing.report_id},
+        )
+        raise ScoutReportAlreadyEmittedError(existing) from None
 
     # Committed: now emit the backing signals (unless suppressed-unsafe — see `emit_signals`).
     # Sequential (not on_commit) so the call is observable and so a Kafka failure surfaces to the
@@ -290,6 +362,19 @@ def create_scout_report(
     )
 
 
+def find_scout_report_by_idempotency_key(*, team_id: int, idempotency_key: str) -> ExistingScoutReport | None:
+    """The report an emit key already authored for this team, or None when the key is unused."""
+    row = (
+        SignalReport.objects.filter(team_id=team_id, scout_idempotency_key=idempotency_key)
+        .values_list("id", "status")
+        .first()
+    )
+    if row is None:
+        return None
+    report_id, report_status = row
+    return ExistingScoutReport(report_id=str(report_id), status=SignalReport.Status(report_status))
+
+
 def get_scout_report_title(*, team_id: int, report_id: str) -> str | None:
     """Team-scoped title lookup, for the edit-path event telemetry: an edit that doesn't rewrite the
     title still needs the report's effective title to classify the lifecycle event (self-improvement
@@ -306,12 +391,48 @@ def scout_report_exists(*, team_id: int, report_id: str) -> bool:
     return SignalReport.objects.filter(team_id=team_id, id=report_id).exists()
 
 
+def get_scout_report_signal_count(*, team_id: int, report_id: str) -> int | None:
+    """Team-scoped signal-count lookup, for the edit path's pre-judge evidence cap. Returns None when
+    the report doesn't exist for the team. A cost gate only — `append_report_evidence` re-checks the
+    cap under the report lock."""
+    return SignalReport.objects.filter(team_id=team_id, id=report_id).values_list("signal_count", flat=True).first()
+
+
 def get_scout_report_status(*, team_id: int, report_id: str) -> SignalReport.Status | None:
     """Team-scoped status lookup, for the edit path's Slack-delivery gate: only a surfaced report may
     have its content pushed to a configured destination, matching emit. Returns None when the report
     doesn't exist for the team."""
     value = SignalReport.objects.filter(team_id=team_id, id=report_id).values_list("status", flat=True).first()
     return SignalReport.Status(value) if value is not None else None
+
+
+def get_content_revision_count(*, team_id: int, report_id: str) -> int:
+    """Team-scoped read of the report's running content-revision total, so an edit that doesn't itself
+    revise content (a note, a reviewer change, a restatement) can still echo the running total the
+    scout reasons about the cap with. Returns 0 when the counter is null or the report doesn't exist
+    for the team; `record_content_revision` is what mutates it."""
+    value = (
+        SignalReport.objects.filter(team_id=team_id, id=report_id)
+        .values_list("content_revision_count", flat=True)
+        .first()
+    )
+    return value if value is not None else 0
+
+
+def prepare_scout_supersession(
+    *, team_id: int, report_id: str, title: str | None, summary: str | None
+) -> ImplementationResearchContext:
+    report = SignalReport.objects.filter(team_id=team_id, id=report_id).first()
+    if (
+        report is None
+        or (report.content_revision_count or 0) >= MAX_SCOUT_CONTENT_REVISIONS
+        or not ((title is not None and title != report.title) or (summary is not None and summary != report.summary))
+    ):
+        return NO_IMPLEMENTATION_CONTEXT
+    context = research_implementation_context(team_id, report_id)
+    if not context.candidates:
+        raise InvalidScoutReportError("Could not verify an implementation PR to replace. Retry the edit.")
+    return context
 
 
 def update_scout_report(
@@ -395,6 +516,17 @@ def update_scout_report(
     return updated_fields
 
 
+@frozen
+class AppendedNote:
+    """What one `append_report_note` call did to the report."""
+
+    report_id: str
+    # Counts only explicit corroborations so substantive notes never consume the cap.
+    corroboration_count: int
+    # Only confirmations marked as having no new information may discard their text.
+    collapsed: bool
+
+
 def append_report_note(
     *,
     team_id: int,
@@ -402,29 +534,254 @@ def append_report_note(
     note: str,
     attribution: ArtefactAttribution,
     author: str | None = None,
-) -> str:
+    corroboration_only: bool = False,
+) -> AppendedNote:
     """Append a free-form `note` artefact to an existing report (the `edit_report` annotate path).
 
     Team-scoped fail-closed: a `report_id` the team doesn't own raises. `edit_report` can target ANY
     inbox report (decision #2), pipeline-authored ones included, so the note is attributed (to the
-    scout's task) to keep the edit auditable and distinguishable from pipeline output. Returns the
-    report_id on success.
+    scout's task) to keep the edit auditable and distinguishable from pipeline output.
+
+    Only explicit corroborations count towards `MAX_SCOUT_REPORT_NOTES`. Free-form notes can carry
+    recovery details or new evidence, so they must remain in the work log regardless of that cap.
+
+    The report row is locked for the read-then-increment so two runs appending at once cannot both
+    read the same count. The count is written with a queryset update so `updated_at` stays put — a
+    scout re-confirming a report has not changed it, and bumping the timestamp would reorder the
+    inbox and, on the pipeline side, read as the report still moving.
     """
     if not note or not note.strip():
         raise InvalidScoutReportError("note must not be empty")
     _validate_report_id(report_id)
     with transaction.atomic():
         # Existence is the team-scoped gate; the artefact append itself is keyed by report_id.
-        if not SignalReport.objects.filter(team_id=team_id, id=report_id).exists():
+        existing = (
+            SignalReport.objects.select_for_update()
+            .filter(team_id=team_id, id=report_id)
+            .values("corroboration_count")
+            .first()
+        )
+        if existing is None:
             raise InvalidScoutReportError(f"report {report_id} not found for team {team_id}")
+        previous_count = existing["corroboration_count"] or 0
+        collapsed = corroboration_only and previous_count >= MAX_SCOUT_REPORT_NOTES
+        corroboration_count = previous_count + int(corroboration_only)
+        if corroboration_only:
+            SignalReport.objects.filter(team_id=team_id, id=report_id).update(corroboration_count=corroboration_count)
+        if not collapsed:
+            SignalReportArtefact.add_log(
+                team_id=team_id,
+                report_id=report_id,
+                content=NoteArtefact(note=note, author=author),
+                attribution=attribution,
+            )
+    logger.info(
+        "signals_scout.edit_report: note appended",
+        extra={
+            "team_id": team_id,
+            "report_id": report_id,
+            "corroboration_count": corroboration_count,
+            "collapsed": collapsed,
+        },
+    )
+    return AppendedNote(report_id=report_id, corroboration_count=corroboration_count, collapsed=collapsed)
+
+
+def record_content_revision(*, team_id: int, report_id: str) -> int:
+    """Count one scout rewrite of a report's title or summary and return the report's new total.
+
+    Kept out of `update_scout_report` so the field list that call returns stays the report's
+    presentation fields, which is what the edit echoes back to the scout. Locked and written the
+    same way as `append_report_note` above, and for the same reasons.
+    """
+    _validate_report_id(report_id)
+    with transaction.atomic():
+        existing = (
+            SignalReport.objects.select_for_update()
+            .filter(team_id=team_id, id=report_id)
+            .values("content_revision_count")
+            .first()
+        )
+        if existing is None:
+            raise InvalidScoutReportError(f"report {report_id} not found for team {team_id}")
+        content_revision_count = (existing["content_revision_count"] or 0) + 1
+        SignalReport.objects.filter(team_id=team_id, id=report_id).update(content_revision_count=content_revision_count)
+    return content_revision_count
+
+
+def record_implementation_decision(
+    *,
+    team_id: int,
+    report_id: str,
+    supersede: bool,
+    updated_fields: list[str],
+    attribution: ArtefactAttribution,
+    implementation_context: ImplementationResearchContext,
+    author: str | None = None,
+    supersede_requested: bool = False,
+) -> None:
+    """Record what this rewrite means for the report's pull request, as the same
+    `implementation_decision` artefact the research agent writes.
+
+    One shape for both producers, so auto-start reads the decision the same way regardless of who
+    made it. The reason names the rewrite rather than restating it: the report's new summary is the
+    argument, and this artefact only has to say which version of it the open pull request predates.
+
+    Written on every content revision, including the ones that claim nothing. The artefact is
+    latest-wins and auto-start re-reads it from paths a scout never sees (a reviewer edit, a later
+    research pass), so leaving an old `supersede=True` standing after a rewrite that made no such
+    claim would let one of those paths open a replacement off a decision nobody made.
+
+    `supersede_requested` is the caller's ask, `supersede` the policy answer to it. They part company
+    past the revision cap, where the reason has to say the cap refused the claim: reading the refusal
+    back as "the fix did not change" states the scout's judgment backwards, in the one entry a
+    reviewer opens to find out why no replacement started.
+    """
+    fields = " and ".join(sorted(set(updated_fields) & {"title", "summary"})) or "content"
+    who = author or "A scout"
+    blocked_reason: Literal["revision_limit"] | None = (
+        "revision_limit" if supersede_requested and not supersede else None
+    )
+    if supersede:
+        reason = (
+            f"{who} rewrote the report's {fields}. "
+            "The open pull request was built from the version before that rewrite."
+        )
+    elif supersede_requested:
+        reason = (
+            f"{who} rewrote the report's {fields} and asked to replace the open pull request. "
+            f"Only a report's first {MAX_SCOUT_CONTENT_REVISIONS} rewrites can do that, "
+            "so the pull request stays open."
+        )
+    else:
+        reason = f"{who} rewrote the report's {fields} without changing what the fix should be."
+    report = SignalReport.objects.get(team_id=team_id, id=report_id)
+    context_matches = (
+        implementation_context.run_count == report.run_count
+        and implementation_context.started_at == report.last_run_at
+        and implementation_context.content_revision_count + 1 == report.content_revision_count
+    )
+    if supersede and (not context_matches or not implementation_context.candidates):
+        raise InvalidScoutReportError("The implementation context changed before the edit was saved. Retry the edit.")
+    # A research pass writes the report's title and summary as it leaves IN_PROGRESS, and that write
+    # moves none of the fields `decision_matches_report` compares. A claim recorded before it would
+    # still read as current afterwards, against content the scout never assessed.
+    if supersede and report.status != SignalReport.Status.READY:
+        raise InvalidScoutReportError(
+            "The report's content is not settled yet. Retry the edit once the report is ready."
+        )
+    decision = SignalReportArtefact.append_status(
+        team_id=team_id,
+        report_id=report_id,
+        content=ImplementationDecision(
+            supersede=supersede,
+            reason=reason,
+            targets=list(implementation_context.candidates) if supersede and context_matches else [],
+            research_run_count=report.run_count,
+            research_started_at=report.last_run_at,
+            content_revision_count=report.content_revision_count or 0,
+            blocked_reason=blocked_reason,
+        ),
+        attribution=attribution,
+    )
+    if supersede:
+        SignalReportArtefact.append_status(
+            team_id=team_id,
+            report_id=report_id,
+            content=ImplementationDispatch(decision_id=decision.id, source_skill=author),
+            attribution=ArtefactAttribution.system(),
+        )
+
+
+def append_report_evidence(
+    *,
+    team_id: int,
+    report_id: str,
+    signals: Sequence[ScoutReportSignal],
+    attribution: ArtefactAttribution,
+    author: str | None = None,
+) -> list[str]:
+    """Add backing signal rows to an existing report (the `edit_report` evidence path).
+
+    Additive, the way a note is: the supplied observations join the ones the report already carries
+    instead of replacing them. `signal_count` and `total_weight` move with them, because the inbox
+    card, the Slack context line and the ranking features read those columns — leaving them stale
+    would show fewer signals than the evidence rail renders.
+
+    Team-scoped fail-closed like `append_report_note`, and capped: emit plus every append share
+    `MAX_REPORT_SIGNALS`, checked under the report lock so two concurrent appends cannot both pass.
+    A deleted report is refused under the same lock.
+
+    Returns the ClickHouse `document_id`s to write, in input order. Only the Postgres side runs here.
+    The caller emits the rows with `emit_appended_report_evidence` AFTER the edit commits, so a
+    rolled-back edit never leaves orphan signals bound to the report — the rule `create_scout_report`
+    follows for the same reason.
+    """
+    if not signals:
+        raise InvalidScoutReportError("append_report_evidence needs at least one observation")
+    _validate_report_id(report_id)
+    document_ids = [signal.document_id or str(uuid.uuid4()) for signal in signals]
+    appended_weight = sum(signal.weight for signal in signals)
+
+    with transaction.atomic():
+        stored = (
+            SignalReport.objects.select_for_update()
+            .filter(team_id=team_id, id=report_id)
+            .values_list("signal_count", "status")
+            .first()
+        )
+        if stored is None:
+            raise InvalidScoutReportError(f"report {report_id} not found for team {team_id}")
+        stored_count, stored_status = stored
+        # Deletion tombstones every signal row bound to the report, so a live row appended after that
+        # supersedes the tombstone and pulls later pipeline signals back into the dead group. The
+        # grouping pipeline declines to move a deleted report's counters for the same reason, and the
+        # embedding receiver drops its document write. Checked under the lock, so a deletion that
+        # commits while this call runs still blocks the append.
+        if stored_status == SignalReport.Status.DELETED:
+            raise InvalidScoutReportError(f"report {report_id} is deleted; evidence cannot be appended")
+        if stored_count + len(signals) > MAX_REPORT_SIGNALS:
+            raise InvalidScoutReportError(
+                f"report {report_id} holds {stored_count} signals; appending {len(signals)} "
+                f"exceeds the {MAX_REPORT_SIGNALS} cap"
+            )
+        # `F()` rather than a read-modify-write on the locked row: the counters are also bumped by the
+        # grouping pipeline when a pipeline signal matches this report, outside this lock.
+        SignalReport.objects.filter(team_id=team_id, id=report_id).update(
+            signal_count=F("signal_count") + len(signals),
+            total_weight=F("total_weight") + appended_weight,
+            updated_at=timezone.now(),
+        )
         SignalReportArtefact.add_log(
             team_id=team_id,
             report_id=report_id,
-            content=NoteArtefact(note=note, author=author),
+            content=NoteArtefact(note=_evidence_edit_note(len(signals)), author=author),
             attribution=attribution,
         )
-    logger.info("signals_scout.edit_report: note appended", extra={"team_id": team_id, "report_id": report_id})
-    return report_id
+
+    logger.info(
+        "signals_scout.edit_report: evidence appended",
+        extra={"team_id": team_id, "report_id": report_id, "count": len(signals)},
+    )
+    return document_ids
+
+
+def emit_appended_report_evidence(
+    *,
+    team_id: int,
+    report_id: str,
+    signals: Sequence[ScoutReportSignal],
+    document_ids: Sequence[str],
+    skill_name: str | None = None,
+) -> None:
+    """Write the rows `append_report_evidence` reserved, once the edit has committed.
+
+    Sequential rather than an `on_commit` hook, mirroring `create_scout_report`: a broker failure
+    surfaces to the caller instead of being swallowed."""
+    for signal, document_id in zip(signals, document_ids):
+        _emit_bound_signal(
+            team_id=team_id, report_id=report_id, signal=signal, document_id=document_id, skill_name=skill_name
+        )
 
 
 def set_report_charts(
@@ -490,6 +847,75 @@ def set_report_charts(
     return True
 
 
+def _report_metrics_unchanged(stored: object, payload: list[dict[str, object]]) -> bool:
+    """Whether the stored metrics already equal `payload`, tolerant of datetime serialization.
+
+    The refresh worker overwrites `value_at` with `measured_at.isoformat()` (a `+00:00` offset),
+    while this module writes the pydantic `Z` form, so a raw dict comparison would treat an unchanged
+    re-send of a refreshed metric as an edit and break `edit_report` idempotency. Re-serialize the
+    stored rows through ReportMetric to canonicalize both sides before comparing. A row that no
+    longer parses — legacy or malformed — can't be proven equal, so the set counts as changed and is
+    rewritten cleanly.
+    """
+    if stored == payload:
+        return True
+    if not isinstance(stored, list) or len(stored) != len(payload):
+        return False
+    try:
+        canonical = [ReportMetric.model_validate(row).model_dump(mode="json") for row in stored]
+    except ValidationError:
+        return False
+    return canonical == payload
+
+
+def set_report_metrics(
+    *,
+    team_id: int,
+    report_id: str,
+    metrics: Sequence[ReportMetric],
+    attribution: ArtefactAttribution | None = None,
+    author: str | None = None,
+) -> bool:
+    """Replace a report's typed impact metrics, preserving edit idempotency and attribution."""
+    _validate_report_id(report_id)
+    if batch_error := metric_batch_error(metrics):
+        raise InvalidScoutReportError(batch_error)
+    payload = [metric.model_dump(mode="json") for metric in metrics]
+
+    with transaction.atomic():
+        stored = (
+            SignalReport.objects.select_for_update()
+            .filter(team_id=team_id, id=report_id)
+            .values_list("metrics", flat=True)
+            .first()
+        )
+        if stored is None:
+            raise InvalidScoutReportError(f"report {report_id} not found for team {team_id}")
+        if _report_metrics_unchanged(stored, payload):
+            logger.info(
+                "signals_scout.edit_report: metrics unchanged",
+                extra={"team_id": team_id, "report_id": report_id, "count": len(metrics)},
+            )
+            return False
+        SignalReport.objects.filter(team_id=team_id, id=report_id).update(
+            metrics=payload,
+            updated_at=timezone.now(),
+        )
+        if attribution is not None:
+            SignalReportArtefact.add_log(
+                team_id=team_id,
+                report_id=report_id,
+                content=NoteArtefact(note=_metric_edit_note(len(metrics)), author=author),
+                attribution=attribution,
+            )
+
+    logger.info(
+        "signals_scout.edit_report: metrics set",
+        extra={"team_id": team_id, "report_id": report_id, "count": len(metrics)},
+    )
+    return True
+
+
 def set_report_suggested_prompts(
     *,
     team_id: int,
@@ -547,13 +973,22 @@ def set_report_suggested_prompts(
     return True
 
 
+def _reviewer_note_label(entry: SuggestedReviewerEntry) -> str:
+    """How the audit note names a reviewer: their GitHub login, or their display name / uuid when
+    they have none. The note is read by humans, so a login-less reviewer needs something legible."""
+    if entry.github_login:
+        return entry.github_login
+    return entry.github_name or f"user {entry.user_uuid}"
+
+
 def _merge_forward_reviewer_evidence(*, report_id: str, suggested_reviewers: SuggestedReviewers) -> SuggestedReviewers:
     """Carry evidence from the report's current reviewer list onto a scout-supplied replacement.
 
-    For each supplied login that is already on the latest `suggested_reviewers` artefact, keep the
-    prior `relevant_commits` and `github_name`, and keep the prior `reason` unless the scout supplied
-    one (an explicit new reason wins; a scout cannot clear a reason). Unparseable prior entries are
-    ignored — the supplied entry stands as-is."""
+    For each supplied reviewer already on the latest `suggested_reviewers` artefact — matched by
+    user uuid or GitHub login, so the two rows recognize each other even when they name the person
+    by different fields — keep the prior `relevant_commits` and `github_name`, and keep the prior
+    `reason` unless the scout supplied one (an explicit new reason wins; a scout cannot clear a
+    reason). Unparseable prior entries are ignored — the supplied entry stands as-is."""
     current = (
         SignalReportArtefact.objects.filter(
             report_id=report_id, type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS
@@ -569,22 +1004,31 @@ def _merge_forward_reviewer_evidence(*, report_id: str, suggested_reviewers: Sug
         return suggested_reviewers
     if not isinstance(prior_content, list):
         return suggested_reviewers
-    prior_by_login: dict[str, dict] = {}
-    for prior in prior_content:
-        if isinstance(prior, dict) and isinstance(prior.get("github_login"), str):
-            prior_by_login[prior["github_login"].strip().lower()] = prior
+    prior_index = ReviewerPayloadIndex.build(prior_content)
 
     merged: list[SuggestedReviewerEntry] = []
     for entry in suggested_reviewers.root:
-        prior = prior_by_login.get(entry.github_login)
+        prior = prior_index.get(user_uuid=entry.user_uuid, github_login=entry.github_login)
         if prior is None:
             merged.append(entry)
             continue
+        prior_commits = prior.get("relevant_commits")
+        safe_commits = (
+            [
+                {**commit, "reason": bounded_reviewer_reason(commit.get("reason")) or ""}
+                if isinstance(commit, dict)
+                else commit
+                for commit in prior_commits
+            ]
+            if isinstance(prior_commits, list)
+            else []
+        )
         candidate = {
             "github_login": entry.github_login,
+            "user_uuid": entry.user_uuid,
             "github_name": entry.github_name if entry.github_name is not None else prior.get("github_name"),
-            "relevant_commits": entry.relevant_commits or prior.get("relevant_commits") or [],
-            "reason": entry.reason if entry.reason is not None else prior.get("reason"),
+            "relevant_commits": entry.relevant_commits or safe_commits,
+            "reason": entry.reason if entry.reason is not None else bounded_reviewer_reason(prior.get("reason")),
             # Owner provenance is recomputed from the live `LLMSkillOwner` set on every
             # reviewers-setting edit, so the fresh entry's flag wins — OR-ing in the prior value
             # would keep a former owner, re-added as a normal reviewer, excluded from autostart
@@ -625,13 +1069,13 @@ def set_scout_report_reviewers(
     draft PR.
 
     Evidence merges forward: a scout can only supply `github_login`/`user_uuid` (+ `reason`), so for
-    logins already on the report's current reviewer list, the prior entry's `relevant_commits`,
+    reviewers already on the report's current reviewer list, the prior entry's `relevant_commits`,
     `github_name`, and (when the scout supplies none) `reason` are carried over — mirroring the inbox
     PUT. Without this, a reason-only re-route would wipe the commit evidence precedent-weighing runs on."""
     _validate_report_id(report_id)
     if len(suggested_reviewers.root) == 0:
         return False
-    logins = [entry.github_login for entry in suggested_reviewers.root]
+    reviewer_labels = [_reviewer_note_label(entry) for entry in suggested_reviewers.root]
     with transaction.atomic():
         # The lock is the team-scoped gate AND serializes the read-merge-append against concurrent
         # reviewer edits (same discipline as the inbox PUT) so an interleaved write isn't lost.
@@ -648,7 +1092,7 @@ def set_scout_report_reviewers(
         SignalReportArtefact.add_log(
             team_id=team_id,
             report_id=report_id,
-            content=NoteArtefact(note=f"Set suggested reviewers: {', '.join(logins)}", author=author),
+            content=NoteArtefact(note=f"Set suggested reviewers: {', '.join(reviewer_labels)}", author=author),
             attribution=attribution,
         )
         # on_commit, not inline: `_do_edit_report` wraps this call in an outer transaction, so an
@@ -660,13 +1104,81 @@ def set_scout_report_reviewers(
                 capture_suggested_reviewers_resolved,
                 team_id=team_id,
                 report_id=report_id,
-                github_logins=[entry.github_login for entry in merged.root],
+                github_logins=[entry.github_login for entry in merged.root if entry.github_login],
+                user_uuids=[entry.user_uuid for entry in merged.root if entry.user_uuid and not entry.github_login],
                 source="scout_edit",
             )
         )
     logger.info(
         "signals_scout.edit_report: reviewers set",
-        extra={"team_id": team_id, "report_id": report_id, "reviewer_count": len(logins)},
+        extra={"team_id": team_id, "report_id": report_id, "reviewer_count": len(reviewer_labels)},
+    )
+    return True
+
+
+def set_scout_report_repository(
+    *,
+    team_id: int,
+    report_id: str,
+    repository: str | None,
+    attribution: ArtefactAttribution,
+    author: str | None = None,
+) -> bool:
+    """Replace an existing report's `repo_selection` artefact (latest-wins) — the `edit_report`
+    repository path. `repository` is a validated `owner/repo`, or None to land the report without a
+    draft PR. Returns whether the stored selection actually changed.
+
+    This is the correction path for a misrouted report: a report that surfaced against the wrong
+    codebase can be repointed in place, instead of the scout filing a duplicate. A scout naming the
+    repository is a decision like the one `create_scout_report` records at emit, so the selection is
+    `autostart_eligible` the same way, and a later content rewrite does not overturn it.
+
+    Team-scoped fail-closed: a `report_id` the team doesn't own raises. `edit_report` can target ANY
+    inbox report, so the change is attributed (to the scout's task) and an audit note is logged,
+    keeping it auditable and distinguishable from pipeline output.
+
+    The append opts out of the model's autostart re-eval hook (`reevaluate_autostart=False`); the
+    caller (`_do_edit_report`) fires `maybe_autostart_from_report_artefacts` after this returns —
+    never in-txn, since it spawns a Task — mirroring the reviewer path above.
+    """
+    _validate_report_id(report_id)
+    selection = RepoSelectionResult(repository=repository, reason=SCOUT_REPOSITORY_REASON)
+    with transaction.atomic():
+        # The lock is the team-scoped gate AND serializes this against a concurrent selection write,
+        # so an interleaved correction isn't lost.
+        if not SignalReport.objects.select_for_update().filter(team_id=team_id, id=report_id).exists():
+            raise InvalidScoutReportError(f"report {report_id} not found for team {team_id}")
+        # Compared under the lock like the chart / metric / prompt setters above. `edit_report` is
+        # non-idempotent, so the same correction can arrive twice, and a re-send would leave a second
+        # "Set repository" note on the work log and re-run autostart for a target that never moved.
+        # The whole selection is compared rather than the repository alone: a selection inferred from
+        # the report's own text names the same repository with `autostart_eligible=False`, and a scout
+        # naming it is the decision that lifts it, so that correction must still land.
+        if persisted_repo_selection(report_id) == selection:
+            logger.info(
+                "signals_scout.edit_report: repository unchanged",
+                extra={"team_id": team_id, "report_id": report_id, "repository": repository},
+            )
+            return False
+        SignalReportArtefact.append_status(
+            team_id=team_id,
+            report_id=report_id,
+            content=selection,
+            attribution=attribution,
+            reevaluate_autostart=False,
+        )
+        SignalReportArtefact.add_log(
+            team_id=team_id,
+            report_id=report_id,
+            content=NoteArtefact(
+                note=f"Set repository: {repository}" if repository else "Cleared the repository",
+                author=author,
+            ),
+            attribution=attribution,
+        )
+    logger.info(
+        "signals_scout.edit_report: repository set",
+        extra={"team_id": team_id, "report_id": report_id, "repository": repository},
     )
     return True
 
@@ -931,6 +1443,16 @@ def _chart_edit_note(count: int) -> str:
     if count == 0:
         return "Removed the report's charts via edit_report."
     return f"Replaced report charts ({count}) via edit_report."
+
+
+def _metric_edit_note(count: int) -> str:
+    if count == 0:
+        return "Removed the report's impact metrics via edit_report."
+    return f"Replaced report impact metrics ({count}) via edit_report."
+
+
+def _evidence_edit_note(count: int) -> str:
+    return f"Appended {count} evidence item{'s' if count != 1 else ''} via edit_report."
 
 
 def _suggested_prompts_edit_note(count: int) -> str:

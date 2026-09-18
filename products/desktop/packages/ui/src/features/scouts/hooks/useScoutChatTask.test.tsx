@@ -1,10 +1,13 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { renderHook } from "@testing-library/react";
+import { act, renderHook } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const createTask = vi.hoisted(() =>
-  vi.fn().mockResolvedValue({ success: true, task: { id: "task-1" } }),
+  vi.fn().mockResolvedValue({
+    success: true,
+    data: { task: { id: "task-1" }, workspace: null },
+  }),
 );
 const getUserIntegrationIdForRepo = vi.hoisted(() => vi.fn(() => "ghu_1"));
 const resolveDefaultCloudRepository = vi.hoisted(() => vi.fn());
@@ -127,4 +130,35 @@ describe("useScoutChatTask", () => {
     expect(input.repository).toBe("owner/repo");
     expect(input.githubUserIntegrationId).toBe("ghu_1");
   });
+});
+
+describe("scout task result", () => {
+  it.each([true, false])(
+    "returns task creation success: %s",
+    async (success) => {
+      createTask.mockResolvedValueOnce(
+        success
+          ? { success: true, data: { task: { id: "task-1" }, workspace: null } }
+          : {
+              success: false,
+              error: "Task creation failed",
+              failedStep: "create",
+            },
+      );
+      const { result } = renderHook(
+        () =>
+          useScoutChatTask({
+            prompt: "Create a test agent",
+            taskLabel: "agent",
+            loggerScope: "test",
+            chatType: "author_scout",
+            surface: "fleet_list",
+          }),
+        { wrapper: createWrapper() },
+      );
+      await act(async () => {
+        expect(await result.current.runTask()).toBe(success);
+      });
+    },
+  );
 });

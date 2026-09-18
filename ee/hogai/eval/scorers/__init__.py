@@ -29,6 +29,7 @@ __all__ = [
 
 class ToolRelevance(ScorerWithPartial):
     semantic_similarity_args: set[str]
+    _tool_match_score = 0.5
 
     def __init__(self, *, semantic_similarity_args: set[str]):
         self.semantic_similarity_args = semantic_similarity_args
@@ -43,28 +44,29 @@ class ToolRelevance(ScorerWithPartial):
         if not isinstance(output, AssistantMessage):
             raise TypeError(f"Eval case output must be an AssistantMessage, not {type(output)}")
 
-        best_score = 0.0  # 0.0 to 1.0
-        if output.tool_calls:
-            # Check all tool calls and return the best match
-            for tool_call in output.tool_calls:
-                score = 0.0
-                # 0.5 point for getting the tool right
-                if tool_call.name == expected.name:
-                    score += 0.5
-                    if not expected.args:
-                        score += 0.5 if not tool_call.args else 0  # If no args expected, only score for lack of args
-                    else:
-                        score_per_arg = 0.5 / len(expected.args)
-                        for arg_name, expected_arg_value in expected.args.items():
-                            if arg_name in self.semantic_similarity_args:
-                                arg_similarity = AnswerSimilarity(model="text-embedding-3-small").eval(
-                                    output=tool_call.args.get(arg_name), expected=expected_arg_value
-                                )
-                                score += arg_similarity.score * score_per_arg
-                            elif tool_call.args.get(arg_name) == expected_arg_value:
-                                score += score_per_arg
-                best_score = max(best_score, score)
-        return Score(name=self._name(), score=best_score)
+        score = max((self._score_tool_call(tool_call, expected) for tool_call in output.tool_calls or []), default=0.0)
+        return Score(name=self._name(), score=score)
+
+    def _score_tool_call(self, tool_call: AssistantToolCall, expected: AssistantToolCall) -> float:
+        if tool_call.name != expected.name:
+            return 0.0
+        if not expected.args:
+            return 1.0 if not tool_call.args else self._tool_match_score
+
+        score_per_arg = self._tool_match_score / len(expected.args)
+        argument_score = sum(
+            self._score_argument(arg_name, tool_call.args.get(arg_name), expected_arg_value)
+            for arg_name, expected_arg_value in expected.args.items()
+        )
+        return self._tool_match_score + argument_score * score_per_arg
+
+    def _score_argument(self, name: str, actual_value: Any, expected_value: Any) -> float:
+        if name in self.semantic_similarity_args:
+            similarity = AnswerSimilarity(model="text-embedding-3-small").eval(
+                output=actual_value, expected=expected_value
+            )
+            return float(similarity.score or 0.0)
+        return float(actual_value == expected_value)
 
 
 class PlanAndQueryOutput(TypedDict, Generic[AnyPydanticModelQuery], total=False):

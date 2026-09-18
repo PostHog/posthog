@@ -3,6 +3,7 @@ import { useEffect, useMemo } from 'react'
 import { useInView } from 'react-intersection-observer'
 
 import { LemonSkeleton } from '@posthog/lemon-ui'
+import { createTooltipDateFormatter } from '@posthog/quill-charts'
 
 import { Sparkline, SparklineTimeSeries } from 'lib/components/Sparkline'
 import { inStorybookTestRunner } from 'lib/utils/dom'
@@ -66,6 +67,17 @@ export function AppMetricsSparkline({
     }, [appMetricsTrends, params, successMetricNames, metricLabels, metricColors])
 
     const labels = appMetricsTrends?.labels || []
+    const renderLabel = useMemo(
+        () =>
+            appMetricsTrends
+                ? createTooltipDateFormatter({
+                      interval: appMetricsTrends.interval,
+                      timezone: appMetricsTrends.timezone,
+                      allDays: appMetricsTrends.labels,
+                  })
+                : undefined,
+        [appMetricsTrends?.interval, appMetricsTrends?.labels, appMetricsTrends?.timezone]
+    )
 
     return (
         <div ref={inViewRef}>
@@ -74,7 +86,13 @@ export function AppMetricsSparkline({
             ) : !appMetricsTrends || appMetricsTrendsLoading ? (
                 <LemonSkeleton className="h-8 max-w-24" />
             ) : (
-                <Sparkline labels={labels} data={displayData} type={type} className="h-8 max-w-24" />
+                <Sparkline
+                    labels={labels}
+                    data={displayData}
+                    type={type}
+                    className="h-8 max-w-24"
+                    renderLabel={renderLabel}
+                />
             )}
         </div>
     )

@@ -634,6 +634,41 @@ class TestPostHogCallback:
             if key in props
         } == expected
 
+    @pytest.mark.parametrize("hook", ["_on_success", "_on_failure"])
+    @pytest.mark.parametrize(
+        ("model", "provider", "expected_provider", "expected_model"),
+        [
+            pytest.param("moonshotai/kimi-k3", "openai", "modal", "moonshotai/kimi-k3", id="modal_kimi"),
+            pytest.param("gpt-5.2", "openai", "openai", "gpt-5.2", id="unaliased_passthrough"),
+        ],
+    )
+    @pytest.mark.asyncio
+    async def test_relabels_aliased_provider(
+        self,
+        callback: PostHogCallback,
+        auth_user: AuthenticatedUser,
+        mock_posthog_client: tuple[MagicMock, MagicMock],
+        hook: str,
+        model: str,
+        provider: str,
+        expected_provider: str,
+        expected_model: str,
+    ) -> None:
+        _, mock_client = mock_posthog_client
+        kwargs = {
+            "standard_logging_object": {"model": model, "custom_llm_provider": provider},
+            "litellm_params": {},
+        }
+
+        with (
+            patch("llm_gateway.callbacks.posthog.get_auth_user", return_value=auth_user),
+            patch("llm_gateway.callbacks.posthog.get_product", return_value="posthog_code"),
+        ):
+            await getattr(callback, hook)(kwargs, None, 0.0, 1.0, end_user_id=None)
+
+        props = mock_client.capture.call_args.kwargs["properties"]
+        assert (props["$ai_provider"], props["$ai_model"]) == (expected_provider, expected_model)
+
     @pytest.mark.parametrize(
         "cost_breakdown,expected_props",
         [

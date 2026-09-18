@@ -38,6 +38,29 @@ TASKS_LATENCY_HISTOGRAM_BUCKETS = [
     3_600_000.0,
 ]
 
+TASKS_LAUNCH_PREPARATION_HISTOGRAM_METRICS = ("tasks_modal_launch_preparation_latency",)
+TASKS_LAUNCH_PREPARATION_HISTOGRAM_BUCKETS = [
+    100.0,
+    250.0,
+    500.0,
+    750.0,
+    1_000.0,
+    1_500.0,
+    2_000.0,
+    2_500.0,
+    3_000.0,
+    4_000.0,
+    5_000.0,
+    6_000.0,
+    8_000.0,
+    10_000.0,
+    15_000.0,
+    20_000.0,
+    30_000.0,
+    45_000.0,
+    60_000.0,
+]
+
 TASKS_RUN_TOKENS_HISTOGRAM_METRICS = ("tasks_run_total_tokens",)
 TASKS_RUN_TOKENS_HISTOGRAM_BUCKETS = [
     10_000.0,
@@ -270,6 +293,27 @@ def increment_credential_refresh(kind: str, outcome: str) -> None:
         meter.create_counter(
             "tasks_sandbox_credential_refresh",
             "Sandbox credential refresh outcomes for running cloud task runs",
+        ).add(1)
+    except Exception:
+        pass
+
+
+def increment_sandbox_wedge_probe(verdict: str, write_stage: str) -> None:
+    try:
+        meter = _metric_meter({"verdict": verdict, "write_stage": write_stage})
+        meter.create_counter(
+            "tasks_sandbox_wedge_probe",
+            "Sandbox pressure probe results after credential file write failures",
+        ).add(1)
+    except Exception:
+        pass
+
+
+def increment_tool_call_only_heartbeat() -> None:
+    try:
+        _metric_meter().create_counter(
+            "tasks_tool_call_only_heartbeat",
+            "Run keep-alives carried only by an unfinished tool call through a long event silence",
         ).add(1)
     except Exception:
         pass

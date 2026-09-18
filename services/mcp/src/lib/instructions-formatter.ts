@@ -1,5 +1,5 @@
 import type { GroupType } from '@/api/client'
-import { MCP_INSTRUCTIONS_CHAR_BUDGET } from '@/lib/constants'
+import { MCP_CLAUDE_TOOL_DOMAINS_CHAR_BUDGET, MCP_INSTRUCTIONS_CHAR_BUDGET } from '@/lib/constants'
 import {
     buildAvailableToolsBlock,
     buildDefinedGroupsBlock,
@@ -13,11 +13,14 @@ import { formatPrompt } from '@/lib/utils'
 import AGENT_FEEDBACK from '@/templates/sections/agent-feedback.md'
 import ANALYSIS_ARTIFACTS from '@/templates/sections/analysis-artifacts.md'
 import BASIC_FUNCTIONALITY from '@/templates/sections/basic-functionality.md'
+import BUSINESS_KNOWLEDGE_FIRST from '@/templates/sections/business-knowledge-first.md'
 import CATALOG_TRUST_DISCOVERY from '@/templates/sections/catalog-trust-discovery.md'
 import CLI_DATA_DISCOVERY from '@/templates/sections/cli-data-discovery.md'
 import CLI_ERROR_HANDLING from '@/templates/sections/cli-error-handling.md'
 import CLI_EXAMPLES_CLAUDE from '@/templates/sections/cli-examples-claude.md'
 import CLI_EXAMPLES from '@/templates/sections/cli-examples.md'
+import CLI_LEARN_COMPACT from '@/templates/sections/cli-learn-compact.md'
+import CLI_LEARN from '@/templates/sections/cli-learn.md'
 import CLI_RENDERING from '@/templates/sections/cli-rendering.md'
 import CLI_SCHEMA_DRILLDOWN from '@/templates/sections/cli-schema-drilldown.md'
 import CLI_SYNTAX from '@/templates/sections/cli-syntax.md'
@@ -26,15 +29,17 @@ import ENTITY_SCHEMA_DISCOVERY from '@/templates/sections/entity-schema-discover
 import ENV_CONTEXT from '@/templates/sections/env-context.md'
 import EXAMPLES from '@/templates/sections/examples.md'
 import EXEC_LEARN from '@/templates/sections/exec-learn.md'
+import EXEC_TOOL_BLURB_COMPACT from '@/templates/sections/exec-tool-blurb-compact.md'
 import EXEC_TOOL_BLURB from '@/templates/sections/exec-tool-blurb.md'
 import METRIC_DISCOVERY_COMPACT from '@/templates/sections/metric-discovery-compact.md'
 import METRIC_DISCOVERY from '@/templates/sections/metric-discovery.md'
 import NOTEBOOK_PYTHON from '@/templates/sections/notebook-python.md'
 import RETRIEVING_DATA from '@/templates/sections/retrieving-data.md'
 import SCHEMA_WORKFLOW from '@/templates/sections/schema-workflow.md'
+import SKILLS_FIRST from '@/templates/sections/skills-first.md'
 import TOOL_SEARCH from '@/templates/sections/tool-search.md'
 import URL_PATTERNS from '@/templates/sections/url-patterns.md'
-import { type ExecHelpEntry, LEARN_COMMAND_LINE } from '@/tools/exec-help'
+import { type ExecLearnGuide, LEARN_COMMAND_LINE } from '@/tools/exec-learn'
 
 export interface InstructionsContext {
     guidelines: string
@@ -63,6 +68,12 @@ export interface InstructionsContext {
  * modes live in a single file, so prose can't drift.
  */
 export class InstructionsFormatter {
+    private knowledgeFirstSections(ctx: InstructionsContext): string[] {
+        return ctx.tools?.some(({ name }) => name === 'business-knowledge-documents-search' || name === 'docs-search')
+            ? [BUSINESS_KNOWLEDGE_FIRST]
+            : []
+    }
+
     /** Artifact-choice guidance: notebook vs dashboard vs insight, plus the
      *  Python-goes-in-a-cell rule when the notebook cell tools are available. */
     private artifactSections(ctx: InstructionsContext): string[] {
@@ -74,6 +85,7 @@ export class InstructionsFormatter {
         return this.compose(
             [
                 BASIC_FUNCTIONALITY,
+                ...this.knowledgeFirstSections(ctx),
                 TOOL_SEARCH,
                 METRIC_DISCOVERY,
                 RETRIEVING_DATA,
@@ -104,21 +116,33 @@ export class InstructionsFormatter {
      *  overshoots, because `formatPrompt` trims the trailing separator the real payload
      *  keeps.) Enforced by the budget test in `instructions-formatter-snapshot.test.ts`. */
     buildExecInstructions(ctx: InstructionsContext): string {
-        const rendered = this.compose([COMPACT_INSTRUCTIONS], ctx, { compact: true })
+        const sections = [COMPACT_INSTRUCTIONS]
+        const rendered = this.compose(sections, ctx, { compact: true })
         const overflow = rendered.length - MCP_INSTRUCTIONS_CHAR_BUDGET
         if (overflow <= 0) {
             return rendered
         }
         const domains = buildToolDomainsCompact(ctx.tools ?? [])
-        return this.compose([COMPACT_INSTRUCTIONS], ctx, {
+        return this.compose(sections, ctx, {
             compact: true,
             toolDomainsMaxChars: domains.length - overflow,
         })
     }
 
-    /** Build the top-level description of the `posthog:exec` tool. */
-    buildExecToolDescription(): string {
-        return EXEC_TOOL_BLURB.trim()
+    /** Build the top-level description of the `posthog:exec` tool. Lives in the
+     *  uncapped top-level `description`, so the skills text costs no schema budget.
+     *  The skills mandate LEADS the description: it is the only signal that reaches
+     *  an agent before its first tool call, and agents that answer PostHog-behavior
+     *  questions by cloning the public repo never make a call for the gate to catch. */
+    buildExecToolDescription(opts: { skillsEnabled?: boolean; knowledgeSearchEnabled?: boolean } = {}): string {
+        const hasMandate = opts.skillsEnabled || opts.knowledgeSearchEnabled
+        return [
+            ...(opts.skillsEnabled ? [SKILLS_FIRST] : []),
+            ...(opts.knowledgeSearchEnabled ? [BUSINESS_KNOWLEDGE_FIRST] : []),
+            hasMandate ? EXEC_TOOL_BLURB_COMPACT : EXEC_TOOL_BLURB,
+        ]
+            .map((section) => section.trim())
+            .join('\n\n')
     }
 
     /**
@@ -126,11 +150,10 @@ export class InstructionsFormatter {
      * existing prompt sections remain the source of truth; only their delivery
      * moves from the advertised schema to `exec learn`.
      */
-    buildClaudeExecHelpEntries(ctx: InstructionsContext): ExecHelpEntry[] {
-        const entries: ExecHelpEntry[] = [
+    buildClaudeExecLearnGuides(ctx: InstructionsContext): ExecLearnGuide[] {
+        const entries: ExecLearnGuide[] = [
             {
                 id: 'analytics',
-                kind: 'guide',
                 title: 'Analytics',
                 description:
                     'Query or analyze PostHog data; governed metrics, certified tables, and verified joins live in the catalog.',
@@ -152,7 +175,6 @@ export class InstructionsFormatter {
         if (ctx.renderUiEnabled) {
             entries.push({
                 id: 'visualizations',
-                kind: 'guide',
                 title: 'Visualizations',
                 description: 'Create or render a visualization.',
                 content: this.compose([CLI_RENDERING], ctx, { compact: false }),
@@ -162,7 +184,6 @@ export class InstructionsFormatter {
         // URL rules are task-specific and load on demand instead of consuming Claude's capped input schema.
         entries.push({
             id: 'urls',
-            kind: 'guide',
             title: 'URL patterns',
             description: 'Load before writing any PostHog app link or URL.',
             content: this.compose([URL_PATTERNS], ctx, { compact: false }),
@@ -170,7 +191,6 @@ export class InstructionsFormatter {
 
         entries.push({
             id: 'feedback',
-            kind: 'guide',
             title: 'Feedback',
             description: 'Send feedback about PostHog.',
             content: this.compose([AGENT_FEEDBACK], ctx, { compact: false }),
@@ -186,10 +206,15 @@ export class InstructionsFormatter {
      * guidance inline and move only task-specific sections behind `learn <topic...>`.
      * Enforced by the budget test in `instructions-formatter-snapshot.test.ts`.
      */
-    buildClaudeExecCommandReference(ctx: InstructionsContext): string {
-        const helpEntries = this.buildClaudeExecHelpEntries(ctx)
-        const helpTopics = helpEntries.map((entry) => `- ${entry.id}: ${entry.description}`).join('\n')
-        const helpSection = formatPrompt(EXEC_LEARN, { help_topics: helpTopics })
+    buildClaudeExecCommandReference(
+        ctx: InstructionsContext,
+        opts: { learnEnabled?: boolean; skillsEnabled?: boolean } = {}
+    ): string {
+        const learnEnabled = opts.learnEnabled ?? true
+        const skillsEnabled = opts.skillsEnabled ?? false
+        const learnGuides = this.buildClaudeExecLearnGuides(ctx)
+        const learnGuideList = learnGuides.map((entry) => `- ${entry.id}: ${entry.description}`).join('\n')
+        const learnSection = learnEnabled ? formatPrompt(EXEC_LEARN, { help_topics: learnGuideList }) : undefined
         const renderCtx: InstructionsContext = {
             guidelines: ctx.guidelines,
             metadata: ctx.metadataCompact ?? ctx.metadata,
@@ -200,7 +225,11 @@ export class InstructionsFormatter {
         return this.compose(
             [
                 CLI_SYNTAX,
-                helpSection,
+                // Compact skills-first variant: this reference lives inside the
+                // schema-capped `command` description (see the budget test), so the
+                // content-routing paragraph is reserved for the uncapped full reference.
+                ...(skillsEnabled ? [CLI_LEARN_COMPACT] : []),
+                ...(learnSection ? [learnSection] : []),
                 METRIC_DISCOVERY_COMPACT,
                 CLI_SCHEMA_DRILLDOWN,
                 CLI_DATA_DISCOVERY,
@@ -209,12 +238,16 @@ export class InstructionsFormatter {
                 BASIC_FUNCTIONALITY,
                 TOOL_SEARCH,
                 ENV_CONTEXT,
+                // URL patterns live behind `learn urls` to protect the schema budget;
+                // with learn unavailable there is no topic to load, so stay inline.
+                ...(learnSection ? [] : [URL_PATTERNS]),
             ],
             renderCtx,
             {
                 compact: false,
                 compactToolDomains: true,
-                extraCommands: LEARN_COMMAND_LINE,
+                toolDomainsMaxChars: MCP_CLAUDE_TOOL_DOMAINS_CHAR_BUDGET,
+                extraCommands: learnEnabled ? LEARN_COMMAND_LINE : undefined,
             }
         )
     }
@@ -236,10 +269,11 @@ export class InstructionsFormatter {
      *  its complete JSON schema has a smaller client-enforced size budget. */
     buildExecCommandReference(
         ctx: InstructionsContext,
-        opts: { stripEnvContext: boolean; keepEnvContext?: boolean }
+        opts: { stripEnvContext: boolean; keepEnvContext?: boolean; learnEnabled?: boolean }
     ): string {
         const sections = [
             CLI_SYNTAX,
+            ...(opts.learnEnabled ? [CLI_LEARN] : []),
             METRIC_DISCOVERY,
             CLI_SCHEMA_DRILLDOWN,
             CLI_DATA_DISCOVERY,

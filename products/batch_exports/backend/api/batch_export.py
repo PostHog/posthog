@@ -1,14 +1,11 @@
 import uuid
-import socket
 import typing
 import builtins
 import datetime as dt
-import ipaddress
 import dataclasses
 import collections.abc
 from dataclasses import dataclass
 from typing import Any, TypedDict, cast
-from urllib.parse import urlparse
 
 from django.conf import settings
 from django.db import models, transaction
@@ -43,6 +40,14 @@ from posthog.models.integration import (
     DatabricksIntegration,
     DatabricksIntegrationError,
     Integration,
+    SnowflakeIntegration,
+    SnowflakeIntegrationError,
+)
+from posthog.security.url_validation import (
+    INVALID_HOST_MESSAGE,
+    UNREACHABLE_HOST_MESSAGE,
+    ShapeError,
+    validate_external_host,
 )
 from posthog.temporal.common.client import sync_connect
 from posthog.utils import relative_date_parse, str_to_bool
@@ -50,6 +55,7 @@ from posthog.utils import relative_date_parse, str_to_bool
 from products.batch_exports.backend.api.destination_tests import get_destination_test
 from products.batch_exports.backend.models.batch_export import (
     BATCH_EXPORT_INTERVALS,
+    OBJECT_STORAGE_DESTINATIONS,
     S3_FAMILY_TYPES,
     TIMEZONES,
     BatchExport,
@@ -372,6 +378,15 @@ class PostgresDestinationConfigSerializer(serializers.Serializer):
     )
 
 
+LEGACY_PARQUET_EXTENSION_HELP_TEXT = (
+    "Whether Parquet files keep the compression codec in their extension, for example "
+    "'.parquet.zst' rather than '.parquet'. Parquet records its codec inside the file, so new "
+    "exports leave it out. An export that already wrote Parquet files before this setting existed "
+    "keeps it, so that pipelines matching on the old names do not break. Has no effect on JSON "
+    "Lines, which always carries the codec in its extension."
+)
+
+
 class AzureBlobDestinationConfigSerializer(serializers.Serializer):
     """Typed configuration for an Azure Blob Storage batch-export destination.
 
@@ -406,6 +421,11 @@ class AzureBlobDestinationConfigSerializer(serializers.Serializer):
         help_text="If set, rolls to a new file once the current file exceeds this size in MB.",
     )
 
+    legacy_parquet_extension = serializers.BooleanField(
+        required=False,
+        help_text=LEGACY_PARQUET_EXTENSION_HELP_TEXT,
+    )
+
 
 class S3FamilyDestinationConfigSerializer(serializers.Serializer):
     """Shared non-credential configuration for S3-family batch-export destinations.
@@ -436,6 +456,11 @@ class S3FamilyDestinationConfigSerializer(serializers.Serializer):
         allow_null=True,
         default=None,
         help_text="If set, rolls to a new file once the current file exceeds this size in MB.",
+    )
+
+    legacy_parquet_extension = serializers.BooleanField(
+        required=False,
+        help_text=LEGACY_PARQUET_EXTENSION_HELP_TEXT,
     )
 
 
@@ -479,9 +504,9 @@ class S3CompatibleDestinationConfigSerializer(S3FamilyDestinationConfigSerialize
 class SnowflakeDestinationConfigSerializer(serializers.Serializer):
     """Typed configuration for a Snowflake batch-export destination.
 
-    Account, user, authentication type and credentials may live in a linked Integration (when one is
-    provided) or inline in this config (legacy). Mirrors the non-credential fields of
-    `SnowflakeBatchExportInputs` in `products/batch_exports/backend/service.py`.
+    Account, user, authentication type and credentials live in the linked Integration, never here.
+    Mirrors the non-credential fields of `SnowflakeBatchExportInputs` in
+    `products/batch_exports/backend/service.py`.
     """
 
     database = serializers.CharField(help_text="Snowflake database to write to.")
@@ -721,10 +746,9 @@ class SnowflakeDestinationRequestSerializer(serializers.Serializer):
 
     type = serializers.ChoiceField(choices=["Snowflake"])
     integration_id = serializers.IntegerField(
-        required=False,
         help_text=(
-            "ID of a snowflake-kind Integration providing the account, user and credentials. Preferred over "
-            "inline credentials. Use the integrations-list MCP tool to find one."
+            "ID of a snowflake-kind Integration providing the account, user and credentials. "
+            "Use the integrations-list MCP tool to find one."
         ),
     )
     config = SnowflakeDestinationConfigSerializer()
@@ -765,9 +789,8 @@ class BatchExportDestinationRequestField(serializers.JSONField):
 
     Only integration-backed destinations (Databricks, AzureBlob, BigQuery, Postgres, AwsS3,
     S3Compatible, Snowflake, Redshift) are exposed in the schema. integration_id is required for
-    every one of those except Snowflake, where inline credentials remain supported for the time
-    being. Existing Postgres, Snowflake and Redshift exports created before integrations keep their
-    inline credentials. Runtime validation remains
+    every one of them. Existing Postgres and Redshift exports created before integrations keep
+    their inline credentials and stay valid when edited. Runtime validation remains
     `BatchExportDestinationSerializer.validate_destination`.
     """
 
@@ -839,6 +862,56 @@ S3_DESTINATION_TO_INTEGRATION_KIND: dict[str, Integration.IntegrationKind] = {
 }
 
 
+def _writes_compressed_parquet(config: dict[str, typing.Any]) -> bool:
+    """Whether a config produces Parquet file names that carry a compression codec."""
+    return config.get("file_format") == "Parquet" and config.get("compression") is not None
+
+
+def _uses_legacy_parquet_extension(destination_type: str, stored_config: dict[str, typing.Any]) -> bool:
+    """Whether an export's stored config already writes the codec into its Parquet file names.
+
+    Reads through `coerce_config_to_declared_types`, because `EncryptedJSONField` stringifies
+    scalars on write and the string "False" is truthy.
+    """
+    coerced = coerce_config_to_declared_types(destination_type, stored_config)
+    stored = coerced.get("legacy_parquet_extension")
+    if stored is None:
+        # export was created before the `legacy_parquet_extension` field was added
+        # so will use the legacy extension if it writes compressed Parquet files
+        return _writes_compressed_parquet(coerced)
+    return bool(stored)
+
+
+def _set_default_parquet_extension(destination_type: str, config: dict[str, typing.Any]) -> None:
+    """Opt a newly created destination into the standard `.parquet` extension.
+
+    The workflow input dataclasses default this to `True`, so that an export whose Temporal
+    schedule predates the field keeps the same file extension as before in order to maintain
+    compatibility.
+    """
+    if destination_type in OBJECT_STORAGE_DESTINATIONS:
+        config.setdefault("legacy_parquet_extension", False)
+
+
+def _pin_existing_parquet_extension(destination_type: str, stored_config: dict[str, typing.Any]) -> None:
+    """Record what an export's file names already look like, before a patch can change its format.
+
+    An export that predates this setting has no value for it, and a missing value reads as the
+    legacy naming. That is correct only for an export that already writes names carrying a codec,
+    which means Parquet with a compression codec set. An export on JSON Lines, or on Parquet with
+    no compression, has no such names to keep, so moving it to compressed Parquet has to produce
+    `.parquet` rather than `.parquet.zst`.
+
+    Takes the config as stored, before the incoming patch merges into it, so the value reflects
+    what the export has been running rather than what it is moving to. An explicit value in the
+    patch still wins, because the merge applies afterwards.
+    """
+    if destination_type not in OBJECT_STORAGE_DESTINATIONS:
+        return
+
+    stored_config.setdefault("legacy_parquet_extension", _writes_compressed_parquet(stored_config))
+
+
 def _coerce_integration_id(value: typing.Any) -> int | None:
     """Return the integration id encoded in a Redshift COPY credential value, if any.
 
@@ -885,8 +958,7 @@ class BatchExportDestinationSerializer(serializers.ModelSerializer):
         allow_null=True,
         help_text=(
             "ID of a team-scoped Integration providing credentials, for destinations that authenticate "
-            "through one. Required for all of those except Snowflake, which still supports inline "
-            "credentials."
+            "through one. Required for all of them."
         ),
     )
 
@@ -924,22 +996,12 @@ class BatchExportDestinationSerializer(serializers.ModelSerializer):
             str_fields = ", ".join(f"'{extra_field}'" for extra_field in sorted(extra_fields))
             raise serializers.ValidationError(f"Configuration has unknown field/s: {str_fields}")
 
-        # Some credential/connection fields are optional on the dataclass (integration-backed exports
-        # resolve them at run time), so they must be required here only when no Integration is linked.
-        # Only Snowflake needs this. Every other destination requires an Integration, so
-        # `validate_destination` reports a missing one. Listing them here would report a missing
-        # credential field instead, because this check runs first.
-        # TODO: remove this code once integrations are enforced for Snowflake
-        conditionally_required: set[str] = set()
-        if attrs.get("integration") is None:
-            if export_type == BatchExportDestination.Destination.SNOWFLAKE:
-                conditionally_required = {"account", "user"}
-
+        # Destination config fields without a dataclass default must be provided.
         for destination_field in destination_fields:
             is_required = (
                 destination_field.default == dataclasses.MISSING
                 and destination_field.default_factory == dataclasses.MISSING
-            ) or destination_field.name in conditionally_required
+            )
             if destination_field.name not in config:
                 if is_required and not is_patch:
                     # When patching we expect a partial configuration. So, we don't
@@ -1093,77 +1155,6 @@ class _DatabaseFieldFinder(TraversingVisitor):
             if name is not None:
                 self.names.add(name)
         super().visit_field(node)
-
-
-INTERNAL_NETWORKS = (
-    ipaddress.ip_network("10.0.0.0/8"),
-    ipaddress.ip_network("172.16.0.0/12"),
-    ipaddress.ip_network("192.168.0.0/16"),
-    ipaddress.ip_network("127.0.0.0/8"),
-    ipaddress.ip_network("169.254.0.0/16"),
-    ipaddress.ip_network("0.0.0.0/8"),
-    ipaddress.ip_network("::1/128"),
-    ipaddress.ip_network("fc00::/7"),
-    ipaddress.ip_network("fe80::/10"),
-)
-
-
-def is_ip_internal(ip: str) -> bool:
-    """Check if IP belongs to an internal network."""
-    try:
-        addr = ipaddress.ip_address(ip)
-    except ValueError:
-        raise ValueError("Could not parse IP")
-
-    if any(addr in network for network in INTERNAL_NETWORKS):
-        return True
-    return False
-
-
-def resolve_and_validate_url(url: str) -> None:
-    """Ensure provided url point to a non-internal IP."""
-    try:
-        parsed = urlparse(url)
-    except Exception as e:
-        raise ValueError(f"Invalid URL'{url}': {e}") from e
-
-    host = parsed.hostname
-    if not host:
-        raise ValueError("URL has no hostname")
-
-    resolve_and_validate_host(host)
-
-
-def is_local_dev_or_test() -> bool:
-    return settings.DEBUG or settings.TEST
-
-
-def resolve_and_validate_host(host: str) -> None:
-    """Ensure provided host resolves to a non-internal IP."""
-    if host == "localhost" and is_local_dev_or_test():
-        return
-
-    # Host may already be an IP literal
-    try:
-        if is_ip_internal(host) and not is_local_dev_or_test():
-            raise ValueError("Host resolved to internal IP")
-        return
-    except ValueError:
-        # Not an IP literal, requires DNS
-        pass
-
-    try:
-        # getaddrinfo supports both ipv4 and ipv6
-        results = socket.getaddrinfo(host, None)
-    except socket.gaierror as e:
-        raise ValueError(f"Could not resolve '{host}': {e}") from e
-
-    # Keeps only unique ips from the result tuple
-    resolved_ips = {str(r[4][0]) for r in results}
-
-    for ip in resolved_ips:
-        if is_ip_internal(ip) and not is_local_dev_or_test():
-            raise ValueError("Host resolved to internal IP")
 
 
 class BatchExportSerializer(serializers.ModelSerializer):
@@ -1426,6 +1417,18 @@ class BatchExportSerializer(serializers.ModelSerializer):
                 "Delete this batch export and create a new one with the new destination type."
             )
 
+        # This setting is used for grandfathered exports that used the legacy Parquet file extension,
+        # and is a one-way migration; once exports use the new `.parquet` extension it is not
+        # possible to go back to using the legacy extension.
+        if config.get("legacy_parquet_extension") is True and not _uses_legacy_parquet_extension(
+            destination_type, existing_config
+        ):
+            raise serializers.ValidationError(
+                "'legacy_parquet_extension' can only stay on for an export that already writes the "
+                "compression codec into its Parquet file names. It cannot be turned on for a new "
+                "export, or turned back on once an export moved to the standard '.parquet' extension."
+            )
+
         # The legacy `S3` type predates both the AwsS3/S3Compatible split and integration-backed
         # credentials. Every row has been migrated off it, so it accepts no writes at all.
         if destination_type == BatchExportDestination.Destination.S3:
@@ -1444,25 +1447,20 @@ class BatchExportSerializer(serializers.ModelSerializer):
 
         if destination_type == BatchExportDestination.Destination.SNOWFLAKE:
             integration: Integration | None = destination_attrs.get("integration")
+            if integration is None and "integration" not in destination_attrs and instance is not None:
+                # A PATCH may send config alone, which keeps the export's existing integration.
+                # An explicit `integration: null` is a removal, and is rejected below.
+                integration = instance.destination.integration
 
-            # Sticky integration: an export that uses one cannot drop back to inline credentials.
-            # TODO: remove this guard once integrations are mandatory for Snowflake and inline credentials are gone.
-            if instance is not None and instance.destination.integration is not None and integration is None:
-                raise serializers.ValidationError(
-                    "Cannot remove the integration from a Snowflake batch export that uses one. "
-                    "Re-send its `integration` to keep it (or a different one to swap)."
-                )
+            if integration is None:
+                raise serializers.ValidationError("Integration is required for Snowflake batch exports")
 
-            if integration is not None:
-                # (Team ownership is already enforced by the team-scoped `integration` field.)
-                if integration.kind != Integration.IntegrationKind.SNOWFLAKE:
-                    raise serializers.ValidationError("Integration is not a Snowflake integration.")
-            else:
-                # Inline credentials: the credential field for the chosen auth type is required.
-                if config.get("authentication_type") == "password" and merged_config.get("password") is None:
-                    raise serializers.ValidationError("Password is required if authentication type is password")
-                if config.get("authentication_type") == "keypair" and merged_config.get("private_key") is None:
-                    raise serializers.ValidationError("Private key is required if authentication type is key pair")
+            # Also rejects an integration missing its account, user or authentication type, so a
+            # half-built one fails here rather than on the export's first run.
+            try:
+                SnowflakeIntegration(integration)
+            except SnowflakeIntegrationError as e:
+                raise serializers.ValidationError(str(e))
 
         if destination_type in S3_FAMILY_TYPES:
             integration = destination_attrs.get("integration")
@@ -1697,9 +1695,11 @@ class BatchExportSerializer(serializers.ModelSerializer):
 
             if host is not None:
                 try:
-                    resolve_and_validate_host(host)
+                    validate_external_host(host)
+                except ShapeError:
+                    raise serializers.ValidationError(INVALID_HOST_MESSAGE)
                 except ValueError:
-                    raise serializers.ValidationError(f"Invalid host: '{host}'")
+                    raise serializers.ValidationError(UNREACHABLE_HOST_MESSAGE)
 
         return destination_attrs
 
@@ -1712,6 +1712,8 @@ class BatchExportSerializer(serializers.ModelSerializer):
         if hogql_query := validated_data.pop("hogql_query", None):
             batch_export_schema = self.serialize_hogql_query_to_batch_export_schema(hogql_query)
             validated_data["schema"] = batch_export_schema
+
+        _set_default_parquet_extension(destination_data["type"], destination_data["config"])
 
         destination = BatchExportDestination(**destination_data)
         batch_export = BatchExport(team_id=team_id, destination=destination, **validated_data)
@@ -1845,6 +1847,7 @@ class BatchExportSerializer(serializers.ModelSerializer):
             if destination_data:
                 # Type changes are rejected by `validate_destination` — the incoming `type`
                 # (if any) always equals the existing type by the time we get here.
+                _pin_existing_parquet_extension(batch_export.destination.type, batch_export.destination.config)
                 batch_export.destination.config = recursive_dict_merge(
                     batch_export.destination.config,
                     destination_data.get("config", {}),
@@ -1890,9 +1893,9 @@ def recursive_dict_merge(
 @extend_schema(tags=["batch_exports"])
 @extend_schema_view(
     # Request bodies use a polymorphic destination schema so that integration-backed types
-    # (Databricks, AzureBlob, BigQuery, Postgres, AwsS3, S3Compatible, Snowflake) advertise
-    # integration_id up front — required for Databricks, AzureBlob and BigQuery, optional for Postgres,
-    # the S3 family and Snowflake.
+    # (Databricks, AzureBlob, BigQuery, Postgres, AwsS3, S3Compatible, Snowflake, Redshift) advertise
+    # integration_id up front. It is required for every one of them; Postgres and Redshift exports
+    # created before integrations keep their inline credentials on update.
     # Responses continue to use BatchExportSerializer.
     create=extend_schema(request=BatchExportRequestSerializer),
     update=extend_schema(request=BatchExportRequestSerializer),

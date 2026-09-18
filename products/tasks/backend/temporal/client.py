@@ -1,6 +1,7 @@
 import uuid
 import asyncio
 import logging
+from datetime import timedelta
 from typing import TYPE_CHECKING, Any, Literal, Optional
 
 from django.conf import settings
@@ -20,6 +21,7 @@ from products.tasks.backend.constants import AGENT_OTEL_TELEMETRY_STATE_KEY, SAN
 from products.tasks.backend.error_telemetry import truncate_error_message
 from products.tasks.backend.feature_flags import is_agent_otel_telemetry_enabled, is_native_steering_signals_enabled
 from products.tasks.backend.logic.services.dev_stack_image import DEV_STACK_IMAGE_NAME
+from products.tasks.backend.logic.services.workflow_step_resume import resume_workflow_step_for_run
 from products.tasks.backend.metrics import AGENT_OTEL_TELEMETRY_STAMPED_TOTAL, observe_task_run_workflow_start
 from products.tasks.backend.models import Task, TaskRun
 from products.tasks.backend.temporal.bake_dev_stack_image.workflow import BakeDevStackImageInput
@@ -102,6 +104,7 @@ def _terminalize_unstarted_task_run(run_id: str, error_message: str) -> bool:
         handle_loop_run_terminal(task_run)
     except Exception:
         logger.warning("task_processing_start_failure_loop_bookkeeping_failed", extra={"run_id": run_id}, exc_info=True)
+    resume_workflow_step_for_run(task_run)
     return True
 
 
@@ -593,6 +596,7 @@ def signal_task_followup_message(
     context: dict[str, Any] | None = None,
     *,
     steer: bool = False,
+    rpc_timeout: timedelta | None = None,
 ) -> None:
     """Legacy positional signal args stay frozen for worker deploy compatibility."""
     client = sync_connect()
@@ -616,7 +620,10 @@ def signal_task_followup_message(
                 if isinstance(protocol_version, int) and protocol_version >= STEERING_PROTOCOL_VERSION:
                     signal_name = SEND_STEER_SIGNAL
         signal_args = [message, artifact_ids, message_id, actor_user_id, context]
-        await handle.signal(signal_name, args=signal_args)
+        if rpc_timeout is None:
+            await handle.signal(signal_name, args=signal_args)
+        else:
+            await handle.signal(signal_name, args=signal_args, rpc_timeout=rpc_timeout)
 
     asyncio.run(signal())
 
@@ -636,6 +643,7 @@ def execute_posthog_code_agent_relay_workflow(
     delete_progress: bool = True,
     reaction_emoji: str | None = None,
     message_id: str | None = None,
+    trace_id: str | None = None,
 ) -> str:
     relay_id = relay_id or str(uuid.uuid4())
     workflow_id = f"posthog-code-agent-relay-{run_id}-{relay_id}"
@@ -652,6 +660,7 @@ def execute_posthog_code_agent_relay_workflow(
                 delete_progress=delete_progress,
                 reaction_emoji=reaction_emoji,
                 message_id=message_id,
+                trace_id=trace_id,
             ),
             id=workflow_id,
             id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,

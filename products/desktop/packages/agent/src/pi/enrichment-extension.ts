@@ -15,6 +15,7 @@ export interface PiEnrichmentConfig {
   publicApiUrl?: string;
   projectId: number;
   apiKey: string;
+  interactionOrigin?: string | null;
 }
 
 export function createPiEnrichmentExtension(config: PiEnrichmentConfig): {
@@ -25,7 +26,10 @@ export function createPiEnrichmentExtension(config: PiEnrichmentConfig): {
     name: "posthog-enricher",
     factory: (pi: ExtensionAPI) => {
       pi.on("before_agent_start", (event) => ({
-        systemPrompt: appendRichOutputPrompt(event.systemPrompt),
+        systemPrompt: appendRichOutputPrompt(
+          event.systemPrompt,
+          config.interactionOrigin,
+        ),
       }));
 
       const enrichment = createEnrichment({

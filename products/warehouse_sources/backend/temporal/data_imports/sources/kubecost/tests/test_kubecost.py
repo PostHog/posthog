@@ -1,7 +1,7 @@
 from typing import Any
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from unittest import mock
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.kubecost.kubecost import (
@@ -159,8 +159,12 @@ class TestValidateCredentials:
         assert error is None
 
 
-@freeze_time("2026-07-15T10:00:00Z")
 class TestGetRows:
+    @pytest.fixture(autouse=True)
+    def _frozen_clock(self):
+        with time_machine.travel("2026-07-15T10:00:00Z", tick=False):
+            yield
+
     @mock.patch(f"{_MODULE}.make_tracked_session")
     def test_flattens_result_sets_and_injects_key_and_window(self, mock_session):
         mock_session.return_value.get.return_value = _response(

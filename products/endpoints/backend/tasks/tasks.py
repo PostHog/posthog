@@ -1,7 +1,7 @@
 from datetime import timedelta
 from typing import Any
 
-from django.db.models import Exists, OuterRef, Q
+from django.db.models import Exists, F, OuterRef, Q
 from django.utils import timezone
 
 from celery import shared_task
@@ -60,9 +60,10 @@ def deactivate_stale_materializations() -> None:
 
     This task finds endpoint versions where:
     1. The version has an active materialization (saved_query.is_materialized = True)
-    2. The materialization has run in the past 24h (a completed job, or saved_query.last_run_at)
+    2. The materialization has run in the past 24h (a finished job, or saved_query.last_run_at)
     3. The materialization was enabled at least 30 days ago (saved_query.created_at)
-    4. The version was last executed over 30 days ago (via API key)
+    4. The version was last executed over 30 days ago (via API key), or it is a superseded
+       version that was never executed
 
     For matching versions, the materialization is reverted to save resources.
     """
@@ -70,15 +71,21 @@ def deactivate_stale_materializations() -> None:
     twenty_four_hours_ago = now - timedelta(hours=24)
     stale_threshold = now - timedelta(days=STALE_THRESHOLD_DAYS)
 
+    # A still-running job does not count: reverting soft-deletes the saved query under a live workflow.
     recent_job = DataModelingJob.objects.filter(
         saved_query_id=OuterRef("saved_query_id"),
-        status=DataModelingJobStatus.COMPLETED,
         last_run_at__gte=twenty_four_hours_ago,
-    )
+    ).exclude(status=DataModelingJobStatus.RUNNING)
     ran_recently = Q(saved_query__last_run_at__gte=twenty_four_hours_ago) | Q(Exists(recent_job))
 
-    version_stale = Q(last_executed_at__lt=stale_threshold) | Q(
-        last_executed_at__isnull=True, endpoint__last_executed_at__lt=stale_threshold
+    # Both stamps are written together on every API-key call, so a superseded version with no stamp
+    # of its own has not been called since the stamp existed. The endpoint stamp belongs to the
+    # version that replaced it.
+    superseded = ~Q(version=F("endpoint__current_version"))
+    version_stale = (
+        Q(last_executed_at__lt=stale_threshold)
+        | Q(last_executed_at__isnull=True, endpoint__last_executed_at__lt=stale_threshold)
+        | (Q(last_executed_at__isnull=True) & superseded)
     )
 
     stale_versions = EndpointVersion.objects.filter(

@@ -13,16 +13,15 @@ import {
     IconToggle,
 } from '@posthog/icons'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { Link } from 'lib/lemon-ui/Link/Link'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture/ProfilePicture'
 import { UploadedLogo } from 'lib/lemon-ui/UploadedLogo/UploadedLogo'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { preflightLogic } from 'lib/logic/preflightLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { DropdownMenuSeparator } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { Label } from 'lib/ui/Label/Label'
 import { MenuOpenIndicator } from 'lib/ui/Menus/Menus'
+import { useSubmenuSafeTriangle } from 'lib/ui/Menus/useSubmenuSafeTriangle'
 import { cn } from 'lib/utils/css-classes'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { billingLogic } from 'scenes/billing/billingLogic'
@@ -54,7 +53,6 @@ interface AccountMenuProps {
 export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.Element {
     const { user } = useValues(userLogic)
     const { isCloudOrDev } = useValues(preflightLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
     const { showInviteModal } = useActions(inviteLogic)
     const { reportInviteMembersButtonClicked } = useActions(eventUsageLogic)
     const { logout } = useActions(userLogic)
@@ -69,6 +67,8 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
     const { guardAvailableFeature } = useValues(upgradeModalLogic)
     const { showCreateProjectModal } = useActions(globalModalsLogic)
     const { showCreateOrganizationModal } = useActions(globalModalsLogic)
+    const projectSubmenu = useSubmenuSafeTriangle()
+    const organizationSubmenu = useSubmenuSafeTriangle()
 
     const projectNameStartsWithEmoji = currentTeam?.name?.match(/^\p{Extended_Pictographic}/u) !== null
     const projectNameWithoutFirstEmoji = projectNameStartsWithEmoji
@@ -169,6 +169,7 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
                                     <Menu.SubmenuRoot>
                                         <Menu.SubmenuTrigger
                                             openOnHover={false}
+                                            ref={projectSubmenu.triggerRef}
                                             render={
                                                 <ButtonPrimitive
                                                     menuItem
@@ -192,7 +193,10 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
                                                 className="z-[var(--z-popover)]"
                                                 collisionPadding={{ top: 50, bottom: 50 }}
                                             >
-                                                <Menu.Popup className="primitive-menu-content w-min max-w-[var(--available-width)]">
+                                                <Menu.Popup
+                                                    ref={projectSubmenu.popupRef}
+                                                    className="primitive-menu-content w-min max-w-[var(--available-width)]"
+                                                >
                                                     {/* We need to add a div here to prevent the keydown event from bubbling up to the menu. */}
                                                     <div onKeyDown={(e) => e.stopPropagation()}>
                                                         <ProjectSwitcher dialog={false} />
@@ -268,6 +272,7 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
                                 <Menu.SubmenuRoot>
                                     <Menu.SubmenuTrigger
                                         openOnHover={false}
+                                        ref={organizationSubmenu.triggerRef}
                                         render={
                                             <ButtonPrimitive
                                                 menuItem
@@ -297,7 +302,10 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
                                             className="z-[var(--z-popover)]"
                                             collisionPadding={{ top: 50, bottom: 50 }}
                                         >
-                                            <Menu.Popup className="primitive-menu-content w-min max-w-[var(--available-width)]">
+                                            <Menu.Popup
+                                                ref={organizationSubmenu.popupRef}
+                                                className="primitive-menu-content w-min max-w-[var(--available-width)]"
+                                            >
                                                 {/* We need to add a div here to prevent the keydown event from bubbling up to the menu. */}
                                                 <div onKeyDown={(e) => e.stopPropagation()}>
                                                     <OrgSwitcher dialog={false} />
@@ -320,9 +328,7 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
                                                 }}
                                             >
                                                 <IconReceipt />
-                                                {featureFlags[FEATURE_FLAGS.USAGE_SPEND_DASHBOARDS]
-                                                    ? 'Billing & usage'
-                                                    : 'Billing'}
+                                                Billing & usage
                                             </Link>
                                         )}
                                     />

@@ -38,6 +38,7 @@ TRIGGERS: dict[str, tuple[str, ...]] = {
     ),
     "build:grammar": ("posthog/hogql/grammar/*",),
     "build:taxonomy-json": ("posthog/taxonomy/*",),
+    "build:object-tags": ("posthog/object_tags/*",),
     "build:products": ("products/*/frontend/*",),
     "build:skills": ("products/*/skills/*",),
     "build:schema-mcp": ("services/mcp/src/*",),

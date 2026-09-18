@@ -18,7 +18,6 @@ describe('taskAgentDefaultsLogic', () => {
                     200,
                     { ai_run_preferences: myPreferences, resolved_ai_run_defaults: null },
                 ],
-                '/api/projects/:team_id/tasks/models/': () => [200, { models: [] }],
             },
             post: {
                 '/api/projects/:team_id/tasks/@me/config/': async ({ request }) => {

@@ -42,6 +42,27 @@ describe('HogFlowActionSchema', () => {
         expect(result.success).toBe(true)
     })
 
+    it('preserves account assignment status in batch trigger filters', () => {
+        const action = {
+            id: 'trigger_node',
+            name: 'Trigger',
+            type: 'trigger',
+            description: '',
+            config: {
+                type: 'batch',
+                filters: {
+                    audience_type: 'accounts',
+                    properties: [],
+                    assignment_status: 'assigned',
+                },
+            },
+        }
+
+        const result = HogFlowActionSchema.parse(action)
+
+        expect(result).toMatchObject(action)
+    })
+
     // A cleared HogFlowDuration input emits just the unit (e.g. "d") and clobbering that with a
     // permissive schema lets users activate a wait step with no real timeout, so the workflow could
     // wait indefinitely. These cases lock in that only real durations pass.

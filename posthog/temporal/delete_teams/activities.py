@@ -141,6 +141,19 @@ async def enqueue_clickhouse_deletion_activity(inputs: TeamDataActivityInputs) -
         await database_sync_to_async_pool(_enqueue_clickhouse_deletion)(inputs.team_ids, inputs.user_id)
 
 
+def _is_project_pending_deletion(project_id: int) -> bool:
+    from posthog.models.project import Project
+
+    project = Project.objects.only("is_pending_deletion").filter(pk=project_id).first()
+    return project is not None and project.is_deletion_pending()
+
+
+@temporalio.activity.defn
+async def check_project_pending_deletion_activity(inputs: ProjectRecordInputs) -> bool:
+    async with Heartbeater():
+        return await database_sync_to_async_pool(_is_project_pending_deletion)(inputs.project_id)
+
+
 @temporalio.activity.defn
 async def delete_project_record_activity(inputs: ProjectRecordInputs) -> None:
     async with Heartbeater():

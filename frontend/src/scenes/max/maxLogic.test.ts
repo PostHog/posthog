@@ -13,6 +13,9 @@ import { AgentMode } from '~/queries/schema/schema-assistant-messages'
 import { initKeaTests } from '~/test/init'
 import { ConversationDetail, SidePanelTab } from '~/types'
 
+import { REPORT_AI_PANEL } from 'products/signals/frontend/inbox/inboxTaskKickoffLogic'
+
+import { maxGlobalLogic } from './maxGlobalLogic'
 import {
     PENDING_MAX_CONTEXT_KEY,
     QUESTION_SUGGESTIONS_DATA,
@@ -76,21 +79,22 @@ describe('maxLogic', () => {
         expect(actionsRequestCount).toBe(0)
     })
 
-    it('sets the question when URL has hash param #panel=max:Foo', async () => {
-        // Set up sidePanelStateLogic with the options before mounting maxLogic
+    it.each([
+        ['Foo', 'Foo'],
+        [REPORT_AI_PANEL, ''],
+    ])('seeds the question from side panel option %s', async (options, question) => {
         sidePanelStateLogic.mount()
         await expectLogic(sidePanelStateLogic, () => {
-            sidePanelStateLogic.actions.openSidePanel(SidePanelTab.Max, 'Foo')
+            sidePanelStateLogic.actions.openSidePanel(SidePanelTab.Max, options)
         }).toDispatchActions(['openSidePanel'])
 
-        // Mount maxLogic after setting up the sidePanelStateLogic state
         logic = maxLogic({ panelId: SIDE_PANEL_PANEL_ID })
         logic.mount()
 
-        // Check that the question has been set to "Foo"
-        await expectLogic(logic).toMatchValues({
-            question: 'Foo',
-        })
+        await expectLogic(logic).toMatchValues({ question, autoRun: false })
+        logic.actions.setQuestion('Existing draft')
+        sidePanelStateLogic.actions.openSidePanel(SidePanelTab.Max, REPORT_AI_PANEL)
+        expect(logic.values.question).toBe('Existing draft')
     })
 
     it('sets autoRun and question when URL has hash param #panel=max:!Foo', async () => {
@@ -131,6 +135,40 @@ describe('maxLogic', () => {
         })
 
         featureFlagLogic.unmount()
+    })
+
+    it('keeps the selected task URL when navigating from a legacy chat', async () => {
+        logic = maxLogic({ panelId: 'scene' })
+        logic.mount()
+        logic.actions.openConversation(MOCK_CONVERSATION_ID)
+        await expectLogic(logic).toFinishAllListeners()
+        router.actions.push(urls.aiTask('task-1'))
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(router.values.location.pathname).toBe(urls.currentProject(urls.ai()))
+        expect(router.values.searchParams).toEqual({ task: 'task-1' })
+    })
+
+    // Regression coverage: the `/ai` handler deliberately leaves the previous chat in this logic
+    // while a task is open, and `maxGlobalLogic` clears that chat from every mounted logic when it
+    // is deleted. Mapping `startNewConversation` to a bare `/ai` then dropped `?task=` and closed
+    // the task the user was reading, without the user navigating at all.
+    it('keeps the selected task URL when the retained chat is deleted', async () => {
+        useMocks({ ...maxMocks, delete: { '/api/environments/:team_id/conversations/:id': [200, {}] } })
+        logic = maxLogic({ panelId: 'scene' })
+        logic.mount()
+        logic.actions.openConversation(MOCK_CONVERSATION_ID)
+        await expectLogic(logic).toFinishAllListeners()
+        router.actions.push(urls.aiTask('task-1'))
+        await expectLogic(logic).toFinishAllListeners()
+
+        maxGlobalLogic.actions.deleteConversation(MOCK_CONVERSATION_ID)
+        await expectLogic(maxGlobalLogic).toFinishAllListeners()
+
+        // The stale chat is still released, it just must not take the route with it.
+        expect(logic.values.conversationId).toBeNull()
+        expect(router.values.location.pathname).toBe(urls.currentProject(urls.ai()))
+        expect(router.values.searchParams).toEqual({ task: 'task-1' })
     })
 
     // The /ai?ask= deep link (e.g. "Start with AI") must not silently vanish when the org hasn't
@@ -741,6 +779,66 @@ describe('maxLogic', () => {
                 is_sandbox: false,
                 pending_approvals: [],
             })
+        })
+    })
+
+    describe('suggestion typewriter', () => {
+        const SUGGESTION = { content: 'What is the retention in the last two weeks?' }
+
+        beforeEach(() => {
+            jest.useFakeTimers()
+            logic = maxLogic({ panelId: 'test' })
+            logic.mount()
+        })
+
+        afterEach(() => {
+            jest.useRealTimers()
+        })
+
+        it('holds the whole suggestion while the composer still shows a prefix', () => {
+            logic.actions.runSuggestion(SUGGESTION)
+
+            // The composer is mid-animation, so a send right now would carry this prefix. Keeping the
+            // whole suggestion is what lets the send substitute it.
+            expect(logic.values.question).toBe('W')
+            expect(logic.values.typingSuggestion).toBe(SUGGESTION.content)
+        })
+
+        it('sends the whole suggestion once the animation finishes', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.runSuggestion(SUGGESTION)
+                jest.advanceTimersByTime(60000)
+            }).toDispatchActions([
+                (action: any) =>
+                    action.type === logic.actionTypes.askMax && action.payload.prompt === SUGGESTION.content,
+            ])
+
+            expect(logic.values.typingSuggestion).toBeNull()
+        })
+
+        it('stops the animation when the user types over it', () => {
+            logic.actions.runSuggestion(SUGGESTION)
+            logic.actions.setQuestion('my own question')
+
+            // The user's input wins: no pending send, and the animation stops writing over them.
+            expect(logic.values.typingSuggestion).toBeNull()
+            jest.advanceTimersByTime(60000)
+            expect(logic.values.question).toBe('my own question')
+        })
+
+        it('leaves a fill-in suggestion for the user to complete instead of sending it', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.runSuggestion({
+                    content: 'Tell me about feature flag',
+                    requiresUserInput: true,
+                    hint: 'insert feature flag name',
+                })
+                jest.advanceTimersByTime(60000)
+            }).toNotHaveDispatchedActions(['askMax'])
+
+            expect(logic.values.question).toBe('Tell me about feature flag ')
+            expect(logic.values.fillInHint).toBe('insert feature flag name')
+            expect(logic.values.typingSuggestion).toBeNull()
         })
     })
 })

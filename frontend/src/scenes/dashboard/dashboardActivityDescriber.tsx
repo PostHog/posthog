@@ -10,12 +10,12 @@ import {
 import {
     ActivityChange,
     ActivityLogItem,
+    ActivityLogUserName,
     ChangeMapping,
     Description,
     HumanizedChange,
     defaultDescriber,
     detectBoolean,
-    userNameForLogItem,
 } from 'lib/components/ActivityLog/humanizeActivity'
 import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
 import {
@@ -199,8 +199,7 @@ export function dashboardActivityDescriber(logItem: ActivityLogItem, asNotificat
         return {
             description: (
                 <>
-                    <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> created the dashboard{' '}
-                    {nameAndLink(logItem)}
+                    <ActivityLogUserName logItem={logItem} /> created the dashboard {nameAndLink(logItem)}
                 </>
             ),
         }
@@ -249,7 +248,7 @@ export function dashboardActivityDescriber(logItem: ActivityLogItem, asNotificat
                 description: (
                     <SentenceList
                         listParts={changes}
-                        prefix={<strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong>}
+                        prefix={<ActivityLogUserName logItem={logItem} />}
                         suffix={changeSuffix}
                     />
                 ),
@@ -262,8 +261,8 @@ export function dashboardActivityDescriber(logItem: ActivityLogItem, asNotificat
         return {
             description: (
                 <>
-                    <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> shared{' '}
-                    {asNotification ? 'your' : 'the'} dashboard {nameAndLink(logItem)}
+                    <ActivityLogUserName logItem={logItem} /> shared {asNotification ? 'your' : 'the'} dashboard{' '}
+                    {nameAndLink(logItem)}
                 </>
             ),
         }
@@ -273,8 +272,8 @@ export function dashboardActivityDescriber(logItem: ActivityLogItem, asNotificat
         return {
             description: (
                 <>
-                    <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> deleted shared link for{' '}
-                    {asNotification ? 'your' : 'the'} dashboard {nameAndLink(logItem)}
+                    <ActivityLogUserName logItem={logItem} /> deleted shared link for {asNotification ? 'your' : 'the'}{' '}
+                    dashboard {nameAndLink(logItem)}
                 </>
             ),
         }
@@ -284,8 +283,8 @@ export function dashboardActivityDescriber(logItem: ActivityLogItem, asNotificat
         return {
             description: (
                 <>
-                    <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> refreshed the shared link
-                    for {asNotification ? 'your' : 'the'} dashboard {nameAndLink(logItem)}
+                    <ActivityLogUserName logItem={logItem} /> refreshed the shared link for{' '}
+                    {asNotification ? 'your' : 'the'} dashboard {nameAndLink(logItem)}
                 </>
             ),
         }

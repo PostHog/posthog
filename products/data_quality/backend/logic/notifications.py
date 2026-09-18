@@ -4,17 +4,18 @@ Only the pass-to-fail edge notifies, and only for error-severity checks. A check
 run after run is already known about; re-notifying every run is how an inbox gets ignored.
 """
 
-from typing import cast
+from collections.abc import Sequence
+from urllib.parse import quote
+from uuid import UUID
 
 import structlog
 
-from posthog.models import Team, User
-from posthog.scopes import APIScopeObject
+from posthog.hogql.database.database import unentitled_system_tables
 
-from products.access_control.backend.facade.user_access_control import (
-    UserAccessControl,
-    access_level_satisfied_for_resource,
-)
+from posthog.models import Team, User
+
+from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.data_modeling.backend.facade import api as data_modeling_facade
 from products.notifications.backend.facade.api import (
     NotificationData,
     NotificationType,
@@ -23,21 +24,26 @@ from products.notifications.backend.facade.api import (
     TargetType,
     create_notification,
 )
+from products.warehouse_sources.backend.facade import api as warehouse_facade
 
 from ..facade.enums import CheckRunStatus, SubjectType
 from ..models import DataQualityCheck, DataQualityCheckRun, DataQualitySuiteRun
 from .checks import checks_for_subject
 from .flags import is_data_quality_checks_enabled_for_team_id
-from .subject_access import denied_subject_names, is_subject_denied, referenced_subject_names, referencing_check_types
+from .subject_access import (
+    NoticeReferences,
+    ReferenceGate,
+    can_be_object_denied,
+    notice_references,
+    reference_gate,
+    referenced_subject_names,
+    referencing_check_types,
+)
+from .subjects import resolve_subject
 
 LOGGER = structlog.get_logger(__name__)
 
-# Object-level access controls for a warehouse table or view are keyed on the child resource; both
-# inherit from the `warehouse_objects` umbrella the built-in resource-level filter checks.
-_SUBJECT_RESOURCE: dict[SubjectType, APIScopeObject] = {
-    SubjectType.TABLE: cast(APIScopeObject, "warehouse_table"),
-    SubjectType.VIEW: cast(APIScopeObject, "warehouse_view"),
-}
+_OBJECT_GATED_SUBJECT_TYPES = frozenset({SubjectType.TABLE, SubjectType.VIEW})
 
 
 class _WarehouseSubjectResolver(RecipientsResolver):
@@ -63,15 +69,22 @@ class _WarehouseSubjectResolver(RecipientsResolver):
         subject_type: str,
         subject_uuid: str,
         referenced_names: list[str] | None = None,
+        executed_references: Sequence[dict[str, str]] = (),
+        references_unknown: bool = False,
+        access_cache: dict[int, UserAccessControl] | None = None,
     ) -> None:
         self._team = team
         self._subject_type = subject_type
         self._subject_uuid = subject_uuid
         self._referenced_names = referenced_names or []
+        self._executed_references = executed_references
+        self._references_unknown = references_unknown
         # One access-control object per member, reused across both gates below (and the warehouse
         # database build the referenced-subject gate runs) so a single failing check doesn't rebuild
         # it -- and its membership, role, and access-control lookups -- once per pass.
-        self._access: dict[int, UserAccessControl] = {}
+        self._access: dict[int, UserAccessControl] = access_cache if access_cache is not None else {}
+        self._references: NoticeReferences | None = None
+        self._unentitled: frozenset[str] | None = None
 
     def _access_of(self, user: User) -> UserAccessControl:
         access = self._access.get(user.id)
@@ -88,76 +101,119 @@ class _WarehouseSubjectResolver(RecipientsResolver):
 
     def resolve(self, target_type: TargetType, target_id: str, team_id: int | None) -> list[int]:
         user_ids = super().resolve(target_type, target_id, team_id)
-        user_ids = self.filter_by_access_control(user_ids, "query", self._team)
-        user_ids = self._filter_by_object_access(user_ids)
-        return self._filter_by_referenced_subject_access(user_ids)
+        return self._filter_by_subject_access(user_ids)
 
-    def _filter_by_object_access(self, user_ids: list[int]) -> list[int]:
-        resource = _SUBJECT_RESOURCE.get(SubjectType(self._subject_type))
-        if resource is None:
-            return user_ids
-        object_id = self._subject_uuid
-
+    def _filter_by_subject_access(self, user_ids: list[int]) -> list[int]:
+        # Both gates below are per-member, so they share one member query, one access-control object
+        # and one denial snapshot each rather than a pass apiece.
         if not self._access_controls_supported(user_ids):
             return user_ids
 
-        allowed: list[int] = []
-        for user in User.objects.filter(id__in=user_ids):
-            level = self._access_of(user).bulk_object_access_levels(resource, [(object_id, None)]).get(object_id)
-            if level is not None and access_level_satisfied_for_resource(resource, level, "viewer"):
-                allowed.append(user.id)
-        return allowed
+        return [user.id for user in User.objects.filter(id__in=user_ids) if self._may_receive(user)]
 
-    def _filter_by_referenced_subject_access(self, user_ids: list[int]) -> list[int]:
+    def _object_gate_applies(self) -> bool:
+        return SubjectType(self._subject_type) in _OBJECT_GATED_SUBJECT_TYPES
+
+    def _reference_gate_applies(self) -> bool:
         # The declared subject isn't the only one the count depends on: a relationships check reads
-        # its target and a custom_sql check reads arbitrary tables. Drop members denied any of those,
-        # matching the run-history endpoint -- resolved by name the same way the loaders resolve them.
-        if not self._referenced_names:
-            return user_ids
+        # its target and a custom_sql check reads arbitrary tables.
+        return bool(self._referenced_names) or bool(self._executed_references) or self._references_unknown
 
-        # No warehouse access control means no denials, so skip the per-member database build the
-        # denial check would otherwise run -- the same early exit the object-access gate makes.
-        if not self._access_controls_supported(user_ids):
-            return user_ids
+    def _may_receive(self, user: User) -> bool:
+        access = self._access_of(user)
+        if not access.check_access_level_for_resource("query", "viewer"):
+            return False
+        if self._subject_type == SubjectType.METRIC and not access.check_access_level_for_resource(
+            "data_catalog", "viewer"
+        ):
+            return False
+        if self._object_gate_applies() and not self._has_object_access(access):
+            return False
+        if not self._reference_gate_applies():
+            return True
+        if self._references_unknown and can_be_object_denied(access):
+            return False
+        return self._gate_of(user).admits(self._notice_references())
 
-        allowed: list[int] = []
-        for user in User.objects.filter(id__in=user_ids):
-            denied = denied_subject_names(self._team, user, self._access_of(user))
-            if not any(is_subject_denied(name, denied) for name in self._referenced_names):
-                allowed.append(user.id)
-        return allowed
+    def _has_object_access(self, access: UserAccessControl) -> bool:
+        object_id = UUID(self._subject_uuid)
+        allowed_ids = (
+            warehouse_facade.allowed_table_ids(self._team.id, access, ids=[object_id])
+            if self._subject_type == SubjectType.TABLE
+            else data_modeling_facade.allowed_saved_query_ids(self._team.id, access, ids=[object_id])
+        )
+        return object_id in allowed_ids
+
+    def _notice_references(self) -> NoticeReferences:
+        if self._references is None:
+            self._references = notice_references(
+                self._team.id, executed_references=self._executed_references, names=self._referenced_names
+            )
+        return self._references
+
+    def _gate_of(self, user: User) -> ReferenceGate:
+        if self._unentitled is None:
+            self._unentitled = unentitled_system_tables(self._team)
+        return reference_gate(
+            self._team,
+            user,
+            self._access_of(user),
+            references=self._notice_references(),
+            unentitled=self._unentitled,
+        )
 
 
-def notify_check_started_failing(check: DataQualityCheck, failed_row_count: int | None) -> None:
-    """Best-effort: a notification failure must never take down the run that produced it."""
+def notify_check_started_failing(
+    check: DataQualityCheck,
+    failed_row_count: int | None,
+    *,
+    executed_references: Sequence[dict[str, str]] | None = (),
+    idempotency_key: str | None = None,
+    access_cache: dict[int, UserAccessControl] | None = None,
+) -> int:
+    """How many members were told. Best-effort: a failure here must never fail the run behind it."""
     try:
         if not is_data_quality_checks_enabled_for_team_id(check.team_id) or check.subject_uuid is None:
-            return
+            return 0
         team = Team.objects.get(id=check.team_id)
-        create_notification(
+        subject = resolve_subject(team.id, check.subject_type, check.subject_uuid)
+        if not subject.exists:
+            return 0
+        is_metric = check.subject_type == SubjectType.METRIC
+        subject_name = subject.name if is_metric else check.subject_name
+        event = create_notification(
             NotificationData(
                 team_id=check.team_id,
                 notification_type=NotificationType.DATA_QUALITY_CHECK_FAILURE,
                 priority=Priority.NORMAL,
-                title=f"Data quality check failed on {check.subject_name}",
+                title=f"Data quality check failed on {subject_name}",
                 body=_body(check, failed_row_count),
                 target_type=TargetType.TEAM,
                 target_id=str(check.team_id),
                 # The body names a warehouse table or view and one of its columns, so it points at
                 # the subject object (not the check) and the resolver filters recipients down to
                 # members with object-level access to it, plus query access for the count.
-                resource_type="warehouse_objects",
+                resource_type="data_catalog" if is_metric else "warehouse_objects",
                 resource_id=str(check.subject_uuid),
+                source_url=f"/project/{team.id}/data-catalog/metrics/{quote(subject_name, safe='')}?tab=tests"
+                if is_metric
+                else "",
+                idempotency_key=idempotency_key,
                 resolver=_WarehouseSubjectResolver(
                     team,
                     check.subject_type,
                     str(check.subject_uuid),
-                    referenced_names=referenced_subject_names(team.id, check.check_type, check.config),
+                    referenced_names=referenced_subject_names(team.id, check.check_type, check.config, subject=subject),
+                    executed_references=executed_references or (),
+                    references_unknown=executed_references is None,
+                    access_cache=access_cache,
                 ),
             )
         )
+        return len(event.resolved_user_ids) if event is not None else 0
     except Exception:
         LOGGER.exception("Could not send a data quality failure notification", check_id=str(check.id))
+        return 0
 
 
 def notify_materialization_blocked(

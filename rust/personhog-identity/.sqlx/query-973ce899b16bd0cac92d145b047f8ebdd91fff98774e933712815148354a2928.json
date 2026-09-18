@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "/* service='personhog-identity', operation='merge_fold_record_target' */ UPDATE lifecycle_op_person SET sealed = $2 WHERE op_id = $1 AND role = $3",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Jsonb",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "973ce899b16bd0cac92d145b047f8ebdd91fff98774e933712815148354a2928"
+}

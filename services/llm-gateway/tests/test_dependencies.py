@@ -25,9 +25,9 @@ from llm_gateway.dependencies import (
     get_model_from_request,
     get_provider_from_request,
     get_request_json,
-    resolve_plan_and_quota,
+    resolve_quota,
 )
-from llm_gateway.products.config import POSTHOG_CODE_US_APP_ID, SIGNALS_DEV_APP_ID
+from llm_gateway.products.config import POSTHOG_CODE_US_APP_ID, SIGNALS_DEV_APP_ID, WIZARD_US_APP_ID
 from llm_gateway.rate_limiting.cost_throttles import SandboxTaskCostThrottle
 from llm_gateway.rate_limiting.throttles import ThrottleContext, ThrottleResult
 from llm_gateway.services.desktop_access_resolver import (
@@ -35,7 +35,6 @@ from llm_gateway.services.desktop_access_resolver import (
     DesktopAccessReason,
     DesktopAccessStatus,
 )
-from llm_gateway.services.plan_resolver import PlanInfo
 from llm_gateway.services.quota_resolver import QuotaResourceStatus
 
 
@@ -287,28 +286,23 @@ class TestEnforceThrottles:
         assert context.end_user_id is None
 
 
-class TestResolvePlanAndQuota:
+class TestResolveQuota:
     """The quota resolver roundtrip runs for bucket-billed products (against the
     product's own bucket) and is skipped entirely for unbilled ones."""
 
     async def _run(self, product: str) -> tuple:
-        plan_info = PlanInfo(plan_key="pro", seat_created_at=None)
-        plan_mock = AsyncMock(return_value=plan_info)
         quota_mock = AsyncMock(return_value=QuotaResourceStatus(limited=True))
-        with (
-            patch("llm_gateway.dependencies.resolve_plan_info", plan_mock),
-            patch("llm_gateway.dependencies.resolve_quota_status", quota_mock),
-        ):
-            result = await resolve_plan_and_quota(_make_request(), user_id=1, team_id=42, product=product)
+        with patch("llm_gateway.dependencies.resolve_quota_status", quota_mock):
+            result = await resolve_quota(_make_request(), team_id=42, product=product)
         return result, quota_mock
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
         ("product", "expected_resource"),
-        [("slack_app", "ai_credits"), ("posthog_code", "posthog_code_credits")],
+        [("slack_app", "ai_credits"), ("workflows", "ai_credits"), ("posthog_code", "posthog_code_credits")],
     )
     async def test_bucket_billed_product_resolves_its_own_bucket(self, product: str, expected_resource: str) -> None:
-        (_, quota_status), quota_mock = await self._run(product)
+        quota_status, quota_mock = await self._run(product)
 
         quota_mock.assert_awaited_once()
         assert quota_mock.call_args.args[2] == expected_resource
@@ -317,7 +311,7 @@ class TestResolvePlanAndQuota:
     @pytest.mark.asyncio
     async def test_unbilled_product_skips_quota_resolver(self) -> None:
         # wizard is unbilled — it shouldn't pay for the quota resolver roundtrip.
-        (_, quota_status), quota_mock = await self._run("wizard")
+        quota_status, quota_mock = await self._run("wizard")
 
         quota_mock.assert_not_awaited()
         assert quota_status.limited is False
@@ -416,8 +410,8 @@ class TestPreviewModelGateWiring:
     @pytest.fixture(autouse=True)
     def billed_org(self):
         with patch(
-            "llm_gateway.dependencies.resolve_plan_and_quota",
-            AsyncMock(return_value=(MagicMock(), QuotaResourceStatus(limited=False, code_usage_billing_active=True))),
+            "llm_gateway.dependencies.resolve_quota",
+            AsyncMock(return_value=QuotaResourceStatus(limited=False, code_usage_billing_active=True)),
         ):
             yield
 
@@ -468,8 +462,8 @@ class TestBasetenExclusiveModelGateWiring:
     @pytest.fixture(autouse=True)
     def billed_org(self):
         with patch(
-            "llm_gateway.dependencies.resolve_plan_and_quota",
-            AsyncMock(return_value=(MagicMock(), QuotaResourceStatus(limited=False, code_usage_billing_active=True))),
+            "llm_gateway.dependencies.resolve_quota",
+            AsyncMock(return_value=QuotaResourceStatus(limited=False, code_usage_billing_active=True)),
         ):
             yield
 
@@ -533,13 +527,8 @@ class TestBasetenExclusiveModelGateWiring:
 
         with (
             patch(
-                "llm_gateway.dependencies.resolve_plan_and_quota",
-                AsyncMock(
-                    return_value=(
-                        MagicMock(),
-                        QuotaResourceStatus(limited=False, code_usage_billing_active=False),
-                    )
-                ),
+                "llm_gateway.dependencies.resolve_quota",
+                AsyncMock(return_value=QuotaResourceStatus(limited=False, code_usage_billing_active=False)),
             ),
             patch("llm_gateway.dependencies.ensure_costs_fresh"),
             patch("llm_gateway.dependencies.evaluate_flag", AsyncMock(return_value=flag_result)),
@@ -573,7 +562,10 @@ class TestServerCredentialRequirementWiring:
             with pytest.raises(HTTPException) as exc_info:
                 await enforce_product_access(request=request, user=self._oauth_user(["*"]))
             assert exc_info.value.status_code == 403
-            assert "server-minted" in exc_info.value.detail
+            error = exc_info.value.detail["error"]
+            assert "server-minted" in error["message"]
+            assert error["code"] == "product_access_denied"
+            assert "reason" not in error
         finally:
             get_settings.cache_clear()
 
@@ -731,7 +723,7 @@ class TestDesktopAccessGate:
     async def test_other_products_untouched(self) -> None:
         get_settings.cache_clear()
         try:
-            request = self._request(False, path="/wizard/v1/messages")
+            request = self._request(False, path="/django/v1/messages")
             user = AuthenticatedUser(
                 user_id=7,
                 team_id=1,
@@ -827,3 +819,42 @@ class TestSandboxTaskIdPlumbing:
         assert bool(cache_key) is expect_ceiling
         if expect_ceiling:
             assert cache_key == f"cost:task:{expected_id}"
+
+
+class TestRetiredProduct:
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "user",
+        [
+            AuthenticatedUser(
+                user_id=7,
+                team_id=1,
+                auth_method="personal_api_key",
+                distinct_id="test-distinct-id-7",
+                scopes=["llm_gateway:read"],
+            ),
+            AuthenticatedUser(
+                user_id=7,
+                team_id=1,
+                auth_method="oauth_access_token",
+                distinct_id="test-distinct-id-7",
+                scopes=["llm_gateway:read"],
+                application_id=WIZARD_US_APP_ID,
+            ),
+        ],
+        ids=["personal_api_key", "wizard_oauth_app"],
+    )
+    async def test_wizard_is_refused_with_the_upgrade_path(self, user: AuthenticatedUser) -> None:
+        get_settings.cache_clear()
+        try:
+            request = _make_request({"model": "claude-sonnet-5", "messages": []}, path="/wizard/v1/messages")
+            with pytest.raises(HTTPException) as exc_info:
+                await enforce_product_access(request=request, user=user)
+            assert exc_info.value.status_code == 403
+            error = exc_info.value.detail["error"]
+            assert error["type"] == "permission_error"
+            assert error["code"] == "product_access_denied"
+            assert error["reason"] == "product_retired"
+            assert "npx @posthog/wizard@latest" in error["message"]
+        finally:
+            get_settings.cache_clear()

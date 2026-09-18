@@ -120,6 +120,7 @@ import {
 } from "./mcp/tool-metadata";
 import { canUseTool } from "./permissions/permission-handlers";
 import { getAvailableSlashCommands } from "./session/commands";
+import { SessionInitialization } from "./session/initialization";
 import { getSessionJsonlPath } from "./session/jsonl-hydration";
 import { parseMcpServers } from "./session/mcp-config";
 import {
@@ -149,6 +150,7 @@ import {
   toSdkEffort,
 } from "./session/options";
 import { SettingsManager } from "./session/settings";
+import { generateTraceparentHookNonce } from "./session/traceparent-hook";
 import {
   buildSideQuestionPrompt,
   collectSideQuestionAnswer,
@@ -322,13 +324,40 @@ function shouldEmitRawMessage(
   );
 }
 
+interface SdkTokenUsage {
+  input_tokens?: number | null;
+  output_tokens?: number | null;
+  cache_read_input_tokens?: number | null;
+  cache_creation_input_tokens?: number | null;
+}
+
+function sumSdkUsage(usage: SdkTokenUsage): number {
+  return (
+    (usage.input_tokens ?? 0) +
+    (usage.output_tokens ?? 0) +
+    (usage.cache_read_input_tokens ?? 0) +
+    (usage.cache_creation_input_tokens ?? 0)
+  );
+}
+
+const CONTEXT_USAGE_TIMEOUT_MS = 5_000;
+
 async function fetchContextUsedTokens(
   sdkQuery: Query,
   logger: Logger,
 ): Promise<number | null> {
   try {
-    const usage = await sdkQuery.getContextUsage();
-    return usage.totalTokens;
+    const usage = await withTimeout(
+      sdkQuery.getContextUsage(),
+      CONTEXT_USAGE_TIMEOUT_MS,
+    );
+    if (usage.result === "timeout") {
+      logger.warn(
+        `Timed out after ${CONTEXT_USAGE_TIMEOUT_MS}ms fetching context usage from SDK`,
+      );
+      return null;
+    }
+    return usage.value.totalTokens;
   } catch (error) {
     logger.error("Failed to fetch context usage from SDK:", error);
     return null;
@@ -336,6 +365,7 @@ async function fetchContextUsedTokens(
 }
 
 export interface ClaudeAcpAgentOptions {
+  startupLogger?: Logger;
   onProcessSpawned?: (info: ProcessSpawnedInfo) => void;
   onProcessExited?: (pid: number) => void;
   onMcpServersReady?: (serverNames: string[]) => void;
@@ -942,7 +972,27 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       session.turnQueue = session.turnQueue.filter((t) => t !== turn);
       session.activeTurn = null;
       this.dispatchQueuedInput(session);
-      turn.resolve(result);
+      // Attach the turn's gateway trace id (from the traceparent hook) so the
+      // server can stamp it on `_posthog/turn_complete`. Cleared here so a
+      // turn whose hook never fired cannot inherit the previous turn's id.
+      const traceId = session.currentTurnTraceId;
+      session.currentTurnTraceId = undefined;
+      if (
+        !traceId &&
+        session.traceparentHookInstalled &&
+        !turn.isLocalOnlyCommand
+      ) {
+        // Loud on purpose: an SDK or CLI change that stops surfacing hook
+        // output would otherwise degrade feedback attribution silently.
+        this.logger.warn("Gateway turn settled without a trace id", {
+          sessionId: session.sdkSessionId,
+        });
+      }
+      turn.resolve(
+        traceId
+          ? { ...result, _meta: { ...(result._meta ?? {}), traceId } }
+          : result,
+      );
     };
 
     // Reject the active turn without tearing down the consumer.
@@ -959,6 +1009,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       declinePendingSteers(turn, "turn_failed");
       session.turnQueue = session.turnQueue.filter((t) => t !== turn);
       session.activeTurn = null;
+      session.currentTurnTraceId = undefined;
       this.toolUseStreamCache.clear();
       this.dispatchQueuedInput(session);
       turn.reject(error);
@@ -978,6 +1029,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
         : [...session.turnQueue];
       session.activeTurn = null;
       session.turnQueue = [];
+      session.currentTurnTraceId = undefined;
       this.toolUseStreamCache.clear();
       for (const turn of turns) {
         if (!turn.settled) {
@@ -1261,6 +1313,18 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
               }
             }
 
+            if (!isTaskNotification && lastAssistantTotalUsage === null) {
+              const usedTokens = await withAbort(
+                fetchContextUsedTokens(query, this.logger),
+                cancelController.signal,
+              );
+              const total =
+                usedTokens.result === "success" ? (usedTokens.value ?? 0) : 0;
+              if (total > 0) {
+                recordContextUsage(total);
+              }
+            }
+
             session.contextSize = windowSize();
             if (lastAssistantTotalUsage !== null) {
               session.contextUsed = lastAssistantTotalUsage;
@@ -1331,7 +1395,10 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
               break;
             }
 
-            const result = handleResultMessage(message);
+            const result = handleResultMessage(
+              message,
+              session.activeTurn?.madeProgress === true,
+            );
             if (result.error) {
               if (!isTaskNotification) {
                 failActive(result.error);
@@ -1440,11 +1507,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
                 };
               }
 
-              const nextTotal =
-                lastStreamUsage.input_tokens +
-                lastStreamUsage.output_tokens +
-                lastStreamUsage.cache_read_input_tokens +
-                lastStreamUsage.cache_creation_input_tokens;
+              const nextTotal = sumSdkUsage(lastStreamUsage);
 
               if (recordContextUsage(nextTotal)) {
                 await this.client.sessionUpdate({
@@ -1549,11 +1612,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
                 cache_read_input_tokens: number | null;
                 cache_creation_input_tokens: number | null;
               };
-              const nextTotal =
-                (usage.input_tokens ?? 0) +
-                (usage.output_tokens ?? 0) +
-                (usage.cache_read_input_tokens ?? 0) +
-                (usage.cache_creation_input_tokens ?? 0);
+              const nextTotal = sumSdkUsage(usage);
 
               if (recordContextUsage(nextTotal)) {
                 await this.client.sessionUpdate({
@@ -1565,6 +1624,18 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
                   },
                 });
               }
+            }
+
+            if (
+              session.activeTurn &&
+              message.parent_tool_use_id === null &&
+              Array.isArray(message.message.content) &&
+              message.message.content.some(
+                (block) =>
+                  block.type === "tool_use" || block.type === "tool_result",
+              )
+            ) {
+              session.activeTurn.madeProgress = true;
             }
 
             const result = await handleUserAssistantMessage(message, context);
@@ -1930,6 +2001,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       session.input = newInput;
       session.queryOptions = newOptions;
       session.abortController = newAbortController;
+      session.contextUsed = undefined;
 
       const result = await withTimeout(
         newQuery.initializationResult(),
@@ -2762,6 +2834,24 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
     );
 
     const taskState: TaskState = new Map();
+    const traceparentHookNonce = generateTraceparentHookNonce();
+    const startupLogger = this.options?.startupLogger ?? this.logger;
+    const initialization = new SessionInitialization((initializationPhase) => {
+      startupLogger.info("Session initialization phase changed", {
+        sessionId,
+        taskId,
+        taskRunId: meta?.taskRunId,
+        initializationPhase,
+      });
+      void this.client
+        .extNotification(POSTHOG_NOTIFICATIONS.STATUS, {
+          taskRunId: meta?.taskRunId,
+          status: initializationPhase,
+        })
+        .catch(() => {
+          startupLogger.warn("Failed to publish session startup phase");
+        });
+    });
     const options = buildSessionOptions({
       cwd,
       mcpServers,
@@ -2772,6 +2862,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       systemPrompt,
       userProvidedOptions: meta?.claudeCode?.options,
       sessionId,
+      taskId: resolveTaskId(meta),
       isResume,
       forkSession,
       additionalDirectories: [
@@ -2788,6 +2879,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       onPostHogResourceUsed: this.createOnPostHogResourceUsed(),
       onProcessSpawned: this.options?.onProcessSpawned,
       onProcessExited: this.options?.onProcessExited,
+      onStartupOutput: (stdout) => initialization.observe(stdout),
       effort,
       enrichmentDeps: this.enrichment?.deps,
       enrichedReadCache: this.enrichedReadCache,
@@ -2797,6 +2889,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       taskState,
       getCurrentModelId: () => this.session?.modelId,
       gatewayEnv: this.options?.gatewayEnv,
+      traceparentHookNonce,
       machineAuth: this.options?.machineAuth,
       bedrockGatewayVariant,
       contextWiki: this.options?.contextWiki,
@@ -2850,6 +2943,10 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
         rules: estimateRulesTokens(readClaudeMdQuietly(cwd, this.logger)),
       },
       taskState,
+      traceparentHookNonce,
+      traceparentHookInstalled:
+        typeof options.extraArgs?.settings === "string" &&
+        options.extraArgs.settings.includes(traceparentHookNonce),
 
       // Custom properties
       cwd,
@@ -2865,14 +2962,11 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       // Resume must block on initialization to validate the session is still alive.
       // For stale sessions this throws (e.g. "No conversation found").
       try {
-        const result = await withTimeout(
-          q.initializationResult(),
-          SESSION_VALIDATION_TIMEOUT_MS,
-        );
+        const result = await initialization.wait(q.initializationResult());
         if (result.result === "timeout") {
           throw new RequestError(
             -32603,
-            `Session ${forkSession ? "fork" : "resumption"} timed out after ${SESSION_VALIDATION_TIMEOUT_MS}ms`,
+            `Session ${result.phase === "setup_hooks" ? "setup hooks" : forkSession ? "fork" : "resumption"} timed out after ${result.timeoutMs}ms`,
             { sessionId, taskId, taskRunId: meta?.taskRunId },
           );
         }
@@ -2891,7 +2985,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
         ) {
           throw RequestError.resourceNotFound(sessionId);
         }
-        this.logger.error(
+        startupLogger.error(
           forkSession ? "Session fork failed" : "Session resumption failed",
           {
             sessionId,
@@ -2908,7 +3002,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
     // with the model config fetch below (the gateway REST call is independent).
     const initStartedAt = Date.now();
     const initPromise = !isResume
-      ? withTimeout(q.initializationResult(), SESSION_VALIDATION_TIMEOUT_MS)
+      ? initialization.wait(q.initializationResult())
       : undefined;
     const requestedModel =
       meta?.model || settingsManager.getSettings().model || undefined;
@@ -2943,12 +3037,16 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       : rawModelOptions;
 
     if (initPromise) {
+      let initializationPhase = initialization.phase;
+      let timeoutMs = SESSION_VALIDATION_TIMEOUT_MS;
       try {
         const initResult = await initPromise;
         if (initResult.result === "timeout") {
+          initializationPhase = initResult.phase;
+          timeoutMs = initResult.timeoutMs;
           throw new RequestError(
             -32603,
-            `Session initialization timed out after ${SESSION_VALIDATION_TIMEOUT_MS}ms`,
+            `Session ${initializationPhase === "setup_hooks" ? "setup hooks" : "initialization"} timed out after ${timeoutMs}ms`,
             { sessionId, taskId, taskRunId: meta?.taskRunId },
           );
         }
@@ -2958,7 +3056,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
         session.fastModeEnabled = fastModeStateEnabled(
           initResult.value.fast_mode_state,
         );
-        this.logger.info("Session initialized", {
+        startupLogger.info("Session initialized", {
           sessionId,
           taskId,
           taskRunId: meta?.taskRunId,
@@ -2969,12 +3067,12 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
         settingsManager.dispose();
         this.terminateQuery(q, abortController);
         const initMs = Date.now() - initStartedAt;
-        this.logger.error("Session initialization failed", {
+        startupLogger.error("Session initialization failed", {
           sessionId,
           taskId,
           taskRunId: meta?.taskRunId,
-          initializationPhase: "sdk_initialization",
-          timeoutMs: SESSION_VALIDATION_TIMEOUT_MS,
+          initializationPhase,
+          timeoutMs,
           modelConfigMs,
           initMs,
           requestedModel: requestedModel ?? null,
@@ -3565,7 +3663,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
   }
 
   private async broadcastUserMessage(params: PromptRequest): Promise<void> {
-    for (const chunk of params.prompt) {
+    for (const chunk of visiblePromptBlocks(params.prompt)) {
       const notification = {
         sessionId: params.sessionId,
         update: {

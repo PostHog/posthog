@@ -9,42 +9,23 @@ import { ReactNode } from 'react'
 
 import { LemonCard, LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
 
-import { percent } from '../lib/format'
-import { DeltaBadge, percentChange, pointChange } from './MetricTile'
+import { cn } from 'lib/utils/css-classes'
 
-function MagnitudeBar({
-    fraction,
-    current,
-    markerFraction,
-    markerTooltip,
-}: {
-    fraction: number
-    current: boolean
-    markerFraction?: number | null
-    markerTooltip?: string
-}): JSX.Element {
-    return (
-        <div className="relative h-2.5 flex-1 rounded-sm">
-            <div
-                className={`h-full rounded-sm ${current ? 'bg-[var(--data-color-1)]' : 'bg-[var(--muted)]'}`}
-                style={{ width: `${Math.max(fraction * 100, 2)}%` }}
-            />
-            {markerFraction != null && (
-                <Tooltip title={markerTooltip}>
-                    <div
-                        className="absolute -top-0.5 h-3.5 w-0.5 -translate-x-1/2 rounded-sm bg-[var(--text-3000)]"
-                        style={{ left: `${markerFraction * 100}%` }}
-                    />
-                </Tooltip>
-            )}
-        </div>
-    )
+import { percent } from '../lib/format'
+import { ComparisonBarRow } from './ComparisonBarRow'
+import { DeltaBadge, percentChange, pointChange, type TileBenchmark } from './MetricTile'
+
+const BENCHMARK_EDGE_CLASS: Record<TileBenchmark['band'], string> = {
+    elite: 'border-l-success',
+    high: 'border-l-purple',
+    medium: 'border-l-warning',
+    low: 'border-l-danger',
 }
 
-function SplitBar({ rate }: { rate: number }): JSX.Element {
+function PassFailSplit({ rate }: { rate: number }): JSX.Element {
     return (
         <Tooltip title={`${percent(rate, 1)} passed, ${percent(1 - rate, 1)} failed`}>
-            <div className="flex h-2.5 flex-1 overflow-hidden rounded-sm">
+            <div className="flex h-full">
                 <div className="h-full bg-success" style={{ width: `${rate * 100}%` }} />
                 <div className="h-full flex-1 bg-danger" />
             </div>
@@ -72,21 +53,28 @@ function ComparisonRow({
     marker?: number | null
     markerLabel?: string
 }): JSX.Element {
+    if (share) {
+        return (
+            <ComparisonBarRow label={label} value={formatValue(value)} fraction={1}>
+                <PassFailSplit rate={value} />
+            </ComparisonBarRow>
+        )
+    }
     return (
-        <div className="flex items-center gap-2">
-            <span className="w-24 shrink-0 text-[11px] text-tertiary">{label}</span>
-            {share ? (
-                <SplitBar rate={value} />
-            ) : (
-                <MagnitudeBar
-                    fraction={max > 0 ? value / max : 0}
-                    current={current}
-                    markerFraction={marker != null && max > 0 ? marker / max : null}
-                    markerTooltip={marker != null && markerLabel ? `${markerLabel} ${formatValue(marker)}` : undefined}
-                />
-            )}
-            <span className="w-12 shrink-0 text-right text-xs font-medium tabular-nums">{formatValue(value)}</span>
-        </div>
+        <ComparisonBarRow
+            label={label}
+            value={formatValue(value)}
+            fraction={max > 0 ? value / max : 0}
+            muted={!current}
+            marker={
+                marker != null && max > 0
+                    ? {
+                          fraction: marker / max,
+                          tooltip: markerLabel ? `${markerLabel} ${formatValue(marker)}` : undefined,
+                      }
+                    : null
+            }
+        />
     )
 }
 
@@ -100,6 +88,7 @@ export function WindowComparisonCard({
     deltaUnit,
     deltaPrecision,
     tooltip,
+    benchmark,
     marker,
     markerPrevious,
     markerLabel,
@@ -121,6 +110,7 @@ export function WindowComparisonCard({
     deltaPrecision?: number
     /** Definition or methodology, shown on title hover. */
     tooltip?: ReactNode
+    benchmark?: TileBenchmark | null
     /** A companion figure (e.g. p90) pinned as a tick on each magnitude bar, on the same scale as
      *  the value. Ignored in `share` mode, which has no scale to pin against. */
     marker?: number | null
@@ -129,14 +119,27 @@ export function WindowComparisonCard({
     loading?: boolean
     emptyText: string
 }): JSX.Element {
-    const max = Math.max(value ?? 0, previousValue ?? 0, marker ?? 0, markerPrevious ?? 0)
+    const max = Math.max(...[value, previousValue, marker, markerPrevious].map((number) => number ?? 0))
     const delta = deltaUnit === 'pt' ? pointChange(value, previousValue) : percentChange(value, previousValue)
+    const tooltipContent = benchmark ? (
+        <div className="flex flex-col gap-1">
+            {tooltip}
+            <div>
+                DORA band: {benchmark.label.toLowerCase()}. {benchmark.tooltip}
+            </div>
+        </div>
+    ) : (
+        tooltip
+    )
 
     return (
-        <LemonCard hoverEffect={false} className="flex flex-col p-4">
+        <LemonCard
+            hoverEffect={false}
+            className={cn('flex flex-col p-4', benchmark && `border-l-4 ${BENCHMARK_EDGE_CLASS[benchmark.band]}`)}
+        >
             <h3 className="mb-1 text-xs font-semibold text-secondary">
-                {tooltip ? (
-                    <Tooltip title={tooltip}>
+                {tooltipContent ? (
+                    <Tooltip title={tooltipContent}>
                         <span className="cursor-default">{title}</span>
                     </Tooltip>
                 ) : (

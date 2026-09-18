@@ -20,8 +20,9 @@ from posthog.schema import (
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr
 
-from posthog.hogql_queries.insights.trends.utils import get_properties_chain
 from posthog.hogql_queries.utils.breakdowns import BREAKDOWN_NULL_STRING_LABEL
+
+from products.product_analytics.backend.facade.queries import get_properties_chain
 
 
 class BreakdownInjector:
@@ -43,10 +44,6 @@ class BreakdownInjector:
     def _has_breakdown(self) -> bool:
         """Returns True if any breakdowns are configured"""
         return len(self.breakdowns) > 0
-
-    def _get_breakdown_count(self) -> int:
-        """Returns the number of breakdowns configured"""
-        return len(self.breakdowns)
 
     def _get_breakdown_aliases(self) -> list[str]:
         """Returns list of breakdown aliases: ['breakdown_value_1', 'breakdown_value_2', ...]"""

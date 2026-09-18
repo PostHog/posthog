@@ -3,11 +3,11 @@ import json
 import time
 from collections.abc import Iterator
 from typing import Any, Optional
-from urllib.parse import urlencode, urlparse
+from urllib.parse import quote, urlencode, urlparse
 
 import requests
 from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from tenacity import Retrying, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 from urllib3.util.retry import Retry
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.argocd.settings import ARGOCD_ENDPOINTS
@@ -17,6 +17,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
 
 REQUEST_TIMEOUT_SECONDS = 120
 MAX_RETRIES = 5
+# A per-application request usually fails for a reason specific to that one application, such
+# as a spec the server can't compare or a revision its repository no longer resolves, and the
+# application is then skipped. A short budget keeps a large install from waiting out the full
+# one once per application.
+MAX_CHILD_RETRIES = 2
 
 HOST_NOT_ALLOWED_ERROR = "Argo CD host is not allowed"
 HTTPS_REQUIRED_ERROR = "Argo CD host must use HTTPS"
@@ -41,6 +46,21 @@ _ERROR_SNIPPET_BYTES = 2048
 # The applications list is fetched in one response, so batch the yielded rows to keep
 # downstream Arrow conversion working on bounded slices.
 _ROWS_PER_BATCH = 1000
+# Each managed-resource row carries the resource's live and target manifests, so these rows
+# are batched smaller to keep a batch's memory footprint comparable to the other endpoints'.
+_MANAGED_RESOURCE_ROWS_PER_BATCH = 100
+
+# Per-application endpoints cost one request per application, so bound the walk rather than
+# letting a pathological install run unchecked.
+MAX_FAN_OUT_APPLICATIONS = 5000
+# Argo CD keeps 10 history entries per application by default; this leaves headroom for
+# installs that raise revisionHistoryLimit.
+MAX_REVISIONS_PER_APPLICATION = 25
+# Every per-request limit resets on the next request, so a walk of one request per application
+# needs a budget of its own. Without it a host that answers slowly for tens of thousands of
+# applications holds an import worker until the activity's 24h timeout. The walk stops at the
+# budget and logs what it skipped, the same way it does at the application cap.
+MAX_FAN_OUT_SECONDS = 4 * 60 * 60
 
 # Repository objects' credential fields are write-only in the Argo CD API, but drop them
 # defensively in case a server version ever echoes one back.
@@ -236,13 +256,284 @@ def _normalize_cluster(item: dict[str, Any]) -> dict[str, Any]:
     return {k: v for k, v in item.items() if k != "config"}
 
 
-@retry(
-    retry=retry_if_exception_type((ArgocdRetryableError, requests.ReadTimeout, requests.ConnectionError)),
-    stop=stop_after_attempt(MAX_RETRIES),
-    wait=wait_exponential_jitter(initial=1, max=30),
-    reraise=True,
-)
-def _fetch(session: requests.Session, url: str, headers: dict[str, str], logger: FilteringBoundLogger) -> Any:
+def _application_identity(app: dict[str, Any]) -> dict[str, Any]:
+    metadata = app.get("metadata") or {}
+    spec = app.get("spec") or {}
+    return {
+        "application_name": metadata.get("name"),
+        "application_namespace": metadata.get("namespace"),
+        "application_uid": metadata.get("uid"),
+        "project": spec.get("project"),
+    }
+
+
+def _normalize_event(event: dict[str, Any]) -> dict[str, Any]:
+    metadata = event.get("metadata") or {}
+    involved = event.get("involvedObject") or {}
+    return {
+        "uid": metadata.get("uid"),
+        "created_at": metadata.get("creationTimestamp"),
+        "reason": event.get("reason"),
+        "message": event.get("message"),
+        "type": event.get("type"),
+        "action": event.get("action"),
+        "count": event.get("count"),
+        "first_timestamp": event.get("firstTimestamp"),
+        "last_timestamp": event.get("lastTimestamp"),
+        "event_time": event.get("eventTime"),
+        "involved_object_kind": involved.get("kind"),
+        "involved_object_name": involved.get("name"),
+        "involved_object_namespace": involved.get("namespace"),
+        "involved_object_uid": involved.get("uid"),
+        "reporting_component": event.get("reportingComponent"),
+        "reporting_instance": event.get("reportingInstance"),
+        "source": event.get("source"),
+        "series": event.get("series"),
+        "metadata": metadata,
+    }
+
+
+def _normalize_managed_resource(item: dict[str, Any]) -> dict[str, Any]:
+    return {
+        # Key columns must never be null: a core-API resource has no group and a
+        # cluster-scoped one has no namespace.
+        "group": item.get("group") or "",
+        "kind": item.get("kind") or "",
+        "namespace": item.get("namespace") or "",
+        "name": item.get("name") or "",
+        "modified": item.get("modified"),
+        "hook": item.get("hook"),
+        "resource_version": item.get("resourceVersion"),
+        "diff": item.get("diff"),
+        "live_state": item.get("liveState"),
+        "target_state": item.get("targetState"),
+        "normalized_live_state": item.get("normalizedLiveState"),
+        "predicted_live_state": item.get("predictedLiveState"),
+    }
+
+
+def _normalize_resource_node(node: dict[str, Any], *, orphaned: bool) -> dict[str, Any]:
+    health = node.get("health") or {}
+    return {
+        "group": node.get("group") or "",
+        "kind": node.get("kind") or "",
+        "namespace": node.get("namespace") or "",
+        "name": node.get("name") or "",
+        "uid": node.get("uid"),
+        "version": node.get("version"),
+        # Orphaned resources live in the application's namespace but are not managed by it.
+        "orphaned": orphaned,
+        "created_at": node.get("createdAt"),
+        "health_status": health.get("status"),
+        "health_message": health.get("message"),
+        "resource_version": node.get("resourceVersion"),
+        "images": node.get("images"),
+        "info": node.get("info"),
+        "parent_refs": node.get("parentRefs"),
+        "networking_info": node.get("networkingInfo"),
+    }
+
+
+def _normalize_revision_metadata(data: dict[str, Any], revision: str, source_index: int) -> dict[str, Any]:
+    return {
+        "revision": revision,
+        "source_index": source_index,
+        "author": data.get("author"),
+        "date": data.get("date"),
+        "message": data.get("message"),
+        "tags": data.get("tags"),
+        "references": data.get("references"),
+        "signature_info": data.get("signatureInfo"),
+        "source_integrity_result": data.get("sourceIntegrityResult"),
+    }
+
+
+def _child_params(app: dict[str, Any], extra: Optional[dict[str, Any]] = None) -> dict[str, Any]:
+    """Scope a per-application request to the application it was walked from.
+
+    With apps-in-any-namespace the name alone is ambiguous, and the project is what the
+    server checks the token's RBAC against.
+    """
+    metadata = app.get("metadata") or {}
+    spec = app.get("spec") or {}
+    params: dict[str, Any] = {}
+    if metadata.get("namespace"):
+        params["appNamespace"] = metadata["namespace"]
+    if spec.get("project"):
+        params["project"] = spec["project"]
+    if extra:
+        params.update(extra)
+    return params
+
+
+def _child_url(host: str, path: str, app: dict[str, Any], revision: Optional[str] = None, **params: Any) -> str:
+    name = (app.get("metadata") or {}).get("name") or ""
+    path = path.replace("{name}", quote(name, safe=""))
+    if revision is not None:
+        path = path.replace("{revision}", quote(revision, safe=""))
+    return _build_url(host, path, _child_params(app, params))
+
+
+def _revision_requests(app: dict[str, Any]) -> list[tuple[str, int]]:
+    """Distinct (revision, source index) pairs to resolve for one application.
+
+    Multi-source applications record one revision per source and the API resolves each by its
+    index. Chart revisions are left out: this endpoint resolves git commits through the repo
+    server, and a Helm chart version has its own endpoint. History runs oldest first, so it is
+    walked backwards to keep the most recent revisions when the cap bites.
+    """
+    history = (app.get("status") or {}).get("history") or []
+    pairs: list[tuple[str, int]] = []
+    seen: set[tuple[str, int]] = set()
+    for entry in reversed(history):
+        if not isinstance(entry, dict):
+            continue
+        sources = entry.get("sources") or []
+        revisions = entry.get("revisions") or []
+        if revisions:
+            candidates = [
+                (rev, index, sources[index] if index < len(sources) else {}) for index, rev in enumerate(revisions)
+            ]
+        else:
+            candidates = [(entry.get("revision"), 0, entry.get("source") or {})]
+        for revision, source_index, source in candidates:
+            if not revision or (isinstance(source, dict) and source.get("chart")):
+                continue
+            if (revision, source_index) in seen:
+                continue
+            seen.add((revision, source_index))
+            pairs.append((revision, source_index))
+            if len(pairs) >= MAX_REVISIONS_PER_APPLICATION:
+                return pairs
+    return pairs
+
+
+def _fetch_child(
+    session: requests.Session,
+    url: str,
+    headers: dict[str, str],
+    logger: FilteringBoundLogger,
+    app_label: str,
+) -> Any:
+    """Fetch a per-application endpoint, returning ``None`` when the application is skipped.
+
+    These endpoints fail for one application at a time in ways a retry cannot fix: the
+    application was deleted during the walk, its spec does not compare so the server holds no
+    cached state, or its revision is not a commit the repo server can resolve. Argo CD reports
+    those as a 404 or a 500, so one broken application must not fail the whole table. A rejected
+    token or a blocked host still fails the sync.
+    """
+    try:
+        return _fetch(session, url, headers, logger, attempts=MAX_CHILD_RETRIES)
+    except requests.HTTPError as e:
+        status_code = e.response.status_code if e.response is not None else None
+        if status_code in (401, 403):
+            raise
+        logger.warning(f"Argo CD: skipping application {app_label} for this endpoint: {e}")
+        return None
+    except (ArgocdRetryableError, requests.ReadTimeout, requests.ConnectionError) as e:
+        logger.warning(f"Argo CD: skipping application {app_label} for this endpoint: {e}")
+        return None
+
+
+def _child_rows(
+    session: requests.Session,
+    host: str,
+    headers: dict[str, str],
+    endpoint: str,
+    app: dict[str, Any],
+    logger: FilteringBoundLogger,
+    deadline: float,
+) -> Iterator[dict[str, Any]]:
+    identity = _application_identity(app)
+    app_label = f"{identity['application_namespace']}/{identity['application_name']}"
+    path = ARGOCD_ENDPOINTS[endpoint].path
+
+    if endpoint == "revision_metadata":
+        for revision, source_index in _revision_requests(app):
+            if time.monotonic() > deadline:
+                return
+            url = _child_url(host, path, app, revision=revision, sourceIndex=source_index)
+            data = _fetch_child(session, url, headers, logger, app_label)
+            if isinstance(data, dict):
+                yield {**identity, **_normalize_revision_metadata(data, revision, source_index)}
+        return
+
+    data = _fetch_child(session, _child_url(host, path, app), headers, logger, app_label)
+    if data is None:
+        return
+
+    if endpoint == "application_events":
+        for item in _items(data):
+            yield {**identity, **_normalize_event(item)}
+    elif endpoint == "managed_resources":
+        for item in _items(data):
+            yield {**identity, **_normalize_managed_resource(item)}
+    else:
+        # The resource tree is not a Kubernetes List: managed and orphaned resources arrive in
+        # separate arrays.
+        nodes = data.get("nodes") if isinstance(data, dict) else None
+        orphaned_nodes = data.get("orphanedNodes") if isinstance(data, dict) else None
+        for node in nodes or []:
+            yield {**identity, **_normalize_resource_node(node, orphaned=False)}
+        for node in orphaned_nodes or []:
+            yield {**identity, **_normalize_resource_node(node, orphaned=True)}
+
+
+def _fan_out_rows(
+    session: requests.Session,
+    host: str,
+    api_token: str,
+    endpoint: str,
+    logger: FilteringBoundLogger,
+    project: str | None,
+) -> Iterator[list[dict[str, Any]]]:
+    headers = _get_headers(api_token)
+    apps_url = _build_url(host, ARGOCD_ENDPOINTS["applications"].path, _list_params("applications", project))
+    apps = _items(_fetch(session, apps_url, headers, logger))
+    if len(apps) > MAX_FAN_OUT_APPLICATIONS:
+        logger.warning(
+            f"Argo CD: {endpoint} walks at most {MAX_FAN_OUT_APPLICATIONS} applications, "
+            f"skipping {len(apps) - MAX_FAN_OUT_APPLICATIONS} of {len(apps)}"
+        )
+        apps = apps[:MAX_FAN_OUT_APPLICATIONS]
+
+    rows_per_batch = _MANAGED_RESOURCE_ROWS_PER_BATCH if endpoint == "managed_resources" else _ROWS_PER_BATCH
+    deadline = time.monotonic() + MAX_FAN_OUT_SECONDS
+    batch: list[dict[str, Any]] = []
+    for index, app in enumerate(apps):
+        if time.monotonic() > deadline:
+            logger.warning(
+                f"Argo CD: {endpoint} reached its {MAX_FAN_OUT_SECONDS}s budget after {index} applications, "
+                f"skipping the remaining {len(apps) - index}"
+            )
+            break
+        for row in _child_rows(session, host, headers, endpoint, app, logger, deadline):
+            batch.append(row)
+            if len(batch) >= rows_per_batch:
+                yield batch
+                batch = []
+    if batch:
+        yield batch
+
+
+def _fetch(
+    session: requests.Session,
+    url: str,
+    headers: dict[str, str],
+    logger: FilteringBoundLogger,
+    attempts: int = MAX_RETRIES,
+) -> Any:
+    retrying = Retrying(
+        retry=retry_if_exception_type((ArgocdRetryableError, requests.ReadTimeout, requests.ConnectionError)),
+        stop=stop_after_attempt(attempts),
+        wait=wait_exponential_jitter(initial=1, max=30),
+        reraise=True,
+    )
+    return retrying(_fetch_once, session, url, headers, logger)
+
+
+def _fetch_once(session: requests.Session, url: str, headers: dict[str, str], logger: FilteringBoundLogger) -> Any:
     # Don't follow redirects: the customer-controlled host could 3xx to an internal address,
     # bypassing the host validation done before the request (SSRF). `stream=True` so bodies
     # are only read through `_read_bounded` / `_error_snippet` under a byte cap.
@@ -295,6 +586,11 @@ def get_rows(
     # default retries on would nest under it, so a host that stalls each read could occupy a
     # worker for adapter_attempts × tenacity_attempts × timeout.
     session = make_tracked_session(redact_values=(api_token,), capture=False, retry=Retry(total=0))
+
+    if config.fan_out:
+        yield from _fan_out_rows(session, host, api_token, endpoint, logger, project)
+        return
+
     url = _build_url(host, config.path, _list_params(endpoint, project))
     data = _fetch(session, url, _get_headers(api_token), logger)
     items = _items(data)
@@ -347,6 +643,11 @@ def validate_credentials(
             return False, host_err or HOST_NOT_ALLOWED_ERROR
 
     endpoint = schema_name if schema_name in ARGOCD_ENDPOINTS else "applications"
+    if ARGOCD_ENDPOINTS[endpoint].fan_out:
+        # A per-application endpoint needs an application name in its path. It is only reached
+        # by walking the applications list and needs the same `applications, get` permission,
+        # so probing that list is the scoped check.
+        endpoint = "applications"
     params = _list_params(endpoint, project)
     if endpoint in ("applications", "deployment_history"):
         # Filtering by a name that can't exist keeps the probe response tiny; servers that
