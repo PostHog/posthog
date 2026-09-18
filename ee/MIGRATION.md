@@ -63,21 +63,22 @@ All 41 of its snapshots are a subset of the 287 in that directory's own file, so
 The eight batches that carry no model and needed no new product are open as stack #102736, based on `master` rather than on this branch.
 They touch none of the files this PR moves, so the two land in parallel and in either order.
 
-| PR                                                        | Batch                                            | Destination                   |
-| --------------------------------------------------------- | ------------------------------------------------ | ----------------------------- |
-| [#102727](https://github.com/PostHog/posthog/pull/102727) | `ee/clickhouse/materialized_columns`             | `products/analytics_platform` |
-| [#102728](https://github.com/PostHog/posthog/pull/102728) | `ee/tasks/subscriptions`                         | `products/exports`            |
-| [#102729](https://github.com/PostHog/posthog/pull/102729) | `ee/clickhouse/views` experiment views and tests | `products/experiments`        |
-| [#102730](https://github.com/PostHog/posthog/pull/102730) | `ee/surveys`                                     | `products/surveys`            |
-| [#102732](https://github.com/PostHog/posthog/pull/102732) | `ee/admin`                                       | `posthog/admin`               |
-| [#102733](https://github.com/PostHog/posthog/pull/102733) | `ee/api/rbac`                                    | `products/access_control`     |
-| [#102734](https://github.com/PostHog/posthog/pull/102734) | `ee/support_sidebar_max`                         | `posthog/support_sidebar_max` |
-| [#102735](https://github.com/PostHog/posthog/pull/102735) | `ee/benchmarks`                                  | `tools/benchmarks`            |
+| PR                                                        | Batch                                            | Destination                               |
+| --------------------------------------------------------- | ------------------------------------------------ | ----------------------------------------- |
+| [#102727](https://github.com/PostHog/posthog/pull/102727) | `ee/clickhouse/materialized_columns`             | `posthog/clickhouse/materialized_columns` |
+| [#102728](https://github.com/PostHog/posthog/pull/102728) | `ee/tasks/subscriptions`                         | `products/exports`                        |
+| [#102729](https://github.com/PostHog/posthog/pull/102729) | `ee/clickhouse/views` experiment views and tests | `products/experiments`                    |
+| [#102730](https://github.com/PostHog/posthog/pull/102730) | `ee/surveys`                                     | `products/surveys`                        |
+| [#102732](https://github.com/PostHog/posthog/pull/102732) | `ee/admin`                                       | `posthog/admin`                           |
+| [#102733](https://github.com/PostHog/posthog/pull/102733) | `ee/api/rbac`                                    | `products/access_control`                 |
+| [#102734](https://github.com/PostHog/posthog/pull/102734) | `ee/support_sidebar_max`                         | `posthog/support_sidebar_max`             |
+| [#102735](https://github.com/PostHog/posthog/pull/102735) | `ee/benchmarks`                                  | `tools/benchmarks`                        |
 
 Those eight remove `ee/surveys`, `ee/api/rbac`, `ee/support_sidebar_max`, `ee/admin` and `ee/benchmarks` from the directory outright.
 
-Three corrections to this plan came out of them:
+Four corrections to this plan came out of them:
 
+- **`ee/clickhouse/materialized_columns` goes to core, not `products/analytics_platform`.** Core is already inside every backend test lane, so the move needs no `tach.toml` entry, no ruff exemption, and no change to the compat or person-on-events pytest targets. A products destination needed all four, and the last of them is a workflow edit that reaches every open PR before those branches rebase. The existing `posthog/clickhouse/materialized_columns.py` becomes the package's `__init__`, so no consumer's import changes.
 - **`ee/tasks/subscriptions` goes to `products/exports`, not `products/product_analytics`.** That product is isolated, so the batch needs a facade entry per exposed symbol, and `tach check --interfaces` reports 70. `products/exports` is not isolated, already holds the `Subscription` model and every delivery caller, and needs one `depends_on` line. Ownership does not change: `products/exports` is team-product-analytics too.
 - **An `EE_AVAILABLE` guard whose only reason is the directory comes out with the batch.** Materialized columns and the experiments route surface were both gated that way, so a build without the package silently lost them. Removing the guard is a behavior change, not a refactor, and it belongs in the batch's own PR where a reviewer can see it.
 - **A setting the batch reads has to move with it.** `MATERIALIZE_COLUMNS_*` and `ANTHROPIC_API_KEY` only resolved while `ee/settings.py` was merged into Django settings, so core code reading them after the move needed them in `posthog/settings/`.
