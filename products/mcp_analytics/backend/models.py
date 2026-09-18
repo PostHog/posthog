@@ -5,6 +5,8 @@ from django.db import models
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.utils import UUIDModel
 
+from products.mcp_analytics.backend.facade.contracts import MAX_SESSION_ID_LENGTH
+
 
 class MCPIntentClusterSnapshot(TeamScopedRootMixin):
     class Status(models.TextChoices):
@@ -113,7 +115,7 @@ class MCPSession(UUIDModel, TeamScopedRootMixin):
     # is aggregated on the fly from $mcp_tool_call events (see logic.py); the
     # backfill that once populated session_start/_end/duration/etc. is gone.
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
-    session_id = models.CharField(max_length=64)
+    session_id = models.CharField(max_length=MAX_SESSION_ID_LENGTH)
     intent = models.TextField(null=True, blank=True)
 
     created_at = models.DateTimeField(auto_now_add=True)

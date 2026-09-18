@@ -528,10 +528,14 @@ export const mcpSessionsLogic = kea<mcpSessionsLogicType>([
                 actions.loadToolCalls(sessionId)
             }
         },
-        // The button just resets to its idle state on failure; surface a toast so the user
-        // knows the request failed (e.g. a 503 when intent generation is unavailable).
-        generateIntentFailure: () => {
-            lemonToast.error('Could not generate the session intent. Please try again.')
+        // The button just resets to its idle state on failure; surface a toast so the user knows
+        // the request failed. A 4xx detail names what the caller must change, so show it. A 5xx
+        // detail is one fixed string that stands for several causes, and a timed-out or empty LLM
+        // response is among them, so keep the friendly message and its retry hint.
+        generateIntentFailure: ({ errorObject }) => {
+            const status = errorObject?.status
+            const detail = status >= 400 && status < 500 ? errorObject?.detail : null
+            lemonToast.error(detail || 'Could not generate the session intent. Please try again.')
         },
         // Only fires on a reset load (not on loadMore), so appending more pages doesn't
         // steal the user's selection. Auto-selects the first row when the set changes.
