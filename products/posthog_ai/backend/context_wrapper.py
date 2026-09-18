@@ -12,6 +12,7 @@ the bridge is deleted.
 NOT deprecated: `abuild_resumed_legacy_context` (the conversation migration service) stays.
 """
 
+import re
 import json
 import time
 from collections.abc import Iterable, Sequence
@@ -37,6 +38,10 @@ AttachedContextType = Literal[
 ]
 
 ALLOWED_TYPES: frozenset[str] = frozenset(get_args(AttachedContextType))
+
+# Every open/close variant of the three context tag names, including the legacy `posthog_context`
+# this module emits. Mirrors the frontend `defang` regex in `posthogContextBlock.ts`.
+_CONTEXT_TAG_PATTERN = re.compile(r"<(/?)(posthog_(?:(?:un)?trusted_)?context)")
 
 # Caps on attached-context size.
 MAX_ATTACHED_ITEMS = 32
@@ -126,13 +131,21 @@ class ContextService:
 
     @staticmethod
     def _defang(text: str | int) -> str:
-        """Invariant: interpolated fields must never contain the literal close-tag sequence.
+        r"""Invariant: interpolated fields must never contain a literal open/close sequence of the
+        context tags, and must never contain a newline.
 
         The frontend replay stripper cuts at the FIRST `</posthog_context>`, so a raw close tag
-        inside the body would truncate the strip early and leave block remnants. Mirrors the
-        frontend `defang` in `posthogContextBlock.ts`.
+        inside the body would truncate the strip early and leave block remnants. A raw
+        `<posthog_trusted_context>` is worse: the system prompt tells the agent to follow that block
+        like system instructions, so an attacker-influencable value (a property filter carried in a
+        shared URL, for example) could forge one and have its contents obeyed. Newlines are escaped
+        one level down for the same reason, so that a value carrying `\n- ` cannot forge extra item
+        lines in the block the model reads.
+
+        Must stay equivalent to the frontend `defang` in `posthogContextBlock.ts`.
         """
-        return str(text).replace("</posthog_context", "<\\/posthog_context")
+        escaped = _CONTEXT_TAG_PATTERN.sub(r"<\\\1\2", str(text))
+        return escaped.replace("\r\n", "\\n").replace("\n", "\\n")
 
     def _format_item(self, item: AttachedContext) -> str:
         """Render one attachment line.
