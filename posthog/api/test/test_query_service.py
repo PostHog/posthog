@@ -1,12 +1,15 @@
 from types import SimpleNamespace
 from typing import cast
+from uuid import uuid4
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase
 
+import posthoganalytics
 from parameterized import parameterized
+from posthoganalytics.client import Client
 from rest_framework.exceptions import ValidationError
 
 from posthog.schema import (
@@ -33,11 +36,19 @@ from posthog.hogql.database.models import TableNode
 from posthog.hogql.database.postgres_table import PostgresTable
 from posthog.hogql.direct_connection import INVALID_CONNECTION_ID_ERROR
 from posthog.hogql.errors import ResolutionError
-from posthog.hogql.language_service import CatalogMissing, LanguageServiceError, LanguageServiceResult, build_catalog
+from posthog.hogql.language_service import (
+    CatalogMissing,
+    LanguageServiceError,
+    LanguageServiceResult,
+    MalformedLanguageServiceResponse,
+    build_catalog,
+)
 
 from posthog.api.services.query import (
     _build_database_schema_query,
+    _capture_malformed_language_service_response,
     _DatabaseSchemaCatalog,
+    _EditorAssistRoute,
     _language_service_call,
     _language_service_eligible,
     process_query_model,
@@ -63,31 +74,88 @@ class TestLanguageServiceRouting(SimpleTestCase):
 
         assert _language_service_eligible(query)
 
-    @patch("posthog.api.services.query._language_service_call")
-    def test_hogql_autocomplete_uses_language_service_response(self, mock_language_service_call: MagicMock):
-        mock_language_service_call.return_value = LanguageServiceResult(
-            body={
-                "suggestions": [
-                    {"label": "events", "kind": "table", "detail": "posthog"},
-                    {"label": "count", "kind": "function", "insertText": "count()", "sortText": "2-count"},
-                    {"label": "=", "kind": "operator", "insertText": "="},
-                ],
-                "durationMicros": 250,
-                "nextCursor": "next",
-            },
-            duration_seconds=0.001,
-            response_size_bytes=128,
+    @patch("posthog.api.services.query._build_database_schema_query", side_effect=DatabaseSchemaUnavailable())
+    @patch("posthog.api.services.query.LanguageServiceClient")
+    def test_schema_refresh_failure_falls_back(self, client_class: MagicMock, _build_schema: MagicMock) -> None:
+        client_class.return_value.validate.side_effect = CatalogMissing("missing")
+
+        route = _language_service_call(
+            cast(Team, SimpleNamespace(pk=12)),
+            cast(User, SimpleNamespace(pk=34)),
+            HogQLMetadata(query="SELECT event FROM events", language=HogLanguage.HOG_QL),
+        )
+
+        assert route.result is None
+        assert route.reason == "service_error"
+
+    def test_malformed_response_tracking_uses_sanitized_context(self) -> None:
+        sentinel = uuid4().hex
+        client = Client("test", send=False, log_captured_exceptions=True, capture_exception_code_variables=True)
+        with (
+            patch.object(client, "_enqueue", return_value=True) as enqueue,
+            patch.object(client.log, "disabled", False),
+            patch.object(posthoganalytics, "capture_exception", side_effect=client.capture_exception),
+        ):
+            with patch.object(client.log, "handle", wraps=client.log.handle) as handle_log:
+                with posthoganalytics.new_context(fresh=True):
+                    posthoganalytics.tag("query", sentinel)
+                    try:
+                        raise ValueError(sentinel)
+                    except ValueError:
+                        pass
+                    _capture_malformed_language_service_response("metadata", "response_mapping")
+
+        event = enqueue.call_args.args[0]
+        properties = event["properties"]
+        exception_values = properties["$exception_list"]
+        assert exception_values[0]["value"] == "HogQL language service returned a malformed response"
+        assert sentinel not in repr(event)
+        records = [call.args[0] for call in handle_log.call_args_list]
+        assert records
+        assert sentinel not in repr([(record.getMessage(), record.exc_info) for record in records])
+        assert all(record.exc_info == (None, None, None) for record in records)
+        for exception in exception_values:
+            for frame in exception["stacktrace"]["frames"]:
+                assert "vars" not in frame
+                assert "code_variables" not in frame
+        assert {key: properties[key] for key in ("component", "operation", "stage")} == {
+            "component": "hogql_language_service",
+            "operation": "metadata",
+            "stage": "response_mapping",
+        }
+
+    @patch("posthog.api.services.query.posthoganalytics.default_client")
+    @patch("posthog.api.services.query._route_editor_assist")
+    def test_hogql_autocomplete_uses_language_service_response(
+        self, mock_language_service_call: MagicMock, analytics_client: MagicMock
+    ):
+        mock_language_service_call.return_value = _EditorAssistRoute(
+            enabled=True,
+            reason="served",
+            result=LanguageServiceResult(
+                body={
+                    "suggestions": [
+                        {"label": "events", "kind": "table", "detail": "posthog"},
+                        {"label": "count", "kind": "function", "insertText": "count()", "sortText": "2-count"},
+                        {"label": "=", "kind": "operator", "insertText": "="},
+                    ],
+                    "durationMicros": 250,
+                    "nextCursor": "next",
+                },
+                duration_seconds=0.001,
+                response_size_bytes=128,
+            ),
         )
 
         response = process_query_model(
-            cast(Team, SimpleNamespace()),
+            cast(Team, SimpleNamespace(pk=12, modifiers={})),
             HogQLAutocomplete(
                 query="SELECT * FROM ",
                 language=HogLanguage.HOG_QL,
                 startPosition=14,
                 endPosition=14,
             ),
-            user=cast(User, SimpleNamespace()),
+            user=cast(User, SimpleNamespace(pk=34)),
         )
 
         assert isinstance(response, HogQLAutocompleteResponse)
@@ -101,31 +169,40 @@ class TestLanguageServiceRouting(SimpleTestCase):
             {"k": "language_service_http", "t": 0.001},
             {"k": "language_service_go", "t": 0.00025},
         ]
+        analytics_client.metrics.count.assert_called_once_with(
+            "hogql.editor_assist.responses",
+            1,
+            attributes={"operation": "autocomplete", "backend": "language_service", "reason": "served"},
+        )
 
-    @patch("posthog.api.services.query._language_service_call")
+    @patch("posthog.api.services.query._route_editor_assist")
     def test_hogql_metadata_uses_language_service_diagnostics(self, mock_language_service_call: MagicMock):
-        mock_language_service_call.return_value = LanguageServiceResult(
-            body={
-                "valid": False,
-                "diagnostics": [
-                    {
-                        "code": "unknown_table",
-                        "message": 'Unknown table "evnts"',
-                        "start": 14,
-                        "end": 19,
-                        "suggestions": [{"label": "events", "distance": 1}],
-                    }
-                ],
-                "tableNames": ["evnts"],
-            },
-            duration_seconds=0.001,
-            response_size_bytes=128,
+        mock_language_service_call.return_value = _EditorAssistRoute(
+            enabled=True,
+            reason="served",
+            result=LanguageServiceResult(
+                body={
+                    "valid": False,
+                    "diagnostics": [
+                        {
+                            "code": "unknown_table",
+                            "message": 'Unknown table "evnts"',
+                            "start": 14,
+                            "end": 19,
+                            "suggestions": [{"label": "events", "distance": 1}],
+                        }
+                    ],
+                    "tableNames": ["evnts"],
+                },
+                duration_seconds=0.001,
+                response_size_bytes=128,
+            ),
         )
 
         response = process_query_model(
-            cast(Team, SimpleNamespace()),
+            cast(Team, SimpleNamespace(pk=12)),
             HogQLMetadata(query="SELECT * FROM evnts", language=HogLanguage.HOG_QL),
-            user=cast(User, SimpleNamespace()),
+            user=cast(User, SimpleNamespace(pk=34)),
         )
 
         assert isinstance(response, HogQLMetadataResponse)
@@ -134,23 +211,278 @@ class TestLanguageServiceRouting(SimpleTestCase):
         assert response.errors[0].fix == "events"
         assert response.table_names == ["evnts"]
 
-    @patch("posthog.api.services.query._language_service_call")
-    def test_unknown_properties_remain_warnings(self, mock_language_service_call: MagicMock) -> None:
-        mock_language_service_call.return_value = LanguageServiceResult(
+    @parameterized.expand(
+        [
+            ("service_error", LanguageServiceError("unavailable"), "service_error"),
+            ("invalid_http", MalformedLanguageServiceResponse("malformed"), "invalid_response"),
+        ]
+    )
+    @patch("posthog.api.services.query.posthoganalytics.default_client")
+    @patch("posthog.api.services.query.get_hogql_metadata")
+    @patch("posthog.api.services.query.is_language_service_enabled", return_value=True)
+    @patch("posthog.api.services.query.LanguageServiceClient")
+    def test_metadata_fallback_records_the_serving_backend_once(
+        self,
+        _name: str,
+        failure: Exception,
+        reason: str,
+        client_class: MagicMock,
+        enabled: MagicMock,
+        python_metadata: MagicMock,
+        analytics_client: MagicMock,
+    ) -> None:
+        client_class.return_value.validate.side_effect = failure
+        python_metadata.return_value = HogQLMetadataResponse(
+            isValid=True,
+            query="SELECT event FROM events",
+            errors=[],
+            warnings=[],
+            notices=[],
+            table_names=["events"],
+        )
+
+        response = process_query_model(
+            cast(Team, SimpleNamespace(pk=12)),
+            HogQLMetadata(query="SELECT event FROM events", language=HogLanguage.HOG_QL),
+            user=cast(User, SimpleNamespace(pk=34)),
+        )
+
+        assert response is python_metadata.return_value
+        analytics_client.metrics.count.assert_called_once_with(
+            "hogql.editor_assist.responses",
+            1,
+            attributes={"operation": "metadata", "backend": "python", "reason": reason},
+        )
+        enabled.assert_called_once()
+
+    @parameterized.expand([("collection", {}), ("nested", [None])])
+    @patch("posthog.api.services.query._capture_malformed_language_service_response")
+    @patch("posthog.api.services.query.posthoganalytics.default_client")
+    @patch("posthog.api.services.query.get_hogql_metadata")
+    @patch("posthog.api.services.query.is_language_service_enabled", return_value=True)
+    @patch("posthog.api.services.query.LanguageServiceClient")
+    def test_malformed_metadata_mapping_falls_back(
+        self,
+        _name: str,
+        diagnostics: object,
+        client_class: MagicMock,
+        enabled: MagicMock,
+        python_metadata: MagicMock,
+        analytics_client: MagicMock,
+        capture_malformed: MagicMock,
+    ) -> None:
+        client_class.return_value.validate.return_value = LanguageServiceResult(
+            body={"catalogRevision": "warehouse-aliases-v1:cached", "diagnostics": diagnostics},
+            duration_seconds=0,
+            response_size_bytes=0,
+        )
+        python_metadata.return_value = HogQLMetadataResponse(
+            isValid=True,
+            query="SELECT event FROM events",
+            errors=[],
+            warnings=[],
+            notices=[],
+            table_names=["events"],
+        )
+
+        response = process_query_model(
+            cast(Team, SimpleNamespace(pk=12)),
+            HogQLMetadata(query="SELECT event FROM events", language=HogLanguage.HOG_QL),
+            user=cast(User, SimpleNamespace(pk=34)),
+        )
+
+        assert response is python_metadata.return_value
+        capture_malformed.assert_called_once_with("metadata", "response_mapping")
+        analytics_client.metrics.count.assert_called_once_with(
+            "hogql.editor_assist.responses",
+            1,
+            attributes={"operation": "metadata", "backend": "python", "reason": "invalid_response"},
+        )
+        enabled.assert_called_once()
+
+    @parameterized.expand([("collection", {}), ("nested", [None])])
+    @patch("posthog.api.services.query._capture_malformed_language_service_response")
+    @patch("posthog.api.services.query.posthoganalytics.default_client")
+    @patch("posthog.api.services.query.create_default_modifiers_for_team", return_value=MagicMock())
+    @patch("posthog.api.services.query.resolve_database_for_connection", return_value=(None, MagicMock()))
+    @patch("posthog.api.services.query.get_hogql_autocomplete")
+    @patch("posthog.api.services.query.is_language_service_enabled", return_value=True)
+    @patch("posthog.api.services.query.LanguageServiceClient")
+    def test_malformed_autocomplete_mapping_falls_back(
+        self,
+        _name: str,
+        suggestions: object,
+        client_class: MagicMock,
+        _enabled: MagicMock,
+        python_autocomplete: MagicMock,
+        _resolve_database: MagicMock,
+        _modifiers: MagicMock,
+        analytics_client: MagicMock,
+        capture_malformed: MagicMock,
+    ) -> None:
+        client_class.return_value.autocomplete.return_value = LanguageServiceResult(
             body={
-                "valid": False,
-                "diagnostics": [
-                    {
-                        "code": "unknown_property",
-                        "message": 'Unknown property "missing"',
-                        "start": 7,
-                        "end": 14,
-                    }
-                ],
-                "tableNames": ["events"],
+                "catalogRevision": "warehouse-aliases-v1:cached",
+                "suggestions": suggestions,
+                "durationMicros": 1,
             },
-            duration_seconds=0.001,
-            response_size_bytes=128,
+            duration_seconds=0,
+            response_size_bytes=0,
+        )
+        python_autocomplete.return_value = HogQLAutocompleteResponse(suggestions=[], incomplete_list=False)
+
+        response = process_query_model(
+            cast(Team, SimpleNamespace(pk=12, modifiers={})),
+            HogQLAutocomplete(
+                query="SELECT event FROM events",
+                language=HogLanguage.HOG_QL,
+                startPosition=6,
+                endPosition=6,
+            ),
+            user=cast(User, SimpleNamespace(pk=34)),
+        )
+
+        assert response is python_autocomplete.return_value
+        capture_malformed.assert_called_once_with("autocomplete", "response_mapping")
+        analytics_client.metrics.count.assert_called_once_with(
+            "hogql.editor_assist.responses",
+            1,
+            attributes={"operation": "autocomplete", "backend": "python", "reason": "invalid_response"},
+        )
+
+    @patch("posthog.api.services.query.posthoganalytics.capture_exception", side_effect=RuntimeError("tracking failed"))
+    @patch("posthog.api.services.query.posthoganalytics.default_client")
+    @patch("posthog.api.services.query.get_hogql_metadata")
+    @patch("posthog.api.services.query._route_editor_assist")
+    def test_telemetry_failures_do_not_prevent_python_fallback(
+        self,
+        route: MagicMock,
+        python_metadata: MagicMock,
+        analytics_client: MagicMock,
+        _capture: MagicMock,
+    ) -> None:
+        route.return_value = _EditorAssistRoute(
+            enabled=True,
+            result=LanguageServiceResult(body={"diagnostics": {}}, duration_seconds=0, response_size_bytes=0),
+            reason="served",
+        )
+        python_metadata.return_value = HogQLMetadataResponse(
+            isValid=True,
+            query="SELECT event FROM events",
+            errors=[],
+            warnings=[],
+            notices=[],
+            table_names=["events"],
+        )
+        analytics_client.metrics.count.side_effect = RuntimeError("metrics failed")
+
+        response = process_query_model(
+            cast(Team, SimpleNamespace(pk=12)),
+            HogQLMetadata(query="SELECT event FROM events", language=HogLanguage.HOG_QL),
+            user=cast(User, SimpleNamespace(pk=34)),
+        )
+
+        assert response is python_metadata.return_value
+
+    @parameterized.expand([("disabled", False, object()), ("no_user", True, None)])
+    @patch("posthog.api.services.query.posthoganalytics.default_client")
+    @patch("posthog.api.services.query.get_hogql_metadata")
+    @patch("posthog.api.services.query.is_language_service_enabled")
+    def test_metadata_metric_excludes_requests_outside_the_enabled_denominator(
+        self,
+        _name: str,
+        flag_enabled: bool,
+        user: object | None,
+        enabled: MagicMock,
+        python_metadata: MagicMock,
+        analytics_client: MagicMock,
+    ) -> None:
+        enabled.return_value = flag_enabled
+        python_metadata.return_value = HogQLMetadataResponse(
+            isValid=True,
+            query="SELECT event FROM events",
+            errors=[],
+            warnings=[],
+            notices=[],
+            table_names=["events"],
+        )
+
+        process_query_model(
+            cast(Team, SimpleNamespace()),
+            HogQLMetadata(query="SELECT event FROM events", language=HogLanguage.HOG_QL),
+            user=cast(User | None, user),
+        )
+
+        analytics_client.metrics.count.assert_not_called()
+        if user is None:
+            enabled.assert_not_called()
+        else:
+            enabled.assert_called_once()
+
+    @patch("posthog.api.services.query.posthoganalytics.default_client")
+    @patch("posthog.api.services.query.get_hogql_metadata")
+    @patch("posthog.api.services.query.is_language_service_enabled", return_value=True)
+    def test_ineligible_metadata_records_python_backend(
+        self, enabled: MagicMock, python_metadata: MagicMock, analytics_client: MagicMock
+    ) -> None:
+        python_metadata.return_value = HogQLMetadataResponse(
+            isValid=True,
+            query="SELECT event FROM events",
+            errors=[],
+            warnings=[],
+            notices=[],
+            table_names=["events"],
+        )
+
+        process_query_model(
+            cast(Team, SimpleNamespace()),
+            HogQLMetadata(query="SELECT event FROM events", language=HogLanguage.HOG_QL, debug=True),
+            user=cast(User, SimpleNamespace()),
+        )
+
+        analytics_client.metrics.count.assert_called_once_with(
+            "hogql.editor_assist.responses",
+            1,
+            attributes={"operation": "metadata", "backend": "python", "reason": "ineligible"},
+        )
+        enabled.assert_called_once()
+
+    @patch("posthog.api.services.query.posthoganalytics.default_client")
+    @patch("posthog.api.services.query.get_hogql_metadata", side_effect=RuntimeError("failed"))
+    @patch("posthog.api.services.query.is_language_service_enabled", return_value=True)
+    def test_failed_python_fallback_does_not_record_a_serving_backend(
+        self, _enabled: MagicMock, _python_metadata: MagicMock, analytics_client: MagicMock
+    ) -> None:
+        with self.assertRaises(RuntimeError):
+            process_query_model(
+                cast(Team, SimpleNamespace()),
+                HogQLMetadata(query="SELECT event FROM events", language=HogLanguage.HOG_QL, debug=True),
+                user=cast(User, SimpleNamespace()),
+            )
+
+        analytics_client.metrics.count.assert_not_called()
+
+    @patch("posthog.api.services.query._route_editor_assist")
+    def test_unknown_properties_remain_warnings(self, mock_language_service_call: MagicMock) -> None:
+        mock_language_service_call.return_value = _EditorAssistRoute(
+            enabled=True,
+            reason="served",
+            result=LanguageServiceResult(
+                body={
+                    "valid": False,
+                    "diagnostics": [
+                        {
+                            "code": "unknown_property",
+                            "message": 'Unknown property "missing"',
+                            "start": 7,
+                            "end": 14,
+                        }
+                    ],
+                    "tableNames": ["events"],
+                },
+                duration_seconds=0.001,
+                response_size_bytes=128,
+            ),
         )
 
         response = process_query_model(
@@ -183,7 +515,7 @@ class TestLanguageServiceRouting(SimpleTestCase):
             HogQLMetadata(query="SELECT 1", language=HogLanguage.HOG_QL),
         )
 
-        assert result is not None
+        assert result.result is not None
         client_class.return_value.publish.assert_not_called()
 
     @parameterized.expand(
@@ -240,7 +572,7 @@ class TestLanguageServiceRouting(SimpleTestCase):
             HogQLMetadata(query="SELECT 1", language=HogLanguage.HOG_QL),
         )
 
-        assert result is not None
+        assert result.result is not None
         assert published_revision[0].startswith("warehouse-aliases-v1:")
         assert client.validate.call_count == 2
         assert build_catalog_mock.call_args.kwargs["database"] is build_schema.return_value.database
@@ -270,7 +602,7 @@ class TestLanguageServiceRouting(SimpleTestCase):
             HogQLMetadata(query="SELECT 1", language=HogLanguage.HOG_QL),
         )
 
-        assert result is None
+        assert result.result is None
         client_class.return_value.publish.assert_called_once()
 
     @parameterized.expand(
@@ -314,7 +646,7 @@ class TestLanguageServiceRouting(SimpleTestCase):
             HogQLMetadata(query="SELECT 1", language=HogLanguage.HOG_QL),
         )
 
-        assert (result is not None) is expected_success
+        assert (result.result is not None) is expected_success
         client_class.return_value.publish.assert_called_once()
         assert client_class.return_value.validate.call_count == 2
 

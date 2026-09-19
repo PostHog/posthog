@@ -294,6 +294,15 @@ Django refreshes cached catalogs with numeric or `legacy-v1` revisions before it
 Each request attempts at most one publication and one retry.
 The retry must return an alias-capable revision, but a concurrent publication for the same team and user can supersede the requested revision.
 If publication fails or a catalog cannot represent the resolver result, Django uses the Python autocomplete or validation path.
+Malformed HTTP payloads, incompatible revisions after refresh, and malformed autocomplete or validation mappings also use the Python path.
+Malformed service responses produce a sanitized Error Tracking event without the SQL text, response body, user context, or original exception.
+
+For authenticated requests that have the service configured and the feature flag enabled, `hogql.editor_assist.responses` counts the backend that produced the final successful editor response.
+Its bounded attributes are the operation, backend, and routing reason.
+The operation is `autocomplete` or `metadata`, the backend is `language_service` or `python`, and the reason is `served`, `ineligible`, `service_error`, or `invalid_response`.
+The denominator includes enabled requests that are ineligible for the Go service and use Python.
+It excludes disabled requests, requests without a user, and requests that fail before either backend constructs a response.
+The existing PostHog SDK configuration exports this metric in deployed environments; local and test environments can leave the SDK disabled.
 
 The initial rollout keeps ClickHouse execution in Django:
 

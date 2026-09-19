@@ -3,6 +3,7 @@ from unittest.mock import MagicMock, patch
 from django.test import SimpleTestCase, override_settings
 
 import requests
+from parameterized import parameterized
 
 from posthog.schema import DatabaseSchemaDataWarehouseTable, DatabaseSchemaPostHogTable, DatabaseSchemaQueryResponse
 
@@ -13,6 +14,7 @@ from posthog.hogql.language_service import (
     CatalogMissing,
     LanguageServiceClient,
     LanguageServiceError,
+    MalformedLanguageServiceResponse,
     build_catalog,
     is_language_service_enabled,
 )
@@ -72,6 +74,25 @@ class TestLanguageServiceClient(SimpleTestCase):
             "position": 7,
             "positionEncoding": "utf-16",
         }
+
+    @parameterized.expand(
+        [
+            ("invalid_json", requests.JSONDecodeError("invalid", "x", 0)),
+            ("list", []),
+            ("scalar", "unexpected"),
+            ("null", None),
+        ]
+    )
+    @patch("posthog.hogql.language_service.internal_requests.request")
+    def test_rejects_malformed_responses(self, _name: str, body: object, request: MagicMock) -> None:
+        response = MagicMock(ok=True, content=b"malformed")
+        response.json.side_effect = body if isinstance(body, Exception) else None
+        if not isinstance(body, Exception):
+            response.json.return_value = body
+        request.return_value = response
+
+        with self.assertRaises(MalformedLanguageServiceResponse):
+            LanguageServiceClient().validate(12, 34, "SELECT event FROM events")
 
     @patch("posthog.hogql.language_service.LANGUAGE_SERVICE_HTTP_DURATION_SECONDS")
     @patch("posthog.hogql.language_service.internal_requests.request", side_effect=requests.Timeout("timed out"))

@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Literal, Optional, overload
 
 import structlog
 import pydantic_core
+import posthoganalytics
 from pydantic import BaseModel
 from rest_framework.exceptions import APIException, ValidationError
 
@@ -38,6 +39,7 @@ from posthog.hogql.language_service import (
     LanguageServiceClient,
     LanguageServiceError,
     LanguageServiceResult,
+    MalformedLanguageServiceResponse,
     build_catalog,
     is_language_service_enabled,
 )
@@ -79,6 +81,19 @@ class _DatabaseSchemaCatalog:
     database: Database
 
 
+type _EditorAssistReason = Literal["served", "ineligible", "service_error", "invalid_response"]
+type _EditorAssistOperation = Literal["autocomplete", "metadata"]
+type _MalformedResponseStage = Literal["http_response", "response_mapping"]
+
+
+@frozen
+class _EditorAssistRoute:
+    enabled: bool
+    result: LanguageServiceResult | None
+    reason: _EditorAssistReason
+    malformed_stage: _MalformedResponseStage | None = None
+
+
 def _is_alias_capable_catalog_revision(revision: object) -> bool:
     return isinstance(revision, str) and revision.startswith(_WAREHOUSE_ALIAS_CATALOG_REVISION_PREFIX)
 
@@ -97,11 +112,7 @@ def _language_service_eligible(query: HogQLAutocomplete | HogQLMetadata) -> bool
     return common
 
 
-def _language_service_call(
-    team: Team, user: User, query: HogQLAutocomplete | HogQLMetadata
-) -> LanguageServiceResult | None:
-    if not _language_service_eligible(query) or not is_language_service_enabled(team, user):
-        return None
+def _language_service_call(team: Team, user: User, query: HogQLAutocomplete | HogQLMetadata) -> _EditorAssistRoute:
     try:
         client = LanguageServiceClient()
 
@@ -113,12 +124,14 @@ def _language_service_call(
         result = call()
     except CatalogMissing:
         result = None
+    except MalformedLanguageServiceResponse:
+        return _EditorAssistRoute(enabled=True, result=None, reason="invalid_response", malformed_stage="http_response")
     except LanguageServiceError:
-        return None
+        return _EditorAssistRoute(enabled=True, result=None, reason="service_error")
 
     if result is not None:
         if _is_alias_capable_catalog_revision(result.body.get("catalogRevision")):
-            return result
+            return _EditorAssistRoute(enabled=True, result=result, reason="served")
 
     try:
         schema_catalog = _build_database_schema_query(team, DatabaseSchemaQuery(), user=user)
@@ -136,10 +149,120 @@ def _language_service_call(
         )
         result = call()
         if not _is_alias_capable_catalog_revision(result.body.get("catalogRevision")):
-            raise LanguageServiceError("language service did not return an alias-capable catalog revision")
-        return result
-    except LanguageServiceError:
-        return None
+            raise MalformedLanguageServiceResponse("language service returned an incompatible catalog revision")
+        return _EditorAssistRoute(enabled=True, result=result, reason="served")
+    except MalformedLanguageServiceResponse:
+        return _EditorAssistRoute(enabled=True, result=None, reason="invalid_response", malformed_stage="http_response")
+    except (DatabaseSchemaUnavailable, LanguageServiceError):
+        return _EditorAssistRoute(enabled=True, result=None, reason="service_error")
+
+
+def _route_editor_assist(team: Team, user: User | None, query: HogQLAutocomplete | HogQLMetadata) -> _EditorAssistRoute:
+    if user is None or not is_language_service_enabled(team, user):
+        return _EditorAssistRoute(enabled=False, result=None, reason="ineligible")
+    if not _language_service_eligible(query):
+        return _EditorAssistRoute(enabled=True, result=None, reason="ineligible")
+    return _language_service_call(team, user, query)
+
+
+def _capture_malformed_language_service_response(
+    operation: _EditorAssistOperation, stage: _MalformedResponseStage
+) -> None:
+    try:
+        with posthoganalytics.new_context(fresh=True, capture_exceptions=False):
+            posthoganalytics.set_capture_exception_code_variables_context(False)
+            posthoganalytics.capture_exception(
+                RuntimeError("HogQL language service returned a malformed response"),
+                properties={
+                    "component": "hogql_language_service",
+                    "operation": operation,
+                    "stage": stage,
+                },
+            )
+    except Exception:
+        logger.warning("hogql_language_service_error_tracking_failed")
+
+
+def _record_editor_assist_backend(
+    route: _EditorAssistRoute,
+    operation: _EditorAssistOperation,
+    backend: Literal["language_service", "python"],
+    reason: _EditorAssistReason,
+) -> None:
+    if not route.enabled:
+        return
+    try:
+        client = posthoganalytics.default_client
+        if client is not None:
+            client.metrics.count(
+                "hogql.editor_assist.responses",
+                1,
+                attributes={"operation": operation, "backend": backend, "reason": reason},
+            )
+    except Exception:
+        logger.warning("hogql_editor_assist_metric_failed")
+
+
+def _autocomplete_response_from_language_service(
+    language_result: LanguageServiceResult,
+) -> HogQLAutocompleteResponse:
+    body = language_result.body
+    if not isinstance(body.get("suggestions"), list):
+        raise TypeError("suggestions must be a list")
+    kind_map = {
+        "field": "Field",
+        "function": "Function",
+        "keyword": "Keyword",
+        "operator": "Operator",
+        "property": "Property",
+        "table": "Class",
+    }
+    return HogQLAutocompleteResponse(
+        suggestions=[
+            {
+                "label": suggestion["label"],
+                "insertText": suggestion.get("insertText", suggestion["label"]),
+                "kind": kind_map.get(suggestion["kind"], "Text"),
+                "detail": suggestion.get("detail"),
+                "sortText": suggestion.get("sortText"),
+            }
+            for suggestion in body["suggestions"]
+        ],
+        incomplete_list=bool(body.get("nextCursor")),
+        timings=[
+            QueryTiming(k="language_service_http", t=language_result.duration_seconds),
+            QueryTiming(k="language_service_go", t=body["durationMicros"] / 1_000_000),
+        ],
+    )
+
+
+def _metadata_response_from_language_service(
+    query: HogQLMetadata, language_result: LanguageServiceResult
+) -> HogQLMetadataResponse:
+    body = language_result.body
+    if not isinstance(body.get("diagnostics"), list):
+        raise TypeError("diagnostics must be a list")
+    errors: list[HogQLNotice] = []
+    warnings: list[HogQLNotice] = []
+    for diagnostic in body["diagnostics"]:
+        notice = HogQLNotice(
+            message=diagnostic["message"],
+            start=diagnostic["start"],
+            end=diagnostic["end"],
+            fix=diagnostic["suggestions"][0]["label"] if diagnostic.get("suggestions") else None,
+        )
+        if diagnostic["code"] == "unknown_property":
+            warnings.append(notice)
+        else:
+            errors.append(notice)
+    return HogQLMetadataResponse(
+        isValid=not errors,
+        query=query.query,
+        errors=errors,
+        warnings=warnings,
+        notices=[],
+        table_names=body.get("tableNames", []),
+    )
 
 
 @dataclass(frozen=True)
@@ -403,36 +526,20 @@ def process_query_model(
 ) -> dict | BaseModel | RawCachedQueryResponse:
     if isinstance(query, HogQLAutocomplete):
         with EDITOR_ASSIST_DURATION_SECONDS.labels(kind="autocomplete").time():
-            if user is not None and (language_result := _language_service_call(team, user, query)) is not None:
-                body = language_result.body
-                kind_map = {
-                    "field": "Field",
-                    "function": "Function",
-                    "keyword": "Keyword",
-                    "operator": "Operator",
-                    "property": "Property",
-                    "table": "Class",
-                }
+            route = _route_editor_assist(team, user, query)
+            python_reason = route.reason
+            if (language_result := route.result) is not None:
                 try:
-                    return HogQLAutocompleteResponse(
-                        suggestions=[
-                            {
-                                "label": suggestion["label"],
-                                "insertText": suggestion.get("insertText", suggestion["label"]),
-                                "kind": kind_map.get(suggestion["kind"], "Text"),
-                                "detail": suggestion.get("detail"),
-                                "sortText": suggestion.get("sortText"),
-                            }
-                            for suggestion in body["suggestions"]
-                        ],
-                        incomplete_list=bool(body.get("nextCursor")),
-                        timings=[
-                            QueryTiming(k="language_service_http", t=language_result.duration_seconds),
-                            QueryTiming(k="language_service_go", t=body["durationMicros"] / 1_000_000),
-                        ],
-                    )
-                except (KeyError, TypeError, ValueError):
+                    autocomplete_response = _autocomplete_response_from_language_service(language_result)
+                except (AttributeError, KeyError, TypeError, ValueError):
                     logger.warning("hogql_language_service_invalid_autocomplete_response")
+                    python_reason = "invalid_response"
+                else:
+                    _record_editor_assist_backend(route, "autocomplete", "language_service", "served")
+                    return autocomplete_response
+                _capture_malformed_language_service_response("autocomplete", "response_mapping")
+            elif route.malformed_stage is not None:
+                _capture_malformed_language_service_response("autocomplete", route.malformed_stage)
             _, database = resolve_database_for_connection(
                 team,
                 query.connectionId,
@@ -442,38 +549,30 @@ def process_query_model(
                 # Editor-assist only: query execution never reads cached sources.
                 use_cached_sources=True,
             )
-            return get_hogql_autocomplete(query=query, team=team, database_arg=database, user=user)
+            autocomplete_response = get_hogql_autocomplete(query=query, team=team, database_arg=database, user=user)
+            _record_editor_assist_backend(route, "autocomplete", "python", python_reason)
+            return autocomplete_response
 
     if isinstance(query, HogQLMetadata):
         with EDITOR_ASSIST_DURATION_SECONDS.labels(kind="metadata").time():
-            if user is not None and (language_result := _language_service_call(team, user, query)) is not None:
-                body = language_result.body
+            route = _route_editor_assist(team, user, query)
+            python_reason = route.reason
+            if (language_result := route.result) is not None:
                 try:
-                    errors: list[HogQLNotice] = []
-                    warnings: list[HogQLNotice] = []
-                    for diagnostic in body["diagnostics"]:
-                        notice = HogQLNotice(
-                            message=diagnostic["message"],
-                            start=diagnostic["start"],
-                            end=diagnostic["end"],
-                            fix=diagnostic["suggestions"][0]["label"] if diagnostic.get("suggestions") else None,
-                        )
-                        if diagnostic["code"] == "unknown_property":
-                            warnings.append(notice)
-                        else:
-                            errors.append(notice)
-                    return HogQLMetadataResponse(
-                        isValid=not errors,
-                        query=query.query,
-                        errors=errors,
-                        warnings=warnings,
-                        notices=[],
-                        table_names=body.get("tableNames", []),
-                    )
-                except (KeyError, TypeError, ValueError):
+                    metadata_response = _metadata_response_from_language_service(query, language_result)
+                except (AttributeError, KeyError, TypeError, ValueError):
                     logger.warning("hogql_language_service_invalid_metadata_response")
+                    python_reason = "invalid_response"
+                else:
+                    _record_editor_assist_backend(route, "metadata", "language_service", "served")
+                    return metadata_response
+                _capture_malformed_language_service_response("metadata", "response_mapping")
+            elif route.malformed_stage is not None:
+                _capture_malformed_language_service_response("metadata", route.malformed_stage)
             metadata_query = HogQLMetadata.model_validate(query)
-            return get_hogql_metadata(query=metadata_query, team=team, user=user)
+            metadata_response = get_hogql_metadata(query=metadata_query, team=team, user=user)
+            _record_editor_assist_backend(route, "metadata", "python", python_reason)
+            return metadata_response
 
     if isinstance(query, DatabaseSchemaQuery):
         return process_database_schema_query(team, query, user=user)
