@@ -35,26 +35,34 @@ def _make_rpc_error(status_code: grpc.StatusCode) -> grpc.RpcError:
     return error
 
 
-def _make_transient_then_ok(fail_count: int, status_code: grpc.StatusCode):
-    """Returns a continuation that fails fail_count times then succeeds."""
+def _make_transient_then_ok(fail_count: int, status_code: grpc.StatusCode, raises: bool = True):
+    """Returns a continuation that fails fail_count times then succeeds.
+
+    grpc's blocking path returns the RpcError from the continuation rather than raising it;
+    ``raises=False`` reproduces that.
+    """
     calls: list[int] = []
 
     def continuation(details, request):
         calls.append(1)
         if len(calls) <= fail_count:
-            raise _make_rpc_error(status_code)
+            if raises:
+                raise _make_rpc_error(status_code)
+            return _make_rpc_error(status_code)
         return "ok"
 
     return continuation, calls
 
 
-def _make_always_failing(status_code: grpc.StatusCode):
-    """Returns a continuation that always raises the given status code."""
+def _make_always_failing(status_code: grpc.StatusCode, raises: bool = True):
+    """Returns a continuation that always fails with the given status code."""
     calls: list[int] = []
 
     def continuation(details, request):
         calls.append(1)
-        raise _make_rpc_error(status_code)
+        if raises:
+            raise _make_rpc_error(status_code)
+        return _make_rpc_error(status_code)
 
     return continuation, calls
 
@@ -121,6 +129,30 @@ class TestRetryInterceptorBehavior:
         # 1 initial + 1 retry = 2 total attempts
         assert len(calls) == 2
         assert mock_sleep.call_count == 1
+
+    @patch("posthog.personhog_client.interceptor.time.sleep")
+    def test_retries_an_error_the_continuation_returns_instead_of_raising(self, mock_sleep):
+        interceptor = RetryInterceptor("test-client", max_retries=1, initial_backoff_ms=1, max_backoff_ms=10)
+        details = _make_call_details()
+        continuation, calls = _make_transient_then_ok(1, grpc.StatusCode.UNAVAILABLE, raises=False)
+
+        result = interceptor.intercept_unary_unary(continuation, details, request=b"")
+
+        assert result == "ok"
+        assert len(calls) == 2
+        assert mock_sleep.call_count == 1
+
+    @patch("posthog.personhog_client.interceptor.time.sleep")
+    def test_returns_the_error_when_a_returned_error_exhausts_retries(self, mock_sleep):
+        interceptor = RetryInterceptor("test-client", max_retries=1, initial_backoff_ms=1, max_backoff_ms=10)
+        details = _make_call_details()
+        continuation, calls = _make_always_failing(grpc.StatusCode.UNAVAILABLE, raises=False)
+
+        result = interceptor.intercept_unary_unary(continuation, details, request=b"")
+
+        assert isinstance(result, grpc.RpcError)
+        assert result.code() == grpc.StatusCode.UNAVAILABLE
+        assert len(calls) == 2
 
     def test_no_retries_when_max_retries_is_zero(self):
         interceptor = RetryInterceptor("test-client", max_retries=0, initial_backoff_ms=1, max_backoff_ms=10)
