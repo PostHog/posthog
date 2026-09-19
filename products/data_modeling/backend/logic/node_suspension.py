@@ -11,10 +11,14 @@ from typing import TYPE_CHECKING
 
 from django.db import transaction
 
+import structlog
+
 from products.data_modeling.backend.models.node import Node
 
 if TYPE_CHECKING:
     from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+
+logger = structlog.get_logger(__name__)
 
 SUSPENDED_KEY = "suspended"
 RESET_KEY = "suspension_reset"
@@ -60,7 +64,7 @@ def mark_node_suspended(node: Node, *, engine: str, reason: str, job_id: str, fi
         "job_id": job_id,
         "query_fingerprint": fingerprint,
     }
-    # A fresh suspension supersedes the resume that preceded it.
+    # A fresh suspension supersedes the watermark that preceded it.
     (system.get(RESET_KEY) or {}).pop(str(engine), None)
     node.properties = properties
 
@@ -104,7 +108,7 @@ def _persist_change(node: Node, change: Callable[[Node], bool]) -> bool:
     return True
 
 
-def resume_nodes(
+def unsuspend_nodes(
     nodes: Iterable[Node],
     *,
     by: str,
@@ -113,7 +117,7 @@ def resume_nodes(
 ) -> int:
     """Returns how many of the nodes were actually suspended, not how many were passed in.
 
-    `only_if` runs against the locked row, so a caller that decided to resume from an earlier read
+    `only_if` runs against the locked row, so a caller that decided to unsuspend from an earlier read
     can re-test that decision against state nothing else can change while the check runs.
     """
 
@@ -140,10 +144,31 @@ def suspension_state_for_saved_query(saved_query: "DataWarehouseSavedQuery") -> 
     return merged
 
 
-def resume_saved_query(saved_query: "DataWarehouseSavedQuery", *, by: str = "api") -> int:
-    """One query can back several nodes when it landed in duplicate DAGs, and "resume this model"
-    means all of them."""
-    return resume_nodes(
+def suspended_saved_query_ids_by_team(engine: str) -> dict[int, list[str]]:
+    """Every saved query with a node suspended on this engine, grouped by team.
+
+    Cross-team on purpose: the daily digest classifies the whole fleet in one pass rather than one
+    query per team. Duplicate DAGs give a query several nodes, so the ids are deduplicated.
+    """
+    by_team: dict[int, set[str]] = {}
+    nodes = (
+        Node.objects.filter(
+            saved_query_id__isnull=False,
+            properties__system__suspended__has_key=str(engine),
+        )
+        .exclude(saved_query__deleted=True)
+        .values_list("team_id", "saved_query_id")
+    )
+
+    for team_id, saved_query_id in nodes.iterator():
+        by_team.setdefault(team_id, set()).add(str(saved_query_id))
+    return {team_id: sorted(ids) for team_id, ids in by_team.items()}
+
+
+def unsuspend_saved_query(saved_query: "DataWarehouseSavedQuery", *, by: str = "api") -> int:
+    """Clears the marker on every node the query backs, which is more than one when it landed in
+    duplicate DAGs. Schedules nothing: the next tier fire runs the node because no marker stops it."""
+    return unsuspend_nodes(
         Node.objects.filter(team_id=saved_query.team_id, saved_query_id=saved_query.id),
         by=by,
     )

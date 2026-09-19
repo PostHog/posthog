@@ -1,7 +1,7 @@
 import datetime as dt
 from typing import Any, Optional
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import MagicMock, patch
 
@@ -70,7 +70,7 @@ def _stub_investigation_result(metric_name: str, mover_label: str = "pod-1") -> 
     )
 
 
-@freeze_time(FROZEN_TIME)
+@time_machine.travel(FROZEN_TIME, tick=False)
 @patch(
     "products.alerts.backend.presentation.views.alert.posthoganalytics.feature_enabled", side_effect=_metrics_flag_only
 )

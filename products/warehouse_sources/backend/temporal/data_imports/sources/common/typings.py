@@ -12,6 +12,7 @@ from structlog.types import FilteringBoundLogger
 from products.warehouse_sources.backend.types import IncrementalFieldType
 
 if TYPE_CHECKING:
+    import pyarrow as pa
     from dlt.common.data_types.typing import TDataType
 
     from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.predicates import (
@@ -43,6 +44,26 @@ class _Dataclass(Protocol):
 ResumableData = TypeVar("ResumableData", bound=_Dataclass)
 
 
+@dataclasses.dataclass(frozen=False)
+class OutputLane:
+    """One table a response's item stream feeds.
+
+    A source whose single stream lands in more than one table — a change stream feeding both a
+    merged table and its append-only history — declares one lane per table. The pipeline writes
+    every lane from the same read, so the source reads its origin once however many tables it
+    keeps.
+    """
+
+    name: str
+    cdc_write_mode: Optional[str] = None
+    billable: bool = True
+    """Whether this lane's rows count towards the team's synced-row usage. A source feeding two
+    tables from one stream bills the stream once."""
+    transform: Optional[Callable[[pa.Table], pa.Table]] = None
+    """Applied to each batch before this lane writes it. May drop rows and add columns; the lane's
+    own writer tracks the schema it ends up with."""
+
+
 @dataclasses.dataclass(frozen=False)  # callers mutate `primary_keys` after construction
 class SourceResponse:
     name: str
@@ -62,6 +83,9 @@ class SourceResponse:
     rows_to_sync: Optional[int] = None
     has_duplicate_primary_keys: Optional[bool] = None
     """Whether incremental tables have non-unique primary keys"""
+    verified_primary_keys: Optional[list[str]] = None
+    """The key this run proved unique across the whole table, persisted so later runs only have to
+    prove the rows they bring in."""
     webhook_only: bool = False
     """Webhook-fed resource whose poll path does no backfill: after a wipe the poll cannot
     rebuild the table, so a requested pipeline reset preserves the Delta table and resumes
@@ -82,6 +106,9 @@ class SourceResponse:
     """xmin syncs: full 64-bit `xid8` ceiling, the durable wraparound-safe cursor."""
     xmin_num_wraparound: Optional[int] = None
     """xmin syncs: epoch (high 32 bits of `xmin_ceiling_xid8`) at this run's ceiling."""
+    lanes: Optional[list[OutputLane]] = None
+    """Tables this response's items feed, when it feeds more than the one `name` alone describes.
+    None means the single lane built from `name` and `cdc_write_mode`."""
 
 
 # Not frozen: nothing mutates it in place today, so freezing it is plausible, but every source
@@ -108,8 +135,15 @@ class SourceInputs:
     # Resolved from the schema for a source that declares a `history_lookback`; `None` means
     # unbounded. See `sources/common/history_window.py`.
     history_start: Optional[datetime.datetime] = None
+    # Start of the previous successful sync (the job's created_at), so a safe lower bound for "seen".
+    last_synced_at: Optional[datetime.datetime] = None
     enabled_columns: Optional[list[str]] = None
     row_filters: Optional[list[ValidatedRowFilter]] = None
+    # The schema's stored primary key and the key a full probe last proved unique. A source that
+    # merges on an unenforced key needs both: the first is the key it will merge on, the second
+    # says whether that key still has to be proven against the whole table.
+    primary_keys: Optional[list[str]] = None
+    verified_primary_keys: Optional[list[str]] = None
     # Multi-schema import context, read by `resolve_source_location`.
     schema_metadata: Optional[dict[str, Any]] = None
     s3_folder_name: Optional[str] = None

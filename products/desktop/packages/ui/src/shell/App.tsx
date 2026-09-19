@@ -21,6 +21,7 @@ import { useSpaceTreeStore } from "@posthog/ui/features/canvas/stores/spaceTreeS
 import { ConsentScreen } from "@posthog/ui/features/consent/ConsentScreen";
 import { useConsentAnalytics } from "@posthog/ui/features/consent/consentAnalytics";
 import { useOrgConsent } from "@posthog/ui/features/consent/useOrgConsent";
+import { FeedbackHost } from "@posthog/ui/features/feedback/FeedbackHost";
 import { AddDirectoryDialog } from "@posthog/ui/features/folder-picker/AddDirectoryDialog";
 import { ErrorDetailsDialog } from "@posthog/ui/features/notifications/ErrorDetailsDialog";
 import { OnboardingFlow } from "@posthog/ui/features/onboarding/components/OnboardingFlow";
@@ -28,6 +29,7 @@ import { useOnboardingStore } from "@posthog/ui/features/onboarding/onboardingSt
 import { SettingsDialog } from "@posthog/ui/features/settings/SettingsDialog";
 import { UpdateBanner } from "@posthog/ui/features/sidebar/components/UpdateBanner";
 import { PendingPromptRecovery } from "@posthog/ui/features/task-detail/components/PendingPromptRecovery";
+import { UpdateAvailableModal } from "@posthog/ui/features/updates/UpdateAvailableModal";
 import { router } from "@posthog/ui/router/router";
 import { AppLoadingScreen } from "@posthog/ui/shell/AppLoadingScreen";
 import {
@@ -144,7 +146,9 @@ function App({ devToolbar }: AppProps) {
   // Read through a ref so a flag arriving mid-startup cannot re-run the resolve and replace
   // a route the user has already moved off.
   const spacesLayoutEnabledRef = useRef(spacesLayoutEnabled);
-  spacesLayoutEnabledRef.current = spacesLayoutEnabled;
+  useEffect(() => {
+    spacesLayoutEnabledRef.current = spacesLayoutEnabled;
+  }, [spacesLayoutEnabled]);
 
   const readyForMainApp =
     isBootstrapped &&
@@ -336,6 +340,8 @@ function App({ devToolbar }: AppProps) {
             <ScopeReauthPrompt />
             <AddDirectoryDialog />
             <ErrorDetailsDialog />
+            <UpdateAvailableModal />
+            {isAuthenticated && <FeedbackHost />}
           </div>
           {devToolbar}
         </div>

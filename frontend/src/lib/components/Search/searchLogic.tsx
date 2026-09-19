@@ -972,6 +972,12 @@ export const searchLogic = kea<searchLogicType>([
                     Pipeline: ['data pipelines', 'data pipeline'],
                 }
 
+                // Synonyms people search for that don't appear in the item name.
+                const pathSearchKeywords: Record<string, string[]> = {
+                    Destinations: ['batch exports', 'export data'],
+                    Sources: ['data warehouse', 'warehouse', 'connectors', 'import data'],
+                }
+
                 const items = filteredMetadata.map((item) => ({
                     id: `data-management-${item.path}`,
                     name: item.path,
@@ -981,7 +987,10 @@ export const searchLogic = kea<searchLogicType>([
                     href: item.href || PLACEHOLDER_HREF,
                     itemType: item.iconType || item.type || null,
                     tags: item.tags,
-                    searchKeywords: item.category ? categorySearchKeywords[item.category] : undefined,
+                    searchKeywords: [
+                        ...(item.category ? (categorySearchKeywords[item.category] ?? []) : []),
+                        ...(pathSearchKeywords[item.path] ?? []),
+                    ],
                     lastViewedAt: item.sceneKey ? (sceneLogViewsByRef[item.sceneKey] ?? null) : null,
                     disabledReason: getProductAccessDisabledReason(item),
                     record: {

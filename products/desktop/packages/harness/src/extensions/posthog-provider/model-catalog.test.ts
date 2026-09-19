@@ -115,6 +115,7 @@ describe("resolvePosthogPiModelCatalog", () => {
     ["gpt-5.6-sol", "GPT-5.6 Sol"],
     ["gpt-5.6-terra", "GPT-5.6 Terra"],
     ["gpt-5.6-luna", "GPT-5.6 Luna"],
+    ["gpt-6-astra", "GPT-6 Astra"],
     ["zai-org/glm-5.3", "GLM-5.3"],
     ["moonshotai/kimi-k3", "Kimi K3"],
     ["deepseek-ai/deepseek-v4-flash-0731", "DeepSeek V4 Flash"],

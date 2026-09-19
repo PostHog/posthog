@@ -1,7 +1,7 @@
 from datetime import datetime
 from types import SimpleNamespace
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -59,7 +59,7 @@ class TestLifecycleQueryRetentionGroupAggregation(ClickhouseTestMixin, APIBaseTe
     def _create_events(self, data, event="$pageview"):
         person_result = []
         for id, timestamps_and_groups in data:
-            with freeze_time(timestamps_and_groups[0][0]):
+            with time_machine.travel(timestamps_and_groups[0][0], tick=False):
                 person_result.append(
                     _create_person(
                         team_id=self.team.pk,
@@ -96,7 +96,7 @@ class TestLifecycleQueryRetentionGroupAggregation(ClickhouseTestMixin, APIBaseTe
         )
 
         # Create the group on Jan 9th so that the first event on Jan 9th marks it as "new"
-        with freeze_time("2020-01-09T12:00:00Z"):
+        with time_machine.travel("2020-01-09T12:00:00Z", tick=False):
             create_group(
                 team_id=self.team.pk,
                 group_type_index=0,
@@ -360,7 +360,7 @@ class TestLifecycleQueryRetentionGroupAggregation(ClickhouseTestMixin, APIBaseTe
         )
 
         # Create company:1 on Jan 9th so that the first event on Jan 9th marks it as "new"
-        with freeze_time("2020-01-09T12:00:00Z"):
+        with time_machine.travel("2020-01-09T12:00:00Z", tick=False):
             create_group(
                 team_id=self.team.pk,
                 group_type_index=1,
@@ -369,7 +369,7 @@ class TestLifecycleQueryRetentionGroupAggregation(ClickhouseTestMixin, APIBaseTe
             )
 
         # Create company:2 on Jan 12th so that the first event on Jan 12th marks it as "new"
-        with freeze_time("2020-01-12T12:00:00Z"):
+        with time_machine.travel("2020-01-12T12:00:00Z", tick=False):
             create_group(
                 team_id=self.team.pk,
                 group_type_index=1,
@@ -634,7 +634,7 @@ class TestLifecycleQueryRetentionGroupAggregation(ClickhouseTestMixin, APIBaseTe
         )
 
         # Create groups with specific created_at times that are DIFFERENT from person's created_at
-        with freeze_time("2020-01-05T12:00:00Z"):  # Group created before the test period
+        with time_machine.travel("2020-01-05T12:00:00Z", tick=False):  # Group created before the test period
             create_group(
                 team_id=self.team.pk,
                 group_type_index=0,
@@ -642,7 +642,7 @@ class TestLifecycleQueryRetentionGroupAggregation(ClickhouseTestMixin, APIBaseTe
                 properties={"name": "early org"},
             )
 
-        with freeze_time("2020-01-12T12:00:00Z"):  # Group created during the test period
+        with time_machine.travel("2020-01-12T12:00:00Z", tick=False):  # Group created during the test period
             create_group(
                 team_id=self.team.pk,
                 group_type_index=0,
@@ -737,7 +737,7 @@ class TestLifecycleQueryRunner(ClickhouseTestMixin, APIBaseTest):
     def _create_events(self, data, event="$pageview"):
         person_result = []
         for id, timestamps in data:
-            with freeze_time(timestamps[0]):
+            with time_machine.travel(timestamps[0], tick=False):
                 person_result.append(
                     _create_person(
                         team_id=self.team.pk,
@@ -883,7 +883,7 @@ class TestLifecycleQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
         flush_persons_and_events()
 
-        with freeze_time("2020-01-12T09:00:00Z"):
+        with time_machine.travel("2020-01-12T09:00:00Z", tick=False):
             query = LifecycleQuery(
                 dateRange=DateRange(date_from="-4d", excludeIncompletePeriods=True),
                 interval=IntervalType.DAY,
@@ -1571,7 +1571,7 @@ class TestLifecycleQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
 
     def test_lifecycle_virtual_person_property_hogql_filter(self):
-        with freeze_time("2020-01-12T12:00:00Z"):
+        with time_machine.travel("2020-01-12T12:00:00Z", tick=False):
             _create_person(
                 team_id=self.team.pk,
                 distinct_ids=["p1"],
@@ -1616,7 +1616,7 @@ class TestLifecycleQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
 
     def test_lifecycle_virtual_person_property_filter(self):
-        with freeze_time("2020-01-12T12:00:00Z"):
+        with time_machine.travel("2020-01-12T12:00:00Z", tick=False):
             _create_person(
                 team_id=self.team.pk,
                 distinct_ids=["p1"],
@@ -1665,7 +1665,7 @@ class TestLifecycleQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
 
     def test_lifecycle_trends_distinct_id_repeat(self):
-        with freeze_time("2020-01-12T12:00:00Z"):
+        with time_machine.travel("2020-01-12T12:00:00Z", tick=False):
             _create_person(
                 team_id=self.team.pk,
                 distinct_ids=["p1", "another_p1"],
@@ -1793,7 +1793,7 @@ class TestLifecycleQueryRunner(ClickhouseTestMixin, APIBaseTest):
             ]
         )
 
-        with freeze_time("2020-01-17T13:01:01Z"):
+        with time_machine.travel("2020-01-17T13:01:01Z", tick=False):
             result = (
                 LifecycleQueryRunner(
                     team=self.team,
@@ -2327,7 +2327,7 @@ class TestLifecycleQueryRunner(ClickhouseTestMixin, APIBaseTest):
             ),
         ]
     )
-    @freeze_time("2020-01-20T00:00:00Z")
+    @time_machine.travel("2020-01-20T00:00:00Z", tick=False)
     def test_lifecycle_interval_boundary_filtering(self, _name, interval, date_from, date_to):
         self._create_test_events()
 

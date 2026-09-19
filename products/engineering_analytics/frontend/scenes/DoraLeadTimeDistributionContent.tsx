@@ -6,7 +6,6 @@ import { LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
 import { LeadTimeBoxPlot } from '../components/LeadTimeBoxPlot'
 import { compactAgeLabel } from '../lib/format'
 import { doraLogic } from './doraLogic'
-import { DoraUnattributedNotice } from './DoraUnattributedNotice'
 
 export function DoraLeadTimeDistributionContent(): JSX.Element {
     const {
@@ -94,7 +93,6 @@ export function DoraLeadTimeDistributionContent(): JSX.Element {
                         : 'Show open to merge and merge to deploy'}
                 </LemonButton>
             </div>
-            <DoraUnattributedNotice />
         </>
     )
 }

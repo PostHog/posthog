@@ -3,6 +3,7 @@ import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
 import * as orvalSchemas from '@/generated/context_layer/api'
+import { WikiPageReadLimitSchema } from '@/schema/tool-inputs'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const ContextWikiChannelResolveSchema = () => {
@@ -28,7 +29,7 @@ const contextWikiChannelResolve = (): ToolBase<
 
 const ContextWikiPageRetrieveSchema = () => {
     const ContextLayerAgentPagesRetrieveQueryParams = orvalSchemas.ContextLayerAgentPagesRetrieveQueryParams()
-    return ContextLayerAgentPagesRetrieveQueryParams
+    return ContextLayerAgentPagesRetrieveQueryParams.extend({ limit: WikiPageReadLimitSchema })
 }
 
 const contextWikiPageRetrieve = (): ToolBase<ReturnType<typeof ContextWikiPageRetrieveSchema>, Schemas.WikiPage> => ({
@@ -40,6 +41,9 @@ const contextWikiPageRetrieve = (): ToolBase<ReturnType<typeof ContextWikiPageRe
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/context_layer/agent/pages/`,
             query: {
+                head_sha: params.head_sha,
+                limit: params.limit,
+                offset: params.offset,
                 path: params.path,
             },
         })
@@ -102,7 +106,7 @@ const loopContextWikiChannelResolve = (): ToolBase<
 
 const LoopContextWikiPageRetrieveSchema = () => {
     const ContextLayerAgentPagesRetrieveQueryParams = orvalSchemas.ContextLayerAgentPagesRetrieveQueryParams()
-    return ContextLayerAgentPagesRetrieveQueryParams
+    return ContextLayerAgentPagesRetrieveQueryParams.extend({ limit: WikiPageReadLimitSchema })
 }
 
 const loopContextWikiPageRetrieve = (): ToolBase<
@@ -117,6 +121,9 @@ const loopContextWikiPageRetrieve = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/context_layer/agent/pages/`,
             query: {
+                head_sha: params.head_sha,
+                limit: params.limit,
+                offset: params.offset,
                 path: params.path,
             },
         })
@@ -156,6 +163,118 @@ const loopContextWikiPageUpdate = (): ToolBase<
     },
 })
 
+const TaskContextWikiChannelResolveSchema = () => {
+    const ContextLayerAgentChannelPagesRetrieveParams = orvalSchemas.ContextLayerAgentChannelPagesRetrieveParams()
+    return ContextLayerAgentChannelPagesRetrieveParams.omit({ project_id: true })
+}
+
+const taskContextWikiChannelResolve = (): ToolBase<
+    ReturnType<typeof TaskContextWikiChannelResolveSchema>,
+    Schemas.ChannelWikiPage
+> => ({
+    name: 'task-context-wiki-channel-resolve',
+    schema: TaskContextWikiChannelResolveSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof TaskContextWikiChannelResolveSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.ChannelWikiPage>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/context_layer/agent/channel-pages/${encodeURIComponent(String(params.channel_id))}/`,
+        })
+        return result
+    },
+})
+
+const TaskContextWikiPageProposeSchema = () => {
+    const ContextLayerAgentProposalsCreateBody = orvalSchemas.ContextLayerAgentProposalsCreateBody()
+    return ContextLayerAgentProposalsCreateBody
+}
+
+const taskContextWikiPagePropose = (): ToolBase<
+    ReturnType<typeof TaskContextWikiPageProposeSchema>,
+    Schemas.WikiPageProposal
+> => ({
+    name: 'task-context-wiki-page-propose',
+    schema: TaskContextWikiPageProposeSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof TaskContextWikiPageProposeSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.path !== undefined) {
+            body['path'] = params.path
+        }
+        if (params.content !== undefined) {
+            body['content'] = params.content
+        }
+        if (params.base_head !== undefined) {
+            body['base_head'] = params.base_head
+        }
+        const result = await context.api.request<Schemas.WikiPageProposal>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/context_layer/agent/proposals/`,
+            body,
+        })
+        return result
+    },
+})
+
+const TaskContextWikiPageRetrieveSchema = () => {
+    const ContextLayerAgentPagesRetrieveQueryParams = orvalSchemas.ContextLayerAgentPagesRetrieveQueryParams()
+    return ContextLayerAgentPagesRetrieveQueryParams.extend({ limit: WikiPageReadLimitSchema })
+}
+
+const taskContextWikiPageRetrieve = (): ToolBase<
+    ReturnType<typeof TaskContextWikiPageRetrieveSchema>,
+    Schemas.WikiPage
+> => ({
+    name: 'task-context-wiki-page-retrieve',
+    schema: TaskContextWikiPageRetrieveSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof TaskContextWikiPageRetrieveSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.WikiPage>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/context_layer/agent/pages/`,
+            query: {
+                head_sha: params.head_sha,
+                limit: params.limit,
+                offset: params.offset,
+                path: params.path,
+            },
+        })
+        return result
+    },
+})
+
+const TaskContextWikiPageUpdateSchema = () => {
+    const ContextLayerAgentPagesUpdateBody = orvalSchemas.ContextLayerAgentPagesUpdateBody()
+    return ContextLayerAgentPagesUpdateBody
+}
+
+const taskContextWikiPageUpdate = (): ToolBase<
+    ReturnType<typeof TaskContextWikiPageUpdateSchema>,
+    Schemas.ContextLayerStatus
+> => ({
+    name: 'task-context-wiki-page-update',
+    schema: TaskContextWikiPageUpdateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof TaskContextWikiPageUpdateSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.path !== undefined) {
+            body['path'] = params.path
+        }
+        if (params.content !== undefined) {
+            body['content'] = params.content
+        }
+        if (params.base_head !== undefined) {
+            body['base_head'] = params.base_head
+        }
+        const result = await context.api.request<Schemas.ContextLayerStatus>({
+            method: 'PUT',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/context_layer/agent/pages/`,
+            body,
+        })
+        return result
+    },
+})
+
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'context-wiki-channel-resolve': contextWikiChannelResolve,
     'context-wiki-page-retrieve': contextWikiPageRetrieve,
@@ -163,4 +282,8 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'loop-context-wiki-channel-resolve': loopContextWikiChannelResolve,
     'loop-context-wiki-page-retrieve': loopContextWikiPageRetrieve,
     'loop-context-wiki-page-update': loopContextWikiPageUpdate,
+    'task-context-wiki-channel-resolve': taskContextWikiChannelResolve,
+    'task-context-wiki-page-propose': taskContextWikiPagePropose,
+    'task-context-wiki-page-retrieve': taskContextWikiPageRetrieve,
+    'task-context-wiki-page-update': taskContextWikiPageUpdate,
 }

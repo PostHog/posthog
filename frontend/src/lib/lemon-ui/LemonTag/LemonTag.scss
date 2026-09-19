@@ -45,6 +45,18 @@
         border-color: var(--color-accent);
     }
 
+    &.LemonTag--info {
+        color: var(--color-blue-600);
+        background: var(--color-bg-fill-info-tertiary);
+        border-color: var(--color-border-info);
+
+        [theme='dark'] & {
+            // --color-blue-600 on the dark info background falls below the WCAG AA text ratio,
+            // so lift the text to a lighter blue that clears 4.5:1.
+            color: var(--color-blue-400);
+        }
+    }
+
     &.LemonTag--warning {
         color: var(--warning);
         background-color: none;

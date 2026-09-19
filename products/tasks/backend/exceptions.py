@@ -1,11 +1,24 @@
+import random
 from datetime import timedelta
 from typing import Any, Optional
 
+from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
 from posthog.exceptions_capture import capture_exception
 
 from products.tasks.backend.facade.compute_quota import ComputeBillingLimitExceeded
+
+SANDBOX_RATE_LIMIT_BASE_DELAY_SECONDS = 45
+SANDBOX_RATE_LIMIT_MAX_DELAY_SECONDS = 300
+
+
+def sandbox_rate_limit_retry_delay(attempt: int) -> float:
+    ceiling = min(
+        SANDBOX_RATE_LIMIT_BASE_DELAY_SECONDS * 2 ** max(attempt - 1, 0),
+        SANDBOX_RATE_LIMIT_MAX_DELAY_SECONDS,
+    )
+    return random.uniform(ceiling / 2, ceiling)
 
 
 class ProcessTaskError(ApplicationError):
@@ -129,6 +142,46 @@ class SandboxExecutionError(ProcessTaskTransientError):
     """Error during sandbox command execution."""
 
     pass
+
+
+class SandboxControlPlaneError(SandboxExecutionError):
+    """The sandbox control plane refused or failed a call, before the sandbox itself saw it.
+
+    The fault belongs to the control plane, not to the run, so these stay retryable and are
+    never captured to error tracking. Capturing one mints an issue nobody can act on, and a
+    fresh one per provider message: the cause is constructed rather than raised, so every
+    occurrence carries its own synthesized traceback and none of them group.
+    """
+
+    def __init__(self, message: str, context: dict[str, Any], retry_delay: Optional[timedelta] = None):
+        ProcessTaskError.__init__(
+            self,
+            message,
+            context,
+            None,
+            capture=False,
+            non_retryable=False,
+            next_retry_delay=retry_delay,
+        )
+
+
+class SandboxRateLimitedError(SandboxControlPlaneError):
+    """The egress proxy in front of the sandbox control plane shed the call.
+
+    Backs off past the limit window so the retry lands after it rather than inside it.
+    """
+
+    def __init__(self, message: str, context: dict[str, Any]):
+        attempt = activity.info().attempt if activity.in_activity() else 1
+        super().__init__(message, context, retry_delay=timedelta(seconds=sandbox_rate_limit_retry_delay(attempt)))
+
+
+class SandboxControlPlaneUnavailableError(SandboxControlPlaneError):
+    """The sandbox control plane answered a call with a gateway status (5xx).
+
+    The activity's own retry policy is the right backoff here. Unlike a rate limit there is
+    no window to wait out, so this does not set a delay of its own.
+    """
 
 
 class SandboxMissingRepositoryError(ProcessTaskFatalError):

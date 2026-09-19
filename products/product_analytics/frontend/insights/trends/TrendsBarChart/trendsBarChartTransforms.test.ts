@@ -331,6 +331,34 @@ describe('buildTrendsBarTimeSeriesConfig', () => {
         expect(cfg.xAxis).toEqual(expected)
     })
 
+    it.each([
+        { name: 'leaves axes visible by default', hideAxes: undefined, expectedHide: undefined },
+        { name: 'hides axes while preserving their configuration', hideAxes: true, expectedHide: true },
+    ])('$name', ({ hideAxes, expectedHide }) => {
+        const tickFormatter = (value: string): string => `tick:${value}`
+        const cfg = buildTrendsBarTimeSeriesConfig({
+            isPercentStackView: false,
+            isGrouped: false,
+            hideAxes,
+            interval: 'week',
+            timezone: 'UTC',
+            allDays: ['2024-01-01', '2024-01-08'],
+            xAxisLabel: 'Signup date',
+            yAxisLabel: 'Total events',
+            xAxisTickFormatter: tickFormatter,
+        })
+
+        expect(cfg.xAxis).toMatchObject({
+            label: 'Signup date',
+            timezone: 'UTC',
+            interval: 'week',
+            allDays: ['2024-01-01', '2024-01-08'],
+            tickFormatter,
+            hide: expectedHide,
+        })
+        expect(cfg.yAxis).toMatchObject({ label: 'Total events', showGrid: true, hide: expectedHide })
+    })
+
     it('forwards the y-axis from buildTrendsYAxisConfig with showGrid: true', () => {
         const trendsFilter: TrendsFilter = { aggregationAxisFormat: 'duration', aggregationAxisPrefix: '~' }
         const cfg = buildTrendsBarTimeSeriesConfig({

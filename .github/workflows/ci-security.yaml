@@ -18,7 +18,7 @@ jobs:
     # See .github/actions/paths-filter/README.md for filter semantics
     # Pushes and PRs above GitHub's 3000-file API limit run every scan.
     changes:
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         timeout-minutes: 5
         if: github.repository == 'PostHog/posthog'
         name: Determine need to run Semgrep checks
@@ -76,6 +76,7 @@ jobs:
                         - '.github/workflows/ci-security.yaml'
                       go:
                         - 'livestream/**'
+                        - 'services/hogql-language-service/**'
                         - '.github/workflows/ci-security.yaml'
                       rust:
                         - 'cli/**'
@@ -84,6 +85,7 @@ jobs:
                       js:
                         - 'frontend/**'
                         - 'nodejs/**'
+                        - 'packages/**'
                         - 'services/agent-proxy/**'
                         - 'services/integration-service/**'
                         - 'services/mcp/**'
@@ -105,6 +107,7 @@ jobs:
                         - '!frontend/**'
                         - '!livestream/**'
                         - '!nodejs/**'
+                        - '!packages/**'
                         - '!posthog/**'
                         - '!products/**'
                         - '!rust/**'
@@ -139,7 +142,7 @@ jobs:
     semgrep-python:
         needs: changes
         if: needs.changes.outputs.python == 'true'
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         timeout-minutes: 30
 
         env:
@@ -187,7 +190,7 @@ jobs:
     semgrep-go:
         needs: changes
         if: needs.changes.outputs.go == 'true'
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         timeout-minutes: 10
 
         env:
@@ -218,11 +221,12 @@ jobs:
                       --config r/go.lang.security
                       --exclude-rule go.lang.security.audit.xss.no-fprintf-to-responsewriter.no-fprintf-to-responsewriter
                       --include /livestream
+                      --include /services/hogql-language-service
 
     semgrep-rust:
         needs: changes
         if: needs.changes.outputs.rust == 'true'
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         timeout-minutes: 10
 
         env:
@@ -260,7 +264,7 @@ jobs:
     semgrep-js:
         needs: changes
         if: needs.changes.outputs.js == 'true'
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         timeout-minutes: 20
 
         env:
@@ -291,6 +295,7 @@ jobs:
                       --config p/trailofbits
                       --include /frontend
                       --include /nodejs
+                      --include /packages
                       --include /services/agent-proxy
                       --include /services/integration-service
                       --include /services/mcp
@@ -300,7 +305,7 @@ jobs:
     semgrep-products-frontend:
         needs: changes
         if: needs.changes.outputs.products-frontend == 'true'
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         timeout-minutes: 20
 
         env:
@@ -335,7 +340,7 @@ jobs:
     semgrep-general:
         needs: changes
         if: needs.changes.outputs.general == 'true'
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         # The scan itself sits around 12 minutes, so 20 left too little headroom
         # for a slow runner and the job was tripping the timeout.
         timeout-minutes: 30
@@ -376,6 +381,7 @@ jobs:
                       --exclude /frontend
                       --exclude /livestream
                       --exclude /nodejs
+                      --exclude /packages
                       --exclude /posthog
                       --exclude /products
                       --exclude /rust
@@ -392,7 +398,7 @@ jobs:
     semgrep-devex:
         needs: changes
         if: needs.changes.outputs.devex == 'true'
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         timeout-minutes: 20
 
         env:
@@ -472,7 +478,7 @@ jobs:
     semgrep-test-rules:
         needs: changes
         if: needs.changes.outputs.test-rules == 'true'
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         timeout-minutes: 10
 
         env:
@@ -507,7 +513,7 @@ jobs:
     semgrep-desktop:
         needs: changes
         if: needs.changes.outputs.desktop == 'true'
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         timeout-minutes: 20
 
         env:
@@ -559,7 +565,7 @@ jobs:
             - semgrep-test-rules
             - semgrep-desktop
         name: Semgrep Checks Pass
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         timeout-minutes: 5
         if: ${{ !cancelled() }}
         steps:

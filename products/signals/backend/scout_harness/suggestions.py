@@ -46,7 +46,6 @@ from products.signals.backend.models import (
 )
 from products.signals.backend.scout_harness.lazy_seed import CanonicalSkillParseError, discover_canonical_skills
 from products.signals.backend.scout_harness.prompt import SCOUT_PROJECT_SCAN_GUIDANCE
-from products.signals.backend.scout_harness.skill_loader import SIGNALS_SCOUT_SKILL_PREFIX
 from products.signals.backend.scout_harness.team_limits import read_flag_payload, withheld_skills_for_team
 from products.skills.backend.marketplace.packaging import SPEC_DESCRIPTION_MAX_LENGTH
 from products.skills.backend.models.skills import LLMSkill
@@ -302,7 +301,15 @@ def _candidate_teams_by_tier(settings: SuggestionSettings, now: datetime) -> tup
         return {}, {}
     cutoff = now - timedelta(days=settings.engagement_window_days)
 
-    approved_root_teams = Team.objects.filter(_root_team_q(), organization__is_ai_data_processing_approved=True)
+    # A project that has never ingested an event can only be refused by the scan, and this base
+    # set feeds every tier. Nothing is stamped on the row, so the project re-enters the queue on
+    # its first event; ingestion is environment-scoped, so traffic in a child environment counts.
+    ingested_child_teams = Team.objects.filter(ingested_event=True, parent_team_id__isnull=False)
+    approved_root_teams = Team.objects.filter(
+        _root_team_q(),
+        Q(ingested_event=True) | Q(id__in=ingested_child_teams.values("parent_team_id")),
+        organization__is_ai_data_processing_approved=True,
+    )
     # Source configs are environment-scoped, so a project whose Signals setup lives in a child
     # environment counts through that child's parent; scout configs already canonicalize.
     source_teams = SignalSourceConfig.objects.filter(enabled=True).values("team_id")
@@ -485,14 +492,16 @@ def enabled_skill_names(team_id: int) -> list[str]:
 
 def reserved_scout_names(team_id: int) -> frozenset[str]:
     """Names a custom draft may not take: every scout config on the project (enabled or not) and
-    every stored `signals-scout-*` skill, since create answers a differing definition with 409."""
+    every stored skill, since create answers a differing definition with 409.
+
+    A scout may carry any valid skill name, so every skill name is a possible collision — the
+    scan is no longer narrowed to the `signals-scout-*` prefix."""
     reserved = set(SignalScoutConfig.objects.for_team(team_id).values_list("skill_name", flat=True))
     reserved.update(
         LLMSkill.objects.filter(
             team_id=resolve_effective_team_id(team_id),
             is_latest=True,
             deleted=False,
-            name__startswith=SIGNALS_SCOUT_SKILL_PREFIX,
         ).values_list("name", flat=True)
     )
     return frozenset(reserved)

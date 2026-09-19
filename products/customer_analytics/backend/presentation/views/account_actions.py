@@ -21,11 +21,14 @@ from products.customer_analytics.backend.facade import (
     api as facade,
     contracts,
 )
+from products.customer_analytics.backend.presentation.views.ownership_serializers import (
+    ExternalAccountOwnershipSerializer,
+)
 
 ACCOUNT_ACTION_AUTH_COUNTER = Counter(
     "posthog_customer_analytics_account_action_auth_total",
     "Successful authentications on the account routes called by CDP workflow actions, by auth method",
-    labelnames=["auth_method", "http_method"],  # auth_method: secret_api_token | scoped_jwt
+    labelnames=["auth_method", "http_method"],  # auth_method: secret_api_token | project_secret_api_key | scoped_jwt
 )
 
 
@@ -56,6 +59,7 @@ def _external_account_body(account: contracts.ExternalAccount) -> dict[str, Any]
         "churned_at": account.churned_at,
         "ignored_at": account.ignored_at,
         "properties": account.properties,
+        "ownership": ExternalAccountOwnershipSerializer(account.ownership).data,
         "tags": account.tags,
         "relationships": account.relationships,
         "custom_properties": account.custom_properties,
@@ -67,6 +71,10 @@ _UPDATE_ERROR_RESPONSES = {
     contracts.ExternalAccountUpdateError.INVALID_PROPERTIES: (
         "Invalid account properties",
         status.HTTP_400_BAD_REQUEST,
+    ),
+    contracts.ExternalAccountUpdateError.ROLE_MANAGED: (
+        "This relationship is controlled in Customer analytics and can't be changed by a workflow",
+        status.HTTP_409_CONFLICT,
     ),
     # A server fault (the facade's blanket except), not a client error: 500 keeps the CDP
     # fetch layer retrying instead of failing the workflow permanently.

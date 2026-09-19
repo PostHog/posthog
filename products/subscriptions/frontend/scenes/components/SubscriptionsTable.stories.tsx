@@ -31,6 +31,7 @@ const MOCK_SUBSCRIPTIONS: SubscriptionApi[] = [
         dashboard: null,
         insight_short_id: 'abc123',
         resource_name: 'North star metric',
+        contexts: [],
         title: 'This is a really long subscription name that does something important for the team every week',
         dashboard_export_insights: [],
         target_type: SubscriptionTargetEnumApi.Email,
@@ -45,6 +46,7 @@ const MOCK_SUBSCRIPTIONS: SubscriptionApi[] = [
         next_delivery_date: '2026-04-07T17:00:00Z',
         deleted: false,
         enabled: true,
+        ai_query_plan_status: null,
     },
     {
         id: 2,
@@ -53,6 +55,7 @@ const MOCK_SUBSCRIPTIONS: SubscriptionApi[] = [
         dashboard: 501,
         insight_short_id: null,
         resource_name: 'Company overview',
+        contexts: [],
         title: 'Some slack notification that does something',
         dashboard_export_insights: [101, 102],
         target_type: SubscriptionTargetEnumApi.Slack,
@@ -67,6 +70,7 @@ const MOCK_SUBSCRIPTIONS: SubscriptionApi[] = [
         deleted: false,
         enabled: true,
         integration_id: 1,
+        ai_query_plan_status: null,
     },
     {
         id: 3,
@@ -75,6 +79,7 @@ const MOCK_SUBSCRIPTIONS: SubscriptionApi[] = [
         dashboard: null,
         insight_short_id: 'ghi789',
         resource_name: 'Weekly KPIs',
+        contexts: [],
         title: 'Some test on an insight',
         dashboard_export_insights: [],
         target_type: SubscriptionTargetEnumApi.Email,
@@ -88,6 +93,7 @@ const MOCK_SUBSCRIPTIONS: SubscriptionApi[] = [
         next_delivery_date: null,
         deleted: false,
         enabled: true,
+        ai_query_plan_status: null,
     },
     {
         id: 4,
@@ -96,6 +102,7 @@ const MOCK_SUBSCRIPTIONS: SubscriptionApi[] = [
         dashboard: null,
         insight_short_id: 'activation-insight',
         resource_name: 'Activation funnel',
+        contexts: [],
         title: 'Slack delivery to internal automation',
         dashboard_export_insights: [],
         target_type: SubscriptionTargetEnumApi.Slack,
@@ -109,6 +116,7 @@ const MOCK_SUBSCRIPTIONS: SubscriptionApi[] = [
         next_delivery_date: '2026-04-14T12:00:00Z',
         deleted: false,
         enabled: true,
+        ai_query_plan_status: null,
     },
     {
         id: 5,
@@ -117,6 +125,7 @@ const MOCK_SUBSCRIPTIONS: SubscriptionApi[] = [
         dashboard: null,
         insight_short_id: 'disabled-insight',
         resource_name: 'Activation funnel',
+        contexts: [],
         title: 'Auto-paused after integration broke',
         dashboard_export_insights: [],
         target_type: SubscriptionTargetEnumApi.Slack,
@@ -131,6 +140,7 @@ const MOCK_SUBSCRIPTIONS: SubscriptionApi[] = [
         deleted: false,
         enabled: false,
         integration_id: 1,
+        ai_query_plan_status: null,
     },
     {
         id: 6,
@@ -139,6 +149,7 @@ const MOCK_SUBSCRIPTIONS: SubscriptionApi[] = [
         dashboard: null,
         insight_short_id: null,
         resource_name: null,
+        contexts: [],
         prompt: 'Summarize weekly signups and flag any anomalies worth a closer look',
         title: 'AI weekly digest',
         dashboard_export_insights: [],
@@ -153,6 +164,7 @@ const MOCK_SUBSCRIPTIONS: SubscriptionApi[] = [
         next_delivery_date: '2026-04-09T08:00:00Z',
         deleted: false,
         enabled: true,
+        ai_query_plan_status: null,
     },
 ]
 
@@ -182,6 +194,7 @@ function buildMockSubscriptions(total: number): SubscriptionApi[] {
             dashboard: isInsight ? null : 2000 + n,
             insight_short_id: isInsight ? `short${n}` : null,
             resource_name: `Quarterly metrics ${n}`,
+            contexts: [],
             title: `Digest ${n}`,
             dashboard_export_insights: [],
             target_type: isSlack ? SubscriptionTargetEnumApi.Slack : SubscriptionTargetEnumApi.Email,
@@ -195,6 +208,7 @@ function buildMockSubscriptions(total: number): SubscriptionApi[] {
             next_delivery_date: '2026-04-07T17:00:00Z',
             deleted: false,
             enabled: true,
+            ai_query_plan_status: null,
             ...(isSlack ? { integration_id: 1 } : {}),
         }
     })

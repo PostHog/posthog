@@ -47,13 +47,15 @@ def costs_dedup_v2_enabled(team: "Team | None") -> bool:
     cached = getattr(team, _FLAG_CACHE_ATTR, None)
     if cached is not None:
         return cached
-    organization = team.organization
+    # organization_id, not team.organization.id: the FK dereference costs a Postgres round trip per
+    # cache-key build, and it raises Organization.DoesNotExist when the organization row is gone.
+    organization_id = str(team.organization_id)
     enabled = bool(
         posthoganalytics.feature_enabled(
             COSTS_DEDUP_V2_FLAG,
             str(team.uuid),
-            groups={"organization": str(organization.id)},
-            group_properties={"organization": {"id": str(organization.id)}},
+            groups={"organization": organization_id},
+            group_properties={"organization": {"id": organization_id}},
             only_evaluate_locally=True,
             send_feature_flag_events=False,
         )

@@ -8,7 +8,6 @@ import ViewRecordingButton, {
     ViewRecordingButtonVariant,
 } from 'lib/components/ViewRecordingButton/ViewRecordingButton'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
-import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 
 import { AccessControlLevel, AccessControlResourceType, PropertyFilterType } from '~/types'
 
@@ -18,6 +17,7 @@ import { LogRowScrollButtons } from 'products/logs/frontend/components/Virtualiz
 import { useCellScroll } from 'products/logs/frontend/components/VirtualizedLogsList/useCellScroll'
 import { logsConfigLogic } from 'products/logs/frontend/logsConfigLogic'
 import { isDistinctIdKey, isSessionIdKey } from 'products/logs/frontend/utils'
+import { PersonDisplay } from 'products/persons/frontend/components/PersonDisplay'
 import { traceUrl } from 'products/tracing/frontend/traceLinks'
 
 export interface AttributeCellProps {

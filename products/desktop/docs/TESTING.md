@@ -3,9 +3,18 @@
 ## Commands
 
 - `pnpm test`: run unit tests across packages.
+  Turbo runs two packages at a time.
+  Each Vitest process already uses every core, so turbo's default of ten packages at once starved the 4 core CI runner and made trivial tests hit their 5 second timeout.
 - `pnpm --filter code test`: run desktop app unit tests.
 - `pnpm test:e2e`: run Playwright E2E tests.
 - `pnpm --filter <pkg> test`: run tests for one package.
+
+## Live agent tests
+
+Before running `pnpm --filter @posthog/agent test:e2e`, build its workspace dependencies with `pnpm exec turbo build --filter=@posthog/agent^...` from `products/desktop`.
+This includes the harness extensions imported by the agent source.
+Desktop CI uses the same dependency graph so new workspace dependencies are built before the live tests start.
+The suite requires `POSTHOG_CODE_E2E_GATEWAY_PERSONAL_API_KEY`, a reachable `POSTHOG_CODE_E2E_GATEWAY_URL`, and the bundled Codex binary.
 
 ## Test Types
 
@@ -34,6 +43,19 @@ E2E-test:
 - regression coverage for reported app bugs
 
 Rule: if Electron is not required, write a unit test.
+
+## Comment Input Focus
+
+In the right-panel comment input, click an empty area below the placeholder or
+beside the send button. The editor must receive focus so you can type. Clicking
+existing text must keep the selected caret position. Send and cancel buttons must
+keep their own actions.
+
+Run the focus and submission checks with:
+
+```bash
+pnpm --filter @posthog/ui test src/features/sessions/components/CommentComposer.integration.test.tsx
+```
 
 ## File Location
 

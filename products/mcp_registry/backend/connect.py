@@ -25,6 +25,12 @@ Method taxonomy, most to least automated:
 - ``remote_api_key``: the human must mint a key on the vendor's site; the agent
   tells them exactly where and takes over from paste onward.
 - ``local_package``: no hosted remote; the agent runs the published package locally.
+  Always human-gated: the package is publisher-controlled code, so a person approves
+  the exact package (and version) before the agent installs and runs it.
+- ``posthog_gateway``: install the server into PostHog's own MCP servers gateway, which
+  drives the OAuth handshake, holds the credential, and gates each tool behind an
+  approval state. A different destination rather than a different auth path, so it is
+  appended last and never becomes the recommendation.
 
 Values that a registry publisher controls (a remote URL, a package identifier) are
 shell-quoted before they reach a ``command`` string. An agent is told to run these
@@ -125,6 +131,51 @@ def _slug(server: MCPRegistryServer) -> str:
 
 def _remote_url(server: MCPRegistryServer) -> str:
     return server.canonical_url
+
+
+# Route owned by products/mcp_store/manifest.tsx. Python has no access to the frontend
+# route table, so a rename there needs a matching edit here.
+_POSTHOG_GATEWAY_PATH = "/mcp-servers"
+
+
+def _posthog_gateway_method(url: str) -> dict[str, Any]:
+    """Install into PostHog's own MCP servers gateway.
+
+    Every other method hands a `claude mcp add` line to one local client. This one is a
+    different destination, not a different auth path: the gateway drives OAuth, holds the
+    credential, and gates each tool behind an approval state, and the server is then
+    reachable from every PostHog agent surface rather than one machine.
+
+    Appended last, so it never becomes `recommended`. An agent reading these instructions
+    programmatically is better served by the shell command; a person who found the server
+    on the search page has no terminal in front of them and is better served by this. It
+    also keeps the ranking output from preferring PostHog's own path over a vendor's.
+    """
+    return {
+        "method": "posthog_gateway",
+        "automation": "human_required",
+        "summary": "Install into PostHog's MCP servers gateway: it completes the OAuth handshake, keeps the "
+        "credential, and holds each tool behind an approval state. Reachable from every PostHog agent "
+        "surface once installed, rather than from one local client.",
+        "steps": [
+            {
+                "actor": "human",
+                "description": f"Open {_POSTHOG_GATEWAY_PATH} in PostHog (needs the mcp-gateway feature flag) "
+                f"and add {url} as a custom server.",
+                "command": None,
+            },
+            {
+                "actor": "human",
+                "description": "Complete the vendor's consent screen if it asks for one.",
+                "command": None,
+            },
+            {
+                "actor": "agent",
+                "description": "Call the server's tools through the gateway, approving each new tool on first use.",
+                "command": None,
+            },
+        ],
+    }
 
 
 def _derived_methods(server: MCPRegistryServer) -> list[dict[str, Any]]:
@@ -263,40 +314,50 @@ def _derived_methods(server: MCPRegistryServer) -> list[dict[str, Any]]:
     if package:
         version = str(package.get("version") or "")
         spec = f"{package['identifier']}@{version}" if version else str(package["identifier"])
+        # A local package is always human-gated, pinned or not. The package identifier and
+        # version are both publisher-controlled: pinning stops the publisher swapping the
+        # code after listing it, but says nothing about whether the pinned version itself is
+        # trustworthy. So a person confirms the package identity before the agent runs it,
+        # and an unpinned spec (which resolves whatever is latest at run time) gets an
+        # explicit extra warning on top.
         steps: list[dict[str, Any]] = [
+            {
+                "actor": "human",
+                "description": (
+                    "Approve running this package: it is publisher-controlled code from the npm registry. "
+                    + (
+                        f"Confirm you want `{spec}` before the agent installs it."
+                        if version
+                        else f"The registry published no version, so this resolves whatever the publisher "
+                        f"has made latest. Confirm the package `{spec}` and pin a version before the agent installs it."
+                    )
+                ),
+                "command": None,
+            },
             {
                 "actor": "agent",
                 "description": "Add the server as a local process.",
                 "command": f"claude mcp add {slug} -- npx -y {shlex.quote(spec)}",
-            }
+            },
         ]
-        if not version:
-            # An unpinned spec resolves whatever is latest when the agent runs it, so a
-            # publisher can list something benign and replace it later. Nobody should run
-            # that unattended.
-            steps.insert(
-                0,
-                {
-                    "actor": "human",
-                    "description": "Approve the package first: the registry published no version, so this "
-                    "resolves whatever the publisher has made latest.",
-                    "command": None,
-                },
-            )
         methods.append(
             {
                 "method": "local_package",
-                "automation": "full" if version else "human_required",
+                "automation": "human_required",
                 "summary": (
-                    "Run the published package locally, pinned to the listed version (auth requirements may "
-                    "still apply at runtime)."
+                    "Run the published package locally, pinned to the listed version, after a person approves it "
+                    "(auth requirements may still apply at runtime)."
                     if version
-                    else "Run the published package locally. The registry listed no version, so a human "
-                    "approves before it runs."
+                    else "Run the published package locally. The registry listed no version, so a person approves "
+                    "and pins a version before it runs."
                 ),
                 "steps": steps,
             }
         )
+
+    if url:
+        # A package-only entry has nothing for a hosted gateway to reach.
+        methods.append(_posthog_gateway_method(url))
     return methods
 
 

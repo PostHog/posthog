@@ -1,6 +1,7 @@
 import { expectLogic } from 'kea-test-utils'
 
 import { FEATURE_FLAGS } from 'lib/constants'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { useMocks } from '~/mocks/jest'
@@ -10,19 +11,30 @@ import { TeamType } from '~/types'
 
 import { aiAllChannelsForFeatureFlags, supportSettingsLogic } from './supportSettingsLogic'
 
+const PLAYBOOK_GET = {
+    inherited_instructions: 'Default playbook.',
+    custom_instructions: null,
+    is_customized: false,
+    default_version: 1,
+    posthog_overlay_version: null,
+    docs_source: null,
+    max_chars: 8000,
+}
+
 describe('supportSettingsLogic', () => {
     let logic: ReturnType<typeof supportSettingsLogic.build>
 
     beforeEach(() => {
         useMocks({
             get: {
-                'api/conversations/v1/email/status': { configs: [] },
+                '/api/conversations/v1/email/status': { configs: [] },
+                '/api/projects/:team_id/conversations/ai_reply_playbook/': PLAYBOOK_GET,
             },
             post: {
-                'api/environments/:team_id/': async ({ request }) => [200, await request.json()],
-                'api/conversations/v1/teams/select-channel': { ok: true, teams_channels: [] },
-                'api/conversations/v1/teams/install': { ok: true, status: 'installed' },
-                'api/conversations/v1/teams/channels': { channels: [] },
+                '/api/environments/:team_id/': async ({ request }) => [200, await request.json()],
+                '/api/conversations/v1/teams/select-channel': { ok: true, teams_channels: [] },
+                '/api/conversations/v1/teams/install': { ok: true, status: 'installed' },
+                '/api/conversations/v1/teams/channels': { channels: [] },
             },
         })
         initKeaTests()
@@ -45,6 +57,47 @@ describe('supportSettingsLogic', () => {
             ],
         ])('%s', (_label, flags, expected) => {
             expect(aiAllChannelsForFeatureFlags(flags)).toEqual(expected)
+        })
+    })
+
+    describe('connectEmail', () => {
+        let errorToastSpy: jest.SpyInstance
+
+        beforeEach(() => {
+            errorToastSpy = jest.spyOn(lemonToast, 'error').mockImplementation((() => '') as any)
+        })
+
+        afterEach(() => {
+            errorToastSpy.mockRestore()
+        })
+
+        it.each([
+            [
+                'endpoint error',
+                { error: 'The domain is already registered with another Mailgun account.' },
+                'The domain is already registered with another Mailgun account.',
+            ],
+            ['validation error', { detail: 'Enter a valid email address.' }, 'Enter a valid email address.'],
+        ])('shows the backend reason for an %s', async (_label, body, expectedMessage) => {
+            useMocks({
+                get: {
+                    '/api/conversations/v1/email/status': { configs: [] },
+                    '/api/projects/:team_id/conversations/ai_reply_playbook/': PLAYBOOK_GET,
+                },
+                post: {
+                    '/api/conversations/v1/email/connect': () => [400, body],
+                },
+            })
+            logic = supportSettingsLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            logic.actions.setNewEmailFromEmail('help@example.com')
+            logic.actions.setNewEmailFromName('Example Support')
+
+            logic.actions.connectEmail()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(errorToastSpy).toHaveBeenCalledWith(expectedMessage)
         })
     })
 
@@ -216,6 +269,59 @@ describe('supportSettingsLogic', () => {
         })
     })
 
+    describe('widget draft preservation on save', () => {
+        it('clears the saved draft but keeps unsaved sibling drafts', async () => {
+            logic = supportSettingsLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            logic.actions.setGreetingInputValue('new greeting')
+            logic.actions.setPlaceholderTextValue('unsaved placeholder')
+
+            // A save persists the greeting; the server echoes it back on success.
+            logic.actions.updateCurrentTeamSuccess({
+                conversations_settings: { widget_greeting_text: 'new greeting' },
+            } as unknown as TeamType)
+
+            expect(logic.values.greetingInputValue).toBeNull()
+            expect(logic.values.placeholderTextValue).toBe('unsaved placeholder')
+        })
+
+        it('clears a bot field draft that was blanked to remove the override', async () => {
+            logic = supportSettingsLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            // Clearing the input yields an empty-string draft; the save persists it as null.
+            logic.actions.setSlackBotDisplayNameValue('')
+
+            logic.actions.updateCurrentTeamSuccess({
+                conversations_settings: { slack_bot_display_name: null },
+            } as unknown as TeamType)
+
+            expect(logic.values.slackBotDisplayNameValue).toBeNull()
+        })
+
+        it('keeps a whitespace-only emoji edit when an unrelated field saves', async () => {
+            initKeaTests(true, {
+                conversations_settings: { slack_ticket_emoji: '🎫' },
+            } as unknown as TeamType)
+            logic = supportSettingsLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            // The emoji saver sends the raw value, so a spaced draft is not yet persisted.
+            logic.actions.setSlackTicketEmojiValue(' 🎫 ')
+
+            // An unrelated save echoes the still-stored emoji back.
+            logic.actions.updateCurrentTeamSuccess({
+                conversations_settings: { slack_ticket_emoji: '🎫' },
+            } as unknown as TeamType)
+
+            expect(logic.values.slackTicketEmojiValue).toBe(' 🎫 ')
+        })
+    })
+
     describe('teamsChannelPairs selector', () => {
         it('reads the teams_channels list when present', async () => {
             initKeaTests(true, {
@@ -301,13 +407,14 @@ describe('supportSettingsLogic', () => {
 
             useMocks({
                 get: {
-                    'api/conversations/v1/email/status': { configs: [] },
+                    '/api/conversations/v1/email/status': { configs: [] },
+                    '/api/projects/:team_id/conversations/ai_reply_playbook/': PLAYBOOK_GET,
                 },
                 post: {
-                    'api/environments/:team_id/': async ({ request }) => [200, await request.json()],
-                    'api/conversations/v1/teams/select-channel': { ok: true, teams_channels: updatedChannels },
-                    'api/conversations/v1/teams/install': { ok: true, status: 'installed' },
-                    'api/conversations/v1/teams/channels': { channels: [] },
+                    '/api/environments/:team_id/': async ({ request }) => [200, await request.json()],
+                    '/api/conversations/v1/teams/select-channel': { ok: true, teams_channels: updatedChannels },
+                    '/api/conversations/v1/teams/install': { ok: true, status: 'installed' },
+                    '/api/conversations/v1/teams/channels': { channels: [] },
                 },
             })
 
@@ -336,6 +443,134 @@ describe('supportSettingsLogic', () => {
             } as unknown as TeamType)
 
             expect(logic.values.teamsChannelPairs).toEqual(updatedChannels)
+        })
+    })
+
+    describe('support playbook', () => {
+        it('loads the inherited playbook on mount', async () => {
+            logic = supportSettingsLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.playbook).toEqual(PLAYBOOK_GET)
+            expect(logic.values.playbookDraft).toBe('')
+            expect(logic.values.aiReplyCustomized).toBe(false)
+        })
+
+        it('loads a custom addendum into the draft without the default playbook', async () => {
+            useMocks({
+                get: {
+                    '/api/conversations/v1/email/status': { configs: [] },
+                    '/api/projects/:team_id/conversations/ai_reply_playbook/': {
+                        ...PLAYBOOK_GET,
+                        custom_instructions: 'Always greet first.',
+                        is_customized: true,
+                    },
+                },
+            })
+            logic = supportSettingsLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.playbookDraft).toBe('Always greet first.')
+            expect(logic.values.aiReplyCustomized).toBe(true)
+            expect(logic.values.playbookDirty).toBe(false)
+        })
+
+        it('saves custom instructions and ignores a second submit while in flight', async () => {
+            logic = supportSettingsLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            logic.actions.setPlaybookDraft('Always greet first.')
+
+            await expectLogic(logic, () => {
+                logic.actions.savePlaybook()
+            })
+                .toDispatchActions(['setPlaybookSaving', 'updateCurrentTeam'])
+                .toMatchValues({ playbookSaving: true })
+
+            await expectLogic(logic, () => {
+                logic.actions.savePlaybook()
+            }).toNotHaveDispatchedActions(['updateCurrentTeam'])
+        })
+
+        it('resets by PATCHing null custom instructions', async () => {
+            initKeaTests(true, {
+                conversations_settings: { ai_reply_custom_instructions: 'Always greet first.' },
+            } as unknown as TeamType)
+            logic = supportSettingsLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            await expectLogic(logic, () => {
+                logic.actions.resetPlaybook()
+            }).toDispatchActions(['setPlaybookSaving', 'updateCurrentTeam'])
+        })
+
+        it('clears the saving guard and reloads once its own request finishes', async () => {
+            useMocks({
+                get: {
+                    '/api/conversations/v1/email/status': { configs: [] },
+                    '/api/projects/:team_id/conversations/ai_reply_playbook/': PLAYBOOK_GET,
+                },
+                patch: {
+                    '/api/environments/:team_id/': async ({ request }) => [200, await request.json()],
+                },
+            })
+            logic = supportSettingsLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            logic.actions.setPlaybookDraft('Always greet first.')
+
+            await expectLogic(logic, () => {
+                logic.actions.savePlaybook()
+            }).toDispatchActions(['setPlaybookSaving', 'updateCurrentTeam', 'loadPlaybook'])
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.playbookSaving).toBe(false)
+        })
+
+        it('keeps the draft when the save fails, even once an unrelated save lands', async () => {
+            useMocks({
+                get: {
+                    '/api/conversations/v1/email/status': { configs: [] },
+                    '/api/projects/:team_id/conversations/ai_reply_playbook/': PLAYBOOK_GET,
+                },
+                patch: {
+                    '/api/environments/:team_id/': () => [400, { detail: 'Nope' }],
+                },
+            })
+            logic = supportSettingsLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            logic.actions.setPlaybookDraft('Always greet first.')
+
+            await expectLogic(logic, () => {
+                logic.actions.savePlaybook()
+            }).toDispatchActions(['updateCurrentTeamFailure'])
+            await expectLogic(logic).toFinishAllListeners()
+
+            await expectLogic(logic, () => {
+                logic.actions.updateCurrentTeamSuccess({} as TeamType, { conversations_enabled: true })
+            }).toNotHaveDispatchedActions(['loadPlaybook'])
+
+            expect(logic.values.playbookSaving).toBe(false)
+            expect(logic.values.playbookDraft).toBe('Always greet first.')
+        })
+
+        it('leaves a playbook save in flight when an unrelated team update settles', async () => {
+            logic = supportSettingsLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            logic.actions.setPlaybookDraft('Always greet first.')
+
+            logic.actions.savePlaybook()
+            expect(logic.values.playbookSaving).toBe(true)
+
+            logic.actions.updateCurrentTeamSuccess({} as TeamType)
+            logic.actions.updateCurrentTeamFailure('unrelated failure')
+            expect(logic.values.playbookSaving).toBe(true)
+
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.playbookSaving).toBe(false)
         })
     })
 })

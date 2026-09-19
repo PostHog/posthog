@@ -6,6 +6,10 @@
             "enum": ["any", "open", "completed"],
             "type": "string"
         },
+        "created_by": {
+            "description": "Filter by the numeric ID of the user who wrote the comment.",
+            "type": "number"
+        },
         "cursor": {
             "description": "The pagination cursor value.",
             "type": "string"

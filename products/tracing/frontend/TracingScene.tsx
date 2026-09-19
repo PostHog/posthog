@@ -80,6 +80,7 @@ function TracingSceneContents(): JSX.Element {
         sparklineData,
         sparklineLoading,
         openTraceSpans,
+        traceIdentity,
         isLoadingFullTrace,
         canLoadMoreTraceSpans,
         traceSpansLoadingMore,
@@ -127,7 +128,7 @@ function TracingSceneContents(): JSX.Element {
 
     // Resolved aggregation window (ms) — turns span counts into a request rate.
     // Use sparklineWindowMs which correctly resolves relative date strings (e.g. '-1h').
-    const { sparklineWindowMs } = useValues(tracingFiltersLogic)
+    const { sparklineWindowMs, utcDateRange } = useValues(tracingFiltersLogic)
     const operationsWindowMs = sparklineWindowMs.endMs - sparklineWindowMs.startMs
 
     const onDocsLinkClick = (): void => {
@@ -207,7 +208,9 @@ function TracingSceneContents(): JSX.Element {
                     sparklineLoading={sparklineLoading || (isDurationMode && !showHeatmap && durationHistogramLoading)}
                     onDateRangeChange={setDateRange}
                     displayTimezone={TRACING_DISPLAY_TIMEZONE}
+                    currentDateTo={utcDateRange.date_to}
                     compare={compareConfig}
+                    compareActive={compareActive}
                     visibleRowDateRange={visibleRowDateRange}
                     durationHistogram={isDurationMode && !showHeatmap ? durationHistogramData : null}
                     visibleRowDurationRange={visibleRowDurationRange}
@@ -288,6 +291,7 @@ function TracingSceneContents(): JSX.Element {
                 traceId={selectedTraceId}
                 ts={selectedTraceTs}
                 spans={openTraceSpans}
+                identity={traceIdentity}
                 loading={isLoadingFullTrace}
                 hasMoreSpans={canLoadMoreTraceSpans}
                 loadingMoreSpans={traceSpansLoadingMore}

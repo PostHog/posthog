@@ -1,0 +1,27 @@
+{
+  "version": 2,
+  "return_type": "boolean",
+  "default_value": false,
+  "rules": [
+    {
+      "id": "a1a1a1a1-a1a1-4a1a-8a1a-a1a1a1a1a1a1",
+      "rule_type": "targeted_release",
+      "targeting": {
+        "properties": [
+          {
+            "key": "account_tier",
+            "type": "person",
+            "operator": "exact",
+            "value": "preview"
+          }
+        ]
+      },
+      "value": true,
+      "rollout_percentage": 25,
+      "on_rollout_miss": "continue",
+      "assignment_algorithm": "sha1_60_v1",
+      "seed": "release-preview",
+      "assign_by": "person"
+    }
+  ]
+}

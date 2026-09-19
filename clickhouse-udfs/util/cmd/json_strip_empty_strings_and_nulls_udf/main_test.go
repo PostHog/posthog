@@ -8,11 +8,11 @@ import (
 
 func TestProcessLine(t *testing.T) {
 	tests := map[string]string{
-		`{"empty":"","null":null,"object":{"nested":null},"array":[null,"",{},[]]}`:                                            `{}`,
-		`{"keep":0,"false":false,"text":" ","nested":{"drop":null,"keep":"x"},"array":[null,"",{},[],{"drop":null,"keep":1}]}`: `{"keep":0,"false":false,"text":" ","nested":{"keep":"x"},"array":[{"keep":1}]}`,
+		`{"empty":"","null":null,"object":{"nested":null},"array":[null,"",{},[]]}`:                                            `{"array":[null,"",{},[]]}`,
+		`{"keep":0,"false":false,"text":" ","nested":{"drop":null,"keep":"x"},"array":[null,"",{},[],{"drop":null,"keep":1}]}`: `{"keep":0,"false":false,"text":" ","nested":{"keep":"x"},"array":[null,"",{},[],{"keep":1}]}`,
 		`{"\u000b":"x"}`:              `{"\u000b":"x"}`,
 		`{"a":1,"a":null,"a":2}`:      `{"a":1,"a":2}`,
-		`[null,"",[],{},0,false,"x"]`: `[0,false,"x"]`,
+		`[null,"",[],{},0,false,"x"]`: `[null,"",[],{},0,false,"x"]`,
 		`934504962295726700000`:       `"934504962295726700000"`,
 	}
 
@@ -43,7 +43,7 @@ func TestRunChunked(t *testing.T) {
 	if err := runChunked(strings.NewReader(input), &output); err != nil {
 		t.Fatal(err)
 	}
-	if got, want := output.String(), "{}\n{\"a\":1}\n[2]\n"; got != want {
+	if got, want := output.String(), "{}\n{\"a\":1}\n[null,2]\n"; got != want {
 		t.Fatalf("runChunked output = %q, want %q", got, want)
 	}
 }

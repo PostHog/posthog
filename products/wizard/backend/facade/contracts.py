@@ -145,6 +145,14 @@ class WizardRunCreationResult:
 
 
 @frozen
+class WizardRunCreatorDTO:
+    id: int
+    first_name: str
+    last_name: str
+    email: str
+
+
+@frozen
 class WizardRunDTO:
     id: UUID
     team_id: int
@@ -161,6 +169,7 @@ class WizardRunDTO:
     started_at: datetime | None
     finished_at: datetime | None
     deadline_at: datetime | None
+    created_by: WizardRunCreatorDTO | None = None
 
 
 @frozen

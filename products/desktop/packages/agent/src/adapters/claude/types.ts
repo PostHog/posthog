@@ -10,10 +10,10 @@ import type {
   Query,
   SDKUserMessage,
 } from "@anthropic-ai/claude-agent-sdk";
+import type { PostHogProductId } from "@posthog/harness/extensions/posthog-mcp-policy";
 import type { BedrockGatewayVariant } from "@posthog/shared";
 import type { EffortLevel } from "@posthog/shared/domain-types";
 import type { SteerDeclineCause } from "../../acp-extensions";
-import type { PostHogProductId } from "../../posthog-products";
 import type { AgentMode } from "../../types";
 import type { Pushable } from "../../utils/streams";
 import type { BaseSession } from "../base-acp-agent";
@@ -71,6 +71,8 @@ export type Turn = {
   firstMessageTimed?: boolean;
   /** Set once the first assistant message for this turn has been timed. */
   firstOutputTimed?: boolean;
+  /** A top-level tool call or result was observed during this turn. */
+  madeProgress?: boolean;
   settled: boolean;
   resolve: (response: PromptResponse) => void;
   reject: (error: unknown) => void;

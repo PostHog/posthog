@@ -94,9 +94,11 @@ class ClickHouseUser(StrEnum):
     ERROR_TRACKING = "error_tracking"
     ENDPOINTS = "endpoints"
     BILLING = "billing"
+    BUSINESS_KNOWLEDGE = "business_knowledge"
     REPLAY_VISION = "replay_vision"
     # Session replay surfacing scoring sweep
     SURFACING_SCORING = "surfacing_scoring"
+    DELETION_EXECUTOR = "deletion_executor"
 
     # Backups - used by Dagster backup jobs
     BACKUPS = "backups"
@@ -118,6 +120,7 @@ class ClickHouseCredentials:
     # Path to a file holding the live password. When set, read_password re-reads it on each call,
     # so a rotated short-lived token reaches ClickHouse without rebuilding the pool.
     password_file: str | None = None
+    require_password: bool = False
 
     def read_password(self) -> str:
         path = self.password_file
@@ -126,11 +129,16 @@ class ClickHouseCredentials:
                 token = Path(path).read_text().strip()
             except OSError:
                 logging.warning("clickhouse: %s is not readable, using the static fallback", path)
-                return self.password
+                return self._validated_password(self.password)
             if token:
                 return token
             logging.warning("clickhouse: %s is empty, using the static fallback", path)
-        return self.password
+        return self._validated_password(self.password)
+
+    def _validated_password(self, password: str) -> str:
+        if self.require_password and not password:
+            raise RuntimeError(f"ClickHouse credentials for {self.user} have no usable password.")
+        return password
 
 
 __user_dict: Mapping[ClickHouseUser, ClickHouseCredentials] | None = None
@@ -150,7 +158,12 @@ def init_clickhouse_users() -> Mapping[ClickHouseUser, ClickHouseCredentials]:
         password_file = os.getenv(f"CLICKHOUSE_{u.name.upper()}_PASSWORD_FILE")
         secret = password or password_file
         if user and secret:
-            user_dict[u] = ClickHouseCredentials(user=user, password=password or "", password_file=password_file)
+            user_dict[u] = ClickHouseCredentials(
+                user=user,
+                password=password or "",
+                password_file=password_file,
+                require_password=u == ClickHouseUser.DELETION_EXECUTOR,
+            )
         elif bool(user) != bool(secret):
             logging.warning(f"only one of clickhouse user/password provided, check your config")
     user_names = ",".join([x.name for x in user_dict.keys()])
@@ -163,8 +176,9 @@ def get_clickhouse_creds(user: ClickHouseUser) -> ClickHouseCredentials:
     Retrieve ClickHouse credentials for the specified user.
 
     This function retrieves the credentials associated with a given ClickHouse
-    user. If the specified user is not found, it will fall back to the default
-    user credentials.
+    user. Most missing dedicated users fall back to the default user credentials.
+    Business Knowledge fails closed so a deployment cannot silently bypass its
+    isolated query limit.
 
     The user and password must be properly passed as ENVs:
         CLICKHOUSE_<USER_NAME>_USER
@@ -177,12 +191,62 @@ def get_clickhouse_creds(user: ClickHouseUser) -> ClickHouseCredentials:
     global __user_dict
     if not __user_dict:
         __user_dict = init_clickhouse_users()
-    return __user_dict.get(user, __user_dict[ClickHouseUser.DEFAULT])
+    if creds := __user_dict.get(user):
+        return creds
+    if user == ClickHouseUser.BUSINESS_KNOWLEDGE:
+        raise RuntimeError(
+            "Business Knowledge ClickHouse credentials are missing; set "
+            "CLICKHOUSE_BUSINESS_KNOWLEDGE_USER and CLICKHOUSE_BUSINESS_KNOWLEDGE_PASSWORD"
+        )
+    if user == ClickHouseUser.DELETION_EXECUTOR:
+        raise RuntimeError(
+            "Data deletion request executor ClickHouse credentials are missing; set "
+            "CLICKHOUSE_DELETION_EXECUTOR_USER and "
+            "CLICKHOUSE_DELETION_EXECUTOR_PASSWORD or "
+            "CLICKHOUSE_DELETION_EXECUTOR_PASSWORD_FILE"
+        )
+    return __user_dict[ClickHouseUser.DEFAULT]
+
+
+@frozen
+class QuerySummary:
+    """What one ClickHouse query read."""
+
+    rows: int = 0
+    elapsed_ns: int = 0
+
+
+class ClickHouseClient(SyncClient):
+    """Keeps the progress of a query the server stopped.
+
+    The driver forgets its last query when it reconnects after an error, but a stopped query has
+    already read rows, and the query scan reports them. The record is kept here until read once.
+    """
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        # Set before the base constructor, which calls reset_last_query.
+        self.last_query_before_reset: Any = None
+        super().__init__(*args, **kwargs)
+
+    def reset_last_query(self) -> None:
+        last_query = getattr(self, "last_query", None)
+        # A second disconnect must not drop what the first one stashed.
+        if last_query is not None:
+            self.last_query_before_reset = last_query
+        super().reset_last_query()
+
+    def take_last_query_before_reset(self) -> Any:
+        """Return the stashed query info and forget it, so one execution is never counted twice."""
+        stashed = self.last_query_before_reset
+        self.last_query_before_reset = None
+        return stashed
 
 
 class ProxyClient:
     def __init__(self, client: "HttpClient"):
         self._client = client
+        # The HTTP client has no last_query, so it reports what it read here instead.
+        self.last_query_summary: QuerySummary | None = None
 
     def execute(
         self,
@@ -195,11 +259,16 @@ class ProxyClient:
         types_check=False,
         columnar=False,
     ):
+        self.last_query_summary = None
         if query_id:
             if settings is None:
                 settings = {}
             settings["query_id"] = query_id
         result = self._client.query(query=query, parameters=params, settings=settings, column_oriented=columnar)
+        self.last_query_summary = QuerySummary(
+            rows=int(result.summary.get("read_rows", 0)),
+            elapsed_ns=int(result.summary.get("elapsed_ns", 0)),
+        )
 
         # we must play with result summary here
         written_rows = int(result.summary.get("written_rows", 0))
@@ -363,29 +432,53 @@ def get_pool(
     return make_ch_pool(**kwargs)
 
 
-def default_client(host=settings.CLICKHOUSE_HOST):
+def default_client(
+    host=settings.CLICKHOUSE_HOST,
+    password=None,
+    *,
+    database: str = "system",
+    send_receive_timeout: int | None = None,
+):
     """
     Return a bare bones client for use in places where we are only interested in general ClickHouse state
     DO NOT USE THIS FOR QUERYING DATA
+
+    password overrides the static CLICKHOUSE_PASSWORD, for example with a resolved file-backed token.
+    send_receive_timeout bounds each socket read and write; None keeps the driver default.
     """
-    return SyncClient(
+    return ClickHouseClient(
         host=host,
+        **({"send_receive_timeout": send_receive_timeout} if send_receive_timeout is not None else {}),
         # We set "system" here as we don't necessarily have a "default" database,
         # which is what the clickhouse_driver would use by default. We are
         # assuming that this exists and we have permissions to access it. This
         # feels like a reasonably safe assumption as e.g. we already reference
         # `system.numbers` in multiple places within queries. We also assume
         # access to various other tables e.g. to handle async migrations.
-        database="system",
+        database=database,
         secure=settings.CLICKHOUSE_SECURE,
         user=settings.CLICKHOUSE_USER,
-        password=settings.CLICKHOUSE_PASSWORD,
+        password=settings.CLICKHOUSE_PASSWORD if password is None else password,
         ca_certs=settings.CLICKHOUSE_CA,
         verify=settings.CLICKHOUSE_VERIFY,
     )
 
 
-class RefreshingChPool(ChPool):
+class ClickHouseChPool(ChPool):
+    """A pool of ClickHouseClient. ``ChPool._connect`` hardcodes the driver's client class, so it is
+    repeated here with ours."""
+
+    def _connect(self, key: str | None = None) -> ClickHouseClient:
+        client = ClickHouseClient(**self.connection_args)
+        if key is not None:
+            self._used[key] = client
+            self._rused[id(client)] = key
+        else:
+            self._pool.append(client)
+        return client
+
+
+class RefreshingChPool(ClickHouseChPool):
     """ChPool that stamps the current credential onto every pulled client.
 
     The pool is keyed on identity rather than the credential, so one pool survives credential
@@ -433,7 +526,7 @@ def _make_ch_pool(
         # kwargs["password"] is only the lazy seed here; RefreshingChPool re-stamps every pulled client.
         return RefreshingChPool(credential_provider=credential_provider, **kwargs)
 
-    return ChPool(**kwargs)
+    return ClickHouseChPool(**kwargs)
 
 
 make_ch_pool = cache(_make_ch_pool)

@@ -158,6 +158,10 @@ import {
   type IDiskCacheImages,
 } from "@posthog/platform/disk-cache";
 import {
+  FEEDBACK_CONTEXT_SERVICE,
+  type IFeedbackContext,
+} from "@posthog/platform/feedback-context";
+import {
   HOST_CAPABILITIES,
   type HostCapabilities,
 } from "@posthog/platform/host-capabilities";
@@ -242,6 +246,10 @@ import {
   type McpToolBlockComponent,
 } from "@posthog/ui/features/sessions/components/session-update/identifiers";
 import {
+  CLAUDE_SUBSCRIPTION_TOKEN_SETTINGS,
+  type ClaudeSubscriptionTokenSettings,
+} from "@posthog/ui/features/settings/claudeSubscriptionTokenSettings";
+import {
   DEV_MODE_CLIENT,
   type DevModeClient,
 } from "@posthog/ui/features/settings/devModeClient";
@@ -295,6 +303,7 @@ export interface RendererBindings {
   [HOST_LOGGER]: HostLogger;
   [TRPC_CLIENT]: TRPCClient<TrpcRouter>;
   [HOST_TRPC_CLIENT]: HostTrpcClient;
+  [FEEDBACK_CONTEXT_SERVICE]: IFeedbackContext;
   [UPDATES_CLIENT]: UpdatesClient;
   [DEV_MODE_CLIENT]: DevModeClient;
   [CONNECTIVITY_CLIENT]: ConnectivityClient;
@@ -374,6 +383,7 @@ export interface RendererBindings {
   [SPEECH_USER_NAME_PROVIDER]: UserNameProvider;
   [SPEECH_NOTIFY_SETTINGS]: ISpeechNotifySettings;
   [SPEECH_KEY_STORE]: ISpeechKeyStore;
+  [CLAUDE_SUBSCRIPTION_TOKEN_SETTINGS]: ClaudeSubscriptionTokenSettings;
   [FILE_WATCHER_CLIENT]: FileWatcherClient;
   [FEATURE_FLAGS]: FeatureFlags;
   [AUTH_SIDE_EFFECTS]: IAuthSideEffects;

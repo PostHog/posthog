@@ -1,0 +1,40 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "created_by": {
+            "description": "Filter by the creating user's ID.",
+            "type": "number"
+        },
+        "limit": {
+            "default": 100,
+            "description": "Maximum saved heatmaps to return.",
+            "type": "number"
+        },
+        "offset": {
+            "default": 0,
+            "description": "Number to skip, for pagination.",
+            "type": "number"
+        },
+        "order": {
+            "description": "Field to order by, e.g. '-updated_at' (default) or 'created_at'.",
+            "minLength": 1,
+            "type": "string"
+        },
+        "search": {
+            "description": "Case-insensitive substring match on URL or name.",
+            "minLength": 1,
+            "type": "string"
+        },
+        "status": {
+            "description": "Filter by generation status: 'processing', 'completed', or 'failed'.",
+            "minLength": 1,
+            "type": "string"
+        },
+        "type": {
+            "description": "Filter by render mode: 'screenshot', 'iframe', or 'recording'.",
+            "minLength": 1,
+            "type": "string"
+        }
+    },
+    "type": "object"
+}

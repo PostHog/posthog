@@ -31,7 +31,7 @@ class TestConnectInstructions(SimpleTestCase):
                     "packages": [{"registry_type": "npm", "identifier": "@example/demo-mcp", "version": "1.0.0"}],
                 },
                 "local_package",
-                "agent",
+                "human",
             ),
         ]
     )
@@ -125,15 +125,16 @@ class TestConnectInstructions(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("pinned", "1.2.3", "full", "@example/demo-mcp@1.2.3", "agent"),
-            ("unpinned", "", "human_required", "@example/demo-mcp", "human"),
+            ("pinned", "1.2.3", "@example/demo-mcp@1.2.3"),
+            ("unpinned", "", "@example/demo-mcp"),
         ]
     )
-    def test_npm_package_is_pinned_or_needs_approval(
-        self, _name: str, version: str, automation: str, spec: str, first_actor: str
-    ) -> None:
-        # npx resolves latest when the agent runs it, so an unpinned spec lets a publisher
-        # list something benign and replace it with other code afterwards.
+    def test_npm_package_requires_human_approval(self, _name: str, version: str, spec: str) -> None:
+        # A local package is publisher-controlled code, so a person always approves the
+        # exact package/version before the agent installs it — pinned or not. Pinning stops
+        # the publisher swapping code after listing but says nothing about the pinned
+        # version itself. An unpinned spec additionally resolves whatever is latest at run
+        # time, which is worse.
         server = _server(
             canonical_url="",
             packages=[{"registry_type": "npm", "identifier": "@example/demo-mcp", "version": version}],
@@ -142,9 +143,34 @@ class TestConnectInstructions(SimpleTestCase):
         method = build_connect_instructions(server)["methods"][0]
 
         assert method["method"] == "local_package"
-        assert method["automation"] == automation
-        assert method["steps"][0]["actor"] == first_actor
+        assert method["automation"] == "human_required"
+        assert method["steps"][0]["actor"] == "human"
         assert spec in method["steps"][-1]["command"]
+
+    @parameterized.expand(
+        [
+            ("hosted_remote", {"liveness": "alive_open", "auth_method": "none"}, True),
+            (
+                "package_only",
+                {
+                    "canonical_url": "",
+                    "packages": [{"registry_type": "npm", "identifier": "@example/demo-mcp", "version": "1.0.0"}],
+                },
+                False,
+            ),
+        ]
+    )
+    def test_posthog_gateway_is_offered_only_for_a_hosted_remote(
+        self, _name: str, fields: dict, expected: bool
+    ) -> None:
+        instructions = build_connect_instructions(_server(**fields))
+
+        methods = [method["method"] for method in instructions["methods"]]
+        # The gateway installs a URL, so a package-only entry has nothing for it to reach.
+        assert ("posthog_gateway" in methods) is expected
+        # Never the recommendation: a vendor's own path outranks PostHog's, and an agent
+        # reading these instructions programmatically wants the shell command instead.
+        assert instructions["recommended"] != "posthog_gateway"
 
     def test_row_overrides_replace_derived_methods(self) -> None:
         override_methods = [

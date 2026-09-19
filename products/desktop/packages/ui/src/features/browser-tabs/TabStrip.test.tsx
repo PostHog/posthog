@@ -20,6 +20,8 @@ function setup(overrides?: Partial<Parameters<typeof TabStrip>[0]>) {
     onCloseOthers: vi.fn(),
     onCloseToRight: vi.fn(),
     onCloseToLeft: vi.fn(),
+    onSeparate: vi.fn(),
+    onRenameSplit: vi.fn(),
     ...overrides,
   };
   // Pills call useSortable, which needs an ancestor DnD provider (the app
@@ -66,6 +68,19 @@ describe("TabStrip", () => {
     expect(props.onSelect).not.toHaveBeenCalled();
   });
 
+  it.each([
+    ["an unpinned", false],
+    ["a pinned", true],
+  ])("closes %s tab without selecting it on middle-click", (_label, pinned) => {
+    const props = setup({ tabs: [{ ...tabs[0], pinned }, tabs[1]] });
+    const tab = pinned
+      ? screen.getByLabelText("Overview (pinned)")
+      : screen.getByText("Overview");
+    fireEvent(tab, new MouseEvent("auxclick", { bubbles: true, button: 1 }));
+    expect(props.onClose).toHaveBeenCalledWith("t1");
+    expect(props.onSelect).not.toHaveBeenCalled();
+  });
+
   it("calls onNewTab when the new-tab button is clicked", async () => {
     const props = setup();
     await userEvent.click(screen.getByLabelText("New tab"));
@@ -85,6 +100,37 @@ describe("TabStrip", () => {
     expect(screen.queryByText("Overview")).toBeNull();
     expect(screen.getByLabelText("Overview (pinned)")).toBeTruthy();
     expect(screen.getByLabelText("Close Funnels")).toBeTruthy();
+  });
+
+  it("shows a split as one pill that closes and separates as a whole", async () => {
+    const props = setup({
+      activeTabId: "t2",
+      tabs: [
+        {
+          id: "t1",
+          label: "Funnels",
+          channelName: null,
+          split: {
+            members: [
+              { id: "t1", label: "Overview" },
+              { id: "t2", label: "Funnels" },
+            ],
+            activeId: "t2",
+          },
+        },
+      ],
+    });
+    expect(screen.getAllByRole("tab")).toHaveLength(1);
+    expect(screen.getByLabelText("Funnels (split, 2 tabs)")).toBeTruthy();
+    expect(screen.getByRole("tab")).toHaveAttribute("aria-selected", "true");
+
+    await userEvent.click(screen.getByLabelText("Close split (2 tabs)"));
+    expect(props.onClose).toHaveBeenCalledWith("t1");
+
+    fireEvent.contextMenu(screen.getByLabelText("Funnels (split, 2 tabs)"));
+    expect(screen.queryByText("Pin tab")).toBeNull();
+    await userEvent.click(await screen.findByText("Separate all tabs"));
+    expect(props.onSeparate).toHaveBeenCalledWith("t1");
   });
 
   it("pins from the context menu", async () => {

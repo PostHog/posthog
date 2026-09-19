@@ -1,8 +1,9 @@
+import math
 import uuid
 from datetime import UTC, datetime
 
 import unittest
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person
 from unittest.mock import patch
 
@@ -23,12 +24,16 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
+from posthog.hogql.context import HogQLContext
+from posthog.hogql.printer import prepare_and_print_ast
 
 from posthog.clickhouse.client import sync_execute
 from posthog.models.utils import uuid7
 
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import LazyComputationResult
 from products.analytics_platform.backend.models.preaggregation_job import PreaggregationJob
+from products.web_analytics.backend.hogql_queries import web_overview_lazy_precompute as overview_precompute
+from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import ORG_FEATURE_FLAG_KEY
 from products.web_analytics.backend.hogql_queries.web_overview import WebOverviewQueryRunner
 
 
@@ -47,9 +52,12 @@ class TestWebOverviewLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         # Mock the org-level feature flag check to True so the gate accepts our test
         # team. Outside this context manager the default `posthoganalytics.feature_enabled`
         # returns False (no API key in tests), which models a flag-disabled org.
+        # Scoped to the precompute rollout flag: `posthoganalytics` is one shared
+        # module, so an unscoped True would also enable result-changing flags
+        # (first-pageview attribution), which makes channel filters ineligible.
         return patch(
             "products.web_analytics.backend.hogql_queries.web_lazy_precompute_common.posthoganalytics.feature_enabled",
-            return_value=True,
+            side_effect=lambda key, *args, **kwargs: key == ORG_FEATURE_FLAG_KEY,
         )
 
     def _seed_two_sessions(self) -> None:
@@ -102,7 +110,7 @@ class TestWebOverviewLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
     def _run(self, query: WebOverviewQuery):
         return WebOverviewQueryRunner(team=self.team, query=query).calculate()
 
-    @freeze_time("2024-01-15T12:00:00Z")
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_unfiltered_round_trip_creates_precompute_job(self):
         self._seed_two_sessions()
         with self._enable_lazy():
@@ -116,7 +124,7 @@ class TestWebOverviewLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         "Suspected read-after-write visibility on Distributed table, but global "
         "insert_distributed_sync=1 is already set in users-dev.xml. Root cause under investigation."
     )
-    @freeze_time("2024-01-15T12:00:00Z")
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_lazy_result_matches_raw_result(self):
         """Run the same query with and without the lazy path enabled, assert results match."""
         self._seed_two_sessions()
@@ -145,7 +153,7 @@ class TestWebOverviewLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         assert lazy_views == raw_views, f"views mismatch: lazy={lazy_views}, raw={raw_views}"
         assert lazy_sessions == raw_sessions, f"sessions mismatch: lazy={lazy_sessions}, raw={raw_sessions}"
 
-    @freeze_time("2024-01-15T12:00:00Z")
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_host_filter_gets_distinct_cache_entry(self):
         self._seed_two_sessions()
         host_filter = EventPropertyFilter(key="$host", value="example.com", operator=PropertyOperator.EXACT)
@@ -165,7 +173,7 @@ class TestWebOverviewLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
             f"got overlap: {unfiltered_jobs & filtered_jobs}"
         )
 
-    @freeze_time("2024-01-15T12:00:00Z")
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_distinct_host_values_get_distinct_cache_entries(self):
         self._seed_two_sessions()
         with self._enable_lazy():
@@ -188,22 +196,146 @@ class TestWebOverviewLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
             f"different $host values must produce distinct cache keys, got overlap: {example_jobs & other_jobs}"
         )
 
-    @freeze_time("2024-01-15T12:00:00Z")
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_session_property_falls_through(self):
-        # Session and cohort filters fall through — precompute only serves event/person
-        # filters, since the live path applies session/cohort filters differently.
         with self._enable_lazy():
             self._run(
                 self._build_query(
                     properties=[
-                        SessionPropertyFilter(key="$channel_type", value="Direct", operator=PropertyOperator.EXACT),
+                        SessionPropertyFilter(key="$entry_pathname", value="/", operator=PropertyOperator.EXACT),
                     ]
                 )
             )
 
         assert PreaggregationJob.objects.filter(team_id=self.team.pk).count() == 0
 
-    @freeze_time("2024-01-15T12:00:00Z")
+    @parameterized.expand(
+        [
+            ("string", "2024-01-02T00:00:00", "2024-01-04T23:59:59", False, "Paid Search", 7),
+            ("uuid", "2024-01-02T00:00:00", "2024-01-04T23:59:59", False, "Paid Search", 7),
+            ("string", "2023-01-05T00:00:00", "2024-01-04T23:59:59", False, "Paid Search", 7),
+            ("string", "2024-01-02T00:00:00", "2024-01-03T23:59:59", False, "Paid Search", 6),
+            ("string", "2024-01-02T10:02:00", "2024-01-06T00:00:00", False, "Paid Search", 5),
+            ("string", "2024-01-03T00:00:00", "2024-01-04T23:59:59", True, "Paid Search", 3),
+            ("string", "2024-01-02T00:00:00", "2024-01-04T23:59:59", False, "Synthetic channel", 1),
+            ("string", "2024-01-04T00:05:00", "2024-01-04T00:05:00", False, "Paid Search", 0),
+            ("string", "2024-01-02T00:00:00", "2024-01-03T11:00:00", False, "Paid Search", 5),
+            ("string", "2024-01-03T11:00:00", "2024-01-03T11:00:00", False, "Paid Search", 1),
+        ]
+    )
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
+    def test_channel_precompute_matches_live(
+        self, mode: str, start: str, end: str, compare: bool, channel: str, expected_views: int
+    ) -> None:
+        fixtures = [
+            ("a", ["2024-01-02T10:00:00", "2024-01-02T10:05:00"], "cpc"),
+            ("a", ["2024-01-03T11:00:00"], "cpc"),
+            ("b", ["2024-01-02T23:55:00", "2024-01-03T00:05:00"], "cpc"),
+            ("c", ["2024-01-03T12:00:00"], "synthetic"),
+            ("d", ["2024-01-02T12:00:00"], ""),
+            ("e", ["2024-01-03T23:55:00", "2024-01-04T00:05:00"], "cpc"),
+        ]
+        for person in {person for person, _, _ in fixtures}:
+            _create_person(team_id=self.team.pk, distinct_ids=[person])
+        for person, timestamps, medium in fixtures:
+            session_id = str(uuid7(timestamps[0]))
+            for timestamp in timestamps:
+                _create_event(
+                    team=self.team,
+                    event="$pageview",
+                    distinct_id=person,
+                    timestamp=timestamp,
+                    properties={
+                        "$session_id": session_id,
+                        "$current_url": "https://example.com/page",
+                        "utm_source": "google",
+                        "utm_medium": medium,
+                        "$referring_domain": "$direct",
+                    },
+                )
+        query = self._build_query(
+            date_from=start,
+            date_to=end,
+            compare=compare,
+            properties=[SessionPropertyFilter(key="$channel_type", value=channel, operator=PropertyOperator.EXACT)],
+        )
+        query.filterTestAccounts = False
+        assert query.dateRange is not None
+        query.dateRange.explicitDate = True
+        query.modifiers = HogQLQueryModifiers(
+            sessionsV2JoinMode=SessionsV2JoinMode(mode),
+            customChannelTypeRules=[
+                {
+                    "channel_type": "Synthetic channel",
+                    "combiner": "OR",
+                    "id": "synthetic-rule",
+                    "items": [
+                        {"id": "synthetic-condition", "key": "utm_medium", "op": "exact", "value": ["synthetic"]}
+                    ],
+                }
+            ],
+        )
+        runner = WebOverviewQueryRunner(team=self.team, query=query)
+        context = HogQLContext(
+            team=self.team, team_id=self.team.pk, modifiers=runner.modifiers, enable_select_queries=True
+        )
+        sql, _ = prepare_and_print_ast(runner.to_query(), context=context, dialect="clickhouse")
+        expected = list(sync_execute(sql, context.values)[0])
+        self.assertEqual(expected[2], expected_views)
+        ensure = overview_precompute.web_ensure_precomputed
+        with (
+            self._enable_lazy(),
+            patch.object(
+                overview_precompute,
+                "web_ensure_precomputed",
+                side_effect=lambda **kwargs: ensure(**kwargs, run_inserts=True),
+            ),
+        ):
+            self.assertTrue(overview_precompute.can_use_lazy_precompute(runner))
+            actual = overview_precompute.execute_lazy_precomputed_read(runner)
+        self.assertIsNotNone(actual)
+        assert actual is not None
+        cached = overview_precompute.execute_lazy_precomputed_read(WebOverviewQueryRunner(team=self.team, query=query))
+        self.assertIsNotNone(cached)
+        assert cached is not None
+        for row in (actual, cached):
+            for expected_value, actual_value in zip(expected, row):
+                if isinstance(expected_value, float) and math.isnan(expected_value):
+                    self.assertTrue(math.isnan(actual_value))
+                else:
+                    self.assertAlmostEqual(expected_value, actual_value)
+        if channel == "Synthetic channel":
+            assert query.modifiers.customChannelTypeRules is not None
+            query.modifiers.customChannelTypeRules[0].items[0].value = ["unused-medium"]
+            changed_runner = WebOverviewQueryRunner(team=self.team, query=query)
+            self.assertIsNone(overview_precompute.execute_lazy_precomputed_read(changed_runner))
+            with patch.object(
+                overview_precompute,
+                "web_ensure_precomputed",
+                side_effect=lambda **kwargs: ensure(**kwargs, run_inserts=True),
+            ):
+                changed = overview_precompute.execute_lazy_precomputed_read(changed_runner)
+            self.assertIsNotNone(changed)
+            assert changed is not None
+            self.assertEqual(changed[2], 0)
+
+    @parameterized.expand([("2023-01-15", True), ("2023-01-01", False)])
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
+    def test_channel_precompute_year_limit(self, start: str, eligible: bool) -> None:
+        query = self._build_query(
+            date_from=start,
+            date_to="2024-01-15",
+            properties=[
+                SessionPropertyFilter(key="$channel_type", value="Paid Search", operator=PropertyOperator.EXACT)
+            ],
+        )
+        with self._enable_lazy():
+            self.assertEqual(
+                overview_precompute.can_use_lazy_precompute(WebOverviewQueryRunner(team=self.team, query=query)),
+                eligible,
+            )
+
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_sampling_falls_through(self):
         self._seed_two_sessions()
         with self._enable_lazy():
@@ -211,7 +343,7 @@ class TestWebOverviewLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
 
         assert PreaggregationJob.objects.filter(team_id=self.team.pk).count() == 0
 
-    @freeze_time("2024-01-15T12:00:00Z")
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_disabled_team_falls_through(self):
         # Both gates closed: org feature flag off AND query opt-in not set.
         self._seed_two_sessions()
@@ -219,7 +351,7 @@ class TestWebOverviewLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
 
         assert PreaggregationJob.objects.filter(team_id=self.team.pk).count() == 0
 
-    @freeze_time("2024-01-15T12:00:00Z")
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_query_optin_alone_falls_through_when_org_flag_disabled(self):
         # `query.useWebAnalyticsPrecompute=True` BUT the
         # `web-analytics-precompute-toggle` feature flag is off. Should
@@ -229,7 +361,7 @@ class TestWebOverviewLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
 
         assert PreaggregationJob.objects.filter(team_id=self.team.pk).count() == 0
 
-    @freeze_time("2024-01-15T12:00:00Z")
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_org_flag_alone_falls_through_when_query_not_opted_in(self):
         # Org feature flag is on BUT the query param is not set (the team hasn't
         # enabled the "Allow precompute" toggle in the ScenePanel). Should fall
@@ -240,7 +372,7 @@ class TestWebOverviewLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
 
         assert PreaggregationJob.objects.filter(team_id=self.team.pk).count() == 0
 
-    @freeze_time("2024-01-15T12:00:00Z")
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_cache_hit_on_second_call(self):
         self._seed_two_sessions()
         with self._enable_lazy():
@@ -270,7 +402,7 @@ class TestWebOverviewLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
             f"second run dropped some first-run READY jobs. first: {first_run_summary}, second: {second_run_summary}"
         )
 
-    @freeze_time("2024-01-15T12:00:00Z")
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_compare_to_period_reuses_cache(self):
         self._seed_two_sessions()
         with self._enable_lazy():
@@ -284,7 +416,7 @@ class TestWebOverviewLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         # it should reuse existing jobs and not multiply them.
         assert no_compare_jobs.issubset(after_compare_jobs)
 
-    @freeze_time("2024-01-15T12:00:00Z")
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_compare_to_period_returns_real_previous_values(self):
         """Regression: ensure compare-period metrics come from real precomputed
         previous-period data, not 0/NaN. The bug surfaced when the lazy path
@@ -348,7 +480,7 @@ class TestWebOverviewLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         "above @parameterized.expand, so the parameterized variants kept running and failing. "
         "Root cause under investigation."
     )
-    @freeze_time("2024-01-15T12:00:00Z")
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_lazy_result_matches_raw_for_whole_hour_timezones(self, _name: str, team_tz: str) -> None:
         """Whole-hour-offset teams must produce the same metrics through the lazy and raw paths."""
         self.team.timezone = team_tz
@@ -369,7 +501,7 @@ class TestWebOverviewLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         lazy_values = [(r.key, r.value) for r in lazy_response.results]
         assert lazy_values == raw_values, f"lazy/raw mismatch for {team_tz}: raw={raw_values}, lazy={lazy_values}"
 
-    @freeze_time("2024-01-15T12:00:00Z")
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_half_hour_offset_timezone_falls_through(self):
         # IST is UTC+5:30 — hourly UTC buckets can't represent the team-local
         # midnight, so the gate must refuse.
@@ -383,7 +515,7 @@ class TestWebOverviewLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
 
     # --- Group B: gate strictness -------------------------------------------
 
-    @freeze_time("2024-01-15T12:00:00Z")
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_uuid_session_mode_falls_through(self):
         # `events.$session_id_uuid` would produce `uniqState(UUID)` which the
         # `(uniq, String)` column rejects non-retryably. Gate must refuse.
@@ -395,7 +527,7 @@ class TestWebOverviewLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
 
         assert PreaggregationJob.objects.filter(team_id=self.team.pk).count() == 0
 
-    @freeze_time("2024-01-15T12:00:00Z")
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_window_over_max_days_falls_through(self):
         # 365 days >> MAX_PRECOMPUTE_DAYS — gate refuses to avoid spawning
         # hundreds of daily INSERT jobs in one request.
@@ -411,7 +543,7 @@ class TestWebOverviewLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         "Flaky on CI since #59075 — same intermittent empty-result pattern as the other "
         "round-trip tests in this file. Missed by #59614. Root cause under investigation."
     )
-    @freeze_time("2024-01-15T12:00:00Z")
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_session_just_after_window_start_attributed_correctly(self):
         # Forward-only pad regression: a session starting near the leading edge
         # of a daily UTC bucket must still aggregate its full set of events.
@@ -441,7 +573,7 @@ class TestWebOverviewLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
 
         assert lazy_values == raw_values, f"forward-only pad parity broken: raw={raw_values}, lazy={lazy_values}"
 
-    @freeze_time("2024-01-15T12:00:00Z")
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_compare_period_falls_back_when_previous_not_ready(self):
         # If the previous-period precompute hasn't reached READY across all jobs,
         # we must not read — the read would silently return 0/NaN for `prev_*`
@@ -474,7 +606,7 @@ class TestWebOverviewLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         "Flaky on CI since #59075 — same intermittent empty-result pattern as the other "
         "round-trip tests in this file. Root cause under investigation."
     )
-    @freeze_time("2024-01-15T12:00:00Z")
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_recomputation_picks_up_late_events_changing_bounce_and_duration(self):
         # After a late event arrives, the next precompute run (cache invalidated
         # via job deletion = simulated TTL expiry) must reflect the new
@@ -555,7 +687,7 @@ class TestWebOverviewLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
                 f"recomputed lazy != raw for {metric}: lazy={second_metrics[metric]}, raw={raw_metrics[metric]}"
             )
 
-    @freeze_time("2024-01-15T12:00:00Z")
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_falls_back_when_current_period_not_ready(self):
         # Symmetric to the previous test: if the current-period precompute
         # hasn't reached READY, the read would scan empty buckets. Fall back.
@@ -577,7 +709,7 @@ class TestWebOverviewLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
 
     # --- Group D: enrolled teams (arbitrary filters) ----------------------------------------
 
-    @freeze_time("2024-01-15T12:00:00Z")
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_enrolled_team_creates_job_for_multi_non_host_filter(self):
         # Filters the old restriction rejected (multiple, non-`$host`, non-`exact`)
         # precompute fine for any enrolled team.
@@ -590,7 +722,7 @@ class TestWebOverviewLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
             self._run(self._build_query(properties=props))
         assert PreaggregationJob.objects.filter(team_id=self.team.pk).count() > 0
 
-    @freeze_time("2024-01-15T12:00:00Z")
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_enrolled_team_distinct_filters_get_distinct_cache_entries(self):
         self._seed_two_sessions()
         chrome = [EventPropertyFilter(key="$browser", value="Chrome", operator=PropertyOperator.EXACT)]
@@ -608,7 +740,7 @@ class TestWebOverviewLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
             f"distinct filter values must produce distinct cache keys, got overlap: {chrome_hashes & firefox_hashes}"
         )
 
-    @freeze_time("2024-01-15T12:00:00Z")
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_enrolled_team_untouched_toggle_creates_job(self):
         # Enrolled teams default to opt-out: an untouched toggle (None) still
         # precomputes.
@@ -619,14 +751,14 @@ class TestWebOverviewLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
             self._run(query)
         assert PreaggregationJob.objects.filter(team_id=self.team.pk).count() > 0
 
-    @freeze_time("2024-01-15T12:00:00Z")
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_enrolled_team_explicit_opt_out_falls_through(self):
         self._seed_two_sessions()
         with override_settings(WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS=[self.team.pk]):
             self._run(self._build_query(opt_in_precompute=False))
         assert PreaggregationJob.objects.filter(team_id=self.team.pk).count() == 0
 
-    @freeze_time("2024-01-15T12:00:00Z")
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_stale_served_enqueues_background_revalidation(self):
         # Without the `result.stale` hook this family would serve stale for the whole
         # 6h grace and never refresh (the revalidate half of stale-while-revalidate).
@@ -735,7 +867,7 @@ class TestWebOverviewSessionIdSetInsert(ClickhouseTestMixin, APIBaseTest):
             assert template is mod.JOIN_INSERT_QUERY_TEMPLATE
             assert modifiers is None
 
-    @freeze_time("2024-01-15T12:00:00Z")
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_filtered_insert_matches_join_insert(self):
         """The id-set insert must store the same finalized metrics as the join insert
         for the same filtered key — the whole point of the shape swap. Compares the

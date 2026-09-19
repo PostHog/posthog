@@ -7,6 +7,28 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
+export interface HeatmapScreenshotSettingsApi {
+    /**
+     * Exact DNS hostnames approved to receive the screenshot cookie. No URLs, wildcards, or IP addresses.
+     * @maxItems 100
+     * @items.maxLength 253
+     */
+    allowed_hostnames: string[]
+    /** Whether this installation permits screenshot cookie delivery to its renderer. */
+    readonly cookie_delivery_enabled: boolean
+    /** Whether a screenshot bypass secret has been generated. */
+    readonly has_secret: boolean
+}
+
+export interface PatchedHeatmapScreenshotSettingsRequestApi {
+    /**
+     * Exact DNS hostnames approved to receive the screenshot cookie. No URLs, wildcards, or IP addresses.
+     * @maxItems 100
+     * @items.maxLength 253
+     */
+    allowed_hostnames?: string[]
+}
+
 /**
  * * `screenshot` - Screenshot
  * * `iframe` - Iframe
@@ -689,6 +711,33 @@ export interface RecordInteractionResponseApi {
 export interface RecordVisitResponseApi {
     /** True once today's visit row exists for the user. */
     recorded: boolean
+}
+
+export interface WebAnalyticsBotConditionApi {
+    /**
+     * Stable id for the condition. Generated when omitted.
+     * @maxLength 100
+     */
+    id?: string
+    /** Event property the condition reads. One of: $raw_user_agent, $ip, $lib, $host, $pathname, $current_url, $browser, $os, $browser_language, $screen_width, $screen_height, $geoip_country_code, $referrer, $referring_domain. */
+    key: string
+    /** How `pattern` is compared: 'contains' (case-insensitive substring), 'regex' (RE2), 'exact' (case-sensitive equality), or 'cidr' (an IP network range, only valid with the `$ip` property). */
+    matcher: string
+    /** Value matched against the property named by `key`. For 'cidr' this is a network range like 192.0.2.0/24. */
+    pattern: string
+}
+
+export interface WebAnalyticsBotRuleApi {
+    /** Stable id for the rule. Pass it to the delete endpoint. */
+    readonly id: string
+    /** Label reported by the `Bot name` property when the rule matches. Also the operator for a rule on a bot PostHog does not know. */
+    name: string
+    /** Reported by the `Traffic category` property. Defaults to 'custom'. A built-in category such as ai_crawler or search_crawler relabels the traffic type too. */
+    category?: string
+    /** How the conditions combine: 'AND' flags an event only when every condition matches, 'OR' when any one of them does. */
+    combiner?: string
+    /** The conditions of this rule. Each one reads a single event property. */
+    items: WebAnalyticsBotConditionApi[]
 }
 
 export interface ContentAutopilotSiteProfileApi {

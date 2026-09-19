@@ -1,17 +1,17 @@
 import { useActions, useValues } from 'kea'
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 
 import { IconFilter, IconGear, IconLaptop, IconPhone, IconTabletLandscape, IconTabletPortrait } from '@posthog/icons'
-import { LemonBadge, LemonBanner, LemonButton, LemonSegmentedButton, LemonSelect } from '@posthog/lemon-ui'
+import { LemonBadge, LemonButton, LemonSelect } from '@posthog/lemon-ui'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
-import { heatmapDataLogic } from 'lib/components/heatmaps/heatmapDataLogic'
+import { HEATMAP_LOADING_DEBOUNCE_MS, heatmapDataLogic } from 'lib/components/heatmaps/heatmapDataLogic'
 import { HeatmapsSettings } from 'lib/components/heatmaps/HeatMapsSettings'
-import { SectionSetting } from 'lib/components/heatmaps/HeatMapsSettings'
 import { HeatmapEventFilter } from 'lib/components/heatmaps/types'
 import { heatmapDateOptions } from 'lib/components/IframedToolbarBrowser/utils'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { useDebouncedValue } from 'lib/hooks/useDebouncedValue'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
 import { Popover } from 'lib/lemon-ui/Popover'
@@ -21,7 +21,7 @@ import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/types'
 import { TestAccountFilter } from 'scenes/insights/filters/TestAccountFilter'
 
-import { AnyPropertyFilter, CohortPropertyFilter, HeatmapType, PropertyFilterType, PropertyOperator } from '~/types'
+import { AnyPropertyFilter, CohortPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
 
 const cohortIdsToPropertyFilters = (ids: number[]): AnyPropertyFilter[] =>
     ids.map((id) => ({
@@ -36,20 +36,6 @@ const propertyFiltersToCohortIds = (filters: AnyPropertyFilter[]): number[] =>
         .filter((f): f is CohortPropertyFilter => f.type === PropertyFilterType.Cohort)
         .map((f) => f.value)
         .filter((v): v is number => typeof v === 'number')
-
-const useDebounceLoading = (loading: boolean, delay = 200): boolean => {
-    const [debouncedLoading, setDebouncedLoading] = useState(false)
-
-    useEffect(() => {
-        const timer = setTimeout(() => {
-            setDebouncedLoading(loading)
-        }, delay)
-
-        return () => clearTimeout(timer)
-    }, [loading, delay])
-
-    return debouncedLoading
-}
 
 export function ViewportChooser({ lockedWidth }: { lockedWidth?: number }): JSX.Element {
     const { widthOverride } = useValues(heatmapDataLogic({ context: 'in-app' }))
@@ -122,13 +108,11 @@ export function ViewportChooser({ lockedWidth }: { lockedWidth?: number }): JSX.
  * between fixed and embedded mode
  */
 export function FilterPanel({
-    captureMethod,
-    onCaptureMethodChange,
     clickmapSettings,
     lockedWidth,
+    previewUnavailable = false,
 }: {
-    captureMethod?: HeatmapType
-    onCaptureMethodChange?: (type: HeatmapType) => void
+    previewUnavailable?: boolean
     clickmapSettings?: JSX.Element
     lockedWidth?: number
 }): JSX.Element {
@@ -152,21 +136,21 @@ export function FilterPanel({
     const eventFilterEnabled = useFeatureFlag('HEATMAPS_EVENT_FILTER')
     const eventFilterCount = commonFilters?.events?.length ?? 0
 
-    const debouncedLoading = useDebounceLoading(rawHeatmapLoading ?? false)
+    const debouncedLoading = useDebouncedValue(rawHeatmapLoading, HEATMAP_LOADING_DEBOUNCE_MS)
 
     // KLUDGE: the loading bar flaps in visual regression tests,
     // for some reason our wait for loading to finish can't see it
     // this is ugly but better than stopping taking visual snapshots of it
     return (
-        <>
+        <div className="relative">
             {debouncedLoading && !inStorybook() && !inStorybookTestRunner() && (
                 <LoadingBar
                     wrapperClassName="absolute top-0 left-0 w-full overflow-hidden rounded-none my-0"
                     className="h-1 rounded-none"
                 />
             )}
-            <div className="flex-none md:flex justify-between items-center gap-2 my-2">
-                <div className="flex-none md:flex items-center gap-2 my-2 md:my-0">
+            <div className="flex flex-wrap justify-between items-center gap-2 my-2">
+                <div className="flex flex-wrap items-center gap-2 min-w-0">
                     <DateFilter
                         dateFrom={commonFilters?.date_from}
                         dateTo={commonFilters?.date_to}
@@ -176,7 +160,7 @@ export function FilterPanel({
                         dateOptions={heatmapDateOptions}
                     />
                     {cohortFilterEnabled && (
-                        <div className="mt-2 md:mt-0">
+                        <div className="min-w-0">
                             <PropertyFilters
                                 pageKey="heatmap-cohorts"
                                 propertyFilters={cohortIdsToPropertyFilters(commonFilters?.cohort_ids ?? [])}
@@ -195,7 +179,7 @@ export function FilterPanel({
                         </div>
                     )}
                     {eventFilterEnabled && (
-                        <div className="mt-2 md:mt-0">
+                        <div className="min-w-0">
                             <Popover
                                 overlay={
                                     // The filter bar is a single row of controls, so the event list, which grows a
@@ -251,10 +235,10 @@ export function FilterPanel({
                             </Popover>
                         </div>
                     )}
-                    <div className="mt-2 md:mt-0">
+                    <div className="min-w-0">
                         <Popover
                             overlay={
-                                <div className="p-2 w-80">
+                                <div className="p-2 w-80 max-h-96 overflow-y-auto">
                                     <HeatmapsSettings
                                         heatmapFilters={heatmapFilters}
                                         patchHeatmapFilters={patchHeatmapFilters}
@@ -264,28 +248,21 @@ export function FilterPanel({
                                         heatmapFixedPositionMode={heatmapFixedPositionMode}
                                         setHeatmapFixedPositionMode={setHeatmapFixedPositionMode}
                                     />
-                                    {captureMethod && onCaptureMethodChange && (
-                                        <SectionSetting
-                                            title="Capture method"
-                                            info="Screenshot generates a full-page screenshot. Iframe loads your site directly."
-                                        >
-                                            <LemonSegmentedButton
-                                                onChange={onCaptureMethodChange}
-                                                value={captureMethod}
-                                                options={[
-                                                    {
-                                                        value: 'screenshot',
-                                                        label: 'Screenshot',
-                                                    },
-                                                    {
-                                                        value: 'iframe',
-                                                        label: 'Iframe',
-                                                    },
-                                                ]}
-                                                size="small"
-                                            />
-                                        </SectionSetting>
-                                    )}
+                                    <div className="min-w-0">
+                                        <TestAccountFilter
+                                            size="small"
+                                            filters={{ filter_test_accounts: commonFilters?.filter_test_accounts }}
+                                            onChange={(value) => {
+                                                setCommonFilters?.({
+                                                    ...commonFilters,
+                                                    filter_test_accounts: value.filter_test_accounts,
+                                                })
+                                            }}
+                                        />
+                                    </div>
+                                    <p className="text-xs text-muted mt-3 mb-0">
+                                        Viewing filters and screen width aren't saved with this heatmap.
+                                    </p>
                                 </div>
                             }
                             visible={isSettingsOpen}
@@ -306,28 +283,15 @@ export function FilterPanel({
                             </LemonButton>
                         </Popover>
                     </div>
-                    {clickmapSettings ? <div className="mt-2 md:mt-0">{clickmapSettings}</div> : null}
-                    <div className="mt-2 md:mt-0">
-                        <TestAccountFilter
-                            size="small"
-                            filters={{ filter_test_accounts: commonFilters?.filter_test_accounts }}
-                            onChange={(value) => {
-                                setCommonFilters?.({
-                                    ...commonFilters,
-                                    filter_test_accounts: value.filter_test_accounts,
-                                })
-                            }}
-                        />
-                    </div>
+                    {clickmapSettings ? <div className="min-w-0">{clickmapSettings}</div> : null}
                 </div>
                 <ViewportChooser lockedWidth={lockedWidth} />
             </div>
-            {heatmapEmpty ? (
-                <LemonBanner type="info" className="mb-2">
-                    No data found. Try a different date range or URL, or lower the "Viewport accuracy" in heatmap
-                    settings. A high value can hide data on pages with less traffic.
-                </LemonBanner>
+            {heatmapEmpty && !rawHeatmapLoading && !previewUnavailable ? (
+                <p className="text-sm text-muted mt-2 mb-0">
+                    No interactions found. Try a different date range or adjust your filters in Heatmap settings.
+                </p>
             ) : null}
-        </>
+        </div>
     )
 }

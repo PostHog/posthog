@@ -9,12 +9,12 @@ import {
   filterServersByCategory,
   filterServersByQuery,
 } from "@posthog/core/mcp-servers/filters";
+import { LoadingState } from "@posthog/ui/primitives/LoadingState";
 import {
   Button,
   Flex,
   Heading,
   IconButton,
-  Spinner,
   Text,
   TextField,
 } from "@radix-ui/themes";
@@ -148,9 +148,7 @@ export function MarketplaceView({
       </Flex>
 
       {serversLoading ? (
-        <Flex align="center" justify="center" py="6">
-          <Spinner size="2" />
-        </Flex>
+        <LoadingState className="py-6" />
       ) : visibleServers.length === 0 ? (
         <Flex
           align="center"

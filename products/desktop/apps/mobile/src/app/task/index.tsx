@@ -297,9 +297,9 @@ export default function NewTaskScreen() {
       setAt: Date.now(),
     });
 
-    // Durably record the prompt so it survives the app being killed before
-    // creation completes; cleared once the task exists (or on failure, when
-    // the text is still live in the composer).
+    // Durably record the prompt so it survives the app being killed. Cleared
+    // once the task exists; kept on failure so the next launch can restore
+    // the draft into the composer.
     if (trimmedPrompt) {
       pendingPromptRecoveryStoreApi.set(pendingKey, trimmedPrompt);
     }
@@ -385,7 +385,6 @@ export default function NewTaskScreen() {
     } catch (creationError) {
       log.error("Failed to create task", creationError);
       pendingTaskPromptStoreApi.clear(currentPendingKey);
-      pendingPromptRecoveryStoreApi.clear(pendingKey);
     } finally {
       setCreating(false);
     }
@@ -479,11 +478,7 @@ export default function NewTaskScreen() {
     return (
       <View className="flex-1 bg-background">
         <View style={{ paddingTop: insets.top + 56 }} className="flex-1">
-          <GitHubConnectionPrompt
-            onConnected={refetch}
-            title="Connect GitHub to continue"
-            description="You need to connect your GitHub account before creating tasks. This allows PostHog to work on your repositories."
-          />
+          <GitHubConnectionPrompt onConnected={refetch} />
         </View>
       </View>
     );

@@ -20,6 +20,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     _is_admin_shutdown_error,
     _is_connect_timeout_error,
     _is_dns_resolution_transient_error,
+    _is_schema_lag_error,
     _is_server_not_ready_error,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.health import HealthState
@@ -644,6 +645,43 @@ class TestDnsResolutionTransientErrorClassification:
         mock_capture.assert_not_called()
 
 
+class TestSchemaLagErrorClassification:
+    def test_classifies_undefined_column_and_table(self) -> None:
+        assert _is_schema_lag_error(psycopg.errors.UndefinedColumn("column b.destination_ids does not exist")) is True
+        assert _is_schema_lag_error(psycopg.errors.UndefinedTable("relation sourcebatch does not exist")) is True
+
+    def test_ignores_other_programming_errors(self) -> None:
+        assert _is_schema_lag_error(psycopg.errors.SyntaxErrorOrAccessRuleViolation("syntax error")) is False
+
+    @pytest.mark.asyncio
+    async def test_recovery_loop_does_not_report_schema_lag_error(self):
+        # Reproduces the reported issue: a queue-DB migration adding a column and the sweep
+        # query reading it ship in the same deploy, but a worker can start polling before the
+        # migration finishes applying. The sweep already retries every interval, so this must
+        # be treated as self-healing (logged, not sent to error tracking).
+        consumer = _make_consumer(recovery_interval_seconds=0.01)
+        swept = asyncio.Event()
+
+        async def raise_undefined_column(*args: Any, **kwargs: Any) -> list[PendingBatch]:
+            swept.set()
+            raise psycopg.errors.UndefinedColumn("column b.destination_ids does not exist")
+
+        with (
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.get_stale_executing",
+                side_effect=raise_undefined_column,
+            ),
+            patch.object(consumer, "_reconcile_failed_runs", new_callable=AsyncMock),
+            patch(f"{batch_consumer_module.__name__}.capture_exception") as mock_capture,
+        ):
+            loop_task = asyncio.create_task(consumer._recovery_loop())
+            await asyncio.wait_for(swept.wait(), timeout=2.0)
+            consumer._shutdown.set()
+            await asyncio.wait_for(loop_task, timeout=5.0)
+
+        mock_capture.assert_not_called()
+
+
 class TestConnectTimeoutErrorClassification:
     def test_classifies_connection_timeout(self) -> None:
         assert _is_connect_timeout_error(psycopg.errors.ConnectionTimeout("connection timeout expired")) is True
@@ -1040,10 +1078,11 @@ class TestQueueOperationTimeouts:
 
     @pytest.mark.asyncio
     async def test_startup_sweep_error_does_not_crash_consumer_and_polling_starts(self):
-        # Reproduces the reported issue: a schema-level failure (e.g. the queue DB
-        # missing its tables) during the one-time startup sweep used to propagate out
-        # of run() uncaught, crashing the consumer -- even though the periodic
-        # _recovery_loop already tolerates the identical failure from the same call.
+        # Reproduces the reported issue: an unexpected failure during the one-time startup
+        # sweep used to propagate out of run() uncaught, crashing the consumer -- even
+        # though the periodic _recovery_loop already tolerates the identical failure from
+        # the same call. Uses a ProgrammingError that isn't schema lag (that case is
+        # covered separately and deliberately isn't reported -- see TestSchemaLagErrorClassification).
         config = ConsumerConfig(
             database_url="postgres://unused:unused@localhost/unused",
             poll_interval_seconds=0.01,
@@ -1053,7 +1092,7 @@ class TestQueueOperationTimeouts:
         polling_started = asyncio.Event()
 
         async def raise_undefined_table(*args: Any, **kwargs: Any) -> list[PendingBatch]:
-            raise psycopg.errors.UndefinedTable('relation "sourcebatch" does not exist')
+            raise psycopg.errors.SyntaxErrorOrAccessRuleViolation("unexpected sweep failure")
 
         async def fetch(*args: Any, **kwargs: Any) -> list[PendingBatch]:
             polling_started.set()
@@ -2163,6 +2202,65 @@ class TestReconcileFailedRuns:
                 f"{consumer_module.__name__}.BatchQueue.get_stale_stranded_runs",
                 new_callable=AsyncMock,
                 side_effect=raise_with_maybe_closed_conn,
+            ),
+            patch(f"{consumer_module.__name__}.capture_exception") as mock_capture,
+        ):
+            await consumer._reconcile_failed_runs()
+
+        assert mock_capture.called is expect_capture
+
+    @pytest.mark.parametrize(
+        "conn_closed,expect_capture",
+        [(True, False), (False, True)],
+        ids=["closed_conn_suppresses_capture", "open_conn_still_captured"],
+    )
+    @pytest.mark.asyncio
+    async def test_straggler_sweep_closed_connection_not_captured(self, conn_closed, expect_capture):
+        # Reproduces the reported issue: BatchQueue.fail_run for a straggler batch raised
+        # psycopg.OperationalError("consuming input failed: server closed the connection
+        # unexpectedly") because the queue-db connection died mid-query. That's the same
+        # transient network drop already handled for the stranded-run sweep above; the
+        # straggler sweep must treat it the same way instead of always capturing it.
+        consumer = _make_consumer()
+        ref = _make_failed_run_ref()
+
+        async def raise_with_maybe_closed_conn(*args: object, **kwargs: object) -> None:
+            if conn_closed:
+                cast(Any, consumer._recovery_conn).closed = True
+            raise psycopg.OperationalError("consuming input failed: server closed the connection unexpectedly")
+
+        with (
+            patch(
+                f"{consumer_module.__name__}.BatchQueue.get_oldest_unclaimed_batch_age_seconds",
+                new_callable=AsyncMock,
+                return_value=0.0,
+            ),
+            patch(
+                f"{consumer_module.__name__}.BatchQueue.get_claimable_batch_count",
+                new_callable=AsyncMock,
+                return_value=0,
+            ),
+            patch(
+                f"{consumer_module.__name__}.BatchQueue.get_failed_runs",
+                new_callable=AsyncMock,
+                return_value=[ref],
+            ),
+            patch(
+                f"{consumer_module.__name__}.BatchQueue.fail_run",
+                new_callable=AsyncMock,
+                side_effect=raise_with_maybe_closed_conn,
+            ),
+            patch(
+                f"{consumer_module.__name__}.BatchQueue.get_stale_stranded_runs",
+                new_callable=AsyncMock,
+                return_value=[],
+            ),
+            patch(
+                f"{consumer_module.__name__}.mark_job_failed_if_not_terminal",
+                return_value=False,
+            ),
+            patch(
+                f"{consumer_module.__name__}.release_v3_pipeline_lock",
             ),
             patch(f"{consumer_module.__name__}.capture_exception") as mock_capture,
         ):

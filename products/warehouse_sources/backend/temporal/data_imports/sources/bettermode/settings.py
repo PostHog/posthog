@@ -119,6 +119,76 @@ slug
 description
 """
 
+_SPACE_MEMBER_NODE_FIELDS = """
+member {
+id
+}
+role {
+id
+name
+type
+}
+"""
+
+_SPACE_POST_TYPE_NODE_FIELDS = """
+spaceId
+postTypeId
+whoCanPost
+whoCanReact
+whoCanReply
+"""
+
+_POST_TYPE_NODE_FIELDS = """
+id
+name
+pluralName
+slug
+description
+context
+layout
+archived
+iconId
+titleTemplate
+shortContentTemplate
+languageTemplate
+allowedReactions
+forbiddenReactions
+singleChoiceReactions
+excludedNativeShortcuts
+createdAt
+updatedAt
+"""
+
+_COLLECTION_NODE_FIELDS = """
+id
+name
+slug
+description
+customOrderingIndex
+externalId
+createdAt
+updatedAt
+relativeUrl
+url
+"""
+
+_ROLE_NODE_FIELDS = """
+id
+name
+description
+type
+scopes
+visible
+"""
+
+# A PostReactionParticipant exposes only the reacting member; the post and reaction key that
+# complete the row come from the fan-out that reaches this connection.
+_POST_REACTION_PARTICIPANT_NODE_FIELDS = """
+participant {
+id
+}
+"""
+
 _MODERATION_NODE_FIELDS = """
 id
 status
@@ -140,7 +210,7 @@ updatedAt
 """
 
 
-@dataclass
+@dataclass(frozen=True)
 class BettermodeEndpointConfig:
     # Root query field on the GraphQL schema (e.g. `posts`, `moderationItems`).
     query_field: str
@@ -148,6 +218,9 @@ class BettermodeEndpointConfig:
     # Extra GraphQL variables beyond `limit`/`after`: name -> GraphQL type. Declared in the
     # query document and passed through when present in the request variables.
     extra_args: dict[str, str] = field(default_factory=dict)
+    # Static values for the extra args — per-endpoint because the sort enums differ
+    # (`PostListOrderByEnum` is camelCase, `SpaceMemberListOrderByEnum` is SCREAMING_CASE).
+    base_variables: dict[str, object] = field(default_factory=dict)
     page_size: int = 50
     primary_keys: list[str] = field(default_factory=lambda: ["id"])
     incremental_fields: list[IncrementalField] = field(default_factory=list)
@@ -155,6 +228,13 @@ class BettermodeEndpointConfig:
     partition_key: str | None = "createdAt"
     # Fan out one `replies(postId: ...)` connection per post that has replies.
     fan_out_replies: bool = False
+    # Fan out one connection per space, for root fields that require `spaceId: ID!`.
+    fan_out_spaces: bool = False
+    # Fan out one `postReactionParticipants(postId, reaction)` connection per (post, reaction)
+    # pair, for the members who left each reaction on a post.
+    fan_out_post_reactions: bool = False
+    # Root field returns a plain list instead of a Relay connection — no limit/after args.
+    is_list: bool = False
 
 
 BETTERMODE_ENDPOINTS: dict[str, BettermodeEndpointConfig] = {
@@ -187,6 +267,7 @@ BETTERMODE_ENDPOINTS: dict[str, BettermodeEndpointConfig] = {
             "orderBy": "PostListOrderByEnum",
             "reverse": "Boolean",
         },
+        base_variables={"orderBy": "createdAt", "reverse": False},
         page_size=30,
         fan_out_replies=True,
     ),
@@ -199,6 +280,55 @@ BETTERMODE_ENDPOINTS: dict[str, BettermodeEndpointConfig] = {
     "moderation_items": BettermodeEndpointConfig(
         query_field="moderationItems",
         node_fields=_MODERATION_NODE_FIELDS,
+    ),
+    "space_members": BettermodeEndpointConfig(
+        query_field="spaceMembers",
+        node_fields=_SPACE_MEMBER_NODE_FIELDS,
+        extra_args={"spaceId": "ID!", "orderBy": "SpaceMemberListOrderByEnum", "reverse": "Boolean"},
+        base_variables={"orderBy": "CREATED_AT", "reverse": False},
+        page_size=100,
+        # A membership row is unique per space and member; `spaceId` is injected from the
+        # parent space because SpaceMember itself exposes no scalar fields.
+        primary_keys=["spaceId", "memberId"],
+        partition_key=None,
+        fan_out_spaces=True,
+    ),
+    "space_post_types": BettermodeEndpointConfig(
+        query_field="spacePostTypes",
+        node_fields=_SPACE_POST_TYPE_NODE_FIELDS,
+        extra_args={"spaceId": "ID!"},
+        page_size=100,
+        primary_keys=["spaceId", "postTypeId"],
+        partition_key=None,
+        fan_out_spaces=True,
+    ),
+    "post_types": BettermodeEndpointConfig(
+        query_field="postTypes",
+        node_fields=_POST_TYPE_NODE_FIELDS,
+        page_size=100,
+    ),
+    "post_reaction_participants": BettermodeEndpointConfig(
+        query_field="postReactionParticipants",
+        node_fields=_POST_REACTION_PARTICIPANT_NODE_FIELDS,
+        extra_args={"postId": "ID!", "reaction": "ID!"},
+        page_size=100,
+        # A row is unique per post, reaction key, and member; `postId` and `reaction` are
+        # injected from the fan-out because the participant node carries only the member.
+        primary_keys=["postId", "reaction", "memberId"],
+        # PostReactionParticipant has no timestamp, so there is nothing stable to partition on.
+        partition_key=None,
+        fan_out_post_reactions=True,
+    ),
+    "collections": BettermodeEndpointConfig(
+        query_field="collections",
+        node_fields=_COLLECTION_NODE_FIELDS,
+        is_list=True,
+    ),
+    "roles": BettermodeEndpointConfig(
+        query_field="roles",
+        node_fields=_ROLE_NODE_FIELDS,
+        partition_key=None,
+        is_list=True,
     ),
 }
 

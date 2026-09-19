@@ -3,11 +3,12 @@ from typing import Optional
 
 from products.warehouse_sources.backend.types import IncrementalField
 
-# Canny exposes every resource through a POST `/list` endpoint. v1 endpoints use skip/limit
-# offset pagination with a `hasMore` flag; v2 endpoints (users, companies, comments) use cursor
-# pagination with a `cursor` string and a `hasNextPage` flag. The secret API key is sent as the
-# `apiKey` POST body parameter for both. There is no server-side updated-since filter on any list
-# endpoint, so every stream is full refresh only (see source.py / canny.py).
+# Canny exposes every resource through a POST `/list` endpoint. Most v1 endpoints use skip/limit
+# offset pagination with a `hasMore` flag; the Ideas-era v1 endpoints (groups, ideas, insights) and
+# every v2 endpoint (users, companies, comments) use cursor pagination with a `cursor` string and a
+# `hasNextPage` flag. The secret API key is sent as the `apiKey` POST body parameter for all of them.
+# There is no server-side updated-since filter on any list endpoint, so every stream is full refresh
+# only (see source.py / canny.py).
 
 # Vendor API version labels. v1 is the long-standing wire; v2 is Canny's newer cursor-paginated
 # implementation, offered so far only for the endpoints that set `v2_path` below.
@@ -24,6 +25,10 @@ class CannyEndpointConfig:
     # Whether the endpoint supports skip/limit pagination. `boards/list` returns
     # every board in one response with no pagination params or `hasMore` flag.
     paginated: bool = True
+    # Whether the v1 `path` above is itself cursor-paginated. Canny shipped the Ideas-era
+    # endpoints (groups, ideas, insights) on the v1 base with the cursor wire rather than
+    # skip/limit, so cursor pagination is not a v2-only trait and cannot be inferred from the pin.
+    cursor_paginated: bool = False
     # Stable creation timestamp present on every Canny object — safe to partition on
     # because it never changes after a record is created (unlike a `lastSaved` field).
     partition_key: Optional[str] = "created"
@@ -49,6 +54,11 @@ CANNY_ENDPOINTS: dict[str, CannyEndpointConfig] = {
     "companies": CannyEndpointConfig(
         path="/v1/companies/list", data_key="companies", v2_path="/v2/companies/list", v2_data_key="companies"
     ),
+    "groups": CannyEndpointConfig(path="/v1/groups/list", data_key="items", cursor_paginated=True, partition_key=None),
+    "ideas": CannyEndpointConfig(path="/v1/ideas/list", data_key="items", cursor_paginated=True),
+    "insights": CannyEndpointConfig(path="/v1/insights/list", data_key="items", cursor_paginated=True),
+    # Opportunities carry no timestamp at all, so there is nothing stable to partition on.
+    "opportunities": CannyEndpointConfig(path="/v1/opportunities/list", data_key="opportunities", partition_key=None),
     "posts": CannyEndpointConfig(path="/v1/posts/list", data_key="posts"),
     "status_changes": CannyEndpointConfig(path="/v1/status_changes/list", data_key="statusChanges"),
     "tags": CannyEndpointConfig(path="/v1/tags/list", data_key="tags"),

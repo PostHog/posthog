@@ -116,6 +116,15 @@ def _raw_encrypted_inputs(model_id) -> Optional[str]:
     return row[0] if row else None
 
 
+def _email_step(step_id: str, name: str, **email_value: Any) -> dict[str, Any]:
+    return {
+        "id": step_id,
+        "name": name,
+        "type": "function_email",
+        "config": {"template_id": "template-email", "inputs": {"email": {"value": email_value}}},
+    }
+
+
 class TestHogFlowAPI(APIBaseTest):
     def setUp(self):
         super().setUp()
@@ -219,21 +228,154 @@ class TestHogFlowAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("name_match", "welcome", {"Welcome email"}),
-            ("case_insensitive", "WELCOME", {"Welcome email"}),
-            ("description_match", "quarterly", {"Digest"}),
-            ("space_matches_separators", "password reset", {"Password reset"}),
-            ("no_match", "nonexistent", set()),
+            ("name_match", "search=welcome", {"Welcome email"}),
+            ("case_insensitive", "search=WELCOME", {"Welcome email"}),
+            ("description_match", "search=quarterly", {"Digest"}),
+            ("space_matches_separators", "search=password reset", {"Password reset"}),
+            ("step_name_match", "search=monthly invoice", {"Billing"}),
+            ("email_subject_match", "search=for march", {"Billing"}),
+            ("email_preheader_match", "search=billing page", {"Billing"}),
+            ("email_body_text_match", "search=is attached", {"Billing"}),
+            ("email_markup_not_searched", "search=footer-links", set()),
+            ("email_html_only_body_match", "search=for your payment", {"Receipts"}),
+            ("email_css_not_searched", "search=111111", set()),
+            ("draft_email_subject_match", "search=beta access", {"Onboarding"}),
+            ("email_in_later_step_matches", "search=final reminder", {"Nurture"}),
+            ("liquid_subject_matches_beside_the_tag", "search=your seat is ready", {"Nurture"}),
+            ("liquid_subject_not_matched_by_rendered_wording", "search=hi jane, your seat", set()),
+            ("regex_characters_match_literally", "search=[vip] early access", {"Nurture"}),
+            ("percent_and_parentheses_match_literally", "search=50%25 off (today only)!", {"Nurture"}),
+            ("body_phrase_across_newlines", "search=upgrade now to keep", {"Nurture"}),
+            ("shared_subject_returns_every_workflow", "search=seat is confirmed", {"Alpha", "Beta"}),
+            ("html_with_liquid_in_attribute_still_matches_content", "search=thanks for your order", {"Promo"}),
+            ("html_attribute_css_not_searched", "search=color:%23ffffff", set()),
+            ("html_script_not_searched", "search=trackVisit", set()),
+            ("name_tier_hides_step_matches", "search=march", {"March campaign"}),
+            ("tier_decision_respects_status_filter", "search=march&status=draft", {"Billing"}),
+            ("tier_decision_respects_type_filter", "search=march&type=messaging", {"Billing"}),
+            ("no_match", "search=nonexistent", set()),
         ]
     )
-    def test_list_search_matches_name_and_description(self, _name, search, expected_names):
+    def test_list_search_matches_name_description_and_step_content(self, _name, query, expected_names):
         HogFlow.objects.create(team=self.team, name="Welcome email", created_by=self.user)
         HogFlow.objects.create(team=self.team, name="Password reset", created_by=self.user)
         HogFlow.objects.create(team=self.team, name="Digest", description="quarterly summary", created_by=self.user)
+        HogFlow.objects.create(team=self.team, name="March campaign", status=HogFlow.State.ACTIVE, created_by=self.user)
+        HogFlow.objects.create(
+            team=self.team,
+            name="Billing",
+            created_by=self.user,
+            actions=[
+                _email_step(
+                    "email_1",
+                    "Monthly invoice email",
+                    subject="Your invoice for March is ready",
+                    preheader="Download it from your billing page",
+                    text="Your invoice is attached.",
+                    html='<table class="footer-links"><tr><td>Your invoice is attached.</td></tr></table>',
+                )
+            ],
+        )
+        HogFlow.objects.create(
+            team=self.team,
+            name="Receipts",
+            created_by=self.user,
+            actions=[
+                _email_step(
+                    "email_1",
+                    "Receipt email",
+                    subject="Your receipt",
+                    html='<style type="text/css">.footer { color: #111111; }</style><p>Thanks for your <strong>payment</strong></p>',
+                )
+            ],
+        )
+        HogFlow.objects.create(
+            team=self.team,
+            name="Promo",
+            created_by=self.user,
+            actions=[
+                _email_step(
+                    "email_1",
+                    "Order email",
+                    subject="Order update",
+                    html=(
+                        "<script>trackVisit()</script>"
+                        '<td style="{% if person.properties.orders > 1 %}color:#ffffff{% endif %}">Thanks for your order</td>'
+                    ),
+                )
+            ],
+        )
+        # A realistic multi-step graph: the searched text sits in the third email, behind non-email steps.
+        HogFlow.objects.create(
+            team=self.team,
+            name="Nurture",
+            status=HogFlow.State.ACTIVE,
+            created_by=self.user,
+            actions=[
+                {"id": "trigger_node", "name": "Trigger", "type": "trigger", "config": {"type": "event"}},
+                _email_step("email_1", "Day 1", subject="Hi {{ person.properties.first_name }}, your seat is ready"),
+                {"id": "delay_1", "name": "Wait 3 days", "type": "delay", "config": {"delay_duration": "3d"}},
+                _email_step(
+                    "email_2",
+                    "Day 4",
+                    subject="50% off (today only)! Upgrade before Friday",
+                    text="Upgrade now\n\nto keep your dashboards and alerts.",
+                ),
+                {"id": "branch_1", "name": "Has upgraded?", "type": "conditional_branch", "config": {}},
+                _email_step("email_3", "Day 10", subject="[VIP] early access: final reminder"),
+                {"id": "exit_node", "name": "Exit", "type": "exit", "config": {}},
+            ],
+        )
+        for name in ("Alpha", "Beta"):
+            HogFlow.objects.create(
+                team=self.team,
+                name=name,
+                created_by=self.user,
+                actions=[_email_step("email_1", "Confirmation", subject="Your seat is confirmed")],
+            )
+        HogFlow.objects.create(
+            team=self.team,
+            name="Onboarding",
+            status=HogFlow.State.ACTIVE,
+            created_by=self.user,
+            draft={"actions": [_email_step("email_1", "Access email", subject="Your beta access starts today")]},
+        )
 
-        response = self.client.get(f"/api/projects/{self.team.id}/hog_flows?search={search}")
+        response = self.client.get(f"/api/projects/{self.team.id}/hog_flows?{query}")
         assert response.status_code == 200, response.json()
         assert {flow["name"] for flow in response.json()["results"]} == expected_names
+
+    def test_list_search_step_tier_counts_every_match_across_pages(self):
+        for name in ("Alpha", "Beta"):
+            HogFlow.objects.create(
+                team=self.team,
+                name=name,
+                created_by=self.user,
+                actions=[_email_step("email_1", "Confirmation", subject="Your seat is confirmed")],
+            )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/hog_flows?search=seat is confirmed&limit=1")
+        assert response.status_code == 200, response.json()
+        assert response.json()["count"] == 2
+        assert len(response.json()["results"]) == 1
+        assert response.json()["next"] is not None
+
+    def test_list_includes_the_pending_draft(self):
+        HogFlow.objects.create(
+            team=self.team,
+            name="Onboarding",
+            status=HogFlow.State.ACTIVE,
+            created_by=self.user,
+            draft={"actions": [_email_step("email_1", "Access email", subject="Your beta access starts today")]},
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/hog_flows?search=beta access")
+        assert response.status_code == 200, response.json()
+        (flow,) = response.json()["results"]
+        assert (
+            flow["draft"]["actions"][0]["config"]["inputs"]["email"]["value"]["subject"]
+            == "Your beta access starts today"
+        )
 
     def test_list_filter_by_created_by_uuid(self):
         other_user = User.objects.create_and_join(self.organization, "other@posthog.com", None)
@@ -248,6 +390,7 @@ class TestHogFlowAPI(APIBaseTest):
         [
             ("messaging", "messaging", {"Email drip", "Push blast"}),
             ("automation", "automation", {"Webhook sync"}),
+            ("loop", "loop", {"Loop with email action"}),
         ]
     )
     def test_list_filter_by_workflow_type(self, _name, workflow_type, expected_names):
@@ -268,6 +411,16 @@ class TestHogFlowAPI(APIBaseTest):
             name="Webhook sync",
             created_by=self.user,
             actions=[{"id": "a", "type": "function", "config": {}}],
+        )
+        # Loop-origin workflow with a messaging action - the frontend always tags this "Loop"
+        # (see WorkflowTypeTag), so it must be excluded from both the messaging and automation
+        # filters and returned only by the loop filter.
+        HogFlow.objects.create(
+            team=self.team,
+            name="Loop with email action",
+            created_by=self.user,
+            origin_product="loops",
+            actions=[{"id": "a", "type": "function_email", "config": {}}],
         )
 
         response = self.client.get(f"/api/projects/{self.team.id}/hog_flows?type={workflow_type}")
@@ -762,6 +915,11 @@ class TestHogFlowAPI(APIBaseTest):
             ("unit_and_duration_shape", {"unit": "days", "duration": 3}),
             ("unsupported_unit", {"delay_duration": "30w"}),
             ("empty_string", {"delay_duration": ""}),
+            # The worker's parser is ASCII-only, so a value Python's `\d` would accept throws on the run.
+            ("unicode_digits", {"delay_duration": "\u0665d"}),
+            ("negative", {"delay_duration": "-5d"}),
+            # `$` matches before a final newline, so this reached float() and 500ed.
+            ("trailing_newline", {"delay_duration": "1d\n"}),
         ]
     )
     def test_hog_flow_delay_validation_rejects_malformed_config(self, _name, bad_config):
@@ -771,8 +929,8 @@ class TestHogFlowAPI(APIBaseTest):
             "attr": "actions__1__config",
             "code": "invalid_input",
             "detail": (
-                "delay_duration must be a string matching ^\\d*\\.?\\d+[dhms]$ "
-                "(e.g. '30s', '30m', '2h', '1.5d'). ISO-8601 formats are not supported."
+                "delay_duration must be a duration string such as '30s', '30m', '2h', '1.5d'. "
+                "ISO-8601 formats are not supported."
             ),
             "type": "validation_error",
         }
@@ -815,6 +973,9 @@ class TestHogFlowAPI(APIBaseTest):
             ("unsupported_unit", "10x"),
             ("iso_8601", "P30D"),
             ("numeric", 1800),
+            # Falsy in Python, truthy in the worker, which would hand the parser a container.
+            ("empty_object", {}),
+            ("empty_array", []),
         ]
     )
     def test_hog_flow_wait_validation_rejects_malformed_max_wait_duration(self, _name, max_wait_duration):
@@ -826,8 +987,8 @@ class TestHogFlowAPI(APIBaseTest):
             "attr": "actions__1__config",
             "code": "invalid_input",
             "detail": (
-                "max_wait_duration must be a string matching ^\\d*\\.?\\d+[dhms]$ "
-                "(e.g. '30s', '30m', '2h', '1.5d'). ISO-8601 formats are not supported."
+                "max_wait_duration must be a duration string such as '30s', '30m', '2h', '1.5d'. "
+                "ISO-8601 formats are not supported."
             ),
             "type": "validation_error",
         }
@@ -844,6 +1005,66 @@ class TestHogFlowAPI(APIBaseTest):
     )
     def test_hog_flow_wait_validation_accepts_canonical_max_wait_duration(self, _name, max_wait_duration):
         response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", self._make_wait_flow(max_wait_duration))
+        assert response.status_code == 201, response.json()
+
+    def _make_conditional_branch_flow(self, config: dict) -> dict:
+        flow = self._make_delay_flow({"delay_duration": "5m"})
+        flow["actions"][1] = {
+            "id": "c1",
+            "name": "c1",
+            "type": "conditional_branch",
+            "config": {
+                "conditions": [{"filters": {"properties": [{"key": "email", "value": "a@example.com"}]}}],
+                **config,
+            },
+        }
+        return flow
+
+    @parameterized.expand(
+        [
+            ("no_unit", "5"),
+            ("unsupported_unit", "10x"),
+            ("iso_8601", "P30D"),
+            ("numeric", 1800),
+            ("unicode_digits", "\u0665d"),
+            # Falsy in Python, truthy in the worker, which would hand the parser a container.
+            ("empty_object", {}),
+            ("empty_array", []),
+        ]
+    )
+    def test_hog_flow_conditional_branch_validation_rejects_malformed_delay_duration(self, _name, delay_duration):
+        # A branch that matches nothing re-parks on delay_duration through the same parser as a delay
+        # step, so a value only that parser rejects has to be rejected at write time too
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows",
+            self._make_conditional_branch_flow({"delay_duration": delay_duration}),
+        )
+        assert response.status_code == 400, response.json()
+        assert response.json() == {
+            "attr": "actions__1__config",
+            "code": "invalid_input",
+            "detail": (
+                "delay_duration must be a duration string such as '30s', '30m', '2h', '1.5d'. "
+                "ISO-8601 formats are not supported."
+            ),
+            "type": "validation_error",
+        }
+
+    @parameterized.expand(
+        [
+            ("seconds", {"delay_duration": "30s"}),
+            ("fractional_days", {"delay_duration": "1.5d"}),
+            # The re-park is optional, and every branch the editor writes omits it, so a branch with
+            # no delay must keep saving
+            ("absent", {}),
+            ("null", {"delay_duration": None}),
+            ("empty_string", {"delay_duration": ""}),
+        ]
+    )
+    def test_hog_flow_conditional_branch_validation_accepts_canonical_delay_duration(self, _name, config):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows", self._make_conditional_branch_flow(config)
+        )
         assert response.status_code == 201, response.json()
 
     @parameterized.expand(
@@ -1069,6 +1290,78 @@ class TestHogFlowAPI(APIBaseTest):
 
         conversion = response.json()["conversion"]
         assert conversion["bytecode"] == [], conversion
+
+    @parameterized.expand(
+        [
+            ("duration string", {"window": "7d"}, 201),
+            ("hours", {"window": "12h"}, 201),
+            ("over the ceiling", {"window": "400d"}, 400),
+            ("zero", {"window": "0d"}, 400),
+            ("zero seconds", {"window": "0s"}, 400),
+            ("not a duration", {"window": "7 days"}, 400),
+            ("legacy minutes", {"window_minutes": 60}, 201),
+            # 604800 is seven days in seconds, in a field that takes minutes. Rejecting it turns a
+            # silently shortened window into an error that names the unit.
+            ("legacy seconds mistaken for minutes", {"window_minutes": 604800}, 400),
+            ("both forms", {"window": "7d", "window_minutes": 60}, 400),
+            # A valid 7-day window padded past the length cap. Without max_length the regex accepts it and
+            # it stores as 7 days; the cap rejects it, which is what keeps arbitrarily long input off the
+            # regex and the float parse.
+            ("over the length cap", {"window": "0" * 40 + "7d"}, 400),
+            # Non-ASCII digits: Python's \d and float() accept these, but the Node worker's ASCII regex
+            # rejects them, so storing one would silently fall back to the default window. The [0-9] grammar
+            # rejects them here, at the API, the same way the worker does.
+            ("arabic-indic digits", {"window": "٧d"}, 400),
+            ("full-width digits", {"window": "７d"}, 400),
+        ]
+    )
+    def test_hog_flow_conversion_window(self, _name, conversion_window, expected_status):
+        hog_flow, _ = self._create_hog_flow_with_action(
+            {"template_id": "template-webhook", "inputs": {"url": {"value": "https://example.com"}}}
+        )
+        hog_flow["conversion"] = {"filters": [], **conversion_window}
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert response.status_code == expected_status, response.json()
+
+    def test_hog_flow_conversion_window_minutes_error_names_the_unit(self):
+        hog_flow, _ = self._create_hog_flow_with_action(
+            {"template_id": "template-webhook", "inputs": {"url": {"value": "https://example.com"}}}
+        )
+        hog_flow["conversion"] = {"filters": [], "window_minutes": 604800}
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert response.status_code == 400, response.json()
+        assert "minutes" in response.json()["detail"]
+        assert "420 days" in response.json()["detail"]
+
+    def test_hog_flow_conversion_window_minutes_grandfathers_stored_over_ceiling_value(self):
+        hog_flow, _ = self._create_hog_flow_with_action(
+            {"template_id": "template-webhook", "inputs": {"url": {"value": "https://example.com"}}}
+        )
+        create_response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert create_response.status_code == 201, create_response.json()
+        flow_id = create_response.json()["id"]
+
+        # Seed a row from before the ceiling existed, bypassing the serializer that now refuses this value.
+        flow = HogFlow.objects.get(id=flow_id)
+        flow.conversion = {"filters": [], "window_minutes": 604800}
+        flow.save()
+
+        # An unrelated edit that resends the unchanged over-ceiling value must still succeed.
+        unrelated_edit = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
+            {"name": "Renamed", "conversion": {"filters": [], "window_minutes": 604800}},
+        )
+        assert unrelated_edit.status_code == 200, unrelated_edit.json()
+        assert unrelated_edit.json()["conversion"]["window_minutes"] == 604800
+
+        # Changing the stored value to a different over-ceiling value is still refused.
+        changed = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
+            {"conversion": {"filters": [], "window_minutes": 700000}},
+        )
+        assert changed.status_code == 400, changed.json()
 
     def test_hog_flow_conversion_filters_compiles_bytecode_on_update(self):
         expected_conversion_bytecode = [
@@ -3182,6 +3475,54 @@ class TestHogFlowAPI(APIBaseTest):
         assert "limit" in body
         assert body["limit"] > 0
 
+    def test_hog_flow_user_blast_radius_routes_to_v2_when_flag_enabled(self):
+        with (
+            patch("products.workflows.backend.api.hog_flow.use_audience_query_v2", return_value=True),
+            patch("products.workflows.backend.api.hog_flow.get_person_audience_count_v2") as mock_v2,
+            patch("products.workflows.backend.api.hog_flow.get_dedupe_audience_count_v2") as mock_dedupe_v2,
+            patch("products.workflows.backend.api.hog_flow.get_user_blast_radius") as mock_v1,
+        ):
+            from products.feature_flags.backend.user_blast_radius import BlastRadiusResult  # noqa: PLC0415
+
+            mock_v2.return_value = BlastRadiusResult(affected=6400, total=64000)
+
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/hog_flows/user_blast_radius",
+                {"filters": {"properties": []}},
+            )
+
+            assert response.status_code == 200, response.json()
+            body = response.json()
+            assert body["affected"] == 6400
+            assert body["total"] == 64000
+            mock_v1.assert_not_called()
+
+            # Dedupe-enabled workflows route to the sampled dedupe count.
+            mock_dedupe_v2.return_value = BlastRadiusResult(affected=3200, total=64000)
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/hog_flows/user_blast_radius",
+                {"filters": {"properties": []}, "dedupe_key": "email"},
+            )
+
+            assert response.status_code == 200, response.json()
+            body = response.json()
+            assert body["affected"] == 3200
+            assert body["dedupe_key"] == "email"
+            mock_dedupe_v2.assert_called_once_with(self.team, {"properties": []}, "email")
+            mock_v1.assert_not_called()
+
+            # Group audiences stay on the v1 query even with the flag on: the v2
+            # sampled count only covers person audiences.
+            mock_v1.return_value = BlastRadiusResult(affected=1, total=2)
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/hog_flows/user_blast_radius",
+                {"filters": {"properties": []}, "group_type_index": 0},
+            )
+
+            assert response.status_code == 200, response.json()
+            mock_v1.assert_called_once()
+            mock_v2.assert_called_once()
+
     @override_settings(
         HOGFLOW_BATCH_TRIGGER_LIMIT=5000,
         HOGFLOW_BATCH_TRIGGER_LIMIT_ELEVATED=50000,
@@ -3327,7 +3668,9 @@ class TestHogFlowAPI(APIBaseTest):
 
         assert response.status_code == 200, response.json()
         assert response.json()["users_affected"] == ["id-1"]
-        mock_workflows_query.assert_called_once_with(self.team, {"properties": []}, None, None, dedupe_key="email")
+        mock_workflows_query.assert_called_once_with(
+            self.team, {"properties": []}, None, None, dedupe_key="email", settings=None
+        )
 
     @parameterized.expand(
         [

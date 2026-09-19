@@ -222,8 +222,17 @@ class TestDeactivateStaleMaterializationsTask(BaseTest):
         version.refresh_from_db()
         assert version.saved_query is None
 
+    @parameterized.expand(
+        [
+            ("completed", DataModelingJob.Status.COMPLETED, True),
+            ("failed", DataModelingJob.Status.FAILED, True),
+            ("still_running", DataModelingJob.Status.RUNNING, False),
+        ]
+    )
     @mock.patch("products.endpoints.backend.tasks.tasks._deactivate_version_materialization")
-    def test_selects_stale_version_whose_saved_query_last_run_at_is_never_written(self, mock_deactivate):
+    def test_selects_stale_version_from_a_recent_finished_job(
+        self, _name, job_status, expect_deactivation, mock_deactivate
+    ):
         now = timezone.now()
         _, version = self._create_materialized_endpoint(
             name="v2_scheduled",
@@ -234,12 +243,15 @@ class TestDeactivateStaleMaterializationsTask(BaseTest):
         DataModelingJob.objects.create(
             team=self.team,
             saved_query=version.saved_query,
-            status=DataModelingJob.Status.COMPLETED,
+            status=job_status,
             last_run_at=now - timedelta(hours=1),
         )
 
         deactivate_stale_materializations()
 
+        if not expect_deactivation:
+            mock_deactivate.assert_not_called()
+            return
         mock_deactivate.assert_called_once()
         assert mock_deactivate.call_args[0][0].id == version.id
 
