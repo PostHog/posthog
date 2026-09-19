@@ -1,5 +1,9 @@
 import type { Meta, StoryObj } from '@storybook/react'
+import { fireEvent, waitFor, within } from '@testing-library/dom'
 
+import { ModelsLineageTab } from 'scenes/models/tabs/ModelsLineageTab'
+
+import { mswDecorator } from '~/mocks/browser'
 import { DataModelingEdge, DataModelingNode } from '~/types'
 
 import { LineageGraph } from './LineageGraph'
@@ -86,4 +90,37 @@ export const EmptyState: Story = {
     render: () => (
         <LineageGraph nodes={[]} edges={[]} emptyMessage="This query doesn't depend on any other tables or views" />
     ),
+}
+
+export const SearchFocus: Story = {
+    render: () => <ModelsLineageTab />,
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/environments/:team_id/data_modeling_nodes/': { count: GRAPH_NODES.length, results: GRAPH_NODES },
+                '/api/environments/:team_id/data_modeling_edges/': { count: GRAPH_EDGES.length, results: GRAPH_EDGES },
+            },
+        }),
+    ],
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        await canvas.findByText('monthly_report')
+        const graph = canvasElement.querySelector<HTMLElement>('.react-flow')!
+        const target = graph.querySelector<HTMLElement>('.react-flow__node[data-id="4"]')!
+        const search = canvas.getByPlaceholderText('Search, or +name for upstream')
+        fireEvent.change(search, { target: { value: 'monthly_report' } })
+        await waitFor(() => {
+            const nodeBounds = target.getBoundingClientRect()
+            const graphBounds = graph.getBoundingClientRect()
+            if (
+                Math.abs(nodeBounds.x + nodeBounds.width / 2 - graphBounds.x - graphBounds.width / 2) > 5 ||
+                Math.abs(nodeBounds.y + nodeBounds.height / 2 - graphBounds.y - graphBounds.height / 2) > 5
+            ) {
+                throw new Error('The search match must be centered in the lineage viewport')
+            }
+        })
+        if (graph.querySelectorAll('.react-flow__node').length !== GRAPH_NODES.length) {
+            throw new Error('Plain search must keep the rest of the graph visible')
+        }
+    },
 }

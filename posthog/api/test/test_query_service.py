@@ -10,6 +10,7 @@ from parameterized import parameterized
 from rest_framework.exceptions import ValidationError
 
 from posthog.schema import (
+    AutocompleteCompletionItemKind,
     DatabaseSchemaDataWarehouseTable,
     DatabaseSchemaField,
     DatabaseSchemaPostHogTable,
@@ -34,10 +35,12 @@ from posthog.hogql.direct_connection import INVALID_CONNECTION_ID_ERROR
 from posthog.hogql.errors import ResolutionError
 from posthog.hogql.language_service import LanguageServiceResult
 
-from posthog.api.services.query import process_query_model
+from posthog.api.services.query import _language_service_eligible, process_query_model
 from posthog.exceptions import DatabaseSchemaUnavailable
 from posthog.models import Team, User
 
+from products.data_tools.backend.models.expression import DataWarehouseExpression
+from products.data_tools.backend.models.join import DataWarehouseJoin
 from products.warehouse_sources.backend.facade.models import (
     DataWarehouseCredential,
     DataWarehouseTable,
@@ -47,11 +50,20 @@ from products.warehouse_sources.backend.facade.types import ExternalDataSourceTy
 
 
 class TestLanguageServiceRouting(SimpleTestCase):
+    def test_hogql_metadata_with_index_usage_is_language_service_eligible(self) -> None:
+        query = HogQLMetadata(query="SELECT * FROM events", language=HogLanguage.HOG_QL, indexUsage=True)
+
+        assert _language_service_eligible(query)
+
     @patch("posthog.api.services.query._language_service_call")
     def test_hogql_autocomplete_uses_language_service_response(self, mock_language_service_call: MagicMock):
         mock_language_service_call.return_value = LanguageServiceResult(
             body={
-                "suggestions": [{"label": "events", "kind": "table", "detail": "posthog"}],
+                "suggestions": [
+                    {"label": "events", "kind": "table", "detail": "posthog"},
+                    {"label": "count", "kind": "function", "insertText": "count()", "sortText": "2-count"},
+                    {"label": "=", "kind": "operator", "insertText": "="},
+                ],
                 "durationMicros": 250,
                 "nextCursor": "next",
             },
@@ -72,6 +84,10 @@ class TestLanguageServiceRouting(SimpleTestCase):
 
         assert isinstance(response, HogQLAutocompleteResponse)
         assert response.suggestions[0].label == "events"
+        assert response.suggestions[1].kind == AutocompleteCompletionItemKind.FUNCTION
+        assert response.suggestions[1].insertText == "count()"
+        assert response.suggestions[1].sortText == "2-count"
+        assert response.suggestions[2].kind == AutocompleteCompletionItemKind.OPERATOR
         assert response.incomplete_list is True
         assert [timing.model_dump() for timing in response.timings or []] == [
             {"k": "language_service_http", "t": 0.001},
@@ -269,6 +285,73 @@ class TestQueryService(APIBaseTest):
 
         assert set(filtered.tables.keys()) == {"events"}
         assert filtered.tables["events"] == full.tables["events"]
+
+    @parameterized.expand(
+        [
+            ("dotted", "postgres.shop.orders", None),
+            ("alias", "shop_postgres_orders", None),
+            ("join", "postgres.shop.orders", "join"),
+            ("expression", "postgres.shop.orders", "expression"),
+        ]
+    )
+    def test_filtered_warehouse_schema_preserves_related_fields(
+        self, _label: str, requested: str, dependency: str | None
+    ) -> None:
+        credential = DataWarehouseCredential.objects.create(access_key="key", access_secret="secret", team=self.team)
+        source = ExternalDataSource.objects.create(
+            team=self.team, source_type=ExternalDataSourceType.POSTGRES, prefix="shop"
+        )
+        for name, columns in {
+            "customers": ["id"],
+            "orders": ["id", "customer_id"],
+            "items": ["id", "order_id"],
+        }.items():
+            DataWarehouseTable.objects.create(
+                team=self.team,
+                name=f"shop_postgres_{name}",
+                external_data_source=source,
+                credential=credential,
+                format="Parquet",
+                url_pattern="https://example.com/data/*",
+                columns={column: {"hogql": "StringDatabaseField", "clickhouse": "String"} for column in columns},
+            )
+        DataWarehouseTable.objects.create(
+            team=self.team,
+            name="external_lookup",
+            credential=credential,
+            format="Parquet",
+            url_pattern="https://example.com/lookup/*",
+            columns={"id": {"hogql": "StringDatabaseField", "clickhouse": "String"}},
+        )
+        if dependency == "join":
+            DataWarehouseJoin.objects.create(
+                team=self.team,
+                source_table_name="postgres.shop.orders",
+                source_table_key="id",
+                joining_table_name="external_lookup",
+                joining_table_key="id",
+                field_name="lookup",
+            )
+        elif dependency == "expression":
+            DataWarehouseExpression.objects.for_team(self.team.pk).create(
+                team_id=self.team.pk,
+                table_name="postgres.shop.orders",
+                field_name="lookup",
+                expression="(SELECT id FROM external_lookup LIMIT 1)",
+            )
+
+        full = cast(DatabaseSchemaQueryResponse, process_query_model(self.team, DatabaseSchemaQuery()))
+        filtered = cast(
+            DatabaseSchemaQueryResponse, process_query_model(self.team, DatabaseSchemaQuery(tables=[requested]))
+        )
+
+        assert set(filtered.tables) == {"postgres.shop.orders"}
+        table = filtered.tables["postgres.shop.orders"]
+        assert table == full.tables["postgres.shop.orders"]
+        assert table.fields["customer"].fields == ["id", "properties", "orders"]
+        assert table.fields["items"].fields == ["id", "order_id", "properties", "order"]
+        if dependency:
+            assert "lookup" in table.fields
 
     @parameterized.expand(
         [

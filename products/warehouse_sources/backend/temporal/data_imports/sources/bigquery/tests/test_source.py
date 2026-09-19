@@ -755,6 +755,26 @@ def test_non_retryable_errors_match_egress_denied_token_uri_endpoint(observed_er
 @pytest.mark.parametrize(
     "observed_error",
     [
+        # No permission to open a Storage Read API session on the project the read bills to.
+        "PermissionDenied: 403 request failed: the user does not have "
+        "'bigquery.readsessions.create' permission for 'projects/example-project'",
+        # Same gRPC wording, different missing permission and resource.
+        "PermissionDenied: 403 request failed: the user does not have "
+        "'bigquery.tables.getData' permission for table 'example-project:example_dataset.example_table'",
+    ],
+)
+def test_bigquery_storage_read_denial_is_non_retryable_with_guidance(observed_error):
+    """The Storage Read API denies access in gRPC wording rather than BigQuery's "Access Denied:"
+    prefix, so it has to match a key of its own or it retries forever with no guidance."""
+    non_retryable_errors = BigQuerySource().get_non_retryable_errors()
+    matching = [key for key in non_retryable_errors if key in observed_error]
+    assert matching, "Storage Read API permission denial should be recognised as non-retryable"
+    assert all(non_retryable_errors[key] for key in matching)
+
+
+@pytest.mark.parametrize(
+    "observed_error",
+    [
         # Corrupted/truncated private key body in the uploaded service account JSON.
         "Unable to load PEM file. See https://cryptography.io/en/latest/faq/#why-can-t-i-import-my-pem-file for more details. InvalidData(InvalidPadding)",
         "ValueError: Unable to load PEM file. InvalidData(InvalidByte(1, 45))",
@@ -827,6 +847,26 @@ def test_bigquery_missing_selected_fields_is_non_retryable(observed_error):
 
 
 @pytest.mark.parametrize(
+    "observed_error",
+    [
+        # A malformed project/dataset ID (e.g. Dataset ID set to "project.dataset") makes
+        # `bq.dataset(...)`-based REST calls reject the request with this resource-name wording,
+        # distinct from the "Invalid project ID"/"Invalid dataset ID" wording query jobs raise for
+        # the same misconfiguration (see `test_bigquery_malformed_table_id_is_non_retryable`).
+        "GET https://bigquery.googleapis.com/bigquery/v2/projects/my-project.my_dataset/datasets/"
+        "my-project.my_dataset/tables?prettyPrint=false: Invalid resource name "
+        "projects/my-project.my_dataset; Project id: my-project.my_dataset",
+    ],
+)
+def test_bigquery_invalid_resource_name_is_non_retryable(observed_error):
+    non_retryable_errors = BigQuerySource().get_non_retryable_errors()
+    matching = [key for key in non_retryable_errors if key in observed_error]
+    assert matching, "Invalid resource name error should be recognised as non-retryable"
+    # Must map to the actionable identifier guidance, not just any non-null message.
+    assert all(non_retryable_errors[key] == BIGQUERY_INVALID_IDENTIFIER_ERROR for key in matching)
+
+
+@pytest.mark.parametrize(
     "transient_error",
     [
         # A token refresh that failed for a transient reason must stay retryable.
@@ -881,11 +921,17 @@ def _run_delete_all_temp_destination_tables(side_effect, logger):
         Forbidden("Access Denied: Permission bigquery.tables.list denied on dataset"),
         NotFound("Dataset not found (or it may not exist)"),
         RefreshError(("invalid_grant: Invalid JWT Signature.", {"error": "invalid_grant"})),
+        BadRequest(
+            "GET https://bigquery.googleapis.com/bigquery/v2/projects/my-project.my_dataset/datasets/"
+            "my-project.my_dataset/tables?prettyPrint=false: Invalid resource name "
+            "projects/my-project.my_dataset; Project id: my-project.my_dataset"
+        ),
     ],
 )
 def test_delete_all_temp_destination_tables_swallows_expected_errors_quietly(exception):
-    """Lost permissions, a deleted dataset, or rejected credentials during best-effort cleanup
-    must NOT be captured to error tracking — it's expected and fires on every sync otherwise."""
+    """Lost permissions, a deleted dataset, rejected credentials, or a malformed project/dataset ID
+    during best-effort cleanup must NOT be captured to error tracking — it's expected and fires on
+    every sync otherwise."""
     logger = mock.MagicMock()
 
     mock_capture = _run_delete_all_temp_destination_tables(exception, logger)
@@ -1210,6 +1256,15 @@ def test_bigquery_clients_refuse_non_google_token_uri_before_building_credential
         (RefreshError("('invalid_grant: Invalid JWT Signature.', {})"), BIGQUERY_CREDENTIALS_REJECTED_ERROR, False),
         (BadRequest('Invalid dataset ID "(default)"'), BIGQUERY_INVALID_IDENTIFIER_ERROR, False),
         (BadRequest("400 ProjectId must be non-empty"), BIGQUERY_INVALID_IDENTIFIER_ERROR, False),
+        (
+            BadRequest(
+                "GET https://bigquery.googleapis.com/bigquery/v2/projects/my-project.my_dataset/datasets/"
+                "my-project.my_dataset/tables?prettyPrint=false: Invalid resource name "
+                "projects/my-project.my_dataset; Project id: my-project.my_dataset"
+            ),
+            BIGQUERY_INVALID_IDENTIFIER_ERROR,
+            False,
+        ),
         (
             NotFound("404 Not found: Dataset my-project:my_dataset was not found in location US"),
             BIGQUERY_DATASET_NOT_FOUND_ERROR,

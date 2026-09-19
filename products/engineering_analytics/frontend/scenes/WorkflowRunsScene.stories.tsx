@@ -44,6 +44,7 @@ function run(
         run_attempt: runAttempt,
         pr_number: prNumber,
         commit_pr_number: prNumber === 0 ? 4788 : null,
+        is_merge_queue: headBranch === GATE_BRANCH,
     }
 }
 

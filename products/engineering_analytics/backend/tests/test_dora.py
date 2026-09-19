@@ -26,8 +26,10 @@ from products.engineering_analytics.backend.logic.views.source_schema import (
 )
 from products.engineering_analytics.backend.presentation.serializers.dora import DoraEnvironmentQuerySerializer
 from products.engineering_analytics.backend.tests._github_fixtures import (
+    _deployment_row,
     _pr_row,
     _run_row,
+    _status_row,
     connect_github_source_without_data,
     create_github_warehouse_table,
 )
@@ -56,42 +58,6 @@ class TestDoraEnvironmentQuerySerializer(SimpleTestCase):
         )
         assert not serializer.is_valid()
         assert "environment" in serializer.errors
-
-
-def _deployment_row(
-    deployment_id: int, sha: str, environment: str, created_at: str, *, production: bool, transient: bool = False
-) -> dict:
-    return {
-        "id": deployment_id,
-        "sha": sha,
-        "ref": "master",
-        "task": "deploy",
-        "environment": environment,
-        "original_environment": environment,
-        "description": "",
-        "creator": "{}",
-        "payload": "{}",
-        "production_environment": production,
-        "transient_environment": transient,
-        "created_at": created_at,
-        "updated_at": created_at,
-    }
-
-
-def _status_row(status_id: int, deployment_id: int, state: str, environment: str, created_at: str) -> dict:
-    return {
-        "id": status_id,
-        "deployment_id": deployment_id,
-        "state": state,
-        "creator": "{}",
-        "description": "",
-        "environment": environment,
-        "target_url": "",
-        "log_url": "",
-        "environment_url": "",
-        "created_at": created_at,
-        "updated_at": created_at,
-    }
 
 
 class TestDoraEndpoint(ClickhouseTestMixin, APIBaseTest):

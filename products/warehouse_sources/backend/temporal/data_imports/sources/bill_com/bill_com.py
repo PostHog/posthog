@@ -2,6 +2,7 @@ import dataclasses
 from collections.abc import Iterator
 from datetime import UTC, date, datetime
 from typing import Any, Optional
+from urllib.parse import urljoin, urlparse
 
 import requests
 from structlog.types import FilteringBoundLogger
@@ -32,6 +33,18 @@ class BillComResumeConfig:
 
 class BillComAuthError(Exception):
     """Sign-in was rejected — the credentials are wrong, not a transient failure."""
+
+
+class BillComRedirectError(Exception):
+    """The API answered with a 3xx. Redirects are refused so the credentials stay on the API host."""
+
+
+def _refuse_redirect(response: requests.Response) -> None:
+    if not 300 <= response.status_code < 400:
+        return
+    location = response.headers.get("Location") or ""
+    target = urlparse(urljoin(response.url or "", location)).hostname or "an unknown host"
+    raise BillComRedirectError(f"BILL redirected the API request to {target}; refusing to follow")
 
 
 def base_url(environment: str) -> str:
@@ -102,7 +115,10 @@ class BillComClient:
         # capture: BILL responses carry raw financial records (bank accounts, routing numbers,
         # payments, invoices, customers, vendors) and the login exchange returns a freshly minted
         # session ID in a generic field — content the name-based scrubbers can't reliably redact.
-        self._session = make_tracked_session(redact_values=(password, dev_key), capture=False)
+        # allow_redirects=False: `requests` drops `Authorization` on a cross-host redirect but
+        # replays custom headers (`sessionId`, `devKey`) and a 307/308 POST body (the sign-in
+        # password), so a redirect must never be followed.
+        self._session = make_tracked_session(redact_values=(password, dev_key), capture=False, allow_redirects=False)
 
     @property
     def api_root(self) -> str:
@@ -125,6 +141,7 @@ class BillComClient:
         )
         if response.status_code in (400, 401, 403):
             raise BillComAuthError(f"BILL sign-in failed: {error_message(response)}")
+        _refuse_redirect(response)
         response.raise_for_status()
 
         session_id = response.json().get("sessionId")
@@ -152,6 +169,7 @@ class BillComClient:
             self.login()
             response = self._get(path, params)
 
+        _refuse_redirect(response)
         response.raise_for_status()
         body = response.json()
         return body if isinstance(body, dict) else {}
@@ -241,7 +259,7 @@ def validate_credentials(
             api_version=api_version,
         )
         client.login()
-    except (BillComAuthError, ValueError) as e:
+    except (BillComAuthError, BillComRedirectError, ValueError) as e:
         return False, str(e)
     except Exception:
         return False, "Could not reach BILL. Please check your credentials and try again."

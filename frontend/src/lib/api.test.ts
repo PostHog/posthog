@@ -483,6 +483,112 @@ describe('API helper', () => {
 
             expect(error).toBeInstanceOf(ApiError)
             expect(error).not.toBeInstanceOf(NetworkError)
+            expect(error.message).toBe('the fetcher itself broke')
+        })
+
+        it('keeps a thrown object readable instead of stringifying it into the message', async () => {
+            // The caught value used to be passed as the `message`, so an object read back as
+            // "[object Object]" wherever the app prints one, and `detail` and `code` came back null.
+            const thrown = { detail: 'You lack access to this collection.', code: 'permission_denied' }
+            fakeFetch.mockRejectedValue(thrown)
+
+            const error = await api.get('api/environments/2/insights').catch((e) => e)
+
+            expect(error.message).toBe('You lack access to this collection.')
+            expect(error.code).toBe('permission_denied')
+            expect(error.data).toBe(thrown)
+        })
+
+        it('keeps the original stack as the cause', async () => {
+            // Every ApiError is built in one file, so they share its stack. posthog-js walks `cause`
+            // and reports the chained frames; it never reads `data`, so only this keeps a reported
+            // request-path fault locatable.
+            const thrown = new Error('the fetcher itself broke')
+            fakeFetch.mockRejectedValue(thrown)
+
+            const error = await api.get('api/environments/2/insights').catch((e) => e)
+
+            expect(error.cause).toBe(thrown)
+        })
+    })
+
+    describe('uploads reporting progress', () => {
+        class FakeXMLHttpRequest {
+            static last: FakeXMLHttpRequest
+            upload: { onprogress?: (event: { loaded: number; total: number; lengthComputable: boolean }) => void } = {}
+            onload?: () => void
+            onerror?: () => void
+            onabort?: () => void
+            status = 200
+            statusText = 'OK'
+            responseText = '{"upload_id":"abc"}'
+
+            constructor() {
+                FakeXMLHttpRequest.last = this
+            }
+            open(): void {}
+            setRequestHeader(): void {}
+            getAllResponseHeaders(): string {
+                return 'content-type: application/json'
+            }
+            send(): void {}
+            abort(): void {}
+        }
+
+        const realXMLHttpRequest = window.XMLHttpRequest
+
+        beforeEach(() => {
+            window.XMLHttpRequest = FakeXMLHttpRequest as unknown as typeof XMLHttpRequest
+        })
+
+        afterEach(() => {
+            window.XMLHttpRequest = realXMLHttpRequest
+        })
+
+        it('reports how much of the body has been sent and resolves with the parsed response', async () => {
+            const onUploadProgress = jest.fn()
+            const result = api.dataWarehouseTables.uploadFile(new FormData(), { onUploadProgress })
+
+            const xhr = FakeXMLHttpRequest.last
+            xhr.upload.onprogress?.({ loaded: 512, total: 1024, lengthComputable: true })
+            xhr.onload?.()
+
+            await expect(result).resolves.toEqual({ upload_id: 'abc' })
+            expect(onUploadProgress).toHaveBeenCalledWith({ loaded: 512, total: 1024 })
+        })
+
+        it('reports an unmeasurable body as a null total', async () => {
+            const onUploadProgress = jest.fn()
+            const result = api.dataWarehouseTables.uploadFile(new FormData(), { onUploadProgress })
+
+            const xhr = FakeXMLHttpRequest.last
+            xhr.upload.onprogress?.({ loaded: 512, total: 0, lengthComputable: false })
+            xhr.onload?.()
+            await result
+
+            expect(onUploadProgress).toHaveBeenCalledWith({ loaded: 512, total: null })
+        })
+
+        it('raises the server message on a rejected upload instead of resolving', async () => {
+            const result = api.dataWarehouseTables.uploadFile(new FormData())
+
+            const xhr = FakeXMLHttpRequest.last
+            xhr.status = 400
+            xhr.statusText = 'Bad Request'
+            xhr.responseText = '{"message":"File is too large"}'
+            xhr.onload?.()
+
+            const error = await result.catch((e) => e)
+            expect(error).toBeInstanceOf(ApiError)
+            expect(error.data.message).toBe('File is too large')
+        })
+
+        it('classifies a request that never reached the server as a network failure', async () => {
+            const result = api.dataWarehouseTables.uploadFile(new FormData())
+
+            FakeXMLHttpRequest.last.onerror?.()
+
+            await expect(result).rejects.toBeInstanceOf(NetworkError)
         })
     })
 
@@ -499,6 +605,19 @@ describe('API helper', () => {
             expect(request.assembleEndpointUrl()).toEqual(
                 'organizations/123/feature_flags/my-feature-flag%2Ffoo%2Fbar%3Fbaz%3Dqux'
             )
+        })
+    })
+
+    describe('tasks', () => {
+        it.each([
+            ['task/id', 'projects/2/tasks/task%2Fid'],
+            ['../other', 'projects/2/tasks/..%2Fother'],
+        ])('keeps task ID %s inside the task path', (taskId, expectedPath) => {
+            expect(new ApiRequest().task(taskId).assembleEndpointUrl()).toEqual(expectedPath)
+        })
+
+        it.each(['.', '..'])('rejects task ID dot segment %s', (taskId) => {
+            expect(() => new ApiRequest().task(taskId)).toThrow('Invalid task ID')
         })
     })
 })

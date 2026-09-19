@@ -59,6 +59,12 @@ def _select_queries_without_metadata(queries: list[str]) -> list[str]:
 
 
 class TestSessionQueryRunner(ClickhouseTestMixin, BaseTest):
+    def test_evaluation_reads_do_not_share_a_cache_key_with_plain_reads(self) -> None:
+        query = SessionQuery(sessionId="session-a", dateRange=DateRange(date_from="-1d", date_to="now"))
+        plain = SessionQueryRunner(team=self.team, query=query)
+        evaluation = SessionQueryRunner(team=self.team, query=query, for_evaluation=True)
+        self.assertNotEqual(evaluation.get_cache_key(), plain.get_cache_key())
+
     def test_reads_complete_trace_when_only_root_has_session_id(self) -> None:
         bulk_create_ai_events(
             [

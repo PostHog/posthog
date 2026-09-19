@@ -37,6 +37,8 @@ def _get_author_label(message: Comment) -> str:
 
     if author_type == "customer":
         return "Customer"
+    if author_type == "AI":
+        return "AI (private note)" if is_private else "AI assistant"
     if is_private:
         return "Support (private note)"
     return "Support"

@@ -26,6 +26,7 @@ from products.feature_flags.backend.variant_rollout import format_variant_rollou
 if TYPE_CHECKING:
     from django.db.models.fields.related_descriptors import RelatedManager
 
+    from posthog.models.activity_logging.activity_log import Trigger
     from posthog.models.team import Team
 
     from products.feature_flags.backend.models.evaluation_context import FeatureFlagEvaluationContext
@@ -139,6 +140,11 @@ class FeatureFlag(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models
     # Reverse relation from FeatureFlagEvaluationContext.feature_flag (related_name="flag_evaluation_contexts").
     if TYPE_CHECKING:
         flag_evaluation_contexts: RelatedManager[FeatureFlagEvaluationContext]
+
+    # Never persisted. A caller that rewrites the flag as a side effect of another action
+    # (for example the experiment exposure freeze) sets this before the gated write; the
+    # activity-log receiver reads it so the entry does not render as a manual edit.
+    _activity_trigger: "Trigger | None" = None
 
     # When adding new fields, make sure to update organization_feature_flags.py::copy_flags
     key = models.CharField(max_length=400)

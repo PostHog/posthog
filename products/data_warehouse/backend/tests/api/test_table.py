@@ -528,6 +528,19 @@ class TestTable(APIBaseTest):
 
         assert SimpleTableSerializer().get_hogql_name(table) == "self_managed_table"
 
+    def test_table_without_a_schema_reports_no_external_schema(self):
+        DataWarehouseTable.objects.create(
+            name="unsynced_table", format="Parquet", team=self.team, team_id=self.team.pk, columns={}
+        )
+
+        response = self.client.get(f"/api/environments/{self.team.id}/warehouse_tables/")
+
+        assert response.status_code == 200
+        table = next(row for row in response.json()["results"] if row["name"] == "unsynced_table")
+        # An id-less object here reads as "this table has a schema" to every consumer, and anything
+        # that then binds by `external_schema.id` gets nothing.
+        assert table["external_schema"] is None
+
     def test_refresh_schema_direct_postgres_table_not_exposed_via_warehouse_tables_api(self):
         source = ExternalDataSource.objects.create(
             team=self.team,

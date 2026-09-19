@@ -482,6 +482,21 @@ export interface DataQualitySubjectHealthApi {
     checks_failing: number
 }
 
+export interface DataQualityOutputColumnApi {
+    /** Output column name available through the {metric} relation. */
+    name: string
+    /**
+     * ClickHouse type, or null when it could not be inferred.
+     * @nullable
+     */
+    type: string | null
+}
+
+export interface DataQualityOutputSchemaApi {
+    /** Columns returned by the saved metric query. */
+    columns: DataQualityOutputColumnApi[]
+}
+
 /**
  * * `1hour` - 1hour
  * * `6hour` - 6hour
@@ -679,6 +694,15 @@ export interface PaginatedDataQualityOverviewCheckListApi {
     /** @nullable */
     previous?: string | null
     results: DataQualityOverviewCheckApi[]
+}
+
+export interface DataQualityMetricSubjectApi {
+    /** Metric identifier used by the nested check endpoints. */
+    id: string
+    /** Queryable metric name. */
+    name: string
+    /** Metric label shown in the data catalog. */
+    display_name: string
 }
 
 /**

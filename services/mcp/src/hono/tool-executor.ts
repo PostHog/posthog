@@ -26,6 +26,7 @@ import {
     describeExecCommand,
     describeValidationError,
     formatInputValidationError,
+    markNoncanonicalMetricRun,
     parseExecCallInnerArgs,
     parseExecCallInnerToolName,
     rewrapFlattenedArguments,
@@ -34,8 +35,8 @@ import {
 } from '@/tools/exec'
 import { EXECUTE_SQL_TOOL_NAME } from '@/tools/posthogAiTools/executeSql'
 import { createRenderUiTool } from '@/tools/render-ui'
-import { skillAnalyticsProperties } from '@/tools/skills/analytics'
-import { formatSkillLookupMiss } from '@/tools/skills/notFound'
+import { skillAnalyticsProperties, skillLookupMissProperties } from '@/tools/skills/analytics'
+import { type BuiltInSkillHint, formatSkillLookupMiss, type SkillLookupMissKind } from '@/tools/skills/notFound'
 import type { Context, Tool, ZodObjectAny } from '@/tools/types'
 
 import {
@@ -70,6 +71,8 @@ interface ExecMetricState {
      * a normal result, so the canonical event still records the failure.
      */
     innerFailure: { error: unknown } | undefined
+    /** Which kind of skill lookup missed, when the dispatcher rewrote a 404. */
+    skillLookupMissKind: SkillLookupMissKind | undefined
 }
 
 /**
@@ -99,6 +102,19 @@ function shouldSuppressStructuredContent(args: {
 }): boolean {
     const isRenderUiHostInSingleExec = args.useSingleExec && args.renderUiEnabled
     return args.isCliModeEnabled && !isRenderUiHostInSingleExec
+}
+
+// The state is shared by every call in a JSON-RPC batch, so the client is copied, not written to.
+// The intent is extra detail on an audit row: if the copy fails, the call runs without it.
+function stateCarryingIntent(state: ResolvedState, intent: string | undefined): ResolvedState {
+    if (!intent) {
+        return state
+    }
+    try {
+        return { ...state, context: { ...state.context, api: state.context.api.withIntent(intent) } }
+    } catch {
+        return state
+    }
 }
 
 export class ToolExecutor {
@@ -184,10 +200,11 @@ export class ToolExecutor {
                 ? (rawRequestMeta as Record<string, unknown>)
                 : undefined
         const { analyticsMeta, args } = this.extractAnalyticsMetadata(toolName, rawArgs, originalTool, requestMeta)
+        const callState = stateCarryingIntent(state, analyticsMeta.intent)
         const callParams = { ...params, arguments: args }
 
         if (toolName === 'exec') {
-            return this.callExecTool(callParams, state, analyticsMeta)
+            return this.callExecTool(callParams, callState, analyticsMeta)
         }
 
         if (toolName === 'render-ui') {
@@ -196,7 +213,7 @@ export class ToolExecutor {
                 toolCallsTotal.inc({ tool: toolName, status: 'error' })
                 return { content: [{ type: 'text', text: `Tool ${toolName} not found` }], isError: true }
             }
-            return this.callRenderUiTool(callParams, state, analyticsMeta)
+            return this.callRenderUiTool(callParams, callState, analyticsMeta)
         }
 
         if (!state.allTools.some((t) => t.name === toolName)) {
@@ -219,7 +236,7 @@ export class ToolExecutor {
                 _meta: tool._meta,
             },
             callParams,
-            state,
+            callState,
             analyticsMeta
         )
     }
@@ -317,7 +334,10 @@ export class ToolExecutor {
                 ? await state.reqCtx.safelyGetAnalyticsContext(state.context)
                 : undefined
 
-            const handlerResult = await tool.handler(state.context, validation.data)
+            const handlerResult = markNoncanonicalMetricRun(
+                tool.name,
+                await tool.handler(state.context, validation.data)
+            )
 
             if (isContextSwitch) {
                 void state.reqCtx.trackContextSwitchEvent(tool.name, state.context, previousContext)
@@ -388,12 +408,29 @@ export class ToolExecutor {
             stop({ status: 'error' })
             const classification = classifyToolError(error, tool.name)
 
+            // A skill lookup that misses is not a failure the agent should read as
+            // one. The exec dispatcher rewrites the same miss, and a tools-mode
+            // client reaching this path must get the same answer — otherwise the
+            // behavior changes with the client. Resolved here so the events below
+            // record which kind of miss it was, and `handleToolError` adds nothing
+            // to a 4xx that is lost by returning early: no recovery hint, no
+            // exception capture.
+            const lookupMiss = formatSkillLookupMiss(
+                tool.name,
+                error,
+                validation.data as Record<string, unknown>,
+                this.builtInSkillHint(state)
+            )
+
             void trackToolCall(
                 tool.name,
                 Date.now() - startMs,
                 true,
                 state,
-                errorAnalyticsProperties(classification, error),
+                {
+                    ...errorAnalyticsProperties(classification, error),
+                    ...(lookupMiss ? skillLookupMissProperties(lookupMiss.kind) : {}),
+                },
                 analyticsMeta,
                 this.servedToolDescription(tool.name)
             )
@@ -419,15 +456,8 @@ export class ToolExecutor {
                 input: validation.data,
             })
 
-            // A skill lookup that misses is not a failure the agent should read as
-            // one. The exec dispatcher rewrites the same miss, and a tools-mode
-            // client reaching this path must get the same answer — otherwise the
-            // behavior changes with the client. Telemetry above already recorded
-            // the 404, and `handleToolError` adds nothing to a 4xx that is lost
-            // here: no recovery hint, no exception capture.
-            const lookupMiss = formatSkillLookupMiss(tool.name, error, validation.data as Record<string, unknown>)
             if (lookupMiss) {
-                return { content: [{ type: 'text', text: lookupMiss }] }
+                return { content: [{ type: 'text', text: lookupMiss.message }] }
             }
 
             const sessionUuid = await state.reqCtx.getEffectiveSessionUuid(state.requestContext)
@@ -444,6 +474,7 @@ export class ToolExecutor {
             innerToolName: undefined,
             commandMeta: undefined,
             innerFailure: undefined,
+            skillLookupMissKind: undefined,
         }
         const resolved = this.resolveExecTool(state, execMetrics, analyticsMeta)
 
@@ -510,6 +541,9 @@ export class ToolExecutor {
                 {
                     ...execShape,
                     ...(failureShape ?? execSkillShape),
+                    ...(execMetrics.skillLookupMissKind
+                        ? skillLookupMissProperties(execMetrics.skillLookupMissKind)
+                        : {}),
                     input_tokens: estimateTokens(validation.data),
                     output_tokens: estimateResponseTokens(response),
                     ...execMetrics.commandMeta,
@@ -565,6 +599,23 @@ export class ToolExecutor {
         }
     }
 
+    /**
+     * What this connection knows about the built-in PostHog skill catalog.
+     *
+     * Read from the catalog the server loads at startup, not from the `learn`
+     * catalog: that one is undefined exactly when the `learn` command is off, which
+     * is the case where an agent told to load a built-in skill has nowhere else to
+     * go. A catalog that never loaded reports every name as absent, so the message
+     * falls back to the store's own.
+     */
+    private builtInSkillHint(state: ResolvedState): BuiltInSkillHint {
+        const catalog = this.skillCatalogService?.getCatalog()
+        return {
+            isBuiltIn: (name) => catalog?.has(name) === true,
+            learnAvailable: this.instructionsBuilder.execSkillsEnabled(state),
+        }
+    }
+
     private resolveExecTool(
         state: ResolvedState,
         execMetrics: ExecMetricState,
@@ -582,6 +633,7 @@ export class ToolExecutor {
             if (!properties.success) {
                 execMetrics.innerFailure = { error: properties.error }
             }
+            execMetrics.skillLookupMissKind = properties.skill_lookup_miss_kind
             const status = properties.success ? 'success' : properties.validation_error ? 'validation_error' : 'error'
             toolCallsTotal.inc({ tool: toolName, status })
             // Mirror the native path: schema rejections never start a handler, so
@@ -640,6 +692,7 @@ export class ToolExecutor {
                     this.skillCatalogService?.getCatalog()
                 ),
                 flagGatedTools: state.flagGatedTools,
+                builtInSkillHint: this.builtInSkillHint(state),
                 skillsSession: this.instructionsBuilder.execSkillsEnabled(state)
                     ? buildSkillsSessionState(state.reqCtx, state.requestContext.mcpSessionId)
                     : undefined,

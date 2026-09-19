@@ -11,7 +11,8 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type ContentBlock, RequestError } from "@agentclientprotocol/sdk";
-import type { Adapter } from "@posthog/shared";
+import { SIMPLIFIED_TECHNICAL_ENGLISH_INSTRUCTION as STE100_INSTRUCTION } from "@posthog/harness/extensions/benjamin";
+import { type Adapter, IDLE_RESUME_STOP_REASON } from "@posthog/shared";
 import { zipSync } from "fflate";
 import jwt from "jsonwebtoken";
 import { HttpResponse, http } from "msw";
@@ -28,7 +29,6 @@ import {
 } from "vitest";
 import { POSTHOG_NOTIFICATIONS } from "../acp-extensions";
 import { getSessionJsonlPath } from "../adapters/claude/session/jsonl-hydration";
-import { SIMPLIFIED_TECHNICAL_ENGLISH_INSTRUCTION as STE100_INSTRUCTION } from "../adapters/ste100-guidance";
 import type { PermissionMode } from "../execution-mode";
 import type { PostHogAPIClient } from "../posthog-api";
 import type { ResumeState } from "../resume";
@@ -5618,6 +5618,10 @@ describe("AgentServer HTTP Mode", () => {
     });
 
     describe("idle same-run resume", () => {
+      type TurnCompleteEvent = {
+        notification?: { method?: string; params?: { stopReason?: string } };
+      };
+
       const idlePayload: JwtPayload = {
         task_id: "test-task-id",
         run_id: "test-run-id",
@@ -5632,7 +5636,7 @@ describe("AgentServer HTTP Mode", () => {
         resumeKind: "native" | "summary" = "native",
       ): Promise<{
         prompt: ReturnType<typeof vi.fn>;
-        turnCompleteEvents: () => unknown[];
+        turnCompleteEvents: () => TurnCompleteEvent[];
         sendInitialTaskMessage: () => Promise<void>;
       }> => {
         const s = createServer();
@@ -5676,11 +5680,13 @@ describe("AgentServer HTTP Mode", () => {
         return {
           prompt,
           turnCompleteEvents: () =>
-            broadcastEvent.mock.calls.filter(
-              ([event]) =>
-                (event as { notification?: { method?: string } }).notification
-                  ?.method === POSTHOG_NOTIFICATIONS.TURN_COMPLETE,
-            ),
+            broadcastEvent.mock.calls
+              .map(([event]) => event as TurnCompleteEvent)
+              .filter(
+                (event) =>
+                  event.notification?.method ===
+                  POSTHOG_NOTIFICATIONS.TURN_COMPLETE,
+              ),
           sendInitialTaskMessage: () =>
             startInitialTaskMessage(s, idlePayload, null),
         };
@@ -5700,6 +5706,9 @@ describe("AgentServer HTTP Mode", () => {
 
           expect(prompt).not.toHaveBeenCalled();
           expect(turnCompleteEvents()).toHaveLength(1);
+          expect(
+            turnCompleteEvents()[0]?.notification?.params?.stopReason,
+          ).toBe(IDLE_RESUME_STOP_REASON);
           const response = await fetch(`http://localhost:${port}/command`, {
             method: "POST",
             headers: {
@@ -6767,6 +6776,7 @@ describe("AgentServer HTTP Mode", () => {
         "*Created with [PostHog Desktop](https://posthog.com/desktop?ref=pr)*",
       );
       expect(prompt).toContain(".github/pull_request_template.md");
+      expect(prompt).toContain(".github/PULL_REQUEST_TEMPLATE/*.md");
       expect(prompt).toContain("gh issue list --search");
       expect(prompt).toContain("Closes #<n>");
     });
@@ -6794,11 +6804,14 @@ describe("AgentServer HTTP Mode", () => {
           "open a draft pull request",
           "unless the user explicitly asks",
           ".github/pull_request_template.md",
+          ".github/PULL_REQUEST_TEMPLATE/*.md",
           "gh issue list --search",
           "Closes #<n>",
           "Generated-By: PostHog Desktop",
           "Task-Id: test-task-id",
           "canonical `posthog:exec` tool",
+          "`posthog:business-knowledge-documents-search`",
+          "whatever else the question is about",
           "`posthog:read-data-schema`",
           "`posthog:metric-list`",
           "`posthog:metric-describe`",
@@ -6827,6 +6840,8 @@ describe("AgentServer HTTP Mode", () => {
           "You may make local edits in a repository cloned with `clone_repo`",
           "Do NOT create branches, commits, push changes, or open pull requests in this run",
           "canonical `posthog:exec` tool",
+          "`posthog:business-knowledge-documents-search`",
+          "whatever else the question is about",
           "`posthog:metric-list`",
           "`posthog:metric-describe`",
           "`posthog:data-catalog-metric-run`",
@@ -6871,6 +6886,7 @@ describe("AgentServer HTTP Mode", () => {
       );
       // PR template detection (repo first, org `.github` fallback)
       expect(prompt).toContain(".github/pull_request_template.md");
+      expect(prompt).toContain(".github/PULL_REQUEST_TEMPLATE/*.md");
       expect(prompt).toContain("org's `.github` repo");
       // Related-issue linking
       expect(prompt).toContain("gh issue list --state open --search");

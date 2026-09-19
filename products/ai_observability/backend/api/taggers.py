@@ -1,6 +1,7 @@
 import json
 from typing import Any, cast
 
+from django.core.validators import EMPTY_VALUES
 from django.db import transaction
 from django.db.models import Q, QuerySet
 
@@ -309,10 +310,21 @@ class TaggerSerializer(TaggerBaseWriteSerializer):
         read_only_fields = ["id", "created_at", "updated_at", "created_by"]
 
 
+class StableOrderingFilter(django_filters.OrderingFilter):
+    """Append the primary key so tied rows keep a total order across paginated requests."""
+
+    def filter(self, qs: QuerySet, value: Any) -> QuerySet:
+        ordering = [self.get_ordering_value(param) for param in value or [] if param not in EMPTY_VALUES]
+        if not ordering:
+            return qs
+
+        return qs.order_by(*ordering, "id")
+
+
 class TaggerFilter(django_filters.FilterSet):
     search = django_filters.CharFilter(method="filter_search", help_text="Search in name or description")
     enabled = django_filters.BooleanFilter(help_text="Filter by enabled status")
-    order_by = django_filters.OrderingFilter(
+    order_by = StableOrderingFilter(
         fields=(
             ("created_at", "created_at"),
             ("updated_at", "updated_at"),
@@ -409,7 +421,7 @@ class TaggerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidDes
         queryset = (
             queryset.filter(team_id=self.team_id)
             .select_related("created_by", "model_configuration", "model_configuration__provider_key")
-            .order_by("-created_at")
+            .order_by("-created_at", "id")
         )
         if not self.action.endswith("update"):
             queryset = queryset.filter(deleted=False)

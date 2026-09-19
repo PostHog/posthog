@@ -25,6 +25,8 @@ import {
     dayTimeToWeeklyCron,
     DEFAULT_SCOUT_DAILY_TIME,
     DEFAULT_SCOUT_WEEKLY_DAY,
+    MAX_SCOUT_DISPLAY_NAME_LENGTH,
+    prettifyScoutSkillName,
     SCOUT_CUSTOM_CRON_SCHEDULE_MODE,
     SCOUT_DAILY_AT_SCHEDULE_MODE,
     SCOUT_WEEKLY_ON_SCHEDULE_MODE,
@@ -43,20 +45,26 @@ type ScoutCreateConfigFormValues = Required<
         | 'run_cron_schedule'
         | 'tags'
         | 'mcp_gateway_server_ids'
+        | 'repositories'
         | 'write_scopes'
     >
 > &
     Pick<SignalScoutConfigOptionsApi, 'output_destinations'>
 
-export type ScoutCreateFormValues = Pick<SignalScoutCreateApi, 'name' | 'description' | 'body'> & {
-    config: ScoutCreateConfigFormValues
-    /** Run time for both the daily and the weekly mode, so switching between them keeps it. */
-    dailyTime: string
-    /** Cron day-of-week the weekly mode runs on. */
-    weeklyDay: string
-}
+// `display_name` and `name` are optional on the request body — the server accepts either — but the form
+// always holds both as strings, with `name` empty unless a prefill supplied one.
+export type ScoutCreateFormValues = Pick<SignalScoutCreateApi, 'description' | 'body'> &
+    Required<Pick<SignalScoutCreateApi, 'display_name' | 'name'>> & {
+        config: ScoutCreateConfigFormValues
+        /** Run time for both the daily and the weekly mode, so switching between them keeps it. */
+        dailyTime: string
+        /** Cron day-of-week the weekly mode runs on. */
+        weeklyDay: string
+    }
 
-export type ScoutCreateInitialValues = Partial<Pick<SignalScoutCreateApi, 'name' | 'description' | 'body'>> & {
+export type ScoutCreateInitialValues = Partial<
+    Pick<SignalScoutCreateApi, 'display_name' | 'name' | 'description' | 'body'>
+> & {
     config?: Partial<ScoutCreateConfigFormValues>
     /**
      * The scout suggestion this form was opened from. Sent with the create so the suggestion stops
@@ -82,6 +90,10 @@ export interface ScoutCreateModalLogicProps {
 }
 
 export const DEFAULT_SCOUT_CREATE_FORM_VALUES: ScoutCreateFormValues = {
+    display_name: '',
+    // The skill name is the scout's permanent identity, and the server derives it from the display
+    // name. It is a form value only so a prefill that proposed one (a suggestion, a template deep
+    // link) can send that exact name back — nothing renders an input for it.
     name: '',
     description: '',
     body: '',
@@ -94,6 +106,7 @@ export const DEFAULT_SCOUT_CREATE_FORM_VALUES: ScoutCreateFormValues = {
         run_cron_schedule: null,
         tags: [],
         mcp_gateway_server_ids: [],
+        repositories: [],
         write_scopes: [],
     },
 }
@@ -115,6 +128,7 @@ export function getScoutCreateFormValues(initialValues: ScoutCreateInitialValues
         ...DEFAULT_SCOUT_CREATE_FORM_VALUES,
         ...editableInitialValues,
         name: (initialValues?.name ?? '').trim(),
+        display_name: (initialValues?.display_name ?? '').trim() || prettifyScoutSkillName(initialValues?.name ?? ''),
         config,
         dailyTime:
             dailyCronToTime(config.run_cron_schedule) ??
@@ -181,16 +195,31 @@ function scoutWeeklyDay(form: ScoutCreateFormValues): string {
 // Restoring such a draft into the field that now holds the whole name would create a differently
 // named scout, and would leave its suggestion on offer, because the backend retires a suggestion
 // only when the submitted name matches the one it proposed. Bumping this drops those drafts.
-const SCOUT_CREATE_DRAFT_STORAGE_VERSION = 'v2.'
+// Bumped again for the display name: a v2 draft carries no `display_name`, and kea-localstorage
+// restores the stored object over the whole default rather than merging in new fields, so it would
+// reopen with a blank required field and the name the person typed gone.
+const SCOUT_CREATE_DRAFT_STORAGE_VERSION = 'v3.'
 
 // Names the inbox reads as sub-pages of `/inbox/scouts/`, so a scout that took one could never be
 // opened. The backend refuses them too; this is so the reason shows next to the field.
 const RESERVED_SCOUT_NAMES = new Set(['scratchpad', 'findings', 'runs'])
 
+function scoutDisplayNameError(displayName: string): string | undefined {
+    const trimmed = displayName.trim()
+    if (!trimmed) {
+        return 'Name is required'
+    }
+    if (trimmed.length > MAX_SCOUT_DISPLAY_NAME_LENGTH) {
+        return `Name must be ${MAX_SCOUT_DISPLAY_NAME_LENGTH} characters or fewer`
+    }
+    return undefined
+}
+
 function scoutNameError(name: string): string | undefined {
     const normalizedName = name.trim()
     if (!normalizedName) {
-        return 'Name is required'
+        // Only a prefill carries one, and the server generates a name when none is sent.
+        return undefined
     }
     // The shared skill-name rule rejects spaces too, but as "lowercase letters, numbers, and hyphens
     // only", which does not tell someone who typed "checkout failures" what to change.
@@ -337,7 +366,7 @@ export const scoutCreateModalLogic: LogicWrapper<scoutCreateModalLogicType> = ke
     forms(({ props: logicProps, actions, values }) => ({
         scoutCreateForm: {
             defaults: getScoutCreateFormValues(logicProps.initialValues),
-            errors: ({ name, description, body, config, dailyTime }) => {
+            errors: ({ display_name, name, description, body, config, dailyTime }) => {
                 const runIntervalError =
                     !Number.isFinite(config.run_interval_minutes) ||
                     config.run_interval_minutes < 30 ||
@@ -347,6 +376,7 @@ export const scoutCreateModalLogic: LogicWrapper<scoutCreateModalLogicType> = ke
                 const tagsError = scoutTagsError(config.tags)
 
                 return {
+                    display_name: scoutDisplayNameError(display_name),
                     name: scoutNameError(name),
                     description: !description.trim()
                         ? 'Description is required'
@@ -397,7 +427,11 @@ export const scoutCreateModalLogic: LogicWrapper<scoutCreateModalLogicType> = ke
 
                 try {
                     const scout = await signalsScoutCreate(String(values.currentTeamId), {
-                        name: formValues.name.trim(),
+                        display_name: formValues.display_name.trim(),
+                        // Omitted for an ordinary create, so the server derives the identity. A
+                        // prefill sends the exact name it proposed, which is what retires its
+                        // suggestion and what an existing scout of that name is matched against.
+                        name: formValues.name.trim() || undefined,
                         description: formValues.description.trim(),
                         body: formValues.body.trim(),
                         config: formValues.config,
@@ -414,8 +448,10 @@ export const scoutCreateModalLogic: LogicWrapper<scoutCreateModalLogicType> = ke
                 } catch (error) {
                     const apiError = error instanceof ApiError ? error : null
                     if (apiError?.status === 409 || apiError?.attr === 'name') {
+                        // Reported against the name field the person can actually edit: the skill
+                        // name only ever comes from a prefill, so it has no input to point at.
                         actions.setScoutCreateFormManualErrors({
-                            name: apiError.detail ?? 'A scout with this name already exists',
+                            display_name: apiError.detail ?? 'A scout with this name already exists',
                         })
                     } else {
                         lemonToast.error(apiError?.detail ?? 'Could not create the scout')

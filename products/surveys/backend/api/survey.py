@@ -56,7 +56,7 @@ from posthog.helpers.trigram_search import (
     drop_similar_when_exact_exists,
 )
 from posthog.models.activity_logging.activity_log import Change, Detail, changes_between, load_activity, log_activity
-from posthog.models.activity_logging.activity_page import activity_page_response
+from posthog.models.activity_logging.activity_page import activity_page_response, parse_activity_page_params
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.models.utils import UUIDT
@@ -1701,7 +1701,25 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
                         }
                     )
 
+        self._reconcile_schedule_with_iterations(data)
         return data
+
+    @staticmethod
+    def _reconcile_schedule_with_iterations(validated_data: dict) -> None:
+        # The edit form reads `schedule` while update_survey_iteration reads the iteration columns,
+        # so the two must agree or the survey repeats while presenting itself as one-shot.
+        schedule = validated_data.get("schedule")
+        if (
+            schedule is None
+            and validated_data.get("iteration_count")
+            and validated_data.get("iteration_frequency_days")
+        ):
+            # Iteration fields alone have always configured repeats, so keep the caller's values.
+            validated_data["schedule"] = Survey.Schedule.RECURRING
+        elif "schedule" in validated_data and schedule != Survey.Schedule.RECURRING:
+            # An explicit null counts as non-recurring: the edit form reads it as "Once".
+            validated_data["iteration_count"] = None
+            validated_data["iteration_frequency_days"] = None
 
     def create(self, validated_data):
         if "remove_targeting_flag" in validated_data:
@@ -2868,17 +2886,17 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
     @extend_schema(operation_id="surveys_all_activity_retrieve")
     @action(methods=["GET"], url_path="activity", detail=False, required_scopes=["activity_log:read"])
     def all_activity(self, request: request.Request, **kwargs):
-        limit = int(request.query_params.get("limit", "10"))
-        page = int(request.query_params.get("page", "1"))
+        page_params = parse_activity_page_params(request)
 
-        activity_page = load_activity(scope="Survey", team_id=self.team_id, limit=limit, page=page)
+        activity_page = load_activity(
+            scope="Survey", team_id=self.team_id, limit=page_params.limit, page=page_params.page
+        )
 
-        return activity_page_response(activity_page, limit, page, request)
+        return activity_page_response(activity_page, page_params.limit, page_params.page, request)
 
     @action(methods=["GET"], detail=True, required_scopes=["activity_log:read"])
     def activity(self, request: request.Request, **kwargs):
-        limit = int(request.query_params.get("limit", "10"))
-        page = int(request.query_params.get("page", "1"))
+        page_params = parse_activity_page_params(request)
 
         item = self.get_object()
 
@@ -2886,10 +2904,10 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
             scope="Survey",
             team_id=self.team_id,
             item_ids=[str(item.id)],
-            limit=limit,
-            page=page,
+            limit=page_params.limit,
+            page=page_params.page,
         )
-        return activity_page_response(activity_page, limit, page, request)
+        return activity_page_response(activity_page, page_params.limit, page_params.page, request)
 
     @extend_schema(
         description=(
@@ -3752,7 +3770,6 @@ def public_survey_page(request: HttpRequest, survey_id: str) -> HttpResponse:
 
     # Build project config
     project_config = {
-        "api_host": request.build_absolute_uri("/").rstrip("/"),
         "token": survey.team.api_token,
     }
 

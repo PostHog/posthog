@@ -201,6 +201,151 @@ class TestFanOut:
         assert not any("/organizations/W2/" in url for url in sent)
 
     @mock.patch(CLIENT_SESSION_PATCH)
+    def test_task_level_chain_yields_stories_per_task(self, MockSession) -> None:
+        session = MockSession.return_value
+        sent = _wire(
+            session,
+            [
+                ("/workspaces?", _page([{"gid": "W1"}])),
+                ("workspace=W1", _page([{"gid": "P1"}])),
+                ("project=P1", _page([{"gid": "T1"}, {"gid": "T2"}])),
+                ("/tasks/T1/stories", _page([{"gid": "s1"}])),
+                ("/tasks/T2/stories", _page([{"gid": "s2"}])),
+            ],
+        )
+
+        rows = _rows(_source("stories", _make_manager()))
+
+        assert [r["gid"] for r in rows] == ["s1", "s2"]
+        # The tasks level is fetched compact — story opt_fields must not leak onto the parent walk.
+        assert not any("opt_fields" in url for url in sent if "project=P1" in url)
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_user_fan_out_filters_time_tracking_entries_per_user(self, MockSession) -> None:
+        session = MockSession.return_value
+        sent = _wire(
+            session,
+            [
+                ("/users", _page([{"gid": "U1"}, {"gid": "U2"}])),
+                ("user=U1", _page([{"gid": "e1"}])),
+                ("user=U2", _page([])),
+            ],
+        )
+
+        rows = _rows(_source("time_tracking_entries", _make_manager()))
+
+        assert [r["gid"] for r in rows] == ["e1"]
+        # Every entry request is scoped to a user; an unfiltered request would be rejected.
+        assert all("user=" in url for url in sent if "/time_tracking_entries" in url)
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_parent_goals_carry_the_child_gid_and_skip_pagination(self, MockSession) -> None:
+        session = MockSession.return_value
+        # parentGoals takes no limit/offset and returns no next_page — a `limit` param is rejected.
+        sent = _wire(
+            session,
+            [
+                ("/workspaces?", _page([{"gid": "W1"}])),
+                ("workspace=W1", _page([{"gid": "G1"}, {"gid": "G2"}])),
+                ("/goals/G1/parentGoals", _page([{"gid": "P"}], next_uri="ignored")),
+                ("/goals/G2/parentGoals", _page([{"gid": "P"}])),
+            ],
+        )
+
+        rows = _rows(_source("parent_goals", _make_manager()))
+
+        # The same parent goal under two children — only the composite key keeps both rows.
+        assert [(r["goal_gid"], r["gid"]) for r in rows] == [("G1", "P"), ("G2", "P")]
+        assert not any(r for r in rows if "_goals_gid" in r)
+        parent_goal_urls = [url for url in sent if "parentGoals" in url]
+        assert len(parent_goal_urls) == 2
+        assert not any("limit=" in url or "offset=" in url for url in parent_goal_urls)
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_team_memberships_walk_organizations_then_teams(self, MockSession) -> None:
+        session = MockSession.return_value
+        sent = _wire(
+            session,
+            [
+                (
+                    "/workspaces?",
+                    _page([{"gid": "W1", "is_organization": True}, {"gid": "W2", "is_organization": False}]),
+                ),
+                ("/organizations/W1/teams", _page([{"gid": "TM1"}])),
+                ("/teams/TM1/team_memberships", _page([{"gid": "m1"}])),
+            ],
+        )
+
+        rows = _rows(_source("team_memberships", _make_manager()))
+
+        assert [r["gid"] for r in rows] == ["m1"]
+        # Teams only exist under organizations, so the plain workspace is dropped before the walk.
+        assert not any("/organizations/W2/" in url for url in sent)
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_portfolio_items_carry_the_portfolio_gid(self, MockSession) -> None:
+        session = MockSession.return_value
+        sent = _wire(
+            session,
+            [
+                ("/workspaces?", _page([{"gid": "W1"}])),
+                ("workspace=W1", _page([{"gid": "PF1"}, {"gid": "PF2"}])),
+                ("/portfolios/PF1/items", _page([{"gid": "PR1"}])),
+                ("/portfolios/PF2/items", _page([{"gid": "PR1"}])),
+            ],
+        )
+
+        rows = _rows(_source("portfolio_items", _make_manager()))
+
+        # The same project held by two portfolios — only the composite key keeps both rows.
+        assert [(r["portfolio_gid"], r["gid"]) for r in rows] == [("PF1", "PR1"), ("PF2", "PR1")]
+        assert not any(r for r in rows if "_portfolios_gid" in r)
+        assert all("limit=" in url for url in sent if "/items" in url)
+
+    @pytest.mark.parametrize(
+        "endpoint, parent_gid",
+        [
+            ("project_status_updates", "P1"),
+            ("goal_status_updates", "G1"),
+            ("portfolio_status_updates", "PF1"),
+        ],
+    )
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_status_updates_bind_their_parent_gid(self, MockSession, endpoint, parent_gid) -> None:
+        session = MockSession.return_value
+        sent = _wire(
+            session,
+            [
+                ("/workspaces?", _page([{"gid": "W1"}])),
+                ("workspace=W1", _page([{"gid": parent_gid}])),
+                (f"parent={parent_gid}", _page([{"gid": "su1"}])),
+            ],
+        )
+
+        rows = _rows(_source(endpoint, _make_manager()))
+
+        assert [r["gid"] for r in rows] == ["su1"]
+        # /status_updates rejects a request without `parent`, and the gid must ride that one param.
+        assert all("parent=" in url for url in sent if "/status_updates" in url)
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_custom_field_settings_fan_out_per_project(self, MockSession) -> None:
+        session = MockSession.return_value
+        _wire(
+            session,
+            [
+                ("/workspaces?", _page([{"gid": "W1"}])),
+                ("workspace=W1", _page([{"gid": "P1"}, {"gid": "P2"}])),
+                ("/projects/P1/custom_field_settings", _page([{"gid": "cfs1"}])),
+                ("/projects/P2/custom_field_settings", _page([{"gid": "cfs2"}])),
+            ],
+        )
+
+        rows = _rows(_source("custom_field_settings", _make_manager()))
+
+        assert [r["gid"] for r in rows] == ["cfs1", "cfs2"]
+
+    @mock.patch(CLIENT_SESSION_PATCH)
     def test_project_level_chain_yields_grandchild_rows(self, MockSession) -> None:
         session = MockSession.return_value
         _wire(
@@ -245,7 +390,7 @@ class TestAsanaSourceResponse:
         response = _source(endpoint, _make_manager())
 
         assert response.name == endpoint
-        assert response.primary_keys == ["gid"]
+        assert response.primary_keys == config.primary_keys
         if config.partition_key:
             assert response.partition_mode == "datetime"
             assert response.partition_format == "week"

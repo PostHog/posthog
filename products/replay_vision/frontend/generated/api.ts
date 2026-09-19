@@ -26,6 +26,7 @@ import type {
     InlineScanRequestApi,
     InlineScanResponseApi,
     ObservationSearchResponseApi,
+    ObservationSignalReportApi,
     ObservationStatsApi,
     ObserveAlreadyScannedApi,
     ObserveRequestApi,
@@ -71,9 +72,12 @@ import type {
     VisionScannersListParams,
     VisionScannersObservationsListParams,
     VisionScannersObservationsRetrieveParams,
+    VisionScannersObservationsSignalReportsListParams,
     VisionScannersObservationsStatsRetrieveParams,
     VisionScannersPromptSuggestionsListParams,
+    VisionScannersWatchFeedRetrieveParams,
     VisionSpendSeriesApi,
+    WatchFeedResponseApi,
 } from './api.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
@@ -428,6 +432,24 @@ export const visionObservationsRetryCreate = async (
     return apiMutator<RetryResponseApi>(getVisionObservationsRetryCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
+    })
+}
+
+export const getVisionObservationsSignalReportsListUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/vision/observations/${id}/signal_reports/`
+}
+
+/**
+ * The inbox reports this observation's emitted signals were grouped into, newest first.
+ */
+export const visionObservationsSignalReportsList = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<ObservationSignalReportApi[]> => {
+    return apiMutator<ObservationSignalReportApi[]>(getVisionObservationsSignalReportsListUrl(projectId, id), {
+        ...options,
+        method: 'GET',
     })
 }
 
@@ -1122,6 +1144,46 @@ export const visionScannersObservationsRetryCreate = async (
     })
 }
 
+export const getVisionScannersObservationsSignalReportsListUrl = (
+    projectId: string,
+    scannerId: string,
+    id: string,
+    params?: VisionScannersObservationsSignalReportsListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/vision/scanners/${scannerId}/observations/${id}/signal_reports/?${stringifiedParams}`
+        : `/api/projects/${projectId}/vision/scanners/${scannerId}/observations/${id}/signal_reports/`
+}
+
+/**
+ * The inbox reports this observation's emitted signals were grouped into, newest first.
+ */
+export const visionScannersObservationsSignalReportsList = async (
+    projectId: string,
+    scannerId: string,
+    id: string,
+    params?: VisionScannersObservationsSignalReportsListParams,
+    options?: RequestInit
+): Promise<ObservationSignalReportApi[]> => {
+    return apiMutator<ObservationSignalReportApi[]>(
+        getVisionScannersObservationsSignalReportsListUrl(projectId, scannerId, id, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
 export const getVisionScannersObservationsViewedCreateUrl = (projectId: string, scannerId: string, id: string) => {
     return `/api/projects/${projectId}/vision/scanners/${scannerId}/observations/${id}/viewed/`
 }
@@ -1511,5 +1573,38 @@ export const visionScannersSuggestTagsCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(suggestTagsRequestApi),
+    })
+}
+
+export const getVisionScannersWatchFeedRetrieveUrl = (
+    projectId: string,
+    params?: VisionScannersWatchFeedRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/vision/scanners/watch_feed/?${stringifiedParams}`
+        : `/api/projects/${projectId}/vision/scanners/watch_feed/`
+}
+
+/**
+ * Succeeded observations in the window worth watching, ranked — feeds the What to watch tab.
+ */
+export const visionScannersWatchFeedRetrieve = async (
+    projectId: string,
+    params?: VisionScannersWatchFeedRetrieveParams,
+    options?: RequestInit
+): Promise<WatchFeedResponseApi> => {
+    return apiMutator<WatchFeedResponseApi>(getVisionScannersWatchFeedRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
     })
 }

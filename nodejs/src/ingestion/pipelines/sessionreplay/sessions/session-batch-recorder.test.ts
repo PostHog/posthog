@@ -183,6 +183,7 @@ jest.mock('./metrics', () => ({
         incrementEventsRateLimited: jest.fn(),
         incrementNewSessionsDetected: jest.fn(),
         incrementNewSessionsRateLimited: jest.fn(),
+        incrementMessagesDroppedSessionKeyMismatch: jest.fn(),
         observeE2eLag: jest.fn(),
     },
 }))
@@ -1878,12 +1879,24 @@ describe('SessionBatchRecorder', () => {
     })
 
     describe('encryption key handling', () => {
-        it('should drop messages when the session key changes between calls for the same session', async () => {
-            // The key is resolved upstream; the recorder must reject a second message that arrives
-            // with a different key for a session already in the batch, so a block isn't corrupted by
-            // events encrypted for two different keys.
-            const keyA = createMockSessionKey({ encryptedKey: Buffer.from('key-a') })
-            const keyB = createMockSessionKey({ encryptedKey: Buffer.from('key-b') })
+        // The key is resolved upstream; the recorder must reject a second message that arrives
+        // with a different key for a session already in the batch, so a block isn't corrupted by
+        // events encrypted for two different keys.
+        it.each([
+            [
+                'the encrypted key differs',
+                { encryptedKey: Buffer.from('key-a') },
+                { encryptedKey: Buffer.from('key-b') },
+            ],
+            // A sealed ML session key carries no KMS blob, so encryptedKey is empty on both sides and only the plaintext differs.
+            [
+                'only the plaintext key differs, as it does for a sealed ML key',
+                { plaintextKey: Buffer.alloc(32, 1), sessionState: 'ciphertext' as const },
+                { plaintextKey: Buffer.alloc(32, 2), sessionState: 'ciphertext' as const },
+            ],
+        ])('should drop a message for a session already in the batch when %s', async (_label, first, second) => {
+            const keyA = createMockSessionKey(first)
+            const keyB = createMockSessionKey(second)
 
             const message1 = createMessage(
                 'session1',
@@ -1896,11 +1909,8 @@ describe('SessionBatchRecorder', () => {
                 { partition: 1, offset: 1 }
             )
 
-            const bytes1 = await record(message1, '30d', keyA)
-            const bytes2 = await record(message2, '30d', keyB)
-
-            expect(bytes1).toBeGreaterThan(0)
-            expect(bytes2).toBe(0)
+            expect(await record(message1, '30d', keyA)).toBeGreaterThan(0)
+            expect(await record(message2, '30d', keyB)).toBe(0)
         })
     })
 })

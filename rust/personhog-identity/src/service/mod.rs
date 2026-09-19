@@ -192,6 +192,7 @@ impl PersonHogIdentity for PersonHogIdentityService {
                 .push(DistinctIdWithVersion {
                     distinct_id: mapping.distinct_id,
                     version: mapping.version,
+                    id: None,
                 });
         }
         let person_distinct_ids = by_person

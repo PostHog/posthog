@@ -55,7 +55,6 @@ from products.slack_app.backend.services.slack_app_home import (
     AccountState,
     GitHubAccount,
     GitHubState,
-    PreferenceSource,
     ProjectChoice,
     ProjectState,
     RunDefaultsState,
@@ -68,7 +67,6 @@ from products.slack_app.backend.services.slack_app_home import (
     parse_modal_submission,
     render_edit_modal,
     render_home_view,
-    resolve_source,
 )
 from products.slack_app.backend.services.slack_settings import AIPreferences
 from products.tasks.backend.facade.ai_run_defaults import get_user_ai_run_preferences, update_user_ai_run_preferences
@@ -153,7 +151,7 @@ def _stub_picker_facade():
         ("codex", "gpt-5"): ("low", "medium", "high"),
         ("codex", "gpt-5.5"): ("low", "medium", "high", "xhigh"),
     }
-    public_efforts = tuple(_Effort(v) for v in ("low", "medium", "high", "xhigh", "max"))
+    public_efforts = ("low", "medium", "high", "xhigh", "max")
 
     def fake_get_supported(adapter, model):
         adapter_value = adapter.value if hasattr(adapter, "value") else adapter
@@ -211,7 +209,7 @@ def _stub_picker_facade():
     fake.get_provider_for_runtime_adapter = fake_get_provider
     fake.get_models_for_runtime_adapter = fake_get_models
     fake.validate_model_selection = fake_validate_selection
-    fake.PUBLIC_REASONING_EFFORTS = public_efforts
+    fake.REASONING_EFFORTS = public_efforts
 
     @dataclass(frozen=True)
     class _GatewayModel:
@@ -255,28 +253,6 @@ def _stub_picker_facade():
 # ---------------------------------------------------------------------------
 # Renderer helpers
 # ---------------------------------------------------------------------------
-
-
-@dataclass
-class _Row:
-    """Duck-type stand-in for a SlackSettings row — keeps the renderer tests
-    off the database. Declared at module scope (instead of inside the helper
-    below) so mypy can resolve the dataclass-generated attribute types."""
-
-    runtime_adapter: str | None = None
-    model: str | None = None
-    reasoning_effort: str | None = None
-
-
-def _make_row(
-    *,
-    runtime_adapter: str | None = None,
-    model: str | None = None,
-    reasoning_effort: str | None = None,
-) -> Any:
-    # Returned as Any so call sites that pass this to render_home_view /
-    # resolve_source (which expect a real `SlackSettings`) don't trip mypy.
-    return _Row(runtime_adapter=runtime_adapter, model=model, reasoning_effort=reasoning_effort)
 
 
 def _action_ids(view: dict) -> list[str]:
@@ -413,11 +389,7 @@ def _view_submission_payload(
 class TestRenderHomeView:
     @pytest.mark.parametrize("is_admin", [False, True])
     def test_empty_state_renders_buttons_and_no_reset(self, is_admin):
-        view = render_home_view(
-            effective=AIPreferences(),
-            user_row=None,
-            is_admin=is_admin,
-        )
+        view = render_home_view(is_admin=is_admin)
         assert view["type"] == "home"
         ids = _action_ids(view)
         # Personal edit always present; reset hidden when no override. Admins get
@@ -425,44 +397,30 @@ class TestRenderHomeView:
         assert ACTION_EDIT_PERSONAL in ids
         assert ACTION_RESET_PERSONAL not in ids
 
-    def test_reset_shows_when_only_the_central_user_default_is_set(self):
-        # A preference saved from this card lands on the central config and
-        # clears the Slack pin, so reset must key off the central source too.
+    def test_reset_shows_when_the_viewer_has_a_personal_default(self):
         view = render_home_view(
-            effective=AIPreferences(),
-            user_row=None,
             is_admin=False,
             run_defaults=RunDefaultsState(model="claude-opus-4-7", runtime_adapter="claude", source="user"),
         )
         assert ACTION_RESET_PERSONAL in _action_ids(view)
 
-    def test_personal_override_renders_reset_button(self):
-        view = render_home_view(
-            effective=AIPreferences(runtime_adapter="claude", model="claude-opus-4-7", reasoning_effort="high"),
-            user_row=_make_row(runtime_adapter="claude", model="claude-opus-4-7", reasoning_effort="high"),
-            is_admin=False,
-        )
-        assert ACTION_RESET_PERSONAL in _action_ids(view)
-
     def test_active_model_summary_mentions_model_label(self):
         view = render_home_view(
-            effective=AIPreferences(runtime_adapter="claude", model="claude-opus-4-7", reasoning_effort="high"),
-            user_row=_make_row(runtime_adapter="claude", model="claude-opus-4-7", reasoning_effort="high"),
             is_admin=True,
+            run_defaults=RunDefaultsState(model="claude-opus-4-7", runtime_adapter="claude", source="user"),
         )
         text_blob = " ".join(block["text"]["text"] for block in view["blocks"] if block.get("type") == "section")
         # Friendly label rather than raw model id; source attribution visible.
         assert "Claude Opus 4.7" in text_blob
-        assert "Your personal override" in _all_text(view)
+        assert "Your PostHog default" in _all_text(view)
 
     def test_every_control_the_tab_renders_is_routable(self):
         # The interactivity endpoint claims region ownership and dispatches off
         # HOME_ACTION_IDS, so a control missing from it renders as a button that
         # silently does nothing. Render every card at once and check the whole set.
         view = render_home_view(
-            effective=AIPreferences(runtime_adapter="claude", model="claude-opus-4-7"),
-            user_row=_make_row(runtime_adapter="claude", model="claude-opus-4-7"),
             is_admin=True,
+            run_defaults=RunDefaultsState(model="claude-opus-4-7", runtime_adapter="claude", source="user"),
             account_state=AccountState(enabled=True, link_url="https://app/link"),
             github_state=GitHubState(user_resolved=True, settings_url="https://app/settings"),
             project_state=ProjectState(
@@ -499,23 +457,10 @@ class TestRenderHomeView:
         # Unlink only renders once an account is linked, which this fixture deliberately isn't.
         assert set(_action_ids(view)) == HOME_ACTION_IDS - {ACTION_UNLINK_ACCOUNT}
 
-    def test_source_resolution_is_atomic(self):
-        # A user row missing half the pair isn't a real override.
-        assert resolve_source(_make_row(reasoning_effort="medium")) == PreferenceSource.unset()
-        assert resolve_source(None) == PreferenceSource.unset()
-        assert (
-            resolve_source(_make_row(runtime_adapter="claude", model="claude-opus-4-7")) == PreferenceSource.personal()
-        )
-
 
 class TestThreadFollowupsCard:
     def _view(self, mode) -> dict:
-        return render_home_view(
-            effective=AIPreferences(),
-            user_row=None,
-            is_admin=False,
-            untagged_followup_mode=mode,
-        )
+        return render_home_view(is_admin=False, untagged_followup_mode=mode)
 
     def test_card_absent_where_untagged_followups_do_not_run(self):
         # Nothing to configure when replies are never picked up in the first place.
@@ -573,13 +518,7 @@ class TestThreadFollowupsPicker:
 
 class TestLinkedAccountsCard:
     def _view(self, *, account_state=None, github_state=None) -> dict:
-        return render_home_view(
-            effective=AIPreferences(),
-            user_row=None,
-            is_admin=False,
-            account_state=account_state,
-            github_state=github_state,
-        )
+        return render_home_view(is_admin=False, account_state=account_state, github_state=github_state)
 
     def _rows(self, view: dict) -> list[tuple[str, dict | None]]:
         return [
@@ -673,8 +612,6 @@ _TASK_TITLES = ("Fix flaky retention test", "Refactor mention dispatcher")
 class TestTasksCard:
     def _kwargs(self, **overrides):
         base = {
-            "effective": AIPreferences(),
-            "user_row": None,
             "is_admin": False,
         }
         base.update(overrides)
@@ -979,6 +916,21 @@ class TestRenderEditModal:
         assert option_values
         assert all(v.startswith("gpt-") for v in option_values)
 
+    def test_model_options_carry_the_cost_of_a_priced_model(self):
+        view = render_edit_modal(current=AIPreferences(runtime_adapter="claude"))
+        model_block = _find_block(view, MODAL_BLOCK_MODEL)
+        assert model_block
+        options = {o["value"]: o for o in model_block["element"]["options"]}
+        assert "Claude Sonnet 5" in options["claude-opus-5"]["description"]["text"]
+        assert "2.5×" in options["claude-opus-5"]["description"]["text"]
+
+    def test_model_option_omits_the_cost_line_when_the_catalog_prices_nothing(self):
+        view = render_edit_modal(current=AIPreferences(runtime_adapter="codex"))
+        model_block = _find_block(view, MODAL_BLOCK_MODEL)
+        assert model_block
+        options = {o["value"]: o for o in model_block["element"]["options"]}
+        assert "description" not in options["gpt-5"]
+
     def test_effort_block_renders_only_when_supported_efforts_provided(self):
         view = render_edit_modal(
             current=AIPreferences(runtime_adapter="claude", model="claude-opus-4-7"),
@@ -1006,6 +958,9 @@ class TestRenderEditModal:
         assert runtime_block["element"]["initial_option"]["value"] == "claude"
         assert model_block["element"]["initial_option"]["value"] == "claude-opus-4-7"
         assert effort_block["element"]["initial_option"]["value"] == "high"
+        # Slack rejects the whole view when an initial option is not one of the offered
+        # options, down to the cost line under the name.
+        assert model_block["element"]["initial_option"] in model_block["element"]["options"]
 
     def test_dispatch_action_set_on_runtime_and_model(self):
         view = render_edit_modal(current=AIPreferences(runtime_adapter="claude"))
@@ -1236,38 +1191,13 @@ class TestEditPersonalAction:
 
 
 class TestResetPersonal:
-    def test_clears_ai_fields_and_republishes(self, slack_integration, mock_slack_client, flag_on, admin_user):
-        SlackSettings.objects.create(
-            default_integration=slack_integration,
-            slack_workspace_id=SLACK_WORKSPACE_ID,
-            slack_user_id="U001",
-            ai_preferences={"runtime_adapter": "claude", "model": "claude-opus-4-7", "reasoning_effort": "high"},
-        )
-        payload = _block_action_payload(
-            action_id=ACTION_RESET_PERSONAL,
-            slack_user_id="U001",
-            trigger_id="trig.4",
-        )
-        handle_ai_preferences_block_action(payload, payload["actions"][0])
-
-        row = SlackSettings.objects.get(slack_workspace_id=SLACK_WORKSPACE_ID, slack_user_id="U001")
-        assert row.runtime_adapter is None
-        assert row.model is None
-        assert row.reasoning_effort is None
-        assert mock_slack_client.views_publish.called
-
-    def test_mapped_viewer_reset_clears_central_config_and_row(self, slack_integration, mock_slack_client, flag_on):
+    def test_mapped_viewer_reset_clears_central_config(self, slack_integration, mock_slack_client, flag_on):
         user = User.objects.create_and_join(slack_integration.team.organization, "mapped@example.com", None)
         SlackUserProfileCache.objects.create(
             integration=slack_integration, slack_user_id="U001", email="mapped@example.com"
         )
         update_user_ai_run_preferences(
             slack_integration.team_id, user.id, runtime_adapter="codex", model="gpt-5.5", reasoning_effort=None
-        )
-        SlackSettings.objects.create(
-            slack_workspace_id=SLACK_WORKSPACE_ID,
-            slack_user_id="U001",
-            ai_preferences={"runtime_adapter": "claude", "model": "claude-opus-4-7", "reasoning_effort": "high"},
         )
         payload = _block_action_payload(
             action_id=ACTION_RESET_PERSONAL,
@@ -1277,20 +1207,19 @@ class TestResetPersonal:
         handle_ai_preferences_block_action(payload, payload["actions"][0])
 
         assert get_user_ai_run_preferences(slack_integration.team_id, user.id) == {}
-        row = SlackSettings.objects.get(slack_workspace_id=SLACK_WORKSPACE_ID, slack_user_id="U001")
-        assert row.ai_preferences is None
+        assert mock_slack_client.views_publish.called
 
 
 class TestResetProjectPersonal:
-    def test_clears_routing_only_when_ai_preferences_present(
+    def test_clears_routing_only_when_other_settings_present(
         self, slack_integration, mock_slack_client, flag_on, admin_user
     ):
-        # Mixed row → reset clears routing, AI fields stay.
+        # Mixed row → reset clears routing, the follow-up mode stays.
         SlackSettings.objects.create(
             default_integration=slack_integration,
             slack_workspace_id=SLACK_WORKSPACE_ID,
             slack_user_id="U001",
-            ai_preferences={"runtime_adapter": "claude", "model": "claude-opus-4-7", "reasoning_effort": "high"},
+            untagged_followup_mode=UntaggedFollowupMode.AUTO,
         )
         payload = _block_action_payload(
             action_id=ACTION_RESET_PROJECT_PERSONAL,
@@ -1301,12 +1230,10 @@ class TestResetProjectPersonal:
 
         row = SlackSettings.objects.get(slack_workspace_id=SLACK_WORKSPACE_ID, slack_user_id="U001")
         assert row.default_integration_id is None
-        assert row.runtime_adapter == "claude"
-        assert row.model == "claude-opus-4-7"
-        assert row.reasoning_effort == "high"
+        assert row.untagged_followup_mode == UntaggedFollowupMode.AUTO
         assert mock_slack_client.views_publish.called
 
-    def test_deletes_row_when_no_ai_preferences_remain(self, slack_integration, mock_slack_client, flag_on, admin_user):
+    def test_deletes_row_when_no_other_settings_remain(self, slack_integration, mock_slack_client, flag_on, admin_user):
         # Routing-only row → reset drops it so the resolver falls back to
         # the workspace default cleanly.
         SlackSettings.objects.create(
@@ -1437,19 +1364,10 @@ class TestPersonalSubmit:
         assert "not available" in str(body["errors"])
         assert get_user_ai_run_preferences(slack_integration.team_id, user.id) == {}
 
-    def test_mapped_viewer_submit_writes_central_config_and_clears_row(
-        self, slack_integration, mock_slack_client, flag_on
-    ):
+    def test_mapped_viewer_submit_writes_central_config(self, slack_integration, mock_slack_client, flag_on):
         user = User.objects.create_and_join(slack_integration.team.organization, "mapped@example.com", None)
         SlackUserProfileCache.objects.create(
             integration=slack_integration, slack_user_id="U001", email="mapped@example.com"
-        )
-        # Stale pin on the Slack row: the save must not leave it behind to shadow
-        # the central config it just wrote.
-        SlackSettings.objects.create(
-            slack_workspace_id=SLACK_WORKSPACE_ID,
-            slack_user_id="U001",
-            ai_preferences={"runtime_adapter": "codex", "model": "gpt-5", "reasoning_effort": None},
         )
         payload = _view_submission_payload(
             callback_id=EDIT_MODAL_PERSONAL_CALLBACK_ID,
@@ -1464,8 +1382,6 @@ class TestPersonalSubmit:
         stored = get_user_ai_run_preferences(slack_integration.team_id, user.id)
         assert stored.get("model") == "claude-opus-4-7"
         assert stored.get("runtime_adapter") == "claude"
-        row = SlackSettings.objects.get(slack_workspace_id=SLACK_WORKSPACE_ID, slack_user_id="U001")
-        assert row.ai_preferences is None
 
     @pytest.mark.parametrize(
         "runtime_adapter,model,effort",
@@ -1609,8 +1525,6 @@ class TestNoProjectAccessCard:
 
     def _view(self, **overrides) -> dict:
         kwargs: dict[str, Any] = {
-            "effective": AIPreferences(),
-            "user_row": None,
             "is_admin": True,
             "has_project_access": False,
             "tasks_state": TasksState(),
@@ -1645,3 +1559,44 @@ class TestNoProjectAccessCard:
 
     def test_normal_tab_is_untouched_when_a_project_is_reachable(self):
         assert "No project to show yet" not in _all_text(self._view(has_project_access=True))
+
+
+class TestUnidentifiedViewerProjectList:
+    """What the tab lists for a Slack user it cannot map to a PostHog account.
+
+    The regression to catch is the list widening again. A Slack workspace can connect
+    several organizations, so returning every candidate publishes the project and
+    organization names of orgs the viewer is not a member of to anyone in the workspace.
+    """
+
+    @pytest.fixture(autouse=True)
+    def setup(self, db):
+        from posthog.models.integration import Integration
+        from posthog.models.organization import Organization
+        from posthog.models.team.team import Team
+
+        self.own_org = Organization.objects.create(name="Acme")
+        self.other_org = Organization.objects.create(name="Umbrella")
+        self.rendered_for = Integration.objects.create(
+            team=Team.objects.create(organization=self.own_org, name="Acme prod"),
+            kind="slack",
+            integration_id="T_WS",
+            sensitive_config={"access_token": "xoxb"},
+        )
+        self.other_org_install = Integration.objects.create(
+            team=Team.objects.create(organization=self.other_org, name="Umbrella prod"),
+            kind="slack",
+            integration_id="T_WS",
+            sensitive_config={"access_token": "xoxb"},
+        )
+
+    def test_shows_only_the_project_the_tab_renders_for(self):
+        from products.slack_app.backend.services.slack_app_home import _filter_accessible_integrations
+
+        # No SlackUserProfileCache row and no OAuth link, so the viewer is unidentifiable.
+        accessible = _filter_accessible_integrations(
+            self.rendered_for, "U_STRANGER", [self.rendered_for, self.other_org_install]
+        )
+
+        assert [i.id for i in accessible] == [self.rendered_for.id]
+        assert self.other_org_install.id not in {i.id for i in accessible}

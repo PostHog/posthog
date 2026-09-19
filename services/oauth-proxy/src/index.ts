@@ -9,17 +9,18 @@
  */
 import { handleAuthorize } from '@/handlers/authorize'
 import { handleCallback } from '@/handlers/callback'
-import { handleMetadata } from '@/handlers/metadata'
+import { handleClientManifest, handleMetadata, handleOpenIdConfiguration } from '@/handlers/metadata'
 import { handleIntrospect, handleJwks, handleRevoke, handleUserInfo } from '@/handlers/passthrough'
 import { handleRegister } from '@/handlers/register'
 import { handleToken } from '@/handlers/token'
+import type { SigningKeyEnv } from '@/lib/idtoken'
 import { type Validator, errorResponse, noDuplicateParams, runValidators } from '@/lib/validation'
 
-export interface Env {
+export interface Env extends SigningKeyEnv {
     AUTH_KV: KVNamespace
 }
 
-type Handler = (request: Request, kv: KVNamespace) => Response | Promise<Response>
+type Handler = (request: Request, kv: KVNamespace, env: Env) => Response | Promise<Response>
 
 interface Route {
     paths: string[]
@@ -36,6 +37,14 @@ const routes: Route[] = [
     {
         paths: ['/.well-known/oauth-authorization-server'],
         handler: handleMetadata,
+    },
+    {
+        paths: ['/.well-known/openid-configuration'],
+        handler: handleOpenIdConfiguration,
+    },
+    {
+        paths: ['/auth.md'],
+        handler: handleClientManifest,
     },
     {
         paths: ['/.well-known/jwks.json'],
@@ -107,7 +116,7 @@ export default {
                             return errorResponse(validationError)
                         }
                     }
-                    return await route.handler(request, env.AUTH_KV)
+                    return await route.handler(request, env.AUTH_KV, env)
                 }
             }
 

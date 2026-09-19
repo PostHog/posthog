@@ -106,6 +106,7 @@ class TestCase:
     file: str  # normalized repo-relative test file; '' when no checked-in file can be found
     file_source: Literal["junit", "inferred", "missing"]
     selector: str  # runnable runner-specific selector; '' when the file cannot be found
+    runner_name: str = ""  # GitHub runner that executed the test, not the trace-export job's runner
 
 
 @dataclass(frozen=True)
@@ -571,6 +572,7 @@ def parse_shard(
                     end=datetime.min,
                     outcome=outcome,
                     attempts=attempts,
+                    runner_name=parse_testsuite_properties(tc).get("posthog.runner_name", ""),
                 )
             )
         file_durations.append(file_testcase_seconds)
@@ -902,6 +904,8 @@ def _emit_shard_span(
             test_span.set_attribute("test.job_key", job_trace_key(info))
             test_span.set_attribute("test.outcome", test.outcome)
             test_span.set_attribute("test.attempts", test.attempts)
+            if test.runner_name:
+                test_span.set_attribute("test.runner_name", test.runner_name)
             test_span.set_attribute("test.classname", test.classname)
             test_span.set_attribute("test.name", test.name)
             if test.file:
