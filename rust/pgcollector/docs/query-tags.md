@@ -16,8 +16,8 @@ Three comment shapes are accepted, because all three already run against our clu
 | colon pairs | `/* team_id:42 query_type:recording_api_list_blocks */` | the shape PostHog uses for ClickHouse, reused by the CDP and replay services |
 | ingestion prefix | `/* nodejs:PERSONS_WRITE:Tx<insertPerson:ingestion/merge> */` | `nodejs/src/common/utils/db/postgres.ts` |
 
-pgcollector tags its own statements the same way, with `service='pgcollector'` and the
-collector name as `operation` (`tags::tagged`).
+pgcollector tags the statements it runs against a monitored cluster the same way, with
+`service='pgcollector'` and the collector name as `operation` (`tags::tagged`).
 So a catalog read that shows up on a monitored cluster names the collector that ran it,
 rather than only being attributable through `application_name`.
 

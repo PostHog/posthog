@@ -49,8 +49,8 @@ variants:                 # optional, version-specific SQL (highest matching win
 `per_instance: true|false` overrides the default (cluster scope → every
 instance, database scope → writer only).
 
-Every query is sent with a `/* service='pgcollector', operation='<name>' */` tag
-comment in front, so the agent's own reads are attributable on the monitored cluster.
+Every collector query is sent with a `/* service='pgcollector', operation='<name>' */`
+tag comment in front, so the agent's reads are attributable on the target it monitors.
 New collectors get it without doing anything.
 
 Rules: cast anything that isn't bool/int/float/numeric/text/timestamptz/json
