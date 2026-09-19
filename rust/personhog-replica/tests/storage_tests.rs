@@ -446,8 +446,8 @@ async fn hash_key_override_count(pool: &sqlx::PgPool, team_id: i64, person_id: i
 }
 
 #[tokio::test]
-async fn test_delete_persons_tombstones_when_enabled() {
-    let ctx = TestContext::new_with_tombstone_deletes(true).await;
+async fn test_delete_persons_tombstone_mode_keeps_the_rows() {
+    let ctx = TestContext::new().await;
     let cohort_id: i64 = 8802;
     let person = ctx
         .insert_person(
@@ -468,9 +468,10 @@ async fn test_delete_persons_tombstones_when_enabled() {
 
     let deleted = ctx
         .storage
-        .delete_persons(ctx.team_id, &[person.uuid])
+        .delete_persons_with_mode(ctx.team_id, &[person.uuid], DeletePersonsMode::Tombstone)
         .await
-        .expect("delete persons");
+        .expect("delete persons")
+        .deleted;
     assert_eq!(deleted, 1);
 
     // The rows survive as tombstones: the counter continued from 0 to 1 on
@@ -507,9 +508,10 @@ async fn test_delete_persons_tombstones_when_enabled() {
     // Deleting again is a no-op: no second version bump.
     let deleted = ctx
         .storage
-        .delete_persons(ctx.team_id, &[person.uuid])
+        .delete_persons_with_mode(ctx.team_id, &[person.uuid], DeletePersonsMode::Tombstone)
         .await
-        .unwrap();
+        .unwrap()
+        .deleted;
     assert_eq!(deleted, 0);
     let (_, version, _, _) = tombstone_state(&ctx.pool, ctx.team_id, person.id).await;
     assert_eq!(version, 1);
@@ -519,7 +521,7 @@ async fn test_delete_persons_tombstones_when_enabled() {
 
 #[tokio::test]
 async fn test_delete_persons_with_mode_reports_the_tombstone_versions() {
-    let ctx = TestContext::new_with_tombstone_deletes(true).await;
+    let ctx = TestContext::new().await;
     let person = ctx.insert_person("versions_a", None).await.unwrap();
     ctx.add_distinct_id_to_person(person.id, "versions_b")
         .await
@@ -527,7 +529,7 @@ async fn test_delete_persons_with_mode_reports_the_tombstone_versions() {
 
     let outcome = ctx
         .storage
-        .delete_persons_with_mode(ctx.team_id, &[person.uuid], DeletePersonsMode::Default)
+        .delete_persons_with_mode(ctx.team_id, &[person.uuid], DeletePersonsMode::Tombstone)
         .await
         .unwrap();
 
@@ -559,19 +561,19 @@ async fn test_delete_persons_with_mode_reports_the_tombstone_versions() {
 
 #[tokio::test]
 async fn test_delete_persons_tombstone_mode_reports_versions_again_on_retry() {
-    let ctx = TestContext::new_with_tombstone_deletes(true).await;
+    let ctx = TestContext::new().await;
     let person = ctx.insert_person("retry_versions", None).await.unwrap();
 
     let first = ctx
         .storage
-        .delete_persons_with_mode(ctx.team_id, &[person.uuid], DeletePersonsMode::Default)
+        .delete_persons_with_mode(ctx.team_id, &[person.uuid], DeletePersonsMode::Tombstone)
         .await
         .unwrap();
     // A caller that lost the first response must get the same versions back, or
     // its ClickHouse tombstones never get published.
     let retry = ctx
         .storage
-        .delete_persons_with_mode(ctx.team_id, &[person.uuid], DeletePersonsMode::Default)
+        .delete_persons_with_mode(ctx.team_id, &[person.uuid], DeletePersonsMode::Tombstone)
         .await
         .unwrap();
 
@@ -583,8 +585,8 @@ async fn test_delete_persons_tombstone_mode_reports_versions_again_on_retry() {
 }
 
 #[tokio::test]
-async fn test_delete_persons_hard_mode_removes_rows_despite_the_flag() {
-    let ctx = TestContext::new_with_tombstone_deletes(true).await;
+async fn test_delete_persons_hard_mode_reports_no_versions() {
+    let ctx = TestContext::new().await;
     let person = ctx.insert_person("hard_mode", None).await.unwrap();
 
     let outcome = ctx
@@ -601,32 +603,8 @@ async fn test_delete_persons_hard_mode_removes_rows_despite_the_flag() {
 }
 
 #[tokio::test]
-async fn test_delete_persons_tombstone_mode_tombstones_despite_the_flag() {
-    let ctx = TestContext::new_with_tombstone_deletes(false).await;
-    let person = ctx.insert_person("tombstone_mode", None).await.unwrap();
-
-    let outcome = ctx
-        .storage
-        .delete_persons_with_mode(ctx.team_id, &[person.uuid], DeletePersonsMode::Tombstone)
-        .await
-        .unwrap();
-
-    assert_eq!(outcome.deleted, 1);
-    assert_eq!(
-        outcome.tombstones.as_ref().map(|t| t.len()),
-        Some(1),
-        "tombstone mode reports the versions"
-    );
-    let (is_deleted, version, _, _) = tombstone_state(&ctx.pool, ctx.team_id, person.id).await;
-    assert!(is_deleted);
-    assert_eq!(version, 1);
-
-    ctx.cleanup().await.ok();
-}
-
-#[tokio::test]
-async fn test_delete_persons_hard_deletes_when_tombstones_disabled() {
-    let ctx = TestContext::new_with_tombstone_deletes(false).await;
+async fn test_delete_persons_hard_deletes_by_default() {
+    let ctx = TestContext::new().await;
     let person = ctx.insert_person("hard_delete", None).await.unwrap();
 
     let deleted = ctx
@@ -649,12 +627,16 @@ async fn test_delete_persons_hard_deletes_when_tombstones_disabled() {
 }
 
 #[tokio::test]
-async fn test_delete_persons_batch_for_team_hard_deletes_with_tombstones_enabled() {
-    let ctx = TestContext::new_with_tombstone_deletes(true).await;
+async fn test_delete_persons_batch_for_team_removes_tombstoned_rows() {
+    let ctx = TestContext::new().await;
     let live = ctx.insert_person("batch_live", None).await.unwrap();
     let tombstoned = ctx.insert_person("batch_tombstoned", None).await.unwrap();
     ctx.storage
-        .delete_persons(ctx.team_id, &[tombstoned.uuid])
+        .delete_persons_with_mode(
+            ctx.team_id,
+            &[tombstoned.uuid],
+            DeletePersonsMode::Tombstone,
+        )
         .await
         .unwrap();
     let (is_deleted, _, _, _) = tombstone_state(&ctx.pool, ctx.team_id, tombstoned.id).await;

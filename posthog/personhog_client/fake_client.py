@@ -77,8 +77,6 @@ class FakePersonHogClient:
         # Mirrors the replica's TOMBSTONED_DELETE_MAX_ROWS clamp. The fake tracks distinct ids
         # only, so the row budget counts them alone.
         self.tombstoned_delete_max_rows = 5000
-        # Mirrors the replica's PERSON_DELETE_TOMBSTONE setting for DeletePersons without an explicit mode.
-        self.tombstone_deletes = False
 
         # keyed by project_id -> list of GroupTypeMapping
         self._group_type_mappings_by_project: dict[int, list[group_pb2.GroupTypeMapping]] = {}
@@ -628,12 +626,7 @@ class FakePersonHogClient:
         self, request: person_pb2.DeletePersonsRequest, timeout: float | None = None
     ) -> person_pb2.DeletePersonsResponse:
         self.calls.append(_Call("delete_persons", request))
-        if request.mode == person_pb2.DELETE_PERSONS_MODE_HARD:
-            tombstone = False
-        elif request.mode == person_pb2.DELETE_PERSONS_MODE_TOMBSTONE:
-            tombstone = True
-        else:
-            tombstone = self.tombstone_deletes
+        tombstone = request.mode == person_pb2.DELETE_PERSONS_MODE_TOMBSTONE
         response = person_pb2.DeletePersonsResponse(tombstoned=tombstone)
         for uuid in request.person_uuids:
             person = self._persons_by_uuid.get((request.team_id, uuid))

@@ -418,7 +418,7 @@ impl PersonLookup for PostgresStorage {
     }
 
     async fn delete_persons(&self, team_id: i64, uuids: &[Uuid]) -> StorageResult<i64> {
-        self.delete_persons_with_mode(team_id, uuids, DeletePersonsMode::Default)
+        self.delete_persons_with_mode(team_id, uuids, DeletePersonsMode::Hard)
             .await
             .map(|outcome| outcome.deleted)
     }
@@ -443,12 +443,7 @@ impl PersonLookup for PostgresStorage {
         ];
         let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
 
-        let tombstone = match mode {
-            DeletePersonsMode::Default => self.tombstone_deletes,
-            DeletePersonsMode::Hard => false,
-            DeletePersonsMode::Tombstone => true,
-        };
-        if tombstone {
+        if mode == DeletePersonsMode::Tombstone {
             return tombstone_persons_by_uuids(self, team_id, uuids, &client).await;
         }
 

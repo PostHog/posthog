@@ -420,7 +420,7 @@ impl PersonHogReplica for PersonHogReplicaService {
             .map_err(|e| Status::invalid_argument(format!("Invalid UUID: {e}")))?;
 
         let mode = match ProtoDeletePersonsMode::try_from(req.mode) {
-            Ok(ProtoDeletePersonsMode::Unspecified) => DeletePersonsMode::Default,
+            Ok(ProtoDeletePersonsMode::Unspecified) => DeletePersonsMode::Hard,
             Ok(ProtoDeletePersonsMode::Hard) => DeletePersonsMode::Hard,
             Ok(ProtoDeletePersonsMode::Tombstone) => DeletePersonsMode::Tombstone,
             Err(_) => {
