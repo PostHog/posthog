@@ -187,10 +187,10 @@ class OrganizationIntegrationViewSet(
             "access_token"
         ) or integration.config.get("credentials", {}).get("access_token")
         if access_token and integration.integration_id:
-            from ee.api.vercel.vercel_connect import VercelConnectLinkViewSet
+            from ee.vercel.integration import VercelIntegration
 
-            secrets = VercelConnectLinkViewSet._build_env_secrets(
-                teams_by_id, production_id, preview_id, development_id
+            secrets = VercelIntegration.build_connectable_secrets(
+                production_team, teams_by_id[preview_id], teams_by_id[development_id]
             )
             client = VercelAPIClient(bearer_token=access_token)
             client.import_resource(
