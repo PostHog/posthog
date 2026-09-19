@@ -1445,8 +1445,7 @@ export const billingLogic = kea<billingLogicType>([
 
             const trial = values.billing.trial
             if (trial && trial.expires_at && dayjs(trial.expires_at).isAfter(dayjs())) {
-                if (trial.type === 'autosubscribe' || trial.status !== 'active') {
-                    // Only show for standard ones (managed by sales)
+                if (trial.status !== 'active') {
                     clearBillingAlert()
                     return
                 }
@@ -1458,15 +1457,28 @@ export const billingLogic = kea<billingLogicType>([
                     return
                 }
 
-                const contactEmail = values.billing.account_owner?.email || 'sales@posthog.com'
-                const contactName = values.billing.account_owner?.name || 'sales'
                 const timeRemaining =
                     remainingHours < 24 ? pluralize(remainingHours, 'hour') : pluralize(remainingDays, 'day')
                 const planName = capitalizeFirstLetter(trial.target)
+
+                // An autosubscribe trial becomes a paid subscription when it ends, but only when the
+                // organization has a subscription to add it to. A standard trial always just expires.
+                if (trial.type === 'autosubscribe' && values.billing.has_active_subscription) {
+                    actions.setBillingAlert({
+                        kind: 'trial',
+                        status: 'warning',
+                        title: `Your free trial for the ${planName} plan ends in ${timeRemaining}. Your service will continue without interruption, and you'll be charged for the ${planName} plan.`,
+                        message: 'Cancel the trial before it ends if you do not want to be charged.',
+                    })
+                    return
+                }
+
+                const contactEmail = values.billing.account_owner?.email || 'sales@posthog.com'
+                const contactName = values.billing.account_owner?.name || 'sales'
                 actions.setBillingAlert({
                     kind: 'trial',
                     status: 'info',
-                    title: `Your free trial for the ${planName} plan ends in ${timeRemaining}. Your service will continue without interruption, and you'll be charged for the ${planName} plan.`,
+                    title: `Your free trial for the ${planName} plan ends in ${timeRemaining}.`,
                     message: `Questions? Reach out to ${contactName} at ${contactEmail}.`,
                 })
                 return
