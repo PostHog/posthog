@@ -21,22 +21,27 @@ function buildNode(name: string): DataModelingNode {
 }
 
 const NODES = ['orders', 'customers'].map(buildNode)
+const NODE_RESPONSE = { count: NODES.length, results: NODES }
+const EDGE_RESPONSE = { count: 0, results: [] }
 
 describe('modelsLineageLogic', () => {
     let logic: ReturnType<typeof modelsLineageLogic.build>
     let captureSpy: jest.SpyInstance
 
+    const mount = (): void => {
+        logic = modelsLineageLogic()
+        logic.mount()
+    }
+
     beforeEach(() => {
         useMocks({
             get: {
-                '/api/environments/:team_id/data_modeling_nodes/': { count: NODES.length, results: NODES },
-                '/api/environments/:team_id/data_modeling_edges/': { count: 0, results: [] },
+                '/api/environments/:team_id/data_modeling_nodes/': NODE_RESPONSE,
+                '/api/environments/:team_id/data_modeling_edges/': EDGE_RESPONSE,
             },
         })
         initKeaTests()
         captureSpy = jest.spyOn(posthog, 'capture').mockImplementation()
-        logic = modelsLineageLogic()
-        logic.mount()
     })
 
     afterEach(() => {
@@ -45,6 +50,7 @@ describe('modelsLineageLogic', () => {
     })
 
     it('holds back the match count until the graph loads', async () => {
+        mount()
         logic.actions.setDebouncedSearchTerm('orders')
 
         // The node list starts empty, so counting now would say nothing matched.
@@ -53,6 +59,7 @@ describe('modelsLineageLogic', () => {
     })
 
     it('counts a match on a misspelled name', async () => {
+        mount()
         await expectLogic(logic).toFinishAllListeners()
         logic.actions.setDebouncedSearchTerm('ordrs')
 
@@ -60,6 +67,7 @@ describe('modelsLineageLogic', () => {
     })
 
     it('drops a search the user cleared before it settled', async () => {
+        mount()
         await expectLogic(logic).toFinishAllListeners()
         logic.actions.setSearchTerm('orders')
         logic.actions.resetFilters()
@@ -69,6 +77,7 @@ describe('modelsLineageLogic', () => {
     })
 
     it('reports a settled search with its match count', async () => {
+        mount()
         await expectLogic(logic).toFinishAllListeners()
         logic.actions.setSearchTerm('orders')
 
@@ -79,5 +88,26 @@ describe('modelsLineageLogic', () => {
             match_count: 1,
             node_count: 2,
         })
+    })
+
+    it('waits for the graph before reporting a search typed during the first load', async () => {
+        // Outlast the reporting debounce, so the term settles while the node list is still empty.
+        useMocks({
+            get: {
+                '/api/environments/:team_id/data_modeling_nodes/': async () => {
+                    await new Promise((resolve) => setTimeout(resolve, 1400))
+                    return NODE_RESPONSE
+                },
+            },
+        })
+        mount()
+        logic.actions.setSearchTerm('orders')
+
+        await expectLogic(logic).toFinishAllListeners()
+        // Reporting on the empty list would record zero of zero, which reads as a failed search.
+        expect(captureSpy).toHaveBeenCalledWith(
+            'lineage searched',
+            expect.objectContaining({ match_count: 1, node_count: 2 })
+        )
     })
 })

@@ -97,6 +97,14 @@ export const modelsLineageLogic = kea<modelsLineageLogicType>([
 
             // Let typing settle further, so one search reports once rather than once per pause.
             await breakpoint(750)
+            // A term typed during the first load would otherwise report zero of zero models, which
+            // reads as a search that found nothing. The loaders clear on failure too, so this ends.
+            while (values.nodesLoading || values.edgesLoading) {
+                await breakpoint(250)
+                if (values.searchTerm !== searchTerm) {
+                    return
+                }
+            }
             const term = searchTerm.trim()
             if (!term || values.searchTerm !== searchTerm) {
                 return
