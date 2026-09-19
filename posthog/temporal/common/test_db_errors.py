@@ -36,6 +36,7 @@ class _WithSqlstate(Exception):
             ),
             True,
         ),
+        (OperationalError("sending query failed: another command is already in progress"), True),
         (OperationalError("connection failed: FATAL: password authentication failed for user"), False),
         (OperationalError("no such database"), False),
         # The connect path's socket/selector setup raises a bare OSError, not an OperationalError,
