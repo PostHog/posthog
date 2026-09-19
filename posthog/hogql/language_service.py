@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import timedelta
 from hashlib import sha256
@@ -7,9 +8,12 @@ from time import perf_counter
 from typing import TYPE_CHECKING, Any
 
 from django.conf import settings
+from django.core.exceptions import ImproperlyConfigured
 from django.db.models import QuerySet
 
+import redis
 import requests
+import structlog
 import posthoganalytics
 
 from posthog.schema import DatabaseSchemaDataWarehouseTable, DatabaseSchemaQueryResponse
@@ -23,6 +27,7 @@ from posthog.hogql.errors import QueryError, ResolutionError
 
 from posthog.jwt import PosthogJwtAudience, encode_jwt
 from posthog.models import PropertyDefinition, Team, User
+from posthog.redis import get_client
 from posthog.security.outbound_proxy import internal_requests
 from posthog.taxonomy.property_access import restricted_property_names
 
@@ -33,6 +38,14 @@ if TYPE_CHECKING:
 
 FEATURE_FLAG = "hogql-language-service"
 AFFINITY_HEADER = "X-HogQL-Affinity-Key"
+WAREHOUSE_ALIAS_CATALOG_REVISION_PREFIX = "warehouse-aliases-v1:"
+
+_CATALOG_PUBLICATION_MARKER_TTL_SECONDS = 5
+_CATALOG_PUBLICATION_LOCK_TTL_SECONDS = 30
+_CATALOG_PUBLICATION_LOCK_WAIT_SECONDS = 0.25
+_CATALOG_PUBLICATION_REDIS_TIMEOUT_SECONDS = 0.1
+
+logger = structlog.get_logger(__name__)
 
 
 class LanguageServiceError(Exception):
@@ -52,6 +65,71 @@ class LanguageServiceResult:
     body: dict[str, Any]
     duration_seconds: float
     response_size_bytes: int
+
+
+def coordinate_catalog_publication(
+    team_id: int,
+    user_id: int,
+    service_target: str,
+    check_catalog: Callable[[], LanguageServiceResult | None],
+    publish_catalog: Callable[[], None],
+) -> LanguageServiceResult | None:
+    scope = sha256(
+        f"{service_target}:{team_id}:{user_id}:{WAREHOUSE_ALIAS_CATALOG_REVISION_PREFIX}".encode()
+    ).hexdigest()
+    key_prefix = f"hogql-language-service:catalog-publication:{{{scope}}}"
+    marker_key = f"{key_prefix}:success"
+    lock_key = f"{key_prefix}:lock"
+
+    try:
+        redis_client = get_client(
+            socket_timeout=_CATALOG_PUBLICATION_REDIS_TIMEOUT_SECONDS,
+            socket_connect_timeout=_CATALOG_PUBLICATION_REDIS_TIMEOUT_SECONDS,
+        )
+        marker_exists = bool(redis_client.get(marker_key))
+    except (redis.exceptions.RedisError, ImproperlyConfigured):
+        logger.warning("hogql_catalog_publication_redis_unavailable", exc_info=True)
+        publish_catalog()
+        return check_catalog()
+
+    if marker_exists:
+        result = check_catalog()
+        if result is not None:
+            return result
+
+    try:
+        lock = redis_client.lock(
+            lock_key,
+            timeout=_CATALOG_PUBLICATION_LOCK_TTL_SECONDS,
+            blocking_timeout=_CATALOG_PUBLICATION_LOCK_WAIT_SECONDS,
+        )
+        acquired = lock.acquire()
+    except redis.exceptions.RedisError:
+        logger.warning("hogql_catalog_publication_lock_unavailable", exc_info=True)
+        publish_catalog()
+        return check_catalog()
+
+    if not acquired:
+        return check_catalog()
+
+    try:
+        result = check_catalog()
+        if result is not None:
+            return result
+
+        publish_catalog()
+        try:
+            redis_client.set(marker_key, "1", ex=_CATALOG_PUBLICATION_MARKER_TTL_SECONDS)
+        except redis.exceptions.RedisError:
+            logger.warning("hogql_catalog_publication_marker_failed", exc_info=True)
+        return check_catalog()
+    finally:
+        try:
+            lock.release()
+        except redis.exceptions.LockNotOwnedError:
+            logger.warning("hogql_catalog_publication_lock_expired")
+        except redis.exceptions.RedisError:
+            logger.warning("hogql_catalog_publication_lock_release_failed", exc_info=True)
 
 
 def is_language_service_enabled(team: Team, user: User) -> bool:

@@ -291,7 +291,7 @@ Local and debug environments may use the service directly. Production integratio
 feature flag and should progress through shadow comparison before serving editor results.
 The Go consumer accepts alias metadata, and Django always publishes resolver-confirmed warehouse aliases.
 Django refreshes cached catalogs with numeric or `legacy-v1` revisions before it uses their responses.
-Each request attempts at most one publication and one retry.
+Each request attempts at most one publication and one post-publication retry; marker and lease paths add only bounded Go rechecks.
 The retry must return an alias-capable revision, but a concurrent publication for the same team and user can supersede the requested revision.
 If publication fails or a catalog cannot represent the resolver result, Django uses the Python autocomplete or validation path.
 Malformed HTTP payloads, incompatible revisions after refresh, and malformed autocomplete or validation mappings also use the Python path.
@@ -303,6 +303,15 @@ The operation is `autocomplete` or `metadata`, the backend is `language_service`
 The denominator includes enabled requests that are ineligible for the Go service and use Python.
 It excludes disabled requests, requests without a user, and requests that fail before either backend constructs a response.
 The existing PostHog SDK configuration exports this metric in deployed environments; local and test environments can leave the SDK disabled.
+
+After a missing or legacy catalog response, Django coordinates publication in Redis by language-service target, catalog contract, team, and user.
+A publisher holds a 30-second token-owned lease while it rechecks Go, builds the permission-filtered catalog, and publishes it.
+Contenders wait for the lease for at most 250 milliseconds, then recheck Go and use the Python path if the catalog is still unavailable.
+Redis socket operations and Go requests have their own bounds; the 250-millisecond contention budget is not a total refresh deadline.
+A five-second success marker lets a request recheck Go before acquiring a newly released lease.
+The marker is advisory: a missing or legacy Go response overrides it, and neither schemas nor authorization results are stored in Redis.
+Redis outages use the existing direct publication path.
+If catalog construction outlives the lease, a second publisher can duplicate the Go catalog build and publication.
 
 The initial rollout keeps ClickHouse execution in Django:
 

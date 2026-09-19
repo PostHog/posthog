@@ -497,10 +497,12 @@ class TestLanguageServiceRouting(SimpleTestCase):
         assert response.warnings[0].message == 'Unknown property "missing"'
 
     @patch("posthog.api.services.query.is_language_service_enabled", return_value=True)
+    @patch("posthog.hogql.language_service.get_client")
     @patch("posthog.api.services.query.LanguageServiceClient")
     def test_accepts_a_cached_alias_catalog(
         self,
         client_class: MagicMock,
+        get_redis_client: MagicMock,
         _enabled: MagicMock,
     ) -> None:
         client_class.return_value.validate.return_value = LanguageServiceResult(
@@ -516,6 +518,7 @@ class TestLanguageServiceRouting(SimpleTestCase):
         )
 
         assert result.result is not None
+        get_redis_client.assert_not_called()
         client_class.return_value.publish.assert_not_called()
 
     @parameterized.expand(
@@ -528,16 +531,21 @@ class TestLanguageServiceRouting(SimpleTestCase):
     @patch("posthog.api.services.query.build_catalog", return_value={"tables": {}, "properties": {}})
     @patch("posthog.api.services.query._build_database_schema_query")
     @patch("posthog.api.services.query.is_language_service_enabled", return_value=True)
+    @patch("posthog.hogql.language_service.get_client")
     @patch("posthog.api.services.query.LanguageServiceClient")
     def test_refreshes_a_missing_or_legacy_catalog_once(
         self,
         cached_revision: str | None,
         client_class: MagicMock,
+        get_redis_client: MagicMock,
         _enabled: MagicMock,
         build_schema: MagicMock,
         build_catalog_mock: MagicMock,
     ) -> None:
         client = client_class.return_value
+        client.base_url = "http://language-service:8091"
+        get_redis_client.return_value.get.return_value = None
+        get_redis_client.return_value.lock.return_value.acquire.return_value = True
         first = (
             CatalogMissing("missing")
             if cached_revision is None
@@ -553,7 +561,7 @@ class TestLanguageServiceRouting(SimpleTestCase):
         client.publish.side_effect = publish
 
         def validate(*_args: object) -> LanguageServiceResult:
-            if client.validate.call_count == 1:
+            if client.validate.call_count <= 2:
                 if isinstance(first, Exception):
                     raise first
                 return first
@@ -574,26 +582,32 @@ class TestLanguageServiceRouting(SimpleTestCase):
 
         assert result.result is not None
         assert published_revision[0].startswith("warehouse-aliases-v1:")
-        assert client.validate.call_count == 2
+        assert client.validate.call_count == 3
         assert build_catalog_mock.call_args.kwargs["database"] is build_schema.return_value.database
 
     @patch("posthog.api.services.query.build_catalog", return_value={"tableAliases": {"alias": "canonical"}})
     @patch("posthog.api.services.query._build_database_schema_query")
     @patch("posthog.api.services.query.is_language_service_enabled", return_value=True)
+    @patch("posthog.hogql.language_service.get_client")
     @patch("posthog.api.services.query.LanguageServiceClient")
     def test_falls_back_when_alias_publication_is_not_supported(
         self,
         client_class: MagicMock,
+        get_redis_client: MagicMock,
         _enabled: MagicMock,
         build_schema: MagicMock,
         _build_catalog: MagicMock,
     ) -> None:
-        client_class.return_value.validate.return_value = LanguageServiceResult(
+        client = client_class.return_value
+        client.base_url = "http://language-service:8091"
+        client.validate.return_value = LanguageServiceResult(
             body={"valid": True, "catalogRevision": "legacy-v1:cached"},
             duration_seconds=0,
             response_size_bytes=0,
         )
-        client_class.return_value.publish.side_effect = LanguageServiceError("language service returned 400")
+        client.publish.side_effect = LanguageServiceError("language service returned 400")
+        get_redis_client.return_value.get.return_value = None
+        get_redis_client.return_value.lock.return_value.acquire.return_value = True
         build_schema.return_value = _DatabaseSchemaCatalog(response=MagicMock(), database=MagicMock())
 
         result = _language_service_call(
@@ -616,17 +630,26 @@ class TestLanguageServiceRouting(SimpleTestCase):
     @patch("posthog.api.services.query.build_catalog", return_value={"tables": {}, "properties": {}})
     @patch("posthog.api.services.query._build_database_schema_query")
     @patch("posthog.api.services.query.is_language_service_enabled", return_value=True)
+    @patch("posthog.hogql.language_service.get_client")
     @patch("posthog.api.services.query.LanguageServiceClient")
     def test_classifies_the_retry_catalog_revision(
         self,
         retry_revision: object,
         expected_success: bool,
         client_class: MagicMock,
+        get_redis_client: MagicMock,
         _enabled: MagicMock,
         build_schema: MagicMock,
         _build_catalog: MagicMock,
     ) -> None:
-        client_class.return_value.validate.side_effect = [
+        client = client_class.return_value
+        client.base_url = "http://language-service:8091"
+        client.validate.side_effect = [
+            LanguageServiceResult(
+                body={"valid": True, "catalogRevision": "legacy-v1:cached"},
+                duration_seconds=0,
+                response_size_bytes=0,
+            ),
             LanguageServiceResult(
                 body={"valid": True, "catalogRevision": "legacy-v1:cached"},
                 duration_seconds=0,
@@ -638,6 +661,8 @@ class TestLanguageServiceRouting(SimpleTestCase):
                 response_size_bytes=0,
             ),
         ]
+        get_redis_client.return_value.get.return_value = None
+        get_redis_client.return_value.lock.return_value.acquire.return_value = True
         build_schema.return_value = _DatabaseSchemaCatalog(response=MagicMock(), database=MagicMock())
 
         result = _language_service_call(
@@ -648,7 +673,7 @@ class TestLanguageServiceRouting(SimpleTestCase):
 
         assert (result.result is not None) is expected_success
         client_class.return_value.publish.assert_called_once()
-        assert client_class.return_value.validate.call_count == 2
+        assert client_class.return_value.validate.call_count == 3
 
 
 class TestQueryService(APIBaseTest):
