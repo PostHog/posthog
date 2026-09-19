@@ -20,7 +20,6 @@ import {
 import { Tooltip } from '@posthog/lemon-ui'
 
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { Link } from 'lib/lemon-ui/Link'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
@@ -172,7 +171,6 @@ export function NavTabBrowse(): JSX.Element {
         activePanelIdentifierFromUrlAiFirst,
         pathname,
     } = useValues(panelLayoutLogic)
-    const isProductAutonomyEnabled = useFeatureFlag('PRODUCT_AUTONOMY')
     const { recentItems, recentItemsLoading } = useValues(navRecentsLogic)
     const { isSidebarSectionShown, isSidebarItemShown, uiCustomizationEnabled } = useValues(uiCustomizationLogic)
     const { enabledToolPaths } = useValues(customProductsLogic)
@@ -243,7 +241,7 @@ export function NavTabBrowse(): JSX.Element {
                         />
                     )}
 
-                    {isProductAutonomyEnabled && isSidebarItemShown('inbox') && (
+                    {isSidebarItemShown('inbox') && (
                         <NavLink
                             to={urls.inbox()}
                             label="Self-driving"

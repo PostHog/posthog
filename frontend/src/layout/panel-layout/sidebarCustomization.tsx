@@ -57,7 +57,6 @@ export const SIDEBAR_CUSTOMIZABLE_SECTIONS: SidebarCustomizableSection[] = [
                 description: 'Reports and signals that need your attention.',
                 docsHref: 'https://posthog.com/docs/self-driving',
                 icon: <IconNotification />,
-                flag: FEATURE_FLAGS.PRODUCT_AUTONOMY,
             },
             {
                 label: 'Activity',
