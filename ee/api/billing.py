@@ -28,7 +28,7 @@ from posthog.api.streaming import streaming_response
 from posthog.api.utils import action
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded, ConcurrencySlot, RateLimit
 from posthog.cloud_utils import get_cached_instance_license
-from posthog.event_usage import groups
+from posthog.event_usage import groups, report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Organization, OrganizationIntegration, Team, User
 from posthog.models.organization import OrganizationMembership
@@ -54,6 +54,8 @@ BILLING_SERVICE_JWT_AUD = "posthog:license-key"
 OWNER_ONLY_BILLING_FLAG = "owner-only-billing"
 MEMBER_BILLING_USAGE_SPEND_READ_ACCESS_FLAG = "member-billing-usage-spend-read-access"
 BILLING_LIMIT_TODAYS_USAGE_FLAG = "billing-limit-todays-usage"
+
+USER_CLAIMABLE_CAMPAIGN_SLUGS: set[str] = {"hesoyam"}
 
 
 class BillingQueryTimeout(APIException):
@@ -295,6 +297,18 @@ class HasBillingUsageSpendReadAccess(permissions.BasePermission):
             return False
 
         return user_has_billing_usage_spend_read_access(request.user, org)
+
+
+def _find_privileged_authorizer(organization: Organization) -> Optional[User]:
+    memberships = (
+        OrganizationMembership.objects.filter(organization=organization, level__gte=OrganizationMembership.Level.ADMIN)
+        .order_by("-level", "joined_at")
+        .select_related("user")
+    )
+    for membership in memberships:
+        if user_has_billing_access(membership.user, organization):
+            return membership.user
+    return None
 
 
 class BillingSerializer(serializers.Serializer):
@@ -1116,19 +1130,41 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         methods=["POST"],
         detail=False,
         url_path="coupons/claim",
-        permission_classes=[permissions.IsAuthenticated, HasBillingAccess],
+        permission_classes=[permissions.IsAuthenticated],
     )
     def claim_coupon(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
         organization = self._get_org_required()
 
         code = request.data.get("code")
-        if not code:
-            raise ValidationError({"code": "This field is required."})
+        campaign_slug = request.data.get("campaign_slug")
+        if not code and not campaign_slug:
+            raise ValidationError({"detail": "Either 'code' or 'campaign_slug' is required."})
+        if code and campaign_slug:
+            raise ValidationError({"detail": "Provide 'code' or 'campaign_slug', not both."})
+
+        authorizer_actor: Optional[User] = None
+        if not HasBillingAccess().has_permission(request, self):
+            if not campaign_slug or campaign_slug not in USER_CLAIMABLE_CAMPAIGN_SLUGS:
+                raise PermissionDenied(BILLING_ACCESS_DENIED_MESSAGE)
+            authorizer_actor = _find_privileged_authorizer(organization)
+            if authorizer_actor is None:
+                raise PermissionDenied("No one in this organization has billing access to authorize this claim.")
+
+        payload = {"code": code} if code else {"campaign_slug": campaign_slug}
 
         billing_manager = self.get_billing_manager()
 
         try:
-            res = billing_manager.claim_coupon(organization, {"code": code})
+            res = billing_manager.claim_coupon(organization, payload, authorizer_actor=authorizer_actor)
+            if campaign_slug:
+                report_user_action(
+                    request.user,
+                    "billing cheat code redeemed",
+                    properties={
+                        "campaign_slug": campaign_slug,
+                        "campaign_name": res.get("campaign") if isinstance(res, dict) else None,
+                    },
+                )
             return Response(res, status=status.HTTP_200_OK)
         except Exception as e:
             if len(e.args) > 2:
