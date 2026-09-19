@@ -15,9 +15,11 @@ from requests.exceptions import ConnectionError as RequestsConnectionError
 from posthog.api.capture import (
     CAPTURE_V1_EVENTS_REROUTED,
     CAPTURE_V1_OPTION_CONFLICT,
+    CAPTURE_V1_REQUEST_FAILED,
     CAPTURE_V1_REQUEST_SUBMITTED,
     CaptureInternalError,
     CaptureInternalResult,
+    RequestFailure,
     _build_v1_headers,
     _merge_results,
     _normalize_options_and_properties,
@@ -349,8 +351,9 @@ class TestPrepareCaptureInternalBatch(SimpleTestCase):
             prepare_capture_internal_batch(events, token=token, event_source=event_source)
         assert fragment in str(ctx.exception).lower()
 
-    def test_missing_event_name_raises(self) -> None:
-        events = [{"distinct_id": "u1", "properties": {}}]
+    @parameterized.expand([("missing", {}), ("empty", {"event": ""}), ("not_a_string", {"event": 42})])
+    def test_missing_or_non_string_event_name_raises(self, _name: str, event_field: dict[str, Any]) -> None:
+        events = [{"distinct_id": "u1", "properties": {}, **event_field}]
         with self.assertRaises(CaptureInternalError) as ctx:
             prepare_capture_internal_batch(events, token="tok", event_source="src")
         assert "event name" in str(ctx.exception).lower()
@@ -907,12 +910,31 @@ class TestCaptureBatchInternal(SimpleTestCase):
         resp2 = MockResponse(body=_ok_results(u_retry))
         InstallV1Spy(mock_session_fn, [resp1, resp2])
 
-        before = CAPTURE_V1_REQUEST_SUBMITTED.labels(event_source="reqmetric")._value.get()
+        before = CAPTURE_V1_REQUEST_SUBMITTED.labels(event_source="reqmetric", lane="analytics")._value.get()
         capture_batch_internal(events=events, token="tok", event_source="reqmetric")
-        after = CAPTURE_V1_REQUEST_SUBMITTED.labels(event_source="reqmetric")._value.get()
+        after = CAPTURE_V1_REQUEST_SUBMITTED.labels(event_source="reqmetric", lane="analytics")._value.get()
 
         # Two HTTP POSTs: initial + one retry round.
         assert after == before + 2
+
+    @parameterized.expand(
+        [("analytics", capture_batch_internal, "$pageview"), ("ai", capture_batch_ai_internal, "$ai_span")]
+    )
+    @patch("posthog.api.capture.internal_requests_session")
+    def test_request_metrics_carry_the_lane(
+        self, lane: str, entry_point: Any, event_name: str, mock_session_fn: MagicMock
+    ) -> None:
+        InstallV1Spy(mock_session_fn, [MockResponse(status_code=503, body={"error": "down"})])
+        submitted = CAPTURE_V1_REQUEST_SUBMITTED.labels(event_source="lanemetric", lane=lane)
+        failed = CAPTURE_V1_REQUEST_FAILED.labels(event_source="lanemetric", status_code="503", lane=lane)
+        before = (submitted._value.get(), failed._value.get())
+
+        result = entry_point(events=[_make_event(event=event_name)], token="tok", event_source="lanemetric")
+
+        assert (submitted._value.get(), failed._value.get()) == (before[0] + 1, before[1] + 1)
+        assert result.request_failures == [
+            RequestFailure(lane=lane, status_code=503, error={"error": "down"}, event_count=1)
+        ]
 
 
 class TestParseRetryAfter(SimpleTestCase):
@@ -1009,8 +1031,26 @@ class TestCaptureInternalResult(SimpleTestCase):
 
     def test_raise_for_status_on_error(self) -> None:
         r = CaptureInternalResult(status_code=503, error={"error": "server_error", "error_description": "down"})
-        with self.assertRaises(CaptureInternalError):
+        with self.assertRaises(CaptureInternalError) as ctx:
             r.raise_for_status()
+        assert "whole-request failure" in str(ctx.exception)
+
+    def test_raise_for_status_names_a_partial_request_failure(self) -> None:
+        # A caller that reads "whole-request failure" resends everything and
+        # double-ingests the acked half; the message must say some events landed.
+        r = CaptureInternalResult(
+            status_code=0,
+            error={"error": "partial_request_failure", "error_description": "1 of 2 requests failed"},
+            ok=["a"],
+            unaccounted=["b"],
+            request_failures=[
+                RequestFailure(lane="ai", status_code=0, error={"error": "transport_error"}, event_count=1)
+            ],
+        )
+        with self.assertRaises(CaptureInternalError) as ctx:
+            r.raise_for_status()
+        assert "partial-request failure (ai 0)" in str(ctx.exception)
+        assert "1 events acked, 1 unaccounted" in str(ctx.exception)
 
     @parameterized.expand(
         [
@@ -1272,16 +1312,36 @@ class TestMergeResults(SimpleTestCase):
         assert set(merged.ok) == {"a", "b"}
         assert merged.error is None
 
-    def test_merge_with_one_error(self) -> None:
+    def test_merge_with_one_error_reports_a_partial_request_failure(self) -> None:
+        failure = RequestFailure(lane="analytics", status_code=0, error={"error": "transport_error"}, event_count=1)
         r1 = CaptureInternalResult(status_code=200, results={"a": {"result": "ok"}}, ok=["a"])
-        r2 = CaptureInternalResult(status_code=0, error={"error": "transport_error", "error_description": "timeout"})
+        r2 = CaptureInternalResult(
+            status_code=0,
+            error={"error": "transport_error", "error_description": "timeout"},
+            unaccounted=["b"],
+            request_failures=[failure],
+        )
 
         merged = _merge_results([r1, r2])
 
         assert merged.status_code == 0
         assert not merged.succeeded()
-        assert "a" in merged.ok
-        assert merged.error is not None
+        assert merged.ok == ["a"]
+        assert merged.unaccounted == ["b"]
+        assert merged.error == {
+            "error": "partial_request_failure",
+            "error_description": "1 of 2 requests failed; first: transport_error: timeout",
+        }
+        assert merged.request_failures == [failure]
+
+    def test_merge_where_every_request_failed_keeps_the_first_error(self) -> None:
+        r1 = CaptureInternalResult(status_code=503, error={"error": "service_unavailable", "error_description": "a"})
+        r2 = CaptureInternalResult(status_code=0, error={"error": "transport_error", "error_description": "b"})
+
+        merged = _merge_results([r1, r2])
+
+        assert merged.error == {"error": "service_unavailable", "error_description": "a"}
+        assert merged.status_code == 503
 
     def test_merge_mixed_buckets(self) -> None:
         r1 = CaptureInternalResult(
@@ -1321,7 +1381,7 @@ class TestAiLaneRouting(SimpleTestCase):
             ("$ai_evaluation",),
             # Prefixed but not a name capture may accept. Django routes on the
             # prefix alone; capture is the authority on which names it admits.
-            ("$ai_cache_usage",),
+            ("$ai_custom_metric",),
             ("$ai_",),
         ]
     )
@@ -1420,6 +1480,80 @@ class TestAiLaneRouting(SimpleTestCase):
         assert spy.calls[0]["url"] == EXPECTED_AI_URL
         assert spy.calls[0]["json"]["historical_migration"] is True
 
+    @parameterized.expand(
+        [("same_lane", "$ai_generation", "$ai_span"), ("across_lanes", "$ai_generation", "$pageview")]
+    )
+    @patch("posthog.api.capture.internal_requests_session")
+    def test_duplicate_uuids_in_one_batch_are_rejected_before_any_request(
+        self, _name: str, first_name: str, second_name: str, mock_session_fn: MagicMock
+    ) -> None:
+        # Results are keyed by uuid, so a duplicate would let one event's outcome
+        # overwrite the other's; across lanes the loser would vanish without a trace.
+        uid = str(uuid4())
+        spy = InstallV1Spy(mock_session_fn, [MockResponse(body=_ok_results(uid))])
+        events = [
+            _make_event(event=first_name, event_uuid=uid),
+            _make_event(event=second_name, distinct_id="u2", uuid=uid),
+        ]
+
+        with self.assertRaises(CaptureInternalError) as ctx:
+            capture_batch_ai_internal(events=events, token="tok", event_source="src")
+
+        assert f"capture_ai_internal (src): duplicate event_uuid {uid!r}" in str(ctx.exception)
+        assert spy.calls == []
+
+    @patch("posthog.api.capture.internal_requests_session")
+    def test_both_lanes_of_a_mixed_batch_are_in_flight_at_the_same_time(self, mock_session_fn: MagicMock) -> None:
+        # A slow analytics deployment must not delay the AI request behind it.
+        ai_uid, an_uid = str(uuid4()), str(uuid4())
+        both_started = threading.Barrier(2, timeout=5)
+
+        def spy_post(url: str, **kwargs: Any) -> MockResponse:
+            both_started.wait()
+            return MockResponse(body=_ok_results(*[e["uuid"] for e in kwargs["json"]["batch"]]))
+
+        mock_session = MagicMock()
+        mock_session.post.side_effect = spy_post
+        mock_session.mount = MagicMock()
+        mock_session_fn.return_value.__enter__.return_value = mock_session
+        events = [
+            _make_event(event="$ai_generation", event_uuid=ai_uid),
+            _make_event(distinct_id="u2", event_uuid=an_uid),
+        ]
+
+        result = capture_batch_internal(events=events, token="tok", event_source="src")
+
+        assert result.succeeded(), "the barrier would have timed out if the lanes ran one after the other"
+        assert set(result.ok) == {ai_uid, an_uid}
+
+    @patch("posthog.api.capture.internal_requests_session")
+    def test_one_lane_failing_leaves_the_other_lanes_events_acked(self, mock_session_fn: MagicMock) -> None:
+        ai_uid, an_uid = str(uuid4()), str(uuid4())
+
+        def spy_post(url: str, **kwargs: Any) -> MockResponse:
+            if url == EXPECTED_AI_URL:
+                raise RequestsConnectionError("capture-ai unreachable")
+            return MockResponse(body=_ok_results(an_uid))
+
+        mock_session = MagicMock()
+        mock_session.post.side_effect = spy_post
+        mock_session.mount = MagicMock()
+        mock_session_fn.return_value.__enter__.return_value = mock_session
+        events = [
+            _make_event(event="$ai_generation", event_uuid=ai_uid),
+            _make_event(distinct_id="u2", event_uuid=an_uid),
+        ]
+
+        result = capture_batch_internal(events=events, token="tok", event_source="src")
+
+        assert result.ok == [an_uid]
+        assert result.unaccounted == [ai_uid]
+        assert result.error is not None and result.error["error"] == "partial_request_failure"
+        assert [(rf.lane, rf.status_code, rf.event_count) for rf in result.request_failures] == [("ai", 0, 1)]
+        with self.assertRaises(CaptureInternalError) as ctx:
+            result.raise_for_status()
+        assert "partial-request failure (ai 0)" in str(ctx.exception)
+
     @patch("posthog.api.capture.internal_requests_session")
     def test_a_rejected_event_stops_both_lanes_before_any_request(self, mock_session_fn: MagicMock) -> None:
         # Validation runs over the whole batch before partitioning, so the AI
@@ -1500,7 +1634,7 @@ class TestCaptureAiInternal(SimpleTestCase):
 
         result = capture_ai_internal(
             token="tok",
-            event_name="$ai_cache_usage",
+            event_name="$ai_custom_metric",
             event_source="ai-src",
             distinct_id="user-1",
             event_uuid=uid,
