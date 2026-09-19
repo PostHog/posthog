@@ -5,6 +5,8 @@ import pytest
 import numpy as np
 from parameterized import parameterized
 
+from posthog.schema import DetectorConfig
+
 from posthog.tasks.alerts.detector import _compute_min_samples_for_detector
 from posthog.tasks.alerts.detectors.base import DetectionResult
 from posthog.tasks.alerts.detectors.ensemble import EnsembleDetector
@@ -85,6 +87,32 @@ class TestDetectorRegistry:
     def test_missing_type_raises(self) -> None:
         with pytest.raises(ValueError, match="must have a 'type' field"):
             get_detector({"threshold": 0.9})
+
+    @parameterized.expand(
+        [
+            ("zscore",),
+            ("mad",),
+            ("iqr",),
+            ("copod",),
+            ("ecod",),
+            ("hbos",),
+            ("isolation_forest",),
+            ("knn",),
+            ("lof",),
+            ("ocsvm",),
+            ("pca",),
+        ]
+    )
+    def test_runs_a_config_carrying_only_its_type(self, detector_type: str) -> None:
+        # Naming the detector and leaving every tuning parameter at its default is a valid
+        # config. The serializers store it as a pydantic dump, so each unset field arrives
+        # as an explicit None rather than an absent key, and every parameter read has to
+        # fall back to its default anyway.
+        config = DetectorConfig.model_validate({"type": detector_type}).model_dump()
+        data = np.array([float(i % 7) + i * 0.1 for i in range(120)])
+
+        assert get_detector(config).detect(data) is not None
+        assert get_detector(config).detect_batch(data) is not None
 
     def test_get_available_detectors(self) -> None:
         detectors = get_available_detectors()
