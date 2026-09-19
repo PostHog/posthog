@@ -25,7 +25,7 @@ from posthog.clickhouse.query_tagging import tags_context
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.paginators import HogQLCursorPaginator, HogQLHasMorePaginator
 from posthog.models import Team, User
-from posthog.session_recordings.models.metadata import ONGOING_SESSION_WINDOW_MINUTES
+from posthog.session_recordings.models.metadata import ONGOING_SESSION_WINDOW_MINUTES, activity_score_expression
 from posthog.session_recordings.queries.sub_queries.base_query import SessionRecordingsListingBaseQuery
 from posthog.session_recordings.queries.sub_queries.cohort_subquery import CohortPropertyGroupsSubQuery
 from posthog.session_recordings.queries.sub_queries.events_subquery import ReplayFiltersEventsSubQuery
@@ -63,7 +63,8 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
     _team: Team
     _query: RecordingsQuery
 
-    BASE_QUERY: str = """
+    BASE_QUERY: str = (
+        """
         SELECT s.session_id,
             any(s.team_id),
             any(s.distinct_id),
@@ -85,21 +86,16 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
             dateTrunc('DAY', start_time) + toIntervalDay(coalesce(retention_period_days, 30)) as expiry_time,
             date_diff('DAY', {python_now}, expiry_time) as recording_ttl,
             {ongoing_selection},
-            -- Clamped to the 0-100 the schema documents. The expression adds seconds to event
-            -- counts on both sides, so it is not a bounded ratio, and a session with no mouse
-            -- activity and no duration divides zero by zero, which reaches here as NaN.
-            round(least(greatest((
-            ((sum(s.active_milliseconds) / 1000 + sum(s.click_count) + sum(s.keypress_count) + sum(s.console_error_count))) -- intent
-            /
-            ((sum(s.mouse_activity_count) + dateDiff('SECOND', start_time, end_time) + sum(s.console_error_count) + sum(s.console_log_count) + sum(s.console_warn_count)))
-            * 100
-            ), 0), 100), 2) as activity_score,
+            """
+        + activity_score_expression("s")
+        + """ as activity_score,
             coalesce(max(s.surfacing_score), {unscored_surfacing_score}) as surfacing_score
         FROM raw_session_replay_events s
         WHERE {where_predicates}
         GROUP BY session_id
         HAVING {having_predicates}
         """
+    )
 
     @staticmethod
     def _get_result_columns() -> list[str]:
