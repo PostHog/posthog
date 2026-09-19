@@ -15,7 +15,7 @@ from posthog.schema import HogQLQueryModifiers
 
 import posthog.hogql.resolver_utils as resolver_utils
 from posthog.hogql import ast
-from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS
+from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS, HogQLDialect
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.models import (
@@ -497,6 +497,20 @@ class TestResolver(BaseTest):
         select = self._select(query)
         select = cast(ast.SelectQuery, resolve_types(select, self.context, dialect="hogql"))
         assert isinstance(select.select[0].type, ast.UnresolvedFieldType)
+
+    def test_unresolved_field_chain_type(self):
+        query = "SELECT x.y"
+        # raises for every dialect that prints against a real database
+        raising_dialects: list[HogQLDialect] = ["clickhouse", "postgres"]
+        for dialect in raising_dialects:
+            with self.assertRaises(QueryError):
+                resolve_types(self._select(query), self.context, dialect=dialect)
+        # does not raise with HogQL, the whole chain stays unresolved
+        select = self._select(query)
+        select = cast(ast.SelectQuery, resolve_types(select, self.context, dialect="hogql"))
+        field_type = select.select[0].type
+        assert isinstance(field_type, ast.UnresolvedFieldType)
+        assert field_type.name == "x.y"
 
     def test_unknown_table_suggests_close_matches(self):
         with self.assertRaises(QueryError) as ctx:

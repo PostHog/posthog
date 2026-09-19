@@ -155,7 +155,11 @@ def _to_revenue_source(source: _ExternalDataSource) -> contracts.RevenueSource:
             contracts.RevenueSourceSchema(
                 name=schema.name,
                 table=(
-                    contracts.RevenueSourceTable(id=schema.table.id, name=schema.table.name)
+                    contracts.RevenueSourceTable(
+                        id=schema.table.id,
+                        name=schema.table.name,
+                        columns=tuple(schema.table.columns or ()),
+                    )
                     if schema.table is not None and schema.table.team_id == schema.team_id
                     else None
                 ),
