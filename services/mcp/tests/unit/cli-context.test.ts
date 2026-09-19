@@ -64,4 +64,16 @@ describe('CLI context', () => {
             })
         )
     })
+
+    it('attributes CLI events to the cli source', async () => {
+        const context = await buildCliContext({ host: 'https://us.posthog.com', version: 2 })
+
+        await context.trackEvent(AnalyticsEvent.MCP_TOOL_CALL)
+
+        expect(mocks.capture).toHaveBeenCalledWith(
+            expect.objectContaining({
+                properties: expect.objectContaining({ source: 'cli', $mcp_client_name: 'posthog-cli' }),
+            })
+        )
+    })
 })
