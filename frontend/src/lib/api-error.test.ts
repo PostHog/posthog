@@ -119,6 +119,13 @@ describe('api-error', () => {
             ['a Chromium fetch failure', new TypeError('Failed to fetch'), false],
             ['a WebKit fetch failure', new TypeError('Load failed'), false],
             ['a Gecko fetch failure', new TypeError('NetworkError when attempting to fetch resource.'), false],
+            // A response body that stopped mid-read, which is what a long-lived stream meets on
+            // every network blip. The wording differs from the failures above, so matching only
+            // those left the loudest variant of all reporting.
+            ['a Chromium body-stream drop', new TypeError('network error'), false],
+            ['a Gecko body-stream drop', new TypeError('Error in input stream'), false],
+            // Those two match exactly, so a longer message that contains one still reports.
+            ['an application error that mentions a network error', new TypeError('network error handler failed'), true],
             // `handleFetch` stringifies the original error into the message of its fallback ApiError.
             ['a fetch failure wrapped by ApiError', new ApiError('TypeError: Failed to fetch'), false],
             // A stale chunk after a deploy words itself the same way and is a defect we can fix.

@@ -23,6 +23,8 @@ import posthog from 'posthog-js'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { shouldReportApiFailure } from 'lib/api-error'
+import { INITIAL_RETRY_DELAY_MS, MAX_RETRY_DELAY_MS } from 'lib/api-stream'
 import { getSeriesColor } from 'lib/colors'
 import { activityLogLogic } from 'lib/components/ActivityLog/activityLogLogic'
 import { commentsLogic } from 'lib/components/Comments/commentsLogic'
@@ -42,6 +44,7 @@ import { downloadFile } from 'lib/utils/dom'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import { objectsEqual } from 'lib/utils/objects'
 import { slugify } from 'lib/utils/strings'
+import { jitteredIntervalMs } from 'lib/wizard-sync/pollLoop'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
@@ -1663,8 +1666,45 @@ export const notebookLogic = kea<notebookLogicType>([
             cache.disposables.add(
                 () => {
                     const controller = new AbortController()
+                    let reconnectTimeout: number | null = null
+                    let deliveredSinceOpen = false
+
+                    // The delay lives on `cache`, because each reopen builds a new disposable and a
+                    // network that stays down has to keep backing off across all of them. The step
+                    // is spread per client, so notebooks dropped by one outage do not arrive back
+                    // at the stream admission cap together.
+                    const nextReconnectDelayMs = (): number => {
+                        const delayMs = cache.markdownStreamRetryDelay ?? INITIAL_RETRY_DELAY_MS
+                        cache.markdownStreamRetryDelay = Math.min(delayMs * 2, MAX_RETRY_DELAY_MS)
+                        return jitteredIntervalMs(delayMs)
+                    }
+
+                    // Reopens the stream once, however many callbacks a single failure reaches.
+                    const scheduleReconnect = (delayMs: number): void => {
+                        if (controller.signal.aborted || reconnectTimeout !== null) {
+                            return
+                        }
+                        reconnectTimeout = window.setTimeout(() => {
+                            reconnectTimeout = null
+                            if (!controller.signal.aborted) {
+                                actions.connectMarkdownUpdateStream()
+                            }
+                        }, delayMs)
+                    }
 
                     const onMessage = (msg: EventSourceMessage): void => {
+                        // The server sends this frame and then ends the body, so a clean close
+                        // follows it. It is a failure wearing a delivered message: counting it as
+                        // one would reopen at once and loop for as long as the backend stays down.
+                        if (msg.event === 'error') {
+                            deliveredSinceOpen = false
+                            return
+                        }
+
+                        // The connection works, so the next failure starts the backoff again.
+                        deliveredSinceOpen = true
+                        cache.markdownStreamRetryDelay = INITIAL_RETRY_DELAY_MS
+
                         if (msg.id) {
                             cache.markdownUpdateStreamLastEventId = msg.id
                         }
@@ -1723,21 +1763,39 @@ export const notebookLogic = kea<notebookLogicType>([
                         actions.handleMarkdownStreamEvent({ version, diff, baseCrc, clientId })
                     }
 
-                    const onError = (error: any): void => {
-                        if (controller.signal.aborted) {
-                            return
+                    // fetch-event-source reopens the stream itself after a failure, and waits for
+                    // the number this returns. It owns the retry, so nothing here reopens the
+                    // stream on the same failure.
+                    const onError = (error: any): number => {
+                        const delayMs = nextReconnectDelayMs()
+
+                        // The stream holds a response body open for as long as the notebook is
+                        // open, so it meets every network blip the user has. That is a dropped
+                        // connection to reopen, not a fault anyone can fix, and reporting each one
+                        // buries the failures that are worth reading.
+                        if (!controller.signal.aborted && shouldReportApiFailure(error)) {
+                            const message = error instanceof Error ? error.message : String(error)
+                            posthog.captureException(error instanceof Error ? error : new Error(message), {
+                                action: 'notebook markdown stream',
+                            })
                         }
-                        const message = error instanceof Error ? error.message : String(error)
-                        posthog.captureException(error instanceof Error ? error : new Error(message), {
-                            action: 'notebook markdown stream',
-                        })
+
+                        return delayMs
                     }
 
-                    const onClose = (): void => {
-                        if (controller.signal.aborted) {
-                            return
-                        }
-                        actions.connectMarkdownUpdateStream()
+                    // A clean close ends the retry inside fetch-event-source, so the stream reopens
+                    // from here. The server rotates a working stream, which is not a failure and
+                    // reopens at once. A close that delivered nothing is a failure wearing a clean
+                    // close, so it takes the backoff instead of looping as fast as the server ends
+                    // the body.
+                    const onClose = (): void => scheduleReconnect(deliveredSinceOpen ? 0 : nextReconnectDelayMs())
+
+                    // An idle stream sends only keepalive comments, which the parser drops, so a
+                    // reopen can still carry no cursor. Without one the server resumes from its
+                    // newest entry and never sends what landed while we were away. `{N}-1` is the
+                    // last id the server writes for version N, so the loaded version resumes here.
+                    if (cache.markdownUpdateStreamLastEventId === undefined && values.notebook) {
+                        cache.markdownUpdateStreamLastEventId = `${values.notebook.version}-1`
                     }
 
                     void api.notebooks
@@ -1748,15 +1806,18 @@ export const notebookLogic = kea<notebookLogicType>([
                             signal: controller.signal,
                             lastEventId: cache.markdownUpdateStreamLastEventId,
                         })
-                        .catch((error) => {
-                            if (controller.signal.aborted) {
-                                return
-                            }
-                            onError(error)
-                            actions.connectMarkdownUpdateStream()
+                        .catch(() => {
+                            // Only reached once fetch-event-source stops retrying, so the stream
+                            // stays closed unless it reopens from here.
+                            scheduleReconnect(nextReconnectDelayMs())
                         })
 
-                    return () => controller.abort()
+                    return () => {
+                        if (reconnectTimeout !== null) {
+                            window.clearTimeout(reconnectTimeout)
+                        }
+                        controller.abort()
+                    }
                 },
                 'markdownUpdateStream',
                 { pauseOnPageHidden: false }
@@ -1783,6 +1844,7 @@ export const notebookLogic = kea<notebookLogicType>([
             cache.disposables.dispose('markdownPresencePrune')
             cache.disposables.dispose('markdownPresenceHeartbeat')
             cache.markdownUpdateStreamLastEventId = undefined
+            cache.markdownStreamRetryDelay = INITIAL_RETRY_DELAY_MS
             cache.pendingMarkdownStreamEvents = []
         },
         publishMarkdownCaret: async ({ position }, breakpoint) => {

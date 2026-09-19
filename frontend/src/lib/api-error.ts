@@ -113,6 +113,16 @@ export const BROWSER_FETCH_FAILURE_MESSAGES: readonly string[] = [
 ]
 
 /**
+ * How Chromium and Gecko word a response body that stopped mid-read, which is the same lost
+ * connection as the messages above and reaches the same conclusion. WebKit needs no entry here,
+ * because it reuses "Load failed" for both.
+ *
+ * The match is exact rather than a substring, because "network error" is short enough to appear
+ * inside an application message that means something else.
+ */
+const STREAM_BODY_FAILURE_MESSAGES: ReadonlySet<string> = new Set(['network error', 'Error in input stream'])
+
+/**
  * A module the browser could not load, which is a defect of ours rather than connectivity: a chunk
  * an open tab still asks for went missing in a deploy. Chromium and Gecko word this by extending
  * one of the messages above, so a module failure has to be recognized before a connectivity one.
@@ -127,10 +137,10 @@ const MODULE_LOAD_FAILURE_MESSAGES: readonly string[] = [
 ]
 
 /**
- * A `fetch` the browser refused to complete, recognized by the message the engine produced. The
- * request never reached the server, so there is no status to react to and no code path of ours to
- * fix: the cause is an ad blocker, tracking protection, DNS, a captive portal, or a connection that
- * dropped mid-request.
+ * A `fetch` the browser refused to complete, or completed only in part, recognized by the message
+ * the engine produced. Either the request never reached the server, or its response body stopped
+ * arriving, so there is no status to react to and no code path of ours to fix: the cause is an ad
+ * blocker, tracking protection, DNS, a captive portal, or a connection that dropped.
  *
  * The match is on the message and not on the `TypeError` class on purpose. Application bugs raise
  * status-less `TypeError`s too, such as "x is not a function", and dropping those would hide real
@@ -146,6 +156,9 @@ export function isBrowserNetworkFailure(error: unknown): boolean {
     }
     if (MODULE_LOAD_FAILURE_MESSAGES.some((known) => message.includes(known))) {
         return false
+    }
+    if (STREAM_BODY_FAILURE_MESSAGES.has(message)) {
+        return true
     }
     return BROWSER_FETCH_FAILURE_MESSAGES.some((known) => message.includes(known))
 }
