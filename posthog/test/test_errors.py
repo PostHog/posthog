@@ -2,9 +2,11 @@ from clickhouse_driver.errors import ServerException
 from parameterized import parameterized
 
 from posthog.errors import (
+    QUANTILE_LEVEL_MESSAGE,
     ExposedCHQueryError,
     InternalCHQueryError,
     QueryErrorCategory,
+    classify_query_error,
     look_up_clickhouse_error_code_meta,
     wrap_clickhouse_query_error,
 )
@@ -60,6 +62,31 @@ class TestWrapClickhouseQueryError:
         assert isinstance(wrapped, ExposedCHQueryError)
         assert str(wrapped) == message
 
+    def test_quantile_level_out_of_bound_wraps_as_exposed_error(self) -> None:
+        # HogQL does not check the level, so quantile(1.5)(x) reaches ClickHouse. Without the
+        # message guard this wraps as an InternalCHQueryError, which is a 500 plus a false
+        # backend alert for a query typo.
+        err = ServerException("DB::Exception: Quantile level is out of range [0..1]. (PARAMETER_OUT_OF_BOUND)", code=12)
+
+        wrapped = wrap_clickhouse_query_error(err)
+
+        assert isinstance(wrapped, ExposedCHQueryError)
+        assert str(wrapped) == QUANTILE_LEVEL_MESSAGE
+        assert wrapped.code_name == "quantile_level_out_of_bound"
+        assert classify_query_error(wrapped) == QueryErrorCategory.USER_ERROR
+
+    def test_non_quantile_parameter_out_of_bound_stays_a_platform_error(self) -> None:
+        # ClickHouse also raises code 12 for internal column and query plan bounds faults. Those
+        # return a 500, so a code-wide user_error category would count them as successful requests
+        # in the query SLO.
+        err = ServerException(
+            "DB::Exception: Position out of bound in Block::erase(). (PARAMETER_OUT_OF_BOUND)", code=12
+        )
+
+        wrapped = wrap_clickhouse_query_error(err)
+
+        assert classify_query_error(wrapped) == QueryErrorCategory.ERROR
+
     @parameterized.expand(
         [
             # NETWORK_ERROR (210) is a genuine server-side fault and must not be exposed.
@@ -74,6 +101,9 @@ class TestWrapClickhouseQueryError:
             (675, "CANNOT_PARSE_IPV4"),
             (676, "CANNOT_PARSE_IPV6"),
             (691, "UNKNOWN_ELEMENT_OF_ENUM"),
+            # Only the quantile level shape of PARAMETER_OUT_OF_BOUND (12) is exposed; the other
+            # messages for this code can embed a stored value.
+            (12, "PARAMETER_OUT_OF_BOUND"),
         ]
     )
     def test_codes_stay_internal(self, code: int, name: str) -> None:
