@@ -59,9 +59,16 @@ def _bucketed_activity_inputs(inputs: SymbolSetCleanupInputs, bucket_offset: int
             bucket_worker_index=index,
             bucket_worker_count=parallelism,
             bucket_offset=bucket_offset,
+            buckets_per_run=inputs.buckets_per_run,
         )
         for index in range(parallelism)
     ]
+
+
+def _bucket_offset(inputs: SymbolSetCleanupInputs) -> int:
+    # Each run starts where the last one stopped, so consecutive runs cover the whole bucket range in turn.
+    rotation_index = int(workflow.now().timestamp() / BUCKET_ROTATION_INTERVAL.total_seconds())
+    return (rotation_index * inputs.sweep_size()) % SYMBOL_SET_CLEANUP_BUCKET_COUNT
 
 
 def _combine_results(results: list[SymbolSetCleanupResult]) -> SymbolSetCleanupResult:
@@ -98,11 +105,7 @@ class ErrorTrackingSymbolSetCleanupWorkflow(PostHogWorkflow):
             )
 
         if workflow.patched(BUCKETED_CLEANUP_PATCH_ID):
-            bucket_offset = (
-                int(workflow.now().timestamp() / BUCKET_ROTATION_INTERVAL.total_seconds())
-                % SYMBOL_SET_CLEANUP_BUCKET_COUNT
-            )
-            activity_inputs = _bucketed_activity_inputs(inputs, bucket_offset)
+            activity_inputs = _bucketed_activity_inputs(inputs, _bucket_offset(inputs))
         else:
             activity_inputs = _legacy_activity_inputs(inputs)
 

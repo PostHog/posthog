@@ -15,6 +15,13 @@ class SymbolSetCleanupInputs:
     bucket_worker_index: int = 0
     bucket_worker_count: int = 1
     bucket_offset: int = 0
+    # A run sweeps a rotating slice of the buckets instead of all of them. Every bucket costs an index
+    # descent even when it holds nothing to delete, and the retention cutoff is 30 days, so there is no
+    # value in probing all 256 every 30 minutes.
+    buckets_per_run: int = 32
+
+    def sweep_size(self) -> int:
+        return max(1, min(self.buckets_per_run, SYMBOL_SET_CLEANUP_BUCKET_COUNT))
 
 
 @dataclasses.dataclass(frozen=True)

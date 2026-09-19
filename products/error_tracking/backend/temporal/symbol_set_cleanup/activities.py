@@ -98,10 +98,10 @@ def _cleanup_queryset(
 def _assigned_buckets(inputs: SymbolSetCleanupInputs) -> list[int]:
     worker_count = max(1, min(inputs.bucket_worker_count, SYMBOL_SET_CLEANUP_BUCKET_COUNT))
     worker_index = inputs.bucket_worker_index % worker_count
-    return [
-        (inputs.bucket_offset + bucket) % SYMBOL_SET_CLEANUP_BUCKET_COUNT
-        for bucket in range(worker_index, SYMBOL_SET_CLEANUP_BUCKET_COUNT, worker_count)
+    swept_buckets = [
+        (inputs.bucket_offset + offset) % SYMBOL_SET_CLEANUP_BUCKET_COUNT for offset in range(inputs.sweep_size())
     ]
+    return swept_buckets[worker_index::worker_count]
 
 
 def _delete_symbol_set_batch(symbol_set_ids: list[str]) -> tuple[int, set[str]]:
@@ -206,9 +206,10 @@ def _delete_bucket_branch(
 
 
 def _dry_run_result(inputs: SymbolSetCleanupInputs, cleanup_branches: list[Q]) -> SymbolSetCleanupResult:
+    # A real run only sweeps a slice of the buckets, but the eligible count is only useful for the whole table.
     branch_querysets = [
         _bucket_queryset(query_filter=query_filter, bucket=bucket)
-        for bucket in _assigned_buckets(inputs)
+        for bucket in range(SYMBOL_SET_CLEANUP_BUCKET_COUNT)
         for query_filter in cleanup_branches
     ]
     eligible_count = sum(queryset.count() for queryset in branch_querysets)
