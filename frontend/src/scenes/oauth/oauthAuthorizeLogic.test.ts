@@ -2,6 +2,7 @@ import { MOCK_DEFAULT_USER } from 'lib/api.mock'
 
 import { decodeParams, router } from 'kea-router'
 
+import { DEFAULT_OAUTH_SCOPES } from 'lib/scopes'
 import { userLogic } from 'scenes/userLogic'
 
 import { useMocks } from '~/mocks/jest'
@@ -164,6 +165,10 @@ describe('oauthAuthorizeLogic', () => {
             name: 'falls back to the URL when the server sent no resolution',
             urlScope: 'insight:read',
             expected: ['insight:read'],
+        },
+        {
+            name: 'falls back to the identity scopes when neither the server nor the URL names one',
+            expected: DEFAULT_OAUTH_SCOPES,
         },
     ]
 
