@@ -5,11 +5,11 @@ import { cleanup, render, screen } from '@testing-library/react'
 import { initKeaTests } from '~/test/init'
 
 import { DataQualitySchedule } from './DataQualitySchedule'
-import { dataCatalogMetricsChecksScheduleRetrieve } from './generated/api'
+import { dataQualityChecksScheduleRetrieve } from './generated/api'
 
 jest.mock('./generated/api', () => ({
-    dataCatalogMetricsChecksScheduleRetrieve: jest.fn(),
-    dataCatalogMetricsChecksSchedulePartialUpdate: jest.fn(),
+    dataQualityChecksScheduleRetrieve: jest.fn(),
+    dataQualityChecksSchedulePartialUpdate: jest.fn(),
 }))
 
 describe('DataQualitySchedule', () => {
@@ -26,7 +26,7 @@ describe('DataQualitySchedule', () => {
     })
 
     it('shows an elapsed next run as due now', async () => {
-        ;(dataCatalogMetricsChecksScheduleRetrieve as jest.Mock).mockResolvedValue({
+        ;(dataQualityChecksScheduleRetrieve as jest.Mock).mockResolvedValue({
             id: 'schedule-1',
             enabled: true,
             interval: '1hour',
