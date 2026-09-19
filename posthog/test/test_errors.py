@@ -21,6 +21,7 @@ class TestWrapClickhouseQueryError:
             (59, "ILLEGAL_TYPE_OF_COLUMN_FOR_FILTER"),
             (80, "INCORRECT_QUERY"),
             (122, "INCOMPATIBLE_COLUMNS"),
+            (125, "INCORRECT_RESULT_OF_SCALAR_SUBQUERY"),
             (174, "CYCLIC_ALIASES"),
             (207, "AMBIGUOUS_IDENTIFIER"),
             (211, "EMPTY_QUERY"),
