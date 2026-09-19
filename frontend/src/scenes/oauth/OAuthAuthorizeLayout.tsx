@@ -16,7 +16,7 @@ export function OAuthAuthorizeLayout({ children }: { children: ReactNode }): JSX
     const { oauthApplication, appName } = useValues(oauthAuthorizeLogic)
 
     return (
-        <AuthSceneBackdrop className="flex flex-col h-full max-h-full overflow-hidden py-6 px-4 sm:px-6">
+        <AuthSceneBackdrop className="flex flex-col h-full max-h-full overflow-hidden py-4 px-4 sm:px-6">
             <div className="flex flex-col min-h-0 w-full max-w-2xl mx-auto">
                 {oauthApplication ? (
                     <OAuthConnectionLogos appName={appName} logoUri={oauthApplication.logo_uri ?? null} />
