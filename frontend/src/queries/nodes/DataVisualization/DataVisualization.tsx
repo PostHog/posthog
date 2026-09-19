@@ -125,9 +125,6 @@ export function DataTableVisualization({
         limitContext: context?.limitContext,
     }
 
-    // The `as unknown as InsightLogicProps` below is smelly, but it's required because Kea logics can't be generic
-    const { exportContext } = useValues(insightDataLogic(insightProps as unknown as InsightLogicProps))
-
     const { loadData } = useActions(dataVisualizationLogic(dataVisualizationLogicProps))
 
     const variablesLogicProps: VariablesLogicProps = {
@@ -159,7 +156,7 @@ export function DataTableVisualization({
                                 context={context}
                                 cachedResults={cachedResults}
                                 readOnly={readOnly}
-                                exportContext={exportContext}
+                                insightProps={insightProps}
                                 editMode={editMode}
                                 embedded={embedded}
                                 inSharedMode={inSharedMode}
@@ -172,7 +169,43 @@ export function DataTableVisualization({
     )
 }
 
-function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX.Element {
+// Reads `exportContext` here, not in the host component, so read-only and embedded surfaces leave
+// insightDataLogic unmounted. Its selector throws if it re-runs mid-unmount.
+function SqlExportButton({
+    insightProps,
+    disabledReason,
+}: {
+    insightProps: InsightLogicProps<DataVisualizationNode>
+    disabledReason: string | false
+}): JSX.Element | null {
+    // The `as unknown as InsightLogicProps` below is smelly, but it's required because Kea logics can't be generic
+    const { exportContext } = useValues(insightDataLogic(insightProps as unknown as InsightLogicProps))
+
+    if (!exportContext) {
+        return null
+    }
+
+    return (
+        <ExportButton
+            disabledReason={disabledReason}
+            type="secondary"
+            items={[
+                {
+                    export_format: ExporterFormat.CSV,
+                    export_context: exportContext,
+                },
+                {
+                    export_format: ExporterFormat.XLSX,
+                    export_context: exportContext,
+                },
+            ]}
+        />
+    )
+}
+
+function InternalDataTableVisualization(
+    props: DataTableVisualizationProps & { insightProps: InsightLogicProps<DataVisualizationNode> }
+): JSX.Element {
     const { readOnly } = props
 
     const {
@@ -391,25 +424,13 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
                                         tooltip="Visualization settings"
                                     />
 
-                                    {props.exportContext && (
-                                        <ExportButton
-                                            disabledReason={
-                                                effectiveVisualizationType !== ChartDisplayType.ActionsTable &&
-                                                'Only table results are exportable'
-                                            }
-                                            type="secondary"
-                                            items={[
-                                                {
-                                                    export_format: ExporterFormat.CSV,
-                                                    export_context: props.exportContext,
-                                                },
-                                                {
-                                                    export_format: ExporterFormat.XLSX,
-                                                    export_context: props.exportContext,
-                                                },
-                                            ]}
-                                        />
-                                    )}
+                                    <SqlExportButton
+                                        insightProps={props.insightProps}
+                                        disabledReason={
+                                            effectiveVisualizationType !== ChartDisplayType.ActionsTable &&
+                                            'Only table results are exportable'
+                                        }
+                                    />
                                 </div>
                             </div>
                         </div>
