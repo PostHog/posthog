@@ -48,7 +48,8 @@ def expand_custom_tools(design: dict[str, Any]) -> dict[str, Any]:
     for row in _dicts(body.get("rows")) + _dicts(body.get("headers")) + _dicts(body.get("footers")):
         for column in _dicts(row.get("columns")):
             for content in _dicts(column.get("contents")):
-                option = CUSTOM_TOOL_HTML_OPTIONS.get(content.get("slug"))
+                slug = content.get("slug")
+                option = CUSTOM_TOOL_HTML_OPTIONS.get(slug) if isinstance(slug, str) else None
                 values = content.get("values")
                 if content.get("type") != "custom" or option is None or not isinstance(values, dict):
                     continue
