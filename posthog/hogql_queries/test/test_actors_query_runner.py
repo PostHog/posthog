@@ -43,6 +43,7 @@ from posthog.hogql.visitor import clear_locations
 
 from posthog.clickhouse.client import sync_execute
 from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
+from posthog.models.filters.utils import GroupTypeIndex
 from posthog.models.group.util import create_group
 from posthog.models.utils import UUIDT
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
@@ -727,6 +728,52 @@ class TestActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         group = response.results[1][0]
         assert group["id"] == "org2"
         assert set(group.keys()) == {"id", "group_type_index"}
+
+    def test_group_actors_query_with_key_reused_by_another_group_type(self):
+        group_types: list[tuple[GroupTypeIndex, str]] = [(0, "organization"), (1, "company")]
+        for group_type_index, group_type in group_types:
+            create_group_type_mapping_without_created_at(
+                team=self.team,
+                project_id=self.team.project_id,
+                group_type=group_type,
+                group_type_index=group_type_index,
+            )
+            create_group(
+                team_id=self.team.pk,
+                group_type_index=group_type_index,
+                group_key="org1",
+                properties={"name": "org1.inc"},
+            )
+
+        _create_person(team=self.team, distinct_ids=["user1"], properties={})
+        _create_event(
+            team=self.team,
+            event="pageview",
+            distinct_id="user1",
+            properties={"$group_0": "org1"},
+            timestamp="2023-01-01T12:00:00Z",
+        )
+
+        flush_persons_and_events()
+
+        runner = self._create_runner(
+            ActorsQuery(
+                # `properties` only exists on the groups table, so this joins the source query with it
+                select=["group", "event_count", "properties.name"],
+                source=InsightActorsQuery(
+                    source=TrendsQuery(
+                        dateRange=DateRange(date_from="2023-01-01", date_to="2023-01-01"),
+                        interval=IntervalType.DAY,
+                        series=[EventsNode(event="pageview", math="unique_group", math_group_type_index=0)],
+                    ),
+                    series=0,
+                    day="2023-01-01T12:00:00Z",
+                ),
+            )
+        )
+        response = runner.calculate()
+
+        assert [(row[0]["id"], row[1]) for row in response.results] == [("org1", 1)]
 
     @patch("posthog.hogql_queries.paginators.execute_hogql_query", wraps=execute_hogql_query)
     def test_funnel_source_with_poe_mode(self, spy_execute_hogql_query):

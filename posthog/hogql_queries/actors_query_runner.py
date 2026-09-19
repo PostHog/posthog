@@ -549,6 +549,10 @@ class ActorsQueryRunner(AnalyticsQueryRunner[ActorsQueryResponse]):
                         ]
                     )
 
+                origin_join_conditions = self.strategy.origin_join_conditions()
+                if origin_join_conditions:
+                    join_on = ast.And(exprs=[join_on, *origin_join_conditions])
+
                 # remove id, which now comes from the origin
                 for source in (
                     [source_query] if isinstance(source_query, ast.SelectQuery) else source_query.select_queries()

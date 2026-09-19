@@ -106,10 +106,25 @@ def select_from_groups_revenue_analytics_table(context: HogQLContext) -> ast.Sel
 
     if not queries:
         return ast.SelectQuery.empty(columns=FIELDS)
-    elif len(queries) == 1:
-        return queries[0]
-    else:
-        return ast.SelectSetQuery.create_from_queries(queries, set_operator="UNION ALL")
+
+    inner_query: ast.SelectQuery | ast.SelectSetQuery = (
+        queries[0] if len(queries) == 1 else ast.SelectSetQuery.create_from_queries(queries, set_operator="UNION ALL")
+    )
+
+    # A group can earn revenue in more than one source, and each source is its own row above.
+    # Aggregating by `group_key` keeps this table at one row per group, so the `groups` join can't
+    # fan out the groups table and each group reports the revenue of all its sources together.
+    # Mirrors what `persons_revenue_analytics` does per person.
+    return ast.SelectQuery(
+        select=[
+            ast.Alias(alias="team_id", expr=ast.Constant(value=context.team_id)),
+            ast.Alias(alias="group_key", expr=ast.Field(chain=["group_key"])),
+            ast.Alias(alias="revenue", expr=ast.Call(name="sum", args=[ast.Field(chain=["revenue"])])),
+            ast.Alias(alias="mrr", expr=ast.Call(name="sum", args=[ast.Field(chain=["mrr"])])),
+        ],
+        select_from=ast.JoinExpr(table=inner_query),
+        group_by=[ast.Field(chain=["group_key"])],
+    )
 
 
 def _build_events_query(

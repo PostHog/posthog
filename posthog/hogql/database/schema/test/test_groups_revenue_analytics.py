@@ -401,6 +401,68 @@ class TestGroupsRevenueAnalytics(TestGroupsRevenueAnalyticsMixin):
                 [(self.group0_id, Decimal("350.42"), Decimal("257.23"))],
             )
 
+    def test_revenue_aggregated_per_group_across_event_and_warehouse_sources(self):
+        self.create_sources()
+        self.team.base_currency = CurrencyCode.GBP.value
+        self.team.save()
+
+        # The join maps a warehouse customer id onto a group key. No group type mappings here: a
+        # mapping created now empties the group key of every older event, which would silence the
+        # event source and hide the very overlap this test is about.
+        DataWarehouseJoin.objects.create(
+            team=self.team,
+            source_table_name=f"stripe.posthog_test.{SCHEMA.source_suffix}",
+            source_table_key="id",
+            joining_table_name="groups",
+            joining_table_key="key",
+            field_name="groups",
+        )
+
+        self.setup_events_with_subscriptions()
+        self.team.revenue_analytics_config.events = [
+            RevenueAnalyticsEventItem(
+                eventName=self.PURCHASE_EVENT_NAME,
+                revenueProperty=self.REVENUE_PROPERTY,
+                revenueCurrencyProperty=RevenueCurrencyPropertyConfig(static="USD"),
+                currencyAwareDecimal=True,
+                subscriptionProperty=self.SUBSCRIPTION_PROPERTY,
+                subscriptionDropoffMode=SubscriptionDropoffMode.AFTER_DROPOFF_PERIOD,
+            )
+        ]
+        self.team.revenue_analytics_config.save()
+        self.team.save()
+
+        # `cus_1` earns revenue in both sources, so each leg of the UNION ALL holds a row for it
+        create_group(team_id=self.team.pk, group_type_index=0, group_key="cus_1")
+        _create_event(
+            event=self.PURCHASE_EVENT_NAME,
+            team=self.team,
+            distinct_id=self.DISTINCT_ID,
+            timestamp=self.EVENT_TIMESTAMP,
+            properties={
+                self.REVENUE_PROPERTY: 20000,
+                "$group_0": "cus_1",
+                self.SUBSCRIPTION_PROPERTY: "sub_cus_1",
+            },
+        )
+
+        with freeze_time(self.QUERY_TIMESTAMP):
+            response = execute_hogql_query(
+                parse_select(
+                    "SELECT key, $virt_revenue, $virt_mrr FROM groups WHERE key = {key}",
+                    placeholders={"key": ast.Constant(value="cus_1")},
+                ),
+                self.team,
+                user=self.user,
+                modifiers=self.MODIFIERS,
+            )
+
+            # Event source 159.4 + warehouse source 283.8496260553, and the same for MRR
+            self.assertEqual(
+                response.results,
+                [("cus_1", Decimal("443.2496260553"), Decimal("387.3754547238"))],
+            )
+
     def test_query_revenue_analytics_table_sources(self):
         self.setup_schema_sources()
         self.join.source_table_key = "id"
