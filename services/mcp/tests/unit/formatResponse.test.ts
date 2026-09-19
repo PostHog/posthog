@@ -90,6 +90,32 @@ describe('formatResponse', () => {
         expect(result).not.toMatch(/"1":\s*"\\"/)
     })
 
+    it('inserts query JSON literally when the query holds a `$` replacement pattern', () => {
+        // `$'` in a replacement string means "every character after the match". A HogQL
+        // string that ends with an anchored regular expression puts `$` before a quote.
+        const query = {
+            kind: 'HogQLQuery',
+            query: "SELECT count() FROM events WHERE match(properties.$pathname, '^/pricing$')",
+        }
+        const data = { tiles: Array.from({ length: 8 }, (_, index) => ({ insight: { id: index, query } })) }
+
+        const result = formatResponse(data)
+
+        expect(result).toContain(JSON.stringify(query, null, 2))
+        expect(result).not.toContain('__QUERY_PLACEHOLDER_')
+        // Eight copies of one small query stay small. Each extra tile used to multiply
+        // the response, which made a 100 KB dashboard into a 389 MB tool result.
+        expect(result.length).toBeLessThan(10_000)
+    })
+
+    it('inserts every `$` replacement pattern without expanding it', () => {
+        const query = { kind: 'HogQLQuery', query: "SELECT '$&', '$`', \"$'\", '$$', '$1'" }
+
+        const result = formatResponse({ id: 1, query })
+
+        expect(result).toContain(JSON.stringify(query, null, 2))
+    })
+
     it('does NOT truncate even for very large responses (MCP must return full data)', () => {
         // IMPORTANT: truncation was removed because the MCP must never silently
         // drop data — downstream clients are responsible for any size handling.
