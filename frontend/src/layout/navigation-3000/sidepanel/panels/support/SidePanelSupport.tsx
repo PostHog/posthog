@@ -254,14 +254,16 @@ export function SidePanelSupport(): JSX.Element {
     useValues(userLogic)
     const { openSidePanel, closeSidePanel } = useActions(sidePanelStateLogic)
     const { billing, billingLoading, billingPlan } = useValues(billingLogic)
-    const { tickets, canCreateTicket, view, currentTicket } = useValues(sidepanelTicketsLogic)
+    const { tickets, canCreateTicket, ticketsLoadFailed, view, currentTicket } = useValues(sidepanelTicketsLogic)
 
     const isCloudOrDev = preflight?.cloud || process.env.NODE_ENV === 'development'
     const showMaxAI = isCloudOrDev
     const isBillingLoaded = !billingLoading && billing !== undefined
     // Free plans can't open new tickets, but tickets they already have (billing questions, PostHog AI
-    // bug reports) stay readable and repliable here
-    const showTickets = isCloudOrDev && (canCreateTicket || tickets.length > 0)
+    // bug reports) stay readable and repliable here. A failed load leaves the list empty, which says
+    // nothing about whether they have tickets, so keep the list mounted to show the failure and the
+    // retry instead of telling them they only get the community.
+    const showTickets = isCloudOrDev && (canCreateTicket || tickets.length > 0 || ticketsLoadFailed)
 
     return (
         <div className="SidePanelSupport contents">
