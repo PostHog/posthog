@@ -34,6 +34,48 @@ def test_graphql_access_denied_is_non_retryable(error_message):
 @pytest.mark.parametrize(
     "error_message",
     [
+        "Shopify GraphQL error: This app is not approved to access the Customer object. "
+        "See https://shopify.dev/docs/apps/launch/protected-customer-data for more details.",
+        "Shopify GraphQL error: This app is not approved to access the Order object.",
+        "Shopify GraphQL error: This app is not approved to use the phoneNumber field. "
+        "See https://shopify.dev/docs/apps/launch/protected-customer-data for more details.",
+    ],
+)
+def test_protected_customer_data_refusal_is_non_retryable(error_message):
+    # Shopify gates customer PII behind app approval, above access scopes, so every retry
+    # re-reads the same refusal and the user must ask Shopify for approval instead.
+    matched = [
+        message for pattern, message in ShopifySource().get_non_retryable_errors().items() if pattern in error_message
+    ]
+
+    assert matched, f"protected customer data refusal '{error_message}' should match a non-retryable pattern"
+    assert all("protected customer data" in (message or "") for message in matched), (
+        "the refusal should be explained as a protected customer data approval gap"
+    )
+
+
+def test_a_joined_error_prefers_the_protected_customer_data_fix():
+    # Shopify can deny one field on scope and another on protected customer data in the same
+    # response, and the source joins them into one message. The failure shows the first entry
+    # that matches, so the scope entry must not come first: granting that scope leaves the sync
+    # failing on the field Shopify never approved.
+    joined = (
+        "Shopify GraphQL error: Access denied for paymentTerms field. "
+        "Required access: `read_payment_terms` access scope.; "
+        "This app is not approved to use the phoneNumber field."
+    )
+    first_match = next(
+        message for pattern, message in ShopifySource().get_non_retryable_errors().items() if pattern in joined
+    )
+
+    assert "protected customer data" in (first_match or ""), (
+        "a joined scope + protected-data error should surface the approval fix, not the scope fix"
+    )
+
+
+@pytest.mark.parametrize(
+    "error_message",
+    [
         "Shopify GraphQL error: Throttled",
         "Shopify: internal error from request 500 Internal Server Error",
         "Unexpected graphql response format in Shopify rows read. Keys: ['extensions']",
