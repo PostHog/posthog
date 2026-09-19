@@ -1,6 +1,5 @@
 import os
 import uuid
-import asyncio
 from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
 from typing import cast
@@ -14,7 +13,7 @@ from temporalio.common import RetryPolicy
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
-from products.tasks.backend.logic.services.sandbox import Sandbox, SandboxStatus
+from products.tasks.backend.logic.services.sandbox import Sandbox
 from products.tasks.backend.models import SandboxSnapshot
 from products.tasks.backend.temporal.create_snapshot.activities import (
     cleanup_sandbox,
@@ -171,7 +170,7 @@ class TestCreateSnapshotForRepositoryWorkflow:
         assert result.error is not None
         assert result.snapshot_id is None
 
-    async def test_workflow_cleans_up_sandbox_on_success(self, github_integration, test_team):
+    async def test_workflow_cleans_up_sandbox_on_success(self, github_integration, test_team, assert_sandbox_shutdown):
         created_snapshots: list[SandboxSnapshot] = []
 
         try:
@@ -188,15 +187,13 @@ class TestCreateSnapshotForRepositoryWorkflow:
                 snapshot = await sync_to_async(SandboxSnapshot.objects.get)(id=result.snapshot_id)
                 created_snapshots.append(snapshot)
 
-            await asyncio.sleep(10)
-            sandbox = Sandbox.get_by_id(result.sandbox_id)
-            assert sandbox.get_status() == SandboxStatus.SHUTDOWN
+            await sync_to_async(assert_sandbox_shutdown)(result.sandbox_id)
 
         finally:
             for snapshot in created_snapshots:
                 await self._cleanup_snapshot(snapshot)
 
-    async def test_workflow_cleans_up_sandbox_on_failure(self, github_integration, test_team):
+    async def test_workflow_cleans_up_sandbox_on_failure(self, github_integration, test_team, assert_sandbox_shutdown):
         result = await self._run_workflow(
             github_integration_id=github_integration.id,
             repository="posthog/nonexistent-repo-12345",
@@ -206,9 +203,7 @@ class TestCreateSnapshotForRepositoryWorkflow:
         assert result.success is False
         assert result.sandbox_id is not None
 
-        await asyncio.sleep(10)
-        sandbox = Sandbox.get_by_id(result.sandbox_id)
-        assert sandbox.get_status() == SandboxStatus.SHUTDOWN
+        await sync_to_async(assert_sandbox_shutdown)(result.sandbox_id)
 
     async def test_multiple_runs_create_separate_snapshots(self, github_integration, test_team):
         created_snapshots: list[SandboxSnapshot] = []
