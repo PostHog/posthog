@@ -17,7 +17,8 @@ Three comment shapes are accepted, because all three already run against our clu
 | ingestion prefix | `/* nodejs:PERSONS_WRITE:Tx<insertPerson:ingestion/merge> */` | `nodejs/src/common/utils/db/postgres.ts` |
 
 pgcollector tags the statements it runs against a monitored cluster the same way, with
-`service='pgcollector'` and the collector name as `operation` (`tags::tagged`).
+`service='pgcollector'` and the collector name as `operation`: the `tags::tagged` helper
+turns collector `my_stats` into `/* service='pgcollector', operation='my_stats' */`.
 So a catalog read that shows up on a monitored cluster names the collector that ran it,
 rather than only being attributable through `application_name`.
 
